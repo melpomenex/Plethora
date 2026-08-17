@@ -29,20 +29,20 @@ pub fn substack_search(query: String, cursor: Option<String>) -> Result<Value> {
     }
 
     let resp = substack_client().get(&url).send().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Substack search request failed: {e}"
         ))
     })?;
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(crate::error::IncrementumError::IntegrationError(format!(
+        return Err(crate::error::PlethoraError::IntegrationError(format!(
             "Substack search returned {status}"
         )));
     }
 
     let json: Value = resp.json().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Failed to parse Substack search response: {e}"
         ))
     })?;
@@ -56,20 +56,20 @@ pub fn substack_categories() -> Result<Value> {
     let url = "https://substack.com/api/v1/categories";
 
     let resp = substack_client().get(url).send().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Substack categories request failed: {e}"
         ))
     })?;
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(crate::error::IncrementumError::IntegrationError(format!(
+        return Err(crate::error::PlethoraError::IntegrationError(format!(
             "Substack categories returned {status}"
         )));
     }
 
     let json: Value = resp.json().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Failed to parse Substack categories response: {e}"
         ))
     })?;
@@ -83,20 +83,20 @@ pub fn substack_pub_homepage(subdomain: String) -> Result<Value> {
     let url = format!("https://{subdomain}.substack.com/api/v1/homepage_data");
 
     let resp = substack_client().get(&url).send().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Substack pub homepage request failed: {e}"
         ))
     })?;
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(crate::error::IncrementumError::IntegrationError(format!(
+        return Err(crate::error::PlethoraError::IntegrationError(format!(
             "Substack pub homepage returned {status}"
         )));
     }
 
     let json: Value = resp.json().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Failed to parse Substack pub homepage response: {e}"
         ))
     })?;
@@ -121,20 +121,20 @@ pub fn substack_category_feed(
     }
 
     let resp = substack_client().get(&url).send().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Substack category feed request failed: {e}"
         ))
     })?;
 
     let status = resp.status();
     if !status.is_success() {
-        return Err(crate::error::IncrementumError::IntegrationError(format!(
+        return Err(crate::error::PlethoraError::IntegrationError(format!(
             "Substack category feed returned {status}"
         )));
     }
 
     let json: Value = resp.json().map_err(|e| {
-        crate::error::IncrementumError::IntegrationError(format!(
+        crate::error::PlethoraError::IntegrationError(format!(
             "Failed to parse Substack category feed response: {e}"
         ))
     })?;

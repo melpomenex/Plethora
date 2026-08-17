@@ -49,7 +49,7 @@ impl OCRProcessor {
         // 1. Extract the specific page as an image
         // 2. Run OCR on that image
 
-        Err(crate::error::IncrementumError::Internal(
+        Err(crate::error::PlethoraError::Internal(
             "PDF page OCR not yet implemented".to_string(),
         ))
     }

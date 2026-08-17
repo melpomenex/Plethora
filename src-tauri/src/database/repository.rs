@@ -4,7 +4,7 @@ use crate::database::{
     find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx,
     DocumentChunkEmbedding, ElementKind, QueueItemEmbedding, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC,
 };
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::models::{
     Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
@@ -269,7 +269,7 @@ impl Repository {
         let existing = self
             .get_collection(id)
             .await?
-            .ok_or_else(|| IncrementumError::NotFound(format!("Collection {} not found", id)))?;
+            .ok_or_else(|| PlethoraError::NotFound(format!("Collection {} not found", id)))?;
 
         let new_name = name.unwrap_or(&existing.name);
         let new_icon = icon.or(existing.icon.as_deref());
@@ -286,17 +286,17 @@ impl Repository {
 
         self.get_collection(id)
             .await?
-            .ok_or_else(|| IncrementumError::NotFound("Collection disappeared".into()))
+            .ok_or_else(|| PlethoraError::NotFound("Collection disappeared".into()))
     }
 
     pub async fn delete_collection(&self, id: &str) -> Result<()> {
         let collection = self
             .get_collection(id)
             .await?
-            .ok_or_else(|| IncrementumError::NotFound(format!("Collection {} not found", id)))?;
+            .ok_or_else(|| PlethoraError::NotFound(format!("Collection {} not found", id)))?;
 
         if collection.id == DEFAULT_COLLECTION_ID {
-            return Err(IncrementumError::Validation(
+            return Err(PlethoraError::Validation(
                 "Cannot delete the default collection".into(),
             ));
         }
@@ -1273,7 +1273,7 @@ impl Repository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     /// Reassign a document to a collection.
@@ -1477,7 +1477,7 @@ impl Repository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_dismiss(&self, id: &str, is_dismissed: bool) -> Result<Document> {
@@ -1499,7 +1499,7 @@ impl Repository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_progress(
@@ -1534,7 +1534,7 @@ impl Repository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_scheduling(
@@ -2818,7 +2818,7 @@ impl Repository {
         .await?;
 
         self.get_learning_item_by_id(id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Learning item {}", id))
+            crate::error::PlethoraError::NotFound(format!("Learning item {}", id))
         })
     }
 
@@ -3489,7 +3489,7 @@ impl Repository {
             if existing_item_id == item.id {
                 return Ok(false);
             }
-            return Err(IncrementumError::ArenaAlreadyCommitted(
+            return Err(PlethoraError::ArenaAlreadyCommitted(
                 "commit_id belongs to another learning item".to_string(),
             ));
         }
@@ -3543,12 +3543,12 @@ impl Repository {
             .bind(&item.id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item.id)))?;
+            .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item.id)))?;
         let current_item = Self::row_to_learning_item(&current_item_row)?;
         let current_item_revision = crate::commands::review::sm20_item_revision(&current_item)?;
         if current_item_revision != expected_item_revision {
             tx.rollback().await?;
-            return Err(IncrementumError::ArenaPreviewStale(
+            return Err(PlethoraError::ArenaPreviewStale(
                 "the card changed before the Arena decision was committed".to_string(),
             ));
         }
@@ -3558,7 +3558,7 @@ impl Repository {
             crate::commands::review::sm20_arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
             tx.rollback().await?;
-            return Err(IncrementumError::ArenaPreviewStale(
+            return Err(PlethoraError::ArenaPreviewStale(
                 "the Algorithm Arena changed before the decision was committed".to_string(),
             ));
         }
@@ -4336,7 +4336,7 @@ impl Repository {
     fn bytes_to_sm20_interval_matrix(bytes: &[u8]) -> Result<[f64; 9261]> {
         const EXPECTED: usize = 9261 * 8;
         if bytes.len() != EXPECTED {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "sm20 interval_matrix blob is {} bytes, expected {EXPECTED}",
                 bytes.len()
             )));
@@ -4363,7 +4363,7 @@ impl Repository {
     fn bytes_to_sm20_count_matrix(bytes: &[u8]) -> Result<[u32; 9261]> {
         const EXPECTED: usize = 9261 * 4;
         if bytes.len() != EXPECTED {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "sm20 count_matrix blob is {} bytes, expected {EXPECTED}",
                 bytes.len()
             )));
@@ -4906,7 +4906,7 @@ impl Repository {
             self.get_rss_user_preferences_by_id(&id)
                 .await?
                 .ok_or_else(|| {
-                    IncrementumError::Internal(
+                    PlethoraError::Internal(
                         "failed to read back rss_user_preferences after update".into(),
                     )
                 })?
@@ -4951,7 +4951,7 @@ impl Repository {
             self.get_rss_user_preferences_by_id(&id)
                 .await?
                 .ok_or_else(|| {
-                    IncrementumError::Internal(
+                    PlethoraError::Internal(
                         "failed to read back rss_user_preferences after insert".into(),
                     )
                 })?
@@ -6029,7 +6029,7 @@ impl Repository {
         .bind(day_end)
         .fetch_all(&self.pool)
         .await
-        .map_err(IncrementumError::Database)?;
+        .map_err(PlethoraError::Database)?;
 
         let doc_rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT DATE(next_reading_date) as day, COUNT(*) as count FROM documents WHERE next_reading_date >= ?1 AND next_reading_date <= ?2 AND is_archived = false GROUP BY DATE(next_reading_date)"
@@ -6038,7 +6038,7 @@ impl Repository {
         .bind(day_end)
         .fetch_all(&self.pool)
         .await
-        .map_err(IncrementumError::Database)?;
+        .map_err(PlethoraError::Database)?;
 
         Ok((learning_rows, doc_rows))
     }
@@ -6191,7 +6191,7 @@ impl Repository {
         if let Some((_, segments_json)) = self.get_video_transcript(&extract.document_id).await? {
             let segments: Vec<crate::youtube::TranscriptSegment> =
                 serde_json::from_str(&segments_json).map_err(|e| {
-                    crate::error::IncrementumError::Internal(format!(
+                    crate::error::PlethoraError::Internal(format!(
                         "Failed to parse transcript segments: {}",
                         e
                     ))
@@ -6850,7 +6850,7 @@ impl Repository {
         }
 
         let mut tx = self.pool().begin().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to begin transaction: {}", e))
+            PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
         })?;
 
         for episode in episodes {
@@ -6884,7 +6884,7 @@ impl Repository {
         }
 
         tx.commit().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to commit bulk insert: {}", e))
+            PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e))
         })?;
 
         Ok(())
@@ -7337,7 +7337,7 @@ impl Repository {
         .bind(tag_id)
         .fetch_optional(self.pool())
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Tag not found: {tag_id}")))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Tag not found: {tag_id}")))?;
 
         let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
         let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
@@ -7374,7 +7374,7 @@ impl Repository {
         prerequisite_ids: &[String],
     ) -> Result<crate::models::Tag> {
         let prereqs_json = serde_json::to_string(prerequisite_ids).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+            PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
         })?;
         let now = Utc::now().to_rfc3339();
 
@@ -7407,7 +7407,7 @@ impl Repository {
         {
             // Update existing
             let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
-                IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+                PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
             })?;
             sqlx::query(
                 "UPDATE tags SET prerequisites = ?, maturity_threshold = ?, date_modified = ? WHERE id = ?"
@@ -7423,7 +7423,7 @@ impl Repository {
             // Create new
             let id = uuid::Uuid::new_v4().to_string();
             let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
-                IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+                PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
             })?;
             sqlx::query(
                 "INSERT INTO tags (id, name, prerequisites, maturity_threshold, item_count, mature_count, date_created, date_modified)
@@ -7449,7 +7449,7 @@ impl Repository {
             .rows_affected();
 
         if rows == 0 {
-            return Err(IncrementumError::NotFound(format!(
+            return Err(PlethoraError::NotFound(format!(
                 "Tag not found: {tag_id}"
             )));
         }
@@ -7465,7 +7465,7 @@ impl Repository {
             if tag.prerequisites.contains(&tag_id.to_string()) {
                 tag.prerequisites.retain(|p| p != tag_id);
                 let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
-                    IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+                    PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
                 })?;
                 sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
                     .bind(&prereqs_json)
@@ -8001,7 +8001,7 @@ mod tests {
                 0,
             )
             .await;
-        assert!(matches!(stale, Err(IncrementumError::ArenaPreviewStale(_))));
+        assert!(matches!(stale, Err(PlethoraError::ArenaPreviewStale(_))));
         let rolled_back_result_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM review_results WHERE arena_commit_id = 'atomic-arena-commit'",
         )

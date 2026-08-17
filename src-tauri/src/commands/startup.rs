@@ -120,7 +120,7 @@ pub async fn get_startup_snapshot(
 
     let ((documents, document_total), progress, due_count, (queue, queue_total)) =
         tokio::try_join!(document_query, progress_query, due_count_query, queue_query)
-            .map_err(|error: crate::error::IncrementumError| error.to_string())?;
+            .map_err(|error: crate::error::PlethoraError| error.to_string())?;
 
     let progress = progress
         .into_iter()

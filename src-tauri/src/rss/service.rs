@@ -7,7 +7,7 @@
 //! - Batch operations
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::rss::models::*;
 use crate::rss::repository as repo;
 use chrono::Utc;
@@ -439,7 +439,7 @@ pub async fn migrate_folders_from_localstorage(
     folders_json: &str,
 ) -> Result<i32> {
     let folders: Vec<serde_json::Value> = serde_json::from_str(folders_json)
-        .map_err(|e| IncrementumError::Internal(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid JSON: {}", e)))?;
 
     let mut migrated = 0i32;
     for (idx, folder) in folders.iter().enumerate() {

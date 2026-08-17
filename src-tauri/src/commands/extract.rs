@@ -100,7 +100,7 @@ pub async fn update_extract(
     let mut extract = repo
         .get_extract(&id)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", id)))?;
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Extract {}", id)))?;
 
     if let Some(content) = content {
         extract.content = content;

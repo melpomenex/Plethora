@@ -12,7 +12,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::database::{migrations::MIGRATIONS, Repository};
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, Extract, FileType, ItemState, ItemType, LearningItem, MemoryState};
 
 #[derive(Debug, Serialize)]
@@ -32,7 +32,7 @@ pub async fn import_legacy_archive(
 ) -> Result<LegacyImportSummary> {
     let archive_path = PathBuf::from(archive_path);
     if !archive_path.exists() {
-        return Err(IncrementumError::NotFound(
+        return Err(PlethoraError::NotFound(
             "Archive file not found".to_string(),
         ));
     }
@@ -44,7 +44,7 @@ pub async fn import_legacy_archive(
         .unwrap_or_default();
 
     if ext != "zip" && ext != "7z" {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Unsupported archive type. Use .zip or .7z".to_string(),
         ));
     }
@@ -59,13 +59,13 @@ pub async fn import_legacy_archive(
         let import_root = import_root.clone();
         tokio::task::spawn_blocking(move || extract_zip(&archive_path, &import_root))
             .await
-            .map_err(|e| IncrementumError::Internal(format!("ZIP extraction failed: {}", e)))??;
+            .map_err(|e| PlethoraError::Internal(format!("ZIP extraction failed: {}", e)))??;
     } else {
         let archive_path = archive_path.clone();
         let import_root = import_root.clone();
         tokio::task::spawn_blocking(move || extract_7z(&archive_path, &import_root))
             .await
-            .map_err(|e| IncrementumError::Internal(format!("7z extraction failed: {}", e)))??;
+            .map_err(|e| PlethoraError::Internal(format!("7z extraction failed: {}", e)))??;
     }
 
     let legacy_db_path = find_legacy_db(&import_root)?;
@@ -83,12 +83,12 @@ pub async fn import_legacy_archive(
 fn extract_zip(archive_path: &Path, dest: &Path) -> Result<()> {
     let file = fs::File::open(archive_path)?;
     let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| IncrementumError::InvalidInput(format!("Invalid ZIP archive: {}", e)))?;
+        .map_err(|e| PlethoraError::InvalidInput(format!("Invalid ZIP archive: {}", e)))?;
 
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
-            .map_err(|e| IncrementumError::InvalidInput(format!("Invalid ZIP entry: {}", e)))?;
+            .map_err(|e| PlethoraError::InvalidInput(format!("Invalid ZIP entry: {}", e)))?;
         let entry_path = match entry.enclosed_name() {
             Some(path) => dest.join(path),
             None => continue,
@@ -131,10 +131,10 @@ fn extract_7z(archive_path: &Path, dest: &Path) -> Result<()> {
 
     match status {
         Ok(status) if status.success() => Ok(()),
-        Ok(_) => Err(IncrementumError::Internal(
+        Ok(_) => Err(PlethoraError::Internal(
             "7z extraction failed. Ensure 7z is installed and the archive is valid.".to_string(),
         )),
-        Err(_) => Err(IncrementumError::Internal(
+        Err(_) => Err(PlethoraError::Internal(
             "7z executable not found. Install 7z to import .7z archives.".to_string(),
         )),
     }
@@ -150,7 +150,7 @@ fn find_legacy_db(root: &Path) -> Result<PathBuf> {
         }
     }
 
-    Err(IncrementumError::NotFound(
+    Err(PlethoraError::NotFound(
         "Could not locate incrementum.db in archive".to_string(),
     ))
 }
@@ -162,7 +162,7 @@ async fn open_legacy_db(path: &Path) -> Result<SqlitePool> {
 
     let pool = SqlitePool::connect_with(options)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to open legacy DB: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to open legacy DB: {}", e)))?;
 
     Ok(pool)
 }
@@ -203,7 +203,7 @@ async fn run_legacy_migrations(pool: &SqlitePool) -> Result<()> {
                 if is_ignorable_migration_error(&err) {
                     continue;
                 }
-                return Err(IncrementumError::Internal(format!(
+                return Err(PlethoraError::Internal(format!(
                     "Migration {} failed: {}",
                     migration.name, err
                 )));
@@ -266,7 +266,7 @@ async fn merge_legacy_database(
         .fetch_all(legacy_pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read legacy documents: {}", e))
+            PlethoraError::Internal(format!("Failed to read legacy documents: {}", e))
         })?;
 
     for row in legacy_docs {
@@ -303,7 +303,7 @@ async fn merge_legacy_database(
         .fetch_all(legacy_pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read legacy extracts: {}", e))
+            PlethoraError::Internal(format!("Failed to read legacy extracts: {}", e))
         })?;
 
     for row in legacy_extracts {
@@ -333,7 +333,7 @@ async fn merge_legacy_database(
         .fetch_all(legacy_pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read legacy learning items: {}", e))
+            PlethoraError::Internal(format!("Failed to read legacy learning items: {}", e))
         })?;
 
     for row in legacy_learning_items {
@@ -370,7 +370,7 @@ async fn merge_legacy_database(
         .fetch_all(legacy_pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read legacy review sessions: {}", e))
+            PlethoraError::Internal(format!("Failed to read legacy review sessions: {}", e))
         })?;
 
     let mut session_id_map: HashMap<String, String> = HashMap::new();
@@ -406,7 +406,7 @@ async fn merge_legacy_database(
         .fetch_all(legacy_pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read legacy review results: {}", e))
+            PlethoraError::Internal(format!("Failed to read legacy review results: {}", e))
         })?;
 
     for row in legacy_results {
@@ -472,7 +472,7 @@ async fn load_id_set(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> 
         "review_results",
     ];
     if !ALLOWED_TABLES.contains(&table) {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Invalid table name: {}",
             table
         )));
@@ -481,7 +481,7 @@ async fn load_id_set(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> 
     let rows = sqlx::query(&query)
         .fetch_all(pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to query {} ids: {}", table, e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to query {} ids: {}", table, e)))?;
 
     Ok(rows
         .into_iter()

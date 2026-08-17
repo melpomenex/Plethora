@@ -2,7 +2,7 @@
 
 use crate::commands::review::RepositoryExt;
 use crate::database::{find_node_id_in_tx, unlink_node_in_tx, ElementKind, Repository};
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::generator::LearningItemGenerator;
 use crate::models::{ItemState, ItemType, LearningItem};
 use sqlx::Row;
@@ -243,7 +243,7 @@ pub async fn create_learning_item(
     if !allow_duplicate.unwrap_or(false) {
         let candidates = find_duplicate_candidates(&question, 3, &repo).await?;
         if !candidates.is_empty() && candidates[0].similarity >= 0.85 {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Potential duplicate detected ({}: {:.0}% similarity). Set allow_duplicate=true to save anyway.",
                 candidates[0].id,
                 candidates[0].similarity * 100.0
@@ -376,7 +376,7 @@ pub async fn generate_learning_items_from_extract(
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
     let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
     })?;
 
     // Generate learning items
@@ -416,7 +416,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
     let item = repo
         .get_learning_item(&item_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
     let mut transaction = repo.pool().begin().await?;
 
@@ -436,7 +436,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         .execute(&mut *transaction)
         .await?;
     if deleted.rows_affected() == 0 {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Learning item {}",
             item_id
         )));
@@ -510,7 +510,7 @@ pub async fn update_learning_item_content_with_version(
     let item = repo
         .get_learning_item(&item_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
     let version_id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().to_rfc3339();
@@ -541,7 +541,7 @@ pub async fn update_learning_item_content_with_version(
         cloze_text.as_deref(),
     )
     .await?
-    .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))
+    .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
 }
 
 #[tauri::command]
@@ -553,7 +553,7 @@ pub async fn update_learning_item_tags(
     let mut item = repo
         .get_learning_item(&item_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
     item.tags = tags;
     item.date_modified = chrono::Utc::now();
@@ -596,16 +596,16 @@ pub async fn revert_learning_item_version(
         .await?;
 
     let value: String = row
-        .ok_or_else(|| IncrementumError::NotFound(format!("Version {}", version_id)))?
+        .ok_or_else(|| PlethoraError::NotFound(format!("Version {}", version_id)))?
         .try_get("value")
         .unwrap_or_default();
     let version: CardVersionEntry = serde_json::from_str(&value)
-        .map_err(|e| IncrementumError::Internal(format!("Invalid version payload: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid version payload: {}", e)))?;
 
     let mut item = repo
         .get_learning_item(&item_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
     item.question = version.question;
     item.answer = version.answer;
     item.date_modified = chrono::Utc::now();
@@ -636,7 +636,7 @@ pub async fn export_mnemosyne(
             .to_string()
     });
     std::fs::write(&target, content)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to write export: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to write export: {}", e)))?;
     Ok(target)
 }
 

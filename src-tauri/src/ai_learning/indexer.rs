@@ -30,7 +30,7 @@ use crate::ai_learning::models::{
     SOURCE_TYPE_ANNOTATION, SOURCE_TYPE_CARD, SOURCE_TYPE_DOCUMENT, SOURCE_TYPE_EXTRACT,
 };
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use sqlx::Row;
 use std::collections::{HashSet, VecDeque};
@@ -97,43 +97,43 @@ impl IndexerQueue {
     pub fn enqueue_document(&self, document_id: impl Into<String>) -> Result<()> {
         self.sender
             .send(IndexerCommand::EnqueueDocument(document_id.into()))
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn enqueue_all(&self, require_charging: bool) -> Result<()> {
         self.sender
             .send(IndexerCommand::EnqueueAll { require_charging })
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn pause(&self) -> Result<()> {
         self.sender
             .send(IndexerCommand::Pause)
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn resume(&self) -> Result<()> {
         self.sender
             .send(IndexerCommand::Resume)
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn cancel_document(&self, document_id: impl Into<String>) -> Result<()> {
         self.sender
             .send(IndexerCommand::CancelDocument(document_id.into()))
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn reset(&self) -> Result<()> {
         self.sender
             .send(IndexerCommand::Reset)
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn shutdown(&self) -> Result<()> {
         self.sender
             .send(IndexerCommand::Shutdown)
-            .map_err(|_| IncrementumError::Internal("indexer worker stopped".into()))
+            .map_err(|_| PlethoraError::Internal("indexer worker stopped".into()))
     }
 
     pub fn runtime_status(&self) -> IndexerRuntimeStatus {

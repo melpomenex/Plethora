@@ -11,7 +11,7 @@ pub async fn extract_html_content(file_path: &str) -> Result<ExtractedContent> {
     let content = match tokio::fs::read_to_string(path).await {
         Ok(c) => c,
         Err(e) => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Failed to read HTML file: {}",
                 e
             )))

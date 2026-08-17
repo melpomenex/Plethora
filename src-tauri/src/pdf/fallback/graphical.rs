@@ -4,7 +4,7 @@
 //! viewport width — KOReader-style bitmap reflow implemented independently
 //! (no GPL code). Nothing is ever dropped.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::pdf::model::{
     PdfCanonicalBlock, PdfCanonicalBlockKind, PdfCanonicalClassification, PdfCanonicalDirection,
     PdfCanonicalPage, PdfCanonicalPageState, PdfCanonicalRole, PdfSourceRegion, PdfWordSource,
@@ -34,7 +34,7 @@ pub fn build_graphical_fallback_page(
     raster: Option<&PageRaster>,
 ) -> Result<PdfCanonicalPage> {
     if page_number == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "PDF page numbers start at 1".into(),
         ));
     }

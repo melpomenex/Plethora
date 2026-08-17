@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// Canonical database file name (Phase B rebrand).
 pub const DB_FILE_NAME: &str = "plethora.db";
@@ -154,7 +154,7 @@ enum OpenFailure {
     /// SQLite reported a structural problem; the string is its verdict.
     Corrupt(String),
     /// Anything else: locks, timeouts, permissions, IO, bad path.
-    Transient(IncrementumError),
+    Transient(PlethoraError),
 }
 
 /// Classify a connect-time sqlx error. A file that is not a database at all
@@ -176,7 +176,7 @@ fn classify_connect_error(err: &sqlx::Error) -> OpenFailure {
 
     match primary_code {
         Some(SQLITE_CORRUPT) | Some(SQLITE_NOTADB) => OpenFailure::Corrupt(err.to_string()),
-        _ => OpenFailure::Transient(IncrementumError::Internal(format!(
+        _ => OpenFailure::Transient(PlethoraError::Internal(format!(
             "Database connection pool failed (check if another process has the DB locked): {}",
             err
         ))),
@@ -218,7 +218,7 @@ impl Database {
         // pool from a previous instance) is transient — and must NEVER be
         // treated as corruption, because quarantining renames a perfectly
         // healthy database aside and loses the user's library.
-        let mut last_transient: Option<IncrementumError> = None;
+        let mut last_transient: Option<PlethoraError> = None;
         for (attempt, backoff_ms) in [250u64, 1000, 0].iter().enumerate() {
             match Self::open_checked(&path).await {
                 Ok(db) => {
@@ -251,7 +251,7 @@ impl Database {
                 Err(OpenFailure::Corrupt(verdict)) => {
                     // No prior file existed yet the fresh one is already
                     // corrupt — a genuine environment problem, don't mask it.
-                    return Err(IncrementumError::Internal(format!(
+                    return Err(PlethoraError::Internal(format!(
                         "Database integrity check failed: {verdict}"
                     )));
                 }
@@ -273,7 +273,7 @@ impl Database {
         // Out of retries with no corruption verdict. Fail loudly and leave the
         // file untouched — an actionable startup error beats a silent reset.
         Err(last_transient.unwrap_or_else(|| {
-            IncrementumError::Internal("Database could not be opened".to_string())
+            PlethoraError::Internal("Database could not be opened".to_string())
         }))
     }
 
@@ -286,7 +286,7 @@ impl Database {
         Self::open_checked(path)
             .await
             .map_err(|failure| match failure {
-                OpenFailure::Corrupt(verdict) => IncrementumError::Internal(format!(
+                OpenFailure::Corrupt(verdict) => PlethoraError::Internal(format!(
                     "Database integrity check failed: {verdict}"
                 )),
                 OpenFailure::Transient(err) => err,
@@ -300,7 +300,7 @@ impl Database {
         // Create connection options with proper concurrency settings
         let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
             .map_err(|e| {
-                OpenFailure::Transient(IncrementumError::Internal(format!(
+                OpenFailure::Transient(PlethoraError::Internal(format!(
                     "Invalid database path: {}",
                     e
                 )))
@@ -364,7 +364,7 @@ impl Database {
                 // The check could not even run (lock, timeout, IO). That is not
                 // a corruption verdict and must not cost the user their data.
                 pool.close().await;
-                Err(OpenFailure::Transient(IncrementumError::Internal(format!(
+                Err(OpenFailure::Transient(PlethoraError::Internal(format!(
                     "Database integrity check could not run: {}",
                     e
                 ))))

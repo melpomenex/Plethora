@@ -157,7 +157,7 @@ pub async fn create_rss_feed(
     .bind(&feed.collection_id)
     .execute(repo.pool())
     .await
-    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create RSS feed: {}", e)))?;
+    .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to create RSS feed: {}", e)))?;
 
     Ok(feed)
 }
@@ -175,7 +175,7 @@ pub async fn get_rss_feeds(
         .fetch_all(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to fetch RSS feeds: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to fetch RSS feeds: {}", e))
         })?;
 
     let mut feeds = Vec::new();
@@ -209,7 +209,7 @@ pub async fn get_rss_feed(id: String, repo: State<'_, Repository>) -> Result<Opt
         .fetch_optional(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to fetch RSS feed: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to fetch RSS feed: {}", e))
         })?;
 
     match row {
@@ -257,7 +257,7 @@ pub async fn update_rss_feed(
     {
         return get_rss_feed(id, repo)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound("Feed not found".to_string()));
+            .ok_or_else(|| crate::error::PlethoraError::NotFound("Feed not found".to_string()));
     }
 
     let mut sets: Vec<String> = Vec::new();
@@ -299,12 +299,12 @@ pub async fn update_rss_feed(
     }
     query = query.bind(&id);
     query.execute(repo.pool()).await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to update RSS feed: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to update RSS feed: {}", e))
     })?;
 
     get_rss_feed(id, repo)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Feed not found".to_string()))
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Feed not found".to_string()))
 }
 
 /// Delete RSS feed
@@ -315,7 +315,7 @@ pub async fn delete_rss_feed(id: String, repo: State<'_, Repository>) -> Result<
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to delete RSS feed: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to delete RSS feed: {}", e))
         })?;
 
     Ok(())
@@ -361,7 +361,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to find RSS article: {}",
                     e
                 ))
@@ -376,7 +376,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to find RSS article: {}",
                     e
                 ))
@@ -413,7 +413,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .execute(pool)
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to update RSS article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to update RSS article: {}", e))
         })?;
     } else if let Some(row) = existing_by_url {
         let id = row.get::<String, _>("id");
@@ -443,7 +443,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .execute(pool)
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to update RSS article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to update RSS article: {}", e))
         })?;
     } else {
         let id = uuid::Uuid::new_v4().to_string();
@@ -468,7 +468,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .bind(&now)
         .execute(pool)
         .await
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create RSS article: {}", e)))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to create RSS article: {}", e)))?;
     }
 
     let row = if let Some(ref guid_value) = guid {
@@ -477,7 +477,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to load RSS article: {}",
                     e
                 ))
@@ -490,7 +490,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
                 .fetch_one(pool)
                 .await
                 .map_err(|e| {
-                    crate::error::IncrementumError::Internal(format!(
+                    crate::error::PlethoraError::Internal(format!(
                         "Failed to load RSS article: {}",
                         e
                     ))
@@ -502,7 +502,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_one(pool)
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to load RSS article: {}",
                     e
                 ))
@@ -601,7 +601,7 @@ pub async fn get_rss_articles(
             .await
     }
     .map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to fetch RSS articles: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to fetch RSS articles: {}", e))
     })?;
 
     let mut articles = Vec::new();
@@ -642,7 +642,7 @@ pub async fn mark_rss_article_read(
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to mark article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to mark article: {}", e))
         })?;
 
     Ok(())
@@ -656,7 +656,7 @@ pub async fn mark_rss_feed_read(feed_id: String, repo: State<'_, Repository>) ->
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to mark feed read: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to mark feed read: {}", e))
         })?;
 
     Ok(())
@@ -670,7 +670,7 @@ pub async fn toggle_rss_article_queued(id: String, repo: State<'_, Repository>) 
         .fetch_optional(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to get article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to get article: {}", e))
         })?;
 
     match row {
@@ -684,7 +684,7 @@ pub async fn toggle_rss_article_queued(id: String, repo: State<'_, Repository>) 
                 .execute(repo.pool())
                 .await
                 .map_err(|e| {
-                    crate::error::IncrementumError::Internal(format!(
+                    crate::error::PlethoraError::Internal(format!(
                         "Failed to update article: {}",
                         e
                     ))
@@ -692,7 +692,7 @@ pub async fn toggle_rss_article_queued(id: String, repo: State<'_, Repository>) 
 
             Ok(new_status)
         }
-        None => Err(crate::error::IncrementumError::NotFound(
+        None => Err(crate::error::PlethoraError::NotFound(
             "Article not found".to_string(),
         )),
     }
@@ -709,7 +709,7 @@ pub async fn update_rss_feed_fetched(id: String, repo: State<'_, Repository>) ->
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to update feed: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to update feed: {}", e))
         })?;
 
     Ok(())
@@ -727,7 +727,7 @@ pub async fn get_rss_feed_unread_count(
             .fetch_one(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to get unread count: {}",
                     e
                 ))
@@ -747,7 +747,7 @@ pub async fn cleanup_old_rss_articles(days: i32, repo: State<'_, Repository>) ->
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to cleanup articles: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to cleanup articles: {}", e))
         })?;
 
     Ok(result.rows_affected() as i32)
@@ -800,34 +800,34 @@ pub async fn fetch_rss_feed_url(feed_url: String) -> Result<ParsedFeed> {
     let normalized_feed_url = normalize_known_feed_url(&feed_url);
 
     crate::security::validate_url_not_private(&normalized_feed_url)
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(format!("URL not allowed: {}", e)))?;
 
     let client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .build()
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to create HTTP client: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to create HTTP client: {}", e))
         })?;
 
     let response = client.get(&normalized_feed_url).send().await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to fetch feed: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to fetch feed: {}", e))
     })?;
 
     if !response.status().is_success() {
-        return Err(crate::error::IncrementumError::Internal(format!(
+        return Err(crate::error::PlethoraError::Internal(format!(
             "Failed to fetch feed: HTTP {}",
             response.status()
         )));
     }
 
     let xml_bytes = response.bytes().await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to read response: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to read response: {}", e))
     })?;
 
     let xml_content = String::from_utf8_lossy(&xml_bytes).to_string();
 
     let doc = Document::parse(&xml_content).map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to parse XML: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to parse XML: {}", e))
     })?;
 
     // Generate feed ID from URL
@@ -955,7 +955,7 @@ pub async fn fetch_rss_feed_url(feed_url: String) -> Result<ParsedFeed> {
         });
     }
 
-    Err(crate::error::IncrementumError::Internal(
+    Err(crate::error::PlethoraError::Internal(
         "Could not parse feed: not a valid RSS or Atom feed".to_string(),
     ))
 }
@@ -1234,7 +1234,7 @@ pub async fn create_rss_feed_http(
     .bind(&feed.auto_fetch_full_content)
     .execute(repo.pool())
     .await
-    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create RSS feed: {}", e)))?;
+    .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to create RSS feed: {}", e)))?;
 
     Ok(feed)
 }
@@ -1245,7 +1245,7 @@ pub async fn get_rss_feeds_http(repo: &Repository) -> Result<Vec<RssFeed>> {
         .fetch_all(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to fetch RSS feeds: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to fetch RSS feeds: {}", e))
         })?;
 
     let mut feeds = Vec::new();
@@ -1278,7 +1278,7 @@ pub async fn get_rss_feed_http(id: &str, repo: &Repository) -> Result<Option<Rss
         .fetch_optional(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to fetch RSS feed: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to fetch RSS feed: {}", e))
         })?;
 
     match row {
@@ -1323,7 +1323,7 @@ pub async fn update_rss_feed_http(
     {
         return get_rss_feed_http(id, repo)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound("Feed not found".to_string()));
+            .ok_or_else(|| crate::error::PlethoraError::NotFound("Feed not found".to_string()));
     }
 
     let mut sets: Vec<String> = Vec::new();
@@ -1361,12 +1361,12 @@ pub async fn update_rss_feed_http(
     }
     query = query.bind(id);
     query.execute(repo.pool()).await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to update RSS feed: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to update RSS feed: {}", e))
     })?;
 
     get_rss_feed_http(id, repo)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Feed not found".to_string()))
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Feed not found".to_string()))
 }
 
 /// Delete RSS feed (HTTP API version)
@@ -1376,7 +1376,7 @@ pub async fn delete_rss_feed_http(id: &str, repo: &Repository) -> Result<()> {
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to delete RSS feed: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to delete RSS feed: {}", e))
         })?;
 
     Ok(())
@@ -1403,7 +1403,7 @@ pub async fn get_rss_articles_http(
             .await
     }
     .map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to fetch RSS articles: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to fetch RSS articles: {}", e))
     })?;
 
     let mut articles = Vec::new();
@@ -1439,7 +1439,7 @@ pub async fn mark_rss_article_read_http(id: &str, is_read: bool, repo: &Reposito
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to mark article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to mark article: {}", e))
         })?;
 
     Ok(())
@@ -1452,7 +1452,7 @@ pub async fn toggle_rss_article_queued_http(id: &str, repo: &Repository) -> Resu
         .fetch_optional(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to get article: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to get article: {}", e))
         })?;
 
     match row {
@@ -1466,7 +1466,7 @@ pub async fn toggle_rss_article_queued_http(id: &str, repo: &Repository) -> Resu
                 .execute(repo.pool())
                 .await
                 .map_err(|e| {
-                    crate::error::IncrementumError::Internal(format!(
+                    crate::error::PlethoraError::Internal(format!(
                         "Failed to update article: {}",
                         e
                     ))
@@ -1474,7 +1474,7 @@ pub async fn toggle_rss_article_queued_http(id: &str, repo: &Repository) -> Resu
 
             Ok(new_status)
         }
-        None => Err(crate::error::IncrementumError::NotFound(
+        None => Err(crate::error::PlethoraError::NotFound(
             "Article not found".to_string(),
         )),
     }
@@ -1503,13 +1503,13 @@ pub async fn fetch_article_full_content(
     use reqwest::Client;
 
     crate::security::validate_url_not_private(&article_url)
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(format!("URL not allowed: {}", e)))?;
 
     let client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = match client.get(&article_url).send().await {
         Ok(resp) => resp,
@@ -1595,7 +1595,7 @@ pub async fn fetch_article_full_content(
     .execute(repo.pool())
     .await
     .map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to store full content: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to store full content: {}", e))
     })?;
 
     Ok(FullContentResponse {
@@ -1627,7 +1627,7 @@ pub async fn update_feed_auto_fetch(
     .execute(repo.pool())
     .await
     .map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to update feed auto-fetch: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to update feed auto-fetch: {}", e))
     })?;
 
     Ok(())
@@ -1645,7 +1645,7 @@ pub async fn get_article_full_content(
             .fetch_optional(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::IncrementumError::Internal(format!(
+                crate::error::PlethoraError::Internal(format!(
                     "Failed to get full content: {}",
                     e
                 ))

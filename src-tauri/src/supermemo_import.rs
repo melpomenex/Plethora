@@ -5,7 +5,7 @@
 //! - Media files (images, audio, video)
 //! - Registry files with metadata
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::fs::File;
@@ -43,10 +43,10 @@ fn name_str(bytes: &[u8]) -> String {
 /// Parse a SuperMemo export (ZIP archive)
 pub async fn parse_supermemo_export(zip_path: &str) -> Result<SuperMemoCollection> {
     let file = File::open(zip_path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open SuperMemo export: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open SuperMemo export: {}", e)))?;
 
     let mut archive = ZipArchive::new(file)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot unzip export: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot unzip export: {}", e)))?;
 
     let mut collection = SuperMemoCollection {
         name: "SuperMemo Collection".to_string(),
@@ -58,7 +58,7 @@ pub async fn parse_supermemo_export(zip_path: &str) -> Result<SuperMemoCollectio
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot read file: {}", e)))?;
+            .map_err(|e| PlethoraError::NotFound(format!("Cannot read file: {}", e)))?;
 
         let file_name = file.name().to_string();
 
@@ -84,7 +84,7 @@ pub async fn parse_supermemo_export(zip_path: &str) -> Result<SuperMemoCollectio
 
             let mut content = String::new();
             file.read_to_string(&mut content)
-                .map_err(|e| IncrementumError::NotFound(format!("Cannot read XML: {}", e)))?;
+                .map_err(|e| PlethoraError::NotFound(format!("Cannot read XML: {}", e)))?;
 
             if let Ok(items) = parse_supermemo_xml(&content, &file_name) {
                 collection.items.extend(items);
@@ -516,7 +516,7 @@ pub async fn import_supermemo_package(zip_path: String) -> Result<String> {
     let collection = parse_supermemo_export(&zip_path).await?;
 
     let result = serde_json::to_value(&collection)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot serialize collection: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot serialize collection: {}", e)))?;
 
     Ok(result.to_string())
 }
@@ -524,15 +524,15 @@ pub async fn import_supermemo_package(zip_path: String) -> Result<String> {
 #[tauri::command]
 pub fn validate_supermemo_package(path: String) -> Result<bool> {
     let file = File::open(&path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open file: {}", e)))?;
 
     let archive = ZipArchive::new(file)
-        .map_err(|e| IncrementumError::NotFound(format!("Not a valid ZIP archive: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Not a valid ZIP archive: {}", e)))?;
 
     let has_xml = archive.file_names().any(|name| name.ends_with(".xml"));
 
     if !has_xml {
-        return Err(IncrementumError::NotFound(
+        return Err(PlethoraError::NotFound(
             "No XML files found in export".to_string(),
         ));
     }
