@@ -197,9 +197,32 @@ fn copy_tree(
             copy_tree(&path, &dest.join(name), legacy_stem, new_stem, counter)?;
         } else {
             let dest_path = mapped_dest(dest, &path, legacy_stem, new_stem);
-            if dest_path.exists() {
-                // Never overwrite anything already present in the new
-                // install (the pending/declined markers, the backed-up db).
+            // Never touch migration markers or the set-aside pre-migration
+            // backups living in the destination directory. (The backups are
+            // created in the NEW dir, so the legacy tree does not contain
+            // those names — but guard explicitly rather than rely on that.)
+            let dest_name = dest_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            if dest_name.starts_with(".incrementum-migration")
+                || dest_name.ends_with(".pre-migration-backup")
+            {
+                continue;
+            }
+            // A crash mid-`fs::copy` can leave a TRUNCATED destination file;
+            // a retry after an interrupted migration must re-copy it instead
+            // of skipping it. Size equality is the completeness heuristic:
+            // an equal-size destination is treated as a finished copy and
+            // left untouched (byte-comparing every file would double the
+            // I/O of a multi-GB library for no realistic gain; an
+            // equal-size-but-different file is not a state `fs::copy` can
+            // produce mid-flight).
+            let dest_complete = match (entry.metadata(), std::fs::metadata(&dest_path)) {
+                (Ok(src_meta), Ok(dst_meta)) => src_meta.len() == dst_meta.len(),
+                _ => false,
+            };
+            if dest_path.exists() && dest_complete {
                 continue;
             }
             std::fs::copy(&path, &dest_path)?;
@@ -211,7 +234,10 @@ fn copy_tree(
 
 /// Perform the full migration. See the module docs for the ordering and the
 /// safety invariants (copy-never-move, set-aside-never-delete, verify, and
-/// restore-on-failure).
+/// restore-on-failure). Re-running after an interrupted attempt is safe and
+/// self-healing: `copy_tree` re-copies any destination file whose size does
+/// not match its source (i.e. truncation from a crash mid-copy), while
+/// completed files, the markers, and the set-aside backups are untouched.
 pub fn perform_migration(new_dir: &Path, legacy_dir: &Path) -> anyhow::Result<MigrationReport> {
     if !legacy_dir.is_dir() {
         anyhow::bail!(
@@ -461,6 +487,87 @@ mod tests {
         assert!(first.is_some(), "first read must surface the notice");
         let second = take_migration_completion_notice(&new_dir);
         assert!(second.is_none(), "notice must be one-shot");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn copy_tree_recopies_truncated_destination_file() {
+        let base = temp_dir("truncation-recopy");
+        let new_dir = base.join("com.plethora.app");
+        let legacy = base.join("com.incrementum.app");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        // Source file with full content
+        let src_pdf_dir = legacy.join("documents/pdf");
+        std::fs::create_dir_all(&src_pdf_dir).unwrap();
+        std::fs::write(
+            src_pdf_dir.join("book.pdf"),
+            b"full-length-pdf-content-1234567890",
+        )
+        .unwrap();
+
+        // Source database file
+        std::fs::write(legacy.join("incrementum.db"), b"full-database-bytes-12345").unwrap();
+
+        // Pre-create truncated (smaller) dest files at mapped paths simulating a crash mid-copy
+        let dst_pdf_dir = new_dir.join("documents/pdf");
+        std::fs::create_dir_all(&dst_pdf_dir).unwrap();
+        std::fs::write(dst_pdf_dir.join("book.pdf"), b"truncated").unwrap();
+        std::fs::write(new_dir.join("plethora.db"), b"partial").unwrap();
+
+        let mut copied = 0;
+        let legacy_stem = "incrementum.db";
+        let new_stem = "plethora.db";
+        copy_tree(&legacy, &new_dir, legacy_stem, new_stem, &mut copied).unwrap();
+
+        // Assert truncated files were overwritten with full content
+        assert_eq!(
+            std::fs::read(dst_pdf_dir.join("book.pdf")).unwrap(),
+            b"full-length-pdf-content-1234567890"
+        );
+        assert_eq!(
+            std::fs::read(new_dir.join("plethora.db")).unwrap(),
+            b"full-database-bytes-12345"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn copy_tree_skips_size_matched_destination_file() {
+        let base = temp_dir("size-match-skip");
+        let new_dir = base.join("com.plethora.app");
+        let legacy = base.join("com.incrementum.app");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        // Source file (18 bytes)
+        let src_pdf_dir = legacy.join("documents/pdf");
+        std::fs::create_dir_all(&src_pdf_dir).unwrap();
+        std::fs::write(src_pdf_dir.join("book.pdf"), b"source-bytes-12345").unwrap();
+
+        // Pre-create size-matched destination file with different content (18 bytes).
+        // Size equality is the completeness heuristic: if the destination file exists
+        // and matches the source size exactly, it is treated as an already-completed
+        // copy and left untouched without re-reading or re-writing.
+        let dst_pdf_dir = new_dir.join("documents/pdf");
+        std::fs::create_dir_all(&dst_pdf_dir).unwrap();
+        std::fs::write(dst_pdf_dir.join("book.pdf"), b"custom-bytes-67890").unwrap();
+
+        let mut copied = 0;
+        let legacy_stem = "incrementum.db";
+        let new_stem = "plethora.db";
+        copy_tree(&legacy, &new_dir, legacy_stem, new_stem, &mut copied).unwrap();
+
+        // The size-matched file was skipped and its existing content preserved
+        assert_eq!(
+            std::fs::read(dst_pdf_dir.join("book.pdf")).unwrap(),
+            b"custom-bytes-67890"
+        );
+        // counter is not incremented for skipped files
+        assert_eq!(copied, 0);
 
         let _ = std::fs::remove_dir_all(&base);
     }
