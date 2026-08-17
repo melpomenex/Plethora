@@ -1,4 +1,4 @@
-name: Build Incrementum
+name: Build Plethora
 
 on:
   push:
@@ -90,7 +90,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-windows
+          name: plethora-windows
           path: |
             src-tauri/target/**/release/bundle/**
           if-no-files-found: warn
@@ -299,7 +299,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-${{ matrix.id }}
+          name: plethora-${{ matrix.id }}
           path: |
             src-tauri/target/**/release/bundle/**
           if-no-files-found: warn
@@ -330,7 +330,7 @@ jobs:
           fail_on_unmatched_files: false
           draft: false
           prerelease: false
-          name: Incrementum ${{ github.ref_name }}
+          name: Plethora ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
 
   build-appimage:
@@ -454,7 +454,7 @@ jobs:
       - name: Upload AppImage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-appimage
+          name: plethora-appimage
           path: src-tauri/target/release/bundle/appimage/*
           if-no-files-found: warn
 
@@ -466,7 +466,7 @@ jobs:
           fail_on_unmatched_files: false
           draft: false
           prerelease: false
-          name: Incrementum ${{ github.ref_name }}
+          name: Plethora ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
 
   build-arch:
@@ -552,27 +552,27 @@ jobs:
           # Copy built artifacts for the PKGBUILD to install
           cp src-tauri/target/release/incrementum-tauri arch-pkg/incrementum-tauri
           cp src-tauri/icons/128x128.png arch-pkg/128x128.png
-          cp src-tauri/incrementum.desktop arch-pkg/incrementum.desktop 2>/dev/null || true
+          cp src-tauri/plethora.desktop arch-pkg/plethora.desktop 2>/dev/null || true
 
           # Create PKGBUILD — binary is already built with embedded frontend assets
           cat > arch-pkg/PKGBUILD << EOF
-          pkgname=incrementum
+          pkgname=plethora
           pkgver=${PKG_VERSION}
           pkgrel=1
-          pkgdesc="Incrementum - Spaced repetition and incremental reading for effective learning"
+          pkgdesc="Plethora - Spaced repetition and incremental reading for effective learning"
           arch=('x86_64')
           url="https://github.com/melpomenex/incrementum-tauri"
           license=('MIT')
           depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'gcc-libs' 'glibc' 'zstd')
           optdepends=('notebooklm-py: NotebookLM integration for AI-powered flashcard generation'
                       'python-notebooklm: Alternative NotebookLM package')
-          source=("incrementum-tauri" "128x128.png" "incrementum.desktop")
+          source=("incrementum-tauri" "128x128.png" "plethora.desktop")
           sha256sums=('SKIP' 'SKIP' 'SKIP')
 
           package() {
-            install -Dm755 "\$srcdir/incrementum-tauri" "\$pkgdir/usr/bin/incrementum"
-            install -Dm644 "\$srcdir/128x128.png" "\$pkgdir/usr/share/icons/hicolor/128x128/apps/incrementum.png"
-            install -Dm644 "\$srcdir/incrementum.desktop" "\$pkgdir/usr/share/applications/incrementum.desktop" 2>/dev/null || true
+            install -Dm755 "\$srcdir/incrementum-tauri" "\$pkgdir/usr/bin/plethora"
+            install -Dm644 "\$srcdir/128x128.png" "\$pkgdir/usr/share/icons/hicolor/128x128/apps/plethora.png"
+            install -Dm644 "\$srcdir/plethora.desktop" "\$pkgdir/usr/share/applications/plethora.desktop" 2>/dev/null || true
           }
           EOF
 
@@ -585,7 +585,7 @@ jobs:
       - name: Upload Pacman artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-arch
+          name: plethora-arch
           path: arch-pkg/*.pkg.tar.zst
           if-no-files-found: warn
 
@@ -597,7 +597,7 @@ jobs:
           fail_on_unmatched_files: false
           draft: false
           prerelease: false
-          name: Incrementum ${{ github.ref_name }}
+          name: Plethora ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
 
   release-readiness:

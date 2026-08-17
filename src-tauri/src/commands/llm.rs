@@ -1721,8 +1721,8 @@ async fn call_openrouter_with_key(
     let response = client
         .post(format!("{}/chat/completions", base_url))
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("HTTP-Referer", "https://incrementum.app")
-        .header("X-Title", "Incrementum")
+        .header("HTTP-Referer", "https://plethora.app")
+        .header("X-Title", "Plethora")
         .json(&request)
         .send()
         .await
@@ -1835,8 +1835,8 @@ async fn test_openrouter_connection(
     let models_response = client
         .get(format!("{}/models", base_url))
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("HTTP-Referer", "https://incrementum.app")
-        .header("X-Title", "Incrementum")
+        .header("HTTP-Referer", "https://plethora.app")
+        .header("X-Title", "Plethora")
         .send()
         .await
         .map_err(|e| format!("Connection failed: {}", e))?;
@@ -1944,8 +1944,8 @@ async fn fetch_openrouter_models(
     let response = client
         .get(format!("{}/models", base_url))
         .header("Authorization", format!("Bearer {}", api_key))
-        .header("HTTP-Referer", "https://incrementum.app")
-        .header("X-Title", "Incrementum")
+        .header("HTTP-Referer", "https://plethora.app")
+        .header("X-Title", "Plethora")
         .send()
         .await
         .map_err(|e| format!("Failed to fetch models from OpenRouter: {}", e))?;

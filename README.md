@@ -1,8 +1,8 @@
 <div align="center">
 
-# Incrementum
+# Plethora
 
-**Incremental Reading + Spaced Repetition = Knowledge Retention**
+**Read anything. Learn everything.**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)]()
@@ -18,7 +18,7 @@
 
 ## Overview
 
-**Incrementum** is a sophisticated desktop application that combines **incremental reading** with **spaced repetition** to help you efficiently process and retain information from large volumes of content.
+**Plethora** is a sophisticated desktop application that combines **incremental reading** with **spaced repetition** to help you efficiently process and retain information from large volumes of content.
 
 Built with modern technologies—Tauri, React, and Rust—it offers a beautiful, fast, and cross-platform learning environment that adapts to your needs.
 
@@ -95,7 +95,7 @@ Built with modern technologies—Tauri, React, and Rust—it offers a beautiful,
 
 ## 📱 Mobile Experience
 
-Incrementum features a fully-adaptive responsive layout tailored for mobile devices, tablets, and e-paper readers like the Boox Palma 2. The mobile shell features visual viewport optimizations for on-screen keyboards, safe-area inset management, and reachable, thumb-friendly control interfaces.
+Plethora features a fully-adaptive responsive layout tailored for mobile devices, tablets, and e-paper readers like the Boox Palma 2. The mobile shell features visual viewport optimizations for on-screen keyboards, safe-area inset management, and reachable, thumb-friendly control interfaces.
 
 <div align="center">
   <table style="width: 100%; border-collapse: collapse;">
@@ -166,11 +166,11 @@ xcode-select --install
 
 #### macOS Security: Opening Self-Signed Applications
 
-When you first run Incrementum on macOS, you may encounter a security warning since the application is self-signed. This is normal for unsigned apps. Here's how to proceed:
+When you first run Plethora on macOS, you may encounter a security warning since the application is self-signed. This is normal for unsigned apps. Here's how to proceed:
 
 **Method 1: Open via Finder (Recommended)**
 
-1. In Finder, locate the `Incrementum.app`
+1. In Finder, locate the `Plethora.app`
 2. Right-click (or Control-click) the app → Open
 3. A security warning dialog will appear
 4. Click "Open" again to confirm
@@ -182,7 +182,7 @@ The right-click → Open path adds a security exception for that application.
 1. Try to open the app normally (double-click). It will fail with a security warning
 2. Open System Settings → Privacy & Security
 3. Scroll down to the security section
-4. Look for a message saying "Incrementum was blocked from use because it is not from an identified developer"
+4. Look for a message saying "Plethora was blocked from use because it is not from an identified developer"
 5. Click "Open Anyway" and confirm with "Open" in the dialog
 
 After following either method, macOS will remember your choice, and you can open the app normally in the future.
@@ -468,6 +468,6 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 [![Issues](https://img.shields.io/badge/Issues-Get%20Help-orange)](https://github.com/melpomenex/incrementum-tauri/issues)
 [![Changelog](https://img.shields.io/badge/Changelog-Release%20Notes-purple)](CHANGELOG.md)
 
-**[⬆ Back to Top](#incrementum)**
+**[⬆ Back to Top](#plethora)**
 
 </div>

@@ -1,4 +1,4 @@
-# Incrementum User Handbook
+# Plethora User Handbook
 
 **Your Complete Guide to Mastering Incremental Reading and Spaced Repetition**
 
@@ -24,9 +24,9 @@
 
 ## Introduction
 
-### What is Incrementum?
+### What is Plethora?
 
-Incrementum is a powerful learning application that combines two proven techniques:
+Plethora is a powerful learning application that combines two proven techniques:
 
 **Incremental Reading** - Process large amounts of information in small, manageable chunks over time. Instead of reading articles cover-to-cover, you extract key points and gradually build understanding.
 
@@ -46,7 +46,7 @@ Incrementum is a powerful learning application that combines two proven techniqu
 
 ### First Launch
 
-When you first launch Incrementum, you'll see the **Dashboard** with four main sections:
+When you first launch Plethora, you'll see the **Dashboard** with four main sections:
 
 1. **Queue** - Your review queue (empty at first)
 2. **Review** - Active review session
@@ -107,7 +107,7 @@ Let's import your first document:
 1. Click **Documents** → **Import**
 2. Select **Local File**
 3. Navigate to your file and select it
-4. Incrementum will:
+4. Plethora will:
    - Extract text content
    - Calculate reading time and word count
    - Extract metadata (title, author, etc.)
@@ -119,7 +119,7 @@ Let's import your first document:
 2. Click **Documents** → **Import** → **URL**
 3. Paste the URL
 4. Click **Import**
-5. Incrementum fetches and processes the content
+5. Plethora fetches and processes the content
 
 **Supported Sites:**
 - News articles (most major sites)
@@ -133,7 +133,7 @@ Let's import your first document:
 2. Copy the URL or paper ID (`2301.07041`)
 3. Click **Documents** → **Import** → **Arxiv**
 4. Paste the URL or ID
-5. Incrementum downloads:
+5. Plethora downloads:
    - Full PDF
    - Abstract
    - Authors
@@ -148,7 +148,7 @@ Import flashcard decks from JSON files that include scheduling data (intervals, 
 
 1. Click **Documents** → **Import** → **JSON**
 2. Select your `.json` deck file
-3. Incrementum creates a deck document and imports all cards, preserving:
+3. Plethora creates a deck document and imports all cards, preserving:
    - Scheduling (intervals, ease factors, due dates)
    - Review history (repetitions, lapses, retention rate)
    - Card states (new, reviewing, or suspended)
@@ -264,7 +264,7 @@ SM-18:
 
 ### Understanding SM-20
 
-Incrementum's **SM-20** option is the **Algorithm Arena** — a reverse-engineered port of SuperMemo's `sm20.exe` that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
+Plethora's **SM-20** option is the **Algorithm Arena** — a reverse-engineered port of SuperMemo's `sm20.exe` that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
 
 | Slot | Model | Default weight | Learns how? |
 |------|-------|---------------:|-------------|
@@ -320,7 +320,7 @@ Keyboard controls while the Memory Horizon is open:
 | `Enter` or `Space` | Confirm the displayed schedule |
 | `Escape` | Return to rating |
 
-In hands-free audio review, Incrementum automatically confirms Arena Pick so playback can continue, even when **Show the Arena** is selected for visual reviews. The review remains recoverable if that automatic commit fails.
+In hands-free audio review, Plethora automatically confirms Arena Pick so playback can continue, even when **Show the Arena** is selected for visual reviews. The review remains recoverable if that automatic commit fails.
 
 ### Document Reading Schedule (Incremental Reading)
 
@@ -333,7 +333,7 @@ The algorithms above (FSRS-6, SM-18, SM-20) are **flashcard** schedulers — the
 
 Rating a document uses the **same four buttons** as a flashcard — Again / Hard / Good / Easy — but the grade goes to a **separate** FSRS instance that does not train your flashcard algorithms. The interval it produces depends on which scheduler handles the rating:
 
-- **Engaging FSRS-6 (the one the app uses).** When you rate a document from the queue or document viewer, Incrementum runs FSRS-6 at a 0.9 target-retention target and then applies a bounded *engagement* multiplier (0.25×–2.0×) for novelty, variety, and serendipity. Intervals are FSRS-computed and therefore **variable** — they grow with the document's stability just like a card's, not the fixed values below. On long-form content that you only partly read, a duration-aware cap pulls a Good/Easy interval back to 1–4 days based on how much of the document you actually covered.
+- **Engaging FSRS-6 (the one the app uses).** When you rate a document from the queue or document viewer, Plethora runs FSRS-6 at a 0.9 target-retention target and then applies a bounded *engagement* multiplier (0.25×–2.0×) for novelty, variety, and serendipity. Intervals are FSRS-computed and therefore **variable** — they grow with the document's stability just like a card's, not the fixed values below. On long-form content that you only partly read, a duration-aware cap pulls a Good/Easy interval back to 1–4 days based on how much of the document you actually covered.
 - **Incremental Reading Scheduler (the fallback).** The plain API/MCP rating path uses a separate, non-FSRS scheduler with short, **fixed** intervals and a hard 30-day cap:
 
 | Rating | Incremental (fallback) interval | Flashcard interval (varies by algorithm) |
@@ -361,7 +361,7 @@ During reviews, rate each item based on your recall:
 | **4** | Easy | Recall was effortless | 10-14 days |
 
 **Preview Intervals:**
-Before rating, Incrementum shows you exactly when each card will appear next for all four rating options. Use this to optimize your schedule!
+Before rating, Plethora shows you exactly when each card will appear next for all four rating options. Use this to optimize your schedule!
 
 ### Card Types
 
@@ -654,7 +654,7 @@ Extract rows in the queue open a dedicated **extract reader** — the extract's 
 
 ### Priority System
 
-Every document, extract, and card sits somewhere in a **single ranked list** — one queue, all element types together. Priority is that ranking. Setting priority on an item is telling Incrementum *where in your collection it belongs*, not attaching a score to it.
+Every document, extract, and card sits somewhere in a **single ranked list** — one queue, all element types together. Priority is that ranking. Setting priority on an item is telling Plethora *where in your collection it belongs*, not attaching a score to it.
 
 **Priority is a position, not a label.**
 
@@ -977,7 +977,7 @@ Export your data for analysis:
 
 #### Algorithm Selection
 
-Incrementum supports four scheduling algorithms. Choose the one that best fits your learning style:
+Plethora supports four scheduling algorithms. Choose the one that best fits your learning style:
 
 **FSRS-6 (Recommended):**
 - Modern, research-backed
@@ -1086,7 +1086,7 @@ Incrementum supports four scheduling algorithms. Choose the one that best fits y
 
 ### Sync Settings
 
-Incrementum syncs your reading data across your devices over a **shared sync room**. There is no account, no server login, and no API key — every device that knows the same sync code joins the same room and shares the same data. This is the only sync system in the app.
+Plethora syncs your reading data across your devices over a **shared sync room**. There is no account, no server login, and no API key — every device that knows the same sync code joins the same room and shares the same data. This is the only sync system in the app.
 
 #### How it works
 
@@ -1136,7 +1136,7 @@ All of your reading data is stored locally on your devices first. Sync is an opt
 
 #### Backup & Restore
 
-Incrementum provides a complete backup and restore system to protect your learning data and migrate between devices.
+Plethora provides a complete backup and restore system to protect your learning data and migrate between devices.
 
 #### Complete App Backup
 
@@ -1203,7 +1203,7 @@ Incrementum provides a complete backup and restore system to protect your learni
 
 **Important Notes:**
 - **Scheduling Preservation**: All scheduling data (stability, difficulty, due dates) for all algorithm types is preserved exactly
-- **File Paths**: When importing without files, you'll need to re-import the original documents. Incrementum will match them by content hash and restore the metadata
+- **File Paths**: When importing without files, you'll need to re-import the original documents. Plethora will match them by content hash and restore the metadata
 - **Version Compatibility**: Backups are forward-compatible but may not work with older app versions
 - **Storage**: Keep backups secure - they contain your personal learning data
 
@@ -1261,7 +1261,7 @@ Incrementum provides a complete backup and restore system to protect your learni
 **Sync Options:**
 - Sync to Anki on card creation
 - Sync intervals from Anki
-- Deck mapping (Incrementum category → Anki deck)
+- Deck mapping (Plethora category → Anki deck)
 - Tag synchronization
 
 #### Obsidian Integration
@@ -1280,7 +1280,7 @@ Incrementum provides a complete backup and restore system to protect your learni
 
 #### NotebookLM Integration
 
-Use NotebookLM inside Incrementum to research, generate study artifacts, and save reviewable extracts.
+Use NotebookLM inside Plethora to research, generate study artifacts, and save reviewable extracts.
 
 **Setup:**
 1. Settings → Features → enable **NotebookLM**
@@ -1295,7 +1295,7 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
 - Creating from the empty state selects the new notebook automatically, so your next action runs against it
 
 **What You Can Do:**
-- Ask questions in NotebookLM chat directly from Incrementum
+- Ask questions in NotebookLM chat directly from Plethora
 - Run research prompts (web-assisted notebook research)
 - Generate artifacts:
   - Flashcards
@@ -1313,7 +1313,7 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
   - Audio and Video Overviews play inline through the app's media players
   - Infographics display as images
   - Slide Decks display as PDFs
-- Sync generated flashcards/quiz items into Incrementum review queue
+- Sync generated flashcards/quiz items into Plethora review queue
 
 **Artifact actions (in the viewer):**
 - **Copy** — copies the artifact content to your clipboard
@@ -1337,11 +1337,11 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
 1. Open NotebookLM workspace chat
 2. On any assistant response, click **Save as Extract**
 3. Optional: highlight part of the response first to save only selected text
-4. Incrementum creates a NotebookLM-linked extract with thread/source metadata
+4. Plethora creates a NotebookLM-linked extract with thread/source metadata
 5. Saved responses show an **already saved** indicator to avoid duplicates
 
 **Document Q&A + NotebookLM Workflow:**
-1. Open a document in Incrementum
+1. Open a document in Plethora
 2. Use **Document Q&A** with NotebookLM research mode
 3. Edit/refine generated answer text inline
 4. Create extracts from the refined answer
@@ -1450,7 +1450,7 @@ Learn from your favorite feeds:
 
 #### Newsletter Directory
 
-Discover and subscribe to popular newsletters directly in Incrementum:
+Discover and subscribe to popular newsletters directly in Plethora:
 
 **Access the Newsletter Directory:**
 1. Click **RSS** tab
@@ -1477,7 +1477,7 @@ Discover and subscribe to popular newsletters directly in Incrementum:
 
 **Newsletter Feed Discovery:**
 
-Incrementum can automatically discover RSS feeds from popular newsletter platforms:
+Plethora can automatically discover RSS feeds from popular newsletter platforms:
 
 - **Substack**: Add `/feed` to any Substack URL
   - Example: `https://author.substack.com` → `https://author.substack.com/feed`
@@ -1490,7 +1490,7 @@ Incrementum can automatically discover RSS feeds from popular newsletter platfor
 1. Copy any newsletter URL
 2. Click **Add Feed** in RSS tab
 3. Paste the URL
-4. Incrementum auto-discovers the RSS feed
+4. Plethora auto-discovers the RSS feed
 5. Click **Add Feed** to subscribe
 
 **Finding Newsletter RSS Feeds:**
@@ -1544,7 +1544,7 @@ Most newsletter platforms publish RSS feeds:
 **Video Import:**
 1. Copy YouTube URL
 2. Import as document
-3. Incrementum fetches:
+3. Plethora fetches:
    - Video metadata
    - Transcript (if available)
    - Chapter information
@@ -1656,7 +1656,7 @@ llama.cpp provides a lightweight local LLM server for GLM-OCR without requiring 
      --port 8080 --host 0.0.0.0 -c 16384 -t $(nproc)
    ```
 
-4. **Configure in Incrementum**:
+4. **Configure in Plethora**:
    - Settings → OCR → Provider: **GLM-OCR (Local)**
    - Backend: **vLLM (GPU)** (this is the llama.cpp/vLLM mode — works for both)
    - Endpoint: `http://localhost:8080/v1`
@@ -1677,7 +1677,7 @@ pip install -U vllm
 vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080
 ```
 
-Then configure Incrementum the same way (endpoint `http://localhost:8080/v1`).
+Then configure Plethora the same way (endpoint `http://localhost:8080/v1`).
 
 **Setup (GLM-OCR with Ollama):**
 
@@ -1767,7 +1767,7 @@ Advanced search across all content:
 
 ### Browser Extension
 
-Connect Incrementum with web browsing:
+Connect Plethora with web browsing:
 
 **Features:**
 - Highlight web pages
@@ -1785,7 +1785,7 @@ Connect Incrementum with web browsing:
 **Usage:**
 - Select text on webpage
 - Click extension icon
-- Choose "Add to Incrementum"
+- Choose "Add to Plethora"
 - Syncs automatically
 
 ---
@@ -2170,16 +2170,16 @@ Export your data before major changes (Settings → Backup → Export)
 
 ## FAQ
 
-**Q: How do I add newsletters to Incrementum?**
+**Q: How do I add newsletters to Plethora?**
 A: You can add newsletters in two ways:
 1. **Newsletter Directory**: Click RSS → Newsletter icon (📬) → Browse and subscribe to curated newsletters
-2. **Direct URL**: Copy any newsletter URL (Substack, Beehiiv, etc.) → RSS → Add Feed → Paste URL. Incrementum will auto-discover the RSS feed.
+2. **Direct URL**: Copy any newsletter URL (Substack, Beehiiv, etc.) → RSS → Add Feed → Paste URL. Plethora will auto-discover the RSS feed.
 
 **Q: Why won't my NotebookLM video, audio, infographic, or slide deck display?**
 A: Media artifacts need their file to be generated and ready before they can be previewed. Wait for generation to finish, then reopen the artifact — video/audio and infographics retry through an alternate media path automatically, and slide decks offer an "Open with alternate viewer" option when they do not load. If it still fails, reconnect NotebookLM in Settings → Integrations and regenerate the artifact.
 
 **Q: Which newsletter platforms are supported?**
-A: Incrementum supports RSS feeds from Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium, and WordPress sites. Most newsletters publish RSS feeds - check the newsletter's website for an RSS link or try adding `/feed` to the URL.
+A: Plethora supports RSS feeds from Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium, and WordPress sites. Most newsletters publish RSS feeds - check the newsletter's website for an RSS link or try adding `/feed` to the URL.
 
 **Q: How many cards should I review per day?**
 A: Start with 20-50 per day. Adjust based on your schedule and goals. Consistency is more important than volume.
@@ -2190,7 +2190,7 @@ A: As many as you want, but focus on quality over quantity. 10-20 well-made card
 **Q: What retention rate should I target?**
 A: 90% is the recommended default. Adjust to 85% if you have too many reviews, or 95% for critical material.
 
-**Q: Can I use Incrementum for languages?**
+**Q: Can I use Plethora for languages?**
 A: Absolutely! It's excellent for vocabulary, grammar, and sentence cards. Use cloze cards for grammar patterns.
 
 **Q: How do I handle math equations?**
@@ -2205,7 +2205,7 @@ A: Suspending hides cards temporarily (can be unsuspended). Deleting removes per
 **Q: How often should I review?**
 A: Daily is ideal. If you miss days, cards will accumulate but won't be "lost" - just catch up when you can.
 
-**Q: Can I use Incrementum on multiple devices?**
+**Q: Can I use Plethora on multiple devices?**
 A: Not directly yet, but you can sync data via Dropbox/Google Drive, or use the browser extension.
 
 **Q: Is my data private?**

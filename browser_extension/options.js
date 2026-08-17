@@ -270,7 +270,7 @@ class OptionsController {
             } else if (error.name === 'AbortError' || error.name === 'TimeoutError') {
                 errorMessage = 'Connection timeout - server may be busy';
             } else if (error.message.includes('ECONNREFUSED')) {
-                errorMessage = 'Connection refused - is Incrementum running?';
+                errorMessage = 'Connection refused - is Plethora running?';
             } else if (error.message.includes('ENOTFOUND')) {
                 errorMessage = 'Server address not found';
             } else if (error.message.includes('ERR_NETWORK_CHANGED')) {

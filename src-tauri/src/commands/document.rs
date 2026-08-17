@@ -1393,7 +1393,7 @@ async fn download_with_caps(
     let counter = hops.clone();
     let redirect_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
-        .user_agent("Incrementum/1.0 (https://incrementum.app)")
+        .user_agent("Plethora/1.0 (https://plethora.app)")
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             counter.store(
                 attempt.previous().len() as u32,
@@ -1560,7 +1560,7 @@ pub async fn fetch_web_page_preview(url: String) -> Result<serde_json::Value> {
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent("Incrementum/1.0 (https://incrementum.app)")
+        .user_agent("Plethora/1.0 (https://plethora.app)")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 

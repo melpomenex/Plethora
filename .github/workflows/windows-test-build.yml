@@ -92,7 +92,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-windows-test
+          name: plethora-windows-test
           path: |
             src-tauri/target/**/release/bundle/**
             src-tauri/target/*/release/incrementum.exe

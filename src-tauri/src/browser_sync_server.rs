@@ -4265,7 +4265,7 @@ async fn handle_podcast_subscribe(
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Incrementum/1.31.0")
+        .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
     {
@@ -4428,7 +4428,7 @@ async fn handle_podcast_refresh_feed(
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Incrementum/1.31.0")
+        .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
     {

@@ -1,10 +1,10 @@
-# Maintainer: Incrementum Developers
-pkgname=incrementum
+# Maintainer: Plethora Developers
+pkgname=plethora
 pkgver=1.9.2
 pkgrel=1
-pkgdesc="Incrementum - Spaced repetition and incremental reading for effective learning"
+pkgdesc="Plethora - Spaced repetition and incremental reading for effective learning"
 arch=('x86_64')
-url="https://incrementum.app"
+url="https://plethora.app"
 license=('custom')
 depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'xdotool' 'gstreamer' 'gst-plugins-base' 'gst-plugins-good')
 makedepends=('cargo' 'pnpm' 'git')
@@ -30,13 +30,13 @@ package() {
   cd "$srcdir"
 
   # Install the binary
-  install -Dm755 "src-tauri/target/x86_64-unknown-linux-gnu/release/incrementum-tauri" "$pkgdir/usr/bin/incrementum"
+  install -Dm755 "src-tauri/target/x86_64-unknown-linux-gnu/release/incrementum-tauri" "$pkgdir/usr/bin/plethora"
 
   # Install desktop file
-  install -Dm644 "incrementum.desktop" "$pkgdir/usr/share/applications/incrementum.desktop"
+  install -Dm644 "plethora.desktop" "$pkgdir/usr/share/applications/plethora.desktop"
 
   # Install icons
-  install -Dm644 "src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/incrementum.png"
-  install -Dm644 "src-tauri/icons/32x32.png" "$pkgdir/usr/share/icons/hicolor/32x32/apps/incrementum.png"
-  install -Dm644 "src-tauri/icons/icon.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/incrementum.png"
+  install -Dm644 "src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/plethora.png"
+  install -Dm644 "src-tauri/icons/32x32.png" "$pkgdir/usr/share/icons/hicolor/32x32/apps/plethora.png"
+  install -Dm644 "src-tauri/icons/icon.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/plethora.png"
 }

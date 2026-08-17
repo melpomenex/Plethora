@@ -50,7 +50,7 @@ export function VoiceBrowser({
   recents = [],
   offline = false,
   isBilled = false,
-  samplePhrase = "Welcome to Incrementum. This is a voice preview.",
+  samplePhrase = "Welcome to Plethora. This is a voice preview.",
   onSelect,
   onClose,
   onPreview,
