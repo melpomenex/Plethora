@@ -24,8 +24,10 @@ import {
 } from "@phosphor-icons/react";
 import { getEnergyLogs, calculateEnergyCorrelation } from "../../utils/energyTracker";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useKnowledgeHealthStore } from "../../stores/knowledgeHealthStore";
 import { useI18n } from "../../lib/i18n";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
+
 
 export function AnalyticsTab() {
   const { addTab } = useTabsStore();
@@ -312,6 +314,9 @@ export function AnalyticsTab() {
       </div>
 
 
+      {/* Knowledge Health & Learning Pipeline Funnel */}
+      <KnowledgeHealthSection />
+
       {/* Leech Dashboard */}
       <div className="p-4 bg-card border border-border rounded-lg">
         <h3 className="text-lg font-semibold text-foreground mb-3">Leech Dashboard</h3>
@@ -337,3 +342,96 @@ export function AnalyticsTab() {
     </SafeScrollContainer>
   );
 }
+
+function KnowledgeHealthSection() {
+  const { summary, recomputeHealth } = useKnowledgeHealthStore();
+
+  useEffect(() => {
+    recomputeHealth();
+  }, [recomputeHealth]);
+
+  const funnel = summary?.conversionFunnel || {
+    documentsRead: 0,
+    extractsCreated: 0,
+    cardsGenerated: 0,
+    cardsRetained: 0,
+    readToExtractRate: 0,
+    extractToCardRate: 0,
+    cardToRetainedRate: 0,
+  };
+
+  const buckets = summary?.retentionBuckets || {
+    strong: 0,
+    medium: 0,
+    fragile: 0,
+    lapsing: 0,
+  };
+
+  return (
+    <div className="p-6 bg-card border border-border rounded-lg space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center">
+            <Brain className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Knowledge Health & Conversion Pipeline</h3>
+            <p className="text-sm text-muted-foreground">
+              End-to-end knowledge retention lifecycle from raw reading to long-term memory
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => recomputeHealth()}
+          className="px-3 py-1.5 text-xs bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg transition-colors"
+        >
+          Recompute
+        </button>
+      </div>
+
+      {/* Retention Distribution Buckets */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Strong (&gt;90% recall)</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{buckets.strong}</p>
+        </div>
+        <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Medium (70–90%)</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{buckets.medium}</p>
+        </div>
+        <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Fragile (50–70%)</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{buckets.fragile}</p>
+        </div>
+        <div className="p-4 bg-rose-500/5 border border-rose-500/20 rounded-lg">
+          <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">Lapsing (&lt;50%)</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{buckets.lapsing}</p>
+        </div>
+      </div>
+
+      {/* Incremental Reading to Retention Conversion Funnel */}
+      <div>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Incremental Learning Conversion Funnel</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-center">
+          <div className="p-3 bg-secondary/30 rounded-lg">
+            <p className="text-xs text-muted-foreground">1. Documents Read</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.documentsRead}</p>
+          </div>
+          <div className="p-3 bg-secondary/30 rounded-lg">
+            <p className="text-xs text-muted-foreground">2. Extracts ({Math.round(funnel.readToExtractRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.extractsCreated}</p>
+          </div>
+          <div className="p-3 bg-secondary/30 rounded-lg">
+            <p className="text-xs text-muted-foreground">3. Cards ({Math.round(funnel.extractToCardRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.cardsGenerated}</p>
+          </div>
+          <div className="p-3 bg-secondary/30 rounded-lg">
+            <p className="text-xs text-muted-foreground">4. Retained ({Math.round(funnel.cardToRetainedRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.cardsRetained}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

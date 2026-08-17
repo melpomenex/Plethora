@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 import { useAccountStore } from "../../stores/accountStore";
 import { useEntitlementStore } from "../../stores/entitlementStore";
+import { usePaywallStore } from "../../stores/paywallStore";
+import { CapabilityCatalog } from "../monetization/CapabilityCatalog";
+import { TrialBadge } from "../monetization/TrialBadge";
 import {
   Crown,
   DeviceMobile,
   Laptop,
   Shield,
   SignOut,
+  Sparkle,
   Trash,
   User,
 } from "@phosphor-icons/react";
@@ -18,6 +22,7 @@ export function UserProfilePanel() {
   const { isAuthenticated, user, devices, signOut, loadDevices, revokeDevice } = useAccountStore();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const plan = useEntitlementStore((state) => state.snapshot.plan);
+  const openPaywall = usePaywallStore((state) => state.openPaywall);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,6 +32,16 @@ export function UserProfilePanel() {
 
   const handleLogout = async () => {
     await signOut();
+  };
+
+  const handleOpenPaywall = () => {
+    openPaywall({
+      capabilityId: 'library_intelligence',
+      sourceSurface: 'user_profile_panel',
+      title: 'Plethora Pro Membership',
+      description: 'Unlock whole-library RAG semantic search, zero-knowledge cloud sync, AI Socratic tutoring, diarized podcast transcription, and neural audiobook voices.',
+      quotaDetails: 'Unlimited encrypted sync + monthly AI quota pools',
+    });
   };
 
   const isPro = plan === 'pro';
@@ -40,9 +55,12 @@ export function UserProfilePanel() {
             <User className="w-8 h-8 text-primary" />
           </div>
           <div className="flex-1">
-            <h2 className="text-xl font-semibold text-foreground">
-              {isAuthenticated && user ? user.email : t("userProfile.guestUser")}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-semibold text-foreground">
+                {isAuthenticated && user ? user.email : t("userProfile.guestUser")}
+              </h2>
+              <TrialBadge />
+            </div>
             <div className="flex items-center gap-2 mt-1">
               {isAuthenticated ? (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
@@ -61,27 +79,39 @@ export function UserProfilePanel() {
             </div>
           </div>
           
-          {isAuthenticated ? (
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <SignOut className="w-4 h-4" />
-              {t("userProfile.logOut")}
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsLoginOpen(true)}
-              className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
-            >
-              {t("userProfile.signInSignUp")}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {!isPro && (
+              <button
+                onClick={handleOpenPaywall}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-lg transition-all text-sm font-medium flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkle className="w-4 h-4" />
+                Upgrade to Pro
+              </button>
+            )}
+
+            {isAuthenticated ? (
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors flex items-center gap-2 text-sm"
+              >
+                <SignOut className="w-4 h-4" />
+                {t("userProfile.logOut")}
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsLoginOpen(true)}
+                className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors text-sm"
+              >
+                {t("userProfile.signInSignUp")}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Subscription Info */}
-      {isAuthenticated && !isPro && (
+      {/* Subscription Banner */}
+      {!isPro && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-6">
           <div className="flex items-start gap-4">
             <Crown className="w-8 h-8 text-amber-600 dark:text-amber-400 mt-1" />
@@ -92,10 +122,22 @@ export function UserProfilePanel() {
               <p className="text-sm text-muted-foreground mt-1">
                 {t("userProfile.proBenefits")}
               </p>
+              <button
+                onClick={handleOpenPaywall}
+                className="mt-4 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                View Plans & 14-Day Free Trial
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Capability Catalog */}
+      <div className="bg-card border rounded-lg p-6">
+        <CapabilityCatalog />
+      </div>
+
 
       {/* Devices Registry */}
       {isAuthenticated && devices && devices.length > 0 && (

@@ -19,6 +19,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { BackupRestorePanel } from "./BackupRestorePanel";
+import { SyncSettingsPanel } from "./SyncSettingsPanel";
 
 // Types
 type CloudProviderType = "onedrive" | "google-drive" | "dropbox";
@@ -208,9 +209,13 @@ export function CloudStorageSettings({ onChange }: { onChange: () => void }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Plethora E2E Cloud Sync */}
+      <SyncSettingsPanel />
+
       {/* Provider Selection */}
       <div>
+
         <h3 className="text-lg font-semibold text-foreground mb-4">
           Cloud Storage Provider
         </h3>
