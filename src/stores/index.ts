@@ -31,5 +31,8 @@ export { useApiTokensStore } from "./apiTokensStore";
 export { useInboxStore } from "./inboxStore";
 export { useKnowledgeGapsStore } from "./knowledgeGapsStore";
 export { useCardOptimizerStore } from "./cardOptimizerStore";
+export { useLearningPathsStore } from "./learningPathsStore";
+export { useKnowledgeHealthStore } from "./knowledgeHealthStore";
+
 
 
