@@ -15,10 +15,16 @@ import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { normalizeClozeSyntax } from "../../utils/cloze";
+import { SuperMemoRatingControl } from "./SuperMemoRatingControl";
+import {
+  gradeToRating,
+  useRatingSchema,
+  type SM20NativeGrade,
+} from "../../lib/supermemo-grades";
 
 interface FlashcardScrollItemProps {
     learningItem: LearningItem;
-    onRate: (rating: number) => void;
+    onRate: (rating: number, grade?: number) => void;
     onCreateFlashcard?: (excerpt: string, extractId?: string, documentId?: string) => void;
     onCreateCloze?: (selectedText: string, range: [number, number]) => void;
     onCreateQA?: () => void;
@@ -44,6 +50,13 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     const [imageUrls, setImageUrls] = useState<string[]>([]);
     const { click } = useHapticFeedback();
     const containerRef = useRef<HTMLDivElement>(null);
+    // SuperMemo six-grade schedulers (SM-18/SM-20) rate on the native 0-5
+    // scale — same shared control, keyboard mapping, and touch joystick as
+    // the review session.
+    const ratingSchema = useRatingSchema();
+    const useNativeGrades = ratingSchema.type === "supermemo";
+    const isAnswerRevealedRef = useRef(isAnswerRevealed);
+    isAnswerRevealedRef.current = isAnswerRevealed;
 
     const handleCreateCloze = () => {
         if (!onCreateCloze) return;
@@ -87,9 +100,15 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 }
             }
 
-            // Number keys 1-4 to rate (only when answer is revealed)
+            // Number keys to rate (only when answer is revealed): 0-5 native
+            // grades under SuperMemo schedulers, 1-4 otherwise.
             if (isAnswerRevealed) {
-                if (e.key === "1") {
+                if (useNativeGrades && /^[0-5]$/.test(e.key)) {
+                    e.preventDefault();
+                    click();
+                    const grade = Number(e.key) as SM20NativeGrade;
+                    onRate(gradeToRating(grade), grade);
+                } else if (e.key === "1") {
                     e.preventDefault();
                     click();
                     onRate(1);
@@ -111,7 +130,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [isAnswerRevealed, onRate, onCreateQA, learningItem.question]);
+    }, [isAnswerRevealed, onRate, onCreateQA, learningItem.question, useNativeGrades]);
 
     // Report the reveal state to the parent (Scroll Mode gates its global 1-4
     // rating shortcuts on it). Runs on mount (revealed=false) and whenever the
@@ -422,7 +441,16 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 )}
 
                 {/* Rating Buttons - show after answer is revealed */}
-                {isAnswerRevealed && (
+                {isAnswerRevealed && useNativeGrades && (
+                    <div className="mt-6">
+                        <SuperMemoRatingControl
+                            onSelect={(rating, grade) => { click(); onRate(rating, grade); }}
+                            enabled={() => isAnswerRevealedRef.current}
+                            touchAreaRef={containerRef}
+                        />
+                    </div>
+                )}
+                {isAnswerRevealed && !useNativeGrades && (
                     <div className="flex items-center justify-center gap-4 mt-6">
                         <button
                             onClick={() => { click(); onRate(1); }}
@@ -459,6 +487,8 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 <div className="mt-8 text-center text-xs text-muted-foreground">
                     {!isAnswerRevealed ? (
                         "Press Space to reveal answer"
+                    ) : useNativeGrades ? (
+                        "Press 0-5 to grade • 0-2 fail, 3-5 pass"
                     ) : (
                         "Press 1-4 to rate • 1=Again, 2=Hard, 3=Good, 4=Easy"
                     )}

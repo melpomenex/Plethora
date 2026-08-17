@@ -1,4 +1,4 @@
-import { ReviewRating, PreviewIntervals, formatInterval } from "../../api/review";
+import { PreviewIntervals, formatInterval } from "../../api/review";
 import {
   ArrowCounterClockwise,
   Lightning,
@@ -8,6 +8,11 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import {
+  SUPERMEMO_GRADES,
+  SUGGESTED_GRADE_BY_RATING,
+  type ReviewRating,
+} from "../../lib/supermemo-grades";
 
 interface RatingButtonsProps {
   /** `grade` is set (0-5) when the native SM-20 grade scale is active. */
@@ -26,74 +31,41 @@ interface RatingButtonsProps {
   suggestedRating?: ReviewRating;
 }
 
-/** Equivalent native grade for an advisory 4-button rating suggestion. */
-const SUGGESTED_GRADE_BY_RATING: Record<number, number> = { 1: 1, 2: 3, 3: 4, 4: 5 };
+/** Per-grade icon for the tappable grid (presentation detail; the shared
+ * grade semantics live in `lib/supermemo-grades`). */
+const GRADE_ICON: Record<number, typeof ArrowCounterClockwise> = {
+  0: Prohibit,
+  1: X,
+  2: ArrowCounterClockwise,
+  3: ThumbsDown,
+  4: ThumbsUp,
+  5: Lightning,
+};
 
-/** SM-20 native grades: 0-2 are fail variants, 3-5 are pass variants. Each
- * carries the equivalent 4-button rating used for stats/history. */
-const GRADE_BUTTONS: {
-  grade: number;
-  rating: ReviewRating;
-  labelKey: string;
-  descriptionKey: string;
-  icon: typeof ArrowCounterClockwise;
-  color: string;
-}[] = [
-  {
-    grade: 0,
-    rating: 1,
-    labelKey: "review.grade0",
-    descriptionKey: "ratingButtons.grade0Description",
-    icon: Prohibit,
-    color: "bg-red-700 hover:bg-red-800",
-  },
-  {
-    grade: 1,
-    rating: 1,
-    labelKey: "review.grade1",
-    descriptionKey: "ratingButtons.grade1Description",
-    icon: X,
-    color: "bg-red-500 hover:bg-red-600",
-  },
-  {
-    grade: 2,
-    rating: 1,
-    labelKey: "review.grade2",
-    descriptionKey: "ratingButtons.grade2Description",
-    icon: ArrowCounterClockwise,
-    color: "bg-orange-500 hover:bg-orange-600",
-  },
-  {
-    grade: 3,
-    rating: 2,
-    labelKey: "review.grade3",
-    descriptionKey: "ratingButtons.grade3Description",
-    icon: ThumbsDown,
-    color: "bg-amber-500 hover:bg-amber-600",
-  },
-  {
-    grade: 4,
-    rating: 3,
-    labelKey: "review.grade4",
-    descriptionKey: "ratingButtons.grade4Description",
-    icon: ThumbsUp,
-    color: "bg-blue-500 hover:bg-blue-600",
-  },
-  {
-    grade: 5,
-    rating: 4,
-    labelKey: "review.grade5",
-    descriptionKey: "ratingButtons.grade5Description",
-    icon: Lightning,
-    color: "bg-green-500 hover:bg-green-600",
-  },
-];
+/** SM-20 native grades (0-2 fail, 3-5 pass) joined with their grid icons. */
+const GRADE_BUTTONS = SUPERMEMO_GRADES.map((g) => ({
+  ...g,
+  icon: GRADE_ICON[g.grade],
+}));
 
 const BUTTON_CLASS = `
   text-white rounded-lg transition-all
   hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
   flex items-center justify-center gap-1 md:flex-col md:gap-2
   px-1 py-2 md:px-2 md:py-3 md:min-h-[100px]
+  touch-manipulation
+  focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
+  focus-visible:scale-[1.02]
+`;
+
+/** Compact variant for the 0-5 grade scale: six buttons must fit in one row
+ *  on desktop (Review footer, flashcard cards) without crowding the card,
+ *  and stay unobtrusive on the phone where the joystick is the primary path. */
+const GRADE_BUTTON_CLASS = `
+  text-white rounded-lg transition-all
+  hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+  flex items-center justify-center gap-1 md:flex-col md:gap-0.5
+  px-1 py-1.5 md:px-1.5 md:py-2 md:min-h-[52px]
   touch-manipulation
   focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
   focus-visible:scale-[1.02]
@@ -113,7 +85,7 @@ export function RatingButtons({
   if (gradeScale) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5 md:gap-2">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-1 md:gap-1.5">
           {GRADE_BUTTONS.map((entry) => {
             const Icon = entry.icon;
             const label = t(entry.labelKey);
@@ -136,7 +108,7 @@ export function RatingButtons({
                     ? `${t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })} — ${t("aiRecall.suggestedGrade")}`
                     : t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })
                 }
-                className={`${entry.color} ${BUTTON_CLASS} ${
+                className={`${entry.color} ${GRADE_BUTTON_CLASS} ${
                   isSuggested ? "ring-4 ring-white/70" : ""
                 }`}
                 aria-label={
@@ -149,13 +121,13 @@ export function RatingButtons({
                     : t("ratingButtons.rateAs", { label: `${entry.grade} — ${label}`, description })
                 }
               >
-                <Icon className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" aria-hidden="true" />
-                <span className="font-semibold text-xs md:text-sm leading-tight">
+                <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 flex-shrink-0" aria-hidden="true" />
+                <span className="font-semibold text-[11px] md:text-xs leading-tight">
                   {entry.grade} {label}
                 </span>
                 {interval && (
                   <span
-                    className="text-[9px] md:text-xs opacity-90 md:mt-0 leading-tight"
+                    className="text-[9px] md:text-[10px] opacity-90 md:mt-0 leading-tight"
                     aria-label={t("ratingButtons.nextReviewIn", { interval })}
                   >
                     {interval}
@@ -167,7 +139,7 @@ export function RatingButtons({
         </div>
 
         {/* Keyboard shortcuts hint - hide on mobile */}
-        <div className="mt-3 md:mt-4 text-center text-sm text-muted-foreground hidden md:block">
+        <div className="mt-2 md:mt-2.5 text-center text-sm text-muted-foreground hidden md:block">
           {t("ratingButtons.press")}{" "}
           {GRADE_BUTTONS.map((entry) => (
             <kbd

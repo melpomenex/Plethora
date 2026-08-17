@@ -54,7 +54,7 @@ interface ScrollOverlayControlsProps {
   onOpenEpubSettings?: () => void;
   onEpubPreviousPage?: () => void;
   onEpubNextPage?: () => void;
-  onRate: (rating: number) => void;
+  onRate: (rating: number, grade?: number) => void;
   onDismiss: () => void;
   onPriorityChange?: (slider: number) => void | Promise<void>;
   onGoToNext: () => void;
@@ -630,7 +630,9 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
             {/* Drag Handle */}
             <DragHandle />
 
-            {/* Ratings Orbs */}
+            {/* Ratings Orbs — documents/extracts always rate on the four-grade
+                scale (the FSRS-6 engagement scheduler), so the orb rail stays
+                regardless of the flashcard algorithm. */}
             <div className={cn("flex gap-3", layoutClasses)}>
               {itemType === "flashcard" || itemType === "extract" ? (
                 <button

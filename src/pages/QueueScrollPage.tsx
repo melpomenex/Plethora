@@ -65,7 +65,11 @@ import {
 } from "./queueScrollBudget";
 import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
 import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
-import { FLASHCARD_REVEAL_EVENT, resolveScrollRatingKey } from "./queueScrollKeyboard";
+import {
+  FLASHCARD_REVEAL_EVENT,
+  resolveScrollRatingKey,
+  usesNativeGradeKeys,
+} from "./queueScrollKeyboard";
 import {
   reanchorSessionPosition,
   resolveFlashcardRevealGate,
@@ -632,7 +636,7 @@ export function QueueScrollPage() {
   }, []);
   // handleRating is declared below the keydown effect that calls it; route the
   // call through this ref (kept current by an effect) to avoid a TDZ error.
-  const rateCurrentItemRef = useRef<(rating: number) => void>(() => {});
+  const rateCurrentItemRef = useRef<(rating: number, grade?: number) => void>(() => {});
 
   // Mobile PWA text selection state for RSS items
   const [mobileRssSelection, setMobileRssSelection] = useState<{
@@ -2997,6 +3001,10 @@ export function QueueScrollPage() {
         itemType: currentItem?.type,
         flashcardRevealed: flashcardRevealedRef.current,
         isRating,
+        // Native 0-5 grade keys apply ONLY to flashcards (the one item type
+        // scheduled by the SM-18/SM-20 flashcard scheduler); documents and
+        // extracts keep 1-4 keys matching their on-screen buttons.
+        nativeGrades: usesNativeGradeKeys(currentItem?.type, settings.learning.algorithm),
       });
       if (ratingKeyAction?.kind === "reveal-flashcard") {
         // The card's own Space handler only fires when focus is inside the
@@ -3013,7 +3021,7 @@ export function QueueScrollPage() {
         // when a per-item handler would also fire.
         e.preventDefault();
         e.stopImmediatePropagation();
-        rateCurrentItemRef.current(ratingKeyAction.rating);
+        rateCurrentItemRef.current(ratingKeyAction.rating, ratingKeyAction.grade);
         return;
       }
 
@@ -3064,7 +3072,7 @@ export function QueueScrollPage() {
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll]);
+  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll, settings.learning.algorithm]);
 
   // Bridge for TikTok-style vertical paging originating inside the EPUB iframe.
   // Touches inside epub.js's iframe are isolated from the parent document, so the
@@ -3180,8 +3188,11 @@ export function QueueScrollPage() {
     };
   }, [settings.interface.volumeRockerScroll]);
 
-  // Handle rating (for documents, flashcards, or mark as read for RSS)
-  const handleRating = async (rating: number) => {
+  // Handle rating (for documents, flashcards, or mark as read for RSS).
+  // `grade` carries the exact SuperMemo 0-5 grade under six-grade schemas so
+  // the backend schedules natively instead of collapsing via rating_to_grade;
+  // the equivalent legacy 1-4 `rating` is still populated.
+  const handleRating = async (rating: number, grade?: number) => {
 
     if (!currentItem) {
       return;
@@ -3222,10 +3233,12 @@ export function QueueScrollPage() {
 
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
-        // Rate flashcard using FSRS/SM-20
+        // Rate flashcard using the active scheduler (FSRS/SM-2 four-grade, or
+        // SM-18/SM-20 natively via `grade`).
         await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
           algorithm: settings.learning.algorithm,
           sm20PureM4: settings.learning.sm20PureM4,
+          grade,
         });
 
         // Track items reviewed

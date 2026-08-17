@@ -17,19 +17,25 @@ import { ReviewProgress } from "./ReviewProgress";
 import { ReviewComplete } from "./ReviewComplete";
 import { ReviewTransparencyPanel } from "./ReviewTransparencyPanel";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
-import { ReviewRating } from "../../api/review";
 import { ReviewFeedback } from "./ReviewFeedback";
 import { ReviewCardSkeleton } from "../common/Skeleton";
 import { useModal } from "../common/Modal";
 import { FSRSExplanationModal, useFSRSExplanation } from "../onboarding/FSRSExplanationModal";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../hooks/useSwipeGesture";
-import { useRatingJoystick } from "../../hooks/useRatingJoystick";
-import { RatingJoystick } from "./RatingJoystick";
+import {
+  SuperMemoRatingControl,
+  useIsTouchRating,
+} from "./SuperMemoRatingControl";
+import {
+  gradeToRating,
+  useRatingSchema,
+  type ReviewRating,
+  type SM20NativeGrade,
+} from "../../lib/supermemo-grades";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { useAudioReviewMode } from "../../hooks/useAudioReviewMode";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useFormFactor } from "../../hooks/useFormFactor";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import { BreakReminderModal, useBreakReminder } from "./BreakReminderModal";
 import { ZenReviewMode } from "./ZenReviewMode";
@@ -189,13 +195,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   );
   // SM-18 and SM-20 grade natively on a 0-5 scale (0-2 fail, 3-5 pass) —
   // surface the native scale instead of squeezing it into the 4 Anki-style
-  // buttons. Both algorithms branch on `grade >= 3`, so the same 6-grade UI
-  // applies.
-  const useNativeGrades = useSettingsStore(
-    (state) =>
-      state.settings.learning.algorithm === "sm20" ||
-      state.settings.learning.algorithm === "sm18",
-  );
+  // buttons. The scale is declared by the shared rating schema.
+  const ratingSchema = useRatingSchema();
+  const useNativeGrades = ratingSchema.type === "supermemo";
   const canChooseArenaMode = useSettingsStore(
     (state) =>
       featureFlags.reviewAlgorithmArena &&
@@ -204,8 +206,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   );
   // The H-pattern joystick is a touch-only affordance; desktop uses the
   // tappable grid + keyboard 0-5.
-  const formFactor = useFormFactor();
-  const isTouch = formFactor === "phone" || formFactor === "tablet";
+  const isTouch = useIsTouchRating();
 
   // FSRS explanation modal for first-time reviewers
   const { shouldShow: showFSRSExplanation, markShown: markFSRSShown } = useFSRSExplanation();
@@ -242,13 +243,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     preventDefaultTouch: true,
   });
 
-  const joystick = useRatingJoystick({
-    onSelect: (rating, grade) => ratingCbRef.current(rating as ReviewRating, grade),
-    enabled: () => answerShownRef.current && !submittingRef.current,
-  });
-  // The joystick and swipe hooks both attach to the same card container; only
-  // one is active depending on the algorithm + form factor.
-  const gestureRef = useJoystick ? joystick.ref : swipeRef;
+  // The joystick and swipe gestures both attach to the same card container;
+  // only one is active depending on the algorithm + form factor. The joystick
+  // itself is owned by `SuperMemoRatingControl` below.
+  const joystickAreaRef = useRef<HTMLDivElement | null>(null);
+  const gestureRef = useJoystick ? joystickAreaRef : swipeRef;
 
   // Break reminder for long review sessions (30 minutes)
   const {
@@ -664,9 +663,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         if (useNativeGrades) {
           // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
           if (/^[0-5]$/.test(e.key)) {
-            const grade = Number(e.key);
-            const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;
-            handleRating(rating, grade);
+            const grade = Number(e.key) as SM20NativeGrade;
+            handleRating(gradeToRating(grade), grade);
           }
         } else {
           if (e.key === "1") handleRating(1 as ReviewRating);
@@ -1005,16 +1003,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
               </div>
             )}
 
-            {/* H-pattern rating joystick overlay (touch + native-grade only) */}
-            {useJoystick && (
-              <RatingJoystick
-                activeGrade={joystick.activeGrade}
-                knob={joystick.knob}
-                base={joystick.base}
-                isActive={joystick.isActive}
-                previewIntervals={previewIntervals}
-              />
-            )}
+            {/* H-pattern rating joystick overlay (touch + native-grade only)
+                is rendered by SuperMemoRatingControl below. */}
 
             {isAnswerShown ? (
               <>
@@ -1041,17 +1031,31 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
                 {/* Rating Buttons */}
                 <div {...tourAnchor("reviewGradingControls")} className="flex-shrink-0 mt-4">
-                  <RatingButtons
-                    onSelectRating={handleRating}
-                    disabled={isSubmitting}
-                    previewIntervals={previewIntervals}
-                    gradeScale={useNativeGrades}
-                    suggestedRating={
-                      shouldSuggestGrade(cardAssessment.assessment, aiAutoGradeSuggest)
-                        ? computeSuggestedRating(cardAssessment.assessment)
-                        : undefined
-                    }
-                  />
+                  {useNativeGrades ? (
+                    <SuperMemoRatingControl
+                      onSelect={(rating, grade) => ratingCbRef.current(rating, grade)}
+                      enabled={() => answerShownRef.current && !submittingRef.current}
+                      disabled={isSubmitting}
+                      previewIntervals={previewIntervals}
+                      suggestedRating={
+                        shouldSuggestGrade(cardAssessment.assessment, aiAutoGradeSuggest)
+                          ? computeSuggestedRating(cardAssessment.assessment)
+                          : undefined
+                      }
+                      touchAreaRef={useJoystick ? joystickAreaRef : undefined}
+                    />
+                  ) : (
+                    <RatingButtons
+                      onSelectRating={handleRating}
+                      disabled={isSubmitting}
+                      previewIntervals={previewIntervals}
+                      suggestedRating={
+                        shouldSuggestGrade(cardAssessment.assessment, aiAutoGradeSuggest)
+                          ? computeSuggestedRating(cardAssessment.assessment)
+                          : undefined
+                      }
+                    />
+                  )}
                   {canChooseArenaMode && <AlgorithmArenaModeControl compact />}
                   {/* Hint for mobile */}
                   <div className="mt-3 text-center text-xs text-muted-foreground md:hidden">
