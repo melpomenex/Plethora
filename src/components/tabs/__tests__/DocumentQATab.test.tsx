@@ -16,8 +16,8 @@ vi.mock("../../../api/documents", () => ({
 }));
 vi.mock("../../../api/extracts", () => ({ getExtracts: vi.fn().mockResolvedValue([]) }));
 vi.mock("../../../api/mcp", () => ({
-  callIncrementumMCPTool: vi.fn(),
-  getIncrementumMCPTools: vi.fn().mockResolvedValue([]),
+  callAppMCPTool: vi.fn(),
+  getAppMCPTools: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../../api/integrations", () => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
@@ -69,7 +69,7 @@ vi.mock("../../../hooks/useDocumentSections", () => ({
 // Seed a single document so the tab renders past the empty-documents guard.
 import { copyToClipboard } from "../../../api/integrations";
 import { chatWithContext } from "../../../api/llm";
-import { callIncrementumMCPTool } from "../../../api/mcp";
+import { callAppMCPTool } from "../../../api/mcp";
 import { useDocumentQAStore, useLLMProvidersStore, useReviewStore, useStudyDeckStore, useTabsStore } from "../../../stores";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { useDocumentOutlineStore } from "../../../stores/documentOutlineStore";
@@ -89,7 +89,7 @@ beforeEach(() => {
     mediaSectionsByDocId: new Map(),
   });
   vi.mocked(copyToClipboard).mockClear();
-  vi.mocked(callIncrementumMCPTool).mockReset();
+  vi.mocked(callAppMCPTool).mockReset();
   vi.mocked(chatWithContext).mockReset();
 });
 
@@ -303,7 +303,7 @@ describe("DocumentQATab generated flashcards", () => {
   });
 
   it("adds document ownership and the title deck tag when retrying a failed card", async () => {
-    vi.mocked(callIncrementumMCPTool).mockResolvedValue({
+    vi.mocked(callAppMCPTool).mockResolvedValue({
       isError: false,
       content: [{ type: "text", text: JSON.stringify({ success: true, id: "card-1" }) }],
     } as never);
@@ -335,7 +335,7 @@ describe("DocumentQATab generated flashcards", () => {
       name: "Retry saving flashcard: What carries genetic information?",
     }));
 
-    await waitFor(() => expect(callIncrementumMCPTool).toHaveBeenCalledWith(
+    await waitFor(() => expect(callAppMCPTool).toHaveBeenCalledWith(
       "create_qa_card",
       expect.objectContaining({
         document_id: "doc-1",
