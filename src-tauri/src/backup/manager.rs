@@ -41,7 +41,7 @@ impl BackupManager {
     /// `db_path` is the path to the live SQLite database file on disk,
     /// needed for SQLite online backup during restore.
     pub fn new(db: Database, db_path: PathBuf) -> Result<Self, AppError> {
-        let temp_dir = std::env::temp_dir().join("incrementum-backups");
+        let temp_dir = std::env::temp_dir().join("plethora-backups");
 
         Ok(Self {
             db,
