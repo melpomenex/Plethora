@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
 import { captureAndSaveScreenshot } from "../utils/screenshotCaptureFlow";
 import { useI18n } from "../lib/i18n";
@@ -108,14 +108,20 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
       e.preventDefault();
       e.stopPropagation();
       button.backgroundAction();
+      (e.currentTarget as HTMLElement)?.blur?.();
     }
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    button.action();
+    e.currentTarget?.blur?.();
   };
 
   const isVertical = orientation === "vertical";
 
   return (
     <button
-      onClick={button.action}
+      onClick={handleClick}
       onAuxClick={handleAuxClick}
       disabled={button.disabled}
       title={expanded ? undefined : `${button.label} (${button.shortcut})`}
@@ -172,26 +178,39 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   const [expanded, setExpanded] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Whether the pointer currently rests over the rail / a button inside it
-  // holds focus. The collapse rules are "collapse only when BOTH are gone", so
-  // a click into the content area (which blurs the rail's button while the
-  // pointer still hovers it) must not collapse the rail under the cursor, and
-  // tabbing out must not leave it expanded.
   const pointerInsideRef = useRef(false);
   const focusInsideRef = useRef(false);
+  const railRef = useRef<HTMLDivElement>(null);
 
-  const clearOpenTimer = () => {
+  const clearOpenTimer = useCallback(() => {
     if (openTimerRef.current !== null) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
     }
-  };
-  const clearCloseTimer = () => {
+  }, []);
+
+  const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current !== null) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-  };
+  }, []);
+
+  const collapseNow = useCallback(() => {
+    clearOpenTimer();
+    clearCloseTimer();
+    pointerInsideRef.current = false;
+    focusInsideRef.current = false;
+    setExpanded(false);
+    if (
+      railRef.current &&
+      typeof document !== "undefined" &&
+      document.activeElement &&
+      railRef.current.contains(document.activeElement)
+    ) {
+      (document.activeElement as HTMLElement).blur?.();
+    }
+  }, [clearOpenTimer, clearCloseTimer]);
 
   useEffect(() => {
     // Clear both timers on unmount so a pending close can't toggle state
@@ -200,7 +219,33 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       clearOpenTimer();
       clearCloseTimer();
     };
-  }, []);
+  }, [clearOpenTimer, clearCloseTimer]);
+
+  // Synchronize active tab navigation: collapse the rail whenever the active tab changes.
+  const activeTabHistory = useTabsStore((state) => state.activeTabHistory);
+  const activeTabId = activeTabHistory[activeTabHistory.length - 1] ?? null;
+  const prevActiveTabIdRef = useRef<string | null>(activeTabId);
+
+  useEffect(() => {
+    if (prevActiveTabIdRef.current !== activeTabId) {
+      prevActiveTabIdRef.current = activeTabId;
+      collapseNow();
+    }
+  }, [activeTabId, collapseNow]);
+
+  // Outside pointerdown: collapse expanded toolbar if user clicks anywhere outside the rail.
+  useEffect(() => {
+    if (!expanded) return;
+    const handleOutsideInteraction = (e: MouseEvent | PointerEvent) => {
+      if (railRef.current && !railRef.current.contains(e.target as Node)) {
+        collapseNow();
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsideInteraction, true);
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsideInteraction, true);
+    };
+  }, [expanded, collapseNow]);
 
   const handlePointerEnter = () => {
     pointerInsideRef.current = true;
@@ -216,20 +261,25 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   const handlePointerLeave = () => {
     pointerInsideRef.current = false;
     clearOpenTimer();
-    // A button holding keyboard focus keeps the rail expanded even after the
-    // pointer leaves — it collapses only once focus leaves too.
-    if (focusInsideRef.current) return;
     if (closeTimerRef.current !== null) return;
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null;
       setExpanded(false);
+      focusInsideRef.current = false;
+      if (
+        railRef.current &&
+        typeof document !== "undefined" &&
+        document.activeElement &&
+        railRef.current.contains(document.activeElement)
+      ) {
+        (document.activeElement as HTMLElement).blur?.();
+      }
     }, CLOSE_DELAY_MS);
   };
 
   // Focus parity: entering any toolbar button expands immediately (no open
   // delay — keyboard users should not have to wait). Leaving the whole toolbar
-  // collapses immediately, unless the pointer still rests over it (a click in
-  // the content area blurs the rail while the cursor remains on it).
+  // collapses immediately, unless the pointer still rests over it.
   const handleFocusIn = () => {
     focusInsideRef.current = true;
     clearOpenTimer();
@@ -812,6 +862,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const toolbarContent = (
     <div
+      ref={railRef}
       data-toolbar-position={position}
       data-expanded={expanded || undefined}
       {...railHandlers}
