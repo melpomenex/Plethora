@@ -141,9 +141,9 @@ test("happy path: every phase sampled, result written, reliable", async (t) => {
   assert.ok(payload.environment.platform, "environment block present");
   assert.ok(payload.settleParams.intervalMs, "settle params recorded");
   // The launched app received the harness env.
-  assert.equal(fakeSpawn.calls[0].INCREMENTUM_MEMORY_SCENARIO, "1");
-  assert.ok(fakeSpawn.calls[0].INCREMENTUM_MEMORY_CONTROL.startsWith("http://127.0.0.1:"));
-  assert.ok(fakeSpawn.calls[0].INCREMENTUM_MEMORY_RUN_ID);
+  assert.equal(fakeSpawn.calls[0].PLETHORA_MEMORY_SCENARIO, "1");
+  assert.ok(fakeSpawn.calls[0].PLETHORA_MEMORY_CONTROL.startsWith("http://127.0.0.1:"));
+  assert.ok(fakeSpawn.calls[0].PLETHORA_MEMORY_RUN_ID);
 });
 
 test("a document that fails to open exits non-zero with no result file", async (t) => {

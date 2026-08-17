@@ -1346,7 +1346,7 @@ pub fn run() {
                         feature = "devtools",
                         not(any(target_os = "ios", target_os = "android"))
                     ))]
-                    if std::env::var("INCREMENTUM_OPEN_DEVTOOLS").is_ok() {
+                    if crate::utils::keychain::env_or_legacy("PLETHORA_OPEN_DEVTOOLS").is_some() {
                         window.open_devtools();
                     }
                     tracing::info!("Webview ready at {:?}", window.url());
