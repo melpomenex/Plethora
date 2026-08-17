@@ -116,6 +116,13 @@ export interface SelectionInteractionController {
 
 const DEFAULT_BAR_SIZE = { width: 280, height: 48 };
 
+/**
+ * Height class of Android's floating selection toolbar (Copy / Select All /
+ * Share). Reserved above the selection so the app's bar never lands under
+ * (or on top of) the system toolbar when it must place above.
+ */
+export const SYSTEM_SELECTION_TOOLBAR_PX = 52;
+
 export function useSelectionInteraction(
   options: UseSelectionInteractionOptions,
 ): SelectionInteractionController {
@@ -232,7 +239,14 @@ export function useSelectionInteraction(
       if (!geometry) return null;
       const viewport = readLayoutViewport();
       const anchor = anchorRectFromGeometry(geometry, viewport);
-      return placeAnchoredBar(anchor, barSizeRef.current, viewport, readSafeInsets());
+      // Touch-only bar: Android's native selection toolbar (Copy / Select
+      // All) floats directly above the selection, so the app bar takes the
+      // below slot first and clears the system toolbar's zone when it must
+      // go above.
+      return placeAnchoredBar(anchor, barSizeRef.current, viewport, readSafeInsets(), {
+        preferBelow: true,
+        systemToolbarClearance: SYSTEM_SELECTION_TOOLBAR_PX,
+      });
     },
     [],
   );
@@ -279,15 +293,20 @@ export function useSelectionInteraction(
     }
     if (touchActiveRef.current) {
       // Long-press hold / active handle drag: re-check shortly — bounded, so
-      // Android's system-consumed gestures (no touchend) cannot wedge it.
+      // Android's system-consumed gestures (no touchend) cannot wedge it. At
+      // the cap, COMPLETE the settle: the range has been stable for the full
+      // stability window with no new events, so the finger is long gone —
+      // the swallowed touchend must not cost the user their action bar
+      // (observed on Boox, where handle releases rarely deliver touchend).
       if (!deferStartedAtRef.current) deferStartedAtRef.current = Date.now();
-      if (Date.now() - deferStartedAtRef.current > configRef.current.maxDeferMs) {
-        apply({ type: "dismiss" });
+      const deferred = Date.now() - deferStartedAtRef.current > configRef.current.maxDeferMs;
+      if (!deferred) {
+        clearStableTimer();
+        stableTimerRef.current = setTimeout(settleTimerFiredRef.current, configRef.current.deferStepMs);
         return;
       }
-      clearStableTimer();
-      stableTimerRef.current = setTimeout(settleTimerFiredRef.current, configRef.current.deferStepMs);
-      return;
+      touchActiveRef.current = false;
+      deferStartedAtRef.current = 0;
     }
     deferStartedAtRef.current = 0;
     apply({

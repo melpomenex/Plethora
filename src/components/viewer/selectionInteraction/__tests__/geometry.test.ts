@@ -139,6 +139,32 @@ describe("placeAnchoredBar — every position in the viewport", () => {
     expect(p.maxWidth).toBe(PALMA.width - 16);
     expectSafePlacement(anchor, p, PALMA);
   });
+
+  it("preferBelow takes the below slot (Android's system toolbar owns the above slot)", () => {
+    const anchor = { left: 500, top: 400, width: 200, height: 20 };
+    const p = placeAnchoredBar(anchor, BAR, DESKTOP, {}, { preferBelow: true, systemToolbarClearance: 52 });
+    expect(p.placement).toBe("below");
+    expect(p.top).toBe(anchor.top + anchor.height + 8);
+    expectSafePlacement(anchor, p, DESKTOP);
+  });
+
+  it("when below does not fit, above clears the system-toolbar zone", () => {
+    const anchor = { left: 40, top: 90, width: 250, height: 600 }; // tall selection, below won't fit
+    const p = placeAnchoredBar(anchor, BAR, PALMA, {}, { preferBelow: true, systemToolbarClearance: 52 });
+    expect(["above", "docked-top", "docked-bottom"]).toContain(p.placement);
+    if (p.placement === "above") {
+      // The bar sits above the reserved system-toolbar zone (52px + 8px gap).
+      expect(p.top + BAR.height).toBeLessThanOrEqual(anchor.top - 52 - 8 + 0.5);
+    }
+    expectSafePlacement(anchor, p, PALMA);
+  });
+
+  it("without clearance, above placement remains the compact default (legacy SelectionPopup)", () => {
+    const anchor = { left: 500, top: 400, width: 200, height: 20 };
+    const p = placeAnchoredBar(anchor, BAR, DESKTOP);
+    expect(p.placement).toBe("above");
+    expect(p.top).toBe(anchor.top - 8 - BAR.height);
+  });
 });
 
 describe("anchorRectFromGeometry — tall and multi-line selections", () => {
