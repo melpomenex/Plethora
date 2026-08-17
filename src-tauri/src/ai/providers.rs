@@ -16,6 +16,7 @@ pub enum LLMProviderType {
     Anthropic,
     OpenRouter,
     Ollama,
+    DeepSeek,
 }
 
 /// Message role
@@ -101,10 +102,12 @@ pub trait LLMProvider: Send + Sync + std::fmt::Debug {
     fn is_available(&self) -> bool;
 }
 
-/// OpenAI provider
+/// OpenAI provider. Also serves OpenAI-compatible endpoints (DeepSeek) via
+/// `with_base_url`.
 pub struct OpenAIProvider {
     api_key: String,
     model: String,
+    base_url: String,
     client: reqwest::Client,
 }
 
@@ -113,6 +116,16 @@ impl OpenAIProvider {
         Self {
             api_key,
             model,
+            base_url: "https://api.openai.com/v1".to_string(),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn with_base_url(api_key: String, model: String, base_url: String) -> Self {
+        Self {
+            api_key,
+            model,
+            base_url: base_url.trim_end_matches('/').to_string(),
             client: reqwest::Client::new(),
         }
     }
@@ -140,7 +153,7 @@ impl LLMProvider for OpenAIProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, String> {
-        let url = "https://api.openai.com/v1/chat/completions";
+        let url = format!("{}/chat/completions", self.base_url);
 
         let body = json!({
             "model": self.model,

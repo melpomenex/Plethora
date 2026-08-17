@@ -1288,7 +1288,7 @@ pub fn run() {
                 let bg_key_store = ai_key_store.clone();
                 drop(ai_state_handle);
                 tauri::async_runtime::spawn(async move {
-                    for provider in &["openai", "anthropic", "openrouter", "brave"] {
+                    for provider in &["openai", "anthropic", "openrouter", "brave", "deepseek"] {
                         match bg_key_store.get_key(provider).await {
                             Ok(Some(key)) => {
                                 let mut config =
@@ -1299,6 +1299,7 @@ pub fn run() {
                                     "anthropic" => current.api_keys.anthropic = Some(key),
                                     "openrouter" => current.api_keys.openrouter = Some(key),
                                     "brave" => current.api_keys.brave = Some(key),
+                                    "deepseek" => current.api_keys.deepseek = Some(key),
                                     _ => {}
                                 }
                             }

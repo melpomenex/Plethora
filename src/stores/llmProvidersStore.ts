@@ -36,10 +36,11 @@ export async function syncPrimaryProviderToNativeAI(
   if (typeof window === 'undefined' || !isTauri()) return;
 
   const provider = providers.find((candidate) => candidate.enabled);
-  // Gemini and DeepSeek are only wired into the assistant chat path
-  // (commands/llm.rs); they are not part of the native AI provider enum
-  // used by flashcard generation, Q&A, and summarization.
-  if (!provider || provider.provider === 'gemini' || provider.provider === 'deepseek') return;
+  // Gemini's API is not OpenAI-compatible with the native AI provider enum
+  // used by flashcard generation, Q&A, and summarization, so it stays on the
+  // assistant chat path (commands/llm.rs). DeepSeek is OpenAI-compatible and
+  // syncs into the native enum through its own provider variant and base URL.
+  if (!provider || provider.provider === 'gemini') return;
 
   try {
     if (provider.provider !== 'ollama' && provider.apiKey.trim()) {
@@ -61,6 +62,7 @@ export async function syncPrimaryProviderToNativeAI(
       anthropic_model: 'claude-3-5-sonnet-20241022',
       openrouter_model: 'anthropic/claude-3.5-sonnet',
       ollama_model: 'llama3.2',
+      deepseek_model: 'deepseek-chat',
     };
     const modelKey = `${provider.provider}_model` as keyof typeof models;
     models[modelKey] = provider.model;
@@ -77,6 +79,7 @@ export async function syncPrimaryProviderToNativeAI(
           anthropic: 'Anthropic',
           openrouter: 'OpenRouter',
           ollama: 'Ollama',
+          deepseek: 'DeepSeek',
         }[provider.provider],
         api_keys: apiKeys,
         models,

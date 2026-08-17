@@ -155,6 +155,10 @@ pub async fn set_ai_config(
         );
         config.api_keys.brave =
             preserve_secret(config.api_keys.brave, current.api_keys.brave.clone());
+        config.api_keys.deepseek = preserve_secret(
+            config.api_keys.deepseek,
+            current.api_keys.deepseek.clone(),
+        );
     }
 
     *state_config = Some(config.clone());
@@ -213,7 +217,7 @@ pub async fn set_api_key(
     let provider_lower = provider.to_lowercase();
 
     match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" | "brave" => {}
+        "openai" | "anthropic" | "openrouter" | "brave" | "deepseek" => {}
         _ => {
             return Err(PlethoraError::InvalidInput(format!(
                 "Unknown provider: {}",
@@ -233,6 +237,7 @@ pub async fn set_api_key(
         "anthropic" => current.api_keys.anthropic = Some(api_key),
         "openrouter" => current.api_keys.openrouter = Some(api_key),
         "brave" => current.api_keys.brave = Some(api_key),
+        "deepseek" => current.api_keys.deepseek = Some(api_key),
         _ => unreachable!(),
     }
 
