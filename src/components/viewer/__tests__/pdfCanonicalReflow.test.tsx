@@ -270,6 +270,151 @@ describe("PdfCanonicalReflowRenderer", () => {
     // Dialog closed
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("visibly renders inline figure in reading order between selectable paragraphs and caption", () => {
+    const documentPage: PdfCanonicalPage = {
+      ...page(),
+      words: [
+        word("p1:w0", "Before", 100, 150, 0),
+        word("p1:w1", "paragraph", 155, 220, 1),
+        word("p1:w2", "After", 100, 150, 2),
+        word("p1:w3", "paragraph", 155, 220, 3),
+      ],
+      blocks: [
+        {
+          id: "p1:p1",
+          kind: "paragraph",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 700, x1: 500, y1: 710 } }],
+          wordIds: ["p1:w0", "p1:w1"],
+          lineIds: ["p1:l0"],
+          readingOrder: 0,
+          confidence: 1.0,
+          text: "Before paragraph",
+          direction: "ltr",
+          language: null,
+          items: null,
+          table: null,
+          assetId: null,
+          sourceWidth: null,
+          sourceHeight: null,
+          altText: null,
+          captionOf: null,
+          href: null,
+          extraction: "native-pdf-text",
+        },
+        {
+          id: "p1:fig1",
+          kind: "figure",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 450, x1: 500, y1: 650 } }],
+          wordIds: [],
+          lineIds: [],
+          readingOrder: 1,
+          confidence: 0.95,
+          text: "",
+          direction: "auto",
+          language: null,
+          items: null,
+          table: null,
+          assetId: "asset-1234",
+          sourceWidth: 800,
+          sourceHeight: 400,
+          altText: "Architecture Diagram",
+          captionOf: null,
+          href: null,
+          extraction: "graphical",
+        },
+        {
+          id: "p1:cap1",
+          kind: "caption",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 420, x1: 500, y1: 440 } }],
+          wordIds: [],
+          lineIds: [],
+          readingOrder: 2,
+          confidence: 0.9,
+          text: "Figure 1: High-level System Architecture",
+          direction: "ltr",
+          language: null,
+          items: null,
+          table: null,
+          assetId: null,
+          sourceWidth: null,
+          sourceHeight: null,
+          altText: null,
+          captionOf: "p1:fig1",
+          href: null,
+          extraction: "native-pdf-text",
+        },
+        {
+          id: "p1:p2",
+          kind: "paragraph",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 300, x1: 500, y1: 310 } }],
+          wordIds: ["p1:w2", "p1:w3"],
+          lineIds: ["p1:l1"],
+          readingOrder: 3,
+          confidence: 1.0,
+          text: "After paragraph",
+          direction: "ltr",
+          language: null,
+          items: null,
+          table: null,
+          assetId: null,
+          sourceWidth: null,
+          sourceHeight: null,
+          altText: null,
+          captionOf: null,
+          href: null,
+          extraction: "native-pdf-text",
+        },
+      ],
+    };
+
+    const assetUrls = new Map([["p1:fig1", "blob:http://localhost/fig1-rendered"]]);
+    const assetDims = new Map([["p1:fig1", { width: 800, height: 400 }]]);
+
+    render(
+      <PdfCanonicalReflowRenderer
+        pages={[documentPage]}
+        assetUrls={assetUrls}
+        assetDims={assetDims}
+      />,
+    );
+
+    // 1. First paragraph is real selectable text with word spans
+    const p1 = document.querySelector("#p1\\:p1");
+    expect(p1?.textContent).toBe("Before paragraph");
+    expect(p1?.querySelector('[data-w="p1:w0"]')?.textContent).toBe("Before");
+    expect(p1?.querySelector('[data-w="p1:w1"]')?.textContent).toBe("paragraph");
+
+    // 2. Figure is rendered as an actual inline <img> with the resolved object URL
+    const figImg = screen.getByAltText("Architecture Diagram") as HTMLImageElement;
+    expect(figImg).toBeTruthy();
+    expect(figImg.src).toBe("blob:http://localhost/fig1-rendered");
+    expect(figImg.getAttribute("width")).toBe("800");
+    expect(figImg.getAttribute("height")).toBe("400");
+    const visualBox = figImg.closest(".pdf-reflow-visual-box") as HTMLElement;
+    expect(visualBox).toBeTruthy();
+    expect(visualBox.style.aspectRatio).toBe("800 / 400");
+
+    // 3. Caption is rendered as semantic <figcaption>
+    const caption = document.querySelector("figcaption#p1\\:cap1");
+    expect(caption?.textContent).toBe("Figure 1: High-level System Architecture");
+
+    // 4. Second paragraph is real selectable text following the figure and caption
+    const p2 = document.querySelector("#p1\\:p2");
+    expect(p2?.textContent).toBe("After paragraph");
+    expect(p2?.querySelector('[data-w="p1:w2"]')?.textContent).toBe("After");
+
+    // 5. Ensure "Show original" placeholder is NOT displayed
+    expect(screen.queryByText(/switch to Original view/i)).toBeNull();
+  });
 });
 
 describe("PdfCanonicalReflowRenderer visual aspect boxes", () => {
