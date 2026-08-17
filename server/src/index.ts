@@ -10,6 +10,7 @@ import { usageRouter as v1UsageRouter } from './routes/v1/usage.js';
 import { billingRouter as v1BillingRouter } from './routes/v1/billing.js';
 import { syncRouter as v1SyncRouter } from './routes/v1/sync.js';
 import { apiRouter as v1ApiRouter } from './routes/v1/api.js';
+import { captureRouter as v1CaptureRouter, inboxRouter as v1InboxRouter } from './routes/v1/capture.js';
 import { authRouter as legacyAuthRouter } from './routes/auth.js';
 import { oauthRouter as legacyOauthRouter } from './routes/oauth.js';
 import { syncRouter } from './routes/sync.js';
@@ -54,6 +55,8 @@ app.use('/v1/usage', v1UsageRouter);
 app.use('/v1/billing', v1BillingRouter);
 app.use('/v1/sync', v1SyncRouter);
 app.use('/v1/api', v1ApiRouter);
+app.use('/v1/capture', v1CaptureRouter);
+app.use('/v1/inbox', v1InboxRouter);
 
 // Legacy routes (during transition)
 app.use('/auth', legacyAuthRouter);

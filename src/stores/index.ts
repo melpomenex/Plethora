@@ -28,4 +28,8 @@ export { useConnectionsStore } from "./connectionsStore";
 export { useKnowledgeGraphStore } from "./knowledgeGraphStore";
 export { useListeningQueueStore } from "./listeningQueueStore";
 export { useApiTokensStore } from "./apiTokensStore";
+export { useInboxStore } from "./inboxStore";
+export { useKnowledgeGapsStore } from "./knowledgeGapsStore";
+export { useCardOptimizerStore } from "./cardOptimizerStore";
+
 
