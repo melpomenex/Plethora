@@ -84,6 +84,12 @@ brand domain (provisional) **`plethora.app`** · extension display name
 
 Referenced by `tauri.conf.json`: `src-tauri/icons/32x32.png`, `128x128.png`,
 `128x128@2x.png`, `icon.icns`, `icon.ico`.
+`icon.icns` is the one non-square target: `scripts/generate-icons.mjs` derives
+it from the square master as a macOS Big Sur-style tile (824/1024 artwork box,
+corner radius 185.4, transparent margins) because macOS applies no corner mask
+to icns icons — a full-bleed square renders with sharp corners in the Dock.
+Every other target (Windows/Linux/iOS/Android/web) keeps full-bleed square
+art; those platforms mask or expect squares.
 Referenced by `public/manifest.json` + `index.html` + `public/sw.js`:
 `public/icons/sprout-{72,96,128,144,152,180,192,384,512}x*.png`,
 `sprout-maskable-{192,512}x*.png`, `badge-72x72.png`, `public/apple-touch-icon.png`.
