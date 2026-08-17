@@ -207,7 +207,7 @@ export async function submitSegment(
   endTime: number,
   category: SponsorBlockCategory,
   userID: string,
-  userAgent: string = "Incrementum/1.0"
+  userAgent: string = "Plethora/1.0"
 ): Promise<boolean> {
   try {
     const response = await fetch(`${SPONSORBLOCK_API}/api/skipSegments`, {

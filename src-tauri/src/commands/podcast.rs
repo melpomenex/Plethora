@@ -45,7 +45,7 @@ pub async fn subscribe_podcast(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Incrementum/1.31.0")
+        .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
@@ -158,7 +158,7 @@ pub async fn refresh_podcast_feed(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Incrementum/1.31.0")
+        .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
