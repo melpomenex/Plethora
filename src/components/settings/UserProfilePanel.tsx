@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
-import { getUser, logout, isAuthenticated as checkIsAuthenticated } from "../../lib/sync-client";
+import { useAccountStore } from "../../stores/accountStore";
 import { useEntitlementStore } from "../../stores/entitlementStore";
 import {
   Crown,
+  DeviceMobile,
+  Laptop,
   Shield,
   SignOut,
+  Trash,
   User,
 } from "@phosphor-icons/react";
 import { LoginModal } from "../auth/LoginModal";
@@ -12,34 +15,18 @@ import { useI18n } from "../../lib/i18n";
 
 export function UserProfilePanel() {
   const { t } = useI18n();
-  const [user, setUser] = useState(getUser());
-  const [isAuthenticated, setIsAuthenticated] = useState(checkIsAuthenticated());
+  const { isAuthenticated, user, devices, signOut, loadDevices, revokeDevice } = useAccountStore();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const plan = useEntitlementStore((state) => state.snapshot.plan);
 
   useEffect(() => {
-    // Refresh user state on mount and periodically
-    const refresh = () => {
-        setUser(getUser());
-        setIsAuthenticated(checkIsAuthenticated());
-    };
-    refresh();
-    // Poll for changes (e.g. if updated elsewhere)
-    const interval = setInterval(refresh, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    if (isAuthenticated) {
+      void loadDevices();
+    }
+  }, [isAuthenticated, loadDevices]);
 
-  const handleLogout = () => {
-    logout();
-    setUser(null);
-    setIsAuthenticated(false);
-    window.location.reload();
-  };
-
-  const handleLoginSuccess = () => {
-    setIsLoginOpen(false);
-    setUser(getUser());
-    setIsAuthenticated(true);
+  const handleLogout = async () => {
+    await signOut();
   };
 
   const isPro = plan === 'pro';
@@ -99,26 +86,65 @@ export function UserProfilePanel() {
           <div className="flex items-start gap-4">
             <Crown className="w-8 h-8 text-amber-600 dark:text-amber-400 mt-1" />
             <div className="flex-1">
-              <h3 className="text-lg font-semibold text-foreground mb-2">{t("userProfile.upgradeToPro")}</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                {t("userProfile.upgradeDesc")}
+              <h3 className="text-lg font-semibold text-foreground">
+                {t("userProfile.upgradeToPro")}
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {t("userProfile.proBenefits")}
               </p>
-              <button
-                className="px-4 py-2 bg-amber-600 text-white hover:bg-amber-700 rounded-lg font-medium transition-colors"
-                onClick={() => alert("Payment flow placeholder")}
-              >
-                {t("userProfile.upgradeNow")}
-              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Devices Registry */}
+      {isAuthenticated && devices && devices.length > 0 && (
+        <div className="bg-card border rounded-lg p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Laptop className="w-5 h-5 text-primary" />
+            Connected Devices
+          </h3>
+          <div className="divide-y border rounded-lg">
+            {devices.map((device) => {
+              const isRevoked = !!device.revokedAt;
+              return (
+                <div key={device.id} className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {device.platform.toLowerCase().includes('mobile') || device.platform.toLowerCase().includes('android') || device.platform.toLowerCase().includes('ios') ? (
+                      <DeviceMobile className="w-6 h-6 text-muted-foreground" />
+                    ) : (
+                      <Laptop className="w-6 h-6 text-muted-foreground" />
+                    )}
+                    <div>
+                      <p className={`text-sm font-medium ${isRevoked ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                        {device.deviceName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {device.platform} • Last seen {new Date(device.lastSeen).toLocaleDateString()}
+                        {isRevoked && ' • (Revoked)'}
+                      </p>
+                    </div>
+                  </div>
+                  {!isRevoked && (
+                    <button
+                      onClick={() => revokeDevice(device.id)}
+                      className="text-xs px-3 py-1.5 rounded text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Login Modal */}
-      <LoginModal 
-        isOpen={isLoginOpen} 
-        onClose={() => setIsLoginOpen(false)} 
-        onAuthenticated={handleLoginSuccess}
+      <LoginModal
+        isOpen={isLoginOpen}
+        onClose={() => setIsLoginOpen(false)}
       />
     </div>
   );

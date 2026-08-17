@@ -28,6 +28,8 @@ mod ocr;
 // `src/bin/pdf-reflow-diag.rs` can call `pdf::analysis::analyze_page`
 // directly without a Tauri runtime.
 pub mod pdf;
+mod plethora_auth;
+mod plethora_cloud;
 mod pocket_tts;
 mod podcast;
 mod processor;
@@ -1007,6 +1009,8 @@ pub fn run() {
                 app.manage(FocusTimer::new());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
+                app.manage(Arc::new(plethora_auth::AuthManager::new()));
+                app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
 
                 let app_dir = app
                     .path()
@@ -2035,6 +2039,17 @@ pub fn run() {
             entitlements::entitlement_refresh,
             entitlements::entitlement_override_set,
             entitlements::entitlement_override_clear,
+            // Plethora Auth commands
+            plethora_auth::account_get_state,
+            plethora_auth::account_sign_in,
+            plethora_auth::account_sign_out,
+            plethora_auth::account_refresh,
+            plethora_auth::account_list_devices,
+            plethora_auth::account_revoke_device,
+            // Plethora Cloud commands
+            plethora_cloud::cloud_job_submit,
+            plethora_cloud::cloud_job_get_status,
+            plethora_cloud::cloud_job_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

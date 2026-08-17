@@ -21,3 +21,4 @@ export type {
 } from "./tabsStore";
 export { useRssStudyStore } from "./rssStudyStore";
 export { useEntitlementStore } from "./entitlementStore";
+export { useAccountStore } from "./accountStore";
