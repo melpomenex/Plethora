@@ -131,6 +131,39 @@ describe("LearnThisProposalSheet", () => {
     expect(screen.getByText("aiLearning.running")).toBeTruthy();
   });
 
+  it("does not abort or re-trigger generation when re-rendered while open", async () => {
+    let resolveRun!: (result: LearnThisRun) => void;
+    runLearnThis.mockReturnValue(
+      new Promise<LearnThisRun>((resolve) => {
+        resolveRun = resolve;
+      })
+    );
+
+    const { rerender } = renderSheet();
+    expect(runLearnThis).toHaveBeenCalledTimes(1);
+
+    // Trigger re-render with new props object
+    rerender(
+      <LearnThisProposalSheet
+        open
+        text="Entropy is a measure of microstates."
+        passage={PASSAGE}
+        documentId="doc-1"
+        onClose={vi.fn()}
+      />
+    );
+
+    // Should NOT have triggered a second run or aborted the first
+    expect(runLearnThis).toHaveBeenCalledTimes(1);
+
+    // Resolve the in-flight run
+    resolveRun(makeRun());
+
+    await waitFor(() =>
+      expect(screen.getByText("aiLearning.kt.definition")).toBeTruthy()
+    );
+  });
+
   it("starts valid candidates accepted and flagged candidates blocked", async () => {
     renderSheet();
     await waitFor(() => expect(screen.getByText("Define entropy.")).toBeTruthy());

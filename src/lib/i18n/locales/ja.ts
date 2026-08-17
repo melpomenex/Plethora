@@ -5666,4 +5666,30 @@ export const ja: Dict = {
   "aiOcclusion.cardLabels": "{count} 個のラベルを隠す",
   "aiOcclusion.rejectedLabels": "AI が拒否したラベル {count} 個",
 
+  // AI Diagnostics
+  "aiDiagnostics.title": "AI診断とハードウェア機能",
+  "aiDiagnostics.button": "AI診断",
+  "aiDiagnostics.hardwareCapabilities": "オンデバイスハードウェア機能",
+  "aiDiagnostics.active": "アクティブ",
+  "aiDiagnostics.unavailable": "利用不可",
+  "aiDiagnostics.ready": "準備完了（ディスク上）",
+  "aiDiagnostics.notDownloaded": "未ダウンロード",
+  "aiDiagnostics.compiled": "コンパイル済み",
+  "aiDiagnostics.querying": "オンデバイスML Kit / LiteRT機能を照会中…",
+  "aiDiagnostics.desktopEnv": "デスクトップ / ブラウザ環境 — 設定されたクラウド/エンドポイントプロバイダーを使用中。",
+  "aiDiagnostics.recentLogs": "最近のタスク実行ログ ({count})",
+  "aiDiagnostics.clearLogs": "ログをクリア",
+  "aiDiagnostics.noTasks": "このセッションではまだAIタスクが実行されていません。",
+  "aiDiagnostics.provider": "プロバイダー",
+  "aiDiagnostics.class": "クラス",
+  "aiDiagnostics.latency": "レイテンシ",
+  "aiDiagnostics.validation": "検証",
+  "aiDiagnostics.fallback": "フォールバック",
+  "aiDiagnostics.error": "エラー",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "無効な値",
+  "itemDetails.modifierSaved": "インターバル修飾子を保存しました",
+  "itemDetails.modifierSaveFailed": "インターバル修飾子の保存に失敗しました",
+  "aiLibrary.indexNoDocuments": "インデックスキューまたは状態にドキュメントがありません。",
 };

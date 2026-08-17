@@ -5755,4 +5755,30 @@ export const fr: Dict = {
   "aiOcclusion.cardLabels": "masque {count} étiquette(s)",
   "aiOcclusion.rejectedLabels": "{count} étiquette(s) rejetée(s) par l'IA",
 
+  // AI Diagnostics
+  "aiDiagnostics.title": "Diagnostics IA et capacités matérielles",
+  "aiDiagnostics.button": "Diagnostics IA",
+  "aiDiagnostics.hardwareCapabilities": "Capacités matérielles sur l'appareil",
+  "aiDiagnostics.active": "Actif",
+  "aiDiagnostics.unavailable": "Indisponible",
+  "aiDiagnostics.ready": "Prêt (sur le disque)",
+  "aiDiagnostics.notDownloaded": "Non téléchargé",
+  "aiDiagnostics.compiled": "Compilé",
+  "aiDiagnostics.querying": "Interrogation des capacités ML Kit / LiteRT sur l'appareil…",
+  "aiDiagnostics.desktopEnv": "Environnement bureau / navigateur — utilisation des fournisseurs cloud / points de terminaison configurés.",
+  "aiDiagnostics.recentLogs": "Journaux d'exécution des tâches récentes ({count})",
+  "aiDiagnostics.clearLogs": "Effacer les journaux",
+  "aiDiagnostics.noTasks": "Aucune tâche d'IA n'a encore été exécutée au cours de cette session.",
+  "aiDiagnostics.provider": "Fournisseur",
+  "aiDiagnostics.class": "Classe",
+  "aiDiagnostics.latency": "Latence",
+  "aiDiagnostics.validation": "Validation",
+  "aiDiagnostics.fallback": "Secours",
+  "aiDiagnostics.error": "Erreur",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "Valeur non valide",
+  "itemDetails.modifierSaved": "Modificateur d'intervalle enregistré",
+  "itemDetails.modifierSaveFailed": "Échec de l'enregistrement du modificateur d'intervalle",
+  "aiLibrary.indexNoDocuments": "Aucun document dans la file d'attente ou l'état de l'index.",
 };

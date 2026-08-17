@@ -25,6 +25,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { X } from "@phosphor-icons/react";
+import { useMobileShell } from "../../hooks/useMobileShell";
 
 interface MobileContextMenuSheetProps {
   open: boolean;
@@ -40,6 +42,8 @@ interface MobileContextMenuSheetProps {
    * utilities on primary buttons and toggles.
    */
   variant?: "menu" | "content";
+  /** Optional custom sizing/styling class for desktop dialog (e.g. max-w-2xl) */
+  className?: string;
   children: ReactNode;
 }
 
@@ -48,11 +52,13 @@ export function MobileContextMenuSheet({
   onClose,
   title,
   variant = "menu",
+  className,
   children,
 }: MobileContextMenuSheetProps) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
   const prevOverflowRef = useRef<string>("");
+  const isMobile = useMobileShell();
 
   // Mount/unmount with an enter transition on open.
   useEffect(() => {
@@ -100,53 +106,98 @@ export function MobileContextMenuSheet({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex flex-col justify-end"
+      className={
+        "fixed inset-0 z-[9999] " +
+        (isMobile
+          ? "flex flex-col justify-end"
+          : "flex items-center justify-center p-4 sm:p-6")
+      }
       role="dialog"
       aria-modal="true"
     >
       {/* Scrim: tap anywhere to dismiss. */}
       <div
         className={
-          "absolute inset-0 bg-black/50 transition-opacity duration-200 " +
+          "absolute inset-0 transition-opacity duration-200 " +
+          (isMobile ? "bg-black/50 " : "bg-black/60 backdrop-blur-sm ") +
           (visible ? "opacity-100" : "opacity-0")
         }
         onClick={onClose}
       />
 
-      {/* Sheet */}
+      {/* Sheet / Dialog panel */}
       <div
         className={
-          "mobile-context-menu-sheet relative w-full bg-card border-t border-border rounded-t-2xl shadow-2xl " +
-          "transition-transform duration-200 ease-out " +
-          (visible ? "translate-y-0" : "translate-y-full")
+          "mobile-context-menu-sheet relative bg-card shadow-2xl " +
+          (isMobile
+            ? "w-full border-t border-border rounded-t-2xl transition-transform duration-200 ease-out " +
+              (visible ? "translate-y-0" : "translate-y-full")
+            : "w-full " +
+              (className || (variant === "content" ? "max-w-xl md:max-w-2xl" : "max-w-md")) +
+              " border border-border rounded-2xl overflow-hidden flex flex-col transition-all duration-200 ease-out " +
+              (visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-2"))
         }
         onTransitionEnd={finishExit}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2.5 pb-1">
-          <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
-        </div>
+        {isMobile ? (
+          <>
+            {/* Drag handle */}
+            <div className="flex justify-center pt-2.5 pb-1">
+              <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+            </div>
 
-        {title && (
-          <div className="px-4 pb-2 pt-1 text-sm font-medium text-foreground truncate">
-            {title}
-          </div>
+            {title && (
+              <div className="px-4 pb-2 pt-1 text-sm font-medium text-foreground truncate">
+                {title}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Desktop Header */}
+            {title ? (
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/70 flex-shrink-0 bg-muted/20">
+                <div className="text-base font-semibold text-foreground truncate min-w-0 pr-3">
+                  {title}
+                </div>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 -mr-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute top-3.5 right-3.5 z-10 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
+          </>
         )}
 
-        {/* Height is capped in mobile.css against the *visual* viewport, so the
-            sheet stays reachable when the on-screen keyboard is up. */}
+        {/* Height is capped against visual viewport on mobile, and capped to dialog height on desktop */}
         <div
           className={
             (variant === "menu" ? "mobile-context-menu-items" : "mobile-sheet-content") +
-            " overflow-y-auto overscroll-contain"
+            " overflow-y-auto overscroll-contain" +
+            (isMobile ? "" : " max-h-[75vh] md:max-h-[80vh]")
           }
         >
           {children}
         </div>
 
-        {/* Safe-area padding at the bottom of the sheet. */}
-        <div style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }} />
+        {/* Safe-area padding at the bottom of the sheet on mobile */}
+        {isMobile && (
+          <div style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }} />
+        )}
       </div>
     </div>,
     document.body,
@@ -159,3 +210,4 @@ export function MobileContextMenuSheet({
  */
 export const mobileSheetItemClass =
   "w-full px-4 py-3 text-left text-[15px] text-foreground active:bg-muted flex items-center gap-3 min-h-[48px]";
+

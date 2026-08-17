@@ -6013,4 +6013,31 @@ export const en: Dict = {
   "selectionBar.loadingAnnouncement": "Working on your selection…",
   "selectionBar.resultAnnouncement": "Result ready",
   "selectionBar.errorAnnouncement": "The action failed",
+
+  // AI Diagnostics
+  "aiDiagnostics.title": "AI Diagnostics & Hardware Capabilities",
+  "aiDiagnostics.button": "AI Diagnostics",
+  "aiDiagnostics.hardwareCapabilities": "On-Device Hardware Capabilities",
+  "aiDiagnostics.active": "Active",
+  "aiDiagnostics.unavailable": "Unavailable",
+  "aiDiagnostics.ready": "Ready (On-Disk)",
+  "aiDiagnostics.notDownloaded": "Not Downloaded",
+  "aiDiagnostics.compiled": "Compiled",
+  "aiDiagnostics.querying": "Querying on-device ML Kit / LiteRT capabilities…",
+  "aiDiagnostics.desktopEnv": "Desktop / Browser environment — using configured cloud / endpoint providers.",
+  "aiDiagnostics.recentLogs": "Recent Task Execution Logs ({count})",
+  "aiDiagnostics.clearLogs": "Clear logs",
+  "aiDiagnostics.noTasks": "No recent AI tasks executed in this session yet.",
+  "aiDiagnostics.provider": "Provider",
+  "aiDiagnostics.class": "Class",
+  "aiDiagnostics.latency": "Latency",
+  "aiDiagnostics.validation": "Validation",
+  "aiDiagnostics.fallback": "Fallback",
+  "aiDiagnostics.error": "Error",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "Invalid value",
+  "itemDetails.modifierSaved": "Interval modifier saved",
+  "itemDetails.modifierSaveFailed": "Failed to save interval modifier",
+  "aiLibrary.indexNoDocuments": "No documents in index queue or state.",
 };

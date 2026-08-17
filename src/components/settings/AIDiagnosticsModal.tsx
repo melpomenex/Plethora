@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, ArrowsClockwise, Cpu, CheckCircle, Warning, Clock, Sparkle } from "@phosphor-icons/react";
+import { X, ArrowsClockwise, Cpu, Sparkle } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 import { getTaskDiagnostics, clearTaskDiagnostics, type OnDeviceTaskDiagnostic } from "../../lib/ai/diagnostics";
 import { getOnDeviceAiCapabilities, type OnDeviceCapabilitySnapshot, isOnDeviceAiSupportedPlatform } from "../../lib/ai/onDeviceAI";
@@ -46,7 +46,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
           <div className="flex items-center gap-2.5">
             <Cpu className="w-5 h-5 text-primary" />
             <h3 className="font-semibold text-foreground text-base">
-              {t("aiDiagnostics.title") || "AI Diagnostics & Hardware Capabilities"}
+              {t("aiDiagnostics.title")}
             </h3>
           </div>
           <div className="flex items-center gap-2">
@@ -54,13 +54,14 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
               onClick={refresh}
               disabled={loading}
               className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              title="Refresh"
+              title={t("common.refresh")}
             >
               <ArrowsClockwise className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title={t("common.close")}
             >
               <X className="w-4 h-4" />
             </button>
@@ -72,7 +73,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
           {/* Hardware Capability Snapshot */}
           <div>
             <h4 className="font-medium text-foreground text-xs uppercase tracking-wider text-muted-foreground mb-3">
-              On-Device Hardware Capabilities
+              {t("aiDiagnostics.hardwareCapabilities")}
             </h4>
             {snapshot ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -89,7 +90,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
                   <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                     snapshot.ocr ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
                   }`}>
-                    {snapshot.ocr ? "Active" : "Unavailable"}
+                    {snapshot.ocr ? t("aiDiagnostics.active") : t("aiDiagnostics.unavailable")}
                   </span>
                 </div>
                 <div className="p-3 bg-muted/20 border border-border rounded-lg flex items-center justify-between">
@@ -97,21 +98,21 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
                   <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                     snapshot.embeddings ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
                   }`}>
-                    {snapshot.embeddings ? "Ready (On-Disk)" : "Not Downloaded"}
+                    {snapshot.embeddings ? t("aiDiagnostics.ready") : t("aiDiagnostics.notDownloaded")}
                   </span>
                 </div>
                 <div className="p-3 bg-muted/20 border border-border rounded-lg flex items-center justify-between">
                   <span className="text-foreground text-xs font-medium">Structured Output Engine</span>
                   <span className="text-xs px-2 py-0.5 rounded font-medium bg-green-500/15 text-green-600 dark:text-green-400">
-                    Compiled
+                    {t("aiDiagnostics.compiled")}
                   </span>
                 </div>
               </div>
             ) : (
               <div className="p-3 bg-muted/20 border border-border rounded-lg text-xs text-muted-foreground">
                 {isOnDeviceAiSupportedPlatform()
-                  ? "Querying on-device ML Kit / LiteRT capabilities..."
-                  : "Desktop / Browser environment — using configured cloud / endpoint providers."}
+                  ? t("aiDiagnostics.querying")
+                  : t("aiDiagnostics.desktopEnv")}
               </div>
             )}
           </div>
@@ -120,7 +121,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
           <div>
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-medium text-foreground text-xs uppercase tracking-wider text-muted-foreground">
-                Recent Task Execution Logs ({diagnostics.length})
+                {t("aiDiagnostics.recentLogs", { count: diagnostics.length })}
               </h4>
               {diagnostics.length > 0 && (
                 <button
@@ -130,14 +131,14 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
                   }}
                   className="text-xs text-muted-foreground hover:text-destructive transition-colors"
                 >
-                  Clear logs
+                  {t("aiDiagnostics.clearLogs")}
                 </button>
               )}
             </div>
 
             {diagnostics.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground bg-muted/10 border border-dashed border-border rounded-lg text-xs">
-                No recent AI tasks executed in this session yet.
+                {t("aiDiagnostics.noTasks")}
               </div>
             ) : (
               <div className="space-y-2">
@@ -157,21 +158,21 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
                     </div>
 
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                      <span>Provider: <strong className="text-foreground">{d.providerKind ?? "ondevice"}</strong></span>
-                      {d.modelClass && <span>Class: <strong className="text-foreground">{d.modelClass}</strong></span>}
+                      <span>{t("aiDiagnostics.provider")}: <strong className="text-foreground">{d.providerKind ?? "ondevice"}</strong></span>
+                      {d.modelClass && <span>{t("aiDiagnostics.class")}: <strong className="text-foreground">{d.modelClass}</strong></span>}
                       {d.totalLatencyMs && (
-                        <span>Latency: <strong className="text-foreground">{d.totalLatencyMs}ms</strong></span>
+                        <span>{t("aiDiagnostics.latency")}: <strong className="text-foreground">{d.totalLatencyMs}ms</strong></span>
                       )}
                       {d.validationOutcome && (
-                        <span>Validation: <strong className={d.validationOutcome !== "invalid-structured-output" ? "text-green-600 dark:text-green-400" : "text-destructive"}>
+                        <span>{t("aiDiagnostics.validation")}: <strong className={d.validationOutcome !== "invalid-structured-output" ? "text-green-600 dark:text-green-400" : "text-destructive"}>
                           {d.validationOutcome}
                         </strong></span>
                       )}
                       {d.fallbackPath && (
-                        <span className="text-amber-600 dark:text-amber-400">Fallback: {d.fallbackPath}</span>
+                        <span className="text-amber-600 dark:text-amber-400">{t("aiDiagnostics.fallback")}: {d.fallbackPath}</span>
                       )}
                       {d.errorCategory && (
-                        <span className="text-destructive">Error: {d.errorCategory}</span>
+                        <span className="text-destructive">{t("aiDiagnostics.error")}: {d.errorCategory}</span>
                       )}
                     </div>
                   </div>
@@ -187,7 +188,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
             onClick={onClose}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
           >
-            Done
+            {t("common.done")}
           </button>
         </div>
       </div>
