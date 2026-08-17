@@ -34,6 +34,7 @@ import { TOUR_ANCHORS, tourAnchor } from "../onboarding/tour/anchors";
 import { TourHost, type TourControl, type TourNavigationAdapter } from "../onboarding/tour/TourHost";
 import { useOnboardingAutoOpen } from "../onboarding/tour/useOnboardingAutoOpen";
 import { useShareTarget } from "../../hooks/useShareTarget";
+import { PaywallModal } from "../monetization/PaywallModal";
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
@@ -1404,8 +1405,10 @@ export function MainLayout() {
         <ImageSaveOverlay />
         <OcclusionComposerHost />
         <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
+        <PaywallModal />
         <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
       </VimiumNavigationProvider>
     </MobileLayoutWrapper>
   );
 }
+

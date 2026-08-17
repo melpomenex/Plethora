@@ -118,9 +118,41 @@ import { KindleImportDialogHost } from "./components/import/KindleImportDialogHo
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
+import {
+  usePaywallStore,
+  useSyncStore,
+  useBillingStore,
+  useEntitlementStore,
+  useAccountStore,
+  useInboxStore,
+  useLearningPathsStore,
+  useKnowledgeHealthStore,
+  useApiTokensStore,
+  useCardOptimizerStore,
+  useKnowledgeGapsStore,
+} from "./stores";
+
+if (typeof window !== "undefined") {
+  (window as unknown as { plethora: unknown }).plethora = {
+    stores: {
+      paywall: usePaywallStore,
+      sync: useSyncStore,
+      billing: useBillingStore,
+      entitlements: useEntitlementStore,
+      account: useAccountStore,
+      inbox: useInboxStore,
+      learningPaths: useLearningPathsStore,
+      knowledgeHealth: useKnowledgeHealthStore,
+      apiTokens: useApiTokensStore,
+      cardOptimizer: useCardOptimizerStore,
+      knowledgeGaps: useKnowledgeGapsStore,
+    },
+  };
+}
 
 import AuthCallback from "./routes/auth-callback";
 import ScreenshotOverlay from "./routes/screenshot-overlay";
+
 
 function PageLoader() {
   return (
