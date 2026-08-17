@@ -5,25 +5,50 @@
 //! Reuses the same patterns as `cloud::auth_store::AuthStore`.
 
 use crate::error::AppError;
-use crate::utils::keychain::keychain_enabled;
+use crate::utils::keychain::{keychain_enabled, OsKeyring, SharedKeyring};
 use std::path::PathBuf;
 
-const KEYRING_SERVICE: &str = "com.incrementum.app.ai";
+const KEYRING_SERVICE: &str = "com.plethora.app.ai";
+/// Legacy keychain service written by Incrementum releases. Read-through
+/// only; entries migrate forward on first successful read and are NEVER
+/// deleted by a read (see D27).
+const LEGACY_KEYRING_SERVICE: &str = "com.incrementum.app.ai";
 const KEYS_DIR_NAME: &str = "ai_keys";
 
 #[derive(Clone)]
 pub struct AIKeyStore {
     app_data_dir: PathBuf,
+    /// Pre-rebrand app-data directory; its `ai_keys/` encrypted files are a
+    /// read-through fallback when the new directory has none.
+    legacy_data_dir: Option<PathBuf>,
+    keyring: SharedKeyring,
 }
 
 impl AIKeyStore {
-    pub fn new(app_data_dir: PathBuf) -> Self {
-        Self { app_data_dir }
+    pub fn new(app_data_dir: PathBuf, legacy_data_dir: Option<PathBuf>) -> Self {
+        Self {
+            app_data_dir,
+            legacy_data_dir,
+            keyring: std::sync::Arc::new(OsKeyring),
+        }
+    }
+
+    /// Test constructor with an injectable keyring backend.
+    pub fn with_keyring(
+        app_data_dir: PathBuf,
+        legacy_data_dir: Option<PathBuf>,
+        keyring: SharedKeyring,
+    ) -> Self {
+        Self {
+            app_data_dir,
+            legacy_data_dir,
+            keyring,
+        }
     }
 
     pub async fn store_key(&self, provider: &str, api_key: &str) -> Result<(), AppError> {
         if Self::should_use_keyring() {
-            if let Err(keychain_err) = Self::keyring_set(provider, api_key) {
+            if let Err(keychain_err) = self.keyring.set(KEYRING_SERVICE, provider, api_key) {
                 tracing::warn!(
                     "Keychain unavailable for AI key {}, falling back to encrypted file: {}",
                     provider,
@@ -41,19 +66,31 @@ impl AIKeyStore {
 
     pub async fn get_key(&self, provider: &str) -> Result<Option<String>, AppError> {
         if Self::should_use_keyring() {
-            match Self::keyring_get(provider) {
-                Ok(key) => return Ok(Some(key)),
-                Err(keychain_err) => {
+            // 1. Current service.
+            if let Ok(key) = self.keyring.get(KEYRING_SERVICE, provider) {
+                return Ok(Some(key));
+            }
+            // 2. Legacy Incrementum service — read-through, then migrate the
+            //    credential forward. The legacy entry is NEVER deleted (D27).
+            if let Ok(key) = self.keyring.get(LEGACY_KEYRING_SERVICE, provider) {
+                if let Err(err) = self.keyring.set(KEYRING_SERVICE, provider, &key) {
                     tracing::warn!(
-                        "Keychain unavailable for AI key {}, trying encrypted file: {}",
+                        "Failed to migrate legacy AI key entry for {} forward: {}",
                         provider,
-                        keychain_err
+                        err
+                    );
+                } else {
+                    tracing::info!(
+                        "Migrated legacy keychain AI key for {} to service {}",
+                        provider,
+                        KEYRING_SERVICE
                     );
                 }
+                return Ok(Some(key));
             }
         }
 
-        // Fallback to encrypted file.
+        // 3. Encrypted file in the current app-data dir.
         match self.encrypted_file_load(provider).await {
             Ok(Some(bytes)) => {
                 let key = String::from_utf8(bytes).map_err(|e| {
@@ -61,34 +98,44 @@ impl AIKeyStore {
                 })?;
                 Ok(Some(key))
             }
-            Ok(None) => Ok(None),
+            Ok(None) => self.legacy_encrypted_file_load(provider).await,
             Err(e) => Err(e),
         }
     }
 
     pub async fn remove_key(&self, provider: &str) -> Result<(), AppError> {
         if Self::should_use_keyring() {
-            let _ = Self::keyring_delete(provider);
+            // Explicit user-initiated removal clears BOTH the new and the
+            // legacy service entries.
+            let _ = self.keyring.delete(KEYRING_SERVICE, provider);
+            let _ = self.keyring.delete(LEGACY_KEYRING_SERVICE, provider);
         }
 
-        let enc_path = self.key_enc_path(provider);
-        if enc_path.exists() {
-            std::fs::remove_file(&enc_path).map_err(|e| {
-                AppError::Internal(format!(
-                    "Failed to delete AI key file {}: {e}",
-                    enc_path.display()
-                ))
-            })?;
+        for path in [
+            self.key_enc_path(provider),
+            self.legacy_key_enc_path(provider),
+        ] {
+            if path.exists() {
+                std::fs::remove_file(&path).map_err(|e| {
+                    AppError::Internal(format!(
+                        "Failed to delete AI key file {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
         }
         Ok(())
     }
 
     /// Check if a key exists without retrieving it.
     pub async fn has_key(&self, provider: &str) -> bool {
-        if Self::should_use_keyring() && Self::keyring_get(provider).is_ok() {
+        if Self::should_use_keyring()
+            && (self.keyring.get(KEYRING_SERVICE, provider).is_ok()
+                || self.keyring.get(LEGACY_KEYRING_SERVICE, provider).is_ok())
+        {
             return true;
         }
-        self.key_enc_path(provider).exists()
+        self.key_enc_path(provider).exists() || self.legacy_key_enc_path(provider).exists()
     }
 
     /// Get the last 4 characters of a key for masked display.
@@ -109,35 +156,8 @@ impl AIKeyStore {
         }
     }
 
-    // ── keyring helpers ──────────────────────────────────────────
-
     fn should_use_keyring() -> bool {
         keychain_enabled()
-    }
-
-    fn keyring_entry(username: &str) -> Result<keyring::Entry, String> {
-        keyring::Entry::new(KEYRING_SERVICE, username).map_err(|e| format!("keyring error: {e}"))
-    }
-
-    fn keyring_set(username: &str, key: &str) -> Result<(), String> {
-        let entry = Self::keyring_entry(username)?;
-        entry
-            .set_password(key)
-            .map_err(|e| format!("keyring set: {e}"))
-    }
-
-    fn keyring_get(username: &str) -> Result<String, String> {
-        let entry = Self::keyring_entry(username)?;
-        entry
-            .get_password()
-            .map_err(|e| format!("keyring get: {e}"))
-    }
-
-    fn keyring_delete(username: &str) -> Result<(), String> {
-        let entry = Self::keyring_entry(username)?;
-        entry
-            .delete_credential()
-            .map_err(|e| format!("keyring delete: {e}"))
     }
 
     // ── encrypted-file fallback ──────────────────────────────────
@@ -148,6 +168,79 @@ impl AIKeyStore {
 
     fn key_enc_path(&self, provider: &str) -> PathBuf {
         self.keys_dir().join(format!("{}.enc", provider))
+    }
+
+    fn legacy_key_enc_path(&self, provider: &str) -> PathBuf {
+        self.legacy_data_dir
+            .as_deref()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default()
+            .join(KEYS_DIR_NAME)
+            .join(format!("{}.enc", provider))
+    }
+
+    /// Read-through to a pre-rebrand `ai_keys/` encrypted file. On success the
+    /// raw bytes are copied into the current keys dir; the legacy file is
+    /// left untouched.
+    async fn legacy_encrypted_file_load(&self, provider: &str) -> Result<Option<String>, AppError> {
+        let legacy_path = self.legacy_key_enc_path(provider);
+        if !legacy_path.exists() {
+            return Ok(None);
+        }
+        let data = std::fs::read(&legacy_path).map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to read legacy AI key file {}: {}",
+                legacy_path.display(),
+                e
+            ))
+        })?;
+        let plaintext = Self::decrypt_key_bytes(&data)?;
+        let key = String::from_utf8(plaintext).map_err(|e| {
+            AppError::Internal(format!("Legacy AI key file contains invalid UTF-8: {e}"))
+        })?;
+        if let Some(parent) = self.key_enc_path(provider).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(err) = std::fs::copy(&legacy_path, self.key_enc_path(provider)) {
+            tracing::warn!(
+                "Failed to copy legacy AI key file forward ({}); the legacy file remains readable",
+                err
+            );
+        }
+        Ok(Some(key))
+    }
+
+    /// Decrypt an encrypted AI-key blob, trying the current salted format
+    /// first and the legacy hostname-salted format second.
+    fn decrypt_key_bytes(data: &[u8]) -> Result<Vec<u8>, AppError> {
+        use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+
+        if data.len() < 28 {
+            return Err(AppError::Internal(
+                "Encrypted AI key file is too short".to_string(),
+            ));
+        }
+        if data.len() >= 44 {
+            let salt = &data[..16];
+            let nonce = Nonce::from_slice(&data[16..28]);
+            let ciphertext = &data[28..];
+            let key = Self::derive_machine_key_with_salt(salt)?;
+            let cipher = Aes256Gcm::new_from_slice(&key)
+                .map_err(|e| AppError::Internal(format!("AES init: {e}")))?;
+            if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext) {
+                return Ok(plaintext);
+            }
+        }
+        let old_key = Self::derive_machine_key_legacy()?;
+        let cipher = Aes256Gcm::new_from_slice(&old_key)
+            .map_err(|e| AppError::Internal(format!("AES init: {e}")))?;
+        let nonce = Nonce::from_slice(&data[..12]);
+        let ciphertext = &data[12..];
+        cipher.decrypt(nonce, ciphertext).map_err(|_| {
+            AppError::Internal(
+                "Decryption failed: credentials may be from a different machine".to_string(),
+            )
+        })
     }
 
     async fn encrypted_file_store(&self, provider: &str, plaintext: &[u8]) -> Result<(), AppError> {
@@ -298,4 +391,128 @@ fn user_id() -> String {
             .map(|h| h.into_string().unwrap_or_default())
             .unwrap_or_else(|_| "unknown".to_string())
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::keychain::force_keyring_for_tests;
+    use crate::utils::keychain::testing::MemoryKeyring;
+
+
+/// Keyring backend whose every operation fails — forces the encrypted-file
+/// fallback path so tests can seed files.
+struct UnavailableKeyring;
+impl crate::utils::keychain::KeyringIo for UnavailableKeyring {
+    fn set(&self, _s: &str, _u: &str, _v: &str) -> Result<(), String> {
+        Err("unavailable".to_string())
+    }
+    fn get(&self, _s: &str, _u: &str) -> Result<String, String> {
+        Err("unavailable".to_string())
+    }
+    fn delete(&self, _s: &str, _u: &str) -> Result<(), String> {
+        Err("unavailable".to_string())
+    }
+}
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "plethora-ai-key-store-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A key stored under the LEGACY keychain service is readable and gets
+    /// migrated forward — without the legacy entry being deleted.
+    #[tokio::test]
+    async fn read_through_legacy_keyring_migrates_without_deleting() {
+        force_keyring_for_tests();
+        let keyring = MemoryKeyring::new();
+        keyring.seed(LEGACY_KEYRING_SERVICE, "openai", "sk-legacy");
+
+        let base = temp_dir("keyring");
+        let store = AIKeyStore::with_keyring(
+            base.join("com.plethora.app"),
+            Some(base.join("com.incrementum.app")),
+            keyring.clone(),
+        );
+
+        let key = store.get_key("openai").await.unwrap();
+        assert_eq!(key.as_deref(), Some("sk-legacy"));
+        assert!(
+            keyring.contains(KEYRING_SERVICE, "openai"),
+            "credential must be written forward to the new service"
+        );
+        assert!(
+            keyring.contains(LEGACY_KEYRING_SERVICE, "openai"),
+            "the legacy entry must NEVER be deleted by a read"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A key stored as an encrypted file in the LEGACY app-data dir is
+    /// readable and copied forward; the legacy file survives.
+    #[tokio::test]
+    async fn read_through_legacy_encrypted_file_copies_forward() {
+        force_keyring_for_tests();
+        let keyring = MemoryKeyring::new();
+        let base = temp_dir("file");
+        let new_dir = base.join("com.plethora.app");
+        let legacy_dir = base.join("com.incrementum.app");
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        // Write a legacy encrypted file through a store pointed at the legacy
+        // dir (same derivation → decryptable by the new store).
+        let legacy_store = AIKeyStore::with_keyring(
+            legacy_dir.clone(),
+            None,
+            std::sync::Arc::new(UnavailableKeyring),
+        );
+        legacy_store.store_key("openai", "sk-file").await.unwrap();
+        assert!(legacy_dir.join("ai_keys/openai.enc").exists());
+
+        let store =
+            AIKeyStore::with_keyring(new_dir.clone(), Some(legacy_dir.clone()), keyring);
+        let key = store.get_key("openai").await.unwrap();
+        assert_eq!(key.as_deref(), Some("sk-file"));
+        assert!(
+            new_dir.join("ai_keys/openai.enc").exists(),
+            "encrypted blob must be copied forward"
+        );
+        assert!(
+            legacy_dir.join("ai_keys/openai.enc").exists(),
+            "legacy file must remain"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Explicit removal (user disconnect) clears BOTH service entries.
+    #[tokio::test]
+    async fn remove_clears_new_and_legacy_entries() {
+        force_keyring_for_tests();
+        let keyring = MemoryKeyring::new();
+        keyring.seed(KEYRING_SERVICE, "openai", "sk-new");
+        keyring.seed(LEGACY_KEYRING_SERVICE, "openai", "sk-old");
+
+        let base = temp_dir("remove");
+        let store = AIKeyStore::with_keyring(
+            base.join("com.plethora.app"),
+            Some(base.join("com.incrementum.app")),
+            keyring.clone(),
+        );
+        store.remove_key("openai").await.unwrap();
+        assert!(!keyring.contains(KEYRING_SERVICE, "openai"));
+        assert!(!keyring.contains(LEGACY_KEYRING_SERVICE, "openai"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
