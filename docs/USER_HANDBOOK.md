@@ -94,7 +94,7 @@ Let's import your first document:
 | **Markdown** | `.md` files | Technical documentation, notes |
 | **HTML** | Web pages | Articles, blog posts |
 | **Anki (.apkg)** | Anki deck package | Migrate from Anki |
-| **SuperMemo** | ZIP exports | Migrate from SuperMemo |
+| Legacy learning apps | ZIP exports | Migrate from compatible incremental-learning collections |
 | **JSON (.json)** | Flashcard deck files | Import decks with scheduling data |
 | **URL** | Any web link | Online articles, blogs |
 | **Arxiv** | Academic papers | Research literature |
@@ -245,7 +245,7 @@ Once imported, open any document to access:
 
 ### Understanding Plethora Adaptive
 
-**Plethora Adaptive** (SuperMemo 18) is the previous algorithm from the SuperMemo family, It represents a significant evolution over Plethora Classic, introducing memory stability modeling and a data-driven approach to interval calculation.
+**Plethora Adaptive** is the previous-generation scheduler in the family. It represents a significant evolution over Plethora Classic, introducing memory stability modeling and a data-driven approach to interval calculation.
 
 Plethora Adaptive:
 
@@ -264,7 +264,7 @@ Plethora Adaptive:
 
 ### Understanding Plethora Precision
 
-Plethora's **Plethora Precision** option is the **Algorithm Arena** — a reverse-engineered port of SuperMemo's `sm20.exe` that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
+Plethora's **Plethora Precision** option is the **Algorithm Arena** — a faithful reimplementation of the original scheduler that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
 
 | Slot | Model | Default weight | Learns how? |
 |------|-------|---------------:|-------------|
@@ -658,7 +658,7 @@ Every document, extract, and card sits somewhere in a **single ranked list** —
 
 **Priority is a position, not a label.**
 
-This is the SuperMemo model, and it is the reason the numbers behave the way they do. When you set an item to 70%, it moves to the point 70% of the way up your collection — above roughly 70% of everything you own, below the top 30%. Nothing else is renumbered; the item simply slots in.
+This is the priority-queue model, and it is the reason the numbers behave the way they do. When you set an item to 70%, it moves to the point 70% of the way up your collection — above roughly 70% of everything you own, below the top 30%. Nothing else is renumbered; the item simply slots in.
 
 Set priority 0-100 on any item:
 
@@ -707,7 +707,7 @@ Understanding how the queue orders items and why positions change helps you opti
 
 ### Neural Review ("Go neural")
 
-Neural review is an optional, exploratory mode built on SuperMemo's *Learn : Go neural*. Instead of working through your priority queue in order, it builds a fresh review sequence by **spreading activation** from a single starting point — the item you're currently reading — and surfacing everything connected to it. It's the mode to reach for when you want to follow a thread through your collection rather than grind through what's due.
+Neural review is an optional, exploratory mode inspired by the *Learn : Go neural* concept. Instead of working through your priority queue in order, it builds a fresh review sequence by **spreading activation** from a single starting point — the item you're currently reading — and surfacing everything connected to it. It's the mode to reach for when you want to follow a thread through your collection rather than grind through what's due.
 
 **How to use it.** While reading in Scroll Mode, click **Go neural** in the top bar. The session swaps over to a spreading-activation queue seeded at the current document, card, or extract; the position pill turns violet and reads "Neural review · N remaining." Click **Exit** to return to exactly where you were in your reading — neural review never mutates your priority queue or scheduling. When the queue runs low, it refills automatically from the element you just finished.
 
@@ -985,21 +985,21 @@ Plethora supports four scheduling algorithms. Choose the one that best fits your
 - Predicts forgetting times
 - Better retention with fewer reviews
 
-**Plethora Precision (SuperMemo 20):**
+**Plethora Precision:**
 - Most advanced algorithm, reverse-engineered from sm20.exe via Ghidra
 - Uses the V4 (Plethora Precision proper) interval formula; Classic 19 scheduling is available via the separate `sm2` algorithm
 - Bayesian smoothing learns optimal intervals from your actual review data
 - Builds knowledge over time via persisted 21×21×21 interval/count matrices
 
-**Plethora Adaptive (SuperMemo 18):**
-- Latest SuperMemo algorithm, reverse-engineered from the original application
+**Plethora Adaptive:**
+- The most advanced scheduler in the family, reimplemented from the original application
 - Uses a 3D SInc (Stability Increase) lookup matrix across difficulty, stability, and retrievability
 - Explicit difficulty tracking with trailing-average updates
 - Exponential forgetting curve model: `R = 0.9^(t/S)`
 - Sophisticated failure handling with lapse-dependent stability reduction
 
 **Plethora Classic (Classic):**
-- Traditional SuperMemo 2 algorithm (publicly documented)
+- The traditional classic algorithm (publicly documented)
 - Simpler, predictable
 - More reviews required
 

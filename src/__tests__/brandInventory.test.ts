@@ -264,6 +264,14 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
         expect(md).toMatch(/Plethora/);
       }
     );
+
+    it.each(["USER_HANDBOOK.md", "USER_HANDBOOK.zh.md", "USER_HANDBOOK.ja.md", "USER_HANDBOOK.es.md", "USER_HANDBOOK.de.md", "USER_HANDBOOK.fr.md"])(
+      "%s carries no third-party scheduler branding (full SuperMemo scrub)",
+      (file) => {
+        const md = read(join("docs", file));
+        expect(md).not.toMatch(/supermemo|スーパーメモ|超级备忘录/i);
+      }
+    );
   });
 });
 

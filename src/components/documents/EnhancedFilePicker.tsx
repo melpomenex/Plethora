@@ -1,6 +1,6 @@
 /**
  * Enhanced File Picker Component
- * Supports multiple import sources: local files, URLs, Arxiv, screenshots, Anki, SuperMemo
+ * Supports multiple import sources: local files, URLs, Arxiv, screenshots, Anki, legacy collections
  */
 
 import { useState } from "react";
@@ -75,9 +75,9 @@ const importOptions: ImportOption[] = [
   },
   {
     id: "supermemo",
-    label: "SuperMemo",
+    label: "Legacy Collection",
     icon: Download,
-    description: "Import SuperMemo collections",
+    description: "Import legacy incremental-learning collections (.zip)",
     supportedFormats: ["zip"],
   },
   {
@@ -186,7 +186,7 @@ export function EnhancedFilePicker({
         const filterConfig = selectedSource === "anki"
           ? { name: "Anki Package", extensions: ["apkg"] as string[] }
           : selectedSource === "supermemo"
-            ? { name: "SuperMemo Collection", extensions: ["zip"] as string[] }
+            ? { name: "Legacy Collection", extensions: ["zip"] as string[] }
             : { name: "JSON Deck", extensions: ["json"] as string[] };
         const selected = await open({
           multiple: false,
@@ -326,7 +326,7 @@ export function EnhancedFilePicker({
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Select a SuperMemo collection export (.zip) to import
+              Select a legacy collection export (.zip) to import
             </p>
             <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
               <Download className="w-5 h-5 text-primary" />

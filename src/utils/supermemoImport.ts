@@ -35,7 +35,7 @@ export async function validateSuperMemoPackage(filePath: string): Promise<boolea
     const isValid = await invokeCommand<boolean>("validate_supermemo_package", { path: filePath });
     return isValid;
   } catch (error) {
-    console.error("Failed to validate SuperMemo export:", error);
+    console.error("Failed to validate legacy export:", error);
     throw error;
   }
 }
@@ -49,7 +49,7 @@ export async function importSuperMemoPackage(filePath: string): Promise<SuperMem
     const collection = JSON.parse(result) as SuperMemoCollection;
     return collection;
   } catch (error) {
-    console.error("Failed to import SuperMemo export:", error);
+    console.error("Failed to import legacy export:", error);
     throw error;
   }
 }
@@ -62,7 +62,7 @@ export async function selectSuperMemoPackage(): Promise<string | null> {
     const selected = await openFilePicker({
       multiple: false,
       filters: [{
-        name: "SuperMemo Export",
+        name: "Legacy Collection Export",
         extensions: ["zip"]
       }]
     });

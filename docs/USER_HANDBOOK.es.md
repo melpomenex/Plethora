@@ -76,7 +76,7 @@ Importemos su primer documento:
 | **Rebaja** | Archivos `.md` | Documentación técnica, notas |
 | **HTML** | Paginas web | Artículos, publicaciones de blogs |
 | **Anki (.apkg)** | Paquete de mazo Anki | Migrar desde Anki |
-| **SúperMemo** | Exportaciones ZIP | Migrar desde SuperMemo |
+| Apps de aprendizaje legacy | Exportaciones ZIP | Migrar desde apps de aprendizaje incremental compatibles |
 | **JSON (.json)** | Archivos de mazos de tarjetas didácticas | Importar mazos con datos de programación |
 | **URL** | Cualquier enlace web | Artículos en línea, blogs |
 | **Arxiv** | Trabajos académicos | Literatura de investigación |
@@ -227,7 +227,7 @@ Una vez importado, abra cualquier documento para acceder:
 
 ### Entendiendo Plethora Adaptive
 
-**Plethora Adaptive** (SuperMemo 18) es el algoritmo anterior de la familia SuperMemo. Representa una evolución significativa con respecto a Plethora Classic, al introducir el modelado de estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
+**Plethora Adaptive** es el planificador de la generación anterior de la familia. Representa una evolución significativa con respecto a Plethora Classic, al introducir el modelado de estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
 
 Plethora Adaptive:
 
@@ -246,7 +246,7 @@ Plethora Adaptive:
 
 ### Entendiendo Plethora Precision
 
-La opción **Plethora Precision** de Plethora es **Algorithm Arena**: una adaptación de ingeniería inversa del `sm20.exe` de SuperMemo que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
+La opción **Plethora Precision** de Plethora es **Algorithm Arena**: una reimplementación fiel del planificador original que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
 
 | Ranura | Modelo | Peso predeterminado | ¿Aprende cómo? |
 |------|-------|---------------:|-------------|
@@ -637,7 +637,7 @@ Cada documento, extracto y tarjeta se encuentra en algún lugar de una **lista c
 
 **La prioridad es una posición, no una etiqueta.**
 
-Este es el modelo SuperMemo y es la razón por la que los números se comportan como lo hacen. Cuando configuras un artículo al 70%, se mueve hasta el punto 70% de tu colección: por encima de aproximadamente el 70% de todo lo que posees, por debajo del 30% superior. No se renumera nada más; el artículo simplemente encaja.
+Este es el modelo de cola de prioridad y es la razón por la que los números se comportan como lo hacen. Cuando configuras un artículo al 70%, se mueve hasta el punto 70% de tu colección: por encima de aproximadamente el 70% de todo lo que posees, por debajo del 30% superior. No se renumera nada más; el artículo simplemente encaja.
 
 Establezca prioridad 0-100 en cualquier elemento:
 
@@ -684,7 +684,7 @@ Comprender cómo la cola ordena los elementos y por qué cambian las posiciones 
 
 ### Revisión neuronal ("Vuélvete neuronal")
 
-La revisión neuronal es un modo exploratorio opcional creado en *Learn: Go neural* de SuperMemo. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que corresponde.
+La revisión neuronal es un modo exploratorio opcional inspirado en el concepto *Learn: Go neural*. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que corresponde.
 
 **Cómo usarlo.** Mientras lees en modo de desplazamiento, haz clic en **Ir neuronal** en la barra superior. La sesión cambia a una cola de activación de difusión sembrada en el documento, tarjeta o extracto actual; la pastilla de posición se vuelve violeta y dice "Revisión neuronal · N restante". Haga clic en **Salir** para regresar exactamente al lugar donde se encontraba en su lectura: la revisión neuronal nunca altera su cola de prioridades o programación. Cuando la cola se agota, se recarga automáticamente desde el elemento que acaba de terminar.
 
@@ -962,21 +962,21 @@ Plethora admite cuatro algoritmos de programación. Elige el que mejor se adapte
 - Predice tiempos de olvido
 - Mejor retención con menos reseñas
 
-**Plethora Precision (SuperMemo 20):**
+**Plethora Precision:**
 - Algoritmo más avanzado, diseñado a partir de sm20.exe mediante Ghidra
 - Utiliza la fórmula de intervalo V4 (Plethora Precision propiamente dicha); La programación Classic 19 está disponible a través del algoritmo `sm2` separado
 - El suavizado bayesiano aprende intervalos óptimos a partir de los datos de revisión reales
 - Desarrolla conocimiento a lo largo del tiempo a través de matrices persistentes de intervalo/recuento de 21×21×21
 
 **Plethora Adaptive (Súper Memo 18):**
-- El último algoritmo SuperMemo, realizado mediante ingeniería inversa a partir de la aplicación original.
+- El planificador más avanzado de la familia, reimplementado a partir de la aplicación original.
 - Utiliza una matriz de búsqueda 3D SInc (aumento de estabilidad) en dificultad, estabilidad y recuperabilidad.
 - Seguimiento explícito de dificultades con actualizaciones del promedio final
 - Modelo de curva de olvido exponencial: `R = 0,9^(t/S)`
 - Manejo sofisticado de fallas con reducción de estabilidad dependiente del lapso
 
 **Plethora Classic (Clásico):**
-- Algoritmo tradicional SuperMemo 2 (documentado públicamente)
+- El algoritmo clásico tradicional (documentado públicamente)
 - Más simple, predecible
 - Se requieren más revisiones
 

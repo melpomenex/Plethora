@@ -190,7 +190,7 @@ export function stripTwentyRulesCommand(rawInput: string): string {
  * Generate formatted LLM system prompt instructions enforcing the 20 Rules of Knowledge Formulation.
  */
 export function buildTwentyRulesSystemPrompt(customContext?: string): string {
-  return `You are an expert cognitive learning assistant applying Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (SuperMemo / Incremental Reading).
+  return `You are an expert cognitive learning assistant applying Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (Incremental Reading).
 
 CRITICAL KNOWLEDGE FORMULATION MANDATES:
 1. MINIMUM INFORMATION PRINCIPLE (Atomic Cards): Every flashcard MUST test exactly ONE atomic fact or concept. Keep questions concise and answers as short as humanly possible (1-5 words or a single key phrase).

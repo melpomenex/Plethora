@@ -76,7 +76,7 @@ Lassen Sie uns Ihr erstes Dokument importieren:
 | **Abschlag** | „.md“-Dateien | Technische Dokumentation, Hinweise |
 | **HTML** | Webseiten | Artikel, Blogbeiträge |
 | **Anki (.apkg)** | Anki-Deck-Paket | Von Anki migrieren |
-| **SuperMemo** | ZIP-Exporte | Von SuperMemo migrieren |
+| Legacy-Lernapps | ZIP-Exporte | Von kompatiblen Inkremental-Lern-Apps migrieren |
 | **JSON (.json)** | Flashcard-Deck-Dateien | Decks mit Planungsdaten importieren |
 | **URL** | Beliebiger Weblink | Online-Artikel, Blogs |
 | **Arxiv** | Wissenschaftliche Arbeiten | Forschungsliteratur |
@@ -227,7 +227,7 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 
 ### Plethora Adaptive verstehen
 
-**Plethora Adaptive** (SuperMemo 18) ist der vorherige Algorithmus aus der SuperMemo-Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber Plethora Classic dar und führt eine Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
+**Plethora Adaptive** ist der vorherige Scheduler der Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber Plethora Classic dar und führt eine Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
 
 Plethora Adaptive:
 
@@ -246,7 +246,7 @@ Plethora Adaptive:
 
 ### Plethora Precision verstehen
 
-Die **Plethora Precision**-Option von Plethora ist die **Algorithm Arena** – eine rückentwickelte Portierung von „sm20.exe“ von SuperMemo, die auf jeder Karteikarte **fünf** Algorithmen mit räumlicher Wiederholung parallel ausführt und ihre Vorhersagen in einem Zeitplan zusammenfasst. Die fünf Konkurrenten mit den Standardmischungsgewichten, bei denen sie beginnen:
+Die **Plethora Precision**-Option von Plethora ist die **Algorithm Arena** – eine originalgetreue Neuimplementierung des ursprünglichen Schedulers, die auf jeder Karteikarte **fünf** Algorithmen mit räumlicher Wiederholung parallel ausführt und ihre Vorhersagen in einem Zeitplan zusammenfasst. Die fünf Konkurrenten mit den Standardmischungsgewichten, bei denen sie beginnen:
 
 | Steckplatz | Modell | Standardgewicht | Wie lernt man? |
 |------|-------|---------------:|-------------|
@@ -637,7 +637,7 @@ Jedes Dokument, jeder Auszug und jede Karte befindet sich irgendwo in einer **ei
 
 **Priorität ist eine Position, keine Bezeichnung.**
 
-Dies ist das SuperMemo-Modell und es ist der Grund dafür, dass sich die Zahlen so verhalten, wie sie es tun. Wenn Sie einen Gegenstand auf 70 % setzen, bewegt er sich zu 70 % an der Spitze Ihrer Sammlung – über etwa 70 % von allem, was Sie besitzen, unter den oberen 30 %. Nichts anderes wird neu nummeriert; Der Artikel wird einfach hineingesteckt.
+Dies ist das Prioritätswarteschlangen-Modell und es ist der Grund dafür, dass sich die Zahlen so verhalten, wie sie es tun. Wenn Sie einen Gegenstand auf 70 % setzen, bewegt er sich zu 70 % an der Spitze Ihrer Sammlung – über etwa 70 % von allem, was Sie besitzen, unter den oberen 30 %. Nichts anderes wird neu nummeriert; Der Artikel wird einfach hineingesteckt.
 
 Legen Sie für jedes Element eine Priorität von 0 bis 100 fest:
 
@@ -684,7 +684,7 @@ Wenn Sie verstehen, wie die Warteschlange Artikel anordnet und warum sich Positi
 
 ### Neural Review („Go neural“)
 
-Neural Review ist ein optionaler, explorativer Modus, der auf SuperMemos *Learn: Go neural* basiert. Anstatt Ihre Prioritätswarteschlange der Reihe nach abzuarbeiten, wird eine neue Überprüfungssequenz erstellt, indem die Aktivierung von einem einzigen Ausgangspunkt aus verteilt wird – dem Artikel, den Sie gerade lesen – und alles, was damit zusammenhängt, an die Oberfläche gebracht wird. Dies ist der Modus, zu dem Sie greifen sollten, wenn Sie einem Thread durch Ihre Sammlung folgen möchten, anstatt sich durch das zu quälen, was fällig ist.
+Neural Review ist ein optionaler, explorativer Modus, inspiriert vom Konzept *Learn: Go neural*. Anstatt Ihre Prioritätswarteschlange der Reihe nach abzuarbeiten, wird eine neue Überprüfungssequenz erstellt, indem die Aktivierung von einem einzigen Ausgangspunkt aus verteilt wird – dem Artikel, den Sie gerade lesen – und alles, was damit zusammenhängt, an die Oberfläche gebracht wird. Dies ist der Modus, zu dem Sie greifen sollten, wenn Sie einem Thread durch Ihre Sammlung folgen möchten, anstatt sich durch das zu quälen, was fällig ist.
 
 **So verwenden Sie es.** Klicken Sie beim Lesen im Scroll-Modus in der oberen Leiste auf **Neural wechseln**. Die Sitzung wechselt zu einer Ausbreitungs-Aktivierungswarteschlange, die beim aktuellen Dokument, der aktuellen Karte oder dem aktuellen Auszug angesiedelt ist. Die Positionstafel wird violett und zeigt „Neuronale Überprüfung · N verbleibend“ an. Klicken Sie auf **Beenden**, um zu genau der Stelle zurückzukehren, an der Sie sich in Ihrer Lektüre befanden – die neuronale Überprüfung verändert niemals Ihre Prioritätswarteschlange oder Terminplanung. Wenn die Warteschlange zur Neige geht, wird sie automatisch mit dem gerade abgeschlossenen Element wieder aufgefüllt.
 
@@ -962,21 +962,21 @@ Plethora unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am be
 - Sagt Zeiten des Vergessens voraus
 - Bessere Bindung mit weniger Bewertungen
 
-**Plethora Precision (SuperMemo 20):**
+**Plethora Precision:**
 - Fortschrittlichster Algorithmus, rückentwickelt von sm20.exe über Ghidra
 - Verwendet die V4-Intervallformel (Plethora Precision richtig); Die Classic 19-Planung ist über den separaten „sm2“-Algorithmus verfügbar
 - Durch die Bayes'sche Glättung werden optimale Intervalle aus Ihren tatsächlichen Überprüfungsdaten ermittelt
 - Baut im Laufe der Zeit Wissen über persistente 21×21×21-Intervall-/Zählmatrizen auf
 
-**Plethora Adaptive (SuperMemo 18):**
-- Neuester SuperMemo-Algorithmus, rückentwickelt von der Originalanwendung
+**Plethora Adaptive:**
+- Der fortschrittlichste Scheduler der Familie, neu implementiert nach der Originalanwendung
 - Verwendet eine 3D-SInc-Suchmatrix (Stabilitätssteigerung) für Schwierigkeit, Stabilität und Wiederauffindbarkeit
 - Explizite Schwierigkeitsverfolgung mit nachlaufenden Durchschnittsaktualisierungen
 - Exponentielles Vergessenskurvenmodell: „R = 0,9^(t/S)“.
 - Ausgeklügelte Fehlerbehandlung mit ausfallabhängiger Stabilitätsreduzierung
 
 **Plethora Classic (klassisch):**
-- Traditioneller SuperMemo 2-Algorithmus (öffentlich dokumentiert)
+- Der traditionelle Classic-Algorithmus (öffentlich dokumentiert)
 - Einfacher, vorhersehbar
 - Weitere Bewertungen erforderlich
 
