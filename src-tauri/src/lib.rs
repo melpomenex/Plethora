@@ -181,7 +181,7 @@ fn startup_log_path(app: &tauri::AppHandle) -> std::path::PathBuf {
     if let Ok(app_dir) = app.path().app_data_dir() {
         app_dir.join("logs").join("startup.log")
     } else {
-        std::env::temp_dir().join("incrementum-startup.log")
+        std::env::temp_dir().join("plethora-startup.log")
     }
 }
 
@@ -395,7 +395,7 @@ async fn download_update_apk(
     use std::io::Write;
 
     let client = reqwest::Client::builder()
-        .user_agent("incrementum-updater")
+        .user_agent("plethora-updater")
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
@@ -611,7 +611,7 @@ pub fn run() {
 
     // EARLY LOG: Entry point
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -635,7 +635,7 @@ pub fn run() {
 
     // EARLY LOG: After dotenv
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -662,7 +662,7 @@ pub fn run() {
 
     // EARLY LOG: Before chrono
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -677,7 +677,7 @@ pub fn run() {
 
     // Early log for debugging startup crashes
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
