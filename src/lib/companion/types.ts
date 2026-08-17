@@ -17,7 +17,23 @@ export type CompanionStateId =
   | "think"
   | "curious"
   | "talk"
-  | "sleep";
+  | "sleep"
+  /** Held by the user: wings out, gentle sway. */
+  | "carried"
+  /** In transit between perches: flapping, body tilted into the direction. */
+  | "fly"
+  /** Dropped in open space: fast flapping descent. */
+  | "fall"
+  /** Landing squash after a flight/fall. */
+  | "land";
+
+/** Interaction mode of the overlay host (imperative, not part of the engine). */
+export type CompanionMode = "anchored" | "dragging" | "flying";
+
+export interface CompanionPosition {
+  x: number;
+  y: number;
+}
 
 /** Structured application events the companion can react to. */
 export type CompanionEvent =
