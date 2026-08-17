@@ -25,6 +25,7 @@ import {
 import { getEnergyLogs, calculateEnergyCorrelation } from "../../utils/energyTracker";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useKnowledgeHealthStore } from "../../stores/knowledgeHealthStore";
+import { formatHealthConfidenceLabel } from "../../types/knowledgeHealth";
 import { useI18n } from "../../lib/i18n";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 
@@ -344,28 +345,19 @@ export function AnalyticsTab() {
 }
 
 function KnowledgeHealthSection() {
-  const { summary, recomputeHealth } = useKnowledgeHealthStore();
+  const summary = useKnowledgeHealthStore((s) => s.summary);
 
-  useEffect(() => {
-    recomputeHealth();
-  }, [recomputeHealth]);
-
-  const funnel = summary?.conversionFunnel || {
-    documentsRead: 0,
-    extractsCreated: 0,
-    cardsGenerated: 0,
-    cardsRetained: 0,
-    readToExtractRate: 0,
-    extractToCardRate: 0,
-    cardToRetainedRate: 0,
+  const funnel = summary?.funnel ?? {
+    readCount: 0,
+    extractCount: 0,
+    cardCount: 0,
+    retainedCount: 0,
   };
-
-  const buckets = summary?.retentionBuckets || {
-    strong: 0,
-    medium: 0,
-    fragile: 0,
-    lapsing: 0,
-  };
+  const readToExtractRate = funnel.readCount > 0 ? funnel.extractCount / funnel.readCount : 0;
+  const extractToCardRate = funnel.extractCount > 0 ? funnel.cardCount / funnel.extractCount : 0;
+  const cardToRetainedRate = funnel.cardCount > 0 ? funnel.retainedCount / funnel.cardCount : 0;
+  const bucketCount = (range: string) =>
+    summary?.retentionBuckets.find((b) => b.range === range)?.itemCount ?? 0;
 
   return (
     <div className="p-6 bg-card border border-border rounded-lg space-y-6">
@@ -381,31 +373,28 @@ function KnowledgeHealthSection() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => recomputeHealth()}
-          className="px-3 py-1.5 text-xs bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg transition-colors"
-        >
-          Recompute
-        </button>
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          {summary ? formatHealthConfidenceLabel(summary) : "Awaiting review signals"}
+        </span>
       </div>
 
       {/* Retention Distribution Buckets */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
           <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Strong (&gt;90% recall)</p>
-          <p className="text-2xl font-bold text-foreground mt-1">{buckets.strong}</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{bucketCount("90-100%")}</p>
         </div>
         <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-lg">
           <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Medium (70–90%)</p>
-          <p className="text-2xl font-bold text-foreground mt-1">{buckets.medium}</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{bucketCount("70-89%")}</p>
         </div>
         <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
           <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Fragile (50–70%)</p>
-          <p className="text-2xl font-bold text-foreground mt-1">{buckets.fragile}</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{bucketCount("50-69%")}</p>
         </div>
         <div className="p-4 bg-rose-500/5 border border-rose-500/20 rounded-lg">
           <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">Lapsing (&lt;50%)</p>
-          <p className="text-2xl font-bold text-foreground mt-1">{buckets.lapsing}</p>
+          <p className="text-2xl font-bold text-foreground mt-1">{bucketCount("<50%")}</p>
         </div>
       </div>
 
@@ -415,19 +404,19 @@ function KnowledgeHealthSection() {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-center">
           <div className="p-3 bg-secondary/30 rounded-lg">
             <p className="text-xs text-muted-foreground">1. Documents Read</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.documentsRead}</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.readCount}</p>
           </div>
           <div className="p-3 bg-secondary/30 rounded-lg">
-            <p className="text-xs text-muted-foreground">2. Extracts ({Math.round(funnel.readToExtractRate * 100)}%)</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.extractsCreated}</p>
+            <p className="text-xs text-muted-foreground">2. Extracts ({Math.round(readToExtractRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.extractCount}</p>
           </div>
           <div className="p-3 bg-secondary/30 rounded-lg">
-            <p className="text-xs text-muted-foreground">3. Cards ({Math.round(funnel.extractToCardRate * 100)}%)</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.cardsGenerated}</p>
+            <p className="text-xs text-muted-foreground">3. Cards ({Math.round(extractToCardRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.cardCount}</p>
           </div>
           <div className="p-3 bg-secondary/30 rounded-lg">
-            <p className="text-xs text-muted-foreground">4. Retained ({Math.round(funnel.cardToRetainedRate * 100)}%)</p>
-            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.cardsRetained}</p>
+            <p className="text-xs text-muted-foreground">4. Retained ({Math.round(cardToRetainedRate * 100)}%)</p>
+            <p className="text-lg font-bold text-foreground mt-0.5">{funnel.retainedCount}</p>
           </div>
         </div>
       </div>
