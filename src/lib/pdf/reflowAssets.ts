@@ -8,6 +8,7 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getPdfReflowAsset, putPdfReflowAsset, type PdfReflowCacheContext } from "../../api/pdfReflow";
 import { computeCropSourceRect, cropPadFor } from "./cropGeometry";
+import { withPdfRenderLock } from "./pdfRenderLock";
 import type { PdfRect } from "../../types/pdfCanonical";
 
 /** Render crops at ~2× the page display scale — print-quality, bounded. */
@@ -69,7 +70,9 @@ export async function renderAndStoreRegionAsset(params: {
     if (!canvasContext) return null;
     canvasContext.fillStyle = "#ffffff";
     canvasContext.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext, viewport, canvas }).promise;
+    await withPdfRenderLock(() =>
+      page.render({ canvasContext, viewport, canvas }).promise,
+    );
     // Crop in device pixels (top-left origin — same basis as viewport).
     // First estimate the crop size at pad 0 to scale the pad with the crop
     // (thin strips must not be inflated by a full 4px pad on each side).
@@ -114,10 +117,35 @@ export async function renderAndStoreRegionAsset(params: {
       crop.toBlob(resolve, "image/png"),
     );
     if (!blob) return null;
-    const base64 = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
-    const assetId = await putPdfReflowAsset(context, base64);
-    if (!assetId) return null;
-    return { assetId, width: crop.width, height: crop.height };
+
+    // Create and cache the object URL immediately in memory so the frontend
+    // can display the inline figure without waiting for IPC or disk I/O.
+    let objectUrl: string | null = null;
+    if (typeof URL?.createObjectURL === "function") {
+      try {
+        objectUrl = URL.createObjectURL(blob);
+      } catch {
+        // Mock blob or non-standard environment
+      }
+    }
+
+    let assetId = "";
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const base64 = bytesToBase64(bytes);
+      assetId = await putPdfReflowAsset(context, base64);
+      if (assetId && objectUrl) {
+        objectUrlCache.set(assetId, objectUrl);
+      }
+    } catch (putError) {
+      console.debug("[PDF reflow] Native asset cache write non-fatal:", putError);
+      assetId = `mem-${pageNumber}-${srcX}-${srcY}`;
+      if (objectUrl) {
+        objectUrlCache.set(assetId, objectUrl);
+      }
+    }
+
+    return { assetId: assetId || "memory-asset", width: crop.width, height: crop.height };
   } catch (error) {
     console.warn("[PDF reflow] Region crop render failed", error);
     return null;
@@ -135,9 +163,13 @@ export async function fetchAssetObjectUrl(
   try {
     const bytes = await getPdfReflowAsset(context, assetId);
     if (!bytes) return null;
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/png" }));
-    objectUrlCache.set(assetId, url);
-    return url;
+    try {
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/png" }));
+      objectUrlCache.set(assetId, url);
+      return url;
+    } catch {
+      return null;
+    }
   } catch (error) {
     console.warn("[PDF reflow] Asset fetch failed", error);
     return null;
@@ -153,7 +185,7 @@ export async function ensureRegionAssetUrl(params: {
 }): Promise<{ url: string; width: number; height: number } | null> {
   const asset = await renderAndStoreRegionAsset(params);
   if (!asset) return null;
-  const url = await fetchAssetObjectUrl(params.context, asset.assetId);
+  const url = (asset.assetId && objectUrlCache.get(asset.assetId)) || await fetchAssetObjectUrl(params.context, asset.assetId);
   if (!url) return null;
   return { url, width: asset.width, height: asset.height };
 }
@@ -165,3 +197,4 @@ export function clearAssetUrlCache(): void {
   }
   objectUrlCache.clear();
 }
+

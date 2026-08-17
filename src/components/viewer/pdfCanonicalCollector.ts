@@ -9,6 +9,7 @@
  * analyzes text-only with a `no-raster` warning.
  */
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { withPdfRenderLock } from "../../lib/pdf/pdfRenderLock";
 import type { PdfFontInfo } from "../../types/pdfCanonical";
 
 /** ~120 dpi — enough for segmentation, bounded for IPC size. */
@@ -141,7 +142,9 @@ export async function collectPageAnalysisInput(
 
   const rasterPngBase64 = await renderRasterBase64(
     async (canvas, context) => {
-      await page.render({ canvasContext: context, viewport, canvas }).promise;
+      await withPdfRenderLock(() =>
+        page.render({ canvasContext: context, viewport, canvas }).promise,
+      );
     },
     viewport.width,
     viewport.height,

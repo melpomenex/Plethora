@@ -1,0 +1,15 @@
+description = "Run a bounded, evidence-driven Gauntlet debugging loop against hard technical problems"
+
+prompt = """
+Run the bounded, evidence-driven Gauntlet debugging loop.
+
+Follow the 6-stage procedure defined in `.gemini/skills/gauntlet/SKILL.md`:
+1. Stage 0: Define Victory (observable acceptance criteria)
+2. Stage 1: Bounded Reconnaissance (trace pipeline, rank <= 3 hypotheses)
+3. Stage 2: Boundary Isolation (cheapest experiment per boundary)
+4. Stage 3: Minimal Mutation (<= 6 total iterations, 1 hypothesis per iteration)
+5. Stage 4: Adversarial Verification (Critic mode, test mobile & edge cases)
+6. Stage 5: Cleanup & Regression Protection
+
+Input: $ARGUMENTS
+"""

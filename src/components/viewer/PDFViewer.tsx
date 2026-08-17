@@ -1629,9 +1629,21 @@ export function PDFViewer({
   // the lazy PNG ever loads.
   const [canonicalAssetUrls, setCanonicalAssetUrls] = useState<Map<string, string>>(new Map());
   const [canonicalAssetDims, setCanonicalAssetDims] = useState<Map<string, PdfVisualAssetDims>>(new Map());
+  const inFlightAssetIdsRef = useRef<Set<string>>(new Set());
+  const canonicalAssetUrlsRef = useRef<Map<string, string>>(new Map());
+  const canonicalAssetDimsRef = useRef<Map<string, PdfVisualAssetDims>>(new Map());
+
+  // Reset asset maps when the document changes
+  useEffect(() => {
+    inFlightAssetIdsRef.current.clear();
+    canonicalAssetUrlsRef.current.clear();
+    canonicalAssetDimsRef.current.clear();
+    setCanonicalAssetUrls(new Map());
+    setCanonicalAssetDims(new Map());
+  }, [documentId]);
+
   useEffect(() => {
     if (!pdf || !pdfSourceIdentity || !canonicalPipelineActive || canonicalPages.size === 0) return;
-    let disposed = false;
     const context = {
       documentId,
       sourceIdentity: pdfSourceIdentity.identity,
@@ -1645,31 +1657,35 @@ export function PDFViewer({
         || (block.kind === "table" && !block.table)
         || block.kind === "unknown-visual",
       );
-    void (async () => {
-      for (const block of visualBlocks) {
-        if (disposed) return;
-        if (canonicalAssetUrls.has(block.id)) continue;
-        const region = block.sourceRegions[0];
-        if (!region) continue;
-        const asset = await ensureRegionAssetUrl({
-          pdf,
-          pageNumber: block.pageNumber,
-          rect: region.bbox,
-          context,
-        });
-        if (disposed) return;
-        if (asset) {
-          setCanonicalAssetUrls((prev) => new Map(prev).set(block.id, asset.url));
-          setCanonicalAssetDims((prev) => new Map(prev).set(block.id, { width: asset.width, height: asset.height }));
-        }
+
+    for (const block of visualBlocks) {
+      if (canonicalAssetUrlsRef.current.has(block.id) || inFlightAssetIdsRef.current.has(block.id)) {
+        continue;
       }
-    })();
-    return () => {
-      disposed = true;
-    };
-    // canonicalAssetUrls/canonicalAssetDims intentionally excluded: only new
-    // blocks matter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      const region = block.sourceRegions[0];
+      if (!region) continue;
+      inFlightAssetIdsRef.current.add(block.id);
+      void (async () => {
+        try {
+          const asset = await ensureRegionAssetUrl({
+            pdf,
+            pageNumber: block.pageNumber,
+            rect: region.bbox,
+            context,
+          });
+          if (asset) {
+            canonicalAssetUrlsRef.current.set(block.id, asset.url);
+            canonicalAssetDimsRef.current.set(block.id, { width: asset.width, height: asset.height });
+            setCanonicalAssetUrls(new Map(canonicalAssetUrlsRef.current));
+            setCanonicalAssetDims(new Map(canonicalAssetDimsRef.current));
+          }
+        } catch (err) {
+          console.warn(`[PDF reflow] Failed to load visual asset for block ${block.id}:`, err);
+        } finally {
+          inFlightAssetIdsRef.current.delete(block.id);
+        }
+      })();
+    }
   }, [canonicalPages, canonicalPipelineActive, documentId, pdf, pdfSourceIdentity]);
 
   const handleReflowScroll = useCallback(() => {

@@ -566,28 +566,52 @@ export function PdfCanonicalReflowRenderer({
 }) {
   const [zoomedAsset, setZoomedAsset] = useState<ZoomableAsset | null>(null);
 
+  const renderedItems = useMemo(() => {
+    const pageMap = new Map<number, PdfCanonicalPage>();
+    for (const page of pages) {
+      pageMap.set(page.pageNumber, page);
+    }
+    const allPageNumbers = new Set<number>([
+      ...pages.map((p) => p.pageNumber),
+      ...pendingPageNumbers,
+    ]);
+    return [...allPageNumbers].sort((a, b) => a - b).map((num) => ({
+      pageNumber: num,
+      page: pageMap.get(num) ?? null,
+    }));
+  }, [pages, pendingPageNumbers]);
+
   return (
     <>
       <article className={`pdf-reflow-content ${className ?? ""}`} aria-label="Reflowed PDF" dir={dir} style={style}>
-        {pages.map((page) => (
-          <PageSection
-            key={page.pageNumber}
-            page={page}
-            highlights={highlights}
-            onViewOriginal={onViewOriginal}
-            activeSearchBlockId={activeSearchBlockId}
-            assetUrls={assetUrls}
-            assetDims={assetDims}
-            onRequestOcr={onRequestOcr}
-            onRequestGraphicalFallback={onRequestGraphicalFallback}
-            onZoomAsset={setZoomedAsset}
-          />
-        ))}
-        {pendingPageNumbers.map((pageNumber) => (
-          <section key={`pending-${pageNumber}`} aria-label={`PDF page ${pageNumber} pending`} data-pdf-reflow-page={pageNumber}>
-            <p role="status">Preparing page {pageNumber}…</p>
-          </section>
-        ))}
+        {renderedItems.map(({ pageNumber, page }) =>
+          page ? (
+            <PageSection
+              key={pageNumber}
+              page={page}
+              highlights={highlights}
+              onViewOriginal={onViewOriginal}
+              activeSearchBlockId={activeSearchBlockId}
+              assetUrls={assetUrls}
+              assetDims={assetDims}
+              onRequestOcr={onRequestOcr}
+              onRequestGraphicalFallback={onRequestGraphicalFallback}
+              onZoomAsset={setZoomedAsset}
+            />
+          ) : (
+            <section
+              key={`pending-${pageNumber}`}
+              aria-label={`PDF page ${pageNumber} pending`}
+              data-pdf-reflow-page={pageNumber}
+              className="my-6 rounded-lg border border-border/40 p-4 bg-muted/10"
+            >
+              <p role="status" className="text-xs text-muted-foreground flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-primary/60 animate-pulse" />
+                Preparing page {pageNumber}…
+              </p>
+            </section>
+          ),
+        )}
       </article>
       {zoomedAsset && (
         <PdfAssetZoomModal
