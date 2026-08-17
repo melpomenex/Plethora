@@ -1,0 +1,13 @@
+{
+  "title": "One Good Article Among Many Cards",
+  "minWords": 350,
+  "mustContain": [
+    "Conclusion"
+  ],
+  "mustNotContain": [
+    "Read more: Card story 1",
+    "Most popular: Related card",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

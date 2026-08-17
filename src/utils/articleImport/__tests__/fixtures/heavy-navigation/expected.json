@@ -1,0 +1,15 @@
+{
+  "title": "A Story Buried Under Navigation",
+  "minWords": 380,
+  "mustContain": [
+    "Details"
+  ],
+  "mustNotContain": [
+    "Topic 1",
+    "Footer 2",
+    "Cookie preferences",
+    "Log in",
+    "Register"
+  ],
+  "confidenceAtLeast": "medium"
+}

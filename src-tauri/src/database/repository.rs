@@ -1358,6 +1358,53 @@ impl Repository {
         Ok(())
     }
 
+    /// Persist a pipeline-imported web article: sanitized content, metadata
+    /// (including the `webArticle` provenance), canonical `source_url`, and
+    /// cover image in ONE statement so an import never lands half-written.
+    pub async fn update_web_article(
+        &self,
+        id: &str,
+        content: &str,
+        metadata: &DocumentMetadata,
+        source_url: Option<&str>,
+        cover_image_url: Option<&str>,
+    ) -> Result<()> {
+        let metadata_json = serde_json::to_string(metadata)?;
+        sqlx::query(
+            r#"
+            UPDATE documents SET
+                content = ?1,
+                metadata = ?2,
+                source_url = COALESCE(?3, source_url),
+                cover_image_url = COALESCE(?4, cover_image_url),
+                date_modified = ?5
+            WHERE id = ?6
+            "#,
+        )
+        .bind(content)
+        .bind(metadata_json)
+        .bind(source_url)
+        .bind(cover_image_url)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Canonical-URL dedupe lookup for the article import pipeline: the id of
+    /// the earliest document whose `source_url` column matches, if any.
+    pub async fn find_document_id_by_source_url(&self, source_url: &str) -> Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM documents WHERE source_url = ?1 ORDER BY date_added ASC LIMIT 1",
+        )
+        .bind(source_url)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
+
     /// Apply asynchronous browser-article enrichment only when it is still an
     /// improvement over the exact document version that started the fetch.
     pub async fn guarded_enrich_browser_document(

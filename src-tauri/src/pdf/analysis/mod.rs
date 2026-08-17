@@ -872,10 +872,7 @@ fn visual_bbox_is_sane(bbox: &PdfRect, page_width: f64, page_height: f64) -> boo
         return false;
     }
     let eps = 1e-6;
-    if bbox.x0 < -eps
-        || bbox.y0 < -eps
-        || bbox.x1 > page_width + eps
-        || bbox.y1 > page_height + eps
+    if bbox.x0 < -eps || bbox.y0 < -eps || bbox.x1 > page_width + eps || bbox.y1 > page_height + eps
     {
         return false;
     }

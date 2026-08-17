@@ -600,6 +600,12 @@ export interface FetchedUrlContent {
   file_path: string;
   file_name: string;
   content_type: string;
+  // Article-pipeline fields (overhaul-web-article-import): final redirect-
+  // resolved URL, HTTP status, header content type, redirect hop count.
+  final_url?: string;
+  status?: number;
+  header_content_type?: string;
+  redirect_hops?: number;
   // Optional properties for rich content previews
   title?: string;
   author?: string;
@@ -901,4 +907,78 @@ export async function deleteBundleImages(docId: string): Promise<void> {
     return;
   }
   return await invokeCommand<void>("delete_bundle_images", { docId });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Web Article Import Pipeline backend calls (overhaul-web-article-import)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Raw-source snapshot outcome from `store_source_snapshot`. */
+export interface SourceSnapshotResult {
+  stored: boolean;
+  skippedReason?: string | null;
+  path?: string | null;
+  sha256?: string | null;
+  rawBytes?: number | null;
+  gzipBytes?: number | null;
+}
+
+/** Gzip the fetched raw HTML (read server-side from the temp file) into
+ * `{app_data}/source-snapshots/{id}.html.gz`. Non-Tauri platforms skip. */
+export async function storeSourceSnapshot(
+  documentId: string,
+  sourcePath: string
+): Promise<SourceSnapshotResult | null> {
+  // Desktop + Android go through the Rust command; browser/PWA has no
+  // backend, so snapshots are skipped there (articles persist regardless).
+  if (!isTauri()) return null;
+  return await invokeCommand<SourceSnapshotResult>("store_source_snapshot", {
+    documentId,
+    sourcePath,
+  });
+}
+
+/** Delete snapshots for specific documents (retention off / doc deleted). */
+export async function deleteSourceSnapshots(documentIds: string[]): Promise<number> {
+  if (!isTauri()) return 0;
+  return await invokeCommand<number>("delete_source_snapshots", { documentIds });
+}
+
+/** Remove snapshots older than `maxAgeDays` (retention cleanup pass). */
+export async function cleanupSourceSnapshots(maxAgeDays: number): Promise<number> {
+  if (!isTauri()) return 0;
+  return await invokeCommand<number>("cleanup_source_snapshots", { maxAgeDays });
+}
+
+/** Persist a pipeline-imported article (content + metadata + source_url +
+ * cover) in one backend UPDATE. */
+export async function updateWebArticle(
+  id: string,
+  content: string,
+  metadata: Document["metadata"],
+  sourceUrl?: string,
+  coverImageUrl?: string
+): Promise<Document> {
+  const result = isWebMode()
+    ? await browserInvoke<Document>("update_web_article", {
+        id,
+        content,
+        metadata,
+        sourceUrl: sourceUrl ?? null,
+        coverImageUrl: coverImageUrl ?? null,
+      })
+    : await invokeCommand<Document>("update_web_article", {
+        id,
+        content,
+        metadata,
+        sourceUrl: sourceUrl ?? null,
+        coverImageUrl: coverImageUrl ?? null,
+      });
+  return result as Document;
+}
+
+/** Canonical-URL dedupe lookup: earliest document id with this source_url. */
+export async function findDocumentIdBySourceUrl(sourceUrl: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return await invokeCommand<string | null>("find_document_id_by_source_url", { sourceUrl });
 }

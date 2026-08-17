@@ -2826,6 +2826,8 @@ export const es: Dict = {
   "settingsDocs.preserveImages": "Conservar imágenes en importaciones web",
   "settingsDocs.preserveImagesDesc":
     "Mantener imágenes de páginas web importadas (desactivar para lectura solo texto)",
+  "settingsDocs.keepRawSource": "Conservar instantáneas de páginas",
+  "settingsDocs.keepRawSourceDesc": "Guarda una copia comprimida del HTML original de cada artículo importado para poder reextraerlo más adelante. Las instantáneas se conservan 180 días, quedan excluidas de las copias en la nube (una restauración pierde las instantáneas pero no los artículos) y desactivar esto elimina las existentes.",
   "settingsDocs.segmentationDesc": "Cómo dividir documentos en extractos",
   "settingsDocs.segmentationMethod": "Método de segmentación",
   "settingsDocs.semantic": "Semántico (con IA)",

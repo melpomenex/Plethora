@@ -2828,6 +2828,8 @@ export const de: Dict = {
   "settingsDocs.preserveImages": "Bilder in Webimporten beibehalten",
   "settingsDocs.preserveImagesDesc":
     "Bilder aus importierten Webseiten behalten (deaktivieren für reine Textleseansicht)",
+  "settingsDocs.keepRawSource": "Rohseiten-Snapshots behalten",
+  "settingsDocs.keepRawSourceDesc": "Speichert eine komprimierte Kopie des Original-HTML jedes importierten Artikels für spätere Neuextraktion. Snapshots werden 180 Tage aufbewahrt, sind von Cloud-Backups ausgeschlossen (Wiederherstellungen verlieren Snapshots, nicht Artikel), und das Ausschalten löscht vorhandene Snapshots.",
   "settingsDocs.segmentationDesc": "Wie Dokumente in Auszüge aufgeteilt werden",
   "settingsDocs.segmentationMethod": "Segmentierungsmethode",
   "settingsDocs.semantic": "Semantisch (KI-gestützt)",

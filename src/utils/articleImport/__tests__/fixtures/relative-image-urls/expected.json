@@ -1,0 +1,17 @@
+{
+  "title": "The Best Hikes, With Maps",
+  "minWords": 180,
+  "mustContain": [
+    "Packing notes"
+  ],
+  "mustContainImageUrls": [
+    "https://rel.example.com/posts/2026/images/ridge.jpg",
+    "https://rel.example.com/assets/maps/lake-map.png",
+    "https://rel.example.com/assets/maps/cover.jpg"
+  ],
+  "mustNotContain": [
+    "../images/ridge.jpg",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

@@ -8,6 +8,7 @@
 import React, { useRef, useCallback } from "react";
 import { useIsEink } from "../../contexts/PresentationContext";
 import { loadSavedEinkSettings } from "../../lib/displayMode";
+import { hasActiveReaderSelection } from "./selectionInteraction/useSelectionInteraction";
 
 interface ReaderTapZonesProps {
   onPrevPage: () => void;
@@ -63,8 +64,12 @@ export const ReaderTapZones: React.FC<ReaderTapZonesProps> = ({
       return;
     }
 
-    // Ignore if user has highlighted text
+    // Ignore if user has highlighted text. The top-level window.getSelection()
+    // is always empty for EPUB (content lives in an iframe), so the shared
+    // selection-controller probe is consulted first (overhaul-reader-selection-
+    // ux task 4.4).
     if (typeof window !== "undefined") {
+      if (hasActiveReaderSelection()) return;
       const selection = window.getSelection();
       if (selection && selection.toString().trim().length > 0) {
         return;

@@ -157,6 +157,12 @@ export default defineConfig(async ({ mode }) => {
             if (id.includes("node_modules/react-markdown") || id.includes("node_modules/dompurify")) {
               return "markdown-vendor";
             }
+            // Article import pipeline engines (defuddle + @mozilla/readability).
+            // Loaded only via cached dynamic import() on first URL import, so
+            // app startup never executes them; PWA builds isolate them here.
+            if (id.includes("node_modules/defuddle") || id.includes("node_modules/@mozilla/readability")) {
+              return "article-vendor";
+            }
             if (id.includes("node_modules/jszip")) {
               return "zip-vendor";
             }

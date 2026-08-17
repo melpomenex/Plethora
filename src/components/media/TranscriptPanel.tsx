@@ -8,10 +8,17 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import { useMobileShell } from "../../hooks/useMobileShell";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   SelectionActionsSheet,
   passageAroundSelection,
+  type SelectionAiAction,
 } from "../viewer/SelectionActionsSheet";
+import { useSelectionInteraction } from "../viewer/selectionInteraction/useSelectionInteraction";
+import {
+  SelectionActionBar,
+  type SelectionBarAction,
+} from "../viewer/selectionInteraction/SelectionActionBar";
 
 const PROGRAMMATIC_SCROLL_LOCK_MS = 500;
 
@@ -67,8 +74,33 @@ export function TranscriptPanel({
     sheetOpenRef.current = mobileSelection.open;
   }, [mobileSelection.open]);
 
+  // V2 (overhaul-reader-selection-ux task 6.1): the shared controller owns the
+  // selection lifecycle — stability-gated bar instead of the sheet popping on
+  // the first selectionchange, and AI runs that survive selection collapse.
+  // The legacy listeners below stay for the flag-off rollback path.
+  const selectionV2 = useSettingsStore((s) => s.settings.features.selectionInteractionV2) && isMobile;
+  const [selectionBarOverflowOpen, setSelectionBarOverflowOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    action: SelectionAiAction;
+    text: string;
+    passage: string;
+  } | null>(null);
+  const controller = useSelectionInteraction({
+    surface: "transcript",
+    documentId: `${bookId}:${chapterId}`,
+    enabled: selectionV2,
+    onInvalidate: () => {
+      setPendingAction(null);
+      setSelectionBarOverflowOpen(false);
+    },
+  });
   useEffect(() => {
-    if (!isMobile) return;
+    if (!selectionV2 || !scrollRef.current) return;
+    return controller.registerContentRoot(scrollRef.current);
+  }, [selectionV2, controller]);
+
+  useEffect(() => {
+    if (selectionV2 || !isMobile) return;
 
     const handleSelectionChange = () => {
       if (sheetOpenRef.current) return;
@@ -90,7 +122,14 @@ export function TranscriptPanel({
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [isMobile]);
+  }, [isMobile, selectionV2]);
+
+  const handleBarAction = (action: SelectionBarAction) => {
+    if (action === "extract") return; // transcripts have no extract path
+    const snapshot = controller.captureForAction();
+    if (!snapshot) return;
+    setPendingAction({ action, text: snapshot.text, passage: snapshot.passage });
+  };
 
   // Comfort-offset + debounced + user-scroll-aware auto-scroll. Mirrors the
   // algorithm in TranscriptSync.tsx so both viewers behave the same way.
@@ -319,11 +358,41 @@ export function TranscriptPanel({
         })}
       </div>
 
+      {selectionV2 && (
+        <SelectionActionBar
+          placement={controller.phase === "ready" ? controller.placement : null}
+          onAction={handleBarAction}
+          onOverflow={() => setSelectionBarOverflowOpen(true)}
+          onDismiss={() => controller.dismiss({ suppressCurrentText: true })}
+          canExtract={false}
+          onMeasure={controller.registerBarSize}
+        />
+      )}
+
       <SelectionActionsSheet
-        open={isMobile && mobileSelection.open}
-        text={mobileSelection.text}
-        passage={mobileSelection.passage}
+        open={
+          selectionV2
+            ? selectionBarOverflowOpen ||
+              controller.phase === "actionRunning" ||
+              controller.phase === "resultVisible"
+            : isMobile && mobileSelection.open
+        }
+        text={pendingAction?.text || (selectionV2 ? controller.readySelection?.text : mobileSelection.text) || mobileSelection.text}
+        passage={pendingAction?.passage || (selectionV2 ? controller.readySelection?.passage : mobileSelection.passage)}
+        initialAction={pendingAction?.action}
+        operationId={selectionV2 ? controller.capturedAction?.operationId : undefined}
+        onSettled={
+          selectionV2
+            ? (operationId, outcome) => controller.notifyActionSettled(operationId, outcome)
+            : undefined
+        }
         onClose={() => {
+          if (selectionV2) {
+            setPendingAction(null);
+            setSelectionBarOverflowOpen(false);
+            controller.dismiss({ suppressCurrentText: true });
+            return;
+          }
           setMobileSelection(prev => ({ ...prev, open: false }));
           window.getSelection()?.removeAllRanges();
         }}

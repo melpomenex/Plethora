@@ -1,0 +1,13 @@
+{
+  "title": "Metered Story With a Clean Teaser",
+  "authors": [
+    "Dee Fuddle"
+  ],
+  "minWords": 350,
+  "mustNotContain": [
+    "free articles left",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium",
+  "expectedExtractor": "defuddle"
+}

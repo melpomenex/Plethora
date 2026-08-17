@@ -129,6 +129,9 @@ import {
   type PdfTextSelectionCapability,
 } from "./pdfTextSelection";
 import { createScrollDismissGate, isSuppressedSelection } from "./touchSelectionDismissal";
+import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
+import type { SelectionSurface } from "./selectionInteraction/machine";
+import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
 import { useI18n } from "../../lib/i18n";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { StoredHighlight } from "./HighlightLayer";
@@ -1039,6 +1042,51 @@ export function DocumentViewer({
     conceptKeys: string[];
     passage: string;
   } | null>(null);
+  // ── Selection-interaction controller V2 (overhaul-reader-selection-ux) ──
+  // Ships behind the `selectionInteractionV2` flag (default off): the machine
+  // owns suppression/settle/ready/action phases; touch UI visibility derives
+  // from the phase, never from live selection text. Flag off = legacy paths.
+  const selectionV2 = useSettingsStore((s) => s.settings.features.selectionInteractionV2);
+  const selectionSurface = useMemo<SelectionSurface>(() => {
+    if (docType === "epub") return "epub";
+    if (docType === "pdf") return pdfViewMode === "ocr-html" ? "pdf-ocr-html" : "pdf-fixed";
+    if (docType === "markdown") return "markdown";
+    return "html";
+  }, [docType, pdfViewMode]);
+  const docTypeRef = useRef(docType);
+  docTypeRef.current = docType;
+  // The "⋯" overflow opens the existing sheet in full-menu mode.
+  const [selectionBarOverflowOpen, setSelectionBarOverflowOpen] = useState(false);
+  const selectionController = useSelectionInteraction({
+    surface: selectionSurface,
+    documentId: currentDocument?.id ?? null,
+    enabled: selectionV2 && viewMode === "document" && Boolean(currentDocument),
+    getReaderContext: () => ({
+      page: currentPageRef.current,
+      scrollPercent: lastScrollStateRef.current?.scrollPercent ?? null,
+    }),
+    onReady: (sel) => {
+      // Parity with the legacy stability effect: settled touch selections
+      // drive the extract flows (selectedText/lastSelectionRef) on non-PDF
+      // surfaces, plus whatever anchor context the bridge captured.
+      if (docTypeRef.current !== "pdf") {
+        setSelectedText(sel.text);
+        lastSelectionRef.current = sel.text;
+        if (sel.selectionContext) setSelectionContext(sel.selectionContext as SelectionContext);
+      }
+    },
+    onInvalidate: () => {
+      // Reading context ended: abort any in-flight AI run + close derived UI.
+      setAiSheetRequest(null);
+      setSelectionBarOverflowOpen(false);
+    },
+  });
+  // Controller methods used inside hot callbacks — kept as a ref so callback
+  // identities (updateSelection, context-menu builders) stay stable across
+  // phase changes.
+  const selectionControllerRef = useRef(selectionController);
+  selectionControllerRef.current = selectionController;
+
   const recallPrompts = useRecallPrompts({
     enabled: aiActiveRecallEnabled,
     mode: activeRecallMode,
@@ -1046,9 +1094,10 @@ export function DocumentViewer({
     documentId: currentDocument?.id ?? null,
     documentTitle: currentDocument?.title ?? null,
     isSelecting: selectedText.trim().length > 0,
-    // PDF-reflow state is encapsulated inside PDFViewer; there is no viewer-
-    // level signal today, so this input stays false until one is exposed.
-    isReflowActive: false,
+    // V2: real reflow/selection-interaction signal from the selection
+    // controller — recall prompts pause while a selection interaction is
+    // active (previously a hardcoded false placeholder).
+    isReflowActive: selectionV2 && selectionController.phase !== "idle",
     // Media documents are playback surfaces — recall prompts stay suppressed.
     isPlaybackActive:
       docType === "video" || docType === "audio" || docType === "youtube",
@@ -1068,6 +1117,9 @@ export function DocumentViewer({
     ? (selectedText || lastSelectionRef.current)
     : selectedText;
 
+  // V2 touch UI is gated to mobile shells; desktop keeps its context menu.
+  const selectionV2Active = selectionV2 && isMobileTouch && viewMode === "document";
+
   // Non-PDF viewers already answer a long-press with the selection context
   // menu (itself a bottom sheet), so there the AI actions are rows in *that*
   // menu and this sheet only renders the result. PDF has no context menu — it
@@ -1084,8 +1136,17 @@ export function DocumentViewer({
   // the native drag handles before the user could adjust the selection.
   const isPdfTouchSurface = isMobileTouch && docType === "pdf" && pdfViewMode !== "ocr-html";
   const mobileSheetSource = isPdfTouchSurface ? mobileSelection.text : mobileSheetText;
-  const mobileMenuSheetOpen =
+  const legacyMobileMenuSheetOpen =
     isMobileTouch && viewMode === "document" && Boolean(mobileSheetSource);
+  // V2 (task 3.2): sheet openness derives from the controller phase (bar
+  // overflow menu, AI run, visible result) — never from live selection text,
+  // so a collapsed native selection can never unmount a running/result sheet.
+  const mobileMenuSheetOpen = selectionV2
+    ? selectionV2Active &&
+      (selectionBarOverflowOpen ||
+        selectionController.phase === "actionRunning" ||
+        selectionController.phase === "resultVisible")
+    : legacyMobileMenuSheetOpen;
   const mobileSheetOpen = mobileMenuSheetOpen || Boolean(aiSheetRequest);
   useEffect(() => {
     mobileSheetOpenRef.current = mobileSheetOpen;
@@ -1096,6 +1157,39 @@ export function DocumentViewer({
   useEffect(() => {
     mobileMenuSheetOpenRef.current = mobileMenuSheetOpen;
   }, [mobileMenuSheetOpen]);
+
+  // V2: register the HTML document's iframe (html docType renders inside an
+  // iframe like EPUB) so selection activity there drives the machine too.
+  useEffect(() => {
+    if (!selectionV2 || docType !== "html" || !iframeElement) return;
+    const frame = iframeElement;
+    const win = frame.contentWindow;
+    const doc = frame.contentDocument;
+    if (!win || !doc) return;
+    const detach = selectionControllerRef.current.registerContentDocument({
+      doc,
+      win,
+      offset: () => {
+        try {
+          const rect = frame.getBoundingClientRect();
+          return { x: rect.left, y: rect.top };
+        } catch {
+          return null;
+        }
+      },
+    });
+    return detach;
+  }, [selectionV2, docType, iframeElement]);
+
+  // V2: view-mode switches (pdf ↔ reflow ↔ ocr-html) invalidate selection
+  // geometry (task 5.3).
+  const lastPdfViewModeRef = useRef(pdfViewMode);
+  useEffect(() => {
+    if (lastPdfViewModeRef.current !== pdfViewMode) {
+      lastPdfViewModeRef.current = pdfViewMode;
+      if (selectionV2) selectionControllerRef.current.invalidate("view-mode-changed");
+    }
+  }, [pdfViewMode, selectionV2]);
 
   const handleDictionaryLookup = useCallback(async () => {
     const word = activeExtractSelection.trim().split(/\s+/)[0] || "";
@@ -1278,6 +1372,17 @@ export function DocumentViewer({
         setSelectedText(text);
         lastSelectionRef.current = text;
         setSelectionContext(context ?? null);
+        if (selectionV2) {
+          // V2: the validated PDF commit feeds the controller. On touch the
+          // commit only supplies the canonical context (the stability path
+          // owns the phase — task 5.1); desktop mouse-up commits READY
+          // directly (mouse-up semantics preserved).
+          const controller = selectionControllerRef.current;
+          controller.setLiveSelectionContext(context ?? null);
+          if (!controller.isRecentTouch()) {
+            controller.commitLiveSelectionAsReady(context ?? null);
+          }
+        }
       } else {
         setSelectedText("");
         if (context === null || context === undefined || !isPdfSelectionContext(context) || !isValidPdfSelection(text, context)) {
@@ -1292,6 +1397,7 @@ export function DocumentViewer({
       lastSelectionRef.current = text;
       if (context) {
         setSelectionContext(context);
+        if (selectionV2) selectionControllerRef.current.setLiveSelectionContext(context);
       } else if (context === undefined) {
         // Preserve existing selectionContext — generic selectionchange events
         // (e.g. from EPUB handleSelectionChange) pass undefined and should not
@@ -1305,7 +1411,7 @@ export function DocumentViewer({
       // Don't clear lastSelectionRef on empty selection - preserve it for the toolbar button
       // The floating action button is controlled by selectedText state, so it will hide appropriately
     }
-  }, [MAX_SELECTION_CHARS, docType, pdfViewMode]);
+  }, [MAX_SELECTION_CHARS, docType, pdfViewMode, selectionV2]);
 
   const clearTextSelection = useCallback(() => {
     setSelectedText("");
@@ -2182,13 +2288,22 @@ export function DocumentViewer({
           id: `ai-${item.action}`,
           label: item.label,
           icon: item.icon,
-          onClick: () =>
+          onClick: () => {
+            // V2: route through the controller — the run consumes the
+            // immutable snapshot, so a collapsing native selection cannot
+            // cancel it. Legacy: capture now, while the selection is live.
+            const controller = selectionControllerRef.current;
+            const snapshot = selectionV2 ? controller.captureForAction() : null;
+            if (snapshot) {
+              setAiSheetRequest({ action: item.action, text: snapshot.text, passage: snapshot.passage });
+              return;
+            }
             setAiSheetRequest({
               action: item.action,
               text: selectedText,
-              // Captured now, while the selection is still live.
               passage: buildSelectionPassage(selectedText),
-            }),
+            });
+          },
         });
       }
       // "Learn this" structured proposal (Phase 1, behind its feature flag).
@@ -2207,7 +2322,7 @@ export function DocumentViewer({
     }
 
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage]);
+  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage, selectionV2]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
@@ -3568,6 +3683,11 @@ export function DocumentViewer({
   // stopped changing for SELECTION_STABLE_MS *and* no touch is active: a
   // long-press hold or a handle drag keeps re-arming the wait.
   useEffect(() => {
+    // V2: the selection-interaction controller replaces this effect entirely —
+    // including the empty-selection `hideSelectionUi()` path, which the
+    // machine can only apply to selecting/settling/ready (a running/result
+    // action survives selection collapse).
+    if (selectionV2) return;
     if (!isMobileTouch) return;
 
     const SELECTION_STABLE_MS = 500;
@@ -3764,7 +3884,7 @@ export function DocumentViewer({
       document.removeEventListener("scroll", handleScrollCapture, { capture: true } as EventListenerOptions);
       clearStableTimer();
     };
-  }, [docType, isMobileTouch, setSelectedText]);
+  }, [docType, isMobileTouch, setSelectedText, selectionV2]);
 
   // Dismiss the floating extract button when clicking away or pressing Escape.
   //
@@ -4312,6 +4432,20 @@ export function DocumentViewer({
       selectionContext: selectionContext ?? undefined,
     });
     dismissSelectionAfterExtract();
+  };
+
+  // V2: bar chip invocation — the run consumes the immutable snapshot taken
+  // at invocation (text/passage/context), never live selection state.
+  const handleSelectionBarAction = (action: SelectionBarAction) => {
+    const controller = selectionControllerRef.current;
+    if (action === "extract") {
+      handleMobileExtract();
+      controller.dismiss();
+      return;
+    }
+    const snapshot = controller.captureForAction();
+    if (!snapshot) return;
+    setAiSheetRequest({ action, text: snapshot.text, passage: snapshot.passage });
   };
 
   const handleSearch = useCallback((direction: ViewerSearchDirection = "next") => {
@@ -6915,6 +7049,11 @@ export function DocumentViewer({
               setPdfScrollContainer(container);
             }}
             onVimRuntimeChange={setPdfVimRuntime}
+            onSelectionContextInvalidated={
+              selectionV2
+                ? (reason) => selectionControllerRef.current.invalidate(reason)
+                : undefined
+            }
             onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
             selectionPopupSuppressed={Boolean(contextMenuState?.visible)}
             pageNumber={pageNumber}
@@ -7025,6 +7164,15 @@ export function DocumentViewer({
             }}
             onIframeWindowReady={setEpubIframeWindow}
             onVimRuntimeChange={setEpubVimRuntime}
+            selectionInteractionBridge={
+              selectionV2
+                ? {
+                    register: (entry) =>
+                      selectionControllerRef.current.registerContentDocument(entry),
+                    invalidate: (reason) => selectionControllerRef.current.invalidate(reason),
+                  }
+                : undefined
+            }
           />
         ) : docType === "audio" ? (
           mediaError && !mediaSource ? (
@@ -7696,21 +7844,60 @@ export function DocumentViewer({
         </div>
       )}
 
+      {/* V2: compact anchored action bar for settled touch selections.
+          No scrim — if it appears mid-deliberation, touching a handle again
+          instantly returns the machine to SELECTING and hides it. */}
+      <SelectionActionBar
+        placement={
+          selectionV2Active && selectionController.phase === "ready"
+            ? selectionController.placement
+            : null
+        }
+        onAction={handleSelectionBarAction}
+        onOverflow={() => setSelectionBarOverflowOpen(true)}
+        onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
+        aiAvailable={aiAvailability.available}
+        onMeasure={selectionController.registerBarSize}
+      />
+
       {/* Mobile: bottom sheet of actions for the current text selection. */}
       <SelectionActionsSheet
         open={mobileSheetOpen}
-        text={aiSheetRequest?.text || mobileSheetSource || mobileSheetText}
-        passage={aiSheetRequest?.passage || mobileSelection.passage}
+        text={
+          aiSheetRequest?.text ||
+          (selectionV2 ? selectionController.readySelection?.text : mobileSheetSource) ||
+          mobileSheetText
+        }
+        passage={
+          aiSheetRequest?.passage ||
+          (selectionV2 ? selectionController.readySelection?.passage : mobileSelection.passage)
+        }
         initialAction={aiSheetRequest?.action}
+        operationId={selectionV2 ? selectionController.capturedAction?.operationId : undefined}
+        onSettled={
+          selectionV2
+            ? (operationId, outcome) =>
+                selectionControllerRef.current.notifyActionSettled(operationId, outcome)
+            : undefined
+        }
         onClose={() => {
           setAiSheetRequest(null);
-          // Remember this exact selection as dismissed. On Android the native
-          // selection survives dismissal (clearing it programmatically wedges
-          // the WebView), so without this guard the next touchend re-surfaces
-          // the same selection and the sheet snaps open again.
-          if (activeSelectionKeyRef.current) {
-            dismissedSelectionKeyRef.current = activeSelectionKeyRef.current;
-            dismissedSelectionAtRef.current = Date.now();
+          setSelectionBarOverflowOpen(false);
+          if (selectionV2) {
+            // Machine-driven dismissal: suppress this exact selection's text
+            // (the native selection survives on Android) and drop the
+            // anchored bar. A running/result phase is only here because the
+            // user closed it — abort happens in the sheet's own unmount.
+            selectionControllerRef.current.dismiss({ suppressCurrentText: true });
+          } else {
+            // Remember this exact selection as dismissed. On Android the native
+            // selection survives dismissal (clearing it programmatically wedges
+            // the WebView), so without this guard the next touchend re-surfaces
+            // the same selection and the sheet snaps open again.
+            if (activeSelectionKeyRef.current) {
+              dismissedSelectionKeyRef.current = activeSelectionKeyRef.current;
+              dismissedSelectionAtRef.current = Date.now();
+            }
           }
           setMobileSelection({ text: "", passage: "", position: { x: 0, y: 0 }, showButton: false });
           clearTextSelection();

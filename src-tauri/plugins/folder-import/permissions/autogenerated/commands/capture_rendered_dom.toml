@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-capture-rendered-dom"
+description = "Enables the capture_rendered_dom command without any pre-configured scope."
+commands.allow = ["capture_rendered_dom"]
+
+[[permission]]
+identifier = "deny-capture-rendered-dom"
+description = "Denies the capture_rendered_dom command without any pre-configured scope."
+commands.deny = ["capture_rendered_dom"]

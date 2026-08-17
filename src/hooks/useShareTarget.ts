@@ -15,6 +15,7 @@ import { createDocument } from "../api/documents";
 import { DocumentViewer } from "../components/viewer/DocumentViewer";
 import { TextT } from "@phosphor-icons/react";
 import type { SharedBatch, SharedItem } from "../types/share";
+import { ArticleImportError } from "../utils/articleImport/errors";
 
 export function useShareTarget() {
   const toast = useToast();
@@ -41,6 +42,7 @@ export function useShareTarget() {
 
       try {
         const importedDocs: any[] = [];
+        let typedUrlFailures = 0;
 
         // 1. Process URLs
         const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
@@ -51,6 +53,33 @@ export function useShareTarget() {
             importedDocs.push(doc);
           } catch (e) {
             console.error("[Share Target] Failed to import shared URL:", item.url, e);
+            // Typed failure: show the reason with a retry action (or "Open
+            // original" for non-retriable extraction failures). No document
+            // was created — the user decides what happens next.
+            if (e instanceof ArticleImportError) {
+              typedUrlFailures += 1;
+              const reason = t(`shareImport.error.${e.code}`);
+              const openOriginal = () => {
+                void import("../lib/tauri").then(({ openExternal }) =>
+                  openExternal(item.url as string)
+                );
+              };
+              toast.error(t("mainLayout.importFailed"), reason, {
+                duration: 12000,
+                action: e.retriable
+                  ? {
+                      label: t("common.retry"),
+                      onClick: () => {
+                        importFromUrl(item.url as string)
+                          .then(() => void loadDocuments())
+                          .catch(() => undefined);
+                      },
+                    }
+                  : e.openOriginalUseful
+                    ? { label: t("webImport.openOriginal"), onClick: openOriginal }
+                    : undefined,
+              });
+            }
           }
         }
 
@@ -114,7 +143,8 @@ export function useShareTarget() {
             }
           );
           void loadDocuments();
-        } else {
+        } else if (typedUrlFailures === 0) {
+          // Typed failures already showed their own actionable toast.
           toast.error(
             t("mainLayout.importFailed"),
             "Could not process shared content"

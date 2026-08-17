@@ -1032,8 +1032,16 @@ fn visual_bbox_gate_rejects_degenerate_geometry() {
     let page_h = 792.0;
     // Zero width/height (PdfRect::new normalizes inverted inputs, so only
     // degenerate-but-ordered boxes remain possible here).
-    assert!(!visual_bbox_is_sane(&PdfRect::new(72.0, 300.0, 72.0, 500.0), page_w, page_h));
-    assert!(!visual_bbox_is_sane(&PdfRect::new(72.0, 300.0, 540.0, 300.0), page_w, page_h));
+    assert!(!visual_bbox_is_sane(
+        &PdfRect::new(72.0, 300.0, 72.0, 500.0),
+        page_w,
+        page_h
+    ));
+    assert!(!visual_bbox_is_sane(
+        &PdfRect::new(72.0, 300.0, 540.0, 300.0),
+        page_w,
+        page_h
+    ));
     // Non-finite extents.
     assert!(!visual_bbox_is_sane(
         &PdfRect::new(f64::NAN, 300.0, 540.0, 500.0),
@@ -1095,7 +1103,16 @@ fn figure_area_floor_downgrades_small_figures() {
     use crate::pdf::coordinates::PdfRect;
     // (2 × body font)² floor: a 20×20 region fails a 10pt body font floor
     // (400pt² needed, 400pt² exactly met — use 19×20 to fail).
-    assert!(figure_bbox_meets_floor(&PdfRect::new(0.0, 0.0, 20.0, 20.0), 10.0));
-    assert!(!figure_bbox_meets_floor(&PdfRect::new(0.0, 0.0, 19.0, 20.0), 10.0));
-    assert!(!figure_bbox_meets_floor(&PdfRect::new(0.0, 0.0, 7.2, 7.2), 10.0));
+    assert!(figure_bbox_meets_floor(
+        &PdfRect::new(0.0, 0.0, 20.0, 20.0),
+        10.0
+    ));
+    assert!(!figure_bbox_meets_floor(
+        &PdfRect::new(0.0, 0.0, 19.0, 20.0),
+        10.0
+    ));
+    assert!(!figure_bbox_meets_floor(
+        &PdfRect::new(0.0, 0.0, 7.2, 7.2),
+        10.0
+    ));
 }

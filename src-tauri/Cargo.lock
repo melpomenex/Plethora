@@ -4067,6 +4067,7 @@ dependencies = [
  "dotenvy",
  "epub",
  "filetime",
+ "flate2",
  "fsrs",
  "futures",
  "futures-util",

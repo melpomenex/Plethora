@@ -1,0 +1,14 @@
+{
+  "title": "A Tiny Parser, Start to Finish",
+  "minWords": 120,
+  "mustContain": [
+    "fn parse",
+    "parse_root",
+    "Step by step",
+    "interface Node"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

@@ -2843,6 +2843,8 @@ export const fr: Dict = {
   "settingsDocs.preserveImages": "Conserver les images dans les imports web",
   "settingsDocs.preserveImagesDesc":
     "Garder les images des pages web importées (désactiver pour une lecture texte uniquement)",
+  "settingsDocs.keepRawSource": "Conserver les instantanés de pages brutes",
+  "settingsDocs.keepRawSourceDesc": "Conserve une copie compressée du HTML original de chaque article importé pour pouvoir le réextraire plus tard. Les instantanés sont conservés 180 jours, exclus des sauvegardes cloud (une restauration perd les instantanés mais pas les articles) et désactiver cette option supprime les instantanés existants.",
   "settingsDocs.segmentationDesc": "Comment diviser les documents en extraits",
   "settingsDocs.segmentationMethod": "Méthode de segmentation",
   "settingsDocs.semantic": "Sémantique (propulsé par l'IA)",

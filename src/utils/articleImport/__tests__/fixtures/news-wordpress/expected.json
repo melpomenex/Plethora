@@ -1,0 +1,17 @@
+{
+  "title": "Agency Report Lands With Few Surprises",
+  "authors": [
+    "WP Reporter"
+  ],
+  "siteName": "WPNews",
+  "minWords": 300,
+  "mustContain": [
+    "Reaction"
+  ],
+  "mustNotContain": [
+    "Leave a comment",
+    "Share this:",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

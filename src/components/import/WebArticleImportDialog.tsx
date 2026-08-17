@@ -30,6 +30,7 @@ import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import type { Document } from "../../types/document";
 import { isTauri } from "../../lib/tauri";
+import { ArticleImportError } from "../../utils/articleImport/errors";
 
 interface WebArticleImportDialogProps {
   isOpen: boolean;
@@ -72,7 +73,12 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
   const [isPdf, setIsPdf] = useState(false);
   const [importFormat, setImportFormat] = useState<'pdf' | 'html'>('html');
 
-  const { importFromUrl, loadDocuments } = useDocumentStore();
+  // Pipeline-aware import state (overhaul-web-article-import)
+  const [pipelineStage, setPipelineStage] = useState<string | null>(null);
+  const [typedError, setTypedError] = useState<ArticleImportError | null>(null);
+  const importAbortRef = useRef<AbortController | null>(null);
+
+  const { importFromUrl, importRawPageFromUrl, loadDocuments } = useDocumentStore();
   const { success: showSuccess, error: showError } = useToast();
 
   const checkIsPdfUrl = useCallback((urlStr: string): boolean => {
@@ -103,6 +109,8 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
       setPreviewMode('rendered');
       setIsPdf(false);
       setImportFormat('html');
+      setPipelineStage(null);
+      setTypedError(null);
     }
   }, [isOpen]);
 
@@ -118,6 +126,14 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
       return () => document.removeEventListener("keydown", handleEscape);
     }
   }, [isOpen, onClose]);
+
+  // Leaving the dialog aborts any in-flight pipeline import.
+  useEffect(() => {
+    if (!isOpen && importAbortRef.current) {
+      importAbortRef.current.abort();
+      importAbortRef.current = null;
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const detectPdf = checkIsPdfUrl(url);
@@ -457,64 +473,114 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
     setTags(tags.filter((tag) => tag !== tagToRemove));
   };
 
+  const stageLabel = (stage: string | null): string | null => {
+    if (!stage) return null;
+    switch (stage) {
+      case 'normalizing':
+      case 'fetching':
+        return t("webImport.stageFetching");
+      case 'extracting':
+        return t("webImport.stageExtracting");
+      case 'rendered-fallback':
+        return t("webImport.stageRenderedFallback");
+      case 'normalizing-article':
+        return t("webImport.stageNormalizing");
+      default:
+        return null;
+    }
+  };
+
+  const finishImport = (doc: Document) => {
+    setImportSuccess(true);
+    showSuccess(t("webImport.articleImported"), t("webImport.articleImportedDesc", {
+      title: `${(preview?.title || doc.title).substring(0, 50)}...`,
+    }));
+
+    // Close dialog and open the document in a new tab
+    setTimeout(() => {
+      onClose();
+      if (onOpenDocument) {
+        onOpenDocument(doc);
+      }
+    }, 800);
+  };
+
   const handleImport = async () => {
     if (!preview) return;
 
     setIsImporting(true);
     setError(null);
+    setTypedError(null);
+    setPipelineStage('fetching');
+
+    const controller = new AbortController();
+    importAbortRef.current = controller;
 
     try {
-      const doc = await importFromUrl(preview.url);
-      
+      // The store routes through the Web Article Import Pipeline: the
+      // persisted document is the extracted, sanitized article — never the
+      // flattened preview page.
+      const doc = await importFromUrl(preview.url, {
+        signal: controller.signal,
+        onProgress: (p) => setPipelineStage(p.stage),
+      });
       setImportedDoc(doc);
 
-      // Update the document with user-selected tags and additional metadata
+      // Apply the user's tags (and an edited title) without touching the
+      // pipeline-persisted content or metadata.
       const { updateDocument } = useDocumentStore.getState();
-      
-      const updatePayload: any = { 
+      await updateDocument(doc.id, {
+        ...doc,
         tags,
         title: preview.title || doc.title,
-        metadata: {
-          ...doc.metadata,
-          author: preview.author,
-          subject: preview.description,
-          source: preview.url,
-          siteName: preview.siteName,
-          image: preview.image,
-          favicon: preview.favicon,
-          fetchMethod: preview.fetchMethod,
-          wordCount: preview.wordCount,
-          readingTime: preview.readingTime,
-        }
-      };
+      } as Document);
 
-      if (importFormat !== 'pdf') {
-        updatePayload.content = preview.processedHtml || preview.text;
-      }
-
-      await updateDocument(doc.id, updatePayload);
-      
-      // Reload to get latest state
       await loadDocuments();
+      finishImport(doc);
+    } catch (err) {
+      if (err instanceof ArticleImportError) {
+        // Typed pipeline failure: show the reason with Retry and the
+        // explicitly labeled raw-page escape hatch.
+        setTypedError(err);
+        setError(t(`shareImport.error.${err.code}`));
+      } else {
+        const message = err instanceof Error ? err.message : t("webImport.importFailed");
+        setError(message);
+        showError(t("webImport.importFailedTitle"), message);
+      }
+    } finally {
+      setIsImporting(false);
+      setPipelineStage(null);
+      importAbortRef.current = null;
+    }
+  };
 
-      setImportSuccess(true);
-      showSuccess(t("webImport.articleImported"), t("webImport.articleImportedDesc", {
-        title: `${preview.title.substring(0, 50)}...`,
-      }));
+  /** The explicitly labeled escape hatch: store the sanitized full page,
+   *  marked `raw-fallback` with a visible in-document notice. Never
+   *  auto-invoked — only this button calls it. */
+  const handleImportRawPage = async () => {
+    if (!preview) return;
+    setIsImporting(true);
+    setError(null);
+    setTypedError(null);
 
-      // Close dialog and open the document
-      setTimeout(() => {
-        onClose();
-        if (onOpenDocument && doc) {
-          onOpenDocument(doc);
-        }
-      }, 800);
+    const controller = new AbortController();
+    importAbortRef.current = controller;
+
+    try {
+      const doc = await importRawPageFromUrl(preview.url, {
+        signal: controller.signal,
+        extraTags: tags,
+      });
+      await loadDocuments();
+      finishImport(doc);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("webImport.importFailed");
       setError(message);
       showError(t("webImport.importFailedTitle"), message);
     } finally {
       setIsImporting(false);
+      importAbortRef.current = null;
     }
   };
 
@@ -710,7 +776,7 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
               </div>
 
               {/* Error */}
-              {error && (
+              {error && !isImporting && (
                 <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
                   <div className="flex items-start gap-2">
                     <WarningCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
@@ -719,15 +785,41 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
                       {errorDetails && (
                         <p className="text-xs text-destructive/80 mt-1">{errorDetails}</p>
                       )}
+                      {typedError?.causeDetail && (
+                        <p className="mt-1 font-mono text-[10px] text-destructive/60 break-all">
+                          {typedError.causeDetail}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
-                    onClick={handleFetch}
-                    className="mt-2 flex items-center gap-1 text-xs text-destructive hover:underline"
+                    onClick={handleImport}
+                    disabled={isImporting || !preview}
+                    className="mt-2 flex items-center gap-1 text-xs text-destructive hover:underline disabled:opacity-50"
                   >
                     <ArrowsClockwise className="h-3 w-3" />
                     {t("common.retry")}
                   </button>
+
+                  {/* Explicit raw-page escape hatch — offered only after a
+                      typed pipeline failure, never invoked automatically. */}
+                  {typedError && importFormat !== 'pdf' && (
+                    <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950">
+                      <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                        {t("webImport.importFullPage")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                        {t("webImport.importFullPageDesc")}
+                      </p>
+                      <button
+                        onClick={handleImportRawPage}
+                        disabled={isImporting}
+                        className="mt-1.5 rounded-md border border-amber-400/70 bg-amber-100/60 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/60 dark:text-amber-100 dark:hover:bg-amber-900"
+                      >
+                        {t("webImport.importFullPage")}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -768,10 +860,12 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
 
           {/* Right panel - Preview */}
           <div className="flex flex-1 flex-col overflow-hidden bg-background">
-            {isLoading ? (
+            {isLoading || (isImporting && pipelineStage) ? (
               <div className="flex h-full flex-col items-center justify-center">
                 <CircleNotch className="h-8 w-8 animate-spin text-primary mb-4" />
-                <p className="text-sm text-muted-foreground">{t("webImport.fetchingArticle")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {stageLabel(pipelineStage) ?? t("webImport.fetchingArticle")}
+                </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   {t("webImport.fetchingHelp")}
                 </p>

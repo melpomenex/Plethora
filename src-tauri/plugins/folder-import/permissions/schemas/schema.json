@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the backup_db_to_downloads command without any pre-configured scope."
         },
         {
+          "description": "Enables the capture_rendered_dom command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-capture-rendered-dom",
+          "markdownDescription": "Enables the capture_rendered_dom command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the capture_rendered_dom command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-capture-rendered-dom",
+          "markdownDescription": "Denies the capture_rendered_dom command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_pending_shares command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-pending-shares",
@@ -367,10 +379,10 @@
           "markdownDescription": "Denies the register_share_listener command without any pre-configured scope."
         },
         {
-          "description": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`",
+          "description": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-capture-rendered-dom`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`"
+          "markdownDescription": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-capture-rendered-dom`"
         }
       ]
     }

@@ -122,6 +122,8 @@ sha2 = "0.10"
 hex = "0.4"
 aes-gcm = "0.10"
 hostname = "0.4"
+# gzip for article-import raw-source snapshots (source-snapshots/*.html.gz)
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 # Vector search and embeddings
 byteorder = "1.5"

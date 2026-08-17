@@ -1,0 +1,17 @@
+{
+  "title": "The Long Read Nested Deep",
+  "authors": [
+    "Reed Ability"
+  ],
+  "minWords": 500,
+  "mustContain": [
+    "Part one",
+    "Part two"
+  ],
+  "mustNotContain": [
+    "Most read",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium",
+  "expectedExtractor": "readability"
+}

@@ -1,0 +1,14 @@
+{
+  "title": "Broken Markup, Real Story",
+  "minWords": 300,
+  "mustContain": [
+    "Still readable"
+  ],
+  "mustNotContain": [
+    "Share on Facebook",
+    "Privacy",
+    "Terms",
+    "Menu item"
+  ],
+  "confidenceAtLeast": "medium"
+}

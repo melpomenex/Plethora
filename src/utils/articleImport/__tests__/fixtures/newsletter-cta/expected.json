@@ -1,0 +1,12 @@
+{
+  "title": "The Newsletter Garden",
+  "minWords": 330,
+  "mustContain": [
+    "Practical notes"
+  ],
+  "mustNotContain": [
+    "Sign up for our free newsletter",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}
