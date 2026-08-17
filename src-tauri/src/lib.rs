@@ -1154,9 +1154,19 @@ pub fn run() {
                 }
 
                 // Initialize cloud auth provider and AI key store (managed immediately so commands can access them)
-                let auth_store = cloud::auth_store::AuthStore::new(app_dir.clone());
+                let legacy_store_dir = {
+                    let legacy = legacy_data::legacy_app_data_dir(&app_dir);
+                    if legacy.is_dir() {
+                        Some(legacy)
+                    } else {
+                        None
+                    }
+                };
+                let auth_store =
+                    cloud::auth_store::AuthStore::new(app_dir.clone(), legacy_store_dir.clone());
                 let cloud_auth_provider = cloud::auth_store::CloudAuthProvider::new();
-                let ai_key_store = commands::ai_key_store::AIKeyStore::new(app_dir.clone());
+                let ai_key_store =
+                    commands::ai_key_store::AIKeyStore::new(app_dir.clone(), legacy_store_dir);
 
                 app.manage(cloud_auth_provider.clone());
                 app.manage(auth_store.clone());
