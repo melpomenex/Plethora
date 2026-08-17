@@ -308,6 +308,21 @@ CREATE TABLE IF NOT EXISTS webhooks (
 
 CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
 
+-- Remote inbox items (Proposal 19)
+CREATE TABLE IF NOT EXISTS inbox_items (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  title VARCHAR(500),
+  excerpt TEXT,
+  content_html TEXT,
+  tags JSONB DEFAULT '[]',
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_items_user_status ON inbox_items(user_id, status);
+
 -- Migrations
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(20) DEFAULT 'free';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
