@@ -1,4 +1,4 @@
-# Manuel de l'utilisateur Incrementum
+# Manuel de l'utilisateur Plethora
 
 **Votre guide complet pour maîtriser la lecture incrémentielle et la répétition espacée**
 
@@ -8,7 +8,7 @@
 
 ### Premier lancement
 
-Lorsque vous lancez Incrementum pour la première fois, vous verrez le **Tableau de bord** composé de quatre sections principales :
+Lorsque vous lancez Plethora pour la première fois, vous verrez le **Tableau de bord** composé de quatre sections principales :
 
 1. **File d'attente** - Votre file d'attente de révision (vide au début)
 2. **Révision** – Séance de révision active

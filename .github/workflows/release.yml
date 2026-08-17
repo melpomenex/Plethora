@@ -35,7 +35,7 @@ jobs:
       # The matrix context is NOT available in a job-level `if`, so the leg
       # filter has to live here in the matrix expression itself.
       # macOS note: `app` bundle is required so the updater emits
-      # Incrementum_<v>_aarch64.app.tar.gz (and its .sig) alongside the dmg;
+      # Plethora_<v>_aarch64.app.tar.gz (and its .sig) alongside the dmg;
       # the updater only consumes the .app.tar.gz, not the .dmg.
       matrix:
         ${{ (github.event_name == 'workflow_dispatch' && inputs.windows_only == true
@@ -471,7 +471,7 @@ jobs:
           VERSION_NO_V="${{ steps.get_version.outputs.VERSION }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
           npx @tauri-apps/cli signer sign \
-            "src-tauri/target/release/bundle/appimage/Incrementum_${VERSION_NO_V}_amd64.AppImage"
+            "src-tauri/target/release/bundle/appimage/Plethora_${VERSION_NO_V}_amd64.AppImage"
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -488,8 +488,8 @@ jobs:
           VERSION_NO_V="${VERSION_NO_V#v}"
           node scripts/verify-update-artifact.mjs \
             --pubkey-config src-tauri/tauri.conf.json \
-            --artifact "src-tauri/target/release/bundle/appimage/Incrementum_${VERSION_NO_V}_amd64.AppImage" \
-            --sig "src-tauri/target/release/bundle/appimage/Incrementum_${VERSION_NO_V}_amd64.AppImage.sig"
+            --artifact "src-tauri/target/release/bundle/appimage/Plethora_${VERSION_NO_V}_amd64.AppImage" \
+            --sig "src-tauri/target/release/bundle/appimage/Plethora_${VERSION_NO_V}_amd64.AppImage.sig"
 
       - name: Upload AppImage to release
         uses: softprops/action-gh-release@v2
@@ -616,34 +616,34 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
-            'Name=Incrementum' \
+            'Name=Plethora' \
             'Comment=Spaced repetition and incremental reading for effective learning' \
-            'Exec=incrementum %U' \
-            'Icon=incrementum' \
+            'Exec=plethora %U' \
+            'Icon=plethora' \
             'Terminal=false' \
             'Categories=Education;' \
-            'StartupWMClass=Incrementum' \
-            > arch-pkg/incrementum.desktop
+            'StartupWMClass=Plethora' \
+            > arch-pkg/plethora.desktop
 
           # Create PKGBUILD — binary is already built with embedded frontend assets
           cat > arch-pkg/PKGBUILD << EOF
-          pkgname=incrementum
+          pkgname=plethora
           pkgver=${PKG_VERSION}
           pkgrel=1
-          pkgdesc="Incrementum - Spaced repetition and incremental reading for effective learning"
+          pkgdesc="Plethora - Spaced repetition and incremental reading for effective learning"
           arch=('x86_64')
           url="https://github.com/melpomenex/incrementum-tauri"
           license=('MIT')
           depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'gcc-libs' 'glibc' 'zstd')
           optdepends=('notebooklm-py: NotebookLM integration for AI-powered flashcard generation'
                       'python-notebooklm: Alternative NotebookLM package')
-          source=("incrementum-tauri" "128x128.png" "incrementum.desktop")
+          source=("incrementum-tauri" "128x128.png" "plethora.desktop")
           sha256sums=('SKIP' 'SKIP' 'SKIP')
 
           package() {
-            install -Dm755 "\$srcdir/incrementum-tauri" "\$pkgdir/usr/bin/incrementum"
-            install -Dm644 "\$srcdir/128x128.png" "\$pkgdir/usr/share/icons/hicolor/128x128/apps/incrementum.png"
-            install -Dm644 "\$srcdir/incrementum.desktop" "\$pkgdir/usr/share/applications/incrementum.desktop"
+            install -Dm755 "\$srcdir/incrementum-tauri" "\$pkgdir/usr/bin/plethora"
+            install -Dm644 "\$srcdir/128x128.png" "\$pkgdir/usr/share/icons/hicolor/128x128/apps/plethora.png"
+            install -Dm644 "\$srcdir/plethora.desktop" "\$pkgdir/usr/share/applications/plethora.desktop"
           }
           EOF
 
@@ -732,7 +732,7 @@ jobs:
             // darwin-aarch64 / darwin-x86_64 / linux-x86_64 / windows-x86_64.
             //
             // IMPORTANT naming differences across bundle types:
-            //  - macOS updater artifact is `Incrementum.app.tar.gz` — NO version
+            //  - macOS updater artifact is `Plethora.app.tar.gz` — NO version
             //    and NO arch suffix (Tauri's macOS updater naming is simpler
             //    than Windows/Linux). Using `<name>_<version>_<arch>.app.tar.gz`
             //    here produces an empty signature + a 404 URL and silently
@@ -755,9 +755,9 @@ jobs:
             // release-readiness. Use the `windows_only` dispatch to backfill
             // a release whose Windows leg failed.
             const platforms = {
-              'darwin-aarch64':  { asset: `Incrementum.app.tar.gz`,            required: true },
-              'linux-x86_64':    { asset: `Incrementum_${version}_amd64.AppImage`, required: true },
-              'windows-x86_64':  { asset: `Incrementum_${version}_x64-setup.exe`,  required: true },
+              'darwin-aarch64':  { asset: `Plethora.app.tar.gz`,            required: true },
+              'linux-x86_64':    { asset: `Plethora_${version}_amd64.AppImage`, required: true },
+              'windows-x86_64':  { asset: `Plethora_${version}_x64-setup.exe`,  required: true },
             };
 
             // Locate the release and its assets so we can pull the .sig file

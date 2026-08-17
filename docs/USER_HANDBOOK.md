@@ -1,4 +1,4 @@
-# Incrementum User Handbook
+# Plethora User Handbook
 
 **Your Complete Guide to Mastering Incremental Reading and Spaced Repetition**
 
@@ -24,9 +24,9 @@
 
 ## Introduction
 
-### What is Incrementum?
+### What is Plethora?
 
-Incrementum is a powerful learning application that combines two proven techniques:
+Plethora is a powerful learning application that combines two proven techniques:
 
 **Incremental Reading** - Process large amounts of information in small, manageable chunks over time. Instead of reading articles cover-to-cover, you extract key points and gradually build understanding.
 

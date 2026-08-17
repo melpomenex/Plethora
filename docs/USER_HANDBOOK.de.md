@@ -1,4 +1,4 @@
-# Incrementum-Benutzerhandbuch
+# Plethora-Benutzerhandbuch
 
 **Ihr vollständiger Leitfaden zur Beherrschung des inkrementellen Lesens und der räumlichen Wiederholung**
 
@@ -6,9 +6,9 @@
 
 ## Einführung
 
-### Was ist Inkrementum?
+### Was ist Plethora?
 
-Incrementum ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken kombiniert:
+Plethora ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken kombiniert:
 
 **Inkrementelles Lesen** – Verarbeiten Sie große Informationsmengen im Laufe der Zeit in kleinen, überschaubaren Blöcken. Anstatt Artikel von Anfang bis Ende zu lesen, extrahieren Sie wichtige Punkte und bauen nach und nach Verständnis auf.
 
