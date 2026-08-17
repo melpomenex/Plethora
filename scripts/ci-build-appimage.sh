@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
-APPDIR="$APPIMAGE_DIR/Incrementum.AppDir"
+APPDIR="$APPIMAGE_DIR/Plethora.AppDir"
 NOTEBOOKLM_RUNTIME_SRC="src-tauri/bin/notebooklm-runtime"
 NOTEBOOKLM_RUNTIME_DST="$APPDIR/usr/bin/notebooklm-runtime"
 WORK_DIR="/tmp/appimagetool-work"
@@ -186,22 +186,22 @@ desktop_file="$(find "$APPDIR/usr/share/applications" -maxdepth 1 -type f -name 
 if [[ -n "$desktop_file" ]]; then
   icon_name="$(awk -F= '/^Icon=/{print $2; exit}' "$desktop_file")"
   if [[ -n "$icon_name" && ! -f "$APPDIR/$icon_name.png" ]]; then
-    if [[ -f "$APPDIR/Incrementum.png" ]]; then
-      cp -f "$APPDIR/Incrementum.png" "$APPDIR/$icon_name.png"
+    if [[ -f "$APPDIR/Plethora.png" ]]; then
+      cp -f "$APPDIR/Plethora.png" "$APPDIR/$icon_name.png"
     fi
   fi
 fi
 
-rm -f "$ROOT_DIR/Incrementum-x86_64.AppImage"
+rm -f "$ROOT_DIR/Plethora-x86_64.AppImage"
 rm -f "$EXPECTED_APPIMAGE"
 ARCH=x86_64 "$APPIMAGETOOL_BIN" --runtime-file "$RUNTIME_FILE" "$ROOT_DIR/$APPDIR"
 
-if [[ ! -f "$ROOT_DIR/Incrementum-x86_64.AppImage" ]]; then
-  echo "appimagetool packaging did not produce Incrementum-x86_64.AppImage"
+if [[ ! -f "$ROOT_DIR/Plethora-x86_64.AppImage" ]]; then
+  echo "appimagetool packaging did not produce Plethora-x86_64.AppImage"
   exit 1
 fi
 
-mv -f "$ROOT_DIR/Incrementum-x86_64.AppImage" "$EXPECTED_APPIMAGE"
+mv -f "$ROOT_DIR/Plethora-x86_64.AppImage" "$EXPECTED_APPIMAGE"
 
 if [[ ! -f "$EXPECTED_APPIMAGE" ]]; then
   echo "Expected AppImage missing: $EXPECTED_APPIMAGE"

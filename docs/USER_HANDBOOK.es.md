@@ -6,9 +6,9 @@
 
 ## Introducción
 
-### ¿Qué es el Incremento?
+### ¿Qué es Plethora?
 
-Incrementum es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
+Plethora es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
 
 **Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de principio a fin, extrae puntos clave y desarrolla gradualmente la comprensión.
 
