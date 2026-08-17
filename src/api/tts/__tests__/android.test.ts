@@ -76,7 +76,7 @@ describe("native android bridge calls the plugin on Android", () => {
     vi.mocked(isNativeMobile).mockReturnValue(true);
   });
 
-  it("listModels invokes plugin:incrementum-android-tts|list_models", async () => {
+  it("listModels invokes plugin:plethora-android-tts|list_models", async () => {
     vi.mocked(invokeCommand).mockResolvedValue([
       {
         id: "kitten-nano",
@@ -93,7 +93,7 @@ describe("native android bridge calls the plugin on Android", () => {
     const models = await pluginListModels();
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("kitten-nano");
-    expect(invokeCommand).toHaveBeenCalledWith("plugin:incrementum-android-tts|list_models");
+    expect(invokeCommand).toHaveBeenCalledWith("plugin:plethora-android-tts|list_models");
   });
 
   it("speak forwards sentences/model/voice/speed to the plugin", async () => {
@@ -104,7 +104,7 @@ describe("native android bridge calls the plugin on Android", () => {
       voiceId: "0",
       speed: 1.2,
     });
-    expect(invokeCommand).toHaveBeenCalledWith("plugin:incrementum-android-tts|speak", {
+    expect(invokeCommand).toHaveBeenCalledWith("plugin:plethora-android-tts|speak", {
       sentences: ["one", "two"],
       modelId: "kitten-nano",
       voiceId: "0",
@@ -149,7 +149,7 @@ describe("android provider adapter", () => {
     expect(result.audioUrl).toBe("android-native://playback");
     expect(result.rawOutput).toMatchObject({ provider: "android", native: true });
     expect(invokeCommand).toHaveBeenCalledWith(
-      "plugin:incrementum-android-tts|speak",
+      "plugin:plethora-android-tts|speak",
       expect.objectContaining({ sentences: ["Hello world."], modelId: "kitten-nano" })
     );
   });

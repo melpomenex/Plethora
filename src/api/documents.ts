@@ -562,7 +562,7 @@ export async function pickFolderDocuments(
     return [];
   }
   return await invokeCommand<StagedFolderFile[]>(
-    "plugin:incrementum-folder-import|pick_folder_documents",
+    "plugin:plethora-folder-import|pick_folder_documents",
     { extensions: extensions ?? null }
   );
 }
@@ -585,7 +585,7 @@ export async function pickFilesMobile(
     return [];
   }
   return await invokeCommand<StagedFolderFile[]>(
-    "plugin:incrementum-folder-import|pick_files",
+    "plugin:plethora-folder-import|pick_files",
     {
       extensions: options?.extensions ?? null,
       multiple: options?.multiple ?? false,

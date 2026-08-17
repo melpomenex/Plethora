@@ -26,7 +26,7 @@ import {
   type InternalOnDeviceFlashcard,
 } from "./cardValidator";
 
-const PLUGIN = "plugin:incrementum-android-genai";
+const PLUGIN = "plugin:plethora-android-genai";
 
 export type OnDeviceAiStatusName = "available" | "downloadable" | "downloading" | "unavailable";
 

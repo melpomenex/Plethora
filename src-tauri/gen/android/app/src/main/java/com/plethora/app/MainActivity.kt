@@ -198,7 +198,7 @@ class MainActivity : TauriActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent != null) {
-            com.incrementum.folderimport.FolderImportPlugin.handleIncomingIntent(this, intent)
+            com.plethora.folderimport.FolderImportPlugin.handleIncomingIntent(this, intent)
         }
     }
 }

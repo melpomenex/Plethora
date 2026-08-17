@@ -140,7 +140,7 @@ export function registerShareListener(
 
   if (isTauri()) {
     invokeCommand<ShareTargetResult>(
-      "plugin:incrementum-folder-import|register_share_listener"
+      "plugin:plethora-folder-import|register_share_listener"
     )
       .then((res) => {
         if (res?.batches && Array.isArray(res.batches)) {

@@ -127,15 +127,15 @@ fn db_set(dir: &Path, stem: &str) -> [PathBuf; 3] {
 fn set_aside_current_db(new_dir: &Path) -> std::io::Result<Option<PathBuf>> {
     let set = db_set(new_dir, crate::database::connection::DB_FILE_NAME);
     let mut backed_up_main: Option<PathBuf> = None;
-    for path in set {
+    for path in &set {
         if !path.exists() {
             continue;
         }
         let mut name = path.file_name().unwrap_or_default().to_owned();
         name.push(".pre-migration-backup");
         let dest = path.with_file_name(name);
-        std::fs::rename(&path, &dest)?;
-        if backed_up_main.is_none() && path == set[2] {
+        std::fs::rename(path, &dest)?;
+        if backed_up_main.is_none() && *path == set[2] {
             backed_up_main = Some(dest);
         }
     }

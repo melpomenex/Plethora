@@ -112,7 +112,7 @@ impl std::fmt::Debug for EmbeddingBackend {
 }
 
 /// Default on-device model identity (EmbeddingGemma 300M, 768-dim). Must
-/// stay in sync with `incrementum_android_genai::EMBEDDING_MODEL` and the
+/// stay in sync with `plethora_android_genai::EMBEDDING_MODEL` and the
 /// Kotlin plugin's `EMBEDDING_MODEL_NAME` — it feeds `embedding_version`.
 pub const ON_DEVICE_MODEL: &str = "embeddinggemma-300m";
 
