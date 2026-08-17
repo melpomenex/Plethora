@@ -52,6 +52,17 @@ const LAND_SETTLE_MS = 500;
 const FALL_PAUSE_MS = 650;
 const POSITION_STORAGE_KEY = "plethora-companion-home";
 
+/**
+ * Bird geometry: the rendered sprite is 72px; the feet sit ~4px inside the
+ * bottom of that box. All perch/floor/drag coordinates are FEET positions —
+ * the host converts to the element's top-left on write, so the bird always
+ * stands ON an edge instead of hanging below it.
+ */
+const BIRD_BOX = 72;
+const FEET_INSET = 4;
+const FEET_TO_TOP = BIRD_BOX - FEET_INSET;
+const HIT_BOX = 56; // smaller than the sprite: peripheral overlaps click through
+
 function buildContext(
   settings: CompanionContext["settings"],
   store: ReturnType<typeof useCompanionStore.getState>
@@ -92,35 +103,36 @@ export default function CompanionHost() {
   /** Perch the bird currently occupies (for wander variety + drop logic). */
   const perchIdRef = useRef<string | null>(null);
 
+  /** Write a FEET position: center the sprite on it, feet on the point. */
   const applyPosition = useCallback((x: number, y: number) => {
     positionRef.current = { x, y };
     const el = rootRef.current;
     if (el) {
-      el.style.left = `${x}px`;
-      el.style.top = `${y}px`;
+      el.style.left = `${x - BIRD_BOX / 2}px`;
+      el.style.top = `${y - FEET_TO_TOP}px`;
       el.style.right = "auto";
       el.style.bottom = "auto";
     }
   }, []);
 
+  /** Clamp FEET coordinates so the whole sprite stays inside the viewport. */
   const clampToViewport = useCallback((x: number, y: number): CompanionPosition => {
-    const margin = 4;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     return {
-      x: Math.max(margin, Math.min(vw - 80, x)),
-      y: Math.max(margin, Math.min(vh - 80, y)),
+      x: Math.max(BIRD_BOX / 2, Math.min(vw - BIRD_BOX / 2, x)),
+      y: Math.max(FEET_TO_TOP, Math.min(vh - FEET_INSET, y)),
     };
   }, []);
 
+  /** Default resting FEET position (mobile: above the bottom nav). */
   const defaultPosition = useCallback((): CompanionPosition => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Mobile: perch above the bottom nav; desktop: bottom-right corner.
     const isMobileShell = vw < 768;
     return isMobileShell
-      ? { x: Math.max(16, vw - 90), y: vh - 76 }
-      : { x: vw - 90, y: vh - 92 };
+      ? { x: Math.max(56, vw - 56), y: vh - 88 }
+      : { x: vw - 48, y: vh - 20 };
   }, []);
 
   const persistPosition = useCallback((pos: CompanionPosition) => {
@@ -268,8 +280,13 @@ export default function CompanionHost() {
       const el = rootRef.current;
       if (!el) return;
       cancelFlight();
-      const rect = el.getBoundingClientRect();
-      dragOffsetRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+      // Offset from the FEET anchor so the bird doesn't jump when grabbed.
+      const feet = positionRef.current ?? {
+        x: el.getBoundingClientRect().left + BIRD_BOX / 2,
+        y: el.getBoundingClientRect().top + FEET_TO_TOP,
+      };
+      positionRef.current = feet;
+      dragOffsetRef.current = { dx: e.clientX - feet.x, dy: e.clientY - feet.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setMode("dragging");
       setState("carried", null);
@@ -458,7 +475,10 @@ export default function CompanionHost() {
       data-companion-mode={mode}
       style={
         restingPosition
-          ? { left: `${restingPosition.x}px`, top: `${restingPosition.y}px` }
+          ? {
+              left: `${restingPosition.x - BIRD_BOX / 2}px`,
+              top: `${restingPosition.y - FEET_TO_TOP}px`,
+            }
           : { right: "16px", bottom: "16px" }
       }
     >
@@ -471,6 +491,7 @@ export default function CompanionHost() {
       )}
       <div
         className="companion-bird-hit"
+        style={{ width: HIT_BOX, height: HIT_BOX }}
         onPointerDown={onBirdPointerDown}
         onPointerMove={onBirdPointerMove}
         onPointerUp={onBirdPointerUp}

@@ -10,10 +10,10 @@
 
 export interface PerchSpot {
   id: string;
-  /** Center point the bird's feet rest on. */
+  /** Point the bird's FEET rest on (the host renders the bird above it). */
   x: number;
   y: number;
-  kind: "optin" | "toolbar" | "panel" | "floor";
+  kind: "optin" | "toolbar" | "panel" | "button" | "floor";
   /** Element the spot belongs to (used to skip stale/hidden perches). */
   element?: HTMLElement;
 }
@@ -59,8 +59,8 @@ export function spotsAlongEdge(
   return spots;
 }
 
-/** The floor perch: bottom of the safe viewport. */
-export function floorSpot(viewport: ViewportLike, bottomInset = 16): PerchSpot {
+/** The floor perch: feet on the very bottom of the viewport. */
+export function floorSpot(viewport: ViewportLike, bottomInset = 4): PerchSpot {
   return {
     id: "floor",
     x: Math.round(viewport.width / 2),
@@ -74,7 +74,15 @@ const PERCH_SELECTORS: { selector: string; kind: PerchSpot["kind"] }[] = [
   { selector: "[data-companion-perch]", kind: "optin" },
   { selector: ".toolbar-rail", kind: "toolbar" },
   { selector: ".glass-panel, section.bg-card, .bg-card", kind: "panel" },
+  { selector: "button", kind: "button" },
 ];
+
+/** Button sizing that makes a perchable top edge (skips icon-only buttons). */
+const BUTTON_MIN_WIDTH = 64;
+const BUTTON_MIN_HEIGHT = 24;
+const BUTTON_MAX_HEIGHT = 88;
+/** Upper bound on discovered non-floor spots per scan. */
+const MAX_DISCOVERED_SPOTS = 40;
 
 /** Never perch inside dialogs or explicitly excluded regions. */
 function excluded(el: HTMLElement): boolean {
@@ -103,6 +111,20 @@ export function discoverPerchSpots(viewport: ViewportLike): PerchSpot[] {
         const position = el.getAttribute("data-toolbar-position") ?? "left";
         const edgeY = position === "top" ? rect.bottom : rect.top;
         spots.push(...spotsAlongEdge(rect, edgeY, viewport, kind, `tb${index}`));
+      } else if (kind === "button") {
+        // Buttons ("Open Document" & friends): stand on the top edge of
+        // reasonably sized, visible text buttons. The bird's hit-box is
+        // smaller than its sprite, so a perched bird barely shades the
+        // control and is one grab away from being moved.
+        if (
+          rect.width >= BUTTON_MIN_WIDTH &&
+          rect.height >= BUTTON_MIN_HEIGHT &&
+          rect.height <= BUTTON_MAX_HEIGHT &&
+          rect.top >= 24 &&
+          rect.top <= viewport.height - 32
+        ) {
+          spots.push(...spotsAlongEdge(rect, rect.top, viewport, kind, `b${index}`));
+        }
       } else {
         // Panels/cards: stand on the top edge (only when it is visibly below
         // the very top of the viewport — a flush-to-top edge has no surface).
@@ -112,6 +134,9 @@ export function discoverPerchSpots(viewport: ViewportLike): PerchSpot[] {
       }
       index += 1;
     }
+  }
+  if (spots.length > MAX_DISCOVERED_SPOTS) {
+    spots.length = MAX_DISCOVERED_SPOTS;
   }
   spots.push(floorSpot(viewport));
   return spots;
@@ -190,7 +215,7 @@ export function chooseDropOutcome(
 ): DropOutcome {
   const snap = nearestPerchSpot(spots, dropPoint, SNAP_RADIUS);
   if (snap) return { kind: "snap", spot: snap };
-  const floorY = viewport.height - 16;
+  const floorY = viewport.height - 6;
   const floorTarget = nearestPerchSpot(
     spots.filter((s) => s.kind !== "floor"),
     { x: dropPoint.x, y: floorY },

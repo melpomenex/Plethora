@@ -2604,11 +2604,20 @@
 /* ── Companion interaction states (drag / fly / fall / land) ─────────────── */
 
 .companion-bird-hit {
+  position: relative;
   pointer-events: auto;
   cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Center the (larger) sprite on the smaller hit box so peripheral
+   overlaps pass clicks through to the app beneath. */
+.companion-bird-hit .companion-bird {
+  position: absolute;
+  left: -8px; /* (72 - 56) / 2 */
+  top: -8px;
 }
 
 .companion-bird-hit:active {
