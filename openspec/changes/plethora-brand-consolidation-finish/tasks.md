@@ -24,4 +24,4 @@
 ## 4. Guard widening + validation
 
 - [x] 4.1 Extend `brandInventory.test.ts` (Linux conf, MCP identity, new doc surfaces, allowlist with rationale)
-- [ ] 4.2 `cargo test` compile check incl. examples; `npm run test:run` brand suites; `npm run test:browser-extension`
+- [x] 4.2 `cargo test` compile check incl. examples; `npm run test:run` brand suites; `npm run test:browser-extension`
