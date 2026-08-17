@@ -1686,6 +1686,7 @@ pub fn run() {
             integrations::import_from_obsidian,
             integrations::sync_to_obsidian,
             integrations::sync_from_obsidian,
+            integrations::migrate_obsidian_vault_ids,
             integrations::sync_to_logseq,
             integrations::sync_from_logseq,
             integrations::delete_from_obsidian,
