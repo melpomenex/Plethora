@@ -132,6 +132,7 @@ import { createScrollDismissGate, isSuppressedSelection } from "./touchSelection
 import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
 import type { SelectionSurface } from "./selectionInteraction/machine";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
+import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { StoredHighlight } from "./HighlightLayer";
@@ -1055,12 +1056,14 @@ export function DocumentViewer({
   }, [docType, pdfViewMode]);
   const docTypeRef = useRef(docType);
   docTypeRef.current = docType;
-  // The "⋯" overflow opens the existing sheet in full-menu mode.
-  const [selectionBarOverflowOpen, setSelectionBarOverflowOpen] = useState(false);
   const selectionController = useSelectionInteraction({
     surface: selectionSurface,
     documentId: currentDocument?.id ?? null,
     enabled: selectionV2 && viewMode === "document" && Boolean(currentDocument),
+    // Touches on modal dialogs (the overflow menu sheet, result sheet) must
+    // not demote the machine — they are own-UI, not content gestures.
+    isOwnUi: (target) =>
+      target instanceof Element && target.closest('[role="dialog"]') !== null,
     getReaderContext: () => ({
       page: currentPageRef.current,
       scrollPercent: lastScrollStateRef.current?.scrollPercent ?? null,
@@ -1078,7 +1081,7 @@ export function DocumentViewer({
     onInvalidate: () => {
       // Reading context ended: abort any in-flight AI run + close derived UI.
       setAiSheetRequest(null);
-      setSelectionBarOverflowOpen(false);
+      setContextMenuState(null);
     },
   });
   // Controller methods used inside hot callbacks — kept as a ref so callback
@@ -1086,6 +1089,8 @@ export function DocumentViewer({
   // phase changes.
   const selectionControllerRef = useRef(selectionController);
   selectionControllerRef.current = selectionController;
+  const selectionV2Ref = useRef(selectionV2);
+  selectionV2Ref.current = selectionV2;
 
   const recallPrompts = useRecallPrompts({
     enabled: aiActiveRecallEnabled,
@@ -1138,13 +1143,13 @@ export function DocumentViewer({
   const mobileSheetSource = isPdfTouchSurface ? mobileSelection.text : mobileSheetText;
   const legacyMobileMenuSheetOpen =
     isMobileTouch && viewMode === "document" && Boolean(mobileSheetSource);
-  // V2 (task 3.2): sheet openness derives from the controller phase (bar
-  // overflow menu, AI run, visible result) — never from live selection text,
-  // so a collapsed native selection can never unmount a running/result sheet.
+  // V2 (task 3.2): sheet openness derives from the controller phase (AI run,
+  // visible result) — never from live selection text, so a collapsed native
+  // selection can never unmount a running/result sheet. The full action menu
+  // is the shared context menu, opened deliberately via the bar's ⋯.
   const mobileMenuSheetOpen = selectionV2
     ? selectionV2Active &&
-      (selectionBarOverflowOpen ||
-        selectionController.phase === "actionRunning" ||
+      (selectionController.phase === "actionRunning" ||
         selectionController.phase === "resultVisible")
     : legacyMobileMenuSheetOpen;
   const mobileSheetOpen = mobileMenuSheetOpen || Boolean(aiSheetRequest);
@@ -4438,6 +4443,11 @@ export function DocumentViewer({
   // at invocation (text/passage/context), never live selection state.
   const handleSelectionBarAction = (action: SelectionBarAction) => {
     const controller = selectionControllerRef.current;
+    if (action === "copy") {
+      void copySelectionTextToClipboard(controller.readySelection?.text ?? "");
+      controller.dismiss({ suppressCurrentText: true });
+      return;
+    }
     if (action === "extract") {
       handleMobileExtract();
       controller.dismiss();
@@ -4446,6 +4456,21 @@ export function DocumentViewer({
     const snapshot = controller.captureForAction();
     if (!snapshot) return;
     setAiSheetRequest({ action, text: snapshot.text, passage: snapshot.passage });
+  };
+
+  // ⋯ opens the full shared action menu (the same list as right-click:
+  // extract, note, highlight, copy, dictionary, flashcard, AI) as the
+  // bottom sheet the user already knows — deliberately, never mid-gesture.
+  const handleSelectionBarOverflow = () => {
+    const ready = selectionControllerRef.current.readySelection;
+    if (!ready) return;
+    setContextMenuState({
+      visible: true,
+      x: 0,
+      y: 0,
+      selectedText: ready.text,
+      selectionContext: (ready.selectionContext as SelectionContext) ?? null,
+    });
   };
 
   const handleSearch = useCallback((direction: ViewerSearchDirection = "next") => {
@@ -5887,6 +5912,9 @@ export function DocumentViewer({
       const doc = iframe?.contentDocument;
       if (!iframe || !doc) return;
       doc.addEventListener("contextmenu", (e: Event) => {
+        // Android's synthesized long-press contextmenu must not open the menu
+        // sheet mid-gesture while the selection controller owns touch UX.
+        if (selectionV2Ref.current && isMobileTouch) return;
         const win = iframe.contentWindow;
         const selection = win?.getSelection();
         const text = selection?.toString().trim();
@@ -7849,17 +7877,20 @@ export function DocumentViewer({
         </div>
       )}
 
-      {/* V2: compact anchored action bar for settled touch selections.
-          No scrim — if it appears mid-deliberation, touching a handle again
-          instantly returns the machine to SELECTING and hides it. */}
+      {/* V2: compact anchored action bar for settled touch selections —
+          the user's most-used actions. No scrim; if it appears while the user
+          is still deciding, touching a handle again instantly hides it. The
+          full menu sheet is opened deliberately via ⋯. */}
       <SelectionActionBar
         placement={
-          selectionV2Active && selectionController.phase === "ready"
+          selectionV2Active &&
+          selectionController.phase === "ready" &&
+          !contextMenuState?.visible
             ? selectionController.placement
             : null
         }
         onAction={handleSelectionBarAction}
-        onOverflow={() => setSelectionBarOverflowOpen(true)}
+        onOverflow={handleSelectionBarOverflow}
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
         aiAvailable={aiAvailability.available}
         onMeasure={selectionController.registerBarSize}
@@ -7888,7 +7919,6 @@ export function DocumentViewer({
         }
         onClose={() => {
           setAiSheetRequest(null);
-          setSelectionBarOverflowOpen(false);
           if (selectionV2) {
             // Machine-driven dismissal: suppress this exact selection's text
             // (the native selection survives on Android) and drop the

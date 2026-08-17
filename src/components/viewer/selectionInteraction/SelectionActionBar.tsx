@@ -2,24 +2,25 @@
  * SelectionActionBar — the compact anchored toolbar shown when a selection
  * settles (change: overhaul-reader-selection-ux, design decision 3).
  *
- * A single horizontally-scrollable chip row (Summarize · Explain · Ask ·
- * Extract · ⋯) placed above/below the selection via `placeAnchoredBar`. No
- * scrim: if it appears while the user is still deciding, grabbing a handle
- * again instantly hides it — that recoverability is what replaces a sluggish
- * hard delay. Lower-priority actions live behind ⋯, which opens the existing
- * `SelectionActionsSheet` in menu mode; loading/results stay in the sheet.
+ * The user's most-used actions as a single horizontally-scrollable chip row
+ * (Summarize · Explain · Ask · Extract · Copy · ⋯), placed above/below the
+ * selection via `placeAnchoredBar`. No scrim: if it appears while the user is
+ * still deciding, grabbing a handle again instantly hides it — that
+ * recoverability is what replaces a sluggish hard delay. The full action menu
+ * sheet opens deliberately via ⋯ (the host's shared context menu); loading and
+ * results stay in the sheet.
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { DotsThree, Lightbulb, Question, TextAlignLeft } from "@phosphor-icons/react";
+import { Copy, DotsThree, Lightbulb, Question, TextAlignLeft } from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
 import { useOverlayDismissal } from "../../../hooks/useOverlayDismissal";
 import { SELECTION_INTERACTION_UI_ATTR } from "./adapters";
 import type { BarPlacement } from "./geometry";
 
-export type SelectionBarAction = "summarize" | "explain" | "ask" | "extract";
+export type SelectionBarAction = "summarize" | "explain" | "ask" | "extract" | "copy";
 
 export interface SelectionActionBarProps {
   placement: BarPlacement | null;
@@ -140,6 +141,12 @@ export function SelectionActionBar({
           onClick={() => onAction("extract")}
         />
       )}
+      <Chip
+        reducedMotion={reducedMotion}
+        label={t("selectionSheet.copy")}
+        icon={<Copy className="h-4 w-4" weight="bold" />}
+        onClick={() => onAction("copy")}
+      />
       <Chip
         reducedMotion={reducedMotion}
         label={t("selectionBar.more")}

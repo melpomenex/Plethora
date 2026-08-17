@@ -31,6 +31,7 @@ import type { DocumentMetadata, Document } from "../../types/document";
 import { saveDocumentPosition, getDocumentPosition, pagePosition, scrollPosition as createScrollPosition } from "../../api/position";
 import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents";
 import { getFormFactor, isTauri } from "../../lib/tauri";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelection";
@@ -530,6 +531,13 @@ export function PDFViewer({
   const canonicalReadyRef = useRef<Set<number>>(new Set());
   const modeOverriddenRef = useRef(false);
   const isPhone = typeof window !== "undefined" && getFormFactor() === "phone";
+  const isMobileShell = useMobileShell();
+  const isMobileShellRef = useRef(isMobileShell);
+  isMobileShellRef.current = isMobileShell;
+  // Selection-interaction controller (V2) gates the touch contextmenu path.
+  const selectionInteractionV2 = useSettingsStore((s) => s.settings.features.selectionInteractionV2);
+  const selectionInteractionV2Ref = useRef(selectionInteractionV2);
+  selectionInteractionV2Ref.current = selectionInteractionV2;
   const pdfSettings = useSettingsStore((state) => state.settings.documents.pdfSettings);
   const updateSettingsCategory = useSettingsStore((state) => state.updateSettingsCategory);
   const [mobilePreferences, setMobilePreferences] = useState(() => loadPdfMobilePreferences(documentId, pdfMobilePreferencesFromSettings(pdfSettings)));
@@ -2878,6 +2886,11 @@ export function PDFViewer({
     if (!onContextMenu) return;
 
     const handleContextMenu = (e: MouseEvent) => {
+      // Android synthesizes contextmenu on long-press text selection; with the
+      // selection-interaction controller active the anchored bar + ⋯ overflow
+      // own touch menus, so the sheet must not appear mid-gesture. Desktop
+      // right-click is unchanged.
+      if (selectionInteractionV2Ref.current && isMobileShellRef.current) return;
       const target = e.target as Node | null;
       const container = scrollContainerRef.current;
       if (!target || !container || !container.contains(target)) return;
