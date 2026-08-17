@@ -88,6 +88,9 @@ Referenced by `tauri.conf.json`: `src-tauri/icons/32x32.png`, `128x128.png`,
 it from the square master as a macOS Big Sur-style tile (824/1024 artwork box,
 corner radius 185.4, transparent margins) because macOS applies no corner mask
 to icns icons — a full-bleed square renders with sharp corners in the Dock.
+The pipeline also emits the 512px tile as `src-tauri/icons/macos-dock-icon.png`,
+embedded by the Rust setup hook as the runtime Dock icon for unbundled
+(`tauri dev`) runs, which never load the bundle icns.
 Every other target (Windows/Linux/iOS/Android/web) keeps full-bleed square
 art; those platforms mask or expect squares.
 Referenced by `public/manifest.json` + `index.html` + `public/sw.js`:

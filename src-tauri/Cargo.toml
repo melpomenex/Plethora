@@ -202,6 +202,14 @@ tauri-plugin-localhost = "2"
 # desktop targets.
 tauri-plugin-window-state = "2"
 
+# Already linked transitively via tao on macOS; declared directly so setup can
+# set the Dock icon for unbundled (tauri dev) runs, where macOS never applies
+# the .app bundle's icns.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage"] }
+objc2-foundation = { version = "0.3", features = ["NSData"] }
+
 [features]
 # Disable custom-protocol to use http://localhost instead of tauri://
 # This allows YouTube iframe embeds to work properly without Error 153

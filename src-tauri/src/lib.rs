@@ -603,6 +603,39 @@ fn apply_theme_vibrancy(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// In dev (`tauri dev`) the binary runs unbundled, so macOS never applies the
+/// .app bundle's icns and the Dock falls back to a generic — or a stale
+/// Launch Services — icon. Set the rounded brand tile at runtime for
+/// unbundled runs only; bundled .app builds keep their icns.
+#[cfg(target_os = "macos")]
+fn apply_unbundled_dock_icon() {
+    if let Ok(exe) = std::env::current_exe() {
+        if exe.to_string_lossy().contains(".app/") {
+            return;
+        }
+    }
+    use objc2::MainThreadMarker;
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let png: &'static [u8] = include_bytes!("../icons/macos-dock-icon.png");
+    // Safety: `png` is a compile-time constant PNG payload; all AppKit calls
+    // happen on the main thread (guaranteed by MainThreadMarker).
+    let data = unsafe {
+        NSData::dataWithBytes_length(png.as_ptr() as *const _, png.len())
+    };
+    let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
+        tracing::warn!("[dock-icon] rounded tile PNG failed to decode");
+        return;
+    };
+    unsafe { app.setApplicationIconImage(Some(&image)) };
+}
+
 pub fn run() {
     // Install the rustls crypto provider as the very first thing. reqwest's
     // `rustls-tls` feature compiles rustls 0.23 in `*-no-provider` mode, so no
@@ -965,6 +998,11 @@ pub fn run() {
             let app_handle = app.handle().clone();
             install_panic_hook(app_handle.clone());
             log_startup(&app_handle, "startup: begin");
+
+            // Dev runs are unbundled binaries; give them the rounded Dock
+            // icon that bundled .app builds get from their icns.
+            #[cfg(target_os = "macos")]
+            apply_unbundled_dock_icon();
 
             // Verify window state file is valid JSON, delete if corrupted or empty
             #[cfg(all(
