@@ -280,6 +280,34 @@ CREATE TABLE IF NOT EXISTS sync_device_cursors (
   PRIMARY KEY (user_id, device_id)
 );
 
+-- API tokens for public cloud API (Proposal 20)
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  token_hash VARCHAR(255) NOT NULL,
+  token_prefix VARCHAR(20) NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '["read"]',
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+-- Webhooks for automation events (Proposal 20)
+CREATE TABLE IF NOT EXISTS webhooks (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  secret VARCHAR(255) NOT NULL,
+  events JSONB NOT NULL DEFAULT '[]',
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
+
 -- Migrations
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(20) DEFAULT 'free';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';

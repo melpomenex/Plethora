@@ -7,6 +7,7 @@ import { openaiAdapter } from "./providers/openai";
 import { pocketAdapter } from "./providers/pocket";
 import { systemAdapter } from "./providers/system";
 import { androidAdapter } from "./providers/android";
+import { plethoraAdapter } from "./providers/plethora";
 import type { TTSProviderAdapter, TTSProviderId } from "./types";
 
 export const TTS_ADAPTERS: Readonly<Record<TTSProviderId, TTSProviderAdapter>> = {
@@ -19,6 +20,7 @@ export const TTS_ADAPTERS: Readonly<Record<TTSProviderId, TTSProviderAdapter>> =
   openai: openaiAdapter,
   "openai-compatible": openAICompatibleAdapter,
   android: androidAdapter,
+  plethora: plethoraAdapter,
 };
 
 export function getAdapter(id: string, notice?: (message: string) => void): TTSProviderAdapter {

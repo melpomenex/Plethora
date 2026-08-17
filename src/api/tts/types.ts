@@ -10,7 +10,8 @@ export type TTSProviderId =
   | "elevenlabs"
   | "openai"
   | "openai-compatible"
-  | "android";
+  | "android"
+  | "plethora";
 
 export type TTSProviderKind = "cloud" | "local";
 
