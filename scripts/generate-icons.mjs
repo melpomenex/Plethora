@@ -11,10 +11,11 @@
  * Rasterization is delegated to the pinned @tauri-apps/cli (`tauri icon`),
  * which bundles its own SVG rasterizer — no external ImageMagick dependency:
  *   1. One manifest run (`default` + `android_fg` + white `android_bg`)
- *      produces the desktop set (icns/ico/png/StoreLogo/Square*), the iOS
+ *      produces the desktop set (ico/png/StoreLogo/Square*), the iOS
  *      AppIcon set, and the Android mipmap set into a temp dir; we copy the
  *      files into their repo locations (keeping the repo's adaptive-icon
- *      XML wiring).
+ *      XML wiring). The .icns is generated separately (step 1b) from a
+ *      derived rounded-tile variant — macOS does not mask icns icons.
  *   2. `-p <sizes>` runs render the PWA sizes, the extension sizes, and an
  *      80%-padded maskable variant (derived nested-SVG) into temp dirs,
  *      which are renamed to the repo's established filenames.
@@ -72,6 +73,27 @@ function maskableVariantSvg(masterSvg) {
   );
 }
 
+/** macOS Big Sur-style tile: the master artwork on an 824/1024 rounded
+ *  square (corner radius 185.4, Apple's icon-grid proportions) with
+ *  transparent margins. macOS applies no corner mask to .icns icons, so the
+ *  rounding must be baked in or the Dock renders a sharp-cornered square.
+ *  Derived from the master (never a separate asset) so it cannot drift. */
+function macosVariantSvg(masterSvg) {
+  const inner = masterSvg.replace(/<\/?svg[^>]*>/g, '');
+  const size = 1024;
+  const tile = 824;
+  const radius = 185.4;
+  const offset = (size - tile) / 2;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+    `<defs><clipPath id="macos-tile">` +
+    `<rect x="${offset}" y="${offset}" width="${tile}" height="${tile}" rx="${radius}" ry="${radius}"/>` +
+    `</clipPath></defs>` +
+    `<svg x="${offset}" y="${offset}" width="${tile}" height="${tile}" viewBox="0 0 ${size} ${size}" clip-path="url(#macos-tile)">${inner}</svg>` +
+    `</svg>`
+  );
+}
+
 /** Solid-color SVG used as the Android adaptive background layer. */
 function solidSvg(color) {
   const size = 1024;
@@ -116,7 +138,6 @@ function main() {
       '64x64.png',
       '128x128.png',
       '128x128@2x.png',
-      'icon.icns',
       'icon.ico',
       'icon.png',
       'StoreLogo.png',
@@ -124,6 +145,15 @@ function main() {
     ]) {
       copyIfPresent(join(platformOut, name), join(tauriIconsDir, name), 'desktop');
     }
+
+    // --- 1b. macOS icns: rounded Big Sur tile with transparent margins ---
+    // Only the .icns comes from this run; Windows/Linux/mobile targets stay
+    // full-bleed squares (their platforms mask or expect square art).
+    const macosSvg = join(work, 'macos-tile.svg');
+    writeFileSync(macosSvg, macosVariantSvg(readFileSync(MASTER_SVG, 'utf8')));
+    const macosOut = join(work, 'macos');
+    runTauriIcon([macosSvg, '-o', macosOut], 'macos rounded tile');
+    copyIfPresent(join(macosOut, 'icon.icns'), join(tauriIconsDir, 'icon.icns'), 'macos icns');
 
     const iosOut = join(platformOut, 'ios');
     for (const entry of readdirSafe(iosOut)) {
