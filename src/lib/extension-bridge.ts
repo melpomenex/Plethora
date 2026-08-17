@@ -3,9 +3,27 @@ import { isTauri } from "./tauri";
 import { createExtract, type CreateExtractInput } from '../api/extracts';
 import * as db from './database';
 
+/**
+ * App<->extension postMessage protocol tokens (rebrand task 3.6).
+ *
+ * COMPAT WINDOW: the app ACCEPTS requests sourced with either the new
+ * `plethora-extension` token or the legacy `incrementum-extension` token,
+ * deduplicating by `requestId` (the paired extension release sends each
+ * request under BOTH tokens so it works against old and new apps). Every
+ * response/announcement is emitted TWICE, once per source token: the
+ * extension's response map deletes the handler on first delivery, so the
+ * duplicate is a no-op, while an OLD extension (which only recognizes the
+ * legacy token) still receives its response.
+ */
+const EXTENSION_SOURCE_TOKENS = ['plethora-extension', 'incrementum-extension'] as const;
+const PWA_SOURCE_TOKENS = ['plethora-pwa', 'incrementum-pwa'] as const;
+
+/** Request ids already handled during this session (dual-send dedupe). */
+const handledRequestIds = new Set<string>();
+
 // Message types from the browser extension
 interface ExtensionMessage {
-  source: 'plethora-extension';
+  source: (typeof EXTENSION_SOURCE_TOKENS)[number];
   action: 'saveExtract' | 'savePage' | 'ping' | 'getStatus';
   data?: {
     url: string;
@@ -20,7 +38,7 @@ interface ExtensionMessage {
 }
 
 interface BridgeResponse {
-  source: 'plethora-pwa';
+  source: (typeof PWA_SOURCE_TOKENS)[number];
   action: string;
   success: boolean;
   error?: string;
@@ -32,10 +50,13 @@ interface BridgeResponse {
 let bridgeInitialized = false;
 
 /**
- * Send response back to the extension
+ * Send a response back to the extension — once per source token (see the
+ * compat-window note above).
  */
-function sendResponse(response: BridgeResponse): void {
-  window.postMessage(response, '*');
+function sendResponse(response: Omit<BridgeResponse, 'source'>): void {
+  for (const source of PWA_SOURCE_TOKENS) {
+    window.postMessage({ ...response, source }, '*');
+  }
 }
 
 /**
@@ -45,16 +66,20 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
   // Only handle messages from the same window (extension content script)
   if (event.source !== window) return;
 
-  // Verify message is from our extension
+  // Verify message is from our extension (either token during the compat
+  // window) and drop the duplicate of an already-handled dual send.
   const message = event.data as ExtensionMessage;
-  if (!message || message.source !== 'plethora-extension') return;
+  if (!message || !EXTENSION_SOURCE_TOKENS.includes(message.source)) return;
+  if (message.requestId) {
+    if (handledRequestIds.has(message.requestId)) return;
+    handledRequestIds.add(message.requestId);
+  }
 
   try {
     switch (message.action) {
       case 'ping': {
         // Extension is checking if PWA is available
         sendResponse({
-          source: 'plethora-pwa',
           action: 'pong',
           success: true,
           requestId: message.requestId,
@@ -65,7 +90,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
 
       case 'getStatus': {
         sendResponse({
-          source: 'plethora-pwa',
           action: 'status',
           success: true,
           requestId: message.requestId,
@@ -77,7 +101,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
       case 'saveExtract': {
         if (!message.data) {
           sendResponse({
-            source: 'plethora-pwa',
             action: 'saveExtract',
             success: false,
             error: 'No data provided',
@@ -124,7 +147,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
         const extract = await createExtract(extractInput);
 
         sendResponse({
-          source: 'plethora-pwa',
           action: 'saveExtract',
           success: true,
           requestId: message.requestId,
@@ -139,7 +161,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
       case 'savePage': {
         if (!message.data) {
           sendResponse({
-            source: 'plethora-pwa',
             action: 'savePage',
             success: false,
             error: 'No data provided',
@@ -165,7 +186,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
         });
 
         sendResponse({
-          source: 'plethora-pwa',
           action: 'savePage',
           success: true,
           requestId: message.requestId,
@@ -178,7 +198,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
 
       default:
         sendResponse({
-          source: 'plethora-pwa',
           action: message.action,
           success: false,
           error: `Unknown action: ${message.action}`,
@@ -188,7 +207,6 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
   } catch (error) {
     console.error('[PWA Bridge] Error handling message:', error);
     sendResponse({
-      source: 'plethora-pwa',
       action: message.action,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -256,12 +274,15 @@ export function initExtensionBridge(): void {
   // Listen for messages from the extension content script
   window.addEventListener('message', handleExtensionMessage);
 
-  // Announce that PWA is ready to receive messages
-  window.postMessage({
-    source: 'plethora-pwa',
-    action: 'ready',
-    success: true
-  }, '*');
+  // Announce that the PWA is ready to receive messages — once per token so
+  // both current and pre-rebrand extension versions pick it up.
+  for (const source of PWA_SOURCE_TOKENS) {
+    window.postMessage({
+      source,
+      action: 'ready',
+      success: true
+    }, '*');
+  }
 
   bridgeInitialized = true;
 }

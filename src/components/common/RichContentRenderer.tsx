@@ -111,13 +111,14 @@ function createIframeDocument(htmlContent: string, theme: ThemeColors): string {
       padding: 8px;
     }
     /* Strip cosmetic inline styles so theme tokens cascade */
-    body *:not(.incrementum-highlight) {
+    body *:not(.plethora-highlight):not(.incrementum-highlight) {
       color: inherit !important;
       background-color: transparent !important;
       font-family: inherit !important;
       font-size: inherit !important;
     }
     /* Render highlights */
+    .plethora-highlight,
     .incrementum-highlight {
       background-color: #ffd3a5;
       color: #1a1a1a !important;
