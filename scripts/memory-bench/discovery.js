@@ -24,7 +24,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Environment variable the driver sets on the launched app. */
-export const RUN_ID_ENV = "INCREMENTUM_MEMORY_RUN_ID";
+export const RUN_ID_ENV = "PLETHORA_MEMORY_RUN_ID";
 
 /** Process role classification. */
 export const ROLES = {

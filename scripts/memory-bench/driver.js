@@ -3,7 +3,7 @@
  * Memory benchmark driver (tasks 3.4, 3.5, 3.6, 3.8, 3.9).
  *
  * Launches the app in its own process group with the harness environment
- * (INCREMENTUM_MEMORY_SCENARIO / _CONTROL / _RUN_ID / _CORPUS_DIR), serves the
+ * (PLETHORA_MEMORY_SCENARIO / _CONTROL / _RUN_ID / _CORPUS_DIR), serves the
  * step protocol on a loopback control server, drives the fixed scenario,
  * samples process memory at every settle point, and writes a machine-readable
  * result. Terminates the app at the end of the scenario.
@@ -37,7 +37,7 @@ export const DEFAULT_OUTPUT = join(process.cwd(), ".bench", "memory-result.json"
 export const DEFAULT_CORPUS_DIR = join(process.cwd(), ".bench", "corpus");
 const DEFAULT_APP = join(process.cwd(), "src-tauri", "target", "debug", "plethora-tauri");
 
-const RUN_ID_ENV = "INCREMENTUM_MEMORY_RUN_ID";
+const RUN_ID_ENV = "PLETHORA_MEMORY_RUN_ID";
 
 let sequence = 0;
 const nextStepNumber = () => (sequence += 1);
@@ -161,10 +161,10 @@ export async function runScenario(deps) {
   // 4. Launch the app with the harness environment.
   const appEnv = {
     ...process.env,
-    INCREMENTUM_MEMORY_SCENARIO: "1",
-    INCREMENTUM_MEMORY_CONTROL: control.url,
+    PLETHORA_MEMORY_SCENARIO: "1",
+    PLETHORA_MEMORY_CONTROL: control.url,
     [RUN_ID_ENV]: runId,
-    INCREMENTUM_MEMORY_CORPUS_DIR: corpus.corpusDir,
+    PLETHORA_MEMORY_CORPUS_DIR: corpus.corpusDir,
     // Deterministic harness runs: never auto-import the demo books into the
     // benchmark data dir.
     SKIP_DEMO_IMPORT: "1",

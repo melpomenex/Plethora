@@ -15,10 +15,10 @@ use serde::Serialize;
 
 /// Names of the harness environment variables (kept in sync with
 /// `scripts/memory-bench/` and `src/lib/memoryScenario/`).
-pub const MEMORY_SCENARIO_ENV: &str = "INCREMENTUM_MEMORY_SCENARIO";
-pub const MEMORY_CONTROL_ENV: &str = "INCREMENTUM_MEMORY_CONTROL";
-pub const MEMORY_RUN_ID_ENV: &str = "INCREMENTUM_MEMORY_RUN_ID";
-pub const MEMORY_CORPUS_DIR_ENV: &str = "INCREMENTUM_MEMORY_CORPUS_DIR";
+pub const MEMORY_SCENARIO_ENV: &str = "PLETHORA_MEMORY_SCENARIO";
+pub const MEMORY_CONTROL_ENV: &str = "PLETHORA_MEMORY_CONTROL";
+pub const MEMORY_RUN_ID_ENV: &str = "PLETHORA_MEMORY_RUN_ID";
+pub const MEMORY_CORPUS_DIR_ENV: &str = "PLETHORA_MEMORY_CORPUS_DIR";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

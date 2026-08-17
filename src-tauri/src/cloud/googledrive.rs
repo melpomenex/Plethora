@@ -27,10 +27,10 @@ pub struct GoogleDriveConfig {
 impl Default for GoogleDriveConfig {
     fn default() -> Self {
         Self {
-            client_id: std::env::var("INCREMENTUM_GOOGLE_DRIVE_CLIENT_ID")
-                .unwrap_or_else(|_| "YOUR_CLIENT_ID.apps.googleusercontent.com".to_string()),
-            client_secret: std::env::var("INCREMENTUM_GOOGLE_DRIVE_CLIENT_SECRET")
-                .unwrap_or_else(|_| "YOUR_CLIENT_SECRET".to_string()),
+            client_id: crate::utils::keychain::env_or_legacy("PLETHORA_GOOGLE_DRIVE_CLIENT_ID")
+                .unwrap_or_else(|| "YOUR_CLIENT_ID.apps.googleusercontent.com".to_string()),
+            client_secret: crate::utils::keychain::env_or_legacy("PLETHORA_GOOGLE_DRIVE_CLIENT_SECRET")
+                .unwrap_or_else(|| "YOUR_CLIENT_SECRET".to_string()),
             redirect_uri: "http://localhost:15173/auth/callback".to_string(),
             scopes: vec![
                 "https://www.googleapis.com/auth/drive.appdata".to_string(), // App folder access
@@ -92,27 +92,27 @@ impl GoogleDriveProvider {
     fn get_auth_url(&mut self) -> Result<String, AppError> {
         if self.config.client_id.contains("YOUR_CLIENT_ID") || self.config.client_id.is_empty() {
             return Err(AppError::Internal(
-                "Google Drive OAuth is not configured. Please set the INCREMENTUM_GOOGLE_DRIVE_CLIENT_ID \
+                "Google Drive OAuth is not configured. Please set the PLETHORA_GOOGLE_DRIVE_CLIENT_ID \
                  environment variable with your Google Cloud project OAuth client ID.\n\n\
                  To configure Google Drive:\n\
                  1. Go to https://console.cloud.google.com/apis/credentials\n\
                  2. Create a new OAuth 2.0 client ID\n\
                  3. Add http://localhost:15173/auth/callback as an authorized redirect URI\n\
                  4. Copy the client ID\n\
-                 5. Set the INCREMENTUM_GOOGLE_DRIVE_CLIENT_ID environment variable".to_string()
+                 5. Set the PLETHORA_GOOGLE_DRIVE_CLIENT_ID environment variable".to_string()
             ));
         }
 
         if self.config.client_secret == "YOUR_CLIENT_SECRET" || self.config.client_secret.is_empty()
         {
             return Err(AppError::Internal(
-                "Google Drive OAuth is not configured. Please set the INCREMENTUM_GOOGLE_DRIVE_CLIENT_SECRET \
+                "Google Drive OAuth is not configured. Please set the PLETHORA_GOOGLE_DRIVE_CLIENT_SECRET \
                  environment variable with your Google Cloud project OAuth client secret.\n\n\
                  To configure Google Drive:\n\
                  1. Go to https://console.cloud.google.com/apis/credentials\n\
                  2. Select your OAuth 2.0 client ID\n\
                  3. Copy the client secret\n\
-                 4. Set the INCREMENTUM_GOOGLE_DRIVE_CLIENT_SECRET environment variable".to_string()
+                 4. Set the PLETHORA_GOOGLE_DRIVE_CLIENT_SECRET environment variable".to_string()
             ));
         }
 

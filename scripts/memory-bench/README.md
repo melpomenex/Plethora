@@ -10,7 +10,7 @@ introduced this.
 | Module | Purpose |
 |---|---|
 | `smaps-rollup.js` | Strict parser for `/proc/<pid>/smaps_rollup`. Fields: `Pss`, `Pss_Anon`, `Pss_File`, `Pss_Shmem`, `Private_Dirty`, `Rss`, `Swap`. Unknown/absent fields are `null`, never `0`; malformed input yields an attributed error. |
-| `discovery.js` | Process discovery rooted at the launched PID: relationship by process group **and** ancestor chain, verified by the `INCREMENTUM_MEMORY_RUN_ID` marker in `/proc/<pid>/environ`. Role classification: `native`, `web-content`, `network`, `other`. |
+| `discovery.js` | Process discovery rooted at the launched PID: relationship by process group **and** ancestor chain, verified by the `PLETHORA_MEMORY_RUN_ID` marker in `/proc/<pid>/environ`. Role classification: `native`, `web-content`, `network`, `other`. |
 | `sample.js` | Per-process sampling (`readProcessSample` — an exited process is recorded absent with a reason, never a failure) and tree aggregation (`aggregateSample` — total sums proportional fields only, never `Rss`). |
 | `platform.js` | Platform gate: non-Linux or missing/unreadable `smaps_rollup` → unsupported environment (no result file). |
 | `fixtures/` | Rollup fixture files used by the unit tests. |

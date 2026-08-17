@@ -115,7 +115,7 @@ jobs:
       - name: Build frontend for bundle size check
         run: npm run build || npx vite build
         env:
-          INCREMENTUM_TAURI: "1"
+          PLETHORA_TAURI: "1"
 
       - name: Check bundle size
         run: |
