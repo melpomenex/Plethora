@@ -202,6 +202,7 @@ export const fr: Dict = {
   "settings.rss.currentlyExcluded": "Actuellement exclu explicitement",
   "settings.rss.clickToExclude": "Cliquer pour exclure explicitement",
   "settings.shortcuts": "Raccourcis",
+  "settings.account": "Compte",
   "settings.ai": "IA",
   "settings.audioTranscription": "Transcription audio",
   "settings.tts": "Synthèse vocale",
@@ -3044,6 +3045,8 @@ export const fr: Dict = {
   "userProfile.signInSignUp": "Connexion / Inscription",
   "userProfile.upgradeDesc":
     "Débloquez la synchronisation complète des fichiers et le stockage illimité. Actuellement sur le forfait gratuit : synchronise uniquement les métadonnées et extraits.",
+  "userProfile.proBenefits":
+    "Débloquez la recherche sémantique sur toute la bibliothèque, la synchronisation cloud zero-knowledge, le tutorat socratique par IA, la transcription diarisée et les voix neuronales de livres audio.",
   "userProfile.upgradeNow": "Passer maintenant",
   "userProfile.upgradeToPro": "Passer au forfait Pro",
   "videoExtract.addBtn": "Ajouter",

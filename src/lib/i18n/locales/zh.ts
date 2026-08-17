@@ -233,6 +233,7 @@ export const zh: Dict = {
   "settings.rss.currentlyExcluded": "当前已显式排除",
   "settings.rss.clickToExclude": "点击以显式排除",
   "settings.shortcuts": "快捷键",
+  "settings.account": "账户",
   "settings.ai": "AI",
   "settings.audioTranscription": "音频转写",
   "settings.tts": "文本转语音",
@@ -3194,6 +3195,8 @@ export const zh: Dict = {
   "userProfile.proPlan": "Pro 计划",
   "userProfile.signInSignUp": "登录 / 注册",
   "userProfile.upgradeDesc": "解锁完整的文件同步和无限制存储。当前为免费计划：仅同步元数据和摘录。",
+  "userProfile.proBenefits":
+    "解锁全库语义搜索、零知识云端同步、AI 苏格拉底式辅导、说话人分离转写和神经语音听书。",
   "userProfile.upgradeNow": "立即升级",
   "userProfile.upgradeToPro": "升级到 Pro",
   "videoExtract.addBtn": "添加",
