@@ -1,13 +1,13 @@
 [package]
-name = "incrementum-tauri"
+name = "plethora-tauri"
 version = "2.7.0"
-description = "Incrementum - Incremental Reading and Spaced Repetition"
-authors = ["Incrementum Team"]
+description = "Plethora - Incremental Reading and Spaced Repetition"
+authors = ["Plethora Team"]
 edition = "2021"
-default-run = "incrementum-tauri"
+default-run = "plethora-tauri"
 
 [lib]
-name = "incrementum_tauri_lib"
+name = "plethora_tauri_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
