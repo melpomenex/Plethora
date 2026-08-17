@@ -48,11 +48,11 @@
 
 ## 7. Manual QA matrix (flag on, then default)
 
-- [ ] 7.1 Android narrow device or emulator (Boox Palma 2-class viewport, ~330 css px wide) — reflowed PDF: long-press → adjust both handles repeatedly → bar only after settle → Summarize → loading/result visible → close; selection near top/bottom/edges; large + small reflow font sizes.
-- [ ] 7.2 Android narrow device — EPUB: same flow in scrolled and paginated modes, including chapter turn while a result is open (aborts/dismisses), and font-size change with anchored bar visible.
-- [ ] 7.3 Android normal phone — reflowed PDF and EPUB repeat of the core flow; verify native selection handles, magnifier, and system Copy still work alongside.
+- [x] 7.1 Android narrow device or emulator (Boox Palma 2-class viewport, ~330 css px wide) — reflowed PDF: long-press → adjust both handles repeatedly → bar only after settle → Summarize → loading/result visible → close; selection near top/bottom/edges; large + small reflow font sizes. (Verified on the Palma 2 during the 2026-08-17 device soak; pill placement fixed against Android's system selection toolbar in `98ad07f3`.)
+- [x] 7.2 Android narrow device — EPUB: same flow in scrolled and paginated modes, including chapter turn while a result is open (aborts/dismisses), and font-size change with anchored bar visible. (Palma 2 device soak; mid-gesture contextmenu sheet eliminated in `4b4686de`.)
+- [x] 7.3 Android normal phone — reflowed PDF and EPUB repeat of the core flow; verify native selection handles, magnifier, and system Copy still work alongside. (Pixel 9 Pro XL soak; system Copy bar coexistence verified — placement now yields the above-selection slot to it.)
 - [ ] 7.4 Desktop — reflowed PDF and EPUB: mouse select → menu, right-click menu actions, highlight popup (fixed PDF), keyboard Escape dismissal, focus return.
-- [ ] 7.5 E-ink mode (or `data-display-mode="eink"` forced): no animation-dependent transitions, no reposition thrash, reduced-motion respected on the bar and sheet.
+- [ ] 7.5 E-ink mode (or `data-display-mode="eink"` forced): no animation-dependent transitions, no reposition thrash, reduced-motion respected on the bar and sheet. (Partially covered by the Palma 2 soak — native e-ink; forced-mode pass pending.)
 - [ ] 7.6 Failure path on any platform: disable AI provider → Summarize shows visible error with Retry; retry after re-enabling succeeds without re-selecting.
-- [ ] 7.7 Performance spot-check: handle-drag on a large reflowed PDF and a large EPUB produces no per-event renders (React DevTools highlight) and no jank; no polling in performance profiler while idle with a selection active.
-- [ ] 7.8 Flip `selectionInteractionV2` default on, soak, then remove the flag and dead code paths.
+- [ ] 7.7 Performance spot-check: handle-drag on a large reflowed PDF and a large EPUB produces no per-event renders (React DevTools highlight) and no jank; no polling in performance profiler while idle with a selection active. (Per-event render suppression is covered by the hook unit tests; DevTools spot-check pending.)
+- [ ] 7.8 Flip `selectionInteractionV2` default on, soak, then remove the flag and dead code paths. (Default flipped in `2190d9d3`; device soak started 2026-08-17 — flag removal pending.)
