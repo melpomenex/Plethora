@@ -1,0 +1,100 @@
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -14,7 +14,97 @@
+       window.location.replace(`/#/?shared_url=${encodeURIComponent(extractedUrl)}`);
+     } else {
+       window.location.replace('/#/');
++    }
++  }
++
++  // ── Final Incrementum notice (one-time, read-only) ────────────────────────
++  // Incrementum is now Plethora. This notice informs the user and links to
++  // the Plethora download. It does NOT touch the updater, the database, or
++  // any user data, and it is shown at most once per install (dismissable).
++  try {
++    if (localStorage.getItem('incrementum-plethora-notice-shown') !== '1') {
++      const PLETHORA_RELEASES_URL = 'https://github.com/melpomenex/Plethora/releases/latest';
++      const STRINGS: Record<string, { title: string; body: string; primary: string; later: string }> = {
++        en: {
++          title: 'Incrementum is now Plethora',
++          body: 'Incrementum has a new name and home: Plethora. Your data stays right here — nothing is changed or removed. To keep receiving updates, download Plethora and import your Incrementum backup (.incrementum files are supported).',
++          primary: 'Open Plethora download page',
++          later: 'Keep using Incrementum',
++        },
++        zh: {
++          title: 'Incrementum 现已更名为 Plethora',
++          body: 'Incrementum 有了新名字和新家：Plethora。您的数据保留在原地——不会被更改或删除。如需继续获得更新，请下载 Plethora 并导入您的 Incrementum 备份（支持 .incrementum 备份文件）。',
++          primary: '打开 Plethora 下载页面',
++          later: '继续使用 Incrementum',
++        },
++        es: {
++          title: 'Incrementum ahora es Plethora',
++          body: 'Incrementum tiene un nuevo nombre y hogar: Plethora. Sus datos permanecen aquí; no se cambia ni se elimina nada. Para seguir recibiendo actualizaciones, descargue Plethora e importe su copia de seguridad de Incrementum (los archivos .incrementum son compatibles).',
++          primary: 'Abrir la página de descargas de Plethora',
++          later: 'Seguir usando Incrementum',
++        },
++        de: {
++          title: 'Incrementum ist jetzt Plethora',
++          body: 'Incrementum hat einen neuen Namen und eine neue Heimat: Plethora. Ihre Daten bleiben unangetastet — nichts wird geändert oder entfernt. Um weiterhin Updates zu erhalten, laden Sie Plethora herunter und importieren Sie Ihr Incrementum-Backup (.incrementum-Dateien werden unterstützt).',
++          primary: 'Plethora-Downloadseite öffnen',
++          later: 'Incrementum weiter verwenden',
++        },
++        fr: {
++          title: 'Incrementum devient Plethora',
++          body: "Incrementum a un nouveau nom et un nouveau foyer : Plethora. Vos données restent ici — rien n'est modifié ni supprimé. Pour continuer à recevoir des mises à jour, téléchargez Plethora et importez votre sauvegarde Incrementum (les fichiers .incrementum sont pris en charge).",
++          primary: 'Ouvrir la page de téléchargement de Plethora',
++          later: "Continuer avec Incrementum",
++        },
++        ja: {
++          title: 'Incrementum は Plethora になりました',
++          body: 'Incrementum は新しい名前とホームを得ました：Plethora です。データはそのまま残り、何も変更・削除されません。更新の受け取りを続けるには Plethora をダウンロードし、Incrementum のバックアップをインポートしてください（.incrementum ファイルに対応しています）。',
++          primary: 'Plethora のダウンロードページを開く',
++          later: 'Incrementum を使い続ける',
++        },
++      };
++      const lang = (navigator.language || 'en').toLowerCase();
++      const s = STRINGS[lang.slice(0, 2)] ?? STRINGS.en;
++
++      const backdrop = document.createElement('div');
++      backdrop.id = 'incrementum-plethora-notice';
++      backdrop.setAttribute('style',
++        'position:fixed;inset:0;z-index:2147483647;background:rgba(15,15,20,0.55);display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;');
++      const card = document.createElement('div');
++      card.setAttribute('style',
++        'max-width:520px;margin:16px;background:#1c1c22;color:#e8e8ea;border:1px solid #3a3a44;border-radius:12px;padding:24px;box-shadow:0 24px 64px rgba(0,0,0,0.5);');
++      const title = document.createElement('h2');
++      title.setAttribute('style', 'margin:0 0 12px;font-size:18px;');
++      title.textContent = s.title;
++      const body = document.createElement('p');
++      body.setAttribute('style', 'margin:0 0 20px;font-size:14px;line-height:1.6;color:#b9b9c0;');
++      body.textContent = s.body;
++      const actions = document.createElement('div');
++      actions.setAttribute('style', 'display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;');
++      const primary = document.createElement('a');
++      primary.href = PLETHORA_RELEASES_URL;
++      primary.target = '_blank';
++      primary.rel = 'noopener noreferrer';
++      primary.setAttribute('style', 'background:#6daa2c;color:#ffffff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer;');
++      primary.textContent = s.primary;
++      const later = document.createElement('button');
++      later.setAttribute('style', 'background:transparent;color:#b9b9c0;border:1px solid #3a3a44;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer;');
++      later.textContent = s.later;
++      const dismiss = () => {
++        try { localStorage.setItem('incrementum-plethora-notice-shown', '1'); } catch { /* ignore */ }
++        backdrop.remove();
++      };
++      later.addEventListener('click', dismiss);
++      actions.appendChild(later);
++      actions.appendChild(primary);
++      card.appendChild(title);
++      card.appendChild(body);
++      card.appendChild(actions);
++      backdrop.appendChild(card);
++      // Show slightly deferred so it renders above the app's first paint.
++      window.setTimeout(() => document.body.appendChild(backdrop), 1200);
+     }
++  } catch {
++    // Never let the notice break startup.
+   }
+ 
+   // PDF.js uses newer Promise helpers that are missing in older WebView2 builds on Windows.
