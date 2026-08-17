@@ -174,7 +174,7 @@ describe("Toolbar", () => {
     expect(rail).not.toHaveAttribute("data-expanded");
   });
 
-  it("keeps the rail expanded when the pointer leaves while a button holds focus", () => {
+  it("collapses when the pointer leaves after a button received focus", () => {
     const { container } = render(<Toolbar position="right" />);
     const rail = container.querySelector(".toolbar-rail")!;
     const firstButton = screen.getAllByRole("button")[0];
@@ -184,17 +184,52 @@ describe("Toolbar", () => {
     });
     expect(rail).toHaveAttribute("data-expanded");
 
-    // Pointer leaves, but focus is still on a toolbar button: stay expanded.
+    // Pointer leaves after hover/focus: rail must collapse after the close delay.
     act(() => {
       fireEvent.pointerEnter(rail);
       fireEvent.pointerLeave(rail);
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(250);
+    });
+    expect(rail).not.toHaveAttribute("data-expanded");
+  });
+
+  it("collapses immediately when active tab changes", () => {
+    const { container } = render(<Toolbar position="left" />);
+    const rail = container.querySelector(".toolbar-rail")!;
+
+    act(() => {
+      fireEvent.pointerEnter(rail);
+      vi.advanceTimersByTime(120);
     });
     expect(rail).toHaveAttribute("data-expanded");
 
-    // Focus leaves too → collapse immediately.
+    // Switching active tab (e.g. entering Settings mode) collapses the rail immediately
     act(() => {
-      fireEvent.focusOut(firstButton, { relatedTarget: null });
+      useTabsStore.setState({
+        activeTabHistory: ["settings-tab-id"],
+      });
+    });
+    expect(rail).not.toHaveAttribute("data-expanded");
+  });
+
+  it("collapses immediately when clicking outside the expanded rail", () => {
+    const { container } = render(
+      <div>
+        <div data-testid="outside-area">Outside</div>
+        <Toolbar position="left" />
+      </div>,
+    );
+    const rail = container.querySelector(".toolbar-rail")!;
+    const outsideArea = screen.getByTestId("outside-area");
+
+    act(() => {
+      fireEvent.pointerEnter(rail);
+      vi.advanceTimersByTime(120);
+    });
+    expect(rail).toHaveAttribute("data-expanded");
+
+    act(() => {
+      fireEvent.pointerDown(outsideArea);
     });
     expect(rail).not.toHaveAttribute("data-expanded");
   });
