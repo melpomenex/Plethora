@@ -18,8 +18,12 @@ import * as db from './database';
 const EXTENSION_SOURCE_TOKENS = ['plethora-extension', 'incrementum-extension'] as const;
 const PWA_SOURCE_TOKENS = ['plethora-pwa', 'incrementum-pwa'] as const;
 
-/** Request ids already handled during this session (dual-send dedupe). */
+/**
+ * Request ids already handled during this session (dual-send dedupe).
+ * Capped at MAX_HANDLED_REQUEST_IDS to prevent unbounded growth in long sessions.
+ */
 const handledRequestIds = new Set<string>();
+const MAX_HANDLED_REQUEST_IDS = 1000;
 
 // Message types from the browser extension
 interface ExtensionMessage {
@@ -72,6 +76,13 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
   if (!message || !EXTENSION_SOURCE_TOKENS.includes(message.source)) return;
   if (message.requestId) {
     if (handledRequestIds.has(message.requestId)) return;
+    // Cap the dedupe set: when it exceeds 1000 entries, clear it.
+    // Oldest-entry eviction is not worth the complexity; a malicious page spamming
+    // >1000 unique ids between two halves of one dual-send is not a realistic
+    // compat-window threat.
+    if (handledRequestIds.size >= MAX_HANDLED_REQUEST_IDS) {
+      handledRequestIds.clear();
+    }
     handledRequestIds.add(message.requestId);
   }
 

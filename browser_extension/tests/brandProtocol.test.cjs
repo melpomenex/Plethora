@@ -23,6 +23,7 @@ test("app bridge accepts both extension source tokens", () => {
 test("app bridge dedupes dual sends by requestId", () => {
   const bridge = read("src/lib/extension-bridge.ts");
   assert.ok(bridge.includes("handledRequestIds"));
+  assert.ok(bridge.includes("handledRequestIds.clear()"));
 });
 
 test("extension content script accepts responses from both PWA tokens", () => {
