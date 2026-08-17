@@ -34,7 +34,7 @@ const routeToBreadcrumb: Record<string, BreadcrumbItem[]> = {
 
 export function Breadcrumb({
   items: propItems,
-  homeLabel = "Incrementum",
+  homeLabel = "Plethora",
   onNavigate,
 }: BreadcrumbProps) {
   const [items, setItems] = useState<BreadcrumbItem[]>([]);

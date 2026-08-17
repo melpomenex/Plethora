@@ -83,7 +83,7 @@ export function normalizePdfError(error: unknown): NormalizedPdfError {
 export function pdfErrorUserMessage(error: NormalizedPdfError): string {
   switch (error.category) {
     case "source_missing": return "This PDF is not available on this device yet.";
-    case "source_unauthorized": return "Incrementum no longer has permission to read this PDF.";
+    case "source_unauthorized": return "Plethora no longer has permission to read this PDF.";
     case "source_changed": return "This PDF changed while it was open. Reload it to continue.";
     case "password_required": return "This PDF is password protected.";
     case "password_incorrect": return "That password did not unlock the PDF.";
@@ -91,7 +91,7 @@ export function pdfErrorUserMessage(error: NormalizedPdfError): string {
     case "pdf_unsupported": return "This PDF uses features that are not supported on this device.";
     case "resource_limit": return "This PDF needs more memory than this device can safely provide.";
     case "cancelled": return "PDF loading was cancelled.";
-    default: return "Incrementum could not read this PDF. Try opening it again.";
+    default: return "Plethora could not read this PDF. Try opening it again.";
   }
 }
 

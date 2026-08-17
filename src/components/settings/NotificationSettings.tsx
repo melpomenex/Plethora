@@ -204,7 +204,7 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
   const handleTestNotification = async () => {
     const result = await scheduleNotification({
       title: "Test Notification",
-      body: "This is a test notification from Incrementum!",
+      body: "This is a test notification from Plethora!",
       icon: "/icon.png",
       tag: "test",
     });
@@ -342,7 +342,7 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
                 {platform === "tauri" ? (
                   <>
                     <li>Open System Preferences → Notifications</li>
-                    <li>Find Incrementum in the list</li>
+                    <li>Find Plethora in the list</li>
                     <li>Enable "Allow Notifications"</li>
                   </>
                 ) : (

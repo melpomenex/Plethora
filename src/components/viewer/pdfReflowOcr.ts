@@ -84,7 +84,7 @@ export class PdfReflowOcrController {
     onUpdate({ state: "queued", pageNumber, progress: 0 });
     try {
       if (typeof document !== "undefined" && document.hidden) {
-        onUpdate({ state: "cancelled", pageNumber, progress: 0, message: "Text recognition waits until Incrementum is visible." });
+        onUpdate({ state: "cancelled", pageNumber, progress: 0, message: "Text recognition waits until Plethora is visible." });
         return null;
       }
       onUpdate({ state: "processing", pageNumber, progress: 5, message: "Preparing page" });

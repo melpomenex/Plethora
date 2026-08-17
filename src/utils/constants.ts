@@ -2,7 +2,7 @@
  * Application constants
  */
 
-export const APP_NAME = "Incrementum";
+export const APP_NAME = "Plethora";
 export const APP_VERSION = "1.47.5";
 
 export const KEYBOARD_SHORTCUTS = {

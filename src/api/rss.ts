@@ -980,7 +980,7 @@ export function exportOPML(): string {
   let opml = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
-    <title>Incrementum Feed Subscriptions</title>
+    <title>Plethora Feed Subscriptions</title>
     <dateCreated>${new Date().toISOString()}</dateCreated>
   </head>
   <body>
