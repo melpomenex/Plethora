@@ -366,6 +366,53 @@ export function MainLayout() {
       );
     };
 
+    // One-time Incrementum → Plethora data migration offer (task 3.1). The
+    // consent dialog must be localized, so the backend only arms a pending
+    // marker and defers to this frontend prompt.
+    const showLegacyDataOffer = (legacyPath: string) => {
+      const consent = window.confirm(
+        `${t("mainLayout.legacyDataPrompt")}\n\n${t("mainLayout.legacyDataLegacyKept")}`
+      );
+      if (!consent) {
+        invokeCommand("decline_legacy_data_migration").catch((err) =>
+          console.warn("[MainLayout] failed to decline legacy migration:", err)
+        );
+        setStartupNoticePending(false);
+        return;
+      }
+      toast.info(t("mainLayout.legacyDataMigrating"), t("mainLayout.legacyDataMigratingDesc"));
+      invokeCommand<{ copied_files: number }>("migrate_legacy_data")
+        .then(async () => {
+          const { relaunch } = await import("@tauri-apps/plugin-process");
+          await relaunch();
+        })
+        .catch((err) => {
+          console.error("[MainLayout] legacy data migration failed:", err);
+          toast.error(t("mainLayout.legacyDataFailed"), err instanceof Error ? err.message : String(err));
+          setStartupNoticePending(false);
+        });
+    };
+
+    const showLegacyDataMigratedToast = (legacyPath: string, backupDb: string | null) => {
+      void emitFeedback("migration.legacy-data-migrated", { legacyPath }, {
+        toast: {
+          type: ToastType.Success,
+          title: t("mainLayout.legacyDataMigrated"),
+          message: backupDb
+            ? t("mainLayout.legacyDataMigratedDescBackup", {
+                path: legacyPath,
+                backup: backupDb.split(/[\\/]/).pop() || backupDb,
+              })
+            : t("mainLayout.legacyDataMigratedDesc", { path: legacyPath }),
+          duration: 0,
+          action: {
+            label: t("mainLayout.openSettings"),
+            onClick: () => openTabByType("settings"),
+          },
+        },
+      });
+    };
+
     // 1) Pull any pending notice that was generated before the webview booted.
     invokeCommand<StartupNotice | null>("consume_startup_notice")
       .then((notice) => {
@@ -384,6 +431,14 @@ export function MainLayout() {
               showAutoBackupToast(backupPath);
             } else if ("DatabaseIntegrityWarning" in notice) {
               showDatabaseIntegrityToast(notice.DatabaseIntegrityWarning.artifacts);
+            } else if ("LegacyDataAvailable" in notice) {
+              showLegacyDataOffer(notice.LegacyDataAvailable.legacy_path);
+            } else if ("LegacyDataMigrated" in notice) {
+              showLegacyDataMigratedToast(
+                notice.LegacyDataMigrated.legacy_path,
+                notice.LegacyDataMigrated.backup_db
+              );
+              setStartupNoticePending(false);
             }
           }
         } else {
@@ -538,8 +593,8 @@ export function MainLayout() {
 
   useEffect(() => {
     const handleOpenFlashcard = () => openTabByType("review");
-    window.addEventListener("incrementum:open-flashcard", handleOpenFlashcard);
-    return () => window.removeEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+    window.addEventListener("plethora:open-flashcard", handleOpenFlashcard);
+    return () => window.removeEventListener("plethora:open-flashcard", handleOpenFlashcard);
   }, [openTabByType]);
 
   // Tour ↔ shell navigation. Steps declare `navigateToView: { kind: "event",

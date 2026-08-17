@@ -51,4 +51,6 @@ export type StartupNotice =
   | "DatabaseRecoveredAfterQuarantine"
   | { DatabaseRecoveredAfterQuarantine: null }
   | { AutoBackupFound: { backup_path: string } }
-  | { DatabaseIntegrityWarning: { artifacts: string[] } };
+  | { DatabaseIntegrityWarning: { artifacts: string[] } }
+  | { LegacyDataAvailable: { legacy_path: string } }
+  | { LegacyDataMigrated: { legacy_path: string; backup_db: string | null } };

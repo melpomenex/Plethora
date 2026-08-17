@@ -230,6 +230,17 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     cooldownMs: 0,
     suppressDuringReview: false,
   },
+  "migration.legacy-data-migrated": {
+    importance: "actionable",
+    toast: "default-on",
+    sound: null,
+    haptic: false,
+    osNotification: "never",
+    osVisibility: "never",
+    quietHours: false,
+    cooldownMs: 0,
+    suppressDuringReview: false,
+  },
   "focus.phase-completed": {
     importance: "actionable",
     toast: "never", // timer UI is the visible channel
