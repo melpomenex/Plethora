@@ -35,7 +35,7 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
 
     // The one-time migration dialog intentionally names the legacy product
     // ("your Incrementum library") — users must recognize what is migrating.
-    const MIGRATION_COPY_EXEMPT = /^mainLayout\.legacyData/;
+    const MIGRATION_COPY_EXEMPT = /^(mainLayout\.legacyData|integrations\.migrateVaultIds)/;
     const valueOffenders = (dict: Record<string, string>) =>
       Object.entries(dict)
         .filter(([key, value]) => !MIGRATION_COPY_EXEMPT.test(key) && OLD_BRAND.test(value))

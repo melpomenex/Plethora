@@ -62,6 +62,9 @@ export const en: Dict = {
   "mainLayout.sharedLinkAdded": "Shared link added to your queue.",
   "mainLayout.open": "Open",
   "mainLayout.importFailed": "Import failed",
+  "mainLayout.legacyDataTitle": "Incrementum Data Found",
+  "mainLayout.legacyDataMigrate": "Copy my data",
+  "mainLayout.legacyDataDecline": "Start fresh",
   "mainLayout.legacyDataPrompt":
     "Plethora found an existing Incrementum library on this computer. Copy your documents, review history, themes, and API keys into Plethora now?",
   "mainLayout.legacyDataLegacyKept":

@@ -37,6 +37,9 @@ export const es: Dict = {
   "mainLayout.sharedLinkAdded": "Enlace compartido añadido a su cola.",
   "mainLayout.open": "Abrir",
   "mainLayout.importFailed": "Importación fallida",
+  "mainLayout.legacyDataTitle": "Datos de Incrementum encontrados",
+  "mainLayout.legacyDataMigrate": "Copiar mis datos",
+  "mainLayout.legacyDataDecline": "Empezar de cero",
   "mainLayout.legacyDataPrompt":
     "Plethora encontró una biblioteca de Incrementum en este equipo. ¿Desea copiar ahora sus documentos, historial de repaso, temas y claves de API a Plethora?",
   "mainLayout.legacyDataLegacyKept":
