@@ -154,6 +154,9 @@ function main() {
     const macosOut = join(work, 'macos');
     runTauriIcon([macosSvg, '-o', macosOut], 'macos rounded tile');
     copyIfPresent(join(macosOut, 'icon.icns'), join(tauriIconsDir, 'icon.icns'), 'macos icns');
+    // 512px rounded tile embedded by the Rust setup hook as the runtime Dock
+    // icon for unbundled (tauri dev) runs on macOS.
+    copyIfPresent(join(macosOut, 'icon.png'), join(tauriIconsDir, 'macos-dock-icon.png'), 'macos dev dock icon');
 
     const iosOut = join(platformOut, 'ios');
     for (const entry of readdirSafe(iosOut)) {
