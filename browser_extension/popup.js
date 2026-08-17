@@ -172,7 +172,7 @@ class PopupController {
         // Theme could have loaded on connection success
         await this.loadTheme();
       } else {
-        this.showNotification('Connection failed. Check if Incrementum is running.', 'error');
+        this.showNotification('Connection failed. Check if Plethora is running.', 'error');
         this.updateConnectionStatus(false);
       }
     } catch (error) {

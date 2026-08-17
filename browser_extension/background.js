@@ -265,13 +265,13 @@ function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'save-page',
-      title: '💾 Save to Incrementum',
+      title: '💾 Save to Plethora',
       contexts: ['page']
     });
 
     chrome.contextMenus.create({
       id: 'save-link',
-      title: '🔗 Save Link to Incrementum',
+      title: '🔗 Save Link to Plethora',
       contexts: ['link']
     });
 
@@ -283,7 +283,7 @@ function createContextMenus() {
 
     chrome.contextMenus.create({
       id: 'ai-selection',
-      title: '✨ Incrementum AI',
+      title: '✨ Plethora AI',
       contexts: ['selection']
     });
 
@@ -443,7 +443,7 @@ async function createImageOcclusionCard(data, senderTabId) {
       result = {};
     }
     if (!response.ok || !result.success) {
-      throw new Error(result.error || rawBody || `Incrementum returned ${response.status}`);
+      throw new Error(result.error || rawBody || `Plethora returned ${response.status}`);
     }
 
     const displayed = await sendAIStateToTab(senderTabId, {
@@ -451,7 +451,7 @@ async function createImageOcclusionCard(data, senderTabId) {
       result
     });
     if (!displayed) {
-      showAINativeNotification('flashcards', true, 'Image occlusion card saved to Incrementum.');
+      showAINativeNotification('flashcards', true, 'Image occlusion card saved to Plethora.');
     }
     return result;
   } catch (error) {
@@ -587,13 +587,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await sendInPageToast(
               toastTabId,
               true,
-              'Extract cached locally and will sync when Incrementum launches.'
+              'Extract cached locally and will sync when Plethora launches.'
             );
             sendResponse({
               success: true,
               queued: true,
               queueId: queuedItem.queueId,
-              message: 'Extract cached locally and will sync when Incrementum launches.'
+              message: 'Extract cached locally and will sync when Plethora launches.'
             });
             break;
           }
@@ -601,7 +601,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await sendInPageToast(
             toastTabId,
             response.success,
-            response.success && response.degraded ? response.message : 'Extract sent to Incrementum!'
+            response.success && response.degraded ? response.message : 'Extract sent to Plethora!'
           );
           sendResponse(response);
           break;
@@ -711,7 +711,7 @@ async function saveCurrentTab(passedTab) {
       await sendInPageToast(
         tab.id,
         true,
-        result.degraded ? result.message : 'Page saved to Incrementum!'
+        result.degraded ? result.message : 'Page saved to Plethora!'
       );
     }
 
@@ -942,7 +942,7 @@ async function saveLink(url, sourceTabId, linkText) {
       text: '',
       type: 'page'
     });
-    const msg = result.success ? 'Link sent to Incrementum!' : 'Failed to save link';
+    const msg = result.success ? 'Link sent to Plethora!' : 'Failed to save link';
     await sendInPageToast(sourceTabId, result.success, msg);
     return result;
   } catch (error) {
@@ -1010,7 +1010,7 @@ async function savePage(url, title, tabId = null) {
         success: true,
         queued: true,
         queueId: queuedItem.queueId,
-        message: 'Page cached and will sync when Incrementum is available.'
+        message: 'Page cached and will sync when Plethora is available.'
       };
     }
     return result;
@@ -1031,18 +1031,18 @@ async function createExtractFromSelection(selectedText, tab) {
   const result = await sendToIncrementum(payload);
   if (!result.success && isRetryableConnectionError(result)) {
     const queuedItem = await queueExtractForSync(payload);
-    await sendInPageToast(tab?.id, true, 'Extract cached and will sync when Incrementum launches.');
+    await sendInPageToast(tab?.id, true, 'Extract cached and will sync when Plethora launches.');
     return {
       success: true,
       queued: true,
       queueId: queuedItem.queueId,
-      message: 'Extract cached locally and will sync when Incrementum launches.'
+      message: 'Extract cached locally and will sync when Plethora launches.'
     };
   }
   await sendInPageToast(
     tab?.id,
     result.success,
-    result.success && result.degraded ? result.message : 'Extract sent to Incrementum!'
+    result.success && result.degraded ? result.message : 'Extract sent to Plethora!'
   );
   return result;
 }
@@ -1064,7 +1064,7 @@ async function sendInPageToast(tabId, success, message) {
         chrome.notifications.create({
           type: 'basic',
           iconUrl: 'icons/icon48.png',
-          title: 'Incrementum',
+          title: 'Plethora',
           message: message
         });
       }
@@ -1116,12 +1116,12 @@ function aiProgressMessage(operation) {
 
 function aiSuccessMessage(operation) {
   return operation === 'flashcards'
-    ? 'Flashcards were generated and saved to Incrementum.'
+    ? 'Flashcards were generated and saved to Plethora.'
     : 'The selected text was summarized.';
 }
 
 function aiFailureMessage(error) {
-  const message = String(error || 'Incrementum AI request failed.').trim();
+  const message = String(error || 'Plethora AI request failed.').trim();
   return message.length > 240 ? `${message.slice(0, 237)}…` : message;
 }
 
@@ -1133,8 +1133,8 @@ function showAINativeNotification(operation, success, message) {
     type: 'basic',
     iconUrl: 'icons/icon48.png',
     title: operation === 'flashcards'
-      ? (success ? 'Incrementum AI flashcards' : 'Flashcard generation failed')
-      : (success ? 'Incrementum AI summary' : 'Summarization failed'),
+      ? (success ? 'Plethora AI flashcards' : 'Flashcard generation failed')
+      : (success ? 'Plethora AI summary' : 'Summarization failed'),
     message
   });
   return true;
@@ -1143,7 +1143,7 @@ function showAINativeNotification(operation, success, message) {
 async function processSelectionWithAI(operation, selectedText, tab) {
   const content = (selectedText || '').trim();
   if (!content || !tab?.id) {
-    const message = 'Select some text before using Incrementum AI.';
+    const message = 'Select some text before using Plethora AI.';
     const displayed = await sendAIStateToTab(tab?.id, {
       action: 'showAIError',
       operation,
@@ -1340,7 +1340,7 @@ async function requestAIAnalysis(data) {
         error: response.status === 503
           ? 'AI is not configured. Please configure an AI provider in the desktop app settings.'
           : response.status === 413
-            ? (errorText || 'The selected text is too large for Incrementum AI to process.')
+            ? (errorText || 'The selected text is too large for Plethora AI to process.')
             : `AI request failed: ${response.status}`
       };
     }
@@ -1353,8 +1353,8 @@ async function requestAIAnalysis(data) {
     return {
       success: false,
       error: error?.name === 'AbortError'
-        ? 'Incrementum AI took longer than 60 seconds to respond. Please try again.'
-        : (error.message || 'Could not reach Incrementum. Make sure the desktop app and Browser Extension Server are running.')
+        ? 'Plethora AI took longer than 60 seconds to respond. Please try again.'
+        : (error.message || 'Could not reach Plethora. Make sure the desktop app and Browser Extension Server are running.')
     };
   } finally {
     clearTimeout(timeout);

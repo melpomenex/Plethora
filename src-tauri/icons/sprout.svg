@@ -1,50 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Incrementum sprout icon">
-  <title>Incrementum Sprout Icon</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="leafLight" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#a9c94b"/>
-      <stop offset="100%" stop-color="#8db84a"/>
-    </linearGradient>
-    <linearGradient id="leafOuter" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#96c04a"/>
-      <stop offset="100%" stop-color="#73ac44"/>
-    </linearGradient>
-    <linearGradient id="leafInner" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2f6f39"/>
-      <stop offset="100%" stop-color="#4f8f43"/>
-    </linearGradient>
-    <linearGradient id="stemGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5aa13e"/>
-      <stop offset="100%" stop-color="#3f8038"/>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.55" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#5B21B6"/>
     </linearGradient>
   </defs>
 
-  <!-- Left leaf -->
-  <path fill="url(#leafLight)" d="M238 360
-    C218 317, 170 306, 133 277
-    C93 246, 73 201, 62 143
-    C138 135, 204 156, 247 203
-    C285 246, 294 302, 238 360 Z"/>
+  <!-- Keep the source icon square. iOS/Android apply their own corner masks. -->
+  <rect width="1024" height="1024" fill="#FFFFFF"/>
 
-  <!-- Right outer leaf -->
-  <path fill="url(#leafOuter)" d="M270 369
-    C290 308, 341 286, 386 266
-    C443 240, 485 183, 474 81
-    C379 77, 288 123, 250 203
-    C228 251, 234 314, 270 369 Z"/>
+  <!-- Friendly Chirp / #6: P-shaped bird -->
+  <g>
+    <!-- Main P/bird silhouette -->
+    <path d="M284 794
+             L284 430
+             C284 279 396 194 554 194
+             C719 194 826 291 826 438
+             C826 584 720 664 565 664
+             L447 664
+             Z"
+          fill="url(#purple)"/>
 
-  <!-- Right inner layered leaf -->
-  <path fill="url(#leafInner)" d="M268 345
-    C286 295, 333 260, 382 225
-    C422 196, 435 148, 431 127
-    C355 133, 288 170, 253 228
-    C235 258, 234 309, 268 345 Z"/>
+    <!-- Head feathers / tuft -->
+    <path d="M384 224
+             C362 176 327 145 286 138
+             C329 163 354 190 367 230
+             Z"
+          fill="url(#purple)"/>
+    <path d="M420 209
+             C398 150 355 113 313 102
+             C364 130 394 166 405 218
+             Z"
+          fill="url(#purple)"/>
+    <path d="M451 207
+             C438 161 410 130 382 117
+             C416 145 431 172 435 213
+             Z"
+          fill="url(#purple)"/>
 
-  <!-- Stem -->
-  <path fill="url(#stemGrad)" d="M243 352
-    C249 330, 262 330, 270 352
-    C277 373, 281 401, 280 437
-    C280 453, 268 465, 256 465
-    C244 465, 232 453, 232 437
-    C231 401, 235 373, 243 352 Z"/>
+    <!-- Beak -->
+    <path d="M818 414 L891 451 L818 487 Z" fill="#6D28D9"/>
+
+    <!-- Eye -->
+    <circle cx="644" cy="401" r="76" fill="#FFFFFF"/>
+    <circle cx="666" cy="414" r="31" fill="#241044"/>
+    <circle cx="677" cy="402" r="9" fill="#FFFFFF" opacity="0.92"/>
+  </g>
 </svg>

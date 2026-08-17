@@ -626,7 +626,7 @@ export function NotebookLMStudio({ notebookId, onSyncToIncrementum, onViewArtifa
                       className="w-full mt-3 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                     >
                       <Upload className="w-4 h-4" />
-                      {t("notebooklmStudio.syncToIncrementum")}
+                      {t("notebooklmStudio.syncToPlethora")}
                     </button>
 
                     {syncResult && (

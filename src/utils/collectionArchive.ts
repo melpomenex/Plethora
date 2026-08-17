@@ -125,8 +125,8 @@ export async function buildCollectionArchive(options: {
   }
 
   const deckName = options.scope === "all"
-    ? "Incrementum Export"
-    : options.collections.find((c) => c.id === options.activeCollectionId)?.name || "Incrementum Export";
+    ? "Plethora Export"
+    : options.collections.find((c) => c.id === options.activeCollectionId)?.name || "Plethora Export";
   const apkgBytes = await buildAnkiApkg(scopedLearningItems, { deckName });
   zip.file("anki/flashcards.apkg", apkgBytes);
 

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Incrementum Browser Sync",
+  "name": "Plethora Capture",
   "version": "1.9.0",
   "browser_specific_settings": {
     "gecko": {
@@ -20,7 +20,7 @@
       }
     }
   },
-  "description": "Sync your browser tabs, bookmarks, and pages to Incrementum knowledge management system",
+  "description": "Sync your browser tabs, bookmarks, and pages to Plethora knowledge management system",
   
   "permissions": [
     "tabs",
@@ -49,7 +49,7 @@
   
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Incrementum Browser Sync",
+    "default_title": "Plethora Capture",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -79,14 +79,14 @@
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "Save current tab to Incrementum"
+      "description": "Save current tab to Plethora"
     },
     "save-all-tabs": {
       "suggested_key": {
         "default": "Ctrl+Shift+A",
         "mac": "Command+Shift+A"
       },
-      "description": "Save all tabs to Incrementum"
+      "description": "Save all tabs to Plethora"
     },
     "toggle-extract-mode": {
       "suggested_key": {

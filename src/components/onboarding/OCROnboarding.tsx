@@ -35,7 +35,7 @@ const onboardingSteps: OnboardingStep[] = [
   {
     id: "welcome",
     title: "Welcome to Enhanced OCR",
-    description: "Incrementum now includes powerful OCR capabilities with multiple providers, math support, and automatic key phrase extraction. Let's take a quick tour!",
+    description: "Plethora now includes powerful OCR capabilities with multiple providers, math support, and automatic key phrase extraction. Let's take a quick tour!",
     icon: Sparkle,
   },
   {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Incrementum",
+  "productName": "Plethora",
   "version": "2.7.0",
   "identifier": "com.incrementum.app",
   "build": {
@@ -14,7 +14,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Incrementum",
+        "title": "Plethora",
         "label": "main",
         "width": 1280,
         "height": 800,
@@ -58,11 +58,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "publisher": "Incrementum",
-    "copyright": "Copyright © 2025 Incrementum",
+    "publisher": "Plethora",
+    "copyright": "Copyright © 2025-2026 Plethora",
     "category": "Education",
-    "shortDescription": "Incrementum - Spaced repetition and incremental reading for effective learning",
-    "longDescription": "Incrementum is a powerful learning application that combines spaced repetition, incremental reading, and AI-powered flashcard generation to help you learn more effectively.",
+    "shortDescription": "Plethora - Spaced repetition and incremental reading for effective learning",
+    "longDescription": "Plethora is a powerful learning application that combines spaced repetition, incremental reading, and AI-powered flashcard generation to help you learn more effectively.",
     "linux": {
       "deb": {
         "depends": [

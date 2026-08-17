@@ -207,7 +207,7 @@ export function NotebookLMWorkspace() {
             <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950 rounded-lg flex items-center justify-center mb-3">
               <ArrowSquareOut className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h4 className="font-medium text-foreground mb-1">{t("notebooklm.syncToIncrementum")}</h4>
+            <h4 className="font-medium text-foreground mb-1">{t("notebooklm.syncToPlethora")}</h4>
             <p className="text-sm text-muted-foreground">
               Import generated flashcards and quizzes directly into your decks.
             </p>

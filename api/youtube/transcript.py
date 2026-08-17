@@ -50,7 +50,7 @@ def fetch_from_vps_service(video_id):
     try:
         req = Request(service_url)
         req.add_header("X-API-Key", VPS_API_KEY)
-        req.add_header("User-Agent", "Incrementum/1.0")
+        req.add_header("User-Agent", "Plethora/1.0")
 
         response = urlopen(req, timeout=VPS_TIMEOUT)
 

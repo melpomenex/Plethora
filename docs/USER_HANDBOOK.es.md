@@ -6,9 +6,9 @@
 
 ## Introducción
 
-### ¿Qué es el Incremento?
+### ¿Qué es Plethora?
 
-Incrementum es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
+Plethora es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
 
 **Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de principio a fin, extrae puntos clave y desarrolla gradualmente la comprensión.
 
@@ -28,7 +28,7 @@ Incrementum es una poderosa aplicación de aprendizaje que combina dos técnicas
 
 ### Primer lanzamiento
 
-Cuando inicie Incrementum por primera vez, verá el **Panel** con cuatro secciones principales:
+Cuando inicie Plethora por primera vez, verá el **Panel** con cuatro secciones principales:
 
 1. **Cola** - Tu cola de revisión (vacía al principio)
 2. **Revisión** - Sesión de revisión activa
@@ -101,7 +101,7 @@ Importemos su primer documento:
 2. Haga clic en **Documentos** → **Importar** → **URL**
 3. Pega la URL
 4. Haga clic en **Importar**
-5. Incrementum recupera y procesa el contenido.
+5. Plethora recupera y procesa el contenido.
 
 **Sitios compatibles:**
 - Artículos de noticias (la mayoría de los sitios principales)
@@ -130,7 +130,7 @@ Importe mazos de tarjetas desde archivos JSON que incluyan datos de programació
 
 1. Haga clic en **Documentos** → **Importar** → **JSON**
 2. Seleccione su archivo de mazo `.json`
-3. Incrementum crea un documento de mazo e importa todas las cartas, conservando:
+3. Plethora crea un documento de mazo e importa todas las cartas, conservando:
    - Programación (intervalos, factores de facilidad, fechas de vencimiento)
    - Revisar el historial (repeticiones, lapsos, tasa de retención)
    - Estados de la tarjeta (nueva, en revisión o suspendida)
@@ -246,7 +246,7 @@ SM-18:
 
 ### Entendiendo SM-20
 
-La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de ingeniería inversa del `sm20.exe` de SuperMemo que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
+La opción **SM-20** de Plethora es **Algorithm Arena**: una adaptación de ingeniería inversa del `sm20.exe` de SuperMemo que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
 
 | Ranura | Modelo | Peso predeterminado | ¿Aprende cómo? |
 |------|-------|---------------:|-------------|
@@ -302,7 +302,7 @@ Controles del teclado mientras Memory Horizon está abierto:
 | `Entrar` o `Espacio` | Confirmar el horario mostrado |
 | `Escape` | Volver a la calificación |
 
-En la revisión de audio con manos libres, Incrementum confirma automáticamente la selección de arena para que la reproducción pueda continuar, incluso cuando se selecciona **Mostrar la arena** para revisiones visuales. La revisión sigue siendo recuperable si esa confirmación automática falla.
+En la revisión de audio con manos libres, Plethora confirma automáticamente la selección de arena para que la reproducción pueda continuar, incluso cuando se selecciona **Mostrar la arena** para revisiones visuales. La revisión sigue siendo recuperable si esa confirmación automática falla.
 
 ### Programa de lectura de documentos (lectura incremental)
 
@@ -324,7 +324,7 @@ Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idénti
 
 Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
 
-**El Programador Engaging.** Cuando lees documentos de la cola, Incrementum utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
+**El Programador Engaging.** Cuando lees documentos de la cola, Plethora utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
 
 **Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" SM-20 o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel SM-20 en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de SM-20](#understanding-sm-20) para saber qué cuenta y qué no.
 
@@ -340,7 +340,7 @@ Durante las revisiones, califique cada artículo según su retiro:
 | **4** | Fácil | La recuperación fue fácil | 10-14 días |
 
 **Intervalos de vista previa:**
-Antes de calificar, Incrementum le muestra exactamente cuándo aparecerá cada tarjeta a continuación para las cuatro opciones de calificación. ¡Utiliza esto para optimizar tu agenda!
+Antes de calificar, Plethora le muestra exactamente cuándo aparecerá cada tarjeta a continuación para las cuatro opciones de calificación. ¡Utiliza esto para optimizar tu agenda!
 
 ### Tipos de tarjetas
 
@@ -633,7 +633,7 @@ Las filas de extracción en la cola abren un **lector de extractos** dedicado: e
 
 ### Sistema de prioridades
 
-Cada documento, extracto y tarjeta se encuentra en algún lugar de una **lista clasificada única**: una cola, todos los tipos de elementos juntos. La prioridad es ese ranking. Establecer prioridad en un elemento es decirle a Incrementum *a qué parte de su colección pertenece*, sin asignarle una puntuación.
+Cada documento, extracto y tarjeta se encuentra en algún lugar de una **lista clasificada única**: una cola, todos los tipos de elementos juntos. La prioridad es ese ranking. Establecer prioridad en un elemento es decirle a Plethora *a qué parte de su colección pertenece*, sin asignarle una puntuación.
 
 **La prioridad es una posición, no una etiqueta.**
 
@@ -954,7 +954,7 @@ Exporte sus datos para su análisis:
 
 #### Selección de algoritmo
 
-Incrementum admite cuatro algoritmos de programación. Elige el que mejor se adapte a tu estilo de aprendizaje:
+Plethora admite cuatro algoritmos de programación. Elige el que mejor se adapte a tu estilo de aprendizaje:
 
 **FSRS-6 (Recomendado):**
 - Moderno, respaldado por investigaciones
@@ -1063,7 +1063,7 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 
 ### Configuración de sincronización
 
-Incrementum sincroniza sus datos de lectura en sus dispositivos a través de una **sala de sincronización compartida**. No hay cuenta, ni inicio de sesión en el servidor ni clave API: todos los dispositivos que conocen el mismo código de sincronización se unen a la misma sala y comparten los mismos datos. Este es el único sistema de sincronización de la aplicación.
+Plethora sincroniza sus datos de lectura en sus dispositivos a través de una **sala de sincronización compartida**. No hay cuenta, ni inicio de sesión en el servidor ni clave API: todos los dispositivos que conocen el mismo código de sincronización se unen a la misma sala y comparten los mismos datos. Este es el único sistema de sincronización de la aplicación.
 
 #### Cómo funciona
 
@@ -1113,7 +1113,7 @@ Todos sus datos de lectura se almacenan localmente primero en sus dispositivos. 
 
 #### Copia de seguridad y restauración
 
-Incrementum proporciona un sistema completo de copia de seguridad y restauración para proteger sus datos de aprendizaje y migrar entre dispositivos.
+Plethora proporciona un sistema completo de copia de seguridad y restauración para proteger sus datos de aprendizaje y migrar entre dispositivos.
 
 #### Copia de seguridad completa de la aplicación
 
@@ -1180,7 +1180,7 @@ Incrementum proporciona un sistema completo de copia de seguridad y restauració
 
 **Notas importantes:**
 - **Preservación de programación**: todos los datos de programación (estabilidad, dificultad, fechas de vencimiento) para todos los tipos de algoritmos se conservan exactamente
-- **Rutas de archivos**: al importar sin archivos, deberá volver a importar los documentos originales. Incrementum los unirá por hash de contenido y restaurará los metadatos.
+- **Rutas de archivos**: al importar sin archivos, deberá volver a importar los documentos originales. Plethora los unirá por hash de contenido y restaurará los metadatos.
 - **Compatibilidad de versiones**: las copias de seguridad son compatibles con versiones posteriores, pero es posible que no funcionen con versiones anteriores de la aplicación.
 - **Almacenamiento**: mantenga las copias de seguridad seguras: contienen sus datos personales de aprendizaje
 
@@ -1238,7 +1238,7 @@ Incrementum proporciona un sistema completo de copia de seguridad y restauració
 **Opciones de sincronización:**
 - Sincronización con Anki al crear la tarjeta
 - Intervalos de sincronización de Anki
-- Mapeo de mazo (categoría Incrementum → mazo Anki)
+- Mapeo de mazo (categoría Plethora → mazo Anki)
 - Sincronización de etiquetas
 
 #### Integración de obsidiana
@@ -1257,7 +1257,7 @@ Incrementum proporciona un sistema completo de copia de seguridad y restauració
 
 #### Integración de NotebookLM
 
-Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de estudio y guardar extractos revisables.
+Utilice NotebookLM dentro de Plethora para investigar, generar artefactos de estudio y guardar extractos revisables.
 
 **Configuración:**
 1. Configuración → Funciones → habilitar **NotebookLM**
@@ -1272,7 +1272,7 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
 - Al crear desde el estado vacío, se selecciona el nuevo cuaderno automáticamente, por lo que su próxima acción se ejecuta en él
 
 **Qué puedes hacer:**
-- Haga preguntas en el chat de NotebookLM directamente desde Incrementum
+- Haga preguntas en el chat de NotebookLM directamente desde Plethora
 - Ejecutar indicaciones de investigación (investigación en cuaderno asistida por web)
 - Generar artefactos:
   - Tarjetas didácticas
@@ -1290,7 +1290,7 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
   - Las descripciones generales de audio y video se reproducen en línea a través de los reproductores multimedia de la aplicación.
   - Las infografías se muestran como imágenes.
   - Las presentaciones de diapositivas se muestran como archivos PDF
-- Sincronizar tarjetas didácticas/elementos de cuestionario generados en la cola de revisión de Incrementum
+- Sincronizar tarjetas didácticas/elementos de cuestionario generados en la cola de revisión de Plethora
 
 **Acciones de artefactos (en el visor):**
 - **Copiar**: copia el contenido del artefacto en el portapapeles.
@@ -1314,11 +1314,11 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
 1. Abra el chat del espacio de trabajo de NotebookLM
 2. En cualquier respuesta del asistente, haga clic en **Guardar como extracto**
 3. Opcional: resalte primero parte de la respuesta para guardar solo el texto seleccionado
-4. Incrementum crea un extracto vinculado a NotebookLM con metadatos de hilo/fuente
+4. Plethora crea un extracto vinculado a NotebookLM con metadatos de hilo/fuente
 5. Las respuestas guardadas muestran un indicador **ya guardadas** para evitar duplicados
 
 **Preguntas y respuestas sobre el documento + Flujo de trabajo de NotebookLM:**
-1. Abrir un documento en Incrementum
+1. Abrir un documento en Plethora
 2. Utilice **Preguntas y respuestas sobre documentos** con el modo de investigación NotebookLM
 3. Editar/refinar el texto de respuesta generado en línea
 4. Cree extractos de la respuesta refinada.
@@ -1427,7 +1427,7 @@ Aprenda de sus feeds favoritos:
 
 #### Directorio de boletines
 
-Descubra y suscríbase a boletines populares directamente en Incrementum:
+Descubra y suscríbase a boletines populares directamente en Plethora:
 
 **Acceda al directorio de boletines:**
 1. Haga clic en la pestaña **RSS**
@@ -1454,7 +1454,7 @@ Descubra y suscríbase a boletines populares directamente en Incrementum:
 
 **Descubrimiento del feed del boletín:**
 
-Incrementum puede descubrir automáticamente canales RSS de plataformas de boletines populares:
+Plethora puede descubrir automáticamente canales RSS de plataformas de boletines populares:
 
 - **Subpila**: agregue `/feed` a cualquier URL de subpila
   - Ejemplo: `https://author.substack.com` → `https://author.substack.com/feed`
@@ -1467,7 +1467,7 @@ Incrementum puede descubrir automáticamente canales RSS de plataformas de bolet
 1. Copie la URL de cualquier boletín
 2. Haga clic en **Agregar fuente** en la pestaña RSS.
 3. Pega la URL
-4. Incrementum descubre automáticamente la fuente RSS
+4. Plethora descubre automáticamente la fuente RSS
 5. Haga clic en **Agregar feed** para suscribirse.
 
 **Búsqueda de canales RSS de boletines:**
@@ -1654,7 +1654,7 @@ instalación de pip -U vllm
 vllm sirve zai-org/GLM-OCR --allowed-local-media-path / --port 8080
 ```
 
-Luego configure Incrementum de la misma manera (punto final `http://localhost:8080/v1`).
+Luego configure Plethora de la misma manera (punto final `http://localhost:8080/v1`).
 
 **Configuración (GLM-OCR con Ollama):**
 
@@ -1744,7 +1744,7 @@ Búsqueda avanzada en todo el contenido:
 
 ### Extensión del navegador
 
-Conecta Incrementum con la navegación web:
+Conecta Plethora con la navegación web:
 
 **Características:**
 - Resaltar páginas web
@@ -1762,7 +1762,7 @@ Conecta Incrementum con la navegación web:
 **Uso:**
 - Seleccionar texto en la página web
 - Haga clic en el icono de extensión
-- Elija "Agregar a Incrementum"
+- Elija "Agregar a Plethora"
 - Se sincroniza automáticamente
 
 ---
@@ -2147,16 +2147,16 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 
 ## Preguntas frecuentes
 
-**P: ¿Cómo agrego boletines a Incrementum?**
+**P: ¿Cómo agrego boletines a Plethora?**
 R: Puedes agregar boletines de dos maneras:
 1. **Directorio de boletines**: haga clic en RSS → Icono de boletín (📬) → Explore y suscríbase a boletines seleccionados.
-2. **URL directa**: Copie la URL de cualquier boletín (Substack, Beehiiv, etc.) → RSS → Agregar fuente → Pegar URL. Incrementum descubrirá automáticamente la fuente RSS.
+2. **URL directa**: Copie la URL de cualquier boletín (Substack, Beehiiv, etc.) → RSS → Agregar fuente → Pegar URL. Plethora descubrirá automáticamente la fuente RSS.
 
 **P: ¿Por qué no se muestran los videos, audios, infografías o presentaciones de diapositivas de mi NotebookLM?**
 R: Los artefactos multimedia necesitan que su archivo se genere y esté listo antes de poder obtener una vista previa. Espere a que finalice la generación, luego vuelva a abrir el artefacto: el video/audio y las infografías vuelven a intentarlo automáticamente a través de una ruta de medios alternativa, y las presentaciones de diapositivas ofrecen la opción "Abrir con un visor alternativo" cuando no se cargan. Si aún falla, vuelva a conectar NotebookLM en Configuración → Integraciones y regenere el artefacto.
 
 **P: ¿Qué plataformas de boletines son compatibles?**
-R: Incrementum admite fuentes RSS de sitios Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium y WordPress. La mayoría de los boletines publican canales RSS; consulte el sitio web del boletín para obtener un enlace RSS o intente agregar `/feed` a la URL.
+R: Plethora admite fuentes RSS de sitios Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium y WordPress. La mayoría de los boletines publican canales RSS; consulte el sitio web del boletín para obtener un enlace RSS o intente agregar `/feed` a la URL.
 
 **P: ¿Cuántas tarjetas debo revisar por día?**
 R: Comience con 20-50 por día. Ajústelo según su horario y objetivos. La consistencia es más importante que el volumen.
@@ -2167,7 +2167,7 @@ R: Tantos como quieras, pero céntrate en la calidad sobre la cantidad. 10-20 ca
 **P: ¿A qué tasa de retención debería apuntar?**
 R: 90% es el valor predeterminado recomendado. Ajústelo al 85% si tiene demasiadas reseñas, o al 95% para material crítico.
 
-**P: ¿Puedo usar Incrementum para idiomas?**
+**P: ¿Puedo usar Plethora para idiomas?**
 R: ¡Absolutamente! Es excelente para tarjetas de vocabulario, gramática y oraciones. Utilice tarjetas cloze para patrones gramaticales.
 
 **P: ¿Cómo manejo las ecuaciones matemáticas?**
@@ -2182,7 +2182,7 @@ R: La suspensión oculta las cartas temporalmente (se puede reactivar). La elimi
 **P: ¿Con qué frecuencia debo revisar?**
 R: Diariamente es ideal. Si pierde días, las tarjetas se acumularán pero no se "perderán"; simplemente póngase al día cuando pueda.
 
-**P: ¿Puedo usar Incrementum en varios dispositivos?**
+**P: ¿Puedo usar Plethora en varios dispositivos?**
 R: Todavía no directamente, pero puedes sincronizar datos a través de Dropbox/Google Drive o usar la extensión del navegador.
 
 **P: ¿Mis datos son privados?**

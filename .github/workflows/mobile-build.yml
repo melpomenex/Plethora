@@ -1,4 +1,4 @@
-name: Mobile Build Incrementum
+name: Mobile Build Plethora
 
 on:
   push:
@@ -310,9 +310,9 @@ jobs:
             --ks-pass "pass:${KS_PASS}" \
             --ks-key-alias "${KEY_ALIAS}" \
             --key-pass "pass:${KEY_PASS}" \
-            --out artifacts/android-signing/incrementum-android-arm64-signed.apk \
+            --out artifacts/android-signing/plethora-android-arm64-signed.apk \
             artifacts/android-signing/app-release-aligned.apk
-          "${BUILD_TOOLS_DIR}/apksigner" verify --verbose artifacts/android-signing/incrementum-android-arm64-signed.apk
+          "${BUILD_TOOLS_DIR}/apksigner" verify --verbose artifacts/android-signing/plethora-android-arm64-signed.apk
 
       - name: Collect Android output summary
         if: always()
@@ -333,7 +333,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-android
+          name: plethora-android
           path: |
             src-tauri/gen/android/app/build/outputs/**
             src-tauri/target/**/*.apk
@@ -357,7 +357,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/android-signing/incrementum-android-arm64-signed.apk
+            artifacts/android-signing/plethora-android-arm64-signed.apk
           draft: false
           prerelease: false
           tag_name: ${{ steps.get_version.outputs.VERSION }}
@@ -507,7 +507,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: incrementum-ios
+          name: plethora-ios
           path: |
             src-tauri/gen/apple/**/build/**/*
             src-tauri/target/**/*.app

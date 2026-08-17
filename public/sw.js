@@ -1,11 +1,14 @@
 /**
- * Incrementum Service Worker
+ * Plethora Service Worker
  *
  * Provides offline support, caching strategies, and background sync
- * for the Progressive Web App (PWA) version of Incrementum.
+ * for the Progressive Web App (PWA) version of Plethora.
  */
 
-const VERSION = 'incrementum-v7';
+// Cache namespace keeps the legacy `incrementum-` prefix until the Phase B
+// storage migration renames it to `plethora-`; bump the version number to
+// rotate precached content (e.g. rebranded icons).
+const VERSION = 'incrementum-v8';
 
 // Disable SW on localhost/dev (unregister and bypass all caching)
 const IS_DEV_HOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
@@ -244,7 +247,7 @@ async function handleNavigationRequest(request) {
       `<!DOCTYPE html>
       <html>
         <head>
-          <title>Offline - Incrementum</title>
+          <title>Offline - Plethora</title>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
@@ -441,7 +444,7 @@ self.addEventListener('push', (event) => {
   console.log('[SW] Push received:', event);
 
   const options = event.data?.json() || {
-    title: 'Incrementum',
+    title: 'Plethora',
     body: 'You have a new notification',
     icon: '/icons/sprout-192x192.png',
     badge: '/icons/badge-72x72.png',

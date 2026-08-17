@@ -309,7 +309,7 @@ function defaultToast(eventId: FeedbackEventId, payload: FeedbackEventPayloads[F
 
   return {
     type: ToastType.Info,
-    title: payloadTitle ?? "Incrementum",
+    title: payloadTitle ?? "Plethora",
     message: payloadMessage,
   };
 }
@@ -491,7 +491,7 @@ export async function emitFeedback<Event extends FeedbackEventId>(
     const toastOptions = eventToast(eventId, typedPayload, options);
     useToastStore.getState().addToast({
       type: toastOptions.type ?? ToastType.Info,
-      title: toastOptions.title ?? "Incrementum",
+      title: toastOptions.title ?? "Plethora",
       message: toastOptions.message,
       duration: toastOptions.duration,
       action: toastOptions.action,
@@ -510,7 +510,7 @@ export async function emitFeedback<Event extends FeedbackEventId>(
   if (os) {
     const notification = eventNotification(eventId, typedPayload, options);
     void sendNotification({
-      title: notification.title ?? "Incrementum",
+      title: notification.title ?? "Plethora",
       body: notification.body,
       tag: policy.osTag,
       requireInteraction: notification.requireInteraction,

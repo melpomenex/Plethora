@@ -1848,7 +1848,7 @@
     panel.className = 'panel';
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
-    panel.setAttribute('aria-label', 'Incrementum AI result');
+    panel.setAttribute('aria-label', 'Plethora AI result');
 
     const header = document.createElement('div');
     header.className = 'header';
@@ -1856,10 +1856,10 @@
     title.textContent = state === 'progress'
       ? (operation === 'flashcards' ? '🧠 Generating flashcards…' : '✨ Summarizing selection…')
       : state === 'error'
-        ? 'Incrementum AI could not finish'
+        ? 'Plethora AI could not finish'
         : operation === 'flashcards'
-          ? '🧠 Incrementum AI Flashcards'
-          : '✨ Incrementum AI Summary';
+          ? '🧠 Plethora AI Flashcards'
+          : '✨ Plethora AI Summary';
     const close = document.createElement('button');
     close.className = 'close';
     close.type = 'button';
@@ -1890,17 +1890,17 @@
       spinner.className = 'spinner';
       const message = document.createElement('span');
       message.textContent = operation === 'flashcards'
-        ? 'Creating and saving flashcards in Incrementum. This can take a moment.'
+        ? 'Creating and saving flashcards in Plethora. This can take a moment.'
         : 'Generating a summary. This can take a moment.';
       progress.append(spinner, message);
       body.appendChild(progress);
     } else if (state === 'error') {
       const errorMessage = document.createElement('div');
       errorMessage.className = 'error';
-      errorMessage.textContent = error || 'Incrementum AI request failed.';
+      errorMessage.textContent = error || 'Plethora AI request failed.';
       const help = document.createElement('div');
       help.className = 'help';
-      help.textContent = 'Make sure Incrementum is open, its Browser Extension Server is running on the configured port, and an AI provider is configured in Settings.';
+      help.textContent = 'Make sure Plethora is open, its Browser Extension Server is running on the configured port, and an AI provider is configured in Settings.';
       body.append(errorMessage, help);
     } else if (operation === 'flashcards') {
       const cards = Array.isArray(result?.flashcards) ? result.flashcards : [];
@@ -1908,7 +1908,7 @@
       const saved = document.createElement('div');
       saved.className = savedCount > 0 ? 'saved' : 'empty';
       saved.textContent = savedCount > 0
-        ? `${savedCount} flashcard${savedCount === 1 ? '' : 's'} saved to Incrementum.`
+        ? `${savedCount} flashcard${savedCount === 1 ? '' : 's'} saved to Plethora.`
         : 'No flashcards were saved.';
       body.appendChild(saved);
 
@@ -1933,7 +1933,7 @@
     } else {
       const summary = document.createElement('div');
       summary.className = result?.summary ? 'summary' : 'empty';
-      summary.textContent = result?.summary || 'Incrementum AI did not return a summary.';
+      summary.textContent = result?.summary || 'Plethora AI did not return a summary.';
       body.appendChild(summary);
     }
 
@@ -2198,11 +2198,11 @@
           }
         });
         if (!result?.success) {
-          throw new Error(result?.error || 'Incrementum could not save the card.');
+          throw new Error(result?.error || 'Plethora could not save the card.');
         }
         if (!host.isConnected) return;
         remove();
-        showSaveIndicator('Image occlusion card saved to Incrementum.', 'success');
+        showSaveIndicator('Image occlusion card saved to Plethora.', 'success');
       } catch (error) {
         status.textContent = error?.message || 'Could not save image occlusion card.';
         save.disabled = false;
@@ -2217,7 +2217,7 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.action) {
       case 'showSaveIndicator':
-        showSaveIndicator(message.text || 'Saved to Incrementum', message.type || 'success');
+        showSaveIndicator(message.text || 'Saved to Plethora', message.type || 'success');
         sendResponse({ success: true });
         break;
 
@@ -2243,7 +2243,7 @@
 
       case 'showImageOcclusionSaved':
         document.getElementById('incrementum-image-occlusion-host')?.remove();
-        showSaveIndicator('Image occlusion card saved to Incrementum.', 'success');
+        showSaveIndicator('Image occlusion card saved to Plethora.', 'success');
         sendResponse({ success: true });
         break;
         
@@ -2379,7 +2379,7 @@
 
       sendRuntimeMessage({ action: 'saveCurrentTab' }).then((response) => {
         if (response && response.success) {
-          showSaveIndicator('Page saved to Incrementum!');
+          showSaveIndicator('Page saved to Plethora!');
         } else if (response?.error && response.error.includes('Extension context invalidated')) {
           showSaveIndicator('Extension reloaded. Refresh the page to continue.');
         } else {
@@ -2481,7 +2481,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>
         </svg>
-        <span>Save to Incrementum</span>
+        <span>Save to Plethora</span>
       `;
       
       saveButton.style.cssText = `
@@ -2624,7 +2624,7 @@
             try {
               const url = window.location.href;
               const title = videoData.title || document.title;
-              const textToCopy = `Incrementum Save:\nURL: ${url}\nTitle: ${title}\nType: YouTube Video\n\nServer connection failed - please check your Incrementum server settings`;
+              const textToCopy = `Plethora Save:\nURL: ${url}\nTitle: ${title}\nType: YouTube Video\n\nServer connection failed - please check your Plethora server settings`;
               
               await navigator.clipboard.writeText(textToCopy);
               
