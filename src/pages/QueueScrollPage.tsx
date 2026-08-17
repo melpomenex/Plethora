@@ -138,6 +138,7 @@ import {
   passageAroundSelection,
   type SelectionAiAction,
 } from "../components/viewer/SelectionActionsSheet";
+import { copySelectionTextToClipboard } from "../components/viewer/SelectionPopup";
 import { useSelectionInteraction } from "../components/viewer/selectionInteraction/useSelectionInteraction";
 import {
   SelectionActionBar,
@@ -1830,6 +1831,11 @@ export function QueueScrollPage() {
   }, [selectionV2, selectionController, renderedItem?.id]);
 
   const handleSelectionBarAction = (action: SelectionBarAction) => {
+    if (action === "copy") {
+      void copySelectionTextToClipboard(selectionController.readySelection?.text ?? "");
+      selectionController.dismiss({ suppressCurrentText: true });
+      return;
+    }
     const snapshot = selectionController.captureForAction();
     if (!snapshot) return;
     if (action === "extract") {

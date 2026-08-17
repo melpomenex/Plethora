@@ -1259,8 +1259,14 @@ export function EPUBViewer({
             contents.document.addEventListener("mouseover", handleEpubMouseOver);
             contents.document.addEventListener("mouseout", handleEpubMouseOut);
 
-            // Right-click context menu for selected text inside the EPUB iframe
+            // Right-click context menu for selected text inside the EPUB iframe.
+            // On Android the WebView synthesizes contextmenu on long-press text
+            // selection, which used to drop the menu sheet over the native
+            // handles mid-gesture; with the selection-interaction bridge
+            // active (pill bar + ⋯ overflow) that path is suppressed on touch
+            // shells — desktop right-click is unchanged.
             contents.document.addEventListener("contextmenu", (e: Event) => {
+              if (isMobileRef.current && selectionInteractionBridgeRef.current) return;
               const selection = contents.window.getSelection();
               const text = selection?.toString().trim();
               if (!text) return;

@@ -409,8 +409,8 @@ describe("SelectionActionBar (task 3.1)", () => {
     const bar = screen.getByRole("toolbar");
     expect(bar.getAttribute("data-selection-interaction-ui")).toBe("true");
     const buttons = bar.querySelectorAll("button");
-    expect(buttons.length).toBe(5); // Summarize, Explain, Ask, Extract, ⋯
-    buttons[4].click();
+    expect(buttons.length).toBe(6); // Summarize, Explain, Ask, Extract, Copy, ⋯
+    buttons[5].click();
     expect(onOverflow).toHaveBeenCalledTimes(1);
     buttons[0].click();
     expect(onAction).toHaveBeenCalledWith("summarize");
