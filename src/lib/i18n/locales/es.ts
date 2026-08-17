@@ -37,6 +37,19 @@ export const es: Dict = {
   "mainLayout.sharedLinkAdded": "Enlace compartido añadido a su cola.",
   "mainLayout.open": "Abrir",
   "mainLayout.importFailed": "Importación fallida",
+  "mainLayout.legacyDataPrompt":
+    "Plethora encontró una biblioteca de Incrementum en este equipo. ¿Desea copiar ahora sus documentos, historial de repaso, temas y claves de API a Plethora?",
+  "mainLayout.legacyDataLegacyKept":
+    "Su carpeta original de Incrementum no se modificará. Elija Aceptar para copiar sus datos, o Cancelar para empezar de cero.",
+  "mainLayout.legacyDataMigrating": "Migrando sus datos...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Copiando su biblioteca de Incrementum a Plethora. La aplicación se reiniciará al terminar.",
+  "mainLayout.legacyDataFailed": "Error de migración",
+  "mainLayout.legacyDataMigrated": "Migración completada",
+  "mainLayout.legacyDataMigratedDesc":
+    "Sus datos de Incrementum se copiaron a Plethora. La carpeta original se conserva en {path}.",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Sus datos de Incrementum se copiaron a Plethora. La carpeta original se conserva en {path}; su base de datos anterior de Plethora se guardó como {backup}.",
   "tabs.continueReading": "Continuar lectura",
   "tabs.review": "Repaso",
   "tabs.rssFeeds": "Fuentes RSS",

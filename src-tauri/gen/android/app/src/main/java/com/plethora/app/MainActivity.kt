@@ -1,4 +1,4 @@
-package com.incrementum.app
+package com.plethora.app
 
 import android.Manifest
 import android.content.Context
@@ -16,7 +16,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import app.tauri.plugin.PluginManager
-import com.incrementum.app.BuildConfig
+import com.plethora.app.BuildConfig
 
 class MainActivity : TauriActivity() {
 

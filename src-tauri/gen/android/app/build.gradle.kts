@@ -20,10 +20,10 @@ android {
     // this, AGP defaults android.ndkVersion to a different patch (e.g.
     // 27.0.12077973) and the build fails with [CXX1104].
     ndkVersion = "27.2.12479018"
-    namespace = "com.incrementum.app"
+    namespace = "com.plethora.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.incrementum.app"
+        applicationId = "com.plethora.app"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

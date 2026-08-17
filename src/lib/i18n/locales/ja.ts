@@ -37,6 +37,19 @@ export const ja: Dict = {
   "mainLayout.sharedLinkAdded": "共有リンクをキューに追加しました。",
   "mainLayout.open": "開く",
   "mainLayout.importFailed": "インポート失敗",
+  "mainLayout.legacyDataPrompt":
+    "このコンピュータに既存の Incrementum ライブラリが見つかりました。ドキュメント・復習履歴・テーマ・API キーを今すぐ Plethora にコピーしますか？",
+  "mainLayout.legacyDataLegacyKept":
+    "元の Incrementum フォルダは変更されません。データをコピーするには「OK」を、新しく始めるには「キャンセル」を選択してください。",
+  "mainLayout.legacyDataMigrating": "データを移行しています...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Incrementum ライブラリを Plethora にコピーしています。完了するとアプリが再起動します。",
+  "mainLayout.legacyDataFailed": "移行に失敗しました",
+  "mainLayout.legacyDataMigrated": "移行が完了しました",
+  "mainLayout.legacyDataMigratedDesc":
+    "Incrementum のデータを Plethora にコピーしました。元のフォルダは {path} にそのまま残っています。",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Incrementum のデータを Plethora にコピーしました。元のフォルダは {path} にそのまま残っています。以前作成した Plethora データベースは {backup} として保存されました。",
   "tabs.continueReading": "読書を続ける",
   "tabs.review": "復習",
   "tabs.rssFeeds": "RSSフィード",

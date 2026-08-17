@@ -59,6 +59,19 @@ export const zh: Dict = {
   "mainLayout.sharedLinkAdded": "分享链接已添加到您的队列。",
   "mainLayout.open": "打开",
   "mainLayout.importFailed": "导入失败",
+  "mainLayout.legacyDataPrompt":
+    "Plethora 在此电脑上发现了已有的 Incrementum 资料库。是否现在将您的文档、复习历史、主题和 API 密钥复制到 Plethora？",
+  "mainLayout.legacyDataLegacyKept":
+    "原始 Incrementum 文件夹不会被修改。选择“确定”复制数据，选择“取消”则从空白开始。",
+  "mainLayout.legacyDataMigrating": "正在迁移您的数据……",
+  "mainLayout.legacyDataMigratingDesc":
+    "正在将您的 Incrementum 资料库复制到 Plethora。完成后应用将自动重启。",
+  "mainLayout.legacyDataFailed": "迁移失败",
+  "mainLayout.legacyDataMigrated": "迁移完成",
+  "mainLayout.legacyDataMigratedDesc":
+    "您的 Incrementum 数据已复制到 Plethora。原始文件夹保留在 {path}。",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "您的 Incrementum 数据已复制到 Plethora。原始文件夹保留在 {path}；您之前新建的 Plethora 数据库已保存为 {backup}。",
   "tabs.continueReading": "继续阅读",
   "tabs.review": "复习",
   "tabs.rssFeeds": "RSS 订阅源",
