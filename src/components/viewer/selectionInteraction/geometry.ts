@@ -140,19 +140,35 @@ export function anchorRectFromGeometry(geometry: SelectionGeometry, viewport: Vi
   return first.top <= viewport.height - bottomOf(last) ? first : last;
 }
 
+export interface AnchoredBarOptions {
+  /**
+   * Prefer below the selection. Android's native selection toolbar (Copy /
+   * Select All / Share) floats directly ABOVE the selection, so the app's
+   * anchored bar must take the below slot to stay visible on touch.
+   */
+  preferBelow?: boolean;
+  /**
+   * Space to reserve above the selection for the system selection toolbar
+   * when the bar does end up above it (the app's bar sits above that zone).
+   */
+  systemToolbarClearance?: number;
+}
+
 /**
  * Pure anchored placement for the touch action bar.
  *
  * Preference order: above the selection → below it → docked to the nearest
- * safe edge. Always fully inside the viewport minus insets, horizontally
- * centered on the anchor but clamped, and vertically separated from the
- * passage — never centered over it.
+ * safe edge (reversed when `preferBelow`, for Android's system toolbar).
+ * Always fully inside the viewport minus insets, horizontally centered on
+ * the anchor but clamped, and vertically separated from the passage — never
+ * centered over it.
  */
 export function placeAnchoredBar(
   selectionRect: Rect,
   barSize: { width: number; height: number },
   viewport: ViewportLike,
   insets: SafeInsets = {},
+  options: AnchoredBarOptions = {},
 ): BarPlacement {
   const safeLeft = (insets.left ?? 0) + VIEWPORT_MARGIN_PX;
   const safeRight = (insets.right ?? 0) + VIEWPORT_MARGIN_PX;
@@ -165,20 +181,27 @@ export function placeAnchoredBar(
   const center = selectionRect.left + selectionRect.width / 2;
   const left = Math.min(Math.max(center - maxWidth / 2, safeLeft), viewport.width - safeRight - maxWidth);
 
-  const fitsAbove = selectionRect.top - BAR_GAP_PX - barSize.height >= safeTop;
-  if (fitsAbove) {
-    return {
-      top: Math.max(selectionRect.top - BAR_GAP_PX - barSize.height, safeTop),
-      left,
-      maxWidth,
-      placement: "above",
-    };
-  }
+  // "Above" must clear the system selection toolbar's zone when reserved.
+  const aboveClearance = options.systemToolbarClearance ?? 0;
+  const fitsAbove =
+    selectionRect.top - BAR_GAP_PX - aboveClearance - barSize.height >= safeTop;
+  const placeAbove = (): BarPlacement => ({
+    top: Math.max(selectionRect.top - BAR_GAP_PX - aboveClearance - barSize.height, safeTop),
+    left,
+    maxWidth,
+    placement: "above",
+  });
 
   const belowTop = bottomOf(selectionRect) + BAR_GAP_PX;
   const fitsBelow = belowTop + barSize.height <= viewport.height - safeBottom;
-  if (fitsBelow) {
-    return { top: belowTop, left, maxWidth, placement: "below" };
+  const placeBelow = (): BarPlacement => ({ top: belowTop, left, maxWidth, placement: "below" });
+
+  if (options.preferBelow) {
+    if (fitsBelow) return placeBelow();
+    if (fitsAbove) return placeAbove();
+  } else {
+    if (fitsAbove) return placeAbove();
+    if (fitsBelow) return placeBelow();
   }
 
   // No room on either side (selection fills the viewport): dock to the edge

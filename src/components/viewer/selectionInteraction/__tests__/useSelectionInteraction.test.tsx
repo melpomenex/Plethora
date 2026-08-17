@@ -126,7 +126,7 @@ describe("useSelectionInteraction", () => {
     expect(result.current.readySelection?.text).toBe("hello world");
   });
 
-  it("defers while touching but never wedges (bounded defer, MAX_DEFER_MS)", () => {
+  it("defers while touching; a swallowed touchend still completes after MAX_DEFER_MS (no wedge)", () => {
     const { root, para } = makeContent();
     const { result } = renderHook(() =>
       useSelectionInteraction({ surface: "pdf-reflow", documentId: "d1", enabled: true }),
@@ -134,13 +134,14 @@ describe("useSelectionInteraction", () => {
 
     touchStart(root);
     selectText(para, 7, 25);
-    // System-consumed gesture: touchend never arrives.
-    vi.advanceTimersByTime(150);
+    // System-consumed gesture: touchend never arrives (Boox handle releases).
     act(() => {
       vi.advanceTimersByTime(STABLE_MS + 3200);
     });
-    // Bounded: gives up waiting (back to hidden idle), no infinite loop.
-    expect(result.current.phase).toBe("idle");
+    // Bounded: after the defer cap the settle COMPLETES (range stable, finger
+    // long gone) instead of wedging or discarding the interaction.
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.text).toBe("selected passage a");
     expect(vi.getTimerCount()).toBe(0);
   });
 

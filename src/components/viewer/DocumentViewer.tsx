@@ -7780,7 +7780,13 @@ export function DocumentViewer({
 
       {/* Floating Action Button for Extract Creation. On mobile the actions
           sheet covers this, so it would only duplicate the "Create extract" row. */}
-      {activeExtractSelection && viewMode === "document" && !mobileSheetOpen && (
+      {/* V2 touch: the anchored pill bar owns selection actions — the legacy
+          floating extract button (which appears straight off the selection
+          event, mid-gesture) stays desktop-only until the flag is removed. */}
+      {!(selectionV2 && isMobileTouch) &&
+        activeExtractSelection &&
+        viewMode === "document" &&
+        !mobileSheetOpen && (
         <div
           className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[70] pointer-events-auto animate-in slide-in-from-bottom-4 duration-200"
           data-extract-button="true"
