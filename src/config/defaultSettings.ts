@@ -287,4 +287,7 @@ tags: [incrementum]
     topK: 8,
     minSimilarity: 0.25,
   },
+  plethora: {
+    overrides: {},
+  },
 };

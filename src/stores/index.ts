@@ -20,3 +20,4 @@ export type {
   SettingsReturnDestination,
 } from "./tabsStore";
 export { useRssStudyStore } from "./rssStudyStore";
+export { useEntitlementStore } from "./entitlementStore";

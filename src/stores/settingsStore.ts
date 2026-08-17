@@ -622,6 +622,10 @@ interface FeatureFlags {
   selectionInteractionV2: boolean;
 }
 
+export interface PlethoraSettings {
+  overrides: Record<string, boolean>;
+}
+
 /**
  * Main Settings Interface
  */
@@ -646,6 +650,7 @@ export interface Settings {
   features: FeatureFlags;
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
+  plethora?: PlethoraSettings;
 }
 
 /**
@@ -964,6 +969,9 @@ export const defaultSettings: Settings = {
     topK: 8,
     minSimilarity: 0.25,
   },
+  plethora: {
+    overrides: {},
+  },
 };
 
 /**
@@ -1013,7 +1021,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 6,
+      version: 7,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1055,6 +1063,12 @@ export const useSettingsStore = create<SettingsState>()(
           const priorCards = root?.ai?.aiControls?.cardsPerExtract;
           if (root?.ai?.aiControls && typeof priorCards === "number") {
             root.ai.aiControls.flashcardFixedCount = priorCards;
+          }
+        }
+        // v6 -> v7: plethora commercial product foundation (dev grants / capability overrides).
+        if (version < 7) {
+          if (root && !root.plethora) {
+            root.plethora = { overrides: {} };
           }
         }
         return persisted as SettingsState;
@@ -1150,6 +1164,14 @@ export const useSettingsStore = create<SettingsState>()(
           features: { ...defaultSettings.features, ...persisted.features },
           audioReviewMode: { ...defaultSettings.audioReviewMode, ...persisted.audioReviewMode },
           embedding: { ...defaultSettings.embedding, ...persisted.embedding },
+          plethora: {
+            ...defaultSettings.plethora,
+            ...persisted.plethora,
+            overrides: {
+              ...(defaultSettings.plethora?.overrides ?? {}),
+              ...(persisted.plethora?.overrides ?? {}),
+            },
+          },
         };
 
         if (!Array.isArray(merged.learning.lapseSteps)) {

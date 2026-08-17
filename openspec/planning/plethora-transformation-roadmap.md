@@ -118,6 +118,16 @@ Two parallel critical chains (cloud platform, intelligence core) converge at com
 | Store build variants + release checklist + versionCode automation | 23 | release process |
 | Metric conventions + `cloud-perf-baselines.json` + alert rules | 24 | CI, ops |
 
+### Contract Note: Proposal 2 (Commercial Product Foundation)
+- **TypeScript interfaces & Registry**: `src/types/entitlements.ts` (`CapabilityId`, `EntitlementSnapshot`, `CapabilityState`, `QuotaState`, `CAPABILITY_REGISTRY`, `FREE_DEFAULT_SNAPSHOT`)
+- **Frontend Store & Hooks**: `src/stores/entitlementStore.ts` (`useEntitlementStore`), `src/hooks/useCapability.ts` (`useCapability`, `useAllCapabilities`), `src/components/common/CapabilityGate.tsx` (`CapabilityGate`, `QuotaMeter`)
+- **Product Configuration**: `src/config/product.ts` (`PRODUCT_NAME`, `PLETHORA_API_URL`, `PLETHORA_DEEP_LINK_SCHEME`, `PLANS`)
+- **Rust Service & Mirror**: `src-tauri/src/entitlements/{mod.rs, snapshot.rs}` (`EntitlementCache`, `CapabilityId`, `EntitlementSnapshot`)
+- **Tauri IPC Commands**: `entitlement_get_snapshot`, `entitlement_refresh`, `entitlement_override_set`, `entitlement_override_clear`
+- **Settings Persistence & Overrides**: `settings.plethora.overrides` (v7 settings migration with deep-merge preservation)
+- **Invariant**: Reader, viewer, review-session, and queue core stores (`src/components/viewer`, `src/pages`, `src/stores/{documentStore,queueStore,reviewStore}`) MUST NEVER import entitlements.
+
+
 ## Likely code ownership collisions (top risks + mitigations)
 
 | File / area | Contended by | Mitigation |

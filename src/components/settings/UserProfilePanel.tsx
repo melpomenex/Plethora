@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getUser, logout, isAuthenticated as checkIsAuthenticated } from "../../lib/sync-client";
+import { useEntitlementStore } from "../../stores/entitlementStore";
 import {
   Crown,
   Shield,
@@ -14,6 +15,7 @@ export function UserProfilePanel() {
   const [user, setUser] = useState(getUser());
   const [isAuthenticated, setIsAuthenticated] = useState(checkIsAuthenticated());
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const plan = useEntitlementStore((state) => state.snapshot.plan);
 
   useEffect(() => {
     // Refresh user state on mount and periodically
@@ -40,7 +42,7 @@ export function UserProfilePanel() {
     setIsAuthenticated(true);
   };
 
-  const isFree = user?.subscriptionTier === 'free';
+  const isPro = plan === 'pro';
 
   return (
     <div className="space-y-6">
@@ -57,12 +59,12 @@ export function UserProfilePanel() {
             <div className="flex items-center gap-2 mt-1">
               {isAuthenticated ? (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
-                  isFree 
+                  !isPro 
                     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200"
                     : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200"
                 }`}>
-                  {isFree ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
-                  {isFree ? t("userProfile.freePlan") : t("userProfile.proPlan")}
+                  {!isPro ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
+                  {!isPro ? t("userProfile.freePlan") : t("userProfile.proPlan")}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs font-medium">
@@ -92,7 +94,7 @@ export function UserProfilePanel() {
       </div>
 
       {/* Subscription Info */}
-      {isAuthenticated && isFree && (
+      {isAuthenticated && !isPro && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-6">
           <div className="flex items-start gap-4">
             <Crown className="w-8 h-8 text-amber-600 dark:text-amber-400 mt-1" />

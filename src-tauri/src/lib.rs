@@ -13,6 +13,7 @@ mod cloud_sync;
 mod commands;
 mod database;
 mod demo;
+mod entitlements;
 mod error;
 mod generator;
 mod integrations;
@@ -1005,6 +1006,7 @@ pub fn run() {
                 });
                 app.manage(FocusTimer::new());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
+                app.manage(Arc::new(entitlements::EntitlementCache::new()));
 
                 let app_dir = app
                     .path()
@@ -2028,6 +2030,11 @@ pub fn run() {
             commands::tas::compute_tag_centroids,
             commands::tas::get_tas_config,
             commands::tas::update_tas_config,
+            // Entitlements commands
+            entitlements::entitlement_get_snapshot,
+            entitlements::entitlement_refresh,
+            entitlements::entitlement_override_set,
+            entitlements::entitlement_override_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
