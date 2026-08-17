@@ -1,9 +1,9 @@
 # Implementation Tasks
 
 ## 1. Interface-first (early milestone)
-- [ ] 1.1 Disclosure registry schema + `isCloudEligible(document)` central helper + CI completeness check
-- [ ] 1.2 "Local only" flag: document schema/settings UI; migrate 7's AI-exclusion onto it (7 lands as consumer)
-- [ ] 1.3 Data-map doc generated from registry (docs + in-app privacy center skeleton)
+- [x] 1.1 Disclosure registry schema + `isCloudEligible(document)` central helper + CI completeness check
+- [x] 1.2 "Local only" flag: document schema/settings UI; migrate 7's AI-exclusion onto it (7 lands as consumer)
+- [x] 1.3 Data-map doc generated from registry (docs + in-app privacy center skeleton)
 
 ## 2. Deletion & revocation
 - [ ] 2.1 Server deletion cascade + retention schedule + verification job + deletion receipt

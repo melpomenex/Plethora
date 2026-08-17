@@ -11,7 +11,7 @@
 - [ ] 2.3 `docs/OPS_RUNBOOK.md` (top failure scenarios → actions incl. kill switches)
 
 ## 3. Gates & cost tests
-- [ ] 3.1 CI load-test job (k6/node driver) + `cloud-perf-baselines.json` with tolerance semantics mirroring the app gate
+- [x] 3.1 CI load-test job (k6/node driver) + `cloud-perf-baselines.json` with tolerance semantics mirroring the app gate
 - [ ] 3.2 Baseline recording from reference runs; warn-only → enforcing rollout documented
 - [ ] 3.3 Cost fixtures vs pricing config + nightly budget simulation + ceiling event reporting
 

@@ -47,6 +47,11 @@ export interface Document {
   isArchived: boolean;
   isFavorite: boolean;
   isDismissed?: boolean;
+  /**
+   * When true, this document is strictly local-only and excluded from all
+   * cloud synchronization, hosted AI pipelines, remote transcription, and cloud TTS.
+   */
+  isLocalOnly?: boolean;
   metadata?: DocumentMetadata;
   coverImageUrl?: string;
   coverImageSource?: string;
@@ -111,6 +116,7 @@ export interface DocumentMetadata {
   wordCount?: number;
   collectionId?: string;
   fileId?: string;
+  isLocalOnly?: boolean;
   // Web import metadata
   source?: string;
   url?: string;
