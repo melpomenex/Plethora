@@ -74,9 +74,9 @@ pub fn build_page_from_ocr_args(
     rotation: u16,
     words: &[OcrWordInput],
 ) -> Result<PdfCanonicalPage> {
-    use crate::error::IncrementumError;
+    use crate::error::PlethoraError;
     if page_number == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "PDF page numbers start at 1".into(),
         ));
     }

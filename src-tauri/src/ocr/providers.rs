@@ -1,6 +1,6 @@
 //! OCR provider implementations
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use base64::Engine;
 use image::ImageFormat;
 use lopdf::{dictionary, Document, Object, Stream};
@@ -417,7 +417,7 @@ impl TesseractProvider {
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal("Tesseract is not installed. Install it with your package manager:\n  • Arch: sudo pacman -S tesseract\n  • Ubuntu/Debian: sudo apt install tesseract-ocr\n  • macOS: brew install tesseract\n  • Windows: download from https://github.com/UB-Mannheim/tesseract/wiki\n\nOr set the tesseract path in Settings > Documents > OCR.".to_string())),
+            _ => Err(PlethoraError::Internal("Tesseract is not installed. Install it with your package manager:\n  • Arch: sudo pacman -S tesseract\n  • Ubuntu/Debian: sudo apt install tesseract-ocr\n  • macOS: brew install tesseract\n  • Windows: download from https://github.com/UB-Mannheim/tesseract/wiki\n\nOr set the tesseract path in Settings > Documents > OCR.".to_string())),
         }
     }
 }
@@ -449,11 +449,11 @@ impl OCRProvider for TesseractProvider {
             .arg("-l")
             .arg("eng")
             .output()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to run Tesseract: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to run Tesseract: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Tesseract processing failed: {}",
                 stderr
             )));
@@ -491,7 +491,7 @@ impl OCRProvider for TesseractProvider {
 
         tokio::fs::write(&temp_file, image_data)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to write temp file: {}", e)))?;
 
         let result = self.process_image(&temp_file).await;
 
@@ -575,7 +575,7 @@ impl OCRProvider for GoogleDocumentAIProvider {
         // Read image file
         let image_data = tokio::fs::read(image_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
 
         let mut result = self.process_image_bytes(&image_data).await?;
         result.metadata["image_path"] = serde_json::json!(image_path.to_string_lossy());
@@ -586,7 +586,7 @@ impl OCRProvider for GoogleDocumentAIProvider {
     async fn process_image_bytes(&self, _image_data: &[u8]) -> Result<OCRResult> {
         // In production, this would use the Google Document AI client library
         // For now, return a placeholder error
-        Err(IncrementumError::Internal(
+        Err(PlethoraError::Internal(
             "Google Document AI integration requires additional dependencies. Please use Tesseract for now.".to_string()
         ))
     }
@@ -637,7 +637,7 @@ impl OCRProvider for AWSTextractProvider {
         // Read image file
         let image_data = tokio::fs::read(image_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
 
         self.process_image_bytes(&image_data).await
     }
@@ -645,7 +645,7 @@ impl OCRProvider for AWSTextractProvider {
     async fn process_image_bytes(&self, _image_data: &[u8]) -> Result<OCRResult> {
         // In production, this would use the AWS SDK for Rust
         // For now, return a placeholder error
-        Err(IncrementumError::Internal(
+        Err(PlethoraError::Internal(
             "AWS Textract integration requires additional dependencies. Please use Tesseract for now.".to_string()
         ))
     }
@@ -694,7 +694,7 @@ impl OCRProvider for AzureVisionProvider {
         // Read image file
         let image_data = tokio::fs::read(image_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
 
         self.process_image_bytes(&image_data).await
     }
@@ -702,7 +702,7 @@ impl OCRProvider for AzureVisionProvider {
     async fn process_image_bytes(&self, _image_data: &[u8]) -> Result<OCRResult> {
         // In production, this would use the Azure SDK for Rust
         // For now, return a placeholder error
-        Err(IncrementumError::Internal(
+        Err(PlethoraError::Internal(
             "Azure Computer Vision integration requires additional dependencies. Please use Tesseract for now.".to_string()
         ))
     }
@@ -737,7 +737,7 @@ impl MarkerProvider {
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal(
+            _ => Err(PlethoraError::Internal(
                 "Marker not found. Please install it or provide the correct path.".to_string(),
             )),
         }
@@ -773,11 +773,11 @@ impl OCRProvider for MarkerProvider {
             .arg("--output_format")
             .arg("markdown")
             .output()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to run Marker: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to run Marker: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Marker processing failed: {}",
                 stderr
             )));
@@ -810,7 +810,7 @@ impl OCRProvider for MarkerProvider {
 
         tokio::fs::write(&temp_file, image_data)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to write temp file: {}", e)))?;
 
         let result = self.process_image(&temp_file).await;
 
@@ -848,7 +848,7 @@ impl NougatProvider {
                 return Ok(());
             }
         }
-        Err(IncrementumError::Internal(format!(
+        Err(PlethoraError::Internal(format!(
             "Nougat was not runnable at any detected path: {}. Set the executable or bin-directory path in Settings > Documents > OCR.",
             candidates
                 .iter()
@@ -870,12 +870,12 @@ impl NougatProvider {
         // The official Nougat CLI accepts PDFs only. OCR image selections are
         // therefore wrapped in a one-page PDF before being sent to Nougat.
         let image = image::open(image_path).map_err(|error| {
-            IncrementumError::Internal(format!("Failed to prepare the image for Nougat: {error}"))
+            PlethoraError::Internal(format!("Failed to prepare the image for Nougat: {error}"))
         })?;
         let rgb = image.to_rgb8();
         let (width, height) = rgb.dimensions();
         if width == 0 || height == 0 {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Failed to prepare an empty image for Nougat".to_string(),
             ));
         }
@@ -895,7 +895,7 @@ impl NougatProvider {
             rgb.into_raw(),
         );
         image_stream.compress().map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to compress the temporary Nougat PDF: {error}"
             ))
         })?;
@@ -937,7 +937,7 @@ impl NougatProvider {
 
         let pdf_path = working_directory.join("nougat-input.pdf");
         document.save(&pdf_path).map_err(|error| {
-            IncrementumError::Internal(format!("Failed to save the temporary Nougat PDF: {error}"))
+            PlethoraError::Internal(format!("Failed to save the temporary Nougat PDF: {error}"))
         })?;
         Ok(pdf_path)
     }
@@ -973,7 +973,7 @@ impl NougatProvider {
 
         if let Some(output_path) = output_path {
             return std::fs::read_to_string(&output_path).map_err(|error| {
-                IncrementumError::Internal(format!(
+                PlethoraError::Internal(format!(
                     "Nougat created {} but it could not be read: {error}",
                     output_path.display()
                 ))
@@ -989,7 +989,7 @@ impl NougatProvider {
 
         let stderr = String::from_utf8_lossy(stderr).replace('\r', "");
         if stderr.contains("'PdfDocument' object has no attribute 'render'") {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Nougat's PDF renderer is incompatible. Open Settings > Documents > OCR and choose Repair installation."
                     .to_string(),
             ));
@@ -1004,7 +1004,7 @@ impl NougatProvider {
             .rev()
             .collect::<Vec<_>>()
             .join("\n");
-        Err(IncrementumError::Internal(format!(
+        Err(PlethoraError::Internal(format!(
             "Nougat completed but did not create an .mmd result in {}{}",
             output_directory.display(),
             if diagnostic.is_empty() {
@@ -1033,14 +1033,14 @@ impl OCRProvider for NougatProvider {
     async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
         let start = std::time::Instant::now();
         let working_directory = tempfile::tempdir().map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to create a temporary Nougat directory: {error}"
             ))
         })?;
         let input_path = Self::prepare_pdf_input(image_path, working_directory.path())?;
         let output_directory = working_directory.path().join("output");
         std::fs::create_dir_all(&output_directory).map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to create the temporary Nougat output directory: {error}"
             ))
         })?;
@@ -1070,7 +1070,7 @@ impl OCRProvider for NougatProvider {
             }
         }
         let output = successful_output.ok_or_else(|| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to run Nougat. Tried {}. Set the executable or bin-directory path in Settings > Documents > OCR. {}",
                 candidates
                     .iter()
@@ -1113,7 +1113,7 @@ impl OCRProvider for NougatProvider {
 
         tokio::fs::write(&temp_file, image_data)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to write temp file: {}", e)))?;
 
         let result = self.process_image(&temp_file).await;
 
@@ -1194,7 +1194,7 @@ impl GLMOCRProvider {
 
     fn extract_pdf_page_images(bytes: &[u8]) -> Result<Vec<(Vec<u8>, String)>> {
         let doc = Document::load_mem(bytes)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to load PDF: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to load PDF: {}", e)))?;
 
         let pages = doc.get_pages();
         let mut images = Vec::new();
@@ -1287,31 +1287,31 @@ impl GLMOCRProvider {
         }
 
         let response = request.send().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to call GLM-OCR endpoint: {}", e))
+            PlethoraError::Internal(format!("Failed to call GLM-OCR endpoint: {}", e))
         })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "GLM-OCR request failed ({}): {}",
                 status, body
             )));
         }
 
         let parsed: ChatCompletionResponse = response.json().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to parse GLM-OCR response: {}", e))
+            PlethoraError::Internal(format!("Failed to parse GLM-OCR response: {}", e))
         })?;
 
         let content = parsed
             .choices
             .first()
-            .ok_or_else(|| IncrementumError::Internal("GLM-OCR returned no choices".to_string()))?;
+            .ok_or_else(|| PlethoraError::Internal("GLM-OCR returned no choices".to_string()))?;
 
         let text = Self::extract_message_text(&content.message.content);
 
         if text.trim().is_empty() {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "GLM-OCR returned empty content".to_string(),
             ));
         }
@@ -1384,12 +1384,12 @@ impl OCRProvider for GLMOCRProvider {
     async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
         let image_data = tokio::fs::read(image_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
 
         if Self::is_pdf(&image_data) {
             let page_images = Self::extract_pdf_page_images(&image_data)?;
             if page_images.is_empty() {
-                return Err(IncrementumError::Internal(
+                return Err(PlethoraError::Internal(
                     "GLM-OCR could not find images in this PDF. Try a different OCR provider."
                         .to_string(),
                 ));
@@ -1558,7 +1558,7 @@ impl MistralProvider {
         let start = std::time::Instant::now();
 
         if self.api_key.trim().is_empty() {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Mistral API key is not configured".to_string(),
             ));
         }
@@ -1575,7 +1575,7 @@ impl MistralProvider {
             .file_name(filename)
             .mime_str(mime)
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to build multipart part: {}", e))
+                PlethoraError::Internal(format!("Failed to build multipart part: {}", e))
             })?;
 
         let form = reqwest::multipart::Form::new()
@@ -1590,13 +1590,13 @@ impl MistralProvider {
             .send()
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to upload file to Mistral: {}", e))
+                PlethoraError::Internal(format!("Failed to upload file to Mistral: {}", e))
             })?;
 
         if !upload_res.status().is_success() {
             let status = upload_res.status();
             let body = upload_res.text().await.unwrap_or_default();
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Mistral upload request failed ({}): {}",
                 status, body
             )));
@@ -1608,7 +1608,7 @@ impl MistralProvider {
         }
 
         let upload_data: MistralUploadResponse = upload_res.json().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to parse Mistral upload response: {}", e))
+            PlethoraError::Internal(format!("Failed to parse Mistral upload response: {}", e))
         })?;
 
         let file_id = upload_data.id;
@@ -1645,13 +1645,13 @@ impl MistralProvider {
         }
 
         let response = ocr_res.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to call Mistral OCR endpoint: {}", e))
+            PlethoraError::Internal(format!("Failed to call Mistral OCR endpoint: {}", e))
         })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Mistral OCR request failed ({}): {}",
                 status, body
             )));
@@ -1668,11 +1668,11 @@ impl MistralProvider {
         }
 
         let parsed: MistralOCRResponse = response.json().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to parse Mistral OCR response: {}", e))
+            PlethoraError::Internal(format!("Failed to parse Mistral OCR response: {}", e))
         })?;
 
         if parsed.pages.is_empty() {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Mistral OCR returned no pages".to_string(),
             ));
         }
@@ -1728,7 +1728,7 @@ impl OCRProvider for MistralProvider {
     async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
         let image_data = tokio::fs::read(image_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
 
         self.process_image_bytes(&image_data).await
     }
@@ -1757,7 +1757,7 @@ pub fn create_provider(
         ))),
         OCRProviderType::GoogleDocumentAI => {
             let google_config = config.google_document_ai.as_ref().ok_or_else(|| {
-                IncrementumError::Internal("Google Document AI config not set".to_string())
+                PlethoraError::Internal("Google Document AI config not set".to_string())
             })?;
             Ok(Box::new(GoogleDocumentAIProvider::new(
                 google_config.clone(),
@@ -1765,13 +1765,13 @@ pub fn create_provider(
         }
         OCRProviderType::AWSTextract => {
             let aws_config = config.aws_textract.as_ref().ok_or_else(|| {
-                IncrementumError::Internal("AWS Textract config not set".to_string())
+                PlethoraError::Internal("AWS Textract config not set".to_string())
             })?;
             Ok(Box::new(AWSTextractProvider::new(aws_config.clone())))
         }
         OCRProviderType::AzureVision => {
             let azure_config = config.azure_vision.as_ref().ok_or_else(|| {
-                IncrementumError::Internal("Azure Vision config not set".to_string())
+                PlethoraError::Internal("Azure Vision config not set".to_string())
             })?;
             Ok(Box::new(AzureVisionProvider::new(azure_config.clone())))
         }
@@ -1781,12 +1781,12 @@ pub fn create_provider(
             let glm_config = config
                 .glm_ocr
                 .as_ref()
-                .ok_or_else(|| IncrementumError::Internal("GLM-OCR config not set".to_string()))?;
+                .ok_or_else(|| PlethoraError::Internal("GLM-OCR config not set".to_string()))?;
             Ok(Box::new(GLMOCRProvider::new(glm_config.clone())))
         }
         OCRProviderType::Mistral => {
             let mistral_config = config.mistral_ocr.as_ref().ok_or_else(|| {
-                IncrementumError::Internal("Mistral OCR config not set".to_string())
+                PlethoraError::Internal("Mistral OCR config not set".to_string())
             })?;
             Ok(Box::new(MistralProvider::new(mistral_config.clone())))
         }

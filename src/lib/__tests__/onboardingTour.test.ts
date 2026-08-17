@@ -245,7 +245,7 @@ describe("onboardingTour opt-out tombstone (sync-clobber resilience)", () => {
     expect(shouldAutoDisplay(readOnboardingTourState())).toBe(false);
 
     // Simulate a stale last-writer-wins replay from the sync layer: the
-    // synced `incrementum-onboarding-tour` record overwrites localStorage
+    // synced `plethora-onboarding-tour` record overwrites localStorage
     // with a pre-opt-out snapshot that has autoDisplayDisabled: false.
     window.localStorage.setItem(
       ONBOARDING_TOUR_STORAGE_KEY,

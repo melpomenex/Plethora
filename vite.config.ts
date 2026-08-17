@@ -12,6 +12,7 @@ const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "0.0.0.0");
 export default defineConfig(async ({ mode }) => {
   const isProd = mode === "production";
   const isTauriBuild = Boolean(
+    process.env.PLETHORA_TAURI ||
     process.env.INCREMENTUM_TAURI ||
       process.env.TAURI_DEV_HOST ||
       process.env.TAURI_PLATFORM ||

@@ -1373,7 +1373,7 @@ export function ThemeBackdrop() {
       setSuspended(Boolean(customEvent.detail?.suspended));
     };
 
-    window.addEventListener("incrementum-theme-backdrop-suspend", handleSuspend as EventListener);
+    window.addEventListener("plethora-theme-backdrop-suspend", handleSuspend as EventListener);
 
     // Visibility change: pause/resume animations when tab/window is hidden/shown
     const handleVisibilityChange = () => {
@@ -1399,7 +1399,7 @@ export function ThemeBackdrop() {
     })();
 
     return () => {
-      window.removeEventListener("incrementum-theme-backdrop-suspend", handleSuspend as EventListener);
+      window.removeEventListener("plethora-theme-backdrop-suspend", handleSuspend as EventListener);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       unlistenFocus?.();
     };

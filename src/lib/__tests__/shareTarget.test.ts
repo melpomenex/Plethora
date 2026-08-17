@@ -74,7 +74,7 @@ describe("shareTarget utilities", () => {
       const onBatch = vi.fn();
       const unsubscribe = registerShareListener(onBatch);
 
-      const testEvent = new CustomEvent("incrementum-native-share", {
+      const testEvent = new CustomEvent("plethora-native-share", {
         detail: {
           items: [{ type: "url", url: "https://example.com/doc" }],
         },

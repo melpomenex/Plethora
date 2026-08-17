@@ -21,7 +21,7 @@ use std::sync::RwLock;
 use tracing::{debug, info, trace, warn};
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// Default cache size for hot embeddings (1000 embeddings)
 /// Each embedding is ~6KB (1536 dims × 4 bytes), so cache uses ~6MB RAM
@@ -165,7 +165,7 @@ impl VectorStore {
         .bind(&now)
         .execute(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         self.update_stats_after_insert(model, bytes.len() as i64).await?;
 
@@ -234,7 +234,7 @@ impl VectorStore {
         .bind(document_id)
         .fetch_all(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         let mut records = Vec::new();
         // Collect cache inserts here so we take the (std, blocking) EMBEDDING_CACHE
@@ -305,7 +305,7 @@ impl VectorStore {
             .bind(model)
             .fetch_all(self.repository.pool())
             .await
-            .map_err(IncrementumError::from)?;
+            .map_err(PlethoraError::from)?;
             let len = rows.len();
             (rows, len)
         } else {
@@ -317,7 +317,7 @@ impl VectorStore {
             )
             .fetch_all(self.repository.pool())
             .await
-            .map_err(IncrementumError::from)?;
+            .map_err(PlethoraError::from)?;
             let len = rows.len();
             (rows, len)
         };
@@ -451,7 +451,7 @@ impl VectorStore {
         })
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("similarity scan task failed: {}", e))
+            PlethoraError::Internal(format!("similarity scan task failed: {}", e))
         })?;
 
         let elapsed = start_time.elapsed();
@@ -473,7 +473,7 @@ impl VectorStore {
         .bind(document_id)
         .fetch_all(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         let mut total_bytes = 0i64;
         let mut model_counts: HashMap<String, i64> = HashMap::new();
@@ -509,7 +509,7 @@ impl VectorStore {
             .bind(document_id)
             .execute(self.repository.pool())
             .await
-            .map_err(IncrementumError::from)?;
+            .map_err(PlethoraError::from)?;
 
         for (model, count) in model_counts {
             self.update_stats_after_delete(&model, count, total_bytes / rows.len() as i64 * count)
@@ -533,7 +533,7 @@ impl VectorStore {
         .bind(id)
         .fetch_optional(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         if let Some(row) = row {
             let model: String = row.try_get("model")?;
@@ -550,7 +550,7 @@ impl VectorStore {
                 .bind(id)
                 .execute(self.repository.pool())
                 .await
-                .map_err(IncrementumError::from)?;
+                .map_err(PlethoraError::from)?;
 
             self.update_stats_after_delete(&model, 1, bytes).await?;
 
@@ -567,7 +567,7 @@ impl VectorStore {
         )
         .fetch_optional(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         let model_counts = if let Some(ref row) = stats_row {
             let model_counts_json: String = row.try_get("model_counts").unwrap_or_else(|_| "{}".to_string());
@@ -599,7 +599,7 @@ impl VectorStore {
         .bind(document_id)
         .fetch_one(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         Ok(count)
     }
@@ -616,7 +616,7 @@ impl VectorStore {
         )
         .fetch_all(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         let mut models = Vec::new();
         for row in rows {
@@ -644,7 +644,7 @@ impl VectorStore {
         .bind(id)
         .fetch_optional(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         match row {
             Some(row) => {
@@ -687,7 +687,7 @@ impl VectorStore {
         .bind(id)
         .fetch_optional(self.repository.pool())
         .await
-        .map_err(IncrementumError::from)?;
+        .map_err(PlethoraError::from)?;
 
         match row {
             Some(row) => Ok(Some(EmbeddingRecord {

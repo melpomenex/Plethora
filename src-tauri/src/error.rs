@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum IncrementumError {
+pub enum PlethoraError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -59,35 +59,35 @@ pub enum IncrementumError {
     ShellError(String),
 }
 
-// Implement From<String> for IncrementumError
-impl From<String> for IncrementumError {
+// Implement From<String> for PlethoraError
+impl From<String> for PlethoraError {
     fn from(s: String) -> Self {
-        IncrementumError::Internal(s)
+        PlethoraError::Internal(s)
     }
 }
 
-// Implement From<tauri_plugin_shell::Error> for IncrementumError
-impl From<tauri_plugin_shell::Error> for IncrementumError {
+// Implement From<tauri_plugin_shell::Error> for PlethoraError
+impl From<tauri_plugin_shell::Error> for PlethoraError {
     fn from(e: tauri_plugin_shell::Error) -> Self {
-        IncrementumError::ShellError(e.to_string())
+        PlethoraError::ShellError(e.to_string())
     }
 }
 
-// Implement From<tauri_plugin_notification::Error> for IncrementumError
-impl From<tauri_plugin_notification::Error> for IncrementumError {
+// Implement From<tauri_plugin_notification::Error> for PlethoraError
+impl From<tauri_plugin_notification::Error> for PlethoraError {
     fn from(e: tauri_plugin_notification::Error) -> Self {
-        IncrementumError::Internal(e.to_string())
+        PlethoraError::Internal(e.to_string())
     }
 }
 
-// Implement From<anyhow::Error> for IncrementumError
-impl From<anyhow::Error> for IncrementumError {
+// Implement From<anyhow::Error> for PlethoraError
+impl From<anyhow::Error> for PlethoraError {
     fn from(e: anyhow::Error) -> Self {
-        IncrementumError::Internal(e.to_string())
+        PlethoraError::Internal(e.to_string())
     }
 }
 
-impl serde::Serialize for IncrementumError {
+impl serde::Serialize for PlethoraError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -121,7 +121,7 @@ impl serde::Serialize for IncrementumError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, IncrementumError>;
+pub type Result<T> = std::result::Result<T, PlethoraError>;
 
 // Type alias for backwards compatibility
-pub use IncrementumError as AppError;
+pub use PlethoraError as AppError;

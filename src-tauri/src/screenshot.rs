@@ -1,7 +1,7 @@
 //! Screenshot capture functionality
 
 #[cfg(feature = "screenshot")]
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 #[cfg(feature = "screenshot")]
 use base64::{engine::general_purpose, Engine as _};
 #[cfg(feature = "screenshot")]
@@ -14,17 +14,17 @@ use xcap::{Monitor, Window};
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<String> {
     let monitors = Monitor::all().map_err(|err| {
-        IncrementumError::Internal(format!("Failed to enumerate monitors: {err}"))
+        PlethoraError::Internal(format!("Failed to enumerate monitors: {err}"))
     })?;
     let monitor = monitors
         .iter()
         .find(|m| m.is_primary().unwrap_or(false))
         .or_else(|| monitors.first())
-        .ok_or_else(|| IncrementumError::NotFound("No monitors available".to_string()))?;
+        .ok_or_else(|| PlethoraError::NotFound("No monitors available".to_string()))?;
 
     let image = monitor
         .capture_image()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to capture screen: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to capture screen: {err}")))?;
     encode_image(image)
 }
 
@@ -33,15 +33,15 @@ pub async fn capture_screenshot() -> Result<String> {
 #[tauri::command]
 pub async fn capture_screen_by_index(index: usize) -> Result<String> {
     let monitors = Monitor::all().map_err(|err| {
-        IncrementumError::Internal(format!("Failed to enumerate monitors: {err}"))
+        PlethoraError::Internal(format!("Failed to enumerate monitors: {err}"))
     })?;
     let monitor = monitors.get(index).ok_or_else(|| {
-        IncrementumError::InvalidInput(format!("Screen index {index} out of range"))
+        PlethoraError::InvalidInput(format!("Screen index {index} out of range"))
     })?;
 
     let image = monitor
         .capture_image()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to capture screen: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to capture screen: {err}")))?;
     encode_image(image)
 }
 
@@ -71,16 +71,16 @@ pub fn get_screen_info() -> Vec<ScreenInfo> {
 #[tauri::command]
 pub async fn capture_app_window() -> Result<String> {
     let windows = Window::all()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to enumerate windows: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to enumerate windows: {err}")))?;
     let window = windows
         .iter()
         .find(|w| w.title().as_deref().unwrap_or("") == "Incrementum")
         .or_else(|| windows.first())
-        .ok_or_else(|| IncrementumError::NotFound("No windows available".to_string()))?;
+        .ok_or_else(|| PlethoraError::NotFound("No windows available".to_string()))?;
 
     let image = window
         .capture_image()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to capture window: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to capture window: {err}")))?;
     encode_image(image)
 }
 
@@ -106,36 +106,36 @@ pub async fn capture_app_window_region(
         || width <= 0.0
         || height <= 0.0
     {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Screenshot region is invalid".to_string(),
         ));
     }
 
     let windows = Window::all()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to enumerate windows: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to enumerate windows: {err}")))?;
     let captured_window = windows
         .iter()
         .find(|candidate| candidate.title().as_deref().unwrap_or("") == "Incrementum")
         .or_else(|| windows.first())
-        .ok_or_else(|| IncrementumError::NotFound("No windows available".to_string()))?;
+        .ok_or_else(|| PlethoraError::NotFound("No windows available".to_string()))?;
     let captured_image = captured_window
         .capture_image()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to capture window: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to capture window: {err}")))?;
 
     let inner_position = window.inner_position().map_err(|err| {
-        IncrementumError::Internal(format!("Failed to read content position: {err}"))
+        PlethoraError::Internal(format!("Failed to read content position: {err}"))
     })?;
     let outer_position = window.outer_position().map_err(|err| {
-        IncrementumError::Internal(format!("Failed to read window position: {err}"))
+        PlethoraError::Internal(format!("Failed to read window position: {err}"))
     })?;
     let inner_size = window
         .inner_size()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to read content size: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to read content size: {err}")))?;
     let outer_size = window
         .outer_size()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to read window size: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to read window size: {err}")))?;
     let scale = window.scale_factor().map_err(|err| {
-        IncrementumError::Internal(format!("Failed to read display scale: {err}"))
+        PlethoraError::Internal(format!("Failed to read display scale: {err}"))
     })?;
 
     // xcap backends differ: some capture the full decorated window and others
@@ -162,7 +162,7 @@ pub async fn capture_app_window_region(
     let crop_width = requested_width.min(captured_image.width().saturating_sub(x));
     let crop_height = requested_height.min(captured_image.height().saturating_sub(y));
     if crop_width == 0 || crop_height == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Screenshot region is outside the app window".to_string(),
         ));
     }
@@ -186,7 +186,7 @@ fn convert_xcap_image(
     let raw_data = image.into_raw();
 
     image::ImageBuffer::from_raw(width, height, raw_data)
-        .ok_or_else(|| IncrementumError::Internal("Failed to create image buffer".to_string()))
+        .ok_or_else(|| PlethoraError::Internal("Failed to create image buffer".to_string()))
 }
 
 #[cfg(feature = "screenshot")]
@@ -196,7 +196,7 @@ fn encode_rgba_image(image: image::RgbaImage) -> Result<String> {
 
     dynamic_image
         .write_to(&mut Cursor::new(&mut buffer), image::ImageOutputFormat::Png)
-        .map_err(|err| IncrementumError::Internal(format!("Failed to encode screenshot: {err}")))?;
+        .map_err(|err| PlethoraError::Internal(format!("Failed to encode screenshot: {err}")))?;
     Ok(general_purpose::STANDARD.encode(buffer))
 }
 

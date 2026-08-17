@@ -372,7 +372,7 @@ pub async fn apply_review(
     arena_selection: Option<&ArenaSelection>,
 ) -> Result<LearningItem> {
     let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+        crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
     })?;
     let prior_state = item.state.clone();
 
@@ -381,7 +381,7 @@ pub async fn apply_review(
     // counters, or history a second time.
     if let Some(selection) = arena_selection {
         if selection.commit_id.trim().is_empty() {
-            return Err(crate::error::IncrementumError::InvalidInput(
+            return Err(crate::error::PlethoraError::InvalidInput(
                 "Arena commit_id must not be empty".to_string(),
             ));
         }
@@ -390,7 +390,7 @@ pub async fn apply_review(
             .await?
         {
             if committed_item_id != item_id {
-                return Err(crate::error::IncrementumError::ArenaAlreadyCommitted(
+                return Err(crate::error::PlethoraError::ArenaAlreadyCommitted(
                     "commit_id belongs to another learning item".to_string(),
                 ));
             }
@@ -411,7 +411,7 @@ pub async fn apply_review(
     let algo = AlgorithmType::from_str_lossy(effective_algorithm);
 
     if arena_selection.is_some() && (algo != AlgorithmType::Sm20 || sm20_pure_m4) {
-        return Err(crate::error::IncrementumError::ArenaUnsupported(
+        return Err(crate::error::PlethoraError::ArenaUnsupported(
             "Arena choices require a normal SM-20 ensemble review".to_string(),
         ));
     }
@@ -508,7 +508,7 @@ pub async fn apply_review(
             .await?;
         if !committed {
             return repo.get_learning_item(item_id).await?.ok_or_else(|| {
-                crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+                crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
             });
         }
         return Ok(item);
@@ -1140,12 +1140,12 @@ async fn apply_sm20_review(
 
     let arena_context = if let Some(selection) = arena_selection {
         if sm20_pure_m4 {
-            return Err(crate::error::IncrementumError::ArenaUnsupported(
+            return Err(crate::error::PlethoraError::ArenaUnsupported(
                 "Pure M4 reviews do not expose Algorithm Arena choices".to_string(),
             ));
         }
         if selection.preview_id.trim().is_empty() {
-            return Err(crate::error::IncrementumError::ArenaPreviewStale(
+            return Err(crate::error::PlethoraError::ArenaPreviewStale(
                 "preview_id is missing".to_string(),
             ));
         }
@@ -1157,7 +1157,7 @@ async fn apply_sm20_review(
             && (selection.item_revision != current_item_revision
                 || selection.arena_revision != current_arena_revision)
         {
-            return Err(crate::error::IncrementumError::ArenaPreviewStale(
+            return Err(crate::error::PlethoraError::ArenaPreviewStale(
                 "the card or scheduler changed after this preview was generated".to_string(),
             ));
         }
@@ -1184,7 +1184,7 @@ async fn apply_sm20_review(
             ArenaSelectionSource::Arena => result.interval_days,
             ArenaSelectionSource::Model => {
                 let model_id = selection.model_id.ok_or_else(|| {
-                    crate::error::IncrementumError::ArenaInvalidModel(
+                    crate::error::PlethoraError::ArenaInvalidModel(
                         "model source requires model_id".to_string(),
                     )
                 })?;
@@ -1192,14 +1192,14 @@ async fn apply_sm20_review(
             }
             ArenaSelectionSource::Custom => {
                 let interval = selection.interval_days.ok_or_else(|| {
-                    crate::error::IncrementumError::ArenaInvalidInterval(
+                    crate::error::PlethoraError::ArenaInvalidInterval(
                         "custom source requires interval_days".to_string(),
                     )
                 })?;
                 let bounds = &grade_preview.custom_bounds;
                 if !interval.is_finite() || interval < bounds.min_days || interval > bounds.max_days
                 {
-                    return Err(crate::error::IncrementumError::ArenaInvalidInterval(
+                    return Err(crate::error::PlethoraError::ArenaInvalidInterval(
                         format!(
                             "interval must be between {} and {} days",
                             bounds.min_days, bounds.max_days
@@ -1371,7 +1371,7 @@ pub async fn restore_learning_item_state(
         .get_learning_item(&request.item_id)
         .await?
         .ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Learning item {}", request.item_id))
+            crate::error::PlethoraError::NotFound(format!("Learning item {}", request.item_id))
         })?;
 
     item.due_date = request.due_date;
@@ -1448,7 +1448,7 @@ pub async fn preview_review_intervals(
 
     if algo == "sm20" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+            crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
         let now = Utc::now();
         let elapsed_days = item
@@ -1504,7 +1504,7 @@ pub async fn preview_review_intervals(
 
     if algo == "sm18" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+            crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
 
         // Use the SAME engine and state source as apply_sm18_review so the
@@ -1554,7 +1554,7 @@ pub async fn preview_review_intervals(
     }
 
     let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+        crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
     })?;
 
     let fsrs = fsrs::FSRS::new(Some(&[]))?;
@@ -1735,7 +1735,7 @@ pub async fn optimize_sm20_fsrs(repo: State<'_, Repository>) -> Result<FsrsOptim
 
     let params = tauri::async_runtime::spawn_blocking(move || {
         let engine = fsrs::FSRS::new(Some(&[]))
-            .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
         engine
             .compute_parameters(fsrs::ComputeParametersInput {
                 train_set,
@@ -1743,10 +1743,10 @@ pub async fn optimize_sm20_fsrs(repo: State<'_, Repository>) -> Result<FsrsOptim
                 enable_short_term: true,
                 num_relearning_steps: None,
             })
-            .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
     })
     .await
-    .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))??;
+    .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))??;
 
     // The crate returns its stock defaults when there is too little history —
     // storing those would just add overhead for no personalization.
@@ -1801,7 +1801,7 @@ pub async fn optimize_sm20_m4(
     let revlog = build_revlog_items(&repo).await?;
     let outcome = tauri::async_runtime::spawn_blocking(move || optimize_m4(&revlog))
         .await
-        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
 
     if outcome.accepted {
         if let Some(params) = &outcome.params {
@@ -1838,7 +1838,7 @@ pub async fn get_review_sessions_by_collection(
     .bind(&collection_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| crate::error::IncrementumError::Database(e))?;
+    .map_err(|e| crate::error::PlethoraError::Database(e))?;
 
     Ok(rows
         .iter()
@@ -1868,7 +1868,7 @@ pub async fn get_all_review_results(repo: State<'_, Repository>) -> Result<Vec<s
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| crate::error::IncrementumError::Database(e))?;
+    .map_err(|e| crate::error::PlethoraError::Database(e))?;
 
     Ok(rows
         .iter()
@@ -1949,7 +1949,7 @@ pub async fn get_review_results_by_sessions(
         let rows = query
             .fetch_all(repo.pool())
             .await
-            .map_err(crate::error::IncrementumError::Database)?;
+            .map_err(crate::error::PlethoraError::Database)?;
 
         for row in &rows {
             out.push(serde_json::json!({
@@ -1989,7 +1989,7 @@ pub async fn get_categories_by_collection(
     .bind(&collection_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| crate::error::IncrementumError::Database(e))?;
+    .map_err(|e| crate::error::PlethoraError::Database(e))?;
 
     Ok(rows
         .iter()
@@ -2010,7 +2010,7 @@ pub async fn get_categories_by_collection(
 mod tests {
     use super::*;
     use crate::database::connection::Database;
-    use crate::error::IncrementumError;
+    use crate::error::PlethoraError;
     use crate::models::ItemType;
     use rand::SeedableRng;
     use std::path::PathBuf;
@@ -2302,11 +2302,11 @@ mod tests {
             match expected_error {
                 "interval" => assert!(matches!(
                     result,
-                    Err(IncrementumError::ArenaInvalidInterval(_))
+                    Err(PlethoraError::ArenaInvalidInterval(_))
                 )),
                 _ => assert!(matches!(
                     result,
-                    Err(IncrementumError::ArenaPreviewStale(_))
+                    Err(PlethoraError::ArenaPreviewStale(_))
                 )),
             }
             assert_eq!(

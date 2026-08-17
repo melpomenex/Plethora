@@ -197,7 +197,7 @@ fn generate_obsidian_markdown(document: &crate::models::Document) -> String {
 
     markdown.push_str("---\n");
     markdown.push_str(&format!("title: {}\n", document.title));
-    markdown.push_str("incrementum-type: document\n");
+    markdown.push_str("plethora-type: document\n");
     if let Some(metadata) = &document.metadata {
         if let Some(author) = &metadata.author {
             markdown.push_str(&format!("author: {}\n", author));
@@ -207,7 +207,7 @@ fn generate_obsidian_markdown(document: &crate::models::Document) -> String {
         "created: {}\n",
         document.date_added.format("%Y-%m-%d")
     ));
-    markdown.push_str(&format!("incrementum-id: {}\n", document.id));
+    markdown.push_str(&format!("plethora-id: {}\n", document.id));
     markdown.push_str("---\n\n");
 
     markdown.push_str(&format!("# {}\n\n", document.title));
@@ -233,8 +233,8 @@ fn generate_extract_markdown(extract: &crate::models::Extract) -> String {
     markdown.push_str("---\n");
     let title = extract.page_title.as_deref().unwrap_or("Untitled");
     markdown.push_str(&format!("title: {}\n", title));
-    markdown.push_str("incrementum-type: extract\n");
-    markdown.push_str(&format!("incrementum-id: {}\n", extract.id));
+    markdown.push_str("plethora-type: extract\n");
+    markdown.push_str(&format!("plethora-id: {}\n", extract.id));
     markdown.push_str(&format!("document-id: {}\n", extract.document_id));
     markdown.push_str(&format!(
         "disclosure-level: {}\n",
@@ -333,7 +333,7 @@ fn generate_conversation_markdown(
     if let Some(context) = context_info {
         markdown.push_str(&format!("context: \"{}\"\n", context.replace('"', "\\\"")));
     }
-    markdown.push_str("tags:\n  - ai-conversation\n  - incrementum\n");
+    markdown.push_str("tags:\n  - ai-conversation\n  - plethora\n");
     markdown.push_str("---\n\n");
 
     markdown.push_str(&format!("# {}\n\n", title));
@@ -385,7 +385,7 @@ fn generate_conversation_markdown(
 
     markdown.push_str("---\n\n");
     markdown.push_str(&format!(
-        "*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n",
+        "*Exported from [Plethora](https://github.com/melpomenex/Plethora) on {}*\n",
         now.format("%Y-%m-%d %H:%M")
     ));
 
@@ -409,7 +409,7 @@ fn generate_single_message_markdown(
     if let Some(context) = context_info {
         markdown.push_str(&format!("context: \"{}\"\n", context.replace('"', "\\\"")));
     }
-    markdown.push_str("tags:\n  - ai-response\n  - incrementum\n");
+    markdown.push_str("tags:\n  - ai-response\n  - plethora\n");
     markdown.push_str("---\n\n");
 
     markdown.push_str(&format!("# {}\n\n", title));
@@ -434,7 +434,7 @@ fn generate_single_message_markdown(
 
     markdown.push_str("---\n\n");
     markdown.push_str(&format!(
-        "*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n",
+        "*Exported from [Plethora](https://github.com/melpomenex/Plethora) on {}*\n",
         now.format("%Y-%m-%d %H:%M")
     ));
 
@@ -452,6 +452,22 @@ pub async fn sync_flashcard_to_anki_internal(
     Ok(flashcard_id.parse().unwrap_or(0))
 }
 
+
+/// Read a frontmatter key, preferring the current `plethora-*` spelling and
+/// falling back to the legacy `incrementum-*` value written by pre-rebrand
+/// exports (task 3.5 round-trip compatibility).
+fn frontmatter_get<'a>(
+    frontmatter: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    let new_key = format!("plethora-{key}");
+    if let Some(value) = frontmatter.get(&new_key) {
+        return Some(value);
+    }
+    let legacy_key = format!("incrementum-{key}");
+    frontmatter.get(&legacy_key).or_else(|| frontmatter.get(key))
+}
+
 /// Import markdown from Obsidian
 pub async fn import_from_obsidian_internal(
     file_path: &str,
@@ -462,16 +478,15 @@ pub async fn import_from_obsidian_internal(
 
     let (frontmatter, body) = parse_frontmatter(&content);
 
-    let incrementum_type = frontmatter
-        .get("incrementum-type")
+    let note_type = frontmatter_get(&frontmatter, "type")
         .and_then(|v| v.as_str())
         .map(|v| v.to_lowercase());
 
     let is_extract =
-        incrementum_type.as_deref() == Some("extract") || frontmatter.get("document-id").is_some();
+        note_type.as_deref() == Some("extract") || frontmatter.get("document-id").is_some();
 
     if is_extract {
-        let extract_id = frontmatter.get("incrementum-id").and_then(|v| v.as_str());
+        let extract_id = frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str());
         let document_id = frontmatter
             .get("document-id")
             .and_then(|v| v.as_str())
@@ -513,8 +528,8 @@ pub async fn import_from_obsidian_internal(
         return Ok((created.document_id, vec![created.id]));
     }
 
-    if let Some(id) = frontmatter.get("incrementum-id") {
-        let document_id = id.as_str().expect("incrementum-id should be a string");
+    if let Some(id) = frontmatter_get(&frontmatter, "id") {
+        let document_id = id.as_str().expect("plethora-id should be a string");
         if let Some(existing) = repo.get_document(document_id).await? {
             let title = frontmatter
                 .get("title")
@@ -565,8 +580,7 @@ pub async fn import_from_obsidian_internal(
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| extract_title_from_content(&body));
 
-    let document_id = frontmatter
-        .get("incrementum-id")
+    let document_id = frontmatter_get(&frontmatter, "id")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -703,9 +717,9 @@ fn find_obsidian_markdown_by_incrementum_id(
 
         let content = fs::read_to_string(entry.path())?;
         let (frontmatter, _) = parse_frontmatter(&content);
-        if let Some(id_value) = frontmatter
-            .get("incrementum-id")
-            .and_then(|value| value.as_str())
+        // Match on either the current `plethora-id` or the legacy
+        // `incrementum-id` frontmatter key (new key wins when both exist).
+        if let Some(id_value) = frontmatter_get(&frontmatter, "id").and_then(|value| value.as_str())
         {
             if id_value == incrementum_id {
                 return Ok(Some(entry.path().to_path_buf()));
@@ -730,9 +744,7 @@ fn resolve_obsidian_markdown_path(
     if candidate.exists() {
         let content = fs::read_to_string(&candidate).unwrap_or_default();
         let (frontmatter, _) = parse_frontmatter(&content);
-        let existing_id = frontmatter
-            .get("incrementum-id")
-            .and_then(|value| value.as_str());
+        let existing_id = frontmatter_get(&frontmatter, "id").and_then(|value| value.as_str());
         if existing_id != Some(incrementum_id) {
             let unique_name = format!("{} ({})", base_name, short_id(incrementum_id));
             candidate = root.join(format!("{}.md", unique_name));
@@ -863,11 +875,11 @@ pub async fn sync_from_obsidian(
 
         let content = fs::read_to_string(entry.path())?;
         let (frontmatter, _) = parse_frontmatter(&content);
-        if frontmatter.get("incrementum-id").is_none() {
+        if frontmatter_get(&frontmatter, "id").is_none() {
             continue;
         }
         let is_extract = frontmatter.get("document-id").is_some()
-            || frontmatter.get("incrementum-type").and_then(|v| v.as_str()) == Some("extract");
+            || frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()) == Some("extract");
         if is_extract {
             extracts += 1;
         } else {
@@ -891,12 +903,12 @@ pub async fn sync_from_obsidian(
 
             let content = fs::read_to_string(entry.path())?;
             let (frontmatter, _) = parse_frontmatter(&content);
-            if frontmatter.get("incrementum-id").is_none() {
+            if frontmatter_get(&frontmatter, "id").is_none() {
                 continue;
             }
 
             let is_extract = frontmatter.get("document-id").is_some()
-                || frontmatter.get("incrementum-type").and_then(|v| v.as_str()) == Some("extract");
+                || frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()) == Some("extract");
             if !is_extract {
                 continue;
             }
@@ -928,6 +940,107 @@ pub async fn sync_from_logseq(
     repo: tauri::State<'_, Repository>,
 ) -> Result<SyncStats, AppError> {
     sync_from_obsidian(config, repo).await
+}
+
+
+/// Result of the opt-in Obsidian vault id migration.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObsidianVaultIdMigrationResult {
+    pub files_scanned: u64,
+    pub files_rewritten: u64,
+    pub errors: Vec<String>,
+}
+
+/// Rewrite legacy `incrementum-id` / `incrementum-type` frontmatter keys in a
+/// user's Obsidian vault to their `plethora-*` successors. Explicitly OPT-IN
+/// (settings button, task 3.5): the app never rewrites vault files on its
+/// own. Each note is rewritten atomically (temp file + rename in the same
+/// directory) and only within its YAML frontmatter block — note bodies are
+/// preserved byte-for-byte. Running twice is a no-op.
+#[tauri::command]
+pub async fn migrate_obsidian_vault_ids(
+    config: ObsidianConfig,
+) -> Result<ObsidianVaultIdMigrationResult, AppError> {
+    let mut result = ObsidianVaultIdMigrationResult {
+        files_scanned: 0,
+        files_rewritten: 0,
+        errors: Vec::new(),
+    };
+
+    for root in [
+        obsidian_notes_path(&config),
+        obsidian_extracts_path(&config),
+    ] {
+        if !root.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(&root).into_iter().filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("md") {
+                continue;
+            }
+            result.files_scanned += 1;
+            let path = entry.path().to_path_buf();
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(e) => {
+                    result.errors.push(format!("{}: {}", path.display(), e));
+                    continue;
+                }
+            };
+            // Only the frontmatter block between the leading '---' lines is
+            // considered; the body is never touched.
+            let mut lines = content.split_inclusive('\n');
+            let Some(first) = lines.next() else {
+                continue;
+            };
+            if first.trim_end() != "---" {
+                continue;
+            }
+            let mut frontmatter = String::new();
+            let mut body = String::new();
+            let mut closed = false;
+            for line in lines {
+                if !closed && line.trim_end() == "---" {
+                    closed = true;
+                    frontmatter.push_str(line);
+                    continue;
+                }
+                if closed {
+                    body.push_str(line);
+                } else {
+                    frontmatter.push_str(line);
+                }
+            }
+            if !closed {
+                continue;
+            }
+            let rewritten = frontmatter
+                .replace("\nincrementum-id:", "\nplethora-id:")
+                .replace("\nincrementum-type:", "\nplethora-type:");
+            if rewritten == frontmatter {
+                continue;
+            }
+            let next = format!("{first}{rewritten}{body}");
+            // Atomic replace: write a sibling temp file, then rename over.
+            let tmp = path.with_extension("md.plethora-migrating");
+            if let Err(e) = fs::write(&tmp, next) {
+                result.errors.push(format!("{}: {}", path.display(), e));
+                continue;
+            }
+            if let Err(e) = fs::rename(&tmp, &path) {
+                let _ = fs::remove_file(&tmp);
+                result.errors.push(format!("{}: {}", path.display(), e));
+                continue;
+            }
+            result.files_rewritten += 1;
+        }
+    }
+
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1090,4 +1203,63 @@ pub struct ServerStatus {
 pub struct PageProcessResult {
     pub document_id: String,
     pub extract_ids: Vec<String>,
+}
+
+#[cfg(test)]
+mod brand_migration_tests {
+    use super::*;
+
+    /// Obsidian round-trip compatibility (task 3.5/5.1): notes exported by
+    /// Incrementum carry `incrementum-id`/`incrementum-type`; Plethora writes
+    /// `plethora-*` and must read-match BOTH.
+    #[test]
+    fn frontmatter_reads_new_keys_first_and_legacy_falls_back() {
+        let legacy_note = "---\ntitle: Old\nincrementum-type: document\nincrementum-id: doc-123\n---\n\nbody";
+        let (frontmatter, body) = parse_frontmatter(legacy_note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("doc-123"),
+            "legacy incrementum-id must keep matching"
+        );
+        assert_eq!(
+            frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()),
+            Some("document")
+        );
+        assert_eq!(body.trim(), "body");
+
+        let new_note = "---\ntitle: New\nplethora-type: extract\nplethora-id: ext-456\n---\n\nbody";
+        let (frontmatter, _) = parse_frontmatter(new_note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("ext-456")
+        );
+        assert_eq!(
+            frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()),
+            Some("extract")
+        );
+    }
+
+    /// When a migrated note carries both keys, the new one wins.
+    #[test]
+    fn frontmatter_prefers_plethora_key_when_both_exist() {
+        let note = "---\nincrementum-id: old\nplethora-id: new\n---\n\nbody";
+        let (frontmatter, _) = parse_frontmatter(note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("new")
+        );
+    }
+
+    /// The writer emits the new key spellings.
+    #[test]
+    fn generated_markdown_uses_plethora_keys() {
+        let mut document =
+            crate::models::Document::new("Title".to_string(), "/tmp/x.md".to_string(), crate::models::FileType::Markdown);
+        document.id = "doc-1".to_string();
+        document.content = Some("Body".to_string());
+        let markdown = generate_obsidian_markdown(&document);
+        assert!(markdown.contains("plethora-id: doc-1"));
+        assert!(markdown.contains("plethora-type: document"));
+        assert!(!markdown.contains("incrementum-id"));
+    }
 }

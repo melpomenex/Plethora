@@ -28,15 +28,15 @@ import {
   warmUpOnDevicePrompt,
 } from "../onDeviceAI";
 
-const STATUS = "plugin:incrementum-android-genai|ondevice_ai_status";
-const CAPABILITIES = "plugin:incrementum-android-genai|ondevice_ai_capabilities";
-const SUMMARIZE = "plugin:incrementum-android-genai|ondevice_ai_summarize";
-const PROMPT = "plugin:incrementum-android-genai|ondevice_ai_prompt";
-const GENERATE = "plugin:incrementum-android-genai|ondevice_ai_generate";
-const COUNT_TOKENS = "plugin:incrementum-android-genai|ondevice_ai_count_tokens";
-const WARM_UP = "plugin:incrementum-android-genai|ondevice_ai_warm_up";
-const START_STREAM = "plugin:incrementum-android-genai|ondevice_ai_start_prompt_stream";
-const CANCEL_REQUEST = "plugin:incrementum-android-genai|ondevice_ai_cancel_prompt_request";
+const STATUS = "plugin:plethora-android-genai|ondevice_ai_status";
+const CAPABILITIES = "plugin:plethora-android-genai|ondevice_ai_capabilities";
+const SUMMARIZE = "plugin:plethora-android-genai|ondevice_ai_summarize";
+const PROMPT = "plugin:plethora-android-genai|ondevice_ai_prompt";
+const GENERATE = "plugin:plethora-android-genai|ondevice_ai_generate";
+const COUNT_TOKENS = "plugin:plethora-android-genai|ondevice_ai_count_tokens";
+const WARM_UP = "plugin:plethora-android-genai|ondevice_ai_warm_up";
+const START_STREAM = "plugin:plethora-android-genai|ondevice_ai_start_prompt_stream";
+const CANCEL_REQUEST = "plugin:plethora-android-genai|ondevice_ai_cancel_prompt_request";
 
 /** Route mocked invokes by command name. */
 function bridge(handlers: Record<string, (args?: Record<string, unknown>) => unknown>) {

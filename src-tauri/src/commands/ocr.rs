@@ -2,7 +2,7 @@
 //!
 //! Provides Tauri commands for OCR operations
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::ocr::processor::OCRProcessor;
 use crate::ocr::providers::OCRProviderType;
 use crate::ocr::OCRConfig;
@@ -192,7 +192,7 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
         let guard = get_processor().lock().await;
         guard
             .as_ref()
-            .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
+            .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
 
@@ -282,7 +282,7 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
         let guard = get_processor().lock().await;
         guard
             .as_ref()
-            .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
+            .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
 
@@ -291,7 +291,7 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
         &base64::engine::general_purpose::STANDARD,
         request.image_data.as_bytes(),
     )
-    .map_err(|e| IncrementumError::Internal(format!("Failed to decode base64: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to decode base64: {}", e)))?;
 
     let provider_type = resolve_provider_type(&request.provider, &processor)?;
     let provider = crate::ocr::providers::create_provider(provider_type, processor.get_config())?;
@@ -391,7 +391,7 @@ async fn write_temp_image(bytes: &[u8], extension: &str) -> Result<PathBuf> {
 
     tokio::fs::write(&temp_file, bytes)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to write temp file: {}", e)))?;
 
     Ok(temp_file)
 }
@@ -402,7 +402,7 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
         let guard = get_processor().lock().await;
         guard
             .as_ref()
-            .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
+            .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
 
@@ -429,10 +429,10 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
     let start = std::time::Instant::now();
     let pdf_bytes = tokio::fs::read(&request.pdf_path)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read PDF: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read PDF: {}", e)))?;
 
     let doc = Document::load_mem(&pdf_bytes)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to load PDF: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to load PDF: {}", e)))?;
     let page_count = doc.get_pages().len();
 
     let mut pages: Vec<OCRPdfPage> = Vec::new();
@@ -844,7 +844,7 @@ pub async fn get_available_ocr_providers() -> Result<Vec<String>> {
     let guard = get_processor().lock().await;
     let processor = guard
         .as_ref()
-        .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
+        .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?;
 
     let providers = processor.get_available_providers();
     Ok(providers.into_iter().map(|p| format!("{:?}", p)).collect())
@@ -856,7 +856,7 @@ pub async fn is_provider_available(provider: String) -> Result<bool> {
     let guard = get_processor().lock().await;
     let processor = guard
         .as_ref()
-        .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
+        .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?;
 
     let provider_type = parse_provider_type(&provider)?;
 
@@ -884,7 +884,7 @@ fn parse_provider_type(provider: &str) -> Result<OCRProviderType> {
         "nougat" => Ok(OCRProviderType::Nougat),
         "glm" => Ok(OCRProviderType::Glmocr),
         "mistral" => Ok(OCRProviderType::Mistral),
-        _ => Err(IncrementumError::Internal(format!(
+        _ => Err(PlethoraError::Internal(format!(
             "Unknown provider: {}",
             provider
         ))),
@@ -897,7 +897,7 @@ pub async fn get_ocr_config() -> Result<OCRConfig> {
     let guard = get_processor().lock().await;
     let processor = guard
         .as_ref()
-        .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
+        .ok_or_else(|| PlethoraError::Internal("OCR processor not initialized".to_string()))?;
 
     Ok(processor.get_config().clone())
 }

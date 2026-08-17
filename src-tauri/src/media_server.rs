@@ -625,7 +625,7 @@ mod tests {
     }
 
     fn temp_file(bytes: &[u8]) -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("fixture.m4b");
         fs::write(&path, bytes).expect("write test media");
@@ -762,7 +762,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_file_returns_not_found() {
-        let root = std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("missing.m4b");
         let app = Router::new()
@@ -786,7 +786,7 @@ mod tests {
 
     #[tokio::test]
     async fn large_file_response_keeps_streaming_body_lazy() {
-        let root = std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("large-fixture.m4b");
         let large_size = 64 * 1024 * 1024;
@@ -837,12 +837,12 @@ mod tests {
     async fn granted_path_outside_app_roots_streams() {
         let bytes = b"granted-audiobook-bytes";
         let allowed_root =
-            std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
         // The file lives in a sibling directory that is NOT under the allowed
         // root — this is the desktop "imported in place" case.
         let library_root =
-            std::env::temp_dir().join(format!("incrementum-library-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-library-{}", Uuid::new_v4()));
         fs::create_dir_all(&library_root).expect("create library root");
         let path = library_root.join("book.m4b");
         fs::write(&path, bytes).expect("write test media");
@@ -875,10 +875,10 @@ mod tests {
     #[tokio::test]
     async fn ungranted_path_outside_app_roots_is_refused_with_403() {
         let allowed_root =
-            std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
         let library_root =
-            std::env::temp_dir().join(format!("incrementum-library-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-library-{}", Uuid::new_v4()));
         fs::create_dir_all(&library_root).expect("create library root");
         let path = library_root.join("book.m4b");
         fs::write(&path, b"some bytes").expect("write test media");

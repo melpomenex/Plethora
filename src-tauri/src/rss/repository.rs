@@ -4,7 +4,7 @@
 //! All database queries are centralized here.
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::rss::models::*;
 use chrono::Utc;
 use sqlx::Row;
@@ -48,7 +48,7 @@ pub async fn add_classifier(
     .bind(&now)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to add classifier: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to add classifier: {}", e)))?;
 
     Ok(RssClassifier {
         id,
@@ -69,14 +69,14 @@ pub async fn remove_classifier(repo: &Repository, id: &str) -> Result<Option<Str
             .bind(id)
             .fetch_optional(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get classifier: {}", e)))?
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get classifier: {}", e)))?
             .flatten();
 
     sqlx::query("DELETE FROM rss_classifiers WHERE id = ?")
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to remove classifier: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to remove classifier: {}", e)))?;
 
     Ok(feed_id)
 }
@@ -139,7 +139,7 @@ pub async fn get_classifiers(
     }
 
     let rows = query.fetch_all(repo.pool()).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to fetch classifiers: {}", e))
+        PlethoraError::Internal(format!("Failed to fetch classifiers: {}", e))
     })?;
 
     let classifiers = rows
@@ -172,7 +172,7 @@ pub async fn update_classifier_sentiment(
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to update classifier: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to update classifier: {}", e)))?;
     Ok(())
 }
 
@@ -189,7 +189,7 @@ pub async fn update_classifier_value(
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to update classifier: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to update classifier: {}", e)))?;
     Ok(())
 }
 
@@ -200,7 +200,7 @@ pub async fn get_classifier_feed_id(repo: &Repository, id: &str) -> Result<Optio
             .bind(id)
             .fetch_optional(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get classifier: {}", e)))?
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get classifier: {}", e)))?
             .flatten();
     Ok(feed_id)
 }
@@ -211,7 +211,7 @@ pub async fn mark_article_unread(repo: &Repository, id: &str) -> Result<()> {
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to mark unread: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to mark unread: {}", e)))?;
     Ok(())
 }
 
@@ -236,7 +236,7 @@ pub async fn mark_articles_before_date_read(
     let result = sqlx::query(&query)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to mark articles: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to mark articles: {}", e)))?;
 
     Ok(result.rows_affected())
 }
@@ -262,7 +262,7 @@ pub async fn mark_articles_after_date_read(
     let result = sqlx::query(&query)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to mark articles: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to mark articles: {}", e)))?;
 
     Ok(result.rows_affected())
 }
@@ -275,7 +275,7 @@ pub async fn auto_mark_articles_as_read(repo: &Repository) -> Result<u64> {
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get feeds: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get feeds: {}", e)))?;
 
     let mut total = 0u64;
     let now = Utc::now();
@@ -291,7 +291,7 @@ pub async fn auto_mark_articles_as_read(repo: &Repository) -> Result<u64> {
         .bind(&cutoff_str)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to auto-mark: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to auto-mark: {}", e)))?;
 
         total += result.rows_affected();
     }
@@ -312,7 +312,7 @@ pub async fn get_read_articles(
     .bind(offset)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to fetch read articles: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to fetch read articles: {}", e)))?;
 
     let articles: Vec<serde_json::Value> = rows.iter().map(|row| {
         serde_json::json!({
@@ -358,7 +358,7 @@ pub async fn get_river_of_news(
         .bind(folder_id)
         .fetch_all(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch river: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch river: {}", e)))?;
 
     let articles: Vec<serde_json::Value> = rows.iter().map(|row| {
         serde_json::json!({
@@ -421,7 +421,7 @@ pub async fn search_articles(
     let rows = sql_query
         .fetch_all(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Search failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Search failed: {}", e)))?;
 
     let results = rows
         .iter()
@@ -458,7 +458,7 @@ pub async fn get_recent_articles_for_clustering(
     }
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get articles: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get articles: {}", e)))?;
 
     let articles: Vec<(String, String)> = rows
         .iter()
@@ -519,7 +519,7 @@ pub async fn get_story_clusters(
     }
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get clusters: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get clusters: {}", e)))?;
 
     let clusters = rows
         .iter()
@@ -547,7 +547,7 @@ pub async fn invalidate_clusters_for_feed(repo: &Repository, feed_id: &str) -> R
     .bind(feed_id)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to invalidate clusters: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to invalidate clusters: {}", e)))?;
 
     Ok(())
 }
@@ -559,7 +559,7 @@ pub async fn get_tag_by_name(repo: &Repository, name: &str) -> Result<Option<Rss
             .bind(name)
             .fetch_optional(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to check tag: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to check tag: {}", e)))?;
 
     Ok(existing.map(|(id, name, created_at)| RssTag {
         id,
@@ -580,7 +580,7 @@ pub async fn create_tag(repo: &Repository, name: &str) -> Result<RssTag> {
         .bind(&now)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create tag: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create tag: {}", e)))?;
 
     Ok(RssTag {
         id,
@@ -602,7 +602,7 @@ pub async fn remove_tag(repo: &Repository, tag_id: &str) -> Result<()> {
         .bind(tag_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to remove tag: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to remove tag: {}", e)))?;
 
     Ok(())
 }
@@ -617,7 +617,7 @@ pub async fn get_article_tags(repo: &Repository, article_id: &str) -> Result<Vec
     .bind(article_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get article tags: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get article tags: {}", e)))?;
 
     let tags = rows
         .iter()
@@ -641,7 +641,7 @@ pub async fn get_all_tags(repo: &Repository) -> Result<Vec<RssTag>> {
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get tags: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get tags: {}", e)))?;
 
     let tags = rows
         .iter()
@@ -665,7 +665,7 @@ pub async fn tag_article(repo: &Repository, article_id: &str, tag_id: &str) -> R
         .bind(&now)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to tag article: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to tag article: {}", e)))?;
 
     Ok(())
 }
@@ -677,7 +677,7 @@ pub async fn untag_article(repo: &Repository, article_id: &str, tag_id: &str) ->
         .bind(tag_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to untag article: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to untag article: {}", e)))?;
 
     Ok(())
 }
@@ -698,7 +698,7 @@ pub async fn get_articles_by_tag(
     .bind(limit)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get articles by tag: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get articles by tag: {}", e)))?;
 
     let articles: Vec<serde_json::Value> = rows
         .iter()
@@ -726,7 +726,7 @@ pub async fn rename_tag(repo: &Repository, tag_id: &str, new_name: &str) -> Resu
         .bind(tag_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to rename tag: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to rename tag: {}", e)))?;
     Ok(())
 }
 
@@ -740,7 +740,7 @@ pub async fn merge_tags(repo: &Repository, source_tag_id: &str, target_tag_id: &
     .bind(source_tag_id)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to merge tag associations: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to merge tag associations: {}", e)))?;
 
     Ok(())
 }
@@ -773,7 +773,7 @@ pub async fn create_annotation(
     .bind(&now)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to create annotation: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to create annotation: {}", e)))?;
 
     Ok(RssAnnotation {
         id,
@@ -798,7 +798,7 @@ pub async fn get_article_annotations(
             .bind(article_id)
             .fetch_all(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get annotations: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get annotations: {}", e)))?;
 
     let annotations = rows
         .iter()
@@ -827,7 +827,7 @@ pub async fn get_annotation_by_id(
         .bind(id)
         .fetch_optional(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get annotation: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get annotation: {}", e)))?;
 
     Ok(row)
 }
@@ -863,7 +863,7 @@ pub async fn update_annotation(
     }
     query = query.bind(id);
     query.execute(repo.pool()).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to update annotation: {}", e))
+        PlethoraError::Internal(format!("Failed to update annotation: {}", e))
     })?;
 
     Ok(())
@@ -875,7 +875,7 @@ pub async fn delete_annotation(repo: &Repository, id: &str) -> Result<()> {
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to delete annotation: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to delete annotation: {}", e)))?;
     Ok(())
 }
 
@@ -892,7 +892,7 @@ pub async fn get_discovered_sites(
     .bind(offset)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get discovered sites: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get discovered sites: {}", e)))?;
 
     let sites = rows
         .iter()
@@ -916,7 +916,7 @@ pub async fn delete_discovered_site(repo: &Repository, id: &str) -> Result<()> {
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to delete discovered site: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to delete discovered site: {}", e)))?;
     Ok(())
 }
 
@@ -968,7 +968,7 @@ pub async fn get_recent_articles_for_discovery(
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get recent articles: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get recent articles: {}", e)))?;
 
     Ok(rows)
 }
@@ -1022,7 +1022,7 @@ pub async fn create_folder(
     .bind(&now)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to create folder: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to create folder: {}", e)))?;
 
     Ok(RssFolder {
         id,
@@ -1042,7 +1042,7 @@ pub async fn get_folder_by_id(repo: &Repository, id: &str) -> Result<Option<RssF
         .bind(id)
         .fetch_optional(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get folder: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get folder: {}", e)))?;
 
     match row {
         Some(row) => {
@@ -1123,7 +1123,7 @@ pub async fn update_folder(
     query = query.bind(id);
 
     query.execute(repo.pool()).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to update folder: {}", e))
+        PlethoraError::Internal(format!("Failed to update folder: {}", e))
     })?;
 
     Ok(())
@@ -1142,13 +1142,13 @@ pub async fn delete_folder(
             .bind(id)
             .execute(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to move feeds: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to move feeds: {}", e)))?;
     } else {
         sqlx::query("DELETE FROM rss_feed_folders WHERE folder_id = ?")
             .bind(id)
             .execute(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to remove feed associations: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to remove feed associations: {}", e)))?;
     }
 
     // Move subfolders to parent
@@ -1162,7 +1162,7 @@ pub async fn delete_folder(
         .bind(id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to delete folder: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to delete folder: {}", e)))?;
 
     Ok(())
 }
@@ -1172,7 +1172,7 @@ pub async fn get_all_folders(repo: &Repository) -> Result<Vec<RssFolder>> {
     let rows = sqlx::query("SELECT * FROM rss_folders ORDER BY sort_order, name")
         .fetch_all(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get folders: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get folders: {}", e)))?;
 
     let mut folders = Vec::new();
     for row in rows {
@@ -1211,7 +1211,7 @@ pub async fn move_feed_to_folder(
         .bind(feed_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to remove feed from folders: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to remove feed from folders: {}", e)))?;
 
     if let Some(folid) = folder_id {
         sqlx::query(
@@ -1222,7 +1222,7 @@ pub async fn move_feed_to_folder(
         .bind(sort_order)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to add feed to folder: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to add feed to folder: {}", e)))?;
     }
 
     Ok(())
@@ -1243,7 +1243,7 @@ pub async fn reorder_feeds(
         .bind(folder_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to reorder feed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to reorder feed: {}", e)))?;
     }
     Ok(())
 }
@@ -1256,7 +1256,7 @@ pub async fn reorder_folders(repo: &Repository, reorder: &[(String, i32)]) -> Re
             .bind(folder_id)
             .execute(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to reorder folder: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to reorder folder: {}", e)))?;
     }
     Ok(())
 }
@@ -1267,7 +1267,7 @@ pub async fn toggle_feed_active(repo: &Repository, feed_id: &str) -> Result<bool
         .bind(feed_id)
         .fetch_one(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Feed not found: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Feed not found: {}", e)))?;
 
     let new_active = !current;
     sqlx::query("UPDATE rss_feeds SET is_active = ? WHERE id = ?")
@@ -1275,7 +1275,7 @@ pub async fn toggle_feed_active(repo: &Repository, feed_id: &str) -> Result<bool
         .bind(feed_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to toggle feed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to toggle feed: {}", e)))?;
 
     Ok(new_active)
 }
@@ -1289,14 +1289,14 @@ pub async fn get_feed_statistics(
         .bind(feed_id)
         .fetch_one(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get total: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get total: {}", e)))?;
 
     let unread: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM rss_articles WHERE feed_id = ? AND is_read = 0")
             .bind(feed_id)
             .fetch_one(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get unread: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get unread: {}", e)))?;
 
     let weeks_ago = (Utc::now() - chrono::Duration::weeks(4)).to_rfc3339();
     let recent_count: i64 = sqlx::query_scalar(
@@ -1323,14 +1323,14 @@ pub async fn get_feed_statistics(
             .bind(feed_id)
             .fetch_optional(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get last_fetched: {}", e)))?
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get last_fetched: {}", e)))?
             .flatten();
 
     let date_added: String = sqlx::query_scalar("SELECT date_added FROM rss_feeds WHERE id = ?")
         .bind(feed_id)
         .fetch_one(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get date_added: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get date_added: {}", e)))?;
 
     Ok(RssFeedStatistics {
         feed_id: feed_id.to_string(),
@@ -1380,7 +1380,7 @@ pub async fn set_feed_view_preferences(
     query = query.bind(feed_id);
 
     query.execute(repo.pool()).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to update feed preferences: {}", e))
+        PlethoraError::Internal(format!("Failed to update feed preferences: {}", e))
     })?;
 
     Ok(())
@@ -1397,7 +1397,7 @@ pub async fn get_articles_needing_score(
     .bind(limit)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get articles: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get articles: {}", e)))?;
 
     Ok(article_ids)
 }
@@ -1412,7 +1412,7 @@ pub async fn get_article_for_scoring(
             .bind(article_id)
             .fetch_optional(repo.pool())
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get article: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to get article: {}", e)))?;
 
     Ok(article)
 }
@@ -1429,7 +1429,7 @@ pub async fn get_classifiers_for_feed(
     .bind(feed_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to fetch classifiers: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to fetch classifiers: {}", e)))?;
 
     Ok(classifiers)
 }
@@ -1447,7 +1447,7 @@ pub async fn save_intelligence_score(
         .bind(article_id)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to cache score: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to cache score: {}", e)))?;
     Ok(())
 }
 
@@ -1484,8 +1484,8 @@ pub async fn get_articles_with_intelligence(
         (None, _, false) =>
             sqlx::query("SELECT * FROM rss_articles WHERE (intelligence_score >= 0 OR intelligence_score IS NULL) ORDER BY published_date DESC LIMIT ?")
                 .bind(limit).fetch_all(repo.pool()).await,
-    }.map_err(|e| IncrementumError::Internal(format!("Failed to fetch articles: {}", e)))?;
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch articles: {}", e)))?;
+    }.map_err(|e| PlethoraError::Internal(format!("Failed to fetch articles: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch articles: {}", e)))?;
 
     let articles: Vec<serde_json::Value> = rows.iter().map(|row| {
         serde_json::json!({
@@ -1516,7 +1516,7 @@ pub async fn folder_exists(repo: &Repository, id: &str) -> Result<bool> {
         .bind(id)
         .fetch_optional(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to check folder: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to check folder: {}", e)))?;
 
     Ok(exists.is_some())
 }
@@ -1536,7 +1536,7 @@ pub async fn create_folder_migration(
         .bind(&now)
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create folder: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create folder: {}", e)))?;
     Ok(())
 }
 
@@ -1595,7 +1595,7 @@ pub async fn create_curated_discovered_site(
     .bind(discovered_at)
     .execute(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to insert curated feed: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to insert curated feed: {}", e)))?;
 
     Ok(())
 }

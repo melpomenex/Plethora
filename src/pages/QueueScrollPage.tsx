@@ -3109,13 +3109,13 @@ export function QueueScrollPage() {
       setShowControls(false);
       setShowRatingControls(false);
     };
-    window.addEventListener("incrementum-queue-swipe", handleBridge as EventListener);
-    window.addEventListener("incrementum-queue-long-press", handleLongPressBridge);
-    window.addEventListener("incrementum-queue-hide-controls", handleHideControlsBridge);
+    window.addEventListener("plethora-queue-swipe", handleBridge as EventListener);
+    window.addEventListener("plethora-queue-long-press", handleLongPressBridge);
+    window.addEventListener("plethora-queue-hide-controls", handleHideControlsBridge);
     return () => {
-      window.removeEventListener("incrementum-queue-swipe", handleBridge as EventListener);
-      window.removeEventListener("incrementum-queue-long-press", handleLongPressBridge);
-      window.removeEventListener("incrementum-queue-hide-controls", handleHideControlsBridge);
+      window.removeEventListener("plethora-queue-swipe", handleBridge as EventListener);
+      window.removeEventListener("plethora-queue-long-press", handleLongPressBridge);
+      window.removeEventListener("plethora-queue-hide-controls", handleHideControlsBridge);
     };
   }, [goToNext, goToPrevious, currentItem]);
 
@@ -3574,7 +3574,7 @@ export function QueueScrollPage() {
       // target-traversal can't see it.
       //  - EPUB: touches are fully isolated inside the epub.js iframe, so this
       //    parent handler never even fires for them. Vertical paging is handled
-      //    inside EPUBViewer (turn page → dispatch "incrementum-queue-swipe" past
+      //    inside EPUBViewer (turn page → dispatch "plethora-queue-swipe" past
       //    the last page). Nothing to do here.
       //  - PDF/audio: use the viewer-reported scroll percent (>= 98% bottom,
       //    <= 2% top) since the document's own scroller isn't reachable via
@@ -4609,10 +4609,10 @@ export function QueueScrollPage() {
         onShowRssSettings={() => setShowRssSettings(true)}
         onSetScrollViewMode={setScrollViewMode}
         onOpenExtractDialog={() => setIsExtractDialogOpen(true)}
-        onOpenEpubToc={() => window.dispatchEvent(new CustomEvent("incrementum-epub-open-toc"))}
-        onOpenEpubSettings={() => window.dispatchEvent(new CustomEvent("incrementum-epub-open-settings"))}
-        onEpubPreviousPage={() => window.dispatchEvent(new CustomEvent("incrementum-epub-previous-page"))}
-        onEpubNextPage={() => window.dispatchEvent(new CustomEvent("incrementum-epub-next-page"))}
+        onOpenEpubToc={() => window.dispatchEvent(new CustomEvent("plethora-epub-open-toc"))}
+        onOpenEpubSettings={() => window.dispatchEvent(new CustomEvent("plethora-epub-open-settings"))}
+        onEpubPreviousPage={() => window.dispatchEvent(new CustomEvent("plethora-epub-previous-page"))}
+        onEpubNextPage={() => window.dispatchEvent(new CustomEvent("plethora-epub-next-page"))}
         onRate={handleRating}
         onDismiss={handleDismiss}
         prioritySlider={currentPrioritySlider}

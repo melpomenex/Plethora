@@ -1,7 +1,7 @@
 //! Tag-Aware Scheduling (TAS) Tauri commands
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{TASConfig, TASScheduledItem, Tag, TagStabilityStats};
 use crate::tas::circular::detect_circular;
 use crate::tas::maturity::recompute_tag_stability_stats;
@@ -103,7 +103,7 @@ pub async fn set_tag_prerequisites(
         .collect();
 
     if detect_circular(&tag_id, &prerequisite_ids, &prereqs_map) {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Circular prerequisite dependency detected".into(),
         ));
     }
@@ -169,7 +169,7 @@ pub async fn compute_tag_centroids(repo: State<'_, Repository>) -> Result<usize>
 pub async fn get_tas_config(repo: State<'_, Repository>) -> Result<TASConfig> {
     match repo.get_setting("tas_config").await? {
         Some(json) => serde_json::from_str::<TASConfig>(&json).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to deserialize TAS config: {e}"))
+            PlethoraError::Internal(format!("Failed to deserialize TAS config: {e}"))
         }),
         None => Ok(TASConfig::default()),
     }
@@ -179,7 +179,7 @@ pub async fn get_tas_config(repo: State<'_, Repository>) -> Result<TASConfig> {
 #[tauri::command]
 pub async fn update_tas_config(repo: State<'_, Repository>, config: TASConfig) -> Result<()> {
     let json = serde_json::to_string(&config)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to serialize TAS config: {e}")))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to serialize TAS config: {e}")))?;
     repo.set_setting("tas_config", &json).await
 }
 

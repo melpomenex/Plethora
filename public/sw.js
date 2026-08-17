@@ -5,10 +5,10 @@
  * for the Progressive Web App (PWA) version of Plethora.
  */
 
-// Cache namespace keeps the legacy `incrementum-` prefix until the Phase B
-// storage migration renames it to `plethora-`; bump the version number to
-// rotate precached content (e.g. rebranded icons).
-const VERSION = 'incrementum-v8';
+// Cache namespace renamed to `plethora-` in the Phase B storage migration;
+// the activate handler purges every legacy `incrementum-*` cache. Bump the
+// version number to rotate precached content.
+const VERSION = 'plethora-v1';
 
 // Disable SW on localhost/dev (unregister and bypass all caching)
 const IS_DEV_HOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
@@ -94,22 +94,105 @@ self.addEventListener('activate', (event) => {
 
   event.waitUntil(
     Promise.all([
-      // Delete old caches
+      // Delete old caches — both legacy `incrementum-*` (pre-rebrand) and
+      // any stale `plethora-*` versions that are no longer active.
       caches.keys().then((cacheNames) => {
         const activeCaches = new Set([CACHE_NAME, STATIC_CACHE, API_CACHE]);
         return Promise.all(
           cacheNames
-            .filter((name) => name.startsWith('incrementum-') && !activeCaches.has(name))
+            .filter(
+              (name) =>
+                (name.startsWith('incrementum-') || name.startsWith('plethora-')) &&
+                !activeCaches.has(name)
+            )
             .map((name) => {
               console.log('[SW] Deleting old cache:', name);
               return caches.delete(name);
             })
         );
       }),
+      // Migrate the legacy `incrementum-sw` IndexedDB preferences (quiet
+      // hours, due-card counts) into the new `plethora-sw` database, then
+      // remove the legacy database. The library database `incrementum` is
+      // migrated separately by the app (lib/database.ts) and is NEVER
+      // touched here.
+      migrateLegacySwDatabase(),
       // Take control of all clients immediately
       self.clients.claim(),
     ])
   );
+}
+
+/**
+ * One-shot copy of the legacy `incrementum-sw` preferences store into
+ * `plethora-sw`, then deletion of the legacy database. The copy only runs
+ * when the target preferences store is empty, so it is always safe to
+ * re-run.
+ */
+async function migrateLegacySwDatabase() {
+  const LEGACY_DB = 'incrementum-sw';
+  const NEW_DB = 'plethora-sw';
+  try {
+    const legacy = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(LEGACY_DB, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      request.onupgradeneeded = () => {
+        // Chromium created an empty shell — nothing to migrate.
+        request.transaction?.abort();
+        resolve(null);
+      };
+    });
+    if (!legacy) return;
+    if (!legacy.objectStoreNames.contains('preferences')) {
+      legacy.close();
+      return;
+    }
+    const target = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(NEW_DB, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('preferences')) {
+          db.createObjectStore('preferences', { keyPath: 'key' });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise((resolve, reject) => {
+      let tx;
+      try {
+        tx = target.transaction('preferences', 'readwrite');
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      const dest = tx.objectStore('preferences');
+      if (dest.count() > 0) {
+        // Target already holds preferences — never overwrite.
+        resolve();
+        return;
+      }
+      legacy
+        .transaction('preferences', 'readonly')
+        .objectStore('preferences')
+        .getAll()
+        .onsuccess = (event) => {
+          for (const record of event.target.result || []) {
+            dest.put(record);
+          }
+        };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    target.close();
+    legacy.close();
+    await new Promise((resolve) => indexedDB.deleteDatabase(LEGACY_DB).onsuccess = resolve);
+    console.info('[SW] Migrated legacy incrementum-sw preferences to plethora-sw');
+  } catch (err) {
+    console.warn('[SW] Legacy SW database migration skipped:', err);
+  }
 });
 
 // Fetch event - intelligent caching strategy
@@ -643,7 +726,7 @@ async function checkDueCardsAndNotify() {
 
 async function readSWPreferences() {
   return new Promise((resolve) => {
-    const request = indexedDB.open('incrementum-sw', 1);
+    const request = indexedDB.open('plethora-sw', 1);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains('preferences')) {
@@ -684,7 +767,7 @@ async function getDueCardCount() {
   // Read from the app's sql.js database stored in IndexedDB
   // The app stores its SQLite database in IndexedDB under a known key
   return new Promise((resolve) => {
-    const request = indexedDB.open('incrementum-sw', 1);
+    const request = indexedDB.open('plethora-sw', 1);
     request.onsuccess = () => {
       const db = request.result;
       try {

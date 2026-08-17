@@ -29,7 +29,7 @@ pub async fn submit_extract_review(
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
     let mut extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
     })?;
 
     let now = Utc::now();
@@ -145,7 +145,7 @@ pub async fn create_cloze_from_extract(
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
     })?;
 
     let mut item = LearningItem::from_extract(
@@ -219,7 +219,7 @@ pub async fn create_qa_from_extract(
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
     })?;
 
     let mut item = LearningItem::from_extract(

@@ -146,8 +146,8 @@ import { InlineDocumentTitle } from "./InlineDocumentTitle";
 import { ItemStatsButton } from "../stats/ItemStatsButton";
 import type { SectionNode } from "../../utils/sectionIndex";
 
-const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
-const READER_FOCUS_CLASS = "incrementum-reader-focus-mode";
+const READER_FOCUS_EVENT = "plethora-reader-focus-mode-change";
+const READER_FOCUS_CLASS = "plethora-reader-focus-mode";
 
 // Helper to format seconds as MM:SS or HH:MM:SS
 function formatTime(seconds: number): string {
@@ -164,7 +164,7 @@ type ViewMode = "document" | "extracts" | "cards";
 type PdfViewMode = "pdf" | "ocr-html";
 
 type DocumentType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "video" | "audio" | "image" | "other";
-const MARKDOWN_WIDTH_STORAGE_KEY = "incrementum.markdown.width-ch";
+const MARKDOWN_WIDTH_STORAGE_KEY = "plethora.markdown.width-ch";
 const MARKDOWN_MIN_WIDTH_CH = 80;
 const MARKDOWN_MAX_WIDTH_CH = 180;
 const MARKDOWN_DEFAULT_WIDTH_CH = 120;
@@ -1232,11 +1232,11 @@ export function DocumentViewer({
       const docId = currentDocumentIdRef.current;
       if (docId) loadExtracts(docId);
     };
-    window.addEventListener("incrementum:synced-extract", handler);
-    window.addEventListener("incrementum:synced-extract-deleted", handler);
+    window.addEventListener("plethora:synced-extract", handler);
+    window.addEventListener("plethora:synced-extract-deleted", handler);
     return () => {
-      window.removeEventListener("incrementum:synced-extract", handler);
-      window.removeEventListener("incrementum:synced-extract-deleted", handler);
+      window.removeEventListener("plethora:synced-extract", handler);
+      window.removeEventListener("plethora:synced-extract-deleted", handler);
     };
   }, [isTabActive, loadExtracts]);
   
@@ -3990,7 +3990,7 @@ export function DocumentViewer({
           pageUp: () => {
             if (isMobileTouch) {
               try {
-                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+                window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
               } catch { /* ignore */ }
             }
             handlePrevPage();
@@ -3998,7 +3998,7 @@ export function DocumentViewer({
           pageDown: () => {
             if (isMobileTouch) {
               try {
-                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+                window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
               } catch { /* ignore */ }
             }
             handleNextPage();
@@ -4006,7 +4006,7 @@ export function DocumentViewer({
           scrollUp: () => {
             if (isMobileTouch) {
               try {
-                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+                window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
               } catch { /* ignore */ }
             }
             if (docType === "html") scrollHtmlIframe("up");
@@ -4015,7 +4015,7 @@ export function DocumentViewer({
           scrollDown: () => {
             if (isMobileTouch) {
               try {
-                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+                window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
               } catch { /* ignore */ }
             }
             if (docType === "html") scrollHtmlIframe("down");

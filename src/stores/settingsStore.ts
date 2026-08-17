@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { migratedGetItem } from "../lib/brandMigration";
 import {
   createDefaultTTSSettings,
   sanitizeTTSSettings,
@@ -1011,8 +1012,20 @@ export const useSettingsStore = create<SettingsState>()(
         })),
     }),
     {
-      name: "incrementum-settings",
+      name: "plethora-settings",
       version: 6,
+      // Dual-read window (rebrand task 3.3): if the pre-migration key is
+      // still present (migration could not run or was interrupted), read
+      // through to it so settings survive.
+      storage: createJSONStorage(() => ({
+        getItem: (name: string) => migratedGetItem(name),
+        setItem: (name: string, value: string) => {
+          try { localStorage.setItem(name, value); } catch { /* full */ }
+        },
+        removeItem: (name: string) => {
+          try { localStorage.removeItem(name); } catch { /* blocked */ }
+        },
+      })),
       migrate: (persisted: unknown, version: number) => {
         const p = (persisted ?? {}) as Partial<Settings> & { settings?: Partial<Settings> };
         const root = p.settings ?? p;

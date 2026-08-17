@@ -4,7 +4,7 @@ import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQA
 import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
 import { getExtracts, patchDocumentExtractCount } from "../../api/extracts";
-import { callIncrementumMCPTool, getIncrementumMCPTools } from "../../api/mcp";
+import { callAppMCPTool, getAppMCPTools } from "../../api/mcp";
 import { copyToClipboard, getIntegrationSettings, notebooklmGetSettings } from "../../api/integrations";
 import {
   buildClozeFromSelection,
@@ -1219,7 +1219,7 @@ export function DocumentQATab() {
       updateToolCall(messageId, index, { parameters });
 
       try {
-        const result = await callIncrementumMCPTool(call.name, parameters);
+        const result = await callAppMCPTool(call.name, parameters);
         
         if (result.isError) {
           updateToolCall(messageId, index, {
@@ -1306,8 +1306,8 @@ export function DocumentQATab() {
 
   const openChatCard = (artifact: ChatFlashcardArtifact) => {
     if (!artifact.persistedCardId) return;
-    sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
-    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", {
+    sessionStorage.setItem("plethora:pending-flashcard-id", artifact.persistedCardId);
+    window.dispatchEvent(new CustomEvent("plethora:open-flashcard", {
       detail: { cardId: artifact.persistedCardId, artifact },
     }));
   };
@@ -1370,7 +1370,7 @@ export function DocumentQATab() {
       if (documentId && CARD_CREATION_TOOL_NAMES.has(call.name) && !getDocumentDeckName(documentTitle)) {
         throw new Error("Could not save this card because the source document title could not be resolved. Reopen the document and retry.");
       }
-      const result = await callIncrementumMCPTool(call.name, parameters);
+      const result = await callAppMCPTool(call.name, parameters);
       updateToolCall(messageId, artifact.callIndex, {
         parameters,
         status: result.isError ? "error" : "success",
@@ -1392,7 +1392,7 @@ export function DocumentQATab() {
       payload,
       ts: Date.now(),
     };
-    window.dispatchEvent(new CustomEvent("incrementum:analytics", { detail }));
+    window.dispatchEvent(new CustomEvent("plethora:analytics", { detail }));
   }, [analyticsEnabled]);
 
   const handleResearchSelection = () => {
@@ -1484,15 +1484,15 @@ export function DocumentQATab() {
         `deck:${deckName}`,
       ];
 
-      let result: Awaited<ReturnType<typeof callIncrementumMCPTool>>;
+      let result: Awaited<ReturnType<typeof callAppMCPTool>>;
       if (artifactDraft.type === "cloze" && artifactDraft.clozeText) {
-        result = await callIncrementumMCPTool("create_cloze_card", {
+        result = await callAppMCPTool("create_cloze_card", {
           text: artifactDraft.clozeText,
           document_id: documentId,
           tags,
         });
       } else if (artifactDraft.type === "qa" && artifactDraft.question && artifactDraft.answer) {
-        result = await callIncrementumMCPTool("create_qa_card", {
+        result = await callAppMCPTool("create_qa_card", {
           question: artifactDraft.question,
           answer: artifactDraft.answer,
           document_id: documentId,
@@ -1668,7 +1668,7 @@ export function DocumentQATab() {
         if (currentText) setFullContent(currentText);
       }
 
-      const mcpTools = (await getIncrementumMCPTools()) || [];
+      const mcpTools = (await getAppMCPTools()) || [];
       const systemPrompt: LLMMessage = {
         role: "system",
         content: `You are a helpful assistant for incremental reading and spaced repetition.

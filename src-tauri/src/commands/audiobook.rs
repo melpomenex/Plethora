@@ -1,5 +1,5 @@
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, DocumentMetadata, FileType};
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
@@ -235,7 +235,7 @@ async fn extract_audiobook_info(
             CommandEvent::Stderr(line) => stderr.push_str(&String::from_utf8_lossy(&line)),
             CommandEvent::Terminated(payload) => {
                 if payload.code != Some(0) && stdout.trim().is_empty() {
-                    return Err(IncrementumError::Internal(format!(
+                    return Err(PlethoraError::Internal(format!(
                         "ffmpeg metadata extraction failed for {}: {}",
                         file_path,
                         stderr.trim()
@@ -276,7 +276,7 @@ pub async fn import_podcast_audio_file(
 ) -> Result<PodcastImportResult> {
     let path = Path::new(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Podcast audio file not found: {}",
             file_path
         )));
@@ -288,7 +288,7 @@ pub async fn import_podcast_audio_file(
         .join("incrementum")
         .join("audio");
     std::fs::create_dir_all(&audio_dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create audio directory: {}", e))
+        PlethoraError::Internal(format!("Failed to create audio directory: {}", e))
     })?;
 
     let timestamp = chrono::Utc::now().timestamp();
@@ -298,7 +298,7 @@ pub async fn import_podcast_audio_file(
     let dest_path = audio_dir.join(&stored_filename);
 
     std::fs::copy(path, &dest_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to copy audio file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to copy audio file: {}", e)))?;
 
     let stored_path = dest_path.to_string_lossy().to_string();
 
@@ -339,7 +339,7 @@ pub async fn import_podcast_audio_file(
     let mut created = repo.create_document(&document).await?;
 
     let model_manager = ModelManager::new(&app_handle).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to initialize model manager: {}", e))
+        PlethoraError::Internal(format!("Failed to initialize model manager: {}", e))
     })?;
     let selected_model = model_manager
         .list_profiles()
@@ -355,7 +355,7 @@ pub async fn import_podcast_audio_file(
         let wav_path = engine
             .prepare_audio(&dest_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to prepare audio: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to prepare audio: {}", e)))?;
 
         let transcript_state = Arc::new(Mutex::new((String::new(), 0_i32)));
         let transcript_state_clone = Arc::clone(&transcript_state);
@@ -467,7 +467,7 @@ pub async fn prepare_audiobook_playback(
 ) -> Result<String> {
     let input_path = Path::new(&file_path);
     if !input_path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Audiobook file not found: {}",
             file_path
         )));
@@ -484,7 +484,7 @@ pub async fn prepare_audiobook_playback(
     }
 
     let source_metadata = std::fs::metadata(input_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to stat audiobook file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to stat audiobook file: {}", e)))?;
     let modified = source_metadata
         .modified()
         .ok()
@@ -501,10 +501,10 @@ pub async fn prepare_audiobook_playback(
     let cache_dir = app_handle
         .path()
         .app_cache_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve cache dir: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve cache dir: {}", e)))?
         .join("audiobook_playback");
     std::fs::create_dir_all(&cache_dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create audiobook cache dir: {}", e))
+        PlethoraError::Internal(format!("Failed to create audiobook cache dir: {}", e))
     })?;
 
     let stem = input_path
@@ -547,7 +547,7 @@ pub async fn prepare_audiobook_playback(
             &output_str,
         ])
         .spawn()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
 
     let mut stderr = String::new();
     let mut exit_code = None;
@@ -564,7 +564,7 @@ pub async fn prepare_audiobook_playback(
 
     if exit_code != Some(0) || !output_path.exists() {
         let _ = std::fs::remove_file(&output_path);
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Failed to prepare m4b playback. ffmpeg output: {}",
             stderr.trim()
         )));
@@ -601,7 +601,7 @@ pub async fn extract_audio_cover_art(
 ) -> Result<Option<String>> {
     let path = Path::new(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Audio file not found: {}",
             file_path
         )));
@@ -631,12 +631,12 @@ async fn extract_audio_cover_art_via_ffmpeg(
     let temp_dir = app_handle
         .path()
         .app_cache_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get cache dir: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get cache dir: {}", e)))?
         .join("cover_art");
 
     if !temp_dir.exists() {
         std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to create temp dir: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to create temp dir: {}", e)))?;
     }
 
     let cover_filename = format!("{}.jpg", uuid::Uuid::new_v4());
@@ -644,7 +644,7 @@ async fn extract_audio_cover_art_via_ffmpeg(
 
     // Use ffmpeg to extract embedded cover art
     let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(app_handle)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
         .args([
             "-i",
             file_path,
@@ -657,7 +657,7 @@ async fn extract_audio_cover_art_via_ffmpeg(
             cover_path.to_str().expect("cover path is valid UTF-8"),
         ])
         .spawn()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
 
     // Wait for ffmpeg to finish
     while let Some(event) = rx.recv().await {
@@ -671,7 +671,7 @@ async fn extract_audio_cover_art_via_ffmpeg(
 
         if file_size > 0 {
             let bytes = std::fs::read(&cover_path)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to read cover: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Failed to read cover: {}", e)))?;
 
             let _ = std::fs::remove_file(&cover_path);
 
@@ -705,11 +705,11 @@ pub async fn generate_audiobook_transcript(
     language: String,
 ) -> Result<AudiobookTranscriptResult> {
     let model_manager =
-        ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
+        ModelManager::new(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
 
     let selected_model = model;
     if !model_manager.is_model_installed(&selected_model) {
-        return Err(IncrementumError::InvalidInput(format!(
+        return Err(PlethoraError::InvalidInput(format!(
             "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
             selected_model
         )));
@@ -717,7 +717,7 @@ pub async fn generate_audiobook_transcript(
 
     let input_path = Path::new(&file_path);
     if !input_path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Audiobook file not found at path: {}",
             file_path
         )));
@@ -734,7 +734,7 @@ pub async fn generate_audiobook_transcript(
         let prepared = engine
             .prepare_audio(input_path)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to prepare audio: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to prepare audio: {}", e)))?;
         wav_path = Some(prepared.clone());
 
         let model_path = model_manager.get_model_path(&selected_model);
@@ -754,20 +754,20 @@ pub async fn generate_audiobook_transcript(
             engine
                 .transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         } else if is_parakeet {
             engine
                 .transcribe_parakeet(&prepared, &model_path, &language, on_segment, None)
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         } else {
             engine
                 .transcribe(&prepared, &model_path, &language, on_segment, None)
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         }
 
-        Ok::<(), IncrementumError>(())
+        Ok::<(), PlethoraError>(())
     }
     .await;
 

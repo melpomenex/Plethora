@@ -5,7 +5,7 @@ import type { StoredHighlight } from "./HighlightLayer";
 export function safePdfLink(href?: string): string | undefined {
   if (!href) return undefined;
   try {
-    const url = new URL(href, "https://incrementum.invalid");
+    const url = new URL(href, "https://plethora.invalid");
     if (url.protocol === "https:" || url.protocol === "http:" || url.protocol === "mailto:") return href;
   } catch {}
   return undefined;

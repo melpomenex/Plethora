@@ -7,7 +7,7 @@
 //! A pinned, checksum-verified `uv` bootstrapper supplies Python and installs
 //! the official `nougat-ocr` package.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::ocr::providers::{nougat_executable_is_runnable, resolve_nougat_executables};
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -67,7 +67,7 @@ pub struct NougatRuntimeStatus {
 
 fn runtime_root(app_handle: &AppHandle) -> Result<PathBuf> {
     let app_dir = app_handle.path().app_data_dir().map_err(|error| {
-        IncrementumError::Internal(format!("Failed to resolve app data directory: {error}"))
+        PlethoraError::Internal(format!("Failed to resolve app data directory: {error}"))
     })?;
     Ok(app_dir.join("ocr").join("nougat-runtime"))
 }
@@ -137,7 +137,7 @@ async fn run_checked(command: &mut Command, label: &str) -> Result<()> {
     let output = command
         .output()
         .await
-        .map_err(|error| IncrementumError::Internal(format!("Failed to start {label}: {error}")))?;
+        .map_err(|error| PlethoraError::Internal(format!("Failed to start {label}: {error}")))?;
     if output.status.success() {
         return Ok(());
     }
@@ -145,7 +145,7 @@ async fn run_checked(command: &mut Command, label: &str) -> Result<()> {
     let stderr = tail_output(&output.stderr);
     let stdout = tail_output(&output.stdout);
     let detail = if !stderr.is_empty() { stderr } else { stdout };
-    Err(IncrementumError::Internal(format!(
+    Err(PlethoraError::Internal(format!(
         "{label} failed with status {}{}",
         output.status,
         if detail.is_empty() {
@@ -168,7 +168,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
     tokio::fs::create_dir_all(&installer_dir)
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to create Nougat installer directory: {error}"
             ))
         })?;
@@ -183,7 +183,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to create the Nougat installer client: {error}"
             ))
         })?
@@ -191,11 +191,11 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
         .send()
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!("Failed to download the Nougat installer: {error}"))
+            PlethoraError::Internal(format!("Failed to download the Nougat installer: {error}"))
         })?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Nougat installer download failed with HTTP {}",
             response.status()
         )));
@@ -204,7 +204,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
         .content_length()
         .is_some_and(|length| length as usize > UV_INSTALLER_MAX_BYTES)
     {
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "Nougat installer download was unexpectedly large".to_string(),
         ));
     }
@@ -212,7 +212,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
     let mut file = tokio::fs::File::create(&temporary_path)
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to create the Nougat installer file: {error}"
             ))
         })?;
@@ -221,29 +221,29 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            IncrementumError::Internal(format!("Nougat installer download failed: {error}"))
+            PlethoraError::Internal(format!("Nougat installer download failed: {error}"))
         })?;
         downloaded = downloaded.saturating_add(chunk.len());
         if downloaded > UV_INSTALLER_MAX_BYTES {
             let _ = tokio::fs::remove_file(&temporary_path).await;
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Nougat installer download exceeded the safety limit".to_string(),
             ));
         }
         hasher.update(&chunk);
         file.write_all(&chunk).await.map_err(|error| {
-            IncrementumError::Internal(format!("Failed to write the Nougat installer: {error}"))
+            PlethoraError::Internal(format!("Failed to write the Nougat installer: {error}"))
         })?;
     }
     file.flush().await.map_err(|error| {
-        IncrementumError::Internal(format!("Failed to finalize the Nougat installer: {error}"))
+        PlethoraError::Internal(format!("Failed to finalize the Nougat installer: {error}"))
     })?;
     drop(file);
 
     let digest = hex::encode(hasher.finalize());
     if digest != UV_INSTALLER_SHA256 {
         let _ = tokio::fs::remove_file(&temporary_path).await;
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Nougat installer checksum mismatch (expected {UV_INSTALLER_SHA256}, received {digest})"
         )));
     }
@@ -255,7 +255,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
         tokio::fs::remove_file(&installer_path)
             .await
             .map_err(|error| {
-                IncrementumError::Internal(format!(
+                PlethoraError::Internal(format!(
                     "Failed to replace the previous Nougat installer: {error}"
                 ))
             })?;
@@ -263,7 +263,7 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
     tokio::fs::rename(&temporary_path, &installer_path)
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!("Failed to save the Nougat installer: {error}"))
+            PlethoraError::Internal(format!("Failed to save the Nougat installer: {error}"))
         })?;
     Ok(installer_path)
 }
@@ -277,7 +277,7 @@ async fn install_uv(app_handle: &AppHandle, root: &Path, installer_path: &Path) 
     );
     let uv_dir = root.join("uv");
     tokio::fs::create_dir_all(&uv_dir).await.map_err(|error| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to create the managed runtime directory: {error}"
         ))
     })?;
@@ -304,7 +304,7 @@ async fn install_uv(app_handle: &AppHandle, root: &Path, installer_path: &Path) 
 
     let uv_binary = managed_uv_binary(root);
     if !tokio::fs::try_exists(&uv_binary).await.unwrap_or(false) {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "The runtime manager completed but {} was not created",
             uv_binary.display()
         )));
@@ -323,11 +323,11 @@ fn configure_uv_command(command: &mut Command, root: &Path) {
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub async fn install_managed_nougat(app_handle: AppHandle) -> Result<NougatRuntimeStatus> {
     let _guard = install_lock().try_lock().map_err(|_| {
-        IncrementumError::Internal("A Nougat installation is already running".to_string())
+        PlethoraError::Internal("A Nougat installation is already running".to_string())
     })?;
     let root = runtime_root(&app_handle)?;
     tokio::fs::create_dir_all(&root).await.map_err(|error| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to create the Nougat runtime directory: {error}"
         ))
     })?;
@@ -400,7 +400,7 @@ pub async fn install_managed_nougat(app_handle: AppHandle) -> Result<NougatRunti
     .await
     .unwrap_or(false);
     if !verified {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Nougat was installed but {} did not start successfully",
             executable.display()
         )));
@@ -429,7 +429,7 @@ pub async fn install_managed_nougat(app_handle: AppHandle) -> Result<NougatRunti
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub async fn install_managed_nougat(_app_handle: AppHandle) -> Result<NougatRuntimeStatus> {
-    Err(IncrementumError::Internal(
+    Err(PlethoraError::Internal(
         "Managed Nougat installation is available on desktop only".to_string(),
     ))
 }
@@ -464,7 +464,7 @@ pub async fn get_nougat_runtime_status(
     })
     .await
     .map_err(|error| {
-        IncrementumError::Internal(format!("Failed to check the Nougat runtime: {error}"))
+        PlethoraError::Internal(format!("Failed to check the Nougat runtime: {error}"))
     })?;
     let (executable, managed_needs_repair) = executable;
     let managed = executable

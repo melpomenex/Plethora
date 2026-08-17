@@ -9,7 +9,7 @@ import { ImageOcclusionComposer, type ComposerSaveResult } from "./ImageOcclusio
 /**
  * Global Image Occlusion Composer host.
  *
- * Mounted once at the app shell; listens for `incrementum:create-image-occlusion`
+ * Mounted once at the app shell; listens for `plethora:create-image-occlusion`
  * and opens the composer for the requested asset. Unlike the old
  * `DocumentViewer`-scoped listener this host applies no `isTabActive` /
  * `documentId` gate, so an occlusion request from any surface (document hover,
@@ -41,9 +41,9 @@ export function OcclusionComposerHost() {
       if (!assetId) return;
       setRequest({ assetId, documentId, deckId, key: Date.now() });
     };
-    window.addEventListener("incrementum:create-image-occlusion", handler as EventListener);
+    window.addEventListener("plethora:create-image-occlusion", handler as EventListener);
     return () => {
-      window.removeEventListener("incrementum:create-image-occlusion", handler as EventListener);
+      window.removeEventListener("plethora:create-image-occlusion", handler as EventListener);
     };
   }, []);
 

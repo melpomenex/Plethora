@@ -67,7 +67,7 @@ type QuickFilter = "today" | "all" | "new";
 // sessionStorage key for the queue list scroll offset. Survives the
 // display:none → visible cycle (and a full remount) so the queue doesn't
 // jump back to the top when the user returns from another tab.
-const SCROLL_RESTORE_KEY = "incrementum.mobileQueue.scroll";
+const SCROLL_RESTORE_KEY = "plethora.mobileQueue.scroll";
 
 export function MobileQueueView({
   onStartReview,

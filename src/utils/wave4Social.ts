@@ -25,9 +25,9 @@ export interface PublicProfileConfig {
   fields: Array<"streak" | "cardsLearned" | "retentionRate" | "reviewsToday">;
 }
 
-const MARKETPLACE_KEY = "incrementum.community.marketplace";
-const GROUPS_KEY = "incrementum.community.groups";
-const PROFILE_KEY = "incrementum.community.public-profile";
+const MARKETPLACE_KEY = "plethora.community.marketplace";
+const GROUPS_KEY = "plethora.community.groups";
+const PROFILE_KEY = "plethora.community.public-profile";
 
 function readJson<T>(key: string, fallback: T): T {
   try {

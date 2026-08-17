@@ -3,7 +3,7 @@
 //! popover and the Item Stats modal consume.
 
 use crate::database::{ItemActivityRepository, ItemStatsRepository, Repository};
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::item_activity::{ActivityItemType, ActivitySurface};
 use crate::models::item_stats::{ItemStatsDetail, ItemStatsSummary, StatsItemType};
 use tauri::State;
@@ -15,7 +15,7 @@ const DEFAULT_LEECH_THRESHOLD: i32 = 8;
 
 fn parse_item_type(value: &str) -> Result<ActivityItemType> {
     ActivityItemType::from_str(value).ok_or_else(|| {
-        IncrementumError::InvalidInput(format!(
+        PlethoraError::InvalidInput(format!(
             "Unsupported item type for time tracking: {value}. Flashcard time is recorded \
              through the review path, which writes review_results."
         ))
@@ -24,7 +24,7 @@ fn parse_item_type(value: &str) -> Result<ActivityItemType> {
 
 fn parse_surface(value: &str) -> Result<ActivitySurface> {
     ActivitySurface::from_str(value)
-        .ok_or_else(|| IncrementumError::InvalidInput(format!("Unknown surface: {value}")))
+        .ok_or_else(|| PlethoraError::InvalidInput(format!("Unknown surface: {value}")))
 }
 
 /// Flush a batch of observed active seconds for one item.
@@ -80,7 +80,7 @@ pub async fn record_active_time(
 
 fn parse_stats_item_type(value: &str) -> Result<StatsItemType> {
     StatsItemType::from_wire(value).ok_or_else(|| {
-        IncrementumError::InvalidInput(format!("Unknown item type for statistics: {value}"))
+        PlethoraError::InvalidInput(format!("Unknown item type for statistics: {value}"))
     })
 }
 

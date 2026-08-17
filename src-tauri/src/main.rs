@@ -4,7 +4,7 @@
 use std::io::Write;
 
 fn early_log(message: &str) {
-    let log_path = std::env::temp_dir().join("incrementum-startup.log");
+    let log_path = std::env::temp_dir().join("plethora-startup.log");
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -63,5 +63,5 @@ fn main() {
             std::env::set_var("GST_REGISTRY", "/dev/null");
         }
     }
-    incrementum_tauri_lib::run()
+    plethora_tauri_lib::run()
 }

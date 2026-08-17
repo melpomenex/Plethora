@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useModal } from "../common/Modal";
 import {
   ArrowsClockwise,
   BookOpen,
@@ -33,6 +34,7 @@ import {
   syncFlashcardsToAnki,
   syncToObsidian,
   syncFromObsidian,
+  migrateObsidianVaultIds,
   startBrowserSyncServer,
   stopBrowserSyncServer,
   getBrowserSyncServerStatus,
@@ -77,6 +79,8 @@ export function IntegrationSettings() {
       }
     });
   };
+
+  const modal = useModal();
 
   // Obsidian state
   const [obsidianVault, setObsidianVault] = useState("");
@@ -246,6 +250,13 @@ export function IntegrationSettings() {
       // Ignore errors
     }
   };
+
+  const buildObsidianConfig = (): ObsidianConfig => ({
+      vaultPath: obsidianVault,
+      notesFolder: obsidianNotes || "Incrementum",
+      attachmentsFolder: obsidianAttachments || "Incrementum Assets",
+      dataviewFolder: obsidianDataview || undefined,
+  });
 
   const handleSaveObsidian = () => {
     const config: ObsidianConfig = {
@@ -601,6 +612,58 @@ export function IntegrationSettings() {
                 {t("integrations.saveObsidianConfiguration")}
               </button>
             </div>
+          </div>
+
+          {/* One-time vault id migration (opt-in, default off) */}
+          <div className="bg-card border border-border rounded-lg p-6">
+            <h4 className="font-semibold text-foreground mb-2">
+              {t("integrations.migrateVaultIdsTitle")}
+            </h4>
+            <p className="text-sm text-muted-foreground mb-4">
+              {t("integrations.migrateVaultIdsDesc")}
+            </p>
+            <button
+              onClick={async () => {
+                const config = buildObsidianConfig();
+                if (!config.vaultPath) {
+                  showResult(false, t("integrations.migrateVaultIdsNeedVault"));
+                  return;
+                }
+                const confirmed = await modal.confirm(
+                  t("integrations.migrateVaultIdsConfirm", {
+                    notes: config.notesFolder,
+                  }),
+                  t("integrations.migrateVaultIdsTitle"),
+                  { confirmText: t("integrations.migrateVaultIdsButton") }
+                );
+                if (!confirmed) {
+                  return;
+                }
+                setIsOperating(true);
+                try {
+                  const result = await migrateObsidianVaultIds(config);
+                  showResult(
+                    result.errors.length === 0,
+                    t("integrations.migrateVaultIdsResult", {
+                      rewritten: result.filesRewritten,
+                      scanned: result.filesScanned,
+                    }) + (result.errors.length ? ` (${result.errors.length} errors, see logs)` : "")
+                  );
+                  if (result.errors.length) {
+                    console.warn("[migrateVaultIds]", result.errors);
+                  }
+                } catch (error) {
+                  console.error("Vault id migration failed:", error);
+                  showResult(false, t("integrations.migrateVaultIdsFailed"));
+                } finally {
+                  setIsOperating(false);
+                }
+              }}
+              disabled={isOperating}
+              className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+            >
+              {t("integrations.migrateVaultIdsButton")}
+            </button>
           </div>
 
           {/* AI Conversation Export Info */}

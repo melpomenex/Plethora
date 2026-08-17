@@ -23,7 +23,7 @@ pub async fn extract_content(file_path: &str, file_type: FileType) -> Result<Ext
     let path = Path::new(file_path);
 
     if !path.exists() {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "File not found: {}",
             file_path
         )));

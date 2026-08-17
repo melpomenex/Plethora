@@ -13,6 +13,7 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
 import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme } from "../themes/fallback";
 import { loadGoogleFont } from "../utils/fonts";
+import { migratedGetItem } from "../lib/brandMigration";
 import { invokeCommand } from "../lib/tauri";
 
 /**
@@ -40,7 +41,7 @@ function getFontFamilyCSS(fontFamily: string): string {
  */
 function loadSavedFontFamily(): string | null {
   try {
-    const stored = localStorage.getItem("incrementum-settings");
+    const stored = migratedGetItem("plethora-settings");
     if (stored) {
       const parsed = JSON.parse(stored);
       return parsed?.state?.settings?.appearance?.fontFamily || null;
@@ -172,7 +173,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   root.style.colorScheme = isDark ? "dark" : "light";
 
   // Apply per-theme custom CSS (if provided)
-  const customStyleId = "incrementum-theme-custom-css";
+  const customStyleId = "plethora-theme-custom-css";
   let customStyle = document.getElementById(customStyleId) as HTMLStyleElement | null;
   if (theme.customCSS && theme.customCSS.trim().length > 0) {
     if (!customStyle) {
@@ -191,7 +192,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
  */
 function loadCustomThemes(): Theme[] {
   try {
-    const stored = localStorage.getItem("incrementum-custom-themes");
+    const stored = migratedGetItem("plethora-custom-themes");
     if (stored) {
       return JSON.parse(stored);
     }
@@ -206,7 +207,7 @@ function loadCustomThemes(): Theme[] {
  */
 function saveCustomThemes(themes: Theme[]): void {
   try {
-    localStorage.setItem("incrementum-custom-themes", JSON.stringify(themes));
+    localStorage.setItem("plethora-custom-themes", JSON.stringify(themes));
   } catch (error) {
     console.error("Failed to save custom themes:", error);
   }
@@ -217,7 +218,7 @@ function saveCustomThemes(themes: Theme[]): void {
  */
 function loadLastThemeId(): ThemeId {
   try {
-    const stored = localStorage.getItem("incrementum-last-theme");
+    const stored = migratedGetItem("plethora-last-theme");
     if (stored) {
       return stored;
     }
@@ -232,7 +233,7 @@ function loadLastThemeId(): ThemeId {
  */
 function saveLastThemeId(themeId: ThemeId): void {
   try {
-    localStorage.setItem("incrementum-last-theme", themeId);
+    localStorage.setItem("plethora-last-theme", themeId);
   } catch (error) {
     console.error("Failed to save last theme:", error);
   }

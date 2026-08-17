@@ -5,7 +5,7 @@ import { createLearningItem } from "../../api/learning-items";
 import { useToast } from "./Toast";
 import { useI18n } from "../../lib/i18n";
 
-const ENABLED_KEY = "incrementum.clipboardWatcher.enabled";
+const ENABLED_KEY = "plethora.clipboardWatcher.enabled";
 const POLL_MS = 1400;
 
 async function ensureClipboardInboxDocument(): Promise<string> {

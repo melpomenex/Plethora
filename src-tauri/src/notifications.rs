@@ -154,7 +154,7 @@ impl NotificationManager {
             priority: NotificationPriority::Normal,
             icon: Some("📚".to_string()),
             image: None,
-            action: Some("incrementum://queue".to_string()),
+            action: Some("plethora://queue".to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
             read: false,
             ttl: Some(3600), // 1 hour
@@ -185,7 +185,7 @@ impl NotificationManager {
             priority,
             icon: Some("⏰".to_string()),
             image: None,
-            action: Some("incrementum://queue".to_string()),
+            action: Some("plethora://queue".to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
             read: false,
             ttl: Some(7200), // 2 hours
@@ -214,7 +214,7 @@ impl NotificationManager {
             priority: NotificationPriority::Low,
             icon: Some("✅".to_string()),
             image: None,
-            action: Some("incrementum://dashboard".to_string()),
+            action: Some("plethora://dashboard".to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
             read: false,
             ttl: Some(86400), // 24 hours
@@ -237,7 +237,7 @@ impl NotificationManager {
             priority: NotificationPriority::Normal,
             icon: Some("📄".to_string()),
             image: None,
-            action: Some("incrementum://documents".to_string()),
+            action: Some("plethora://documents".to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
             read: false,
             ttl: Some(3600),

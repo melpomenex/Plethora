@@ -216,7 +216,7 @@ export function ImageSaveOverlay() {
     setIsCreatingOcclusion(true);
     try {
       const asset = await ingestHoveredImage();
-      window.dispatchEvent(new CustomEvent("incrementum:create-image-occlusion", {
+      window.dispatchEvent(new CustomEvent("plethora:create-image-occlusion", {
         detail: {
           assetId: asset.id,
           documentId: hoverData.documentId,

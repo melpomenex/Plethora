@@ -34,7 +34,7 @@ describe("MobileLayoutWrapper back dispatch", () => {
     registerContextualBackHandler(contextual);
     render(<MobileLayoutWrapper><div>Content</div></MobileLayoutWrapper>);
 
-    const event = new Event("incrementum:system-back", { cancelable: true });
+    const event = new Event("plethora:system-back", { cancelable: true });
     window.dispatchEvent(event);
 
     expect(contextual).toHaveBeenCalledOnce();
@@ -48,7 +48,7 @@ describe("MobileLayoutWrapper back dispatch", () => {
     registerContextualBackHandler(contextual);
     render(<MobileLayoutWrapper><div>Content</div></MobileLayoutWrapper>);
 
-    window.dispatchEvent(new Event("incrementum:system-back", { cancelable: true }));
+    window.dispatchEvent(new Event("plethora:system-back", { cancelable: true }));
 
     expect(overlay).toHaveBeenCalledOnce();
     expect(contextual).not.toHaveBeenCalled();

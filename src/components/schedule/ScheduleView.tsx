@@ -89,10 +89,10 @@ export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ScheduleViewMode>(() =>
-    readViewMode(localStorage.getItem("incrementum_schedule_view_mode"), isMobile),
+    readViewMode(localStorage.getItem("plethora_schedule_view_mode"), isMobile),
   );
   const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(() => {
-    return localStorage.getItem("incrementum_schedule_dashboard_collapsed") === "true";
+    return localStorage.getItem("plethora_schedule_dashboard_collapsed") === "true";
   });
 
   // Spread modal state
@@ -121,12 +121,12 @@ export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }
   // Persist desktop view-mode + overview-collapse preferences (legacy keys).
   useEffect(() => {
     if (!isMobile) {
-      localStorage.setItem("incrementum_schedule_view_mode", viewMode === "agenda" ? "cards" : "table");
+      localStorage.setItem("plethora_schedule_view_mode", viewMode === "agenda" ? "cards" : "table");
     }
   }, [viewMode, isMobile]);
 
   useEffect(() => {
-    localStorage.setItem("incrementum_schedule_dashboard_collapsed", String(isOverviewCollapsed));
+    localStorage.setItem("plethora_schedule_dashboard_collapsed", String(isOverviewCollapsed));
   }, [isOverviewCollapsed]);
 
   // Clear a selected date safely when refreshed data no longer contains it.

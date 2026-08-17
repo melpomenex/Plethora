@@ -39,6 +39,7 @@ export const FEEDBACK_EVENT_IDS = [
   // Lifecycle / system
   "backup.auto-backup-found",
   "db.recovered-after-quarantine",
+  "migration.legacy-data-migrated",
   "focus.phase-completed",
   "sync.corruption",
   "update.available",
@@ -79,6 +80,7 @@ export interface FeedbackEventPayloads {
 
   "backup.auto-backup-found": { backupPath: string };
   "db.recovered-after-quarantine": Record<string, never>;
+  "migration.legacy-data-migrated": { legacyPath: string };
   "focus.phase-completed": { phase: "work" | "short_break" | "long_break"; phaseLabel: string };
   "sync.corruption": { message: string };
   "update.available": { latestVersion: string };

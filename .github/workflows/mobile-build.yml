@@ -274,9 +274,9 @@ jobs:
             KEY_ALIAS="$ANDROID_KEY_ALIAS"
             KEY_PASS="$ANDROID_KEY_PASSWORD"
           else
-            KS_PASS="incrementum-ci"
-            KEY_ALIAS="incrementum-ci"
-            KEY_PASS="incrementum-ci"
+            KS_PASS="plethora-ci"
+            KEY_ALIAS="plethora-ci"
+            KEY_PASS="plethora-ci"
             keytool -genkeypair \
               -v \
               -keystore artifacts/android-signing/release.keystore \
@@ -286,7 +286,7 @@ jobs:
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=Incrementum CI, OU=Mobile, O=Incrementum, L=NA, S=NA, C=US"
+              -dname "CN=Plethora CI"
           fi
 
           APK_TO_SIGN="$(find src-tauri/gen/android -type f -name '*release-unsigned.apk' | head -1 || true)"

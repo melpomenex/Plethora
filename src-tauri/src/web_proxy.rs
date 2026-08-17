@@ -60,7 +60,7 @@ const MAX_STREAMED_BYTES: usize = 64 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 10;
 
 /// Namespace field every bridge message carries (D4).
-pub const BRIDGE_NS: &str = "incrementum-web";
+pub const BRIDGE_NS: &str = "plethora-web";
 
 #[derive(serde::Deserialize)]
 struct WebParams {

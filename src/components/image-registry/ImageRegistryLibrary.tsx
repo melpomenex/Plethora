@@ -226,7 +226,7 @@ export function ImageRegistryLibrary({
   /** Open the Image Occlusion Composer for an asset already in the registry. */
   const dispatchOcclusionRequest = useCallback((assetId: string) => {
     window.dispatchEvent(
-      new CustomEvent("incrementum:create-image-occlusion", {
+      new CustomEvent("plethora:create-image-occlusion", {
         detail: { assetId },
       }),
     );

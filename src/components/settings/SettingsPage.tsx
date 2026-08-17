@@ -388,7 +388,7 @@ export function SettingsPage() {
   const [showMobileMenu, setShowMobileMenu] = useState(true);
 
   const isMobile = useMobileShell();
-  const initialTabKey = "incrementum_settings_initial_tab";
+  const initialTabKey = "plethora_settings_initial_tab";
   const { t } = useI18n();
   const modal = useModal();
   const tabs = useTabsStore((state) => state.tabs);

@@ -68,7 +68,7 @@ verify_transcription_runtime() {
 
 verify_binary_links() {
   local app_bundle="$1"
-  local main_binary="$app_bundle/Contents/MacOS/incrementum-tauri"
+  local main_binary="$app_bundle/Contents/MacOS/plethora-tauri"
 
   if [[ ! -f "$main_binary" ]]; then
     echo "Missing main binary: $main_binary"

@@ -145,9 +145,9 @@ export function HandbookSettings() {
   };
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("incrementum-theme-backdrop-suspend", { detail: { suspended: true } }));
+    window.dispatchEvent(new CustomEvent("plethora-theme-backdrop-suspend", { detail: { suspended: true } }));
     return () => {
-      window.dispatchEvent(new CustomEvent("incrementum-theme-backdrop-suspend", { detail: { suspended: false } }));
+      window.dispatchEvent(new CustomEvent("plethora-theme-backdrop-suspend", { detail: { suspended: false } }));
     };
   }, []);
 

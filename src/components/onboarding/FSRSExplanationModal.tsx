@@ -254,7 +254,7 @@ const explanationSteps: ExplanationStep[] = [
   },
 ];
 
-const STORAGE_KEY = "incrementum_fsrs_explanation_shown";
+const STORAGE_KEY = "plethora_fsrs_explanation_shown";
 
 export function FSRSExplanationModal({ isOpen, onClose }: FSRSExplanationModalProps) {
   const [currentStep, setCurrentStep] = useState(0);

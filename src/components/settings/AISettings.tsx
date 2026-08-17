@@ -194,7 +194,7 @@ export function AISettings() {
           setHasBraveKey(true);
           setBraveKey("");
         }
-        await invokeCommand("brave_web_search", { query: "incrementum" });
+        await invokeCommand("brave_web_search", { query: "plethora" });
         setTestResult("Brave Search: Connection successful");
       } else {
         const result = await testAIConnection(provider);

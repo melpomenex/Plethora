@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::document::{Document, FileType};
 use crate::models::extract::Extract;
 use crate::models::podcast::{
@@ -48,15 +48,15 @@ pub async fn subscribe_podcast(
         .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
     let response =
         client.get(&feed_url).send().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e))
+            PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e))
         })?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Failed to fetch podcast feed: HTTP {}",
             response.status()
         )));
@@ -65,10 +65,10 @@ pub async fn subscribe_podcast(
     let xml = response
         .text()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read feed response: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read feed response: {}", e)))?;
 
     let parsed = parse_podcast_feed(&xml)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to parse podcast feed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to parse podcast feed: {}", e)))?;
 
     let feed_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -152,7 +152,7 @@ pub async fn refresh_podcast_feed(
     let feed = repo
         .get_podcast_feed(&feed_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Podcast feed {}", feed_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Podcast feed {}", feed_id)))?;
 
     let feed_url = feed.feed_url.clone();
 
@@ -161,15 +161,15 @@ pub async fn refresh_podcast_feed(
         .user_agent("Plethora/1.31.0")
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
     let response =
         client.get(&feed_url).send().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e))
+            PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e))
         })?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Failed to fetch podcast feed: HTTP {}",
             response.status()
         )));
@@ -178,10 +178,10 @@ pub async fn refresh_podcast_feed(
     let xml = response
         .text()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read feed response: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read feed response: {}", e)))?;
 
     let parsed = parse_podcast_feed(&xml)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to parse podcast feed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to parse podcast feed: {}", e)))?;
 
     let mut updated_feed = feed.clone();
     updated_feed.title = parsed.title;
@@ -439,11 +439,11 @@ async fn run_transcription_job(
     let episode = repo
         .get_podcast_episode_by_id(&episode_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Podcast episode {}", episode_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Podcast episode {}", episode_id)))?;
 
     let audio_url = episode.audio_url.clone();
     let model_id = model.ok_or_else(|| {
-        IncrementumError::InvalidInput("No transcription model was requested.".to_string())
+        PlethoraError::InvalidInput("No transcription model was requested.".to_string())
     })?;
     let lang = language.unwrap_or_else(|| "auto".to_string());
 
@@ -464,10 +464,10 @@ async fn run_transcription_job(
     let temp_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| IncrementumError::Internal(e.to_string()))?
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?
         .join("temp_transcription");
     std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create temp dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create temp dir: {}", e)))?;
 
     let ext = episode
         .audio_type
@@ -491,20 +491,20 @@ async fn run_transcription_job(
     };
 
     // Download with streaming progress
-    let download_result: std::result::Result<(), IncrementumError> = async {
+    let download_result: std::result::Result<(), PlethoraError> = async {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
-            .map_err(|e| IncrementumError::Internal(format!("HTTP client error: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("HTTP client error: {}", e)))?;
 
         let response = client
             .get(&audio_url)
             .send()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Download failed: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Download failed: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Download failed: HTTP {}",
                 response.status()
             )));
@@ -513,7 +513,7 @@ async fn run_transcription_job(
         let total_size = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
         let mut file = tokio::fs::File::create(&temp_file).await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to create temp file: {}", e))
+            PlethoraError::Internal(format!("Failed to create temp file: {}", e))
         })?;
 
         // Local throttle state for download progress (last_emitted_pct, last_emit).
@@ -522,15 +522,15 @@ async fn run_transcription_job(
         let mut stream = response.bytes_stream();
         while let Some(item) = stream.next().await {
             if cancel_token.load(Ordering::Relaxed) {
-                return Err(IncrementumError::Internal(
+                return Err(PlethoraError::Internal(
                     "Transcription cancelled".to_string(),
                 ));
             }
             let chunk = item
-                .map_err(|e| IncrementumError::Internal(format!("Download stream error: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Download stream error: {}", e)))?;
             file.write_all(&chunk)
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Write error: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
             downloaded += chunk.len() as u64;
 
             if total_size > 0 {
@@ -553,7 +553,7 @@ async fn run_transcription_job(
         }
         file.flush()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Flush error: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Flush error: {}", e)))?;
         Ok(())
     }
     .await;
@@ -580,7 +580,7 @@ async fn run_transcription_job(
 
     // 6. Prepare + transcribe using TranscriptionEngine
     let model_manager =
-        ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
+        ModelManager::new(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
 
     let selected_model = model_id;
     if !model_manager.is_model_installed(&selected_model) {
@@ -589,7 +589,7 @@ async fn run_transcription_job(
         repo.update_episode_transcript_status(&episode_id, "error", Some(&message), None)
             .await?;
         cleanup(&tokens, &episode_id);
-        return Err(IncrementumError::InvalidInput(message));
+        return Err(PlethoraError::InvalidInput(message));
     }
 
     let engine = TranscriptionEngine::new(app_handle.clone());
@@ -615,7 +615,7 @@ async fn run_transcription_job(
         repo.update_episode_transcript_status(&episode_id, "error", Some("Cancelled"), None)
             .await?;
         cleanup(&tokens, &episode_id);
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "Transcription cancelled".to_string(),
         ));
     }
@@ -624,7 +624,7 @@ async fn run_transcription_job(
         let prepared = engine
             .prepare_audio(Path::new(&temp_file))
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Audio preparation failed: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Audio preparation failed: {}", e)))?;
 
         let model_path = model_manager.get_model_path(&selected_model);
         // Route to the right engine based on the model family. Sherpa-onnx models
@@ -655,7 +655,7 @@ async fn run_transcription_job(
                     )),
                 )
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         } else if is_parakeet {
             engine
                 .transcribe_parakeet(
@@ -677,7 +677,7 @@ async fn run_transcription_job(
                     )),
                 )
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         } else {
             engine
                 .transcribe(
@@ -699,16 +699,16 @@ async fn run_transcription_job(
                     )),
                 )
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
         }
 
         if cancel_post.load(Ordering::Relaxed) {
-            return Err(IncrementumError::Internal(
+            return Err(PlethoraError::Internal(
                 "Transcription cancelled".to_string(),
             ));
         }
 
-        Ok::<(), IncrementumError>(())
+        Ok::<(), PlethoraError>(())
     }
     .await;
 
@@ -885,7 +885,7 @@ pub async fn get_podcast_transcript(
     let episode = repo
         .get_podcast_episode_by_id(&episode_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Podcast episode {}", episode_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Podcast episode {}", episode_id)))?;
 
     let status = episode.transcript_status.clone();
     let text = episode.transcript_text.unwrap_or_default();
@@ -955,7 +955,7 @@ pub async fn resolve_podcast_audio_url(url: String) -> Result<String> {
         // Mirror a browser-ish UA so CDN edge nodes don't block the HEAD.
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
     // Use GET (not HEAD): some podcast CDNs respond 405/404 to HEAD but 200 to
     // a range GET. We request 0 bytes via Range so we don't download the file —
     // we only need the final URL after redirects.
@@ -964,7 +964,7 @@ pub async fn resolve_podcast_audio_url(url: String) -> Result<String> {
         .header("Range", "bytes=0-0")
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve audio URL: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve audio URL: {}", e)))?;
     Ok(resp.url().to_string())
 }
 
@@ -1006,7 +1006,7 @@ pub async fn split_audio_for_groq_mobile(
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
     split_audio_for_groq_mobile_inner(&app_handle, &client, &url).await
 }
 
@@ -1029,7 +1029,7 @@ async fn split_audio_for_groq_mobile_inner(
     let cache_dir = app_handle
         .path()
         .app_cache_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve cache dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve cache dir: {}", e)))?;
     let chunks_dir = cache_dir.join("groq_mobile_chunks");
     let _ = std::fs::remove_dir_all(&chunks_dir);
     std::fs::create_dir_all(&chunks_dir)?;
@@ -1037,15 +1037,15 @@ async fn split_audio_for_groq_mobile_inner(
     let full_path = chunks_dir.join("source.bin");
     let mut file = tokio::fs::File::create(&full_path)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create temp file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create temp file: {}", e)))?;
 
     let resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to download audio: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to download audio: {}", e)))?;
     if !resp.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Audio download failed: HTTP {}",
             resp.status()
         )));
@@ -1064,24 +1064,24 @@ async fn split_audio_for_groq_mobile_inner(
     let mut stream = resp.bytes_stream();
     while let Some(item) = stream.next().await {
         let chunk =
-            item.map_err(|e| IncrementumError::Internal(format!("Download stream error: {}", e)))?;
+            item.map_err(|e| PlethoraError::Internal(format!("Download stream error: {}", e)))?;
         file.write_all(&chunk)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to write temp file: {}", e)))?;
     }
     file.flush().await?;
     drop(file);
 
     // 2. Read the downloaded bytes and split them (shared with the local-file path).
     let data = std::fs::read(&full_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read temp file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read temp file: {}", e)))?;
     let chunks_out = split_audio_bytes_into_groq_chunks(&data, is_mp3, &chunks_dir)?;
 
     // Remove the full source file; chunk files remain for upload + later cleanup.
     let _ = std::fs::remove_file(&full_path);
 
     if chunks_out.is_empty() {
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "Audio split produced no chunks (empty download?)".to_string(),
         ));
     }
@@ -1135,7 +1135,7 @@ fn split_audio_bytes_into_groq_chunks(
         let chunk_bytes = &data[start_byte as usize..end_byte as usize];
         let chunk_path = chunks_dir.join(format!("chunk_{:04}.mp3", i));
         std::fs::write(&chunk_path, chunk_bytes).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to write chunk {}: {}", i, e))
+            PlethoraError::Internal(format!("Failed to write chunk {}: {}", i, e))
         })?;
         let start_ms = (start_byte * 8000 / bitrate_bps.max(1)) as i64;
         let end_ms = (end_byte * 8000 / bitrate_bps.max(1)) as i64;
@@ -1322,7 +1322,7 @@ pub async fn transcribe_podcast_groq_chunks(
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("HTTP client build failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("HTTP client build failed: {}", e)))?;
 
     // 1. Split on-device into <25 MB chunks (download + MP3 frame split).
     let _ = app_handle.emit(
@@ -1346,7 +1346,7 @@ pub async fn transcribe_podcast_groq_chunks(
 
         // Read chunk bytes from disk (stays in Rust — no IPC).
         let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e))
+            PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e))
         })?;
         eprintln!(
             "[podcast-transcribe] groq_chunks: chunk {} = {} bytes",
@@ -1366,7 +1366,7 @@ pub async fn transcribe_podcast_groq_chunks(
         let part = reqwest::multipart::Part::bytes(chunk_bytes)
             .file_name(format!("chunk_{:04}.mp3", i))
             .mime_str("audio/mp3")
-            .map_err(|e| IncrementumError::Internal(format!("mime build failed: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("mime build failed: {}", e)))?;
         form = form.part("file", part);
 
         let resp = client
@@ -1376,7 +1376,7 @@ pub async fn transcribe_podcast_groq_chunks(
             .send()
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+                PlethoraError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
             })?;
 
         if !resp.status().is_success() {
@@ -1388,7 +1388,7 @@ pub async fn transcribe_podcast_groq_chunks(
                 status,
                 &body[..body.len().min(300)]
             );
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Groq chunk {} failed (HTTP {}): {}",
                 i,
                 status,
@@ -1397,7 +1397,7 @@ pub async fn transcribe_podcast_groq_chunks(
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
-            IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
+            PlethoraError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
         })?;
 
         // Map this chunk's segments, adding the chunk's start_ms offset.
@@ -1505,12 +1505,12 @@ pub async fn transcribe_audio_file_groq(
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
         .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("HTTP client build failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("HTTP client build failed: {}", e)))?;
 
     // 1. Read the local audio file.
     let path = Path::new(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Audio file not found: {}",
             file_path
         )));
@@ -1520,7 +1520,7 @@ pub async fn transcribe_audio_file_groq(
         serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": 5, "message": "Reading audio…" }),
     );
     let data = std::fs::read(path).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to read audio file {}: {}", file_path, e))
+        PlethoraError::Internal(format!("Failed to read audio file {}: {}", file_path, e))
     })?;
 
     // 2. Split into <25 MB chunks (ffmpeg-free). Detect MP3 by extension.
@@ -1531,7 +1531,7 @@ pub async fn transcribe_audio_file_groq(
     let cache_dir = app_handle
         .path()
         .app_cache_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve cache dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve cache dir: {}", e)))?;
     let chunks_dir = cache_dir.join("groq_mobile_chunks");
     let _ = std::fs::remove_dir_all(&chunks_dir);
     std::fs::create_dir_all(&chunks_dir)?;
@@ -1552,7 +1552,7 @@ pub async fn transcribe_audio_file_groq(
         .bind(language.as_deref().unwrap_or("en"))
         .execute(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to mark transcript processing: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to mark transcript processing: {}", e)))?;
 
     let transcript_id: i64 =
         sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
@@ -1561,7 +1561,7 @@ pub async fn transcribe_audio_file_groq(
             .fetch_one(repo.pool())
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to fetch transcript id: {}", e))
+                PlethoraError::Internal(format!("Failed to fetch transcript id: {}", e))
             })?;
     let resume_start_ms: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(end_ms), 0) FROM transcript_segments WHERE transcript_id = ?",
@@ -1570,7 +1570,7 @@ pub async fn transcribe_audio_file_groq(
     .fetch_one(repo.pool())
     .await
     .map_err(|e| {
-        IncrementumError::Internal(format!("Failed to read transcript checkpoint: {}", e))
+        PlethoraError::Internal(format!("Failed to read transcript checkpoint: {}", e))
     })?;
 
     // 4. Upload each chunk to Groq and persist segments as they arrive.
@@ -1589,7 +1589,7 @@ pub async fn transcribe_audio_file_groq(
         );
 
         let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e))
+            PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e))
         })?;
 
         let mut form = reqwest::multipart::Form::new()
@@ -1603,7 +1603,7 @@ pub async fn transcribe_audio_file_groq(
         let part = reqwest::multipart::Part::bytes(chunk_bytes)
             .file_name(format!("chunk_{:04}.mp3", i))
             .mime_str("audio/mp3")
-            .map_err(|e| IncrementumError::Internal(format!("mime build failed: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("mime build failed: {}", e)))?;
         form = form.part("file", part);
 
         let resp = client
@@ -1613,7 +1613,7 @@ pub async fn transcribe_audio_file_groq(
             .send()
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+                PlethoraError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
             })?;
 
         if !resp.status().is_success() {
@@ -1625,7 +1625,7 @@ pub async fn transcribe_audio_file_groq(
                 status,
                 &body[..body.len().min(300)]
             );
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Groq chunk {} failed (HTTP {}): {}",
                 i,
                 status,
@@ -1634,7 +1634,7 @@ pub async fn transcribe_audio_file_groq(
         }
 
         let data_json: serde_json::Value = resp.json().await.map_err(|e| {
-            IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
+            PlethoraError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
         })?;
 
         let segments = data_json
@@ -1666,7 +1666,7 @@ pub async fn transcribe_audio_file_groq(
         // persisted timestamp, which is only safe when a crash cannot leave
         // half of a chunk committed.
         let mut tx = repo.pool().begin().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to begin Groq chunk checkpoint: {}", e))
+            PlethoraError::Internal(format!("Failed to begin Groq chunk checkpoint: {}", e))
         })?;
         for (start_ms, end_ms, seg_text) in persisted_chunk {
             sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
@@ -1677,10 +1677,10 @@ pub async fn transcribe_audio_file_groq(
                 .bind(1.0)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| IncrementumError::Internal(format!("Failed to checkpoint Groq chunk: {}", e)))?;
+                .map_err(|e| PlethoraError::Internal(format!("Failed to checkpoint Groq chunk: {}", e)))?;
         }
         tx.commit().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to commit Groq chunk checkpoint: {}", e))
+            PlethoraError::Internal(format!("Failed to commit Groq chunk checkpoint: {}", e))
         })?;
 
         if i < chunks.len() - 1 {
@@ -1699,7 +1699,7 @@ pub async fn transcribe_audio_file_groq(
     .bind(transcript_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to assemble resumed transcript: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to assemble resumed transcript: {}", e)))?;
     let full_text = all_segments
         .iter()
         .map(|(_, _, text)| text.trim())
@@ -1795,7 +1795,7 @@ pub async fn cancel_podcast_transcription(
         token.store(true, Ordering::Relaxed);
         Ok(())
     } else {
-        Err(IncrementumError::NotFound(format!(
+        Err(PlethoraError::NotFound(format!(
             "No active transcription for episode {}",
             episode_id
         )))
@@ -1813,7 +1813,7 @@ pub async fn import_podcast_episode_as_document(
     let episode = repo
         .get_podcast_episode_by_id(&episode_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Podcast episode {}", episode_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Podcast episode {}", episode_id)))?;
     import_episode_as_document_inner(&app_handle, &repo, &episode, collection_id).await
 }
 
@@ -1885,17 +1885,17 @@ pub async fn set_feed_auto_transcribe(
         .await
 }
 
-fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, IncrementumError> {
+fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, PlethoraError> {
     // Use the Tauri-resolved app data dir, which is the app's private writable
     // storage on every platform (on Android this is /data/data/<pkg>/files via
     // app_data_dir; dirs::data_dir() instead resolves to a READ-ONLY system path
     // on Android and fails with "Read-only file system" when creating the dir).
     let base = app_handle.path().app_data_dir().map_err(|e| {
-        IncrementumError::Internal(format!("Failed to resolve app_data_dir: {}", e))
+        PlethoraError::Internal(format!("Failed to resolve app_data_dir: {}", e))
     })?;
     let dir = base.join("podcast-audio");
     std::fs::create_dir_all(&dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create podcast-audio dir: {}", e))
+        PlethoraError::Internal(format!("Failed to create podcast-audio dir: {}", e))
     })?;
     Ok(dir)
 }
@@ -1944,16 +1944,16 @@ pub async fn download_podcast_episode(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("HTTP client error: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("HTTP client error: {}", e)))?;
 
     let response = client
         .get(&audio_url)
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Download failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Download failed: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Download failed: HTTP {}",
             response.status()
         )));
@@ -1962,16 +1962,16 @@ pub async fn download_podcast_episode(
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
     let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create temporary download file: {}", e))
+        PlethoraError::Internal(format!("Failed to create temporary download file: {}", e))
     })?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk =
-            chunk.map_err(|e| IncrementumError::Internal(format!("Download error: {}", e)))?;
+            chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
         file.write_all(&chunk)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Write error: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
         downloaded += chunk.len() as u64;
 
         if total_size > 0 {
@@ -1985,7 +1985,7 @@ pub async fn download_podcast_episode(
 
     file.flush()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Flush error: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Flush error: {}", e)))?;
 
     // Download complete, now handle SponsorBlock skipping
     let repo = app_handle.state::<Repository>();
@@ -2047,7 +2047,7 @@ pub async fn download_podcast_episode(
     if !cut_applied {
         // No cuts applied, rename raw downloaded file to dest path
         std::fs::rename(&temp_path, &dest_path).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to save final download file: {}", e))
+            PlethoraError::Internal(format!("Failed to save final download file: {}", e))
         })?;
     }
 
@@ -2090,7 +2090,7 @@ pub async fn get_downloaded_episode_path(
 pub async fn delete_downloaded_episode(episode_id: String, app_handle: AppHandle) -> Result<()> {
     if let Some(path) = find_existing_download(&app_handle, &episode_id) {
         std::fs::remove_file(&path)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to delete: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to delete: {}", e)))?;
     }
     Ok(())
 }
@@ -2124,24 +2124,24 @@ pub async fn search_podcasts(query: String) -> Result<Vec<PodcastSearchResult>> 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
     let response = client
         .get("https://itunes.apple.com/search")
         .query(&[("media", "podcast"), ("term", q)])
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Search request failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Search request failed: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Search API returned HTTP {}",
             response.status()
         )));
     }
 
     let data: ITunesSearchResponse = response.json().await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to parse search response: {}", e))
+        PlethoraError::Internal(format!("Failed to parse search response: {}", e))
     })?;
 
     let results = data

@@ -1,6 +1,6 @@
 //! GLM-OCR runtime management (Ollama + vLLM)
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
 use serde_json::json;
@@ -63,7 +63,7 @@ fn get_state() -> &'static TokioMutex<GLMRuntimeState> {
 
 fn runtime_root(app_handle: &AppHandle) -> Result<PathBuf> {
     let app_dir = app_handle.path().app_data_dir().map_err(|e| {
-        IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+        PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
     })?;
     Ok(app_dir.join("ocr").join("glm-runtime"))
 }
@@ -73,10 +73,10 @@ fn runtime_dirs(app_handle: &AppHandle) -> Result<(PathBuf, PathBuf)> {
     let installers = root.join("installers");
     let models = root.join("models");
     std::fs::create_dir_all(&installers).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create installers dir: {}", e))
+        PlethoraError::Internal(format!("Failed to create installers dir: {}", e))
     })?;
     std::fs::create_dir_all(&models)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create models dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create models dir: {}", e)))?;
     Ok((installers, models))
 }
 
@@ -134,7 +134,7 @@ fn resolve_ollama_binary(path_override: Option<String>) -> Result<String> {
     if executable_exists_in_path("ollama") {
         Ok("ollama".to_string())
     } else {
-        Err(IncrementumError::Internal(
+        Err(PlethoraError::Internal(
             "Ollama not found in PATH. Please install Ollama or provide a binary path.".to_string(),
         ))
     }
@@ -202,11 +202,11 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
     let client = reqwest::Client::new();
     let response =
         client.get(url).send().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to download installer: {}", e))
+            PlethoraError::Internal(format!("Failed to download installer: {}", e))
         })?;
 
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Installer download failed: {}",
             response.status()
         )));
@@ -215,16 +215,16 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
     let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create installer file: {}", e))
+        PlethoraError::Internal(format!("Failed to create installer file: {}", e))
     })?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk =
-            chunk.map_err(|e| IncrementumError::Internal(format!("Download error: {}", e)))?;
+            chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
         file.write_all(&chunk)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Write error: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
         downloaded += chunk.len() as u64;
 
         if total_size > 0 {
@@ -238,12 +238,12 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
 
     file.flush()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to flush installer: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to flush installer: {}", e)))?;
     drop(file);
 
     tokio::fs::rename(&temp_path, &dest_path)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to finalize installer: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to finalize installer: {}", e)))?;
 
     {
         let mut state = get_state().lock().await;
@@ -261,7 +261,7 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
 /// Stub for unsupported platforms
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub async fn download_ollama_installer(_app_handle: AppHandle) -> Result<String> {
-    Err(IncrementumError::Internal(
+    Err(PlethoraError::Internal(
         "Automatic Ollama installer download is not supported on this platform".to_string(),
     ))
 }
@@ -269,7 +269,7 @@ pub async fn download_ollama_installer(_app_handle: AppHandle) -> Result<String>
 pub async fn open_installer(path: String) -> Result<()> {
     let installer_path = PathBuf::from(path);
     if !installer_path.exists() {
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "Installer not found".to_string(),
         ));
     }
@@ -279,7 +279,7 @@ pub async fn open_installer(path: String) -> Result<()> {
         std::process::Command::new("cmd")
             .args(["/C", "start", "", installer_path.to_string_lossy().as_ref()])
             .spawn()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to open installer: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to open installer: {}", e)))?;
     }
 
     #[cfg(target_os = "macos")]
@@ -287,7 +287,7 @@ pub async fn open_installer(path: String) -> Result<()> {
         std::process::Command::new("open")
             .arg(&installer_path)
             .spawn()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to open installer: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to open installer: {}", e)))?;
     }
 
     #[cfg(target_os = "linux")]
@@ -295,7 +295,7 @@ pub async fn open_installer(path: String) -> Result<()> {
         std::process::Command::new("xdg-open")
             .arg(&installer_path)
             .spawn()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to open installer: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to open installer: {}", e)))?;
     }
 
     Ok(())
@@ -324,7 +324,7 @@ pub async fn start_ollama_runtime(
 
     let mut child = command
         .spawn()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to start Ollama: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to start Ollama: {}", e)))?;
 
     {
         let mut state = get_state().lock().await;
@@ -341,7 +341,7 @@ pub async fn start_ollama_runtime(
     }
 
     stop_ollama_runtime().await?;
-    Err(IncrementumError::Internal(
+    Err(PlethoraError::Internal(
         "Ollama failed to start in time".to_string(),
     ))
 }
@@ -352,7 +352,7 @@ pub async fn stop_ollama_runtime() -> Result<()> {
         child
             .kill()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to stop Ollama: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to stop Ollama: {}", e)))?;
     }
     Ok(())
 }
@@ -377,7 +377,7 @@ pub async fn pull_ollama_model(
         .await;
 
         if let Err(e) = start_result {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "Ollama server is not running and failed to start automatically. \
                 Please start Ollama manually or check the logs. Error: {}",
                 e
@@ -394,7 +394,7 @@ pub async fn pull_ollama_model(
         .send()
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to call Ollama pull API: {}", e))
+            PlethoraError::Internal(format!("Failed to call Ollama pull API: {}", e))
         })?;
 
     if !response.status().is_success() {
@@ -408,7 +408,7 @@ pub async fn pull_ollama_model(
         } else {
             ""
         };
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Ollama pull failed ({}): {}{}",
             status,
             if cleaned.is_empty() {
@@ -421,7 +421,7 @@ pub async fn pull_ollama_model(
     }
 
     let body = response.text().await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to read Ollama pull response: {}", e))
+        PlethoraError::Internal(format!("Failed to read Ollama pull response: {}", e))
     })?;
 
     Ok(if body.trim().is_empty() {

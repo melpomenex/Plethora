@@ -3,7 +3,7 @@ import type { TTSModelInfo } from "./types";
 
 export const OPENROUTER_CATALOG_URL = "https://openrouter.ai/api/v1/models?output_modalities=speech";
 export const OPENROUTER_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
-export const OPENROUTER_CATALOG_STORAGE_KEY = "incrementum-tts-openrouter-catalog-v1";
+export const OPENROUTER_CATALOG_STORAGE_KEY = "plethora-tts-openrouter-catalog-v1";
 
 export interface CatalogResult {
   models: TTSModelInfo[];

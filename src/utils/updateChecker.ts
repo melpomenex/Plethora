@@ -12,8 +12,8 @@
 import { isTauri, isNativeMobile, nativePlatform } from "../lib/tauri";
 
 const GITHUB_LATEST_RELEASE_URL =
-  "https://api.github.com/repos/melpomenex/incrementum-tauri/releases/latest";
-const SKIP_VERSION_KEY = "incrementum_skip_update_version";
+  "https://api.github.com/repos/melpomenex/Plethora/releases/latest";
+const SKIP_VERSION_KEY = "plethora_skip_update_version";
 
 // Re-export the updater's Update type lazily via a structural alias so callers
 // in UpdateAvailableDialog can call `.downloadAndInstall()` without a hard
@@ -140,7 +140,7 @@ async function getUpdaterBundleType(): Promise<string> {
  * Tauri `Update` object does not expose the bundle URL to JS).
  */
 function releaseTagUrl(latestVersion: string): string {
-  return `https://github.com/melpomenex/incrementum-tauri/releases/tag/v${latestVersion.replace(/^v/, "")}`;
+  return `https://github.com/melpomenex/Plethora/releases/tag/v${latestVersion.replace(/^v/, "")}`;
 }
 
 /**
@@ -284,14 +284,14 @@ async function checkViaGitHub(
           const { invokeCommand } = await import("../lib/tauri");
           try {
             console.log("[updateChecker] Backing up database to Downloads before installation...");
-            const backupPath = await invokeCommand<string>("plugin:incrementum-folder-import|backup_db_to_downloads");
+            const backupPath = await invokeCommand<string>("plugin:plethora-folder-import|backup_db_to_downloads");
             console.log("[updateChecker] Auto-backup completed to:", backupPath);
           } catch (err) {
             console.warn("[updateChecker] Auto-backup database failed:", err);
           }
 
           // 2. Install the APK file via our custom Android plugin command
-          await invokeCommand("plugin:incrementum-folder-import|install_apk", {
+          await invokeCommand("plugin:plethora-folder-import|install_apk", {
             filePath,
           });
         },

@@ -15,7 +15,7 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
     let buffer = match tokio::fs::read(path).await {
         Ok(b) => b,
         Err(e) => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Failed to read PDF file: {}",
                 e
             )))
@@ -59,7 +59,7 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
     let doc = match lopdf::Document::load_mem(&buffer) {
         Ok(d) => d,
         Err(e) => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Failed to parse PDF for metadata: {}",
                 e
             )))
@@ -114,18 +114,18 @@ pub async fn extract_pdf_page(file_path: &str, page_num: usize) -> Result<String
     let path = Path::new(file_path);
 
     let buffer = tokio::fs::read(path).await.map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to read PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e))
     })?;
 
     let doc = lopdf::Document::load_mem(&buffer).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to load PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e))
     })?;
 
     let pages = doc.get_pages();
     let page_count = pages.len();
 
     if page_num < 1 || page_num > page_count {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "Page {} out of range (1-{})",
             page_num, page_count
         )));
@@ -135,7 +135,7 @@ pub async fn extract_pdf_page(file_path: &str, page_num: usize) -> Result<String
     let _page_id = pages
         .keys()
         .nth(page_num - 1)
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Page not found".to_string()))?;
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Page not found".to_string()))?;
 
     // Extract text on the blocking pool: pdf_extract is CPU-bound for seconds
     // on large PDFs and must not stall an async runtime worker (design D5).
@@ -170,11 +170,11 @@ pub async fn get_pdf_page_count(file_path: &str) -> Result<usize> {
     let path = Path::new(file_path);
 
     let buffer = tokio::fs::read(path).await.map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to read PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e))
     })?;
 
     let doc = lopdf::Document::load_mem(&buffer).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to load PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e))
     })?;
 
     Ok(doc.get_pages().len())
@@ -196,11 +196,11 @@ pub async fn extract_pdf_pages_text(file_path: &str) -> Result<Vec<String>> {
     let path = Path::new(file_path);
 
     let buffer = tokio::fs::read(path).await.map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to read PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e))
     })?;
 
     let doc = lopdf::Document::load_mem(&buffer).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to load PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e))
     })?;
     let page_count = doc.get_pages().len();
     drop(doc);
@@ -266,11 +266,11 @@ pub async fn extract_pdf_cover_data_url(file_path: &str) -> Result<Option<String
     let path = Path::new(file_path);
 
     let buffer = tokio::fs::read(path).await.map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to read PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e))
     })?;
 
     let doc = lopdf::Document::load_mem(&buffer).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to load PDF: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e))
     })?;
 
     let first_page_id = doc.get_pages().iter().next().map(|(_, id)| *id);
@@ -329,7 +329,7 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
     let buffer = match tokio::fs::read(path).await {
         Ok(b) => b,
         Err(e) => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Failed to read PDF file: {}",
                 e
             )))
@@ -339,7 +339,7 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
     let doc = match lopdf::Document::load_mem(&buffer) {
         Ok(d) => d,
         Err(e) => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Failed to parse PDF: {}",
                 e
             )))
@@ -414,7 +414,7 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
         .collect();
 
     if usable_pages.is_empty() {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "No usable text layer was found in this PDF. Convert to HTML requires extractable text or an OCR provider for scanned/image-only PDFs.".to_string()
         ));
     }
@@ -1003,7 +1003,7 @@ pub async fn save_pdf_as_html(pdf_path: &str, output_path: Option<&str>) -> Resu
     tokio::fs::write(&output_file_path, &html_content)
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to save HTML file: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to save HTML file: {}", e))
         })?;
 
     Ok(output_file_path)

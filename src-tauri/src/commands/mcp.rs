@@ -208,9 +208,9 @@ pub async fn mcp_update_server(id: String, _updates: ServerConfigUpdate) -> Resu
     Ok(())
 }
 
-/// Get Incrementum's built-in MCP tools
+/// Get the app's built-in MCP tools
 #[tauri::command]
-pub async fn mcp_get_incrementum_tools(
+pub async fn mcp_get_app_tools(
     app: tauri::AppHandle,
 ) -> Result<Vec<ToolDefinitionResponse>, String> {
     let state = app.state::<crate::AppState>();
@@ -238,9 +238,9 @@ pub async fn mcp_get_incrementum_tools(
         .collect())
 }
 
-/// Call Incrementum's built-in MCP tool
+/// Call the app's built-in MCP tool
 #[tauri::command]
-pub async fn mcp_call_incrementum_tool(
+pub async fn mcp_call_app_tool(
     tool_name: String,
     arguments: serde_json::Value,
     app: tauri::AppHandle,
@@ -302,4 +302,43 @@ pub struct ToolCallResultResponse {
     pub content: Vec<ToolContentResponse>,
     #[serde(rename = "isError")]
     pub is_error: Option<bool>,
+}
+
+
+// ── deprecated legacy command aliases (rebrand task 3.10) ─────────────────
+// Kept for one release so external MCP integrations calling the pre-rebrand
+// command names keep working. They log once per process and delegate.
+
+static LEGACY_MCP_ALIAS_WARNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn warn_legacy_mcp_alias(name: &str) {
+    use std::sync::atomic::Ordering;
+    if !LEGACY_MCP_ALIAS_WARNED.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            "MCP command `{}` is deprecated; use `{}` (removed after one release)",
+            name,
+            name.trim_start_matches("mcp_get_incrementum").trim_start_matches("mcp_call_incrementum")
+        );
+    }
+}
+
+/// Deprecated alias of [`mcp_get_app_tools`].
+#[tauri::command]
+pub async fn mcp_get_incrementum_tools(
+    app: tauri::AppHandle,
+) -> Result<Vec<ToolDefinitionResponse>, String> {
+    warn_legacy_mcp_alias("mcp_get_incrementum_tools");
+    mcp_get_app_tools(app).await
+}
+
+/// Deprecated alias of [`mcp_call_app_tool`].
+#[tauri::command]
+pub async fn mcp_call_incrementum_tool(
+    tool_name: String,
+    arguments: serde_json::Value,
+    app: tauri::AppHandle,
+) -> Result<ToolCallResultResponse, String> {
+    warn_legacy_mcp_alias("mcp_call_incrementum_tool");
+    mcp_call_app_tool(tool_name, arguments, app).await
 }

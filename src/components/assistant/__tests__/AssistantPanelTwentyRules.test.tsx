@@ -25,8 +25,8 @@ vi.mock("../../../api/documents", () => ({
 }));
 
 vi.mock("../../../api/mcp", () => ({
-  callIncrementumMCPTool: vi.fn(),
-  getIncrementumMCPTools: vi.fn().mockResolvedValue([
+  callAppMCPTool: vi.fn(),
+  getAppMCPTools: vi.fn().mockResolvedValue([
     {
       name: "create_qa_card",
       description: "Create a Q&A card",

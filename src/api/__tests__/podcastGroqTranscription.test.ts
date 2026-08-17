@@ -83,7 +83,7 @@ describe("transcribePodcastEpisodeWithGroq (mocked Rust transcription)", () => {
     // Seed the Groq key in localStorage so the path (which reads it directly)
     // finds a key.
     localStorage.setItem(
-      "incrementum-settings",
+      "plethora-settings",
       JSON.stringify({ state: { settings: { audioTranscription: { groq: { apiKey: "gsk_test_key_for_unit_test_only", model: "whisper-large-v3-turbo" } } } } }),
     );
   });
@@ -136,7 +136,7 @@ describe("transcribePodcastEpisodeWithGroq (mocked Rust transcription)", () => {
 
   it("throws and emits a transcription-error when the key is missing", async () => {
     // Remove the key so the early guard fires.
-    localStorage.removeItem("incrementum-settings");
+    localStorage.removeItem("plethora-settings");
     await expect(
       transcribePodcastEpisodeWithGroq("ep-2", "https://example.com/bad.mp3", "en"),
     ).rejects.toThrow(/Groq API key not configured/);
