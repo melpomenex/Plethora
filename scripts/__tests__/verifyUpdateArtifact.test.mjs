@@ -35,10 +35,16 @@ const TEST_SIG =
 const TEST_SHA256 =
   "612760162932cbcb7fca652d1d809355cb50aec6248a3e778159bb66162c61b9";
 
-// Production updater pubkey from src-tauri/tauri.conf.json.
+// Production updater pubkey from src-tauri/tauri.conf.json (the NEW
+// Plethora key — rebrand task 3.8 rotated it).
 const PROD_PUBKEY = JSON.parse(
   readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
 ).plugins.updater.pubkey;
+
+// The pre-rebrand Incrementum updater pubkey — the historical release
+// signature vectors below are keyed to it.
+const LEGACY_INCREMENTUM_PUBKEY =
+  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCM0Q0ODk0NDY4NjE0M0MKUldROEZJWkdsRWc5YTBDUU5VRlY2TEpWejR3cy9DZm9MVDh3eloxKy9XWmY5RUhlR0NoOFpINzEK";
 
 // Real release signatures (base64-of-box, as uploaded to the release).
 const V2_6_0_APPIMAGE_SIG =
@@ -63,8 +69,13 @@ test("parseUpdaterPubkey extracts the 42-byte Ed25519 key structure", () => {
   const parsed = parseUpdaterPubkey(PROD_PUBKEY);
   assert.equal(parsed.keyId.length, 8);
   assert.equal(parsed.ed25519Key.length, 32);
-  // Same key id as embedded in the real release signatures below.
-  assert.equal(parsed.keyId.toString("hex"), "3c14864694483d6b");
+  // The Plethora updater key (rotated in rebrand task 3.8) — a DIFFERENT key
+  // id from the legacy Incrementum release signatures below.
+  assert.equal(parsed.keyId.toString("hex"), "c5e9c0e50b44f2f1");
+  assert.notEqual(
+    parsed.keyId.toString("hex"),
+    parseUpdaterPubkey(LEGACY_INCREMENTUM_PUBKEY).keyId.toString("hex"),
+  );
 });
 
 test("parseSignatureBox accepts base64-of-box and raw box text", () => {
@@ -182,7 +193,7 @@ test("real release signatures reject wrong artifact data without parse errors", 
         verifyUpdateSignature({
           artifactPath: artifact,
           signature,
-          pubkey: PROD_PUBKEY,
+          pubkey: LEGACY_INCREMENTUM_PUBKEY,
         }),
         (err) => {
           assert.ok(err instanceof VerificationError, `${label}: unexpected error type`);
