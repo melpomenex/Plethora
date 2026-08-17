@@ -12,7 +12,7 @@
 import { isTauri, isNativeMobile, nativePlatform } from "../lib/tauri";
 
 const GITHUB_LATEST_RELEASE_URL =
-  "https://api.github.com/repos/melpomenex/incrementum-tauri/releases/latest";
+  "https://api.github.com/repos/melpomenex/Plethora/releases/latest";
 const SKIP_VERSION_KEY = "plethora_skip_update_version";
 
 // Re-export the updater's Update type lazily via a structural alias so callers
@@ -140,7 +140,7 @@ async function getUpdaterBundleType(): Promise<string> {
  * Tauri `Update` object does not expose the bundle URL to JS).
  */
 function releaseTagUrl(latestVersion: string): string {
-  return `https://github.com/melpomenex/incrementum-tauri/releases/tag/v${latestVersion.replace(/^v/, "")}`;
+  return `https://github.com/melpomenex/Plethora/releases/tag/v${latestVersion.replace(/^v/, "")}`;
 }
 
 /**

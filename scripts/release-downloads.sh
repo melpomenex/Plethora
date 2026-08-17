@@ -7,7 +7,7 @@ Track GitHub release binary download counts.
 
 Required environment variables:
   OWNER   GitHub owner/org (e.g. melpomenex)
-  REPO    GitHub repo name (e.g. incrementum-tauri)
+  REPO    GitHub repo name (e.g. Plethora)
 
 Select one mode:
   TAG=<tag>                    Query a specific release tag.
@@ -16,9 +16,9 @@ Select one mode:
   (no TAG, no --all)           Query latest release.
 
 Examples:
-  OWNER=melpomenex REPO=incrementum-tauri TAG=v1.2.3 ./scripts/release-downloads.sh
-  OWNER=melpomenex REPO=incrementum-tauri ./scripts/release-downloads.sh --all
-  OWNER=melpomenex REPO=incrementum-tauri ./scripts/release-downloads.sh --graph
+  OWNER=melpomenex REPO=Plethora TAG=v1.2.3 ./scripts/release-downloads.sh
+  OWNER=melpomenex REPO=Plethora ./scripts/release-downloads.sh --all
+  OWNER=melpomenex REPO=Plethora ./scripts/release-downloads.sh --graph
 EOF
 }
 
