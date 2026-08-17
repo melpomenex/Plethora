@@ -6,7 +6,7 @@ if (typeof importScripts === 'function') {
   importScripts('shared.js');
 }
 
-let INCREMENTUM_BASE_URL = 'http://127.0.0.1:8766';
+let PLETHORA_BASE_URL = 'http://127.0.0.1:8766';
 let ENABLE_CONTEXT_MENU = true;
 let ENABLE_NOTIFICATIONS = true;
 let AUTO_SAVE = false;
@@ -64,7 +64,7 @@ async function resolveExtractToastTabId(sender, extract) {
 
 function browserSyncEndpoint() {
   // Always hit the root path; QHttpServer is routed on "/"
-  return new URL('/', INCREMENTUM_BASE_URL).toString();
+  return new URL('/', PLETHORA_BASE_URL).toString();
 }
 
 async function getPendingExtracts() {
@@ -200,7 +200,7 @@ async function loadSettings() {
     const url = new URL(serverUrl);
     url.port = port.toString();
     // Use origin to avoid accidental double-slashes when appending "/"
-    INCREMENTUM_BASE_URL = url.origin;
+    PLETHORA_BASE_URL = url.origin;
 
     ENABLE_CONTEXT_MENU = settings.enableContextMenu !== false;
     ENABLE_NOTIFICATIONS = settings.enableNotifications !== false;
@@ -224,7 +224,7 @@ async function loadSettings() {
     setupAutoSyncAlarm();
   } catch (error) {
     console.error('[DEBUG] Error loading settings:', error);
-    INCREMENTUM_BASE_URL = 'http://127.0.0.1:8766'; // Fallback
+    PLETHORA_BASE_URL = 'http://127.0.0.1:8766'; // Fallback
     ENABLE_CONTEXT_MENU = true;
     ENABLE_NOTIFICATIONS = true;
     AUTO_SAVE = false;
@@ -421,7 +421,7 @@ async function createImageOcclusionCard(data, senderTabId) {
     const timeout = setTimeout(() => controller.abort(), 30000);
     let response;
     try {
-      response = await fetch(`${INCREMENTUM_BASE_URL}/ai/image-occlusion`, {
+      response = await fetch(`${PLETHORA_BASE_URL}/ai/image-occlusion`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -1305,7 +1305,7 @@ async function requestAIAnalysis(data) {
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
     await loadSettings();
-    const endpoint = `${INCREMENTUM_BASE_URL}/ai/process`;
+    const endpoint = `${PLETHORA_BASE_URL}/ai/process`;
 
     // Every request this extension sends should be fitted to the transport
     // budget on principle, this one included — even though its only current
@@ -1364,7 +1364,7 @@ async function requestAIAnalysis(data) {
 async function checkAIStatus() {
   try {
     await loadSettings();
-    const endpoint = `${INCREMENTUM_BASE_URL}/ai/status`;
+    const endpoint = `${PLETHORA_BASE_URL}/ai/status`;
 
     const response = await fetch(endpoint, {
       method: 'GET',

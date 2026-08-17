@@ -77,10 +77,15 @@
   function isIncrementumPWA() {
     const hostname = window.location.hostname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-    const hasIncrementumMarker = document.querySelector('[data-incrementum-app]') !== null;
-    const hasAppTitle = document.title.includes('Incrementum');
+    // Compat window (rebrand task 3.6): the app writes BOTH marker attributes
+    // and either product title may appear during the transition.
+    const hasAppMarker =
+      document.querySelector('[data-plethora-app]') !== null ||
+      document.querySelector('[data-incrementum-app]') !== null;
+    const hasAppTitle =
+      document.title.includes('Plethora') || document.title.includes('Incrementum');
 
-    return hasIncrementumMarker || (isLocalhost && hasAppTitle);
+    return hasAppMarker || (isLocalhost && hasAppTitle);
   }
 
   /**
@@ -92,7 +97,10 @@
       if (event.source !== window) return;
 
       const message = event.data;
-      if (!message || message.source !== 'incrementum-pwa') return;
+      // Compat window: accept responses from both the new and the legacy
+      // PWA source token. The handler map deletes on first delivery, so the
+      // duplicate of a dual-send is a no-op.
+      if (!message || (message.source !== 'plethora-pwa' && message.source !== 'incrementum-pwa')) return;
 
       if (message.action === 'ready' || message.action === 'pong') {
         isPWAAvailable = true;
@@ -110,12 +118,15 @@
       }
     });
 
-    // Ping PWA to check if it's available
-    window.postMessage({
-      source: 'incrementum-extension',
-      action: 'ping',
-      requestId: generateRequestId()
-    }, '*');
+    // Ping PWA to check if it's available — under BOTH source tokens so the
+    // ping reaches old and new app builds alike.
+    for (const source of ['plethora-extension', 'incrementum-extension']) {
+      window.postMessage({
+        source,
+        action: 'ping',
+        requestId: generateRequestId()
+      }, '*');
+    }
   }
 
   /**
@@ -128,20 +139,26 @@
   /**
    * Send message to PWA
    */
+  // Source tokens sent during the compat window (rebrand task 3.6). Both
+  // old and new app builds accept the legacy token; the new app dedupes by
+  // requestId.
+  const EXTENSION_SOURCE_TOKENS = ['plethora-extension', 'incrementum-extension'];
+
   function sendToPWA(message, callback) {
     const requestId = generateRequestId();
-    const fullMessage = {
-      source: 'incrementum-extension',
-      ...message,
-      requestId
-    };
 
     if (callback) {
       pwaResponseHandlers.set(requestId, callback);
     }
 
+    const send = () => {
+      for (const source of EXTENSION_SOURCE_TOKENS) {
+        window.postMessage({ source, ...message, requestId }, '*');
+      }
+    };
+
     if (isPWAAvailable) {
-      window.postMessage(fullMessage, '*');
+      send();
     } else {
       pwaMessageQueue.push({ message, callback });
     }
@@ -255,7 +272,7 @@
   
   // Add visual indicator when page is saved
   function showSaveIndicator(message, type = 'success') {
-    const existing = document.getElementById('incrementum-save-indicator');
+    const existing = document.getElementById('plethora-save-indicator');
     if (existing) {
       existing.remove();
     }
@@ -266,7 +283,7 @@
     };
 
     const indicator = document.createElement('div');
-    indicator.id = 'incrementum-save-indicator';
+    indicator.id = 'plethora-save-indicator';
     indicator.textContent = message;
     indicator.style.cssText = `
       position: fixed;
@@ -938,13 +955,13 @@
 
   // Show priority selection dialog
   function showPrioritySelectionDialog(text, selection) {
-    const existingDialog = document.getElementById('incrementum-priority-dialog');
+    const existingDialog = document.getElementById('plethora-priority-dialog');
     if (existingDialog) {
       existingDialog.remove();
     }
 
     const dialog = document.createElement('div');
-    dialog.id = 'incrementum-priority-dialog';
+    dialog.id = 'plethora-priority-dialog';
     dialog.innerHTML = `
       <div class="priority-dialog-content">
         <div class="priority-dialog-header">
@@ -1010,7 +1027,7 @@
     // Add styles for dialog content
     if (!priorityDialogStyleAdded) {
       const style = document.createElement('style');
-      style.id = 'incrementum-priority-dialog-style';
+      style.id = 'plethora-priority-dialog-style';
       style.textContent = `
       .priority-dialog-content {
         background: white;
@@ -1321,7 +1338,7 @@
     
     // Add extract mode indicator
     const indicator = document.createElement('div');
-    indicator.id = 'incrementum-extract-indicator';
+    indicator.id = 'plethora-extract-indicator';
     indicator.innerHTML = '📝 Extract Mode Active - Select text to create extracts';
     indicator.style.cssText = `
       position: fixed;
@@ -1360,7 +1377,7 @@
     extractMode = false;
     document.body.style.cursor = '';
     
-    const indicator = document.getElementById('incrementum-extract-indicator');
+    const indicator = document.getElementById('plethora-extract-indicator');
     if (indicator) {
       indicator.remove();
     }
@@ -1453,7 +1470,9 @@
   function highlightText(range, extractId, color = null) {
     try {
       const span = document.createElement('span');
-      span.className = 'incrementum-highlight';
+      // Both classes during the compat window: pre-rebrand app CSS only
+      // styles the legacy name, Plethora styles both.
+      span.className = 'plethora-highlight incrementum-highlight';
       span.dataset.extractId = extractId;
       
       const highlightColor = color || '#ffd3a5';
@@ -1495,13 +1514,13 @@
     const extract = pageExtracts.find(e => e.id === extractId);
     if (!extract) return;
 
-    const existingTooltip = document.getElementById('incrementum-extract-tooltip');
+    const existingTooltip = document.getElementById('plethora-extract-tooltip');
     if (existingTooltip) {
       existingTooltip.remove();
     }
 
     const tooltip = document.createElement('div');
-    tooltip.id = 'incrementum-extract-tooltip';
+    tooltip.id = 'plethora-extract-tooltip';
     tooltip.innerHTML = `
       <div class="tooltip-content">
         <div class="tooltip-text">${escapeHtml(extract.text)}</div>
@@ -1726,15 +1745,30 @@
     return div.innerHTML;
   }
 
+  function pageExtractsKeys() {
+    return {
+      current: `plethora_extracts_${window.location.hostname}`,
+      legacy: `incrementum_extracts_${window.location.hostname}`
+    };
+  }
+
   function savePageExtracts() {
-    const key = `incrementum_extracts_${window.location.hostname}`;
-    localStorage.setItem(key, JSON.stringify(pageExtracts));
+    const { current, legacy } = pageExtractsKeys();
+    localStorage.setItem(current, JSON.stringify(pageExtracts));
+    // Remove the legacy key only after the new one round-trips.
+    try {
+      if (localStorage.getItem(current) !== null && localStorage.getItem(legacy) !== null) {
+        localStorage.removeItem(legacy);
+      }
+    } catch (err) {
+      // best-effort cleanup
+    }
   }
 
   function loadPageExtracts() {
     try {
-      const key = `incrementum_extracts_${window.location.hostname}`;
-      const stored = localStorage.getItem(key);
+      const { current, legacy } = pageExtractsKeys();
+      const stored = localStorage.getItem(current) ?? localStorage.getItem(legacy);
       if (stored) {
         pageExtracts = JSON.parse(stored);
         
@@ -1774,10 +1808,10 @@
   }
 
   function showAIResult(operation, result, state = 'result', error = '') {
-    document.getElementById('incrementum-ai-result-host')?.remove();
+    document.getElementById('plethora-ai-result-host')?.remove();
 
     const host = document.createElement('div');
-    host.id = 'incrementum-ai-result-host';
+    host.id = 'plethora-ai-result-host';
     host.style.position = 'fixed';
     host.style.inset = '0';
     host.style.zIndex = '2147483647';
@@ -1831,7 +1865,7 @@
       .spinner {
         width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%;
         border: 3px solid rgba(148, 163, 184, .28); border-top-color: #f59e0b;
-        animation: incrementum-spin .8s linear infinite;
+        animation: plethora-spin .8s linear infinite;
       }
       .error {
         padding: 12px 14px; border-radius: 10px; color: #fecaca;
@@ -1839,7 +1873,7 @@
         font-size: 14px; line-height: 1.55; white-space: pre-wrap;
       }
       .help { margin-top: 14px; color: #cbd5e1; font-size: 13px; line-height: 1.55; }
-      @keyframes incrementum-spin { to { transform: rotate(360deg); } }
+      @keyframes plethora-spin { to { transform: rotate(360deg); } }
     `;
 
     const backdrop = document.createElement('div');
@@ -1946,10 +1980,10 @@
   }
 
   function showImageOcclusionEditor(data) {
-    document.getElementById('incrementum-image-occlusion-host')?.remove();
+    document.getElementById('plethora-image-occlusion-host')?.remove();
 
     const host = document.createElement('div');
-    host.id = 'incrementum-image-occlusion-host';
+    host.id = 'plethora-image-occlusion-host';
     host.style.position = 'fixed';
     host.style.inset = '0';
     host.style.zIndex = '2147483647';
@@ -2242,7 +2276,7 @@
         break;
 
       case 'showImageOcclusionSaved':
-        document.getElementById('incrementum-image-occlusion-host')?.remove();
+        document.getElementById('plethora-image-occlusion-host')?.remove();
         showSaveIndicator('Image occlusion card saved to Plethora.', 'success');
         sendResponse({ success: true });
         break;
@@ -2443,7 +2477,7 @@
   // Add context menu enhancement (visual feedback)
   document.addEventListener('contextmenu', (event) => {
     // Store the context menu position for potential use
-    window.incrementumContextPos = {
+    window.plethoraContextPos = {
       x: event.clientX,
       y: event.clientY,
       target: event.target
@@ -2460,7 +2494,7 @@
     }
 
     function createYouTubeSaveButton() {
-      const existingButton = document.getElementById('incrementum-youtube-save-btn');
+      const existingButton = document.getElementById('plethora-youtube-save-btn');
       if (existingButton) {
         existingButton.remove();
       }
@@ -2476,7 +2510,7 @@
       }
 
       const saveButton = document.createElement('button');
-      saveButton.id = 'incrementum-youtube-save-btn';
+      saveButton.id = 'plethora-youtube-save-btn';
       saveButton.innerHTML = `
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>
@@ -2562,7 +2596,7 @@
               INCREMENTUM_BASE_URL = url.toString();
 
               try {
-                localStorage.setItem('incrementum_settings', JSON.stringify(settings));
+                localStorage.setItem('plethora_settings', JSON.stringify(settings));
               } catch (cacheError) {
                 console.error('Failed to cache settings:', cacheError.message);
               }
@@ -2571,7 +2605,7 @@
             console.error('Storage API failed, trying localStorage:', settingsError.message);
             // Method 2: Try to read settings from localStorage
             try {
-              const storedSettings = localStorage.getItem('incrementum_settings');
+              const storedSettings = localStorage.getItem('plethora_settings') ?? localStorage.getItem('incrementum_settings');
               if (storedSettings) {
                 const settings = JSON.parse(storedSettings);
                 let serverUrl = settings.serverUrl || '127.0.0.1';
@@ -2791,9 +2825,9 @@
     });
 
     // Add CSS for spinning animation
-    if (!document.getElementById('incrementum-youtube-styles')) {
+    if (!document.getElementById('plethora-youtube-styles')) {
       const style = document.createElement('style');
-      style.id = 'incrementum-youtube-styles';
+      style.id = 'plethora-youtube-styles';
       style.textContent = `
         @keyframes spin {
           0% { transform: rotate(0deg); }
