@@ -4016,42 +4016,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "incrementum-android-genai"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "incrementum-android-tts"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "incrementum-folder-import"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "thiserror 1.0.69",
- "walkdir",
-]
-
-[[package]]
 name = "incrementum-tauri"
 version = "2.7.0"
 dependencies = [
@@ -4075,9 +4039,6 @@ dependencies = [
  "hostname",
  "html2text",
  "image 0.24.9",
- "incrementum-android-genai",
- "incrementum-android-tts",
- "incrementum-folder-import",
  "keyring",
  "lazy_static",
  "libsqlite3-sys",
@@ -4088,6 +4049,9 @@ dependencies = [
  "once_cell",
  "pbkdf2 0.12.2",
  "pdf-extract",
+ "plethora-android-genai",
+ "plethora-android-tts",
+ "plethora-folder-import",
  "pulldown-cmark",
  "quick-xml 0.37.5",
  "rand 0.8.6",
@@ -6175,6 +6139,42 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "plethora-android-genai"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "plethora-android-tts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "plethora-folder-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "thiserror 1.0.69",
+ "walkdir",
+]
 
 [[package]]
 name = "plist"
