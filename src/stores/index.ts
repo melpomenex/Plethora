@@ -24,3 +24,5 @@ export { useEntitlementStore } from "./entitlementStore";
 export { useAccountStore } from "./accountStore";
 export { useBillingStore } from "./billingStore";
 export { useSyncStore } from "./syncStore";
+export { useConnectionsStore } from "./connectionsStore";
+export { useKnowledgeGraphStore } from "./knowledgeGraphStore";
