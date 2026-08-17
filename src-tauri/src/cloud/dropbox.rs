@@ -316,8 +316,15 @@ impl DropboxProvider {
         })
     }
 
-    /// Get the Incrementum app folder path
+    /// Current app folder path on Dropbox (Phase B rebrand).
     fn get_app_folder_path(&self) -> String {
+        "/Plethora".to_string()
+    }
+
+    /// Pre-rebrand app folder. Read-through fallback for objects missing
+    /// under the new root (D31): existing remote backups stay reachable;
+    /// every write lands under `/Plethora/`.
+    fn legacy_app_folder_path(&self) -> String {
         "/Incrementum".to_string()
     }
 }
@@ -329,7 +336,7 @@ impl CloudProvider for DropboxProvider {
     }
 
     fn backup_folder(&self) -> &str {
-        "Incrementum"
+        "Plethora"
     }
 
     async fn authenticate(&mut self) -> Result<String, AppError> {
@@ -428,7 +435,7 @@ impl CloudProvider for DropboxProvider {
         data: Vec<u8>,
         progress: Option<Box<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Result<String, AppError> {
-        let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
+        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
         let data_len = data.len();
 
         if let Some(p) = &progress {
@@ -484,7 +491,7 @@ impl CloudProvider for DropboxProvider {
         path: &str,
         progress: Option<Box<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Result<Vec<u8>, AppError> {
-        let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
+        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
         let response = self
@@ -507,6 +514,46 @@ impl CloudProvider for DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
+            // Read-through: an object that only exists under the legacy
+            // pre-rebrand root is still served (D31).
+            if error_text.contains("not_found") || error_text.contains("not found") {
+                let legacy_path = format!(
+                    "{}/{}",
+                    self.legacy_app_folder_path(),
+                    path.trim_start_matches('/')
+                );
+                let legacy_arg = serde_json::json!({ "path": legacy_path }).to_string();
+                let legacy_response = self
+                    .http_client
+                    .post(format!("{}/files/download", self.content_base_url()))
+                    .header("Dropbox-API-Arg", legacy_arg)
+                    .header(
+                        "Authorization",
+                        format!(
+                            "Bearer {}",
+                            self.auth_token
+                                .as_ref()
+                                .expect("dropbox not authenticated")
+                                .access_token
+                        ),
+                    )
+                    .send()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Download failed: {}", e)))?;
+                if legacy_response.status().is_success() {
+                    let data = legacy_response
+                        .bytes()
+                        .await
+                        .map_err(|e| {
+                            AppError::Internal(format!("Failed to download file: {}", e))
+                        })?
+                        .to_vec();
+                    if let Some(p) = &progress {
+                        p(data.len() as u64, data.len() as u64);
+                    }
+                    return Ok(data);
+                }
+            }
             return Err(AppError::Internal(format!(
                 "Download failed: {}",
                 error_text
@@ -528,9 +575,9 @@ impl CloudProvider for DropboxProvider {
 
     async fn list_files(&self, path: &str) -> Result<Vec<FileInfo>, AppError> {
         let full_path = if path.is_empty() || path == "/" {
-            "/Incrementum".to_string()
+            self.get_app_folder_path()
         } else {
-            format!("/Incrementum/{}", path.trim_start_matches('/'))
+            format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'))
         };
 
         let arg = serde_json::json!({
@@ -583,7 +630,7 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn delete_file(&self, path: &str) -> Result<(), AppError> {
-        let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
+        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
         let response = self
@@ -604,7 +651,7 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn get_metadata(&self, path: &str) -> Result<FileMetadata, AppError> {
-        let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
+        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
         let arg = serde_json::json!({
             "path": full_path,
             "include_media_info": false
@@ -648,7 +695,7 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn create_folder(&self, path: &str) -> Result<String, AppError> {
-        let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
+        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
         let arg = serde_json::json!({
             "path": full_path,
             "autorename": false
@@ -800,7 +847,7 @@ impl DropboxProvider {
         }
 
         let metadata = self
-            .get_metadata(path.trim_start_matches("/Incrementum/"))
+            .get_metadata(path.trim_start_matches(&format!("{}/", self.get_app_folder_path())))
             .await?;
         Ok(metadata.id)
     }
