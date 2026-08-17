@@ -73,7 +73,7 @@ export const en: Dict = {
   "tabs.openDocuments": "Open Documents",
   "tabs.contentError": "This tab could not be displayed",
   "tabs.retryLoad": "Try again",
-  "home.welcome": "Welcome to Incrementum",
+  "home.welcome": "Welcome to Plethora",
   "home.subtitle": "Your incremental reading and spaced repetition companion.",
   "home.queueDesc": "Review your reading queue",
   "home.reviewDesc": "Practice with flashcards",
@@ -145,7 +145,7 @@ export const en: Dict = {
   "dashboard.recentActivity": "Recent Activity",
   "dashboard.noRecentActivity": "No recent activity. Start by importing a document!",
   "dashboard.reviewsCompleted": "{count} reviews completed",
-  "dashboard.welcome": "Welcome to Incrementum!",
+  "dashboard.welcome": "Welcome to Plethora!",
   "dashboard.welcomeBody":
     "Your incremental reading and spaced repetition companion. Import your first document to get started.",
   "dashboard.importFirst": "Import Your First Document",
@@ -319,10 +319,10 @@ export const en: Dict = {
   "settings.defaultCategory": "Default Category",
   "settings.defaultCategoryDesc": "Category for imported documents",
   "settings.about": "About",
-  "settings.aboutIncrementum": "About Incrementum",
+  "settings.aboutPlethora": "About Plethora",
   "settings.version": "Version",
   "settings.aboutDesc":
-    "Incrementum is your companion for incremental reading and spaced repetition learning. Import documents, create extracts, and review with scientifically-proven algorithms.",
+    "Plethora is your companion for incremental reading and spaced repetition learning. Import documents, create extracts, and review with scientifically-proven algorithms.",
   "settings.github": "GitHub",
   "settings.documentation": "Documentation",
   "settings.discord": "Discord",
@@ -449,7 +449,7 @@ export const en: Dict = {
   "reviewLegacy.tutor": "Tutor",
   "reviewLegacy.followUp": "Follow-up",
   "reviewLegacy.score": "Score",
-  "onboarding.welcomeTitle": "Welcome to Incrementum",
+  "onboarding.welcomeTitle": "Welcome to Plethora",
   "onboarding.welcomeSubtitle": "Your incremental reading and spaced repetition companion",
   "onboarding.howToStart": "How would you like to start?",
   "onboarding.howToStartDesc": "Choose an option to begin your learning journey",
@@ -475,7 +475,7 @@ export const en: Dict = {
   "onboarding.step4": "Open the command palette anytime with Ctrl+K (Cmd+K on Mac)",
   "onboarding.getStarted": "Get Started",
   "onboarding.tutorialTitle": "Let's Get You Started",
-  "onboarding.tutorialDesc": "This quick tutorial will show you the basics of Incrementum",
+  "onboarding.tutorialDesc": "This quick tutorial will show you the basics of Plethora",
   "onboarding.step1Title": "Step 1: Import Documents",
   "onboarding.step1Desc":
     "Click the Import button to add documents like PDFs, EPUBs, or web articles",
@@ -511,7 +511,7 @@ export const en: Dict = {
   "onboarding.tour.chapter.review": "Review",
   "onboarding.tour.chapter.knowledge": "See your knowledge",
   "onboarding.tour.chapter.makeYours": "Make it yours",
-  "onboarding.tour.welcome.title": "Welcome to Incrementum",
+  "onboarding.tour.welcome.title": "Welcome to Plethora",
   "onboarding.tour.welcome.body":
     "This is a quick tour of the import → read → extract → review loop. It takes about two minutes, and you can leave anytime — Esc or click away to pause, and you'll pick up where you left off next time.",
   "onboarding.tour.import.button.title": "Bring documents in",
@@ -546,7 +546,7 @@ export const en: Dict = {
     "After each card, pick the rating that matches your recall. The scheduler uses that signal to decide when to show the card again — better recall, longer interval.",
   "onboarding.tour.review.algorithm.title": "Pick your algorithm",
   "onboarding.tour.review.algorithm.body":
-    "Incrementum ships several schedulers — FSRS-6, SM-18, SM-20, and SM-2. Choose the one that fits your style in Settings → Learning.",
+    "Plethora ships several schedulers — FSRS-6, SM-18, SM-20, and SM-2. Choose the one that fits your style in Settings → Learning.",
   "onboarding.tour.knowledge.analytics.title": "Analytics",
   "onboarding.tour.knowledge.analytics.body":
     "See your retention rate, review activity, and progress over time. The numbers update as you review.",
@@ -1058,7 +1058,7 @@ export const en: Dict = {
   "calendar.legendLess": "Less",
   "calendar.legendMore": "More",
   "integrations.title": "Integrations",
-  "integrations.subtitle": "Connect Incrementum with external tools and services",
+  "integrations.subtitle": "Connect Plethora with external tools and services",
   "integrations.notebooklm": "NotebookLM",
   "integrations.notebooklmDesc":
     "Research, generate artifacts, and chat with your sources using Google's NotebookLM",
@@ -1083,7 +1083,7 @@ export const en: Dict = {
   "integrations.ankiSuccess": "Anki connection successful",
   "integrations.browserExtension": "Browser Extension",
   "integrations.browserExtensionDesc":
-    "Install the browser extension to save web articles directly to Incrementum",
+    "Install the browser extension to save web articles directly to Plethora",
   "integrations.installExtension": "Install Extension",
   "aiWorkflows.title": "AI Workflows",
   "aiWorkflows.subtitle": "Leverage AI to enhance your learning experience",
@@ -1118,7 +1118,7 @@ export const en: Dict = {
   "notebooklm.learnMore": "Learn more about notebooklm-py",
   "notebooklm.chatWithSources": "Chat with sources",
   "notebooklm.generateArtifacts": "Generate artifacts",
-  "notebooklm.syncToIncrementum": "Sync to Incrementum",
+  "notebooklm.syncToPlethora": "Sync to Plethora",
   "notebooklm.noNotebook": "No notebook selected",
   "notebooklm.createFirst": "Create a new notebook to get started.",
   "notebooklm.signIn": "Sign In to NotebookLM",
@@ -1316,7 +1316,7 @@ export const en: Dict = {
   "settingsDocs.noFileSelected": "No file selected",
   "settingsDocs.selectFile": "Select a file",
   "onboarding.demoDescLong":
-    "Start with sample documents and flashcards to see how Incrementum works. Perfect for exploring the features before adding your own content.",
+    "Start with sample documents and flashcards to see how Plethora works. Perfect for exploring the features before adding your own content.",
   "onboarding.startFreshDescLong":
     "Begin with an empty library. Import your own documents and create your personalized learning materials from scratch.",
   "onboarding.addContentLater": "You can always add more content later from the Documents page",
@@ -1330,7 +1330,7 @@ export const en: Dict = {
   "onboarding.skipTutorial": "Skip tutorial",
   "onboarding.startLearning": "Start Learning",
   "onboarding.tutorialWelcomeDesc":
-    "This quick tutorial will show you how to use Incrementum effectively. We'll cover importing documents, creating extracts, and reviewing with spaced repetition.",
+    "This quick tutorial will show you how to use Plethora effectively. We'll cover importing documents, creating extracts, and reviewing with spaced repetition.",
   "onboarding.tutorialImportDesc":
     "Click the Import button to add documents. We support PDFs, EPUBs, YouTube videos, web articles, and more. You can also drag and drop files directly onto the page.",
   "onboarding.tutorialReadDesc":
@@ -1342,7 +1342,7 @@ export const en: Dict = {
   "onboarding.tutorialProgressDesc":
     "Watch your knowledge grow over time. The analytics page shows your review history, streak, and retention rate. Consistent daily reviews lead to better retention!",
   "onboarding.tutorialCompleteDesc":
-    "You now know the basics of Incrementum. Remember: Import → Read & Extract → Review. Press ? anytime to see keyboard shortcuts. Happy learning!",
+    "You now know the basics of Plethora. Remember: Import → Read & Extract → Review. Press ? anytime to see keyboard shortcuts. Happy learning!",
   "onboarding.tutorialQuickTips": "Quick Tips",
   "onboarding.tutorialShortcutsHint": "• Press {key} for keyboard shortcuts",
   "onboarding.tutorialCommandPaletteHint": "• Press {key} for command palette",
@@ -1406,7 +1406,7 @@ export const en: Dict = {
   "notebooklmStudio.noJobsYet": "No jobs yet. Generate your first artifact!",
   "notebooklmStudio.preview": "Preview",
   "notebooklmStudio.deckNamePlaceholder": "Deck name",
-  "notebooklmStudio.syncToIncrementum": "Sync to Incrementum",
+  "notebooklmStudio.syncToPlethora": "Sync to Plethora",
   "notebooklmStudio.createdUpdatedSkipped":
     "Created: {created}, Updated: {updated}, Skipped: {skipped}",
   "notebooklmStudio.noPreviewItems": "No preview items available for this job.",
@@ -1470,13 +1470,13 @@ export const en: Dict = {
   "notebooklmChat.research": "Research",
   "notebooklmChat.copyToClipboard": "Copy to clipboard",
   "notebooklmChat.alreadySavedAsExtract": "Already saved as extract",
-  "notebooklmChat.saveAsExtract": "Save as extract in Incrementum",
+  "notebooklmChat.saveAsExtract": "Save as extract in Plethora",
   "notebooklmChat.helpful": "Helpful",
   "notebooklmChat.notHelpful": "Not helpful",
   "notebooklmChat.runResearchQuery": "Run research query",
   "notebooklmChat.pressEnterToSend":
     "Press Enter to send, Shift+Enter for new line. Use the book icon for research mode.",
-  "notebooklmChat.savedTitle": "Saved to Incrementum",
+  "notebooklmChat.savedTitle": "Saved to Plethora",
   "notebooklmChat.savedDesc": "Response extract is now available in reviewable extracts.",
   "notebooklmChat.saveFailedTitle": "Save failed",
   "dashboard.welcomeBack": "Welcome back",
@@ -1500,7 +1500,7 @@ export const en: Dict = {
   "screenshotOverlay.appWindow": "App Window",
   "screenshotOverlay.fullScreen": "Full Screen",
   "screenshotOverlay.dragSelectRegion": "Drag to select a region",
-  "screenshotOverlay.captureAppWindow": "Capture the Incrementum window",
+  "screenshotOverlay.captureAppWindow": "Capture the Plethora window",
   "screenshotOverlay.captureFullScreen": "Capture the full screen",
   "screenshot.failedCapture": "Failed to capture screenshot. Please try again.",
   "screenshot.failedSave": "Failed to save screenshot. Please try again.",
@@ -1895,7 +1895,7 @@ export const en: Dict = {
   "migration.canRollback": "You can rollback to the backup if needed",
   "toast.demoReadyDesc":
     "You can find sample documents in your library. Start reviewing to see sample flashcards!",
-  "toast.appInstalledDesc": "Incrementum is now available offline.",
+  "toast.appInstalledDesc": "Plethora is now available offline.",
   "rssCustomization.title": "RSS Customization",
   "rssCustomization.preferencesSaved": "Preferences saved!",
   "rssCustomization.preferencesSavedDesc": "Your RSS customization has been updated.",
@@ -2291,7 +2291,7 @@ export const en: Dict = {
   "notebooklm.loginSuccess": "Successfully authenticated with NotebookLM.",
   "notebooklm.loginDidNotComplete": "Login did not complete.",
   "notebooklm.loginFailed": "Failed to start NotebookLM login flow.",
-  "notebooklm.syncedToIncrementum": "{count} item(s) added to your queue for review.",
+  "notebooklm.syncedToPlethora": "{count} item(s) added to your queue for review.",
   "notebooklm.addedToQueue": "Content has been added to your review queue.",
   "notebooklm.notebooklmLogin": "NotebookLM Login",
   "notebooklm.settings": "Settings",
@@ -2367,7 +2367,7 @@ export const en: Dict = {
   "themeCustomizer.saveTheme": "Save Theme",
   "themeCustomizer.customTheme": "Custom Theme",
   "handbook.handbook": "Handbook",
-  "handbook.userHandbook": "Incrementum User Handbook",
+  "handbook.userHandbook": "Plethora User Handbook",
   "handbook.browseChapters": "Browse chapters and jump between sections like a printed guide.",
   "handbook.contents": "Contents",
   "handbook.search": "Search handbook",
@@ -2394,7 +2394,7 @@ export const en: Dict = {
   "theme.createCustom": "Create Custom Theme",
   "theme.previewing": "Previewing: {name}",
   "theme.clickToApply": "Click to apply",
-  "notebooklm.synced": "Synced to Incrementum",
+  "notebooklm.synced": "Synced to Plethora",
   "queue.addedToQueue": "Added to Queue",
 
   "extracts.createTitle": "Create Extract",
@@ -3083,7 +3083,7 @@ export const en: Dict = {
   "ocrSettings.nougatDesc": "OCR for scientific documents with math",
   "ocrSettings.nougatReady": "Nougat is ready",
   "ocrSettings.nougatReadyDesc":
-    "Incrementum can use the detected Nougat executable for scientific PDF OCR.",
+    "Plethora can use the detected Nougat executable for scientific PDF OCR.",
   "ocrSettings.nougatRequired": "Nougat needs to be installed",
   "ocrSettings.nougatRequiredDesc":
     "Install an isolated, app-managed copy or select an existing Nougat executable.",
@@ -3099,7 +3099,7 @@ export const en: Dict = {
   "ocrSettings.repairNougat": "Repair installation",
   "ocrSettings.checkAgain": "Check again",
   "ocrSettings.detectedExecutable": "Detected executable",
-  "ocrSettings.managedByIncrementum": "Managed by Incrementum",
+  "ocrSettings.managedByPlethora": "Managed by Plethora",
   "ocrSettings.nougatExecutable": "Nougat executable",
   "ocrSettings.nougatExecutablePlaceholder": "Auto-detect, or /Users/you/.local/bin/nougat",
   "ocrSettings.selectNougatExecutable": "Select Nougat executable",
@@ -3203,7 +3203,7 @@ export const en: Dict = {
   "importExport.format": "Format:",
   "importExport.exportJson": "Export as JSON",
   "importExport.exportCsv": "Export as CSV",
-  "importExport.incrementumPackage": "Incrementum Package",
+  "importExport.plethoraPackage": "Plethora Package",
   "importExport.importData": "Import Data",
   "importExport.importDataDesc": "Import data from a backup or other sources",
   "importExport.selectImportFile": "Select Import File",
@@ -3217,7 +3217,7 @@ export const en: Dict = {
   "importExport.migrateFromCpp": "Migrate from C++ Version",
   "importExport.migrateFromCppDesc": "Import your data from the original C++ application",
   "importExport.migrateDesc":
-    "Import your documents, extracts, flashcards, and progress from the C++ version of Incrementum.",
+    "Import your documents, extracts, flashcards, and progress from the C++ version of Plethora.",
   "importExport.whatWillBeImported": "What will be imported:",
   "importExport.allDocumentsMetadata": "All documents with metadata",
   "importExport.extractsHighlights": "Extracts and highlights",
@@ -3557,14 +3557,14 @@ export const en: Dict = {
   "integrationSettings.httpPort": "HTTP Server Port",
   "integrationSettings.portDesc": "Default: 8766 (change if port is in use)",
   "integrationSettings.autoStart": "Auto-start on app launch",
-  "integrationSettings.autoStartDesc": "Automatically start the server when Incrementum opens",
+  "integrationSettings.autoStartDesc": "Automatically start the server when Plethora opens",
   "integrationSettings.status": "Status:",
   "integrationSettings.port": "Port:",
   "integrationSettings.connections": "Connections:",
   "integrationSettings.stopServer": "Stop Server",
   "integrationSettings.startServer": "Start Server",
   "integrationSettings.extensionInfo":
-    "The browser extension server allows the Incrementum web clipper extension to communicate with the desktop application via HTTP.",
+    "The browser extension server allows the Plethora web clipper extension to communicate with the desktop application via HTTP.",
   "integrationSettings.youtubeAuthCookies": "YouTube Authentication Cookies",
   "integrationSettings.whyUploadCookies": "Why upload cookies?",
   "integrationSettings.whyUploadCookiesDesc":
@@ -3609,7 +3609,7 @@ export const en: Dict = {
   "settings.rssFeedSelectionDesc":
     "Choose which feeds appear in your queue. By default, all feeds are included.",
   "settings.rssUnreadCount": "{count} unread",
-  "settingsLegacy.customizeExperience": "Customize your Incrementum experience",
+  "settingsLegacy.customizeExperience": "Customize your Plethora experience",
   "settingsLegacy.chooseColorScheme": "Choose your preferred color scheme",
   "settingsLegacy.light": "Light",
   "settingsLegacy.dark": "Dark",
@@ -4015,21 +4015,21 @@ export const en: Dict = {
   "integrations.failedTestAnkiConnection": "Failed to test Anki connection",
   "integrations.ankiConfigurationSaved": "Anki configuration saved",
   "integrations.syncFlashcardsToAnki": "Sync Flashcards to Anki",
-  "integrations.syncFlashcardsFromIncrementumToAnki": "Sync flashcards from Incrementum to Anki",
+  "integrations.syncFlashcardsFromPlethoraToAnki": "Sync flashcards from Plethora to Anki",
   "integrations.failedSyncToAnki": "Failed to sync to Anki",
   "integrations.browserExtensionServer": "Browser Extension Server",
   "integrations.running": "Running",
   "integrations.httpServerPort": "HTTP Server Port",
   "integrations.defaultPortHint": "Default: 8766 (change if port is in use)",
   "integrations.autoStartOnAppLaunch": "Auto-start on app launch",
-  "integrations.autoStartDesc": "Automatically start the server when Incrementum opens",
+  "integrations.autoStartDesc": "Automatically start the server when Plethora opens",
   "integrations.status": "Status:",
   "integrations.port": "Port:",
   "integrations.connections": "Connections:",
   "integrations.stopServer": "Stop Server",
   "integrations.startServer": "Start Server",
   "integrations.browserExtensionInfo":
-    "The browser extension server allows the Incrementum web clipper extension to communicate with the desktop application via HTTP. Start the server to enable web clipping functionality. Configure the extension to connect to http://127.0.0.1:{port}.",
+    "The browser extension server allows the Plethora web clipper extension to communicate with the desktop application via HTTP. Start the server to enable web clipping functionality. Configure the extension to connect to http://127.0.0.1:{port}.",
   "integrations.extensionServerStopped": "Extension server stopped",
   "integrations.extensionServerStarted": "Extension server started",
   "integrations.failedToggleExtensionServer": "Failed to toggle extension server",
@@ -5669,7 +5669,7 @@ export const en: Dict = {
   "notificationSettings.capabilityAvailable": "Notification delivery is supported here",
   "notificationSettings.capabilityUnavailable": "Notifications are not supported on this platform",
   "notificationSettings.deniedRecoveryTauri":
-    "Enable notifications for Incrementum in your system settings. Permission is not requested again automatically.",
+    "Enable notifications for Plethora in your system settings. Permission is not requested again automatically.",
   "notificationSettings.deniedRecoveryPwa":
     "Allow notifications for this installed app in browser or site settings. Permission is not requested again automatically.",
   "notificationSettings.deniedRecoveryBrowser":

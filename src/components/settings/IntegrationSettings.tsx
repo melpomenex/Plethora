@@ -757,7 +757,7 @@ export function IntegrationSettings() {
             <div className="bg-card border border-border rounded-lg p-6">
               <h4 className="font-semibold text-foreground mb-4">{t("integrations.syncActions")}</h4>
               <p className="text-sm text-muted-foreground mb-4">
-                {t("integrations.syncFlashcardsFromIncrementumToAnki")}
+                {t("integrations.syncFlashcardsFromPlethoraToAnki")}
               </p>
               <button
                 onClick={async () => {

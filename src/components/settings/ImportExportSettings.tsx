@@ -646,7 +646,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
                 className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-md hover:bg-muted disabled:opacity-50"
               >
                 <FileArrowUp className="w-4 h-4" />
-                {t("importExport.incrementumPackage")}
+                {t("importExport.plethoraPackage")}
               </button>
               <button
                 onClick={async () => {

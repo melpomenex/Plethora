@@ -1153,7 +1153,7 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
                     </div>
                     {nougatStatus.managed && (
                       <div className="mt-1 text-xs text-emerald-500">
-                        {t("ocrSettings.managedByIncrementum")}
+                        {t("ocrSettings.managedByPlethora")}
                       </div>
                     )}
                   </div>
