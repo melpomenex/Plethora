@@ -203,6 +203,7 @@ export const ja: Dict = {
   "settings.rss.clickToInclude": "クリックして明示的に追加",
   "settings.rss.clickToExclude": "クリックして明示的に除外",
   "settings.shortcuts": "ショートカット",
+  "settings.account": "アカウント",
   "settings.ai": "AI",
   "settings.audioTranscription": "音声文字起こし",
   "settings.tts": "テキスト読み上げ",
@@ -2980,6 +2981,8 @@ export const ja: Dict = {
   "userProfile.signInSignUp": "ログイン / サインアップ",
   "userProfile.upgradeDesc":
     "フルファイル同期と無制限ストレージをアンロック。現在は無料プラン: メタデータと抽出のみ同期。",
+  "userProfile.proBenefits":
+    "ライブラリ全体のセマンティック検索、ゼロ知識クラウド同期、AIソクラテス式チュートリング、話者分離文字起こし、ニューラル音声オーディオブックをアンロック。",
   "userProfile.upgradeNow": "今すぐアップグレード",
   "userProfile.upgradeToPro": "Pro にアップグレード",
   "videoExtract.addBtn": "追加",

@@ -5,6 +5,7 @@ import { es } from "../locales/es";
 import { fr } from "../locales/fr";
 import { ja } from "../locales/ja";
 import { zh } from "../locales/zh";
+import { SETTINGS_TABS } from "../../../components/settings/SettingsPage";
 
 const locales: Record<string, Record<string, string>> = { de, es, fr, ja, zh };
 
@@ -36,6 +37,17 @@ describe("i18n locale completeness", () => {
       expect(issues, issues.slice(0, 10).join("\n")).toEqual([]);
     },
   );
+
+  it("every settings tab label key resolves to a real en string", () => {
+    // The tab sidebar renders t(tab.label); a label that is not a key shows
+    // the raw dotted string in the UI ("settings.account" once shipped this
+    // way because the key was missing from en itself — the locale-parity
+    // checks above only compare other locales against en).
+    const missing = SETTINGS_TABS.map((tab) => tab.label).filter(
+      (key) => !(key in en) || !en[key].trim()
+    );
+    expect(missing).toEqual([]);
+  });
 
   it("a sample of recently-added keys resolve to non-empty, localized strings", () => {
     const samples = [
