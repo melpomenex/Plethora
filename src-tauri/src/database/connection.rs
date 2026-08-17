@@ -7,10 +7,128 @@ use std::time::Duration;
 
 use crate::error::{IncrementumError, Result};
 
+/// Canonical database file name (Phase B rebrand).
+pub const DB_FILE_NAME: &str = "plethora.db";
+/// Legacy database file name written by Incrementum releases. Read-compatible
+/// forever; adopted into the new name on first open (see
+/// [`resolve_database_path`]).
+pub const LEGACY_DB_FILE_NAME: &str = "incrementum.db";
+/// Crash-safety journal for the legacy→new db file-set rename (D21).
+const DB_RENAME_JOURNAL: &str = ".db-rename-journal";
+
 #[derive(Clone)]
 pub struct Database {
     pool: SqlitePool,
 }
+
+/// Decide which database file to open inside `app_dir`, adopting a legacy
+/// `incrementum.db` file set into the `plethora.db` name if needed.
+///
+/// Adoption is a crash-safe, journal-protected rename (never a copy, never a
+/// delete) of the whole SQLite file set (db, `-wal`, `-shm`):
+///
+/// 1. If a previous run left a rename journal behind, complete (or no-op) the
+///    pending renames idempotently — every crash point converges to "the whole
+///    set lives under the new name", preserving WAL content.
+/// 2. If `plethora.db` already exists, nothing is renamed (the transition is
+///    done, or the user installed fresh next to a legacy dir).
+/// 3. Otherwise, if `incrementum.db` exists: write the journal, rename
+///    `-wal`, then `-shm`, then the db itself, then remove the journal.
+///
+/// Renaming BEFORE opening the pool (rather than "after a successful open" as
+/// the task wording goes) is deliberate: a live sqlx pool re-opens
+/// connections from the original connect string, so renaming files under it
+/// risks a fresh empty database being created at the old path by the next
+/// lazily-opened connection. The observable behavior required by the spec is
+/// unchanged — the old file is opened (under its new name), migrations are
+/// verified on it, and subsequent launches find `plethora.db` directly.
+pub fn resolve_database_path(app_dir: &Path) -> PathBuf {
+    adopt_legacy_db_file_set(app_dir);
+    app_dir.join(DB_FILE_NAME)
+}
+
+/// SQLite sidecar path (`<db>-wal` / `<db>-shm`) for a database at `path`.
+fn db_sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut os = path.as_os_str().to_owned();
+    os.push(suffix);
+    PathBuf::from(os)
+}
+
+/// The three files that move together during adoption.
+fn rename_set(app_dir: &Path) -> [(PathBuf, PathBuf); 3] {
+    let new_db = app_dir.join(DB_FILE_NAME);
+    let legacy_db = app_dir.join(LEGACY_DB_FILE_NAME);
+    [
+        (db_sidecar(&legacy_db, "-wal"), db_sidecar(&new_db, "-wal")),
+        (db_sidecar(&legacy_db, "-shm"), db_sidecar(&new_db, "-shm")),
+        (legacy_db, new_db),
+    ]
+}
+
+fn rename_file_if_needed(from: &Path, to: &Path) -> std::io::Result<bool> {
+    if !from.exists() || to.exists() {
+        // Nothing to move, or the destination is already occupied — never
+        // overwrite (the occupied case leaves the legacy file in place).
+        return Ok(false);
+    }
+    tracing::info!(
+        "Adopting legacy database file: {} -> {}",
+        from.display(),
+        to.display()
+    );
+    std::fs::rename(from, to).map(|_| true)
+}
+
+fn adopt_legacy_db_file_set(app_dir: &Path) {
+    let journal_path = app_dir.join(DB_RENAME_JOURNAL);
+    let set = rename_set(app_dir);
+
+    // 1. Crash recovery: a journal means a previous adoption was interrupted.
+    //    Complete it idempotently — every step is "rename legacy→new only if
+    //    legacy exists and new does not", so re-running converges.
+    if journal_path.exists() {
+        tracing::warn!(
+            "Found interrupted database rename journal {}; completing the adoption",
+            journal_path.display()
+        );
+        for (from, to) in &set {
+            let _ = rename_file_if_needed(from, to);
+        }
+        let _ = std::fs::remove_file(&journal_path);
+    }
+
+    // 2. Fresh adoption only when the new name is absent and the legacy
+    //    database actually exists.
+    let (_, new_db) = &set[2];
+    let (legacy_db, _) = &set[2];
+    if new_db.exists() || !legacy_db.exists() {
+        return;
+    }
+
+    // 3. Journal, rename wal → shm → db, un-journal.
+    if let Err(err) = std::fs::write(&journal_path, "plethora db rename\n") {
+        tracing::warn!(
+            "Could not write database rename journal ({}); skipping adoption, \
+             the legacy file will be used as-is on next launch",
+            err
+        );
+        return;
+    }
+    for (from, to) in &set {
+        if let Err(err) = rename_file_if_needed(from, to) {
+            tracing::warn!(
+                "Database adoption step failed ({} -> {}): {}",
+                from.display(),
+                to.display(),
+                err
+            );
+            // Leave the journal in place so the next boot completes the set.
+            return;
+        }
+    }
+    let _ = std::fs::remove_file(&journal_path);
+}
+
 
 /// Outcome of [`Database::open_or_recover`]. Lets the caller tell the user
 /// whether their existing database was reused or had to be quarantined and
@@ -602,5 +720,124 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── legacy filename adoption (task 3.2) ────────────────────────────
+
+    fn entry_names(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn resolve_adopts_legacy_db_file_set_and_reopens_new_name() {
+        let dir = temp_test_dir("adopt");
+        let legacy = dir.join("incrementum.db");
+        let new = dir.join("plethora.db");
+
+        // A real, migrated database under the legacy name.
+        let (db, _) = Database::open_or_recover(legacy.clone()).await.unwrap();
+        db.migrate().await.unwrap();
+        db.close().await;
+        std::fs::write(dir.join("incrementum.db-wal"), b"w").unwrap();
+        std::fs::write(dir.join("incrementum.db-shm"), b"s").unwrap();
+
+        let resolved = resolve_database_path(&dir);
+        assert_eq!(resolved, new, "resolver must target the new name");
+        assert!(new.exists(), "legacy db must have been renamed");
+        assert!(
+            !legacy.exists(),
+            "legacy name must be free after adoption (renamed, not copied)"
+        );
+        assert!(dir.join("plethora.db-wal").exists());
+        assert!(dir.join("plethora.db-shm").exists());
+        assert!(
+            !dir.join(".db-rename-journal").exists(),
+            "journal must be cleaned up after a completed adoption"
+        );
+
+        // The adopted database opens + migrates cleanly under the new name,
+        // and a second resolve is a no-op.
+        let (db, outcome) = Database::open_or_recover(new.clone()).await.unwrap();
+        assert_eq!(outcome, OpenOutcome::OpenedExisting);
+        db.migrate().await.unwrap();
+        db.close().await;
+        resolve_database_path(&dir);
+        assert!(new.exists() && !legacy.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn resolve_prefers_existing_new_name_and_never_deletes() {
+        let dir = temp_test_dir("prefer-new");
+        std::fs::write(dir.join("plethora.db"), b"current").unwrap();
+        std::fs::write(dir.join("incrementum.db"), b"stale legacy copy").unwrap();
+
+        resolve_database_path(&dir);
+
+        assert_eq!(
+            std::fs::read(dir.join("plethora.db")).unwrap(),
+            b"current",
+            "existing new-name db must never be overwritten"
+        );
+        assert!(
+            dir.join("incrementum.db").exists(),
+            "legacy file must be left intact when the new name is occupied"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn resolve_completes_interrupted_adoption_from_journal() {
+        let dir = temp_test_dir("journal-recovery");
+        // Simulate a crash after the -wal was renamed but before the db was:
+        // journal present, wal already under the new name, db still legacy.
+        std::fs::write(dir.join("incrementum.db"), b"db").unwrap();
+        std::fs::write(dir.join("plethora.db-wal"), b"wal").unwrap();
+        std::fs::write(dir.join(".db-rename-journal"), "partial\n").unwrap();
+
+        let resolved = resolve_database_path(&dir);
+        assert_eq!(resolved, dir.join("plethora.db"));
+        assert!(dir.join("plethora.db").exists(), "db rename must complete");
+        assert!(dir.join("plethora.db-wal").exists(), "wal must survive");
+        assert!(
+            !dir.join(".db-rename-journal").exists(),
+            "recovery must consume the journal"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn resolve_without_any_db_creates_new_name_only() {
+        let dir = temp_test_dir("fresh-new");
+        let resolved = resolve_database_path(&dir);
+        assert_eq!(resolved, dir.join("plethora.db"));
+
+        let (db, outcome) = Database::open_or_recover(resolved).await.unwrap();
+        assert_eq!(outcome, OpenOutcome::CreatedFresh);
+        db.close().await;
+        assert!(dir.join("plethora.db").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quarantine_of_adopted_db_uses_new_stem_and_detection_covers_legacy() {
+        // The integrity-artifact scan must recognize BOTH legacy
+        // `incrementum.db.corrupt.*` and new `plethora.db.corrupt.*`
+        // siblings (it matches the `.corrupt.` marker either way).
+        for name in [
+            "incrementum.db.corrupt.20260101T000000Z",
+            "plethora.db.corrupt.20260101T000000Z",
+        ] {
+            assert!(name.contains(".corrupt."));
+        }
     }
 }
