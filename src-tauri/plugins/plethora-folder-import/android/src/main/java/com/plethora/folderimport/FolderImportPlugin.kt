@@ -745,17 +745,22 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
   fun backupDbToDownloads(invoke: Invoke) {
     try {
       val context = activity.applicationContext
-      val dbFile = File(context.filesDir, "incrementum.db")
+      // Current db filename first; the legacy incrementum.db is kept as a
+      // fallback for one release (the app renames it on first open).
+      var dbFile = File(context.filesDir, "plethora.db")
+      if (!dbFile.exists()) {
+        dbFile = File(context.filesDir, "incrementum.db")
+      }
       if (!dbFile.exists()) {
         return invoke.reject("Database file does not exist at: ${dbFile.absolutePath}")
       }
 
       val resolver = context.contentResolver
       val contentValues = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, "Incrementum_Backup_Auto.db")
+        put(MediaStore.MediaColumns.DISPLAY_NAME, "Plethora_Backup_Auto.db")
         put(MediaStore.MediaColumns.MIME_TYPE, "application/x-sqlite3")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-          put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Incrementum")
+          put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Plethora")
         }
       }
 
@@ -764,9 +769,9 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       } else {
         @Suppress("DEPRECATION")
         val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val incrementumDir = File(downloadsDir, "Incrementum")
-        incrementumDir.mkdirs()
-        val destFile = File(incrementumDir, "Incrementum_Backup_Auto.db")
+        val plethoraDir = File(downloadsDir, "Plethora")
+        plethoraDir.mkdirs()
+        val destFile = File(plethoraDir, "Plethora_Backup_Auto.db")
         dbFile.inputStream().use { input ->
           destFile.outputStream().use { output ->
             input.copyTo(output)
@@ -780,7 +785,7 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       // Query if the file already exists in MediaStore and delete it to overwrite
       val projection = arrayOf(MediaStore.MediaColumns._ID)
       val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
-      val selectionArgs = arrayOf("Incrementum_Backup_Auto.db", Environment.DIRECTORY_DOWNLOADS + "/Incrementum/")
+      val selectionArgs = arrayOf("Plethora_Backup_Auto.db", Environment.DIRECTORY_DOWNLOADS + "/Plethora/")
       resolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
         if (cursor.moveToFirst()) {
           val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
@@ -807,7 +812,7 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       }
 
       val res = JSObject()
-      res.put("path", if (pathResult.isNotEmpty()) pathResult else "/sdcard/Download/Incrementum/Incrementum_Backup_Auto.db")
+      res.put("path", if (pathResult.isNotEmpty()) pathResult else "/sdcard/Download/Plethora/Plethora_Backup_Auto.db")
       invoke.resolve(res)
     } catch (e: Exception) {
       invoke.reject("Failed to backup database: ${e.message}")

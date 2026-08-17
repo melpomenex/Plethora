@@ -1093,7 +1093,12 @@ pub fn run() {
                 } else if matches!(db_outcome, database::connection::OpenOutcome::CreatedFresh) {
                     #[cfg(target_os = "android")]
                     {
+                        // Current Plethora location first; the legacy
+                        // Incrementum paths stay watched so pre-rebrand
+                        // auto-backups are still offered (task 3.9).
                         let paths = [
+                            "/storage/emulated/0/Download/Plethora/Plethora_Backup_Auto.db",
+                            "/sdcard/Download/Plethora/Plethora_Backup_Auto.db",
                             "/storage/emulated/0/Download/Incrementum/Incrementum_Backup_Auto.db",
                             "/sdcard/Download/Incrementum/Incrementum_Backup_Auto.db",
                         ];

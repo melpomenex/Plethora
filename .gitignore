@@ -156,3 +156,7 @@ gauntlet-progress.html
 # Plethora updater minisign keypair (private key never committed; see
 # docs/legacy/updater-key-rotation.md)
 src-tauri/keys/
+# Android release signing — never commit real keystores or credentials
+# (keystore.properties.example is the committed template)
+src-tauri/gen/android/app/keystore.properties
+src-tauri/gen/android/app/*.keystore
