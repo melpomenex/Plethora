@@ -5642,4 +5642,17 @@ export const zh: Dict = {
   "capabilities.integrations": "高级集成",
   "capabilities.automation": "云端自动化",
   "capabilities.api_access": "API 访问权限",
+  "companion.welcomeBack": "欢迎回来！从上次停下的地方继续吧。",
+  "companion.documentOpened": "新文档已打开，阅读愉快。",
+  "companion.readingAlong": "这篇读得很顺。",
+  "companion.chapterEnd": "这一章快读完了。",
+  "companion.highlightCreated": "高亮不错——这张看起来能做成卡片。",
+  "companion.extractCreated": "摘录已创建，这个想法正式进入你的轨道。",
+  "companion.cardCreated": "新卡片已创建，未来的你会感谢现在。",
+  "companion.streak": "连续 {count} 个！状态很好。",
+  "companion.trickyCard": "这张卡片有点难缠，总会记住的。",
+  "companion.sessionDone": "复习完成——完成 {count} 次复习。",
+  "companion.rssLiked": "已记下——多来点这类内容。",
+  "companion.settingsTitle": "Plethora 伙伴",
+  "companion.settingsDesc": "可选的 ambient 小鸟伙伴"
 };

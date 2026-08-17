@@ -5833,4 +5833,17 @@ export const fr: Dict = {
   "capabilities.integrations": "Intégrations avancées",
   "capabilities.automation": "Automatisation cloud",
   "capabilities.api_access": "Accès API",
+  "companion.welcomeBack": "Bon retour ! Reprends exactement où tu t'étais arrêté.",
+  "companion.documentOpened": "Nouveau document ouvert — bonne lecture.",
+  "companion.readingAlong": "Tu avances bien sur celui-ci.",
+  "companion.chapterEnd": "Tu approches de la fin de ce chapitre.",
+  "companion.highlightCreated": "Joli surlignement — ça sent la carte à créer.",
+  "companion.extractCreated": "Extrait créé. L'idée est officiellement dans ton orbite.",
+  "companion.cardCreated": "Nouvelle carte créée — ton toi du futur te remercie.",
+  "companion.streak": "{count} d'affilée ! Belle dynamique.",
+  "companion.trickyCard": "Celui-ci te résiste. Ça va finir par rentrer.",
+  "companion.sessionDone": "Session terminée — {count} révisions au compteur.",
+  "companion.rssLiked": "Noté — plus de ça.",
+  "companion.settingsTitle": "Compagnon Plethora",
+  "companion.settingsDesc": "Compagnon oiseau ambiant optionnel"
 };

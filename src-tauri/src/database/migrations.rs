@@ -2925,6 +2925,37 @@ pub const MIGRATIONS: &[Migration] = &[
         DROP TABLE IF EXISTS sync_cutover_domain_progress;
         "#,
     ),
+    // Migration 088: RSS semantic preference learning (OpenSpec:
+    // rss-semantic-preference-learning). Feedback events are the source of
+    // truth; preference clusters are derived and rebuildable.
+    Migration::new(
+        "088_rss_preference_learning",
+        r#"
+        CREATE TABLE IF NOT EXISTS rss_article_feedback (
+            article_id TEXT PRIMARY KEY,
+            sentiment TEXT NOT NULL CHECK (sentiment IN ('like', 'dislike')),
+            feedback_source TEXT NOT NULL DEFAULT 'thumbs',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rss_article_feedback_sentiment
+            ON rss_article_feedback(sentiment, created_at);
+
+        CREATE TABLE IF NOT EXISTS rss_preference_clusters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sentiment TEXT NOT NULL CHECK (sentiment IN ('like', 'dislike')),
+            centroid_sum BLOB NOT NULL,
+            weight REAL NOT NULL,
+            last_updated INTEGER NOT NULL,
+            exemplar_article_id TEXT NOT NULL,
+            exemplar_title TEXT NOT NULL,
+            dim INTEGER NOT NULL,
+            model TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rss_preference_clusters_sentiment
+            ON rss_preference_clusters(sentiment);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

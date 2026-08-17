@@ -285,6 +285,8 @@ interface GeneralSettings {
  */
 export type VolumeRockerMode = "none" | "page" | "scroll";
 
+import { DEFAULT_COMPANION_SETTINGS, type CompanionSettings } from "../lib/companion/types";
+
 interface InterfaceSettings {
   showSidebar: boolean;
   showStats: boolean;
@@ -308,6 +310,8 @@ interface InterfaceSettings {
     modifier: "none" | "ctrl" | "alt" | "shift" | "meta";
   };
   volumeRockerScroll?: VolumeRockerMode;
+  /** Optional ambient mascot companion (see src/lib/companion). */
+  companion?: CompanionSettings;
 }
 
 /**
@@ -690,6 +694,7 @@ export const defaultSettings: Settings = {
     toolbarPosition: "left",
     splitViewSpawn: { button: 1, modifier: "none" },
     volumeRockerScroll: "none",
+    companion: DEFAULT_COMPANION_SETTINGS,
   },
   learning: {
     algorithm: "fsrs",
@@ -1091,7 +1096,14 @@ export const useSettingsStore = create<SettingsState>()(
           ...persisted,
           general: { ...defaultSettings.general, ...persisted.general },
           appearance: { ...defaultSettings.appearance, ...persisted.appearance },
-          interface: { ...defaultSettings.interface, ...persisted.interface },
+          interface: {
+            ...defaultSettings.interface,
+            ...persisted.interface,
+            companion: {
+              ...DEFAULT_COMPANION_SETTINGS,
+              ...(persisted.interface?.companion ?? {}),
+            },
+          },
           learning: {
             ...defaultSettings.learning,
             ...persisted.learning,
@@ -1203,6 +1215,11 @@ export const useSettingsStore = create<SettingsState>()(
           persisted.interface?.animationsEnabled === undefined
         ) {
           merged.interface.animationsEnabled = false;
+        }
+        // Companion ships OFF by default everywhere; native-mobile users who
+        // never touched the setting stay off regardless of future defaults.
+        if (isNativeMobile() && persisted.interface?.companion === undefined) {
+          merged.interface.companion = { ...DEFAULT_COMPANION_SETTINGS, enabled: false };
         }
 
         state.settings = merged;

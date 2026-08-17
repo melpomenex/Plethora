@@ -2423,3 +2423,180 @@
 }
 
 
+
+/* ── Plethora Companion (spec: companion-presentation) ─────────────────────
+   CSS-transform-only state animations; no rAF loop. All motion collapses to
+   static poses under prefers-reduced-motion, and e-ink mode never mounts the
+   host at all. */
+
+.companion-bird {
+  width: 72px;
+  height: 72px;
+  filter: drop-shadow(0 4px 10px rgb(124 58 237 / 0.25));
+}
+
+.companion-bird-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* Breathing idle — the only always-on animation (cheap transform+opacity) */
+.companion-bird[data-companion-state="idle"] .companion-body,
+.companion-bird[data-companion-state="perch"] .companion-body {
+  transform-origin: 430px 560px;
+  animation: companion-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes companion-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+
+/* Blink — pupil scales to a slit briefly */
+.companion-bird[data-companion-state="blink"] .companion-pupil {
+  transform-origin: 676px 302px;
+  animation: companion-blink 0.7s ease-in-out;
+}
+
+@keyframes companion-blink {
+  0%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(0.12); }
+}
+
+/* Look — head tilts and eye drifts */
+.companion-bird[data-companion-state="look"] .companion-head,
+.companion-bird[data-companion-state="curious"] .companion-head {
+  transform-origin: 620px 400px;
+  animation: companion-look 2.2s ease-in-out;
+}
+
+@keyframes companion-look {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  35% { transform: rotate(-6deg) translateX(-6px); }
+  70% { transform: rotate(4deg) translateX(4px); }
+}
+
+/* Hop — whole bird translates vertically with a squash */
+.companion-bird[data-companion-state="hop"] {
+  animation: companion-hop 1.4s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+@keyframes companion-hop {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(4px) scale(1.06, 0.92); }
+  45% { transform: translateY(-26px) scale(0.96, 1.06); }
+  70% { transform: translateY(0) scale(1.04, 0.96); }
+  85% { transform: translateY(-8px) scale(1, 1); }
+}
+
+/* Celebrate — quick bounces + wing flaps */
+.companion-bird[data-companion-state="celebrate"] {
+  animation: companion-celebrate 2.6s ease-in-out;
+}
+.companion-bird[data-companion-state="celebrate"] .companion-wing {
+  transform-origin: 380px 520px;
+  animation: companion-flap 0.5s ease-in-out 4;
+}
+
+@keyframes companion-celebrate {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  15% { transform: translateY(-18px) rotate(-5deg); }
+  30% { transform: translateY(0) rotate(0deg); }
+  45% { transform: translateY(-14px) rotate(5deg); }
+  60% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes companion-flap {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-24deg); }
+}
+
+/* Think — slow tilt with a gentle scratch of the head */
+.companion-bird[data-companion-state="think"] .companion-head {
+  transform-origin: 620px 400px;
+  animation: companion-think 3.2s ease-in-out;
+}
+
+@keyframes companion-think {
+  0%, 100% { transform: rotate(0deg); }
+  40%, 70% { transform: rotate(10deg) translateY(6px); }
+}
+
+/* Talk — subtle bob while a speech bubble is visible */
+.companion-bird[data-companion-state="talk"] {
+  animation: companion-talk 1.2s ease-in-out infinite;
+}
+
+@keyframes companion-talk {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* Sleep — eyes shut, slow sag; the only state allowed to persist */
+.companion-bird[data-companion-state="sleep"] {
+  animation: companion-sleep 8s ease-in-out;
+}
+.companion-bird[data-companion-state="sleep"] .companion-eye {
+  transform-origin: 668px 300px;
+  animation: companion-blink 8s ease-in-out;
+}
+
+@keyframes companion-sleep {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(6px) rotate(-3deg); }
+}
+
+/* Reduced motion: no keyframes run; static pose only. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-bird,
+  .companion-bird .companion-body,
+  .companion-bird .companion-head,
+  .companion-bird .companion-wing,
+  .companion-bird .companion-pupil,
+  .companion-bird .companion-tail,
+  .companion-bird .companion-beak,
+  .companion-bird .companion-feet {
+    animation: none !important;
+  }
+}
+
+/* Speech bubble (host renders it beside the bird) */
+.companion-speech {
+  max-width: 220px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--background, #fff) 92%, #7c3aed 8%);
+  border: 1px solid color-mix(in srgb, #7c3aed 35%, transparent);
+  color: var(--foreground, #1f2937);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+  animation: companion-speech-in 0.25s ease-out;
+}
+
+.companion-speech::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  transform: rotate(45deg);
+  background: inherit;
+  border-right: 1px solid color-mix(in srgb, #7c3aed 35%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #7c3aed 35%, transparent);
+}
+
+@keyframes companion-speech-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-speech {
+    animation: none !important;
+  }
+}

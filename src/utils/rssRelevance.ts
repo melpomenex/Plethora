@@ -1,12 +1,15 @@
 /**
  * RSS Relevance Scorer
  *
- * Lightweight client-side scoring engine for RSS feed items.
- * Uses classifier data (likes/dislikes on author, title keywords, tags, feeds)
- * to compute a relevance score between 0.0 and 1.0.
+ * Hybrid client-side scoring engine for RSS feed items:
+ *  1. Classifier match (author/title/tag/feed likes & dislikes)
+ *  2. Tag frequency, recency (metadata base)
+ *  3. Optional semantic preference term (scored in Rust against decayed
+ *     like/dislike embedding clusters — see src/api/rss-preferences.ts)
+ *  4. Implicit engagement (saved bonus) + deterministic exploration lift
  *
- * This intentionally does NOT use the Rust embeddings-based relevance module —
- * it's a simple heuristic scorer that runs purely in TypeScript.
+ * Without a semantic score (cold start / web mode) behavior is identical to
+ * the historical classifier+recency heuristic.
  */
 
 export interface RssRelevanceInput {
@@ -51,8 +54,9 @@ const RECENCY_FLOOR = 0.3;
 export function scoreRssRelevance(
   input: RssRelevanceInput,
   classifiers: RssClassifier[],
+  options?: SemanticRelevanceOptions,
 ): number {
-  if (classifiers.length === 0) {
+  if (classifiers.length === 0 && options?.semanticScore == null) {
     return 0.5;
   }
 
@@ -60,12 +64,73 @@ export function scoreRssRelevance(
   const tagScore = computeTagFrequencyScore(input, classifiers);
   const recencyScore = computeRecencyScore(input.pubDate);
 
-  const total =
+  const base =
     classifierScore * CLASSIFIER_WEIGHT +
     tagScore * TAG_FREQUENCY_WEIGHT +
     recencyScore * RECENCY_WEIGHT;
 
-  return clamp(total, 0, 1);
+  // Semantic preference (from decayed like/dislike embedding clusters, scored
+  // in Rust). Below the profile's cold-start threshold the backend reports
+  // null and ranking keeps its pre-semantic behavior exactly.
+  if (options?.semanticScore == null || !Number.isFinite(options.semanticScore)) {
+    return clamp(applyImplicitAndExploration(base, input, options), 0, 1);
+  }
+
+  const blended = base * (1 - SEMANTIC_WEIGHT) + options.semanticScore * SEMANTIC_WEIGHT;
+  return clamp(applyImplicitAndExploration(blended, input, options), 0, 1);
+}
+
+/** Weight of the semantic term in the hybrid score (metadata keeps ≥ 55%). */
+export const SEMANTIC_WEIGHT = 0.45;
+/** Saved/queued articles get a modest implicit-engagement boost. */
+const SAVED_BONUS = 0.08;
+/** Fraction of low-personalization items that receive an exploration lift. */
+const EXPLORATION_FRACTION = 0.12;
+const EXPLORATION_BONUS = 0.15;
+
+export interface SemanticRelevanceOptions {
+  /** 0..1 semantic score from the preference profile (null → cold start). */
+  semanticScore?: number | null;
+  /** True when the article is saved/queued (implicit positive engagement). */
+  saved?: boolean;
+}
+
+function applyImplicitAndExploration(
+  score: number,
+  input: RssRelevanceInput,
+  options?: SemanticRelevanceOptions,
+): number {
+  let result = score;
+  if (options?.saved) {
+    result += SAVED_BONUS;
+  }
+  // Deterministic exploration: a stable slice of mid/low-personalization
+  // items keeps diversity so the feed does not collapse into an echo chamber.
+  // Exploration only rescues UNKNOWN items — a semantic dislike is an
+  // explicit signal and must not be explored back above neutral.
+  const semanticallyDisliked =
+    options?.semanticScore != null && options.semanticScore < EXPLORATION_SEMANTIC_FLOOR;
+  if (
+    !semanticallyDisliked &&
+    score < 0.6 &&
+    stableUnit(input.itemTitle + "|" + input.feedId) < EXPLORATION_FRACTION
+  ) {
+    result += EXPLORATION_BONUS;
+  }
+  return result;
+}
+
+/** Semantic scores below this floor count as explicit dislike (no exploration). */
+const EXPLORATION_SEMANTIC_FLOOR = 0.35;
+
+/** Deterministic 0..1 hash (FNV-1a) — same input always maps to same value. */
+function stableUnit(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return ((hash >>> 0) % 10_000) / 10_000;
 }
 
 /**

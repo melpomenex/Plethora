@@ -5744,4 +5744,17 @@ export const ja: Dict = {
   "capabilities.integrations": "高度な連携機能",
   "capabilities.automation": "クラウド自動化",
   "capabilities.api_access": "API アクセス",
+  "companion.welcomeBack": "おかえりなさい！前回の続きから始められます。",
+  "companion.documentOpened": "新しいドキュメントを開きました。良い読書を。",
+  "companion.readingAlong": "この調子で順調に進んでいます。",
+  "companion.chapterEnd": "この章の終わりが近づいています。",
+  "companion.highlightCreated": "いいハイライトですね。カード候補みたい。",
+  "companion.extractCreated": "抜粋を作成しました。このアイデアはもうあなたの軌道上です。",
+  "companion.cardCreated": "新しいカードを作成しました。未来のあなたに感謝されます。",
+  "companion.streak": "{count}連続！いい流れです。",
+  "companion.trickyCard": "このカードは手強いですね。きっと噛み合います。",
+  "companion.sessionDone": "セッション完了 — {count}回の復習をやり遂げました。",
+  "companion.rssLiked": "了解 — これをもっと。",
+  "companion.settingsTitle": "Plethora コンパニオン",
+  "companion.settingsDesc": "任意の常駐バードコンパニオン"
 };

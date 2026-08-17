@@ -5823,4 +5823,17 @@ export const de: Dict = {
   "capabilities.integrations": "Erweiterte Integrationen",
   "capabilities.automation": "Cloud-Automatisierung",
   "capabilities.api_access": "API-Zugriff",
+  "companion.welcomeBack": "Willkommen zurück! Mach genau dort weiter, wo du aufgehört hast.",
+  "companion.documentOpened": "Neues Dokument geöffnet — viel Spaß beim Lesen.",
+  "companion.readingAlong": "Du kommst gut voran hier.",
+  "companion.chapterEnd": "Dieses Kapitel neigt sich dem Ende zu.",
+  "companion.highlightCreated": "Schöne Markierung — das sieht nach einer Karte aus.",
+  "companion.extractCreated": "Extrakt erstellt. Die Idee ist jetzt in deinem Orbit.",
+  "companion.cardCreated": "Neue Karte erstellt — dein Zukunfts-Ich sagt danke.",
+  "companion.streak": "{count} in Folge! Guter Schwung.",
+  "companion.trickyCard": "Diese Karte macht dir zu schaffen. Es wird klicken.",
+  "companion.sessionDone": "Sitzung geschafft — {count} Wiederholungen erledigt.",
+  "companion.rssLiked": "Notiert — mehr davon.",
+  "companion.settingsTitle": "Plethora-Begleiter",
+  "companion.settingsDesc": "Optionaler ambienter Vogel-Begleiter"
 };

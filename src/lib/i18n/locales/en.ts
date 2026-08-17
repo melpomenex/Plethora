@@ -6092,4 +6092,17 @@ export const en: Dict = {
   "capabilities.integrations": "Advanced Integrations",
   "capabilities.automation": "Cloud Automation",
   "capabilities.api_access": "API Access",
+  "companion.welcomeBack": "Welcome back! Pick up right where you left off.",
+  "companion.documentOpened": "New document open — happy reading.",
+  "companion.readingAlong": "You're making good progress through this one.",
+  "companion.chapterEnd": "You're approaching the end of this chapter.",
+  "companion.highlightCreated": "Nice highlight — that looks like a card candidate.",
+  "companion.extractCreated": "Extract made. This idea is officially in your orbit.",
+  "companion.cardCreated": "New card created — future you says thanks.",
+  "companion.streak": "{count} in a row! Momentum looks good on you.",
+  "companion.trickyCard": "This one has been giving you trouble. It'll click.",
+  "companion.sessionDone": "Session complete — {count} reviews in the bag.",
+  "companion.rssLiked": "Noted — more like this.",
+  "companion.settingsTitle": "Plethora Companion",
+  "companion.settingsDesc": "Optional ambient bird companion"
 };
