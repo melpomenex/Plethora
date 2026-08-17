@@ -1204,3 +1204,62 @@ pub struct PageProcessResult {
     pub document_id: String,
     pub extract_ids: Vec<String>,
 }
+
+#[cfg(test)]
+mod brand_migration_tests {
+    use super::*;
+
+    /// Obsidian round-trip compatibility (task 3.5/5.1): notes exported by
+    /// Incrementum carry `incrementum-id`/`incrementum-type`; Plethora writes
+    /// `plethora-*` and must read-match BOTH.
+    #[test]
+    fn frontmatter_reads_new_keys_first_and_legacy_falls_back() {
+        let legacy_note = "---\ntitle: Old\nincrementum-type: document\nincrementum-id: doc-123\n---\n\nbody";
+        let (frontmatter, body) = parse_frontmatter(legacy_note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("doc-123"),
+            "legacy incrementum-id must keep matching"
+        );
+        assert_eq!(
+            frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()),
+            Some("document")
+        );
+        assert_eq!(body.trim(), "body");
+
+        let new_note = "---\ntitle: New\nplethora-type: extract\nplethora-id: ext-456\n---\n\nbody";
+        let (frontmatter, _) = parse_frontmatter(new_note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("ext-456")
+        );
+        assert_eq!(
+            frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()),
+            Some("extract")
+        );
+    }
+
+    /// When a migrated note carries both keys, the new one wins.
+    #[test]
+    fn frontmatter_prefers_plethora_key_when_both_exist() {
+        let note = "---\nincrementum-id: old\nplethora-id: new\n---\n\nbody";
+        let (frontmatter, _) = parse_frontmatter(note);
+        assert_eq!(
+            frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
+            Some("new")
+        );
+    }
+
+    /// The writer emits the new key spellings.
+    #[test]
+    fn generated_markdown_uses_plethora_keys() {
+        let mut document =
+            crate::models::Document::new("Title".to_string(), "/tmp/x.md".to_string(), crate::models::FileType::Markdown);
+        document.id = "doc-1".to_string();
+        document.content = Some("Body".to_string());
+        let markdown = generate_obsidian_markdown(&document);
+        assert!(markdown.contains("plethora-id: doc-1"));
+        assert!(markdown.contains("plethora-type: document"));
+        assert!(!markdown.contains("incrementum-id"));
+    }
+}
