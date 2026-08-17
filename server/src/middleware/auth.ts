@@ -1,63 +1,88 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { createError } from './errorHandler.js';
+import jwt, { TokenExpiredError } from 'jsonwebtoken';
+import { AppError } from './error.js';
+import { getPool } from '../db/connection.js';
 
-export interface AuthRequest extends Request {
-    userId?: string;
+export interface TokenPayload {
+  userId: string;
+  deviceId?: string;
+  sessionId?: string;
 }
 
-export function authMiddleware(
-    req: AuthRequest,
-    res: Response,
-    next: NextFunction
-): void {
-    const authHeader = req.headers.authorization;
+export interface AuthRequest extends Request {
+  userId?: string;
+  deviceId?: string;
+  sessionId?: string;
+}
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        throw createError('No token provided', 401, 'UNAUTHORIZED');
+export async function authMiddleware(
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new AppError(401, 'unauthorized', 'No bearer token provided');
+  }
+
+  const token = authHeader.slice(7);
+  const secret = process.env.JWT_SECRET || 'plethora-default-dev-secret-change-in-prod';
+
+  try {
+    const payload = jwt.verify(token, secret) as TokenPayload;
+    req.userId = payload.userId;
+    req.deviceId = payload.deviceId;
+    req.sessionId = payload.sessionId;
+
+    // If session ID is present, verify it hasn't been revoked
+    if (payload.sessionId) {
+      const pool = getPool();
+      const sessionResult = await pool.query(
+        'SELECT revoked_at, expires_at FROM sessions WHERE id = $1',
+        [payload.sessionId]
+      );
+      if (sessionResult.rows.length === 0 || sessionResult.rows[0].revoked_at) {
+        throw new AppError(401, 'session_revoked', 'Session has been revoked or expired');
+      }
     }
 
-    const token = authHeader.slice(7);
-    const secret = process.env.JWT_SECRET;
-
-    if (!secret) {
-        throw createError('JWT_SECRET not configured', 500, 'CONFIG_ERROR');
+    next();
+  } catch (err) {
+    if (err instanceof AppError) {
+      next(err);
+      return;
     }
-
-    try {
-        const payload = jwt.verify(token, secret) as { userId: string };
-        req.userId = payload.userId;
-        next();
-    } catch {
-        throw createError('Invalid token', 401, 'INVALID_TOKEN');
+    if (err instanceof TokenExpiredError) {
+      next(new AppError(401, 'token_expired', 'Access token has expired', { retryable: true }));
+      return;
     }
+    next(new AppError(401, 'invalid_token', 'Access token is invalid'));
+  }
 }
 
 export function optionalAuthMiddleware(
-    req: AuthRequest,
-    res: Response,
-    next: NextFunction
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction
 ): void {
-    const authHeader = req.headers.authorization;
+  const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        next();
-        return;
-    }
-
-    const token = authHeader.slice(7);
-    const secret = process.env.JWT_SECRET;
-
-    if (!secret) {
-        next();
-        return;
-    }
-
-    try {
-        const payload = jwt.verify(token, secret) as { userId: string };
-        req.userId = payload.userId;
-    } catch {
-        // Invalid token - continue as unauthenticated
-    }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     next();
+    return;
+  }
+
+  const token = authHeader.slice(7);
+  const secret = process.env.JWT_SECRET || 'plethora-default-dev-secret-change-in-prod';
+
+  try {
+    const payload = jwt.verify(token, secret) as TokenPayload;
+    req.userId = payload.userId;
+    req.deviceId = payload.deviceId;
+    req.sessionId = payload.sessionId;
+    next();
+  } catch {
+    next();
+  }
 }

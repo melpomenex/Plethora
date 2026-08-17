@@ -136,8 +136,95 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
   last_sync_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Devices table (per-device keypair & identity)
+CREATE TABLE IF NOT EXISTS devices (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_name VARCHAR(255) NOT NULL,
+  platform VARCHAR(50) NOT NULL,
+  public_key VARCHAR(255),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_seen TIMESTAMPTZ DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
+
+-- Sessions table (rotating refresh token family tracking)
+CREATE TABLE IF NOT EXISTS sessions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+  refresh_token_hash VARCHAR(255) NOT NULL,
+  family_id UUID NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_family ON sessions(family_id);
+
+-- Jobs table (async worker lifecycle)
+CREATE TABLE IF NOT EXISTS jobs (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind VARCHAR(100) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'queued',
+  params_json JSONB NOT NULL DEFAULT '{}',
+  result_json JSONB,
+  error_json JSONB,
+  progress_current INTEGER,
+  progress_total INTEGER,
+  progress_unit VARCHAR(50),
+  idempotency_key VARCHAR(255),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_jobs_idempotency ON jobs(user_id, idempotency_key);
+
+-- Usage records table (metering & cost tracking)
+CREATE TABLE IF NOT EXISTS usage_records (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  capability VARCHAR(100) NOT NULL,
+  job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
+  units BIGINT NOT NULL DEFAULT 1,
+  cost_usd_micros BIGINT DEFAULT 0,
+  provider VARCHAR(100),
+  model VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_records_user ON usage_records(user_id, created_at);
+
+-- Quota state table (real-time usage and window limits)
+CREATE TABLE IF NOT EXISTS quota_state (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  capability VARCHAR(100) NOT NULL,
+  used BIGINT NOT NULL DEFAULT 0,
+  limit_val BIGINT NOT NULL DEFAULT 0,
+  window VARCHAR(50) NOT NULL DEFAULT 'monthly',
+  resets_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, capability)
+);
+
+-- Capability grants table
+CREATE TABLE IF NOT EXISTS capability_grants (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  capability VARCHAR(100) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  reason VARCHAR(50),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, capability)
+);
+
 -- Migrations
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(20) DEFAULT 'free';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS marketing_opt_in BOOLEAN DEFAULT FALSE;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_scroll_percent DOUBLE PRECISION;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS current_cfi TEXT;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_id UUID;
