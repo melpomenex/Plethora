@@ -6,7 +6,7 @@ use regex::Regex;
 use sqlx::{Pool, Sqlite};
 use std::path::PathBuf;
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// Migration record stored in the database
 #[derive(Debug)]
@@ -2930,7 +2930,7 @@ pub const MIGRATIONS: &[Migration] = &[
 /// Get the migrations directory path
 fn get_migrations_dir() -> Result<PathBuf> {
     let mut exe_path = std::env::current_exe()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get exe path: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get exe path: {}", e)))?;
 
     // Navigate from the executable to the migrations folder
     // Structure: target/debug/incrementum -> migrations/
@@ -2957,7 +2957,7 @@ fn get_migrations_dir() -> Result<PathBuf> {
 
     // Fallback: try current working directory
     let cwd_migrations = std::env::current_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get cwd: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get cwd: {}", e)))?
         .join("src-tauri")
         .join("migrations");
 
@@ -2965,7 +2965,7 @@ fn get_migrations_dir() -> Result<PathBuf> {
         return Ok(cwd_migrations);
     }
 
-    Err(IncrementumError::Internal(
+    Err(PlethoraError::Internal(
         "Could not locate migrations directory".to_string(),
     ))
 }
@@ -3057,7 +3057,7 @@ async fn apply_migration(pool: &Pool<Sqlite>, migration: &Migration) -> Result<(
     let mut tx = pool
         .begin()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to start transaction: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to start transaction: {}", e)))?;
 
     // Split statements while respecting BEGIN...END blocks (for triggers)
     let statements = split_sql_statements(migration.sql);
@@ -3072,7 +3072,7 @@ async fn apply_migration(pool: &Pool<Sqlite>, migration: &Migration) -> Result<(
             .execute(&mut *tx)
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!(
+                PlethoraError::Internal(format!(
                     "Migration {} failed at statement {}: {}",
                     migration.name,
                     i + 1,
@@ -3089,7 +3089,7 @@ async fn apply_migration(pool: &Pool<Sqlite>, migration: &Migration) -> Result<(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to record migration {}: {}",
                 migration.name, e
             ))
@@ -3097,7 +3097,7 @@ async fn apply_migration(pool: &Pool<Sqlite>, migration: &Migration) -> Result<(
 
     // Commit transaction
     tx.commit().await.map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to commit migration {}: {}",
             migration.name, e
         ))
@@ -3120,14 +3120,14 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to create migrations table: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to create migrations table: {}", e)))?;
 
     let applied: Vec<String> =
         sqlx::query_as::<_, (String,)>("SELECT name FROM _schema_migrations ORDER BY applied_at")
             .fetch_all(pool)
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to fetch applied migrations: {}", e))
+                PlethoraError::Internal(format!("Failed to fetch applied migrations: {}", e))
             })?
             .into_iter()
             .map(|(name,)| name)
@@ -3153,7 +3153,7 @@ pub async fn get_current_version(pool: &Pool<Sqlite>) -> Result<Option<String>> 
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| IncrementumError::Internal(format!("Failed to get schema version: {}", e)))?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to get schema version: {}", e)))?;
 
     Ok(result.map(|(name,)| name))
 }
@@ -3165,7 +3165,7 @@ pub async fn needs_migration(pool: &Pool<Sqlite>) -> Result<bool> {
             .fetch_one(pool)
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to check migration status: {}", e))
+                PlethoraError::Internal(format!("Failed to check migration status: {}", e))
             })?;
 
     Ok(applied_count < MIGRATIONS.len() as i64)

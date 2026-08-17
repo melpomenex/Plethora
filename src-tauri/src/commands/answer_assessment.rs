@@ -98,7 +98,7 @@ pub async fn record_answer_assessment(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<AnswerAssessmentRecord> {
     if !CLASSIFICATIONS.contains(&assessment.classification.as_str()) {
-        return Err(crate::error::IncrementumError::Validation(format!(
+        return Err(crate::error::PlethoraError::Validation(format!(
             "classification must be one of {:?}, got {:?}",
             CLASSIFICATIONS.to_vec(),
             assessment.classification

@@ -11,7 +11,7 @@ use crate::ai::embeddings::{
     OpenAIEmbeddingProvider, OpenRouterEmbeddingProvider,
 };
 use crate::commands::Result;
-use crate::error::IncrementumError;
+use crate::error::PlethoraError;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -191,7 +191,7 @@ fn get_provider(
     match config.provider {
         EmbeddingProviderType::OpenAI => {
             let api_key = config.openai_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenAI API key not configured".to_string())
+                PlethoraError::InvalidInput("OpenAI API key not configured".to_string())
             })?;
             let model = config.openai_model.clone();
             Ok(Box::new(OpenAIEmbeddingProvider::new(
@@ -201,7 +201,7 @@ fn get_provider(
         }
         EmbeddingProviderType::Cohere => {
             let api_key = config.cohere_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Cohere API key not configured".to_string())
+                PlethoraError::InvalidInput("Cohere API key not configured".to_string())
             })?;
             let model = config.cohere_model.clone();
             Ok(Box::new(CohereEmbeddingProvider::new(
@@ -211,10 +211,10 @@ fn get_provider(
         }
         EmbeddingProviderType::OpenRouter => {
             let api_key = config.openrouter_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenRouter API key not configured".to_string())
+                PlethoraError::InvalidInput("OpenRouter API key not configured".to_string())
             })?;
             let model = config.openrouter_model.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenRouter model not specified".to_string())
+                PlethoraError::InvalidInput("OpenRouter model not specified".to_string())
             })?;
             Ok(Box::new(OpenRouterEmbeddingProvider::new(
                 api_key.clone(),
@@ -223,10 +223,10 @@ fn get_provider(
         }
         EmbeddingProviderType::Ollama => {
             let base_url = config.ollama_base_url.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Ollama base URL not configured".to_string())
+                PlethoraError::InvalidInput("Ollama base URL not configured".to_string())
             })?;
             let model = config.ollama_model.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Ollama model not specified".to_string())
+                PlethoraError::InvalidInput("Ollama model not specified".to_string())
             })?;
             Ok(Box::new(OllamaEmbeddingProvider::new(
                 base_url.clone(),
@@ -242,7 +242,7 @@ pub async fn generate_embedding(text: String, config: EmbeddingConfig) -> Result
     let response = provider
         .generate_embedding(&text)
         .await
-        .map_err(IncrementumError::Internal)?;
+        .map_err(PlethoraError::Internal)?;
     Ok(response.embedding)
 }
 
@@ -255,7 +255,7 @@ pub async fn generate_embeddings_batch(
     let responses = provider
         .generate_embeddings_batch(&texts)
         .await
-        .map_err(IncrementumError::Internal)?;
+        .map_err(PlethoraError::Internal)?;
     Ok(responses.into_iter().map(|r| r.embedding).collect())
 }
 
@@ -273,7 +273,7 @@ pub async fn index_transcript(
     let responses = provider
         .generate_embeddings_batch(&texts)
         .await
-        .map_err(IncrementumError::Internal)?;
+        .map_err(PlethoraError::Internal)?;
 
     // Store embeddings in memory store
     let mut store = EMBEDDING_STORE.write().await;
@@ -298,7 +298,7 @@ pub async fn semantic_search(
     let query_response = provider
         .generate_embedding(&query)
         .await
-        .map_err(IncrementumError::Internal)?;
+        .map_err(PlethoraError::Internal)?;
 
     let store = EMBEDDING_STORE.read().await;
     let limit = limit.unwrap_or(20);
@@ -357,7 +357,7 @@ pub async fn get_embedding_models(
             if let Some(key) = api_key {
                 OpenRouterEmbeddingProvider::fetch_available_models(&key)
                     .await
-                    .map_err(IncrementumError::Internal)
+                    .map_err(PlethoraError::Internal)
             } else {
                 Ok(OpenRouterEmbeddingProvider::common_models())
             }

@@ -3,7 +3,7 @@
 use crate::algorithms::calculate_document_priority_score;
 use crate::commands::anna_archive::AnnaArchiveClient;
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::kindle_clippings;
 use crate::models::{Document, DocumentMetadata, Extract, FileType};
 use crate::processor;
@@ -22,7 +22,7 @@ fn copy_media_to_app_storage(
     use tauri::Manager;
     let source = Path::new(source_path);
     if !source.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Source file not found: {}",
             source_path
         )));
@@ -33,11 +33,11 @@ fn copy_media_to_app_storage(
         .app_data_dir()
         .map(|d| d.join("incrementum").join(subdir))
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
         })?;
 
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create {} directory: {}", subdir, e))
+        PlethoraError::Internal(format!("Failed to create {} directory: {}", subdir, e))
     })?;
 
     let timestamp = chrono::Utc::now().timestamp();
@@ -50,7 +50,7 @@ fn copy_media_to_app_storage(
     let dest_path = dest_dir.join(&stored_filename);
 
     std::fs::copy(source, &dest_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to copy file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to copy file: {}", e)))?;
 
     Ok(dest_path)
 }
@@ -187,14 +187,14 @@ pub async fn import_document(
 ) -> Result<Document> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "File not found: {}",
             file_path
         )));
     }
     // Canonicalize to resolve symlinks and ..
     let canonical = std::fs::canonicalize(&path)
-        .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid path: {}", e)))?;
 
     import_from_path(
         canonical.to_string_lossy().to_string(),
@@ -286,7 +286,7 @@ async fn import_from_path(
             .iter()
             .find(|d| d.content_hash.as_ref() == Some(hash))
         {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Duplicate document detected: Already imported as '{}'",
                 duplicate.title
             )));
@@ -378,13 +378,13 @@ pub async fn import_document_multi(
 ) -> Result<Vec<Document>> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "File not found: {}",
             file_path
         )));
     }
     let canonical = std::fs::canonicalize(&path)
-        .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid path: {}", e)))?;
     let disk_path = canonical.to_string_lossy().to_string();
 
     if kindle_clippings::is_kindle_clippings_path(&canonical) {
@@ -426,10 +426,10 @@ pub async fn import_document_from_bytes(
         .app_data_dir()
         .map(|d| d.join("imports"))
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
         })?;
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to create imports directory {}: {}",
             dest_dir.display(),
             e
@@ -446,7 +446,7 @@ pub async fn import_document_from_bytes(
     let staged_path = dest_dir.join(&staged_name);
 
     std::fs::write(&staged_path, &file_bytes).map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to stage import file {}: {}",
             staged_path.display(),
             e
@@ -499,10 +499,10 @@ pub async fn stage_import_file_start(
         .app_data_dir()
         .map(|d| d.join("imports"))
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
         })?;
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to create imports directory {}: {}",
             dest_dir.display(),
             e
@@ -520,7 +520,7 @@ pub async fn stage_import_file_start(
 
     // Create/truncate the target file so appends start fresh.
     std::fs::File::create(&staged_path).map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to create staged file {}: {}",
             staged_path.display(),
             e
@@ -540,14 +540,14 @@ pub async fn append_import_file_chunk(staged_path: String, chunk: Vec<u8>) -> Re
         .append(true)
         .open(path)
         .map_err(|e| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to open staged file for append {}: {}",
                 path.display(),
                 e
             ))
         })?;
     file.write_all(&chunk).map_err(|e| {
-        IncrementumError::Internal(format!(
+        PlethoraError::Internal(format!(
             "Failed to append chunk to {}: {}",
             path.display(),
             e
@@ -597,16 +597,16 @@ pub async fn import_pdf_highlights_as_extracts(
     let document = repo
         .get_document(&document_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Document {} not found", document_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Document {} not found", document_id)))?;
 
     if !matches!(document.file_type, FileType::Pdf) {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Highlight import is only supported for PDF documents".to_string(),
         ));
     }
 
     let pdf = LoDocument::load(&document.file_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to open PDF: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to open PDF: {}", e)))?;
     let mut imported_count = 0_i32;
 
     for (page_number, page_id) in pdf.get_pages() {
@@ -984,7 +984,7 @@ pub async fn update_document_content(
         .await?;
     repo.get_document(&id)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
 }
 
 #[tauri::command]
@@ -1057,7 +1057,7 @@ pub async fn extract_document_text(
     repo: State<'_, Repository>,
 ) -> Result<TextExtractionResult> {
     let mut doc = repo.get_document(&id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Document not found: {}", id))
+        crate::error::PlethoraError::NotFound(format!("Document not found: {}", id))
     })?;
 
     // Heal content the same way `get_document` does before short-circuiting on
@@ -1094,16 +1094,16 @@ pub async fn extract_document_text(
                     })
                     .await
                     .map_err(|e| {
-                        crate::error::IncrementumError::Internal(format!(
+                        crate::error::PlethoraError::Internal(format!(
                             "Failed to join transcript task: {}",
                             e
                         ))
                     })?
-                    .map_err(crate::error::IncrementumError::Internal)?;
+                    .map_err(crate::error::PlethoraError::Internal)?;
 
                     let transcript = crate::youtube::build_transcript_text(&segments);
                     let segments_json = serde_json::to_string(&segments).map_err(|e| {
-                        crate::error::IncrementumError::Internal(format!(
+                        crate::error::PlethoraError::Internal(format!(
                             "Failed to serialize transcript: {}",
                             e
                         ))
@@ -1251,7 +1251,7 @@ pub async fn dismiss_document(
 pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Response> {
     let canonical = tokio::fs::canonicalize(&file_path)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid path: {}", e)))?;
 
     // On Android, materializing a large file into a single webview allocation
     // reliably blows the WebView's Java heap (a 142MB podcast previously
@@ -1269,7 +1269,7 @@ pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Respons
             .unwrap_or(0);
         const MAX_INLINED_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB
         if file_size > MAX_INLINED_BYTES {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "File too large to read into memory on mobile ({} bytes); use the streaming media server instead. Path: {}",
                 file_size,
                 canonical.display()
@@ -1295,7 +1295,7 @@ pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Respons
             .unwrap_or(0);
         const MAX_DESKTOP_INLINED_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB
         if file_size > MAX_DESKTOP_INLINED_BYTES {
-            return Err(IncrementumError::Internal(format!(
+            return Err(PlethoraError::Internal(format!(
                 "File too large to read into memory ({} bytes > {} cap); use the streaming server instead. Path: {}",
                 file_size,
                 MAX_DESKTOP_INLINED_BYTES,
@@ -1307,13 +1307,13 @@ pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Respons
     let bytes = match tokio::fs::read(&canonical).await {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(crate::error::IncrementumError::NotFound(format!(
+            return Err(crate::error::PlethoraError::NotFound(format!(
                 "Document file not found: {}",
                 file_path
             )));
         }
         Err(e) => {
-            return Err(crate::error::IncrementumError::Internal(format!(
+            return Err(crate::error::PlethoraError::Internal(format!(
                 "Failed to read file: {}",
                 e
             )));
@@ -1333,17 +1333,17 @@ pub async fn hash_document_file(file_path: String) -> Result<(String, u64)> {
     use sha2::{Digest, Sha256};
 
     let canonical = std::fs::canonicalize(&file_path)
-        .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Invalid path: {}", e)))?;
 
     let metadata = std::fs::metadata(&canonical)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to stat file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to stat file: {}", e)))?;
     let size = metadata.len();
 
     let mut file = std::fs::File::open(&canonical)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to open file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to open file: {}", e)))?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to hash file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to hash file: {}", e)))?;
     let hash_bytes = hasher.finalize();
     let hash_hex = hash_bytes
         .iter()
@@ -1516,12 +1516,12 @@ pub async fn convert_document_pdf_to_html(
     use std::path::Path;
 
     let doc = repo.get_document(&id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Document not found: {}", id))
+        crate::error::PlethoraError::NotFound(format!("Document not found: {}", id))
     })?;
 
     // Verify it's a PDF
     if !matches!(doc.file_type, FileType::Pdf) {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "Document is not a PDF".to_string(),
         ));
     }
@@ -1556,7 +1556,7 @@ pub async fn fetch_web_page_preview(url: String) -> Result<serde_json::Value> {
     use regex::Regex;
 
     crate::security::validate_url_not_private(&url)
-        .map_err(|e| IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("URL not allowed: {}", e)))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -1666,11 +1666,11 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     use std::time::Duration;
 
     crate::security::validate_url_not_private(&url)
-        .map_err(|e| IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("URL not allowed: {}", e)))?;
 
     let url_parsed = url
         .parse::<reqwest::Url>()
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| crate::error::PlethoraError::Internal(format!("Invalid URL: {}", e)))?;
 
     let file_name = url_parsed
         .path_segments()
@@ -1696,7 +1696,7 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     let download_dir = temp_dir.join("incrementum-downloads");
 
     std::fs::create_dir_all(&download_dir).map_err(|e| {
-        crate::error::IncrementumError::Internal(format!(
+        crate::error::PlethoraError::Internal(format!(
             "Failed to create download directory: {}",
             e
         ))
@@ -1711,7 +1711,7 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     // all live in download_with_caps)
     let (bytes, final_url, status, header_content_type, redirect_hops) = download_with_caps(&url)
         .await
-        .map_err(crate::error::IncrementumError::Internal)?;
+        .map_err(crate::error::PlethoraError::Internal)?;
 
     let final_content_type = if content_type == "unknown" {
         header_content_type.clone()
@@ -1720,7 +1720,7 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     };
 
     std::fs::write(&file_path, &bytes).map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to save downloaded file: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to save downloaded file: {}", e))
     })?;
 
     Ok(FetchedUrlContent {
@@ -1759,7 +1759,7 @@ pub async fn update_web_article(
     .await?;
     repo.get_document(&id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Document {}", id)))
+        .ok_or_else(|| PlethoraError::NotFound(format!("Document {}", id)))
 }
 
 /// Canonical-URL dedupe lookup: earliest document id with this source_url.
@@ -1795,10 +1795,10 @@ fn source_snapshot_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?
         .join("source-snapshots");
     std::fs::create_dir_all(&dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create source-snapshots dir: {}", e))
+        PlethoraError::Internal(format!("Failed to create source-snapshots dir: {}", e))
     })?;
     Ok(dir)
 }
@@ -1837,12 +1837,12 @@ fn write_snapshot_to_dir(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(raw)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to compress snapshot: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to compress snapshot: {}", e)))?;
     let compressed = encoder.finish().map_err(|e| {
-        IncrementumError::Internal(format!("Failed to finish snapshot gzip: {}", e))
+        PlethoraError::Internal(format!("Failed to finish snapshot gzip: {}", e))
     })?;
     std::fs::write(&dest, &compressed)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to write snapshot file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to write snapshot file: {}", e)))?;
 
     let mut hasher = Sha256::new();
     hasher.update(raw);
@@ -1897,7 +1897,7 @@ fn store_source_snapshot_to_dir(
     }
 
     let raw = std::fs::read(path).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to read source for snapshot: {}", e))
+        PlethoraError::Internal(format!("Failed to read source for snapshot: {}", e))
     })?;
     let (dest, sha, gzip_len) = write_snapshot_to_dir(dir, document_id, &raw)?;
     Ok(SourceSnapshotResult {

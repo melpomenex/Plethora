@@ -19,7 +19,7 @@ use crate::algorithms::neural_queue::{
     run_spreading_activation, ElementId, ElementNode, NeuralEntry, NeuralGraph, QUEUE_REFILL_MIN,
 };
 use crate::commands::semantic_graph::EmbeddingConfigInput;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::collection::DEFAULT_COLLECTION_ID;
 
 /// A persisted row in the `neural_queue` table.

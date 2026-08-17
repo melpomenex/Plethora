@@ -59,7 +59,7 @@ pub async fn bulk_move_documents_to_collection(
     repo: State<'_, Repository>,
 ) -> Result<BulkOperationResult> {
     if repo.get_collection(&collection_id).await?.is_none() {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "Collection {}",
             collection_id
         )));

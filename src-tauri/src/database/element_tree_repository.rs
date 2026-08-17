@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 use sqlx::{Pool, Sqlite, Transaction};
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// The three concrete item tables the overlay indexes.
 ///
@@ -45,7 +45,7 @@ impl ElementKind {
             "document" => Ok(Self::Document),
             "extract" => Ok(Self::Extract),
             "learning_item" => Ok(Self::LearningItem),
-            other => Err(IncrementumError::InvalidInput(format!(
+            other => Err(PlethoraError::InvalidInput(format!(
                 "unknown element_kind '{other}'"
             ))),
         }
@@ -192,12 +192,12 @@ impl ElementTreeRepository {
     ) -> Result<()> {
         if let Some(np) = new_parent {
             if np == src {
-                return Err(IncrementumError::InvalidInput(
+                return Err(PlethoraError::InvalidInput(
                     "cannot move an element into itself".into(),
                 ));
             }
             if self.is_descendant(np, src).await? {
-                return Err(IncrementumError::InvalidInput(
+                return Err(PlethoraError::InvalidInput(
                     "cannot move an element into its own descendant (cycle)".into(),
                 ));
             }

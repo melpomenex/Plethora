@@ -10,14 +10,14 @@ use crate::ai::embeddings::{
     OpenAIEmbeddingProvider, OpenRouterEmbeddingProvider,
 };
 use crate::commands::semantic_graph::EmbeddingConfigInput;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// Build a concrete `EmbeddingProvider` from an `EmbeddingConfigInput`.
 pub fn build_provider(config: &EmbeddingConfigInput) -> Result<Box<dyn EmbeddingProvider>> {
     match config.provider {
         EmbeddingProviderType::OpenAI => {
             let api_key = config.openai_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenAI API key not configured".to_string())
+                PlethoraError::InvalidInput("OpenAI API key not configured".to_string())
             })?;
             Ok(Box::new(OpenAIEmbeddingProvider::new(
                 api_key.clone(),
@@ -26,7 +26,7 @@ pub fn build_provider(config: &EmbeddingConfigInput) -> Result<Box<dyn Embedding
         }
         EmbeddingProviderType::Cohere => {
             let api_key = config.cohere_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Cohere API key not configured".to_string())
+                PlethoraError::InvalidInput("Cohere API key not configured".to_string())
             })?;
             Ok(Box::new(CohereEmbeddingProvider::new(
                 api_key.clone(),
@@ -35,10 +35,10 @@ pub fn build_provider(config: &EmbeddingConfigInput) -> Result<Box<dyn Embedding
         }
         EmbeddingProviderType::OpenRouter => {
             let api_key = config.openrouter_api_key.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenRouter API key not configured".to_string())
+                PlethoraError::InvalidInput("OpenRouter API key not configured".to_string())
             })?;
             let model = config.openrouter_model.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("OpenRouter model not specified".to_string())
+                PlethoraError::InvalidInput("OpenRouter model not specified".to_string())
             })?;
             Ok(Box::new(OpenRouterEmbeddingProvider::new(
                 api_key.clone(),
@@ -47,10 +47,10 @@ pub fn build_provider(config: &EmbeddingConfigInput) -> Result<Box<dyn Embedding
         }
         EmbeddingProviderType::Ollama => {
             let base_url = config.ollama_base_url.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Ollama base URL not configured".to_string())
+                PlethoraError::InvalidInput("Ollama base URL not configured".to_string())
             })?;
             let model = config.ollama_model.as_ref().ok_or_else(|| {
-                IncrementumError::InvalidInput("Ollama model not specified".to_string())
+                PlethoraError::InvalidInput("Ollama model not specified".to_string())
             })?;
             Ok(Box::new(OllamaEmbeddingProvider::new(
                 base_url.clone(),

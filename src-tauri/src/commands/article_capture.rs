@@ -13,7 +13,7 @@
 //! capture after 750 ms of no change, bounded by 6 s post-load and a 20 s
 //! overall budget.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -204,7 +204,7 @@ async fn capture_rendered_dom_impl(
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _ = (app, url, timeout_ms);
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "UNAVAILABLE: rendered capture on mobile is provided by the folder-import plugin"
                 .to_string(),
         ));
@@ -218,7 +218,7 @@ async fn capture_rendered_dom_impl(
         let started = Instant::now();
 
         let (endpoint, rx) = spawn_capture_receiver()
-            .map_err(|e| IncrementumError::Internal(format!("UNAVAILABLE: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("UNAVAILABLE: {}", e)))?;
 
         let label = format!("article-capture-{}", started.elapsed().as_nanos());
         let init_script = format!(
@@ -228,7 +228,7 @@ async fn capture_rendered_dom_impl(
 
         let parsed_url: tauri::Url = url
             .parse()
-            .map_err(|_| IncrementumError::Internal("UNAVAILABLE: invalid url".to_string()))?;
+            .map_err(|_| PlethoraError::Internal("UNAVAILABLE: invalid url".to_string()))?;
 
         let window =
             WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(parsed_url))
@@ -238,7 +238,7 @@ async fn capture_rendered_dom_impl(
                 .initialization_script(&init_script)
                 .build()
                 .map_err(|e| {
-                    IncrementumError::Internal(format!(
+                    PlethoraError::Internal(format!(
                         "UNAVAILABLE: failed to create capture window: {}",
                         e
                     ))
@@ -247,7 +247,7 @@ async fn capture_rendered_dom_impl(
         let result = loop {
             let elapsed = started.elapsed();
             if elapsed >= timeout {
-                break Err(IncrementumError::Internal(
+                break Err(PlethoraError::Internal(
                     "TIMEOUT: capture budget exceeded".to_string(),
                 ));
             }
@@ -274,7 +274,7 @@ async fn capture_rendered_dom_impl(
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    break Err(IncrementumError::Internal(
+                    break Err(PlethoraError::Internal(
                         "TIMEOUT: capture receiver disconnected".to_string(),
                     ));
                 }

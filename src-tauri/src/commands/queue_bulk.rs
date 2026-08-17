@@ -116,7 +116,7 @@ async fn set_queue_items_suspended(
             .execute(repo.pool())
             .await
             .map(|_| ())
-            .map_err(crate::error::IncrementumError::from),
+            .map_err(crate::error::PlethoraError::from),
             Some(QueueEntityKind::Document) => repo
                 .update_document_dismiss(item_id, suspended)
                 .await
@@ -124,7 +124,7 @@ async fn set_queue_items_suspended(
             Some(QueueEntityKind::Extract) => {
                 repo.update_extract_dismissed(item_id, suspended).await
             }
-            None => Err(crate::error::IncrementumError::NotFound(format!(
+            None => Err(crate::error::PlethoraError::NotFound(format!(
                 "Queue item {}",
                 item_id
             ))),
@@ -223,7 +223,7 @@ pub async fn postpone_item(
         Some("document") => {
             // Postpone a document by advancing next_reading_date
             let doc = repo.get_document(&item_id).await?.ok_or_else(|| {
-                crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
+                crate::error::PlethoraError::NotFound(format!("Document {}", item_id))
             })?;
 
             let modified_days = (days as f64 * doc.interval_modifier).round() as i64;
@@ -251,7 +251,7 @@ pub async fn postpone_item(
                 .into_iter()
                 .find(|i| i.id == item_id)
                 .ok_or_else(|| {
-                    crate::error::IncrementumError::NotFound(format!("Item {}", item_id))
+                    crate::error::PlethoraError::NotFound(format!("Item {}", item_id))
                 })?;
 
             item.due_date += Duration::days(days as i64);
@@ -323,11 +323,11 @@ pub async fn bulk_delete_items(
                     .execute(repo.pool())
                     .await
                     .map(|_| ())
-                    .map_err(crate::error::IncrementumError::from)
+                    .map_err(crate::error::PlethoraError::from)
             }
             Some(QueueEntityKind::Document) => repo.delete_document(item_id).await,
             Some(QueueEntityKind::Extract) => repo.delete_extract(item_id).await,
-            None => Err(crate::error::IncrementumError::NotFound(format!(
+            None => Err(crate::error::PlethoraError::NotFound(format!(
                 "Queue item {}",
                 item_id
             ))),
@@ -415,7 +415,7 @@ pub async fn advance_item(
     match item_type.as_deref() {
         Some("document") => {
             let mut doc = repo.get_document(&item_id).await?.ok_or_else(|| {
-                crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
+                crate::error::PlethoraError::NotFound(format!("Document {}", item_id))
             })?;
             let new_date = doc.next_reading_date.unwrap_or_else(Utc::now) + shift;
             // Never push a document into the past beyond today.
@@ -438,7 +438,7 @@ pub async fn advance_item(
                 .into_iter()
                 .find(|i| i.id == item_id)
                 .ok_or_else(|| {
-                    crate::error::IncrementumError::NotFound(format!("Item {}", item_id))
+                    crate::error::PlethoraError::NotFound(format!("Item {}", item_id))
                 })?;
             item.due_date = (item.due_date + shift).max(Utc::now());
             item.date_modified = Utc::now();
@@ -655,8 +655,8 @@ pub enum LifecycleTransition {
     Forget,
 }
 
-fn not_found(item_id: &str) -> crate::error::IncrementumError {
-    crate::error::IncrementumError::NotFound(format!("Queue item {}", item_id))
+fn not_found(item_id: &str) -> crate::error::PlethoraError {
+    crate::error::PlethoraError::NotFound(format!("Queue item {}", item_id))
 }
 
 /// Set one priority slider value across a mixed selection.
@@ -853,7 +853,7 @@ pub(crate) async fn bulk_move_items_to_collection_inner(
         .await?
         .map(|row| row.get("id"));
     if exists.is_none() {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "Collection {}",
             collection_id
         )));

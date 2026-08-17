@@ -19,12 +19,12 @@ pub async fn segment_document(
     repo: State<'_, Repository>,
 ) -> Result<SegmentationResult> {
     let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound("Document not found".to_string())
+        crate::error::PlethoraError::NotFound("Document not found".to_string())
     })?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "Document has no content".to_string(),
         ));
     }
@@ -61,12 +61,12 @@ pub async fn auto_segment_and_create_extracts(
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
     let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound("Document not found".to_string())
+        crate::error::PlethoraError::NotFound("Document not found".to_string())
     })?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "Document has no content".to_string(),
         ));
     }
@@ -111,7 +111,7 @@ pub async fn auto_segment_and_create_extracts(
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to create extract: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to create extract: {}", e))
         })?;
 
         extract_ids.push(extract_id);
@@ -258,7 +258,7 @@ pub async fn split_document(
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
     let parent = repo.get_document(&document_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound("Parent document not found".to_string())
+        crate::error::PlethoraError::NotFound("Parent document not found".to_string())
     })?;
 
     let total_chunks = parts.len() as i32;

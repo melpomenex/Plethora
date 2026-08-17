@@ -2,7 +2,7 @@
 //! row/column ink projections (D5). All downstream consumers work in PDF
 //! space via `RasterGeometry`; the raster itself is never persisted.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 use super::coordinates::RasterGeometry;
 
@@ -66,7 +66,7 @@ impl PageInkMask {
 
     pub fn from_png(png: &[u8]) -> Result<Self> {
         let image = image::load_from_memory(png).map_err(|error| {
-            IncrementumError::InvalidInput(format!("Analysis raster decode failed: {error}"))
+            PlethoraError::InvalidInput(format!("Analysis raster decode failed: {error}"))
         })?;
         let luma = image.to_luma8();
         let (width, height) = luma.dimensions();

@@ -10,7 +10,7 @@ use tauri::State;
 
 use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::{ElementKind, ElementTreeRepository, NeuralQueueRepository, Repository};
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 /// Enter neural review (SuperMemo's *Learn : Go neural*): build the neural
 /// queue by spreading activation seeded at the element derived from
@@ -34,7 +34,7 @@ pub async fn build_neural_queue(
         "extract" => ElementKind::Extract,
         "learning_item" => ElementKind::LearningItem,
         other => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "unknown element_kind '{other}'"
             )))
         }
@@ -44,7 +44,7 @@ pub async fn build_neural_queue(
         .find_node_id(kind, &element_ref_id)
         .await?
         .ok_or_else(|| {
-            IncrementumError::NotFound(format!(
+            PlethoraError::NotFound(format!(
                 "element_tree node for {element_kind}:{element_ref_id}"
             ))
         })?;
@@ -108,7 +108,7 @@ pub async fn refill_neural_queue_if_depleted(
         "extract" => ElementKind::Extract,
         "learning_item" => ElementKind::LearningItem,
         other => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "unknown element_kind '{other}'"
             )))
         }
@@ -122,7 +122,7 @@ pub async fn refill_neural_queue_if_depleted(
         .find_node_id(kind, &element_ref_id)
         .await?
         .ok_or_else(|| {
-            IncrementumError::NotFound(format!(
+            PlethoraError::NotFound(format!(
                 "element_tree node for {element_kind}:{element_ref_id}"
             ))
         })?;

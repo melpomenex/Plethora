@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, FileType, ItemState, ItemType, LearningItem};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -90,19 +90,19 @@ pub struct StudyJsonImportResult {
 /// `deck_name`.
 pub fn parse_study_json_file(path: &str) -> Result<StudyJsonDeck> {
     let content = fs::read_to_string(path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot read file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot read file: {}", e)))?;
 
     let raw: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| IncrementumError::InvalidInput(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| PlethoraError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
     let obj = raw.as_object().ok_or_else(|| {
-        IncrementumError::InvalidInput(
+        PlethoraError::InvalidInput(
             "Expected a JSON object (flat map of question -> card)".to_string(),
         )
     })?;
 
     if obj.is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Deck file is empty (no cards found)".to_string(),
         ));
     }
@@ -113,7 +113,7 @@ pub fn parse_study_json_file(path: &str) -> Result<StudyJsonDeck> {
 
     for (question, value) in obj {
         let card: StudyJsonCard = serde_json::from_value(value.clone()).map_err(|e| {
-            IncrementumError::InvalidInput(format!(
+            PlethoraError::InvalidInput(format!(
                 "Card for question \"{}\" is invalid: {}",
                 question.chars().take(60).collect::<String>(),
                 e
@@ -121,7 +121,7 @@ pub fn parse_study_json_file(path: &str) -> Result<StudyJsonDeck> {
         })?;
 
         if card.answer.is_empty() && card.deck_name.is_empty() {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Card for question \"{}\" is missing required fields (answer, deck_name, subject)",
                 question.chars().take(60).collect::<String>()
             )));

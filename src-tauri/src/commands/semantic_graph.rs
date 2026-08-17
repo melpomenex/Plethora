@@ -9,7 +9,7 @@ use crate::commands::ai_key_store::AIKeyStore;
 use crate::commands::Result;
 use crate::database::QueueItemEmbedding;
 use crate::database::Repository;
-use crate::error::IncrementumError;
+use crate::error::PlethoraError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
@@ -176,7 +176,7 @@ pub async fn embed_queue_items(
         let responses = provider
             .generate_embeddings_batch(&texts)
             .await
-            .map_err(IncrementumError::Internal)?;
+            .map_err(PlethoraError::Internal)?;
 
         let now = chrono::Utc::now().timestamp_millis();
         for (item, response) in chunk.iter().zip(responses.iter()) {

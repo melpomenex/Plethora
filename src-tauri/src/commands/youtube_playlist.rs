@@ -1,7 +1,7 @@
 //! YouTube playlist auto-import commands
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, FileType, PlaylistSettings, PlaylistSubscription, PlaylistVideo};
 use crate::youtube::{extract_video_info, get_playlist_info};
 use sqlx::Row;
@@ -15,7 +15,7 @@ async fn import_youtube_video_as_document(
 ) -> Result<Document> {
     crate::youtube::import_youtube_video_internal(&url, collection_id, repo)
         .await
-        .map_err(IncrementumError::Internal)
+        .map_err(PlethoraError::Internal)
 }
 
 /// Subscribe to a YouTube playlist for auto-import
@@ -27,7 +27,7 @@ pub async fn subscribe_to_playlist(
     eprintln!("[YouTube Playlist] Subscribing to: {}", playlist_url);
 
     let playlist_id = extract_playlist_id(&playlist_url).ok_or_else(|| {
-        IncrementumError::Internal(format!("Invalid YouTube playlist URL: {}", playlist_url))
+        PlethoraError::Internal(format!("Invalid YouTube playlist URL: {}", playlist_url))
     })?;
 
     eprintln!("[YouTube Playlist] Extracted playlist ID: {}", playlist_id);
@@ -41,10 +41,10 @@ pub async fn subscribe_to_playlist(
     }
 
     let ytdlp_available = crate::youtube::check_ytdlp_installed()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to check yt-dlp: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to check yt-dlp: {}", e)))?;
 
     if !ytdlp_available {
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "yt-dlp is not installed or not in PATH. Please install yt-dlp: https://github.com/yt-dlp/yt-dlp#installation".to_string()
         ));
     }
@@ -52,7 +52,7 @@ pub async fn subscribe_to_playlist(
     eprintln!("[YouTube Playlist] yt-dlp is available, fetching playlist info...");
 
     let playlist_info = get_playlist_info(&playlist_url)
-        .map_err(|e| IncrementumError::Internal(format!("yt-dlp error: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("yt-dlp error: {}", e)))?;
 
     eprintln!(
         "[YouTube Playlist] Got playlist info: title={:?}, entries={:?}",
@@ -148,7 +148,7 @@ pub async fn subscribe_to_playlist(
 
     repo.get_playlist_subscription(&id)
         .await?
-        .ok_or_else(|| IncrementumError::Internal("Subscription not found".to_string()))
+        .ok_or_else(|| PlethoraError::Internal("Subscription not found".to_string()))
 }
 
 /// Get all playlist subscriptions
@@ -168,7 +168,7 @@ pub async fn get_playlist_subscription(
     let subscription = repo
         .get_playlist_subscription(&subscription_id)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Subscription".to_string()))?;
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Subscription".to_string()))?;
 
     let videos = repo.get_playlist_videos(&subscription_id, false).await?;
 
@@ -222,10 +222,10 @@ pub async fn refresh_playlist(
     let subscription = repo
         .get_playlist_subscription(&subscription_id)
         .await?
-        .ok_or_else(|| IncrementumError::Internal("Subscription not found".to_string()))?;
+        .ok_or_else(|| PlethoraError::Internal("Subscription not found".to_string()))?;
 
     let playlist_info = get_playlist_info(&subscription.playlist_url)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch playlist: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch playlist: {}", e)))?;
 
     let mut new_videos_found = 0;
     let mut imported_count = 0;
@@ -316,10 +316,10 @@ pub async fn import_playlist_video(
     .bind(&playlist_video_id)
     .fetch_all(repo.pool())
     .await
-    .map_err(IncrementumError::Database)?;
+    .map_err(PlethoraError::Database)?;
 
     if rows.is_empty() {
-        return Err(IncrementumError::Internal(
+        return Err(PlethoraError::Internal(
             "Playlist video not found".to_string(),
         ));
     }
@@ -364,7 +364,7 @@ pub async fn get_unimported_playlist_videos(
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(IncrementumError::Database)?;
+    .map_err(PlethoraError::Database)?;
 
     Ok(rows
         .into_iter()
@@ -459,7 +459,7 @@ pub async fn get_playlist_queue_items(
     .bind(limit)
     .fetch_all(repo.pool())
     .await
-    .map_err(IncrementumError::Database)?;
+    .map_err(PlethoraError::Database)?;
 
     Ok(rows
         .into_iter()

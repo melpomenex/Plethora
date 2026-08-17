@@ -1,6 +1,6 @@
 //! Versioned, page-granular native cache for semantic PDF reflow results.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ fn cache_root(app: &AppHandle) -> Result<PathBuf> {
         .app_cache_dir()
         .map(|path| path.join("incrementum").join("pdf-reflow-v1"))
         .map_err(|error| {
-            IncrementumError::Internal(format!("Failed to resolve PDF cache: {error}"))
+            PlethoraError::Internal(format!("Failed to resolve PDF cache: {error}"))
         })
 }
 
@@ -47,14 +47,14 @@ fn page_path(dir: &Path, page_number: u32) -> PathBuf {
 async fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| IncrementumError::InvalidInput("Invalid PDF cache path".into()))?;
+        .ok_or_else(|| PlethoraError::InvalidInput("Invalid PDF cache path".into()))?;
     tokio::fs::create_dir_all(parent).await?;
     let temp = path.with_extension(format!("json.tmp-{}", uuid::Uuid::new_v4()));
     let bytes = serde_json::to_vec(value)?;
     tokio::fs::write(&temp, bytes).await?;
     if let Err(error) = tokio::fs::rename(&temp, path).await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return Err(IncrementumError::Io(error));
+        return Err(PlethoraError::Io(error));
     }
     Ok(())
 }
@@ -99,7 +99,7 @@ async fn enforce_cache_limit(root: &Path) -> Result<()> {
         Ok(())
     })
     .await
-    .map_err(|error| IncrementumError::Internal(format!("PDF cache cleanup failed: {error}")))??;
+    .map_err(|error| PlethoraError::Internal(format!("PDF cache cleanup failed: {error}")))??;
     Ok(())
 }
 
@@ -113,7 +113,7 @@ pub async fn get_pdf_reflow_cache_page(
     app: AppHandle,
 ) -> Result<Option<Value>> {
     if page_number == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "PDF page numbers start at 1".into(),
         ));
     }
@@ -146,7 +146,7 @@ pub async fn put_pdf_reflow_cache_page(
     app: AppHandle,
 ) -> Result<()> {
     if page_number == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "PDF page numbers start at 1".into(),
         ));
     }

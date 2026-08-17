@@ -272,7 +272,7 @@ pub async fn update_annotation_http(
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         }),
-        None => Err(crate::error::IncrementumError::NotFound("Annotation not found".to_string())),
+        None => Err(crate::error::PlethoraError::NotFound("Annotation not found".to_string())),
     }
 }
 

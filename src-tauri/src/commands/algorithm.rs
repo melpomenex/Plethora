@@ -171,7 +171,7 @@ pub async fn calculate_sm2_next(
     repo: State<'_, Repository>,
 ) -> Result<SM2Calculation> {
     let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Learning item {} not found", item_id))
+        crate::error::PlethoraError::NotFound(format!("Learning item {} not found", item_id))
     })?;
 
     // Get current SM-2 params (or use defaults)
@@ -249,7 +249,7 @@ pub async fn rate_document(
         .get_document(&request.document_id)
         .await?
         .ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!(
+            crate::error::PlethoraError::NotFound(format!(
                 "Document {} not found",
                 request.document_id
             ))
@@ -364,7 +364,7 @@ pub async fn rate_document_engaging(
         .get_document(&request.document_id)
         .await?
         .ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!(
+            crate::error::PlethoraError::NotFound(format!(
                 "Document {} not found",
                 request.document_id
             ))
@@ -484,7 +484,7 @@ pub async fn rate_extract(
         .get_extract(&request.extract_id)
         .await?
         .ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!(
+            crate::error::PlethoraError::NotFound(format!(
                 "Extract {} not found",
                 request.extract_id
             ))
@@ -635,7 +635,7 @@ pub async fn get_algorithm_params(
     repo: State<'_, Repository>,
 ) -> Result<AlgorithmParams> {
     let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Learning item {} not found", item_id))
+        crate::error::PlethoraError::NotFound(format!("Learning item {} not found", item_id))
     })?;
 
     let (stability, difficulty) = item

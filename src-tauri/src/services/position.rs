@@ -1,6 +1,6 @@
 //! Position tracking service for unified document position management
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::position::{Bookmark, DocumentPosition, ReadingSession};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
@@ -22,7 +22,7 @@ impl PositionService {
         position: &DocumentPosition,
     ) -> Result<()> {
         let position_json = serde_json::to_string(position).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to serialize position: {}", e))
+            PlethoraError::Internal(format!("Failed to serialize position: {}", e))
         })?;
 
         // Try to get progress from position, or calculate from document's total_pages
@@ -36,7 +36,7 @@ impl PositionService {
                     .fetch_optional(&self.pool)
                     .await
                     .map_err(|e| {
-                        IncrementumError::Internal(format!("Failed to get total_pages: {}", e))
+                        PlethoraError::Internal(format!("Failed to get total_pages: {}", e))
                     })?;
 
             if let Some(total) = total_pages {
@@ -64,7 +64,7 @@ impl PositionService {
         .bind(document_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to save position: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to save position: {}", e)))?;
 
         Ok(())
     }
@@ -77,11 +77,11 @@ impl PositionService {
         .bind(document_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get position: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get position: {}", e)))?;
 
         if let Some((Some(json),)) = row {
             let position: DocumentPosition = serde_json::from_str(&json).map_err(|e| {
-                IncrementumError::Internal(format!("Failed to deserialize position: {}", e))
+                PlethoraError::Internal(format!("Failed to deserialize position: {}", e))
             })?;
             Ok(Some(position))
         } else {
@@ -97,7 +97,7 @@ impl PositionService {
         .bind(document_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get progress: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get progress: {}", e)))?;
 
         Ok(row.and_then(|(p,)| p.map(|v| v as f32)))
     }
@@ -111,7 +111,7 @@ impl PositionService {
         .bind(document_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get legacy position: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get legacy position: {}", e)))?;
 
         if let Some((current_page, scroll_percent, total_pages)) = row {
             if let Some(page) = current_page {
@@ -138,7 +138,7 @@ impl PositionService {
     ) -> Result<Bookmark> {
         let id = Uuid::new_v4().to_string();
         let position_json = serde_json::to_string(position).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to serialize position: {}", e))
+            PlethoraError::Internal(format!("Failed to serialize position: {}", e))
         })?;
         let position_type = position.type_name().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
@@ -157,7 +157,7 @@ impl PositionService {
         .bind(&created_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create bookmark: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create bookmark: {}", e)))?;
 
         Ok(Bookmark {
             id,
@@ -177,15 +177,15 @@ impl PositionService {
         .bind(document_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to list bookmarks: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to list bookmarks: {}", e)))?;
 
         let mut bookmarks = Vec::new();
         for (id, name, position_json, thumbnail, created_at) in rows {
             let position: DocumentPosition = serde_json::from_str(&position_json).map_err(|e| {
-                IncrementumError::Internal(format!("Failed to deserialize position: {}", e))
+                PlethoraError::Internal(format!("Failed to deserialize position: {}", e))
             })?;
             let created = chrono::DateTime::parse_from_rfc3339(&created_at)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to parse date: {}", e)))?
+                .map_err(|e| PlethoraError::Internal(format!("Failed to parse date: {}", e)))?
                 .with_timezone(&chrono::Utc);
 
             bookmarks.push(Bookmark {
@@ -207,7 +207,7 @@ impl PositionService {
             .bind(bookmark_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to delete bookmark: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to delete bookmark: {}", e)))?;
 
         Ok(())
     }
@@ -234,7 +234,7 @@ impl PositionService {
         .bind(progress_start)
         .execute(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to start session: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to start session: {}", e)))?;
 
         Ok(ReadingSession {
             id,
@@ -264,14 +264,14 @@ impl PositionService {
         .bind(session_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get session: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get session: {}", e)))?;
 
         if let Some((started_at, last_heartbeat_at, accrued_seconds)) = session_info {
             let duration_seconds = if last_heartbeat_at.is_some() {
                 accrued_seconds.max(0) as u32
             } else {
                 let start = chrono::DateTime::parse_from_rfc3339(&started_at).map_err(|e| {
-                    IncrementumError::Internal(format!("Failed to parse date: {}", e))
+                    PlethoraError::Internal(format!("Failed to parse date: {}", e))
                 })?;
                 let end = chrono::Utc::now();
                 let duration = end.signed_duration_since(start.with_timezone(&chrono::Utc));
@@ -291,7 +291,7 @@ impl PositionService {
             .bind(session_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to end session: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Failed to end session: {}", e)))?;
         }
 
         Ok(())
@@ -306,7 +306,7 @@ impl PositionService {
         .bind(document_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get active session: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get active session: {}", e)))?;
 
         if let Some((
             id,
@@ -320,7 +320,7 @@ impl PositionService {
         )) = row
         {
             let started = chrono::DateTime::parse_from_rfc3339(&started_at)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to parse date: {}", e)))?
+                .map_err(|e| PlethoraError::Internal(format!("Failed to parse date: {}", e)))?
                 .with_timezone(&chrono::Utc);
             let ended = ended_at
                 .and_then(|d| chrono::DateTime::parse_from_rfc3339(&d).ok())
@@ -369,7 +369,7 @@ impl PositionService {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to get documents with progress: {}", e))
+            PlethoraError::Internal(format!("Failed to get documents with progress: {}", e))
         })?;
 
         Ok(rows
@@ -411,7 +411,7 @@ impl PositionService {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!(
+            PlethoraError::Internal(format!(
                 "Failed to get collection documents with progress: {}",
                 e
             ))
@@ -449,7 +449,7 @@ impl PositionService {
         .bind(days as i64)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get daily stats: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get daily stats: {}", e)))?;
 
         Ok(rows)
     }
