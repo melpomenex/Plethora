@@ -4005,6 +4005,16 @@ export const en: Dict = {
   "integrations.attachmentsFolder": "Attachments Folder",
   "integrations.dataviewFolderOptional": "Dataview Folder (Optional)",
   "integrations.saveObsidianConfiguration": "Save Obsidian Configuration",
+  "integrations.migrateVaultIdsTitle": "Migrate Vault Note IDs",
+  "integrations.migrateVaultIdsDesc":
+    "Notes exported by Incrementum carry an incrementum-id frontmatter key. Plethora reads both keys, so this is optional — it rewrites your vault notes to use the new plethora-id key. Your notes are only modified after you confirm, and note bodies are preserved.",
+  "integrations.migrateVaultIdsButton": "Migrate vault ids",
+  "integrations.migrateVaultIdsNeedVault": "Set your Obsidian vault path first.",
+  "integrations.migrateVaultIdsConfirm":
+    "Rewrite incrementum-id/incrementum-type to plethora-id/plethora-type in the frontmatter of notes under {notes}? This modifies files in your vault (bodies are preserved).",
+  "integrations.migrateVaultIdsResult":
+    "Rewrote {rewritten} of {scanned} note(s).",
+  "integrations.migrateVaultIdsFailed": "Vault id migration failed",
   "integrations.aiConversationExport": "AI Conversation Export",
   "integrations.aiConversationExportDesc":
     "You can now export AI assistant conversations directly to your Obsidian vault. Look for the share button on assistant messages or in the conversation header.",

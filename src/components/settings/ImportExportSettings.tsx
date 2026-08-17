@@ -191,7 +191,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
     setClipboardWatcherEnabledState(getClipboardWatcherEnabled());
   }, []);
 
-  const handleExport = async (format: "json" | "csv" | "incrementum") => {
+  const handleExport = async (format: "json" | "csv" | "plethora") => {
     setIsProcessing(true);
     try {
       const exportData = {
@@ -201,7 +201,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
         // Data would be populated by actual export function
       };
 
-      const filename = `incrementum-export-${new Date().toISOString().split("T")[0]}.${format}`;
+      const filename = `plethora-export-${new Date().toISOString().split("T")[0]}.${format}`;
 
       const blob = new Blob([JSON.stringify(exportData, null, 2)], {
         type: format === "csv" ? "text/csv" : "application/json",
@@ -641,7 +641,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
                 {t("importExport.exportCsv")}
               </button>
               <button
-                onClick={() => handleExport("incrementum")}
+                onClick={() => handleExport("plethora")}
                 disabled={isProcessing}
                 className="flex items-center gap-2 px-4 py-2 bg-background border border-border rounded-md hover:bg-muted disabled:opacity-50"
               >
@@ -674,7 +674,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
             <div className="flex items-center gap-3">
               <input
                 type="file"
-                accept=".json,.csv,.incrementum,.apkg,.zip,.7z,.db,application/json,application/octet-stream,application/zip,application/x-7z-compressed,application/x-sqlite3,text/csv,text/plain"
+                accept=".json,.csv,.plethora,.incrementum,.apkg,.zip,.7z,.db,application/json,application/octet-stream,application/zip,application/x-7z-compressed,application/x-sqlite3,text/csv,text/plain"
                 onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                 className="flex-1 text-sm text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-muted file:text-muted-foreground hover:file:bg-muted/80"
               />

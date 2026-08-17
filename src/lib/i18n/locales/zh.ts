@@ -1810,6 +1810,16 @@ export const zh: Dict = {
   "integrations.saveAnkiConfiguration": "保存 Anki 配置",
   "integrations.saveCookies": "保存 Cookie",
   "integrations.saveObsidianConfiguration": "保存 Obsidian 配置",
+  "integrations.migrateVaultIdsTitle": "迁移仓库笔记 ID",
+  "integrations.migrateVaultIdsDesc":
+    "由 Incrementum 导出的笔记带有 incrementum-id 前置元数据键。Plethora 可以同时读取两种键，因此本操作是可选的——它会把仓库笔记改写为新的 plethora-id 键。仅在您确认后才会修改笔记，且正文内容保持不变。",
+  "integrations.migrateVaultIdsButton": "迁移仓库 ID",
+  "integrations.migrateVaultIdsNeedVault": "请先设置 Obsidian 仓库路径。",
+  "integrations.migrateVaultIdsConfirm":
+    "将 {notes} 下笔记前置元数据中的 incrementum-id/incrementum-type 改写为 plethora-id/plethora-type？这会修改仓库中的文件（正文保持不变）。",
+  "integrations.migrateVaultIdsResult":
+    "已改写 {scanned} 篇笔记中的 {rewritten} 篇。",
+  "integrations.migrateVaultIdsFailed": "仓库 ID 迁移失败",
   "integrations.selectObsidianVaultFolder": "选择 Obsidian 笔记库文件夹",
   "integrations.selectWorkflowDesc": "选择一个 AI 工作流开始使用",
   "integrations.startServer": "启动服务器",

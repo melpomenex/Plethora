@@ -1581,6 +1581,16 @@ export const ja: Dict = {
   "integrations.saveAnkiConfiguration": "Anki 設定を保存",
   "integrations.saveCookies": "Cookie を保存",
   "integrations.saveObsidianConfiguration": "Obsidian 設定を保存",
+  "integrations.migrateVaultIdsTitle": "vault ノート ID の移行",
+  "integrations.migrateVaultIdsDesc":
+    "Incrementum がエクスポートしたノートには frontmatter キー incrementum-id が付いています。Plethora は両方のキーを読み込めるためこの操作は任意です。ノートを新しい plethora-id キーに書き換えます。確認後にのみノートを変更し、本文は保持されます。",
+  "integrations.migrateVaultIdsButton": "vault ID を移行",
+  "integrations.migrateVaultIdsNeedVault": "先に Obsidian vault のパスを設定してください。",
+  "integrations.migrateVaultIdsConfirm":
+    "{notes} 配下のノートの frontmatter の incrementum-id/incrementum-type を plethora-id/plethora-type に書き換えますか？vault 内のファイルが変更されます（本文は保持されます）。",
+  "integrations.migrateVaultIdsResult":
+    "{scanned} 件中 {rewritten} 件のノートを書き換えました。",
+  "integrations.migrateVaultIdsFailed": "vault ID の移行に失敗しました",
   "integrations.selectObsidianVaultFolder": "Obsidian Vault フォルダを選択",
   "integrations.selectWorkflowDesc": "AI ワークフローを選択して開始",
   "integrations.startServer": "サーバーを開始",

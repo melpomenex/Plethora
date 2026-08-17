@@ -1598,6 +1598,16 @@ export const es: Dict = {
   "integrations.saveAnkiConfiguration": "Guardar configuración de Anki",
   "integrations.saveCookies": "Guardar cookies",
   "integrations.saveObsidianConfiguration": "Guardar configuración de Obsidian",
+  "integrations.migrateVaultIdsTitle": "Migrar IDs de notas del repositorio",
+  "integrations.migrateVaultIdsDesc":
+    "Las notas exportadas por Incrementum llevan la clave incrementum-id en su frontmatter. Plethora lee ambas claves, por lo que esto es opcional: reescribe sus notas para usar la nueva clave plethora-id. Las notas solo se modifican tras su confirmación y los cuerpos se conservan.",
+  "integrations.migrateVaultIdsButton": "Migrar IDs del repositorio",
+  "integrations.migrateVaultIdsNeedVault": "Configure primero la ruta de su repositorio Obsidian.",
+  "integrations.migrateVaultIdsConfirm":
+    "¿Reescribir incrementum-id/incrementum-type como plethora-id/plethora-type en el frontmatter de las notas bajo {notes}? Esto modifica archivos de su repositorio (los cuerpos se conservan).",
+  "integrations.migrateVaultIdsResult":
+    "Se reescribieron {rewritten} de {scanned} nota(s).",
+  "integrations.migrateVaultIdsFailed": "La migración de IDs del repositorio falló",
   "integrations.selectObsidianVaultFolder": "Seleccionar carpeta del vault de Obsidian",
   "integrations.selectWorkflowDesc": "Selecciona un flujo de IA para empezar",
   "integrations.startServer": "Iniciar servidor",

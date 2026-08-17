@@ -232,6 +232,26 @@ export async function deleteFromObsidian(
 }
 
 /**
+ * Result of the opt-in Obsidian vault id migration (settings action).
+ */
+export interface ObsidianVaultIdMigrationResult {
+  filesScanned: number;
+  filesRewritten: number;
+  errors: string[];
+}
+
+/**
+ * Rewrite legacy `incrementum-id`/`incrementum-type` frontmatter keys in the
+ * configured Obsidian vault to `plethora-*`. Explicitly opt-in; the app never
+ * rewrites vault files automatically.
+ */
+export async function migrateObsidianVaultIds(
+  config: ObsidianConfig
+): Promise<ObsidianVaultIdMigrationResult> {
+  return await invokeCommand("migrate_obsidian_vault_ids", { config });
+}
+
+/**
  * AnkiConnect configuration
  */
 export interface AnkiConfig {
