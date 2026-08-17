@@ -59,11 +59,11 @@ export function ReviewTab() {
 
   useEffect(() => {
     const handleOpenFlashcard = () => setReviewTabMode("deck-manager");
-    window.addEventListener("incrementum:open-flashcard", handleOpenFlashcard);
-    if (sessionStorage.getItem("incrementum:pending-flashcard-id")) {
+    window.addEventListener("plethora:open-flashcard", handleOpenFlashcard);
+    if (sessionStorage.getItem("plethora:pending-flashcard-id")) {
       setReviewTabMode("deck-manager");
     }
-    return () => window.removeEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+    return () => window.removeEventListener("plethora:open-flashcard", handleOpenFlashcard);
   }, [setReviewTabMode]);
 
   if (reviewTabMode === "session") {

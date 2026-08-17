@@ -132,7 +132,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         setHasBraveKey(true);
         setBraveKey("");
       }
-      await invoke("brave_web_search", { query: "incrementum" });
+      await invoke("brave_web_search", { query: "plethora" });
       setBraveTestResult("Brave Search: Connection successful");
     } catch (err) {
       // Surface the backend's real error (HTTP status / parse failure / etc.)

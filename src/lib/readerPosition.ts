@@ -58,7 +58,7 @@ const isBrowser = () => typeof window !== "undefined" && !!window.localStorage;
 const getCurrentUserId = (): string | null => {
   if (!isBrowser()) return null;
   try {
-    const raw = window.localStorage.getItem("incrementum_user");
+    const raw = window.localStorage.getItem("plethora_user");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { id?: unknown } | null;
     const id = parsed && typeof parsed === "object" ? (parsed as any).id : null;

@@ -56,7 +56,7 @@ function openSettingsWithPrevious() {
 describe("SettingsPage return navigation", () => {
   beforeEach(() => {
     presentation.mobile = false;
-    localStorage.removeItem("incrementum_settings_initial_tab");
+    localStorage.removeItem("plethora_settings_initial_tab");
     resetContextualBackHandlersForTests();
     resetOverlayStackForTests();
     useTabsStore.setState({

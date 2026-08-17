@@ -17,7 +17,7 @@
 
 import { isNativeMobile } from "./tauri";
 
-const installed = Symbol("incrementum.consoleLogcatBridge.installed");
+const installed = Symbol("plethora.consoleLogcatBridge.installed");
 
 interface ConsoleWithFlag extends Console {
   [installed]?: boolean;
@@ -73,7 +73,7 @@ export async function installConsoleLogcatBridge(): Promise<boolean> {
   console.debug = forward("debug");
 
   // Keep a reference for debugging / teardown if ever needed.
-  (console as ConsoleWithFlag & { __incrementumOrigConsole?: typeof orig }).__incrementumOrigConsole = orig;
+  (console as ConsoleWithFlag & { __plethoraOrigConsole?: typeof orig }).__plethoraOrigConsole = orig;
   c[installed] = true;
 
   // Emit a marker so it's easy to confirm the bridge is live in logcat.

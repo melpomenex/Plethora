@@ -193,7 +193,7 @@ describe("useRecallPrompts controller", () => {
 
     act(() => result.current.notToday());
     expect(result.current.phase).toBe("idle");
-    expect(localStorage.getItem("incrementum-recall-dismissed-until")).toBe("2026-08-15");
+    expect(localStorage.getItem("plethora-recall-dismissed-until")).toBe("2026-08-15");
 
     // Same day: no new prompts even after the interval elapses.
     await tick();

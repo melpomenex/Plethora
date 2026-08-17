@@ -67,7 +67,7 @@ describe("resolveScrollRatingKey", () => {
   });
 
   it("exposes the reveal-request event name shared with the flashcard card", () => {
-    expect(FLASHCARD_REVEAL_EVENT).toBe("incrementum:flashcard-reveal-request");
+    expect(FLASHCARD_REVEAL_EVENT).toBe("plethora:flashcard-reveal-request");
   });
 });
 

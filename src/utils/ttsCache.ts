@@ -1,4 +1,4 @@
-const DB_NAME = "incrementum-tts-cache";
+const DB_NAME = "plethora-tts-cache"; // legacy `plethora-tts-cache` DB is left as inert garbage
 const DB_VERSION = 1;
 const STORE_NAME = "audio-cache";
 const META_STORE = "cache-meta";

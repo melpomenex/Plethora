@@ -39,7 +39,7 @@ export interface ItemTagMutationResult {
 }
 
 /**
- * Typed detail for the `incrementum:item-tags-updated` window event.
+ * Typed detail for the `plethora:item-tags-updated` window event.
  * Published only AFTER a mutation is persisted successfully, so mounted
  * consumers converge on the persisted tag list without a full reload.
  */
@@ -50,4 +50,4 @@ export interface ItemTagsUpdatedDetail {
 }
 
 /** Window CustomEvent name for successful tag mutations. */
-export const ITEM_TAGS_UPDATED_EVENT = "incrementum:item-tags-updated";
+export const ITEM_TAGS_UPDATED_EVENT = "plethora:item-tags-updated";

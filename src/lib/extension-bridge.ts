@@ -5,7 +5,7 @@ import * as db from './database';
 
 // Message types from the browser extension
 interface ExtensionMessage {
-  source: 'incrementum-extension';
+  source: 'plethora-extension';
   action: 'saveExtract' | 'savePage' | 'ping' | 'getStatus';
   data?: {
     url: string;
@@ -20,7 +20,7 @@ interface ExtensionMessage {
 }
 
 interface BridgeResponse {
-  source: 'incrementum-pwa';
+  source: 'plethora-pwa';
   action: string;
   success: boolean;
   error?: string;
@@ -47,14 +47,14 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
 
   // Verify message is from our extension
   const message = event.data as ExtensionMessage;
-  if (!message || message.source !== 'incrementum-extension') return;
+  if (!message || message.source !== 'plethora-extension') return;
 
   try {
     switch (message.action) {
       case 'ping': {
         // Extension is checking if PWA is available
         sendResponse({
-          source: 'incrementum-pwa',
+          source: 'plethora-pwa',
           action: 'pong',
           success: true,
           requestId: message.requestId,
@@ -65,7 +65,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
 
       case 'getStatus': {
         sendResponse({
-          source: 'incrementum-pwa',
+          source: 'plethora-pwa',
           action: 'status',
           success: true,
           requestId: message.requestId,
@@ -77,7 +77,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
       case 'saveExtract': {
         if (!message.data) {
           sendResponse({
-            source: 'incrementum-pwa',
+            source: 'plethora-pwa',
             action: 'saveExtract',
             success: false,
             error: 'No data provided',
@@ -124,7 +124,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
         const extract = await createExtract(extractInput);
 
         sendResponse({
-          source: 'incrementum-pwa',
+          source: 'plethora-pwa',
           action: 'saveExtract',
           success: true,
           requestId: message.requestId,
@@ -139,7 +139,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
       case 'savePage': {
         if (!message.data) {
           sendResponse({
-            source: 'incrementum-pwa',
+            source: 'plethora-pwa',
             action: 'savePage',
             success: false,
             error: 'No data provided',
@@ -165,7 +165,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
         });
 
         sendResponse({
-          source: 'incrementum-pwa',
+          source: 'plethora-pwa',
           action: 'savePage',
           success: true,
           requestId: message.requestId,
@@ -178,7 +178,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
 
       default:
         sendResponse({
-          source: 'incrementum-pwa',
+          source: 'plethora-pwa',
           action: message.action,
           success: false,
           error: `Unknown action: ${message.action}`,
@@ -188,7 +188,7 @@ async function handleExtensionMessage(event: MessageEvent): Promise<void> {
   } catch (error) {
     console.error('[PWA Bridge] Error handling message:', error);
     sendResponse({
-      source: 'incrementum-pwa',
+      source: 'plethora-pwa',
       action: message.action,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -207,7 +207,7 @@ function showNotification(title: string, message: string): void {
   } else {
     // Fallback to custom toast notification
     const toast = document.createElement('div');
-    toast.className = 'incrementum-toast';
+    toast.className = 'plethora-toast';
     toast.innerHTML = `
       <div style="
         position: fixed;
@@ -258,7 +258,7 @@ export function initExtensionBridge(): void {
 
   // Announce that PWA is ready to receive messages
   window.postMessage({
-    source: 'incrementum-pwa',
+    source: 'plethora-pwa',
     action: 'ready',
     success: true
   }, '*');

@@ -67,7 +67,7 @@ const mockAsset: ImageAsset = {
 
 function dispatchOcclusionRequest(assetId: string, documentId?: string, deckId?: string) {
   window.dispatchEvent(
-    new CustomEvent("incrementum:create-image-occlusion", {
+    new CustomEvent("plethora:create-image-occlusion", {
       detail: { assetId, documentId, deckId },
     }),
   );

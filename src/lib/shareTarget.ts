@@ -129,7 +129,7 @@ export function registerShareListener(
 
   if (typeof window !== "undefined") {
     window.addEventListener(
-      "incrementum-native-share",
+      "plethora-native-share",
       handleNativeShare as EventListener
     );
     window.addEventListener(
@@ -165,7 +165,7 @@ export function registerShareListener(
   return () => {
     if (typeof window !== "undefined") {
       window.removeEventListener(
-        "incrementum-native-share",
+        "plethora-native-share",
         handleNativeShare as EventListener
       );
       window.removeEventListener(

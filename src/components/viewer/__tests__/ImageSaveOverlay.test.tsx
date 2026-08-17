@@ -61,7 +61,7 @@ describe("ImageSaveOverlay", () => {
     mockApi.ingestRemoteImage.mockResolvedValue({ id: "asset-remote" });
     const handleCreateOcclusion = vi.fn();
     window.addEventListener(
-      "incrementum:create-image-occlusion",
+      "plethora:create-image-occlusion",
       handleCreateOcclusion as EventListener,
       { once: true },
     );
@@ -99,7 +99,7 @@ describe("ImageSaveOverlay", () => {
     mockApi.ingestImageBlob.mockResolvedValue({ id: "asset-captured" });
     const handleCreateOcclusion = vi.fn();
     window.addEventListener(
-      "incrementum:create-image-occlusion",
+      "plethora:create-image-occlusion",
       handleCreateOcclusion as EventListener,
       { once: true },
     );
@@ -143,7 +143,7 @@ describe("ImageSaveOverlay", () => {
     mockApi.ingestImageBlob.mockResolvedValue({ id: "asset-1" });
     const handleCreateOcclusion = vi.fn();
     window.addEventListener(
-      "incrementum:create-image-occlusion",
+      "plethora:create-image-occlusion",
       handleCreateOcclusion as EventListener,
       { once: true },
     );

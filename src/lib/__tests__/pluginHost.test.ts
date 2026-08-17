@@ -19,7 +19,7 @@ describe("pluginHost", () => {
       },
       configurable: true,
     });
-    localStorage.removeItem("incrementum.plugins.v1");
+    localStorage.removeItem("plethora.plugins.v1");
   });
 
   it("installs and lists plugins", () => {

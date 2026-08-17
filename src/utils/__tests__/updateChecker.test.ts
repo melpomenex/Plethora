@@ -47,7 +47,7 @@ import {
   setSkippedVersion,
 } from "../updateChecker";
 
-const SKIP_KEY = "incrementum_skip_update_version";
+const SKIP_KEY = "plethora_skip_update_version";
 
 /** Build a fake Tauri `Update` object for a given version. */
 function fakeUpdate(version: string) {

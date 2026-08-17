@@ -1,7 +1,7 @@
 /**
  * On-device generative AI (Android / Gemini Nano via ML Kit GenAI).
  *
- * Wraps the `incrementum-android-genai` Tauri plugin. Every entry point is safe
+ * Wraps the `plethora-android-genai` Tauri plugin. Every entry point is safe
  * to call on any platform: off Android the status check reports
  * `platform_unsupported` without touching the bridge, and the inference calls
  * reject with a typed error so callers fall back to a cloud provider.

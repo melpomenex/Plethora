@@ -1306,8 +1306,8 @@ export function DocumentQATab() {
 
   const openChatCard = (artifact: ChatFlashcardArtifact) => {
     if (!artifact.persistedCardId) return;
-    sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
-    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", {
+    sessionStorage.setItem("plethora:pending-flashcard-id", artifact.persistedCardId);
+    window.dispatchEvent(new CustomEvent("plethora:open-flashcard", {
       detail: { cardId: artifact.persistedCardId, artifact },
     }));
   };
@@ -1392,7 +1392,7 @@ export function DocumentQATab() {
       payload,
       ts: Date.now(),
     };
-    window.dispatchEvent(new CustomEvent("incrementum:analytics", { detail }));
+    window.dispatchEvent(new CustomEvent("plethora:analytics", { detail }));
   }, [analyticsEnabled]);
 
   const handleResearchSelection = () => {

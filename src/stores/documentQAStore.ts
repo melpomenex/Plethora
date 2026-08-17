@@ -93,7 +93,7 @@ export const useDocumentQAStore = create<DocumentQAState>()(
         })),
     }),
     {
-      name: "incrementum-document-qa",
+      name: "plethora-document-qa",
       // The Document Q&A sessions store (src/components/tabs/documentQaSessions.ts)
       // is now the authoritative persistence layer: it owns the per-session
       // messages and migrates this legacy key on first load. Persist nothing

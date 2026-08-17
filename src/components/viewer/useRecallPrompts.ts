@@ -47,7 +47,7 @@ import {
 /** Eligibility check cadence (task 5.5: low-frequency, ≥ 30 s). */
 export const RECALL_TICK_MS = 30_000;
 
-const DISMISSAL_STORAGE_KEY = "incrementum-recall-dismissed-until";
+const DISMISSAL_STORAGE_KEY = "plethora-recall-dismissed-until";
 
 export interface ActiveRecallPrompt {
   promptId: string;

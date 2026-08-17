@@ -550,7 +550,7 @@ export interface StagedFolderFile {
  *
  * Returns an empty array if the user cancels or the folder has no supported files.
  *
- * Uses the in-repo `incrementum-folder-import` Tauri plugin. In browser/PWA
+ * Uses the in-repo `plethora-folder-import` Tauri plugin. In browser/PWA
  * mode (no Tauri backend) this is unavailable and resolves to an empty array.
  */
 export async function pickFolderDocuments(

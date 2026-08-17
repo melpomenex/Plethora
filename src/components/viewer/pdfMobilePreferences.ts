@@ -15,7 +15,7 @@ export type PdfMobilePreferences = Pick<PDFSettings,
   | "fixedColumnOverlap"
 >;
 
-const PREFIX = "incrementum.pdf.mobile.preferences:";
+const PREFIX = "plethora.pdf.mobile.preferences:";
 
 export function pdfMobilePreferencesFromSettings(settings: PDFSettings): PdfMobilePreferences {
   return {

@@ -54,7 +54,7 @@ describe("readerPosition", () => {
   });
 
   it("builds preferred view state keys with user namespace and stable identifiers", () => {
-    localStorage.setItem("incrementum_user", JSON.stringify({ id: "user-1" }));
+    localStorage.setItem("plethora_user", JSON.stringify({ id: "user-1" }));
     expect(getPreferredViewStateKey({ documentId: "doc-123", contentHash: "hash-abc" }))
       .toBe("document-view-state:v2:u:user-1:hash:hash-abc");
     expect(getPreferredViewStateKey({ documentId: "doc-123", contentHash: null, pdfFingerprint: "fp-1" }))
@@ -64,7 +64,7 @@ describe("readerPosition", () => {
   });
 
   it("returns ordered key candidates for lookup (preferred then legacy)", () => {
-    localStorage.setItem("incrementum_user", JSON.stringify({ id: "user-1" }));
+    localStorage.setItem("plethora_user", JSON.stringify({ id: "user-1" }));
     const keys = getViewStateKeyCandidates({
       documentId: "doc-123",
       contentHash: "hash-abc",

@@ -6,7 +6,9 @@
  * runs exactly once per install and never touches anything else.
  */
 
-const CLEANUP_FLAG_KEY = "incrementum.sync-residue-cleaned";
+const CLEANUP_FLAG_KEY = "plethora.sync-residue-cleaned";
+// These are LEGACY keys left by the removed sync subsystem — they keep their
+// `incrementum*` names on purpose so the cleanup removes the real residue.
 const LOCAL_STORAGE_KEYS = [
   "incrementum_sync_room",
   "incrementum-yjs-corruption-detected",
@@ -16,7 +18,7 @@ const LOCAL_STORAGE_KEYS = [
   "incrementum_last_sync_version",
 ];
 const INDEXEDDB_PREFIX = "incrementum-yjs:";
-const SETTINGS_KEY = "incrementum-settings";
+const SETTINGS_KEY = "plethora-settings";
 
 function stripSyncFromSettingsBlob(): void {
   try {

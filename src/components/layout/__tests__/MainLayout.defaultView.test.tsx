@@ -87,7 +87,7 @@ describe("MainLayout applies Default View after a restored session", () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem(
-      "incrementum-tabs",
+      "plethora-tabs",
       JSON.stringify({
         tabs: [
           { id: "restored-doc-tab", title: "Documents", icon: "📂", type: "documents", closable: true },

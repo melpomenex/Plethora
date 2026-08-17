@@ -215,7 +215,7 @@ export const useStudyDeckStore = create<StudyDeckState>()(
       },
     }),
     {
-      name: "incrementum-study-decks",
+      name: "plethora-study-decks",
       version: 3,
       migrate: migrateStudyDeckState,
     }

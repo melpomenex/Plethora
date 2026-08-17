@@ -451,8 +451,8 @@ const USER_SCROLL_LOCKOUT_MS = 1200;
 const NAV_SETTLE_THRESHOLD_PX = 40;
 const NAV_SETTLE_STABLE_MS = 180;
 const NAV_SETTLE_TIMEOUT_MS = 1400;
-const PDF_NAV_STABILITY_FLAG_KEY = "incrementum.feature.pdfNavigationStability";
-const PDF_NAV_STABILITY_DEBUG_KEY = "incrementum.debug.pdfNavigationStability";
+const PDF_NAV_STABILITY_FLAG_KEY = "plethora.feature.pdfNavigationStability";
+const PDF_NAV_STABILITY_DEBUG_KEY = "plethora.debug.pdfNavigationStability";
 
 export function PDFViewer({
   documentId,

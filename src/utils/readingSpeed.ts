@@ -8,7 +8,7 @@ export interface ReadingSession {
   minutesSpent: number;
 }
 
-const STORAGE_KEY = "incrementum.reading-sessions";
+const STORAGE_KEY = "plethora.reading-sessions";
 
 /** Generate a UUID v4, falling back to a Math.random-based polyfill
  *  when crypto.randomUUID is unavailable (non-secure / HTTP contexts). */

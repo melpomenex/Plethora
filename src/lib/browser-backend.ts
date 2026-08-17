@@ -675,11 +675,11 @@ type BrowserCardVersionEntry = {
     answer?: string;
 };
 
-const CARD_VERSION_STORAGE_KEY = "incrementum_browser_card_versions";
-const AUTOMATION_KEY_STORAGE = "incrementum_browser_automation_api_key";
-const BROWSER_SYNC_CONFIG_STORAGE = "incrementum_browser_sync_config";
-const PREREQ_STORAGE_KEY = "incrementum_browser_prerequisites";
-const DAILY_NOTE_LINKS_KEY = "incrementum_browser_daily_notes";
+const CARD_VERSION_STORAGE_KEY = "plethora_browser_card_versions";
+const AUTOMATION_KEY_STORAGE = "plethora_browser_automation_api_key";
+const BROWSER_SYNC_CONFIG_STORAGE = "plethora_browser_sync_config";
+const PREREQ_STORAGE_KEY = "plethora_browser_prerequisites";
+const DAILY_NOTE_LINKS_KEY = "plethora_browser_daily_notes";
 
 function readBrowserCardVersions(): Record<string, BrowserCardVersionEntry[]> {
     try {
@@ -1721,7 +1721,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = `incrementum-mnemosyne-${new Date().toISOString().slice(0, 10)}.txt`;
+        anchor.download = `plethora-mnemosyne-${new Date().toISOString().slice(0, 10)}.txt`;
         anchor.click();
         URL.revokeObjectURL(url);
         return anchor.download;
