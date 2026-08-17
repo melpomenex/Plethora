@@ -36,8 +36,8 @@ vi.mock("../../../api/mcp", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../api/mcp")>();
   return {
     ...actual,
-    getIncrementumMCPTools: mcpMocks.getTools,
-    callIncrementumMCPTool: mcpMocks.callTool,
+    getAppMCPTools: mcpMocks.getTools,
+    callAppMCPTool: mcpMocks.callTool,
   };
 });
 
