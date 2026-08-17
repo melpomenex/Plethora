@@ -349,6 +349,11 @@ export interface KeybindingSettings {
   customBindings: Record<string, string>;
 }
 
+// Plethora Commercial Settings (dev grants, overrides)
+export interface PlethoraSettings {
+  overrides: Record<string, boolean>;
+}
+
 // Complete Settings Object
 export interface Settings {
   general: GeneralSettings;
@@ -372,6 +377,7 @@ export interface Settings {
   keybindings: KeybindingSettings;
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
+  plethora?: PlethoraSettings;
 }
 
 export type SettingsCategory = keyof Settings;

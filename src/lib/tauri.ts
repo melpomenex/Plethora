@@ -353,6 +353,11 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
 }
 
 /**
+ * Convenience alias for invokeCommand
+ */
+export const invoke = invokeCommand;
+
+/**
  * Convert a local file path to a Tauri-safe URL.
  */
 export async function convertFileSrc(path: string, protocol?: string): Promise<string> {
