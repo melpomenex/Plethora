@@ -940,7 +940,9 @@ export const defaultSettings: Settings = {
     aiExtractWorthiness: true,
     aiSocraticTutor: true,
     aiAgent: true,
-    selectionInteractionV2: false,
+    // QA soak phase (overhaul-reader-selection-ux task 7.8, first half): the
+    // controller is now the default path on all reader surfaces.
+    selectionInteractionV2: true,
   },
   audioReviewMode: {
     enabled: false,
