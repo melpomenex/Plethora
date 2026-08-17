@@ -103,6 +103,8 @@ struct OpenAIResponse {
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
     message: OpenAIResponseMessageContent,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 /// Tolerant assistant-message content. OpenAI-compatible providers (notably
@@ -113,6 +115,10 @@ struct OpenAIChoice {
 struct OpenAIResponseMessageContent {
     #[serde(default)]
     content: Option<OpenAIResponseContentValue>,
+    /// DeepSeek-R1-style reasoning channel; captured for diagnostics when the
+    /// final content comes back empty (reasoning-only turn).
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1529,52 +1535,97 @@ async fn call_openai_with_key(
     api_key: Option<&str>,
     base_url: &str,
 ) -> Result<LLMResponse, String> {
-    let request = OpenAIRequest {
-        model: model.to_string(),
-        messages: map_openai_messages(messages)?,
-        temperature,
-        max_tokens,
-        stream: None,
-    };
+    // Reasoning-first OpenAI-compatible models (e.g. Inception Mercury, whose
+    // docs default to max_tokens=8192) can spend a small token budget
+    // entirely on reasoning and return HTTP 200 with an empty `content`. One
+    // retry at the 8k budget recovers those runs; a second identical call
+    // would fail identically.
+    const EMPTY_CONTENT_RETRY_TOKENS: usize = 8192;
+    let mut budget = max_tokens;
+    loop {
+        let request = OpenAIRequest {
+            model: model.to_string(),
+            messages: map_openai_messages(messages.clone())?,
+            temperature,
+            max_tokens: budget,
+            stream: None,
+        };
 
-    let mut request_builder = client.post(format!("{}/chat/completions", base_url));
-    if let Some(api_key) = api_key {
-        request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        let mut request_builder = client.post(format!("{}/chat/completions", base_url));
+        if let Some(api_key) = api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = request_builder
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| format!("OpenAI API request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("OpenAI API error ({}): {}", status, error_text));
+        }
+
+        let openai_response: OpenAIResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
+
+        let content = openai_response
+            .choices
+            .first()
+            .map(|c| c.message.text())
+            .unwrap_or_default();
+        if !content.trim().is_empty() {
+            return Ok(LLMResponse {
+                content,
+                usage: openai_response.usage.map(|u| LLMUsage {
+                    prompt_tokens: u.prompt_tokens(),
+                    completion_tokens: u.completion_tokens(),
+                    total_tokens: u.total_tokens(),
+                    prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
+                    prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
+                }),
+            });
+        }
+
+        if budget >= EMPTY_CONTENT_RETRY_TOKENS {
+            let finish_reason = openai_response
+                .choices
+                .first()
+                .and_then(|c| c.finish_reason.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            let completion_tokens = openai_response
+                .usage
+                .as_ref()
+                .map(|u| u.completion_tokens())
+                .unwrap_or(0);
+            let had_reasoning = openai_response
+                .choices
+                .first()
+                .map(|c| {
+                    c.message
+                        .reasoning_content
+                        .as_deref()
+                        .map(|r| !r.trim().is_empty())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            return Err(format!(
+                "The model returned an empty message (finish_reason={}, completion_tokens={}).{}",
+                finish_reason,
+                completion_tokens,
+                if had_reasoning {
+                    " It produced reasoning but no final answer — lower reasoning effort or raise maxTokens."
+                } else {
+                    " Reasoning models can exhaust the token budget before any content is emitted — raise maxTokens or retry."
+                }
+            ));
+        }
+        budget = EMPTY_CONTENT_RETRY_TOKENS;
     }
-
-    let response = request_builder
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("OpenAI API request failed: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("OpenAI API error ({}): {}", status, error_text));
-    }
-
-    let openai_response: OpenAIResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
-
-    let content = openai_response
-        .choices
-        .first()
-        .map(|c| c.message.text())
-        .unwrap_or_default();
-
-    Ok(LLMResponse {
-        content,
-        usage: openai_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens(),
-            completion_tokens: u.completion_tokens(),
-            total_tokens: u.total_tokens(),
-            prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
-            prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
-        }),
-    })
 }
 
 async fn call_anthropic_with_key(

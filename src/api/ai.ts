@@ -51,6 +51,8 @@ export interface ModelPreferences {
 export interface LocalSettings {
   ollama_base_url: string;
   timeout_secs: number;
+  openai_base_url?: string;
+  deepseek_base_url?: string;
 }
 
 /**
