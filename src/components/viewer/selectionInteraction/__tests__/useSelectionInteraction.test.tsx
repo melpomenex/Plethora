@@ -243,9 +243,6 @@ describe("useSelectionInteraction", () => {
     const { result } = renderHook(() =>
       useSelectionInteraction({ surface: "epub", documentId: "d1", enabled: true }),
     );
-    const onInvalidate = vi.fn();
-    // (hook re-render with the callback is not needed — options live in a ref)
-
     touchStart(root);
     selectText(para, 7, 25);
     touchEnd(root);

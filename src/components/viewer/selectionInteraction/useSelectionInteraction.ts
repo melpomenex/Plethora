@@ -119,7 +119,7 @@ const DEFAULT_BAR_SIZE = { width: 280, height: 48 };
 export function useSelectionInteraction(
   options: UseSelectionInteractionOptions,
 ): SelectionInteractionController {
-  const { surface, documentId, enabled } = options;
+  const { documentId, enabled } = options;
 
   // ── Refs: per-event bookkeeping that must never trigger renders ──────────
   const machineRef = useRef<SelectionMachineState>(initialSelectionMachineState);
@@ -364,8 +364,12 @@ export function useSelectionInteraction(
           hasText: true,
           text: live.text,
         });
-        // Re-arm the settle window on every change (a drag never settles).
-        armSettleTimer();
+        // Re-arm the settle window on every change (a drag never settles) —
+        // but only while a settle is actually pending: once an action runs,
+        // the surviving native selection keeps firing events that must cost
+        // nothing (the machine already ignores them).
+        const phase = machineRef.current.phase;
+        if (phase === "selecting" || phase === "settling") armSettleTimer();
       },
       onContentTouchStart: (inContent) => {
         touchActiveRef.current = true;

@@ -6093,7 +6093,12 @@ export function DocumentViewer({
   const canRenderAudioViewer = docType === "audio";
 
   return (
-    <div ref={containerRef} {...tourAnchor("readerRoot")} className="flex flex-col h-full min-h-0 overflow-hidden">
+    <div
+      ref={containerRef}
+      {...tourAnchor("readerRoot")}
+      tabIndex={-1}
+      className="flex flex-col h-full min-h-0 overflow-hidden focus:outline-none"
+    >
       {/* Toolbar */}
       {/* Toolbar */}
       {!embedded && !isFullscreen && !(isMobileTouch && docType === "epub" && viewMode === "document") && (
@@ -7858,6 +7863,7 @@ export function DocumentViewer({
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
         aiAvailable={aiAvailability.available}
         onMeasure={selectionController.registerBarSize}
+        readerContainerRef={containerRef}
       />
 
       {/* Mobile: bottom sheet of actions for the current text selection. */}

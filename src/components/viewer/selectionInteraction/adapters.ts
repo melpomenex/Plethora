@@ -15,10 +15,9 @@
  * Android workaround semantics are preserved verbatim: the adapters NEVER
  * call `removeAllRanges()` (touch selections survive dismissal), `touchend`
  * is treated as release-only (never re-arms the settle timer), and scroll
- * dismissal runs through `createScrollDismissGate`.
+ * dismissal runs through `createScrollDismissGate` (in the hook).
  */
 
-import { createScrollDismissGate } from "../touchSelectionDismissal";
 import type { Offset } from "./geometry";
 
 /** Attribute marking the controller's own portaled UI (bar/sheet host). */
@@ -82,8 +81,6 @@ export interface SelectionAdapterHandlers {
 export interface TopDocumentAdapterOptions {
   /** Extra content roots (e.g. a transcript scroll container). */
   contentRoots?: () => Set<Element>;
-  /** Scroll dismissal threshold gate; defaults to the shared gate. */
-  scrollDismissGate?: ReturnType<typeof createScrollDismissGate>;
 }
 
 /**
@@ -94,7 +91,6 @@ export function attachTopDocumentAdapter(
   handlers: SelectionAdapterHandlers,
   options: TopDocumentAdapterOptions = {},
 ): () => void {
-  const gate = options.scrollDismissGate ?? createScrollDismissGate();
   const ownUi = (target: EventTarget | null) =>
     handlers.isOwnUi?.(target) || isSelectionInteractionUi(target);
 
