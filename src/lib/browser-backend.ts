@@ -3704,7 +3704,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     // MCP commands
-    mcp_get_incrementum_tools: async () => {
+    mcp_get_app_tools: async () => {
         return [
             {
                 name: 'create_document',
@@ -3857,7 +3857,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         return resp.json();
     },
 
-    mcp_call_incrementum_tool: async (args) => {
+    mcp_call_app_tool: async (args) => {
         const toolName = args.toolName as string;
         const toolArgs = args.arguments as Record<string, unknown>;
 

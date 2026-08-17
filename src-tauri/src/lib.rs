@@ -1851,6 +1851,9 @@ pub fn run() {
             commands::mcp::mcp_update_server,
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_call_tool,
+            commands::mcp::mcp_get_app_tools,
+            commands::mcp::mcp_call_app_tool,
+            // Deprecated pre-rebrand aliases — removed after one release.
             commands::mcp::mcp_get_incrementum_tools,
             commands::mcp::mcp_call_incrementum_tool,
             commands::mcp::mcp_get_server_tools,
