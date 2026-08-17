@@ -3,9 +3,22 @@ import { getAdapter, listAdapters } from "../registry";
 import { normalizeOpenAICompatibleBaseUrl } from "../providers/openai-compatible";
 
 describe("TTS adapter registry", () => {
-  it("registers all nine providers", () => {
-    expect(listAdapters()).toHaveLength(9);
-    expect(listAdapters().map((adapter) => adapter.id)).toEqual(expect.arrayContaining(["fal", "groq", "pocket", "system", "openrouter", "elevenlabs", "openai", "openai-compatible", "android"]));
+  it("registers all ten providers", () => {
+    expect(listAdapters()).toHaveLength(10);
+    expect(listAdapters().map((adapter) => adapter.id)).toEqual(
+      expect.arrayContaining([
+        "fal",
+        "groq",
+        "pocket",
+        "system",
+        "openrouter",
+        "elevenlabs",
+        "openai",
+        "openai-compatible",
+        "android",
+        "plethora",
+      ])
+    );
   });
 
   it("includes the native android provider as a local provider", () => {

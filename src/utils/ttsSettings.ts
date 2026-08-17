@@ -70,7 +70,8 @@ export type TTSProvider =
   | "elevenlabs"
   | "openai"
   | "openai-compatible"
-  | "android";
+  | "android"
+  | "plethora";
 export type TTSProviderId = TTSProvider;
 export type TTSRequestMode = "direct" | "proxy";
 export type TTSResponseFormat = "mp3" | "wav" | "pcm" | "opus" | "aac" | string;
@@ -85,6 +86,7 @@ export const TTS_PROVIDER_IDS: readonly TTSProvider[] = [
   "openai",
   "openai-compatible",
   "android",
+  "plethora",
 ];
 
 export interface TTSPreset {
@@ -245,6 +247,7 @@ function makeProviderSettings(): TTSProviderSettingsMap {
     // index. Desktop ignores this entry entirely (provider is hidden via
     // isNativeMobile()).
     android: defaultProviderSettings({ modelId: "kitten-nano", voiceId: "0" }),
+    plethora: defaultProviderSettings({ modelId: "plethora-neural-v1", voiceId: "neural-echo" }),
   };
 }
 

@@ -52,6 +52,10 @@ export interface Document {
    * cloud synchronization, hosted AI pipelines, remote transcription, and cloud TTS.
    */
   isLocalOnly?: boolean;
+  /**
+   * When true, this document is excluded from all AI pipelines (RAG, summarization, cards, cloud OCR).
+   */
+  isAiExcluded?: boolean;
   metadata?: DocumentMetadata;
   coverImageUrl?: string;
   coverImageSource?: string;
