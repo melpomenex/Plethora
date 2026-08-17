@@ -277,13 +277,13 @@ export function Review() {
 
   useEffect(() => {
     window.dispatchEvent(
-      new CustomEvent("incrementum-reader-focus-mode-change", {
+      new CustomEvent("plethora-reader-focus-mode-change", {
         detail: { active: isZenMode },
       })
     );
     return () => {
       window.dispatchEvent(
-        new CustomEvent("incrementum-reader-focus-mode-change", {
+        new CustomEvent("plethora-reader-focus-mode-change", {
           detail: { active: false },
         })
       );
@@ -434,7 +434,7 @@ export function Review() {
                 extractId: sourceAnchor?.extract_id ?? (currentCard as any)?.extract_id,
                 pageNumber: sourceAnchor?.page_number,
               };
-              window.dispatchEvent(new CustomEvent("incrementum:source-jump", { detail }));
+              window.dispatchEvent(new CustomEvent("plethora:source-jump", { detail }));
             }}
             disabled={!canJumpToSource}
             className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"

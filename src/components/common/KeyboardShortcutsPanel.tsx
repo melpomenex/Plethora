@@ -322,7 +322,7 @@ export function ShortcutsHint({
  * Hook to track if user has seen shortcuts hint
  */
 export function useShortcutsHint() {
-  const STORAGE_KEY = "incrementum_shortcuts_hint_seen";
+  const STORAGE_KEY = "plethora_shortcuts_hint_seen";
   const [shouldShow, setShouldShow] = useState(() => {
     return !localStorage.getItem(STORAGE_KEY);
   });

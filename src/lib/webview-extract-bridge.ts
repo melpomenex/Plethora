@@ -9,7 +9,7 @@
  *
  * Message protocol (design D4 in
  * `openspec/changes/fix-in-app-browser-page-loading/design.md`), all tagged
- * with the fixed namespace `incrementum-web`:
+ * with the fixed namespace `plethora-web`:
  *
  * | Direction  | Type            | Payload                                       |
  * | ---------- | --------------- | --------------------------------------------- |
@@ -30,10 +30,10 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
 (function() {
   'use strict';
 
-  if (window.__incrementumExtractBridge) {
+  if (window.__plethoraExtractBridge) {
     return;
   }
-  window.__incrementumExtractBridge = true;
+  window.__plethoraExtractBridge = true;
 
   // Configuration
   var CONFIG = {
@@ -42,7 +42,7 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
     BUTTON_OFFSET_X: 0
   };
 
-  var NS = 'incrementum-web';
+  var NS = 'plethora-web';
 
   // State
   var floatingButton = null;
@@ -114,7 +114,7 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
     }
 
     var button = document.createElement('div');
-    button.id = '__incrementum-extract-btn';
+    button.id = '__plethora-extract-btn';
     button.innerHTML = \`
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
         <path d="M12 5v14M5 12h14"/>
@@ -231,7 +231,7 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
   }
 
   function handleMouseUp(e) {
-    if (e.target.closest && e.target.closest('#__incrementum-extract-btn')) {
+    if (e.target.closest && e.target.closest('#__plethora-extract-btn')) {
       return;
     }
     setTimeout(function () {
@@ -244,7 +244,7 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
   }
 
   function handleMouseDown(e) {
-    if (e.target.closest && e.target.closest('#__incrementum-extract-btn')) {
+    if (e.target.closest && e.target.closest('#__plethora-extract-btn')) {
       return;
     }
     hideButton();
@@ -394,7 +394,7 @@ export const WEBVIEW_EXTRACT_BRIDGE_SCRIPT = `
 /**
  * Namespace field carried by every bridge message.
  */
-export const WEB_BRIDGE_NS = "incrementum-web";
+export const WEB_BRIDGE_NS = "plethora-web";
 
 export interface WebBridgeSelectionPayload {
   text: string;

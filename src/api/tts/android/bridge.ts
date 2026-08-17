@@ -1,7 +1,7 @@
 /**
  * TypeScript bridge to the native Android TTS plugin.
  *
- * The native plugin (`incrementum-android-tts`) owns the entire native
+ * The native plugin (`plethora-android-tts`) owns the entire native
  * pipeline: sherpa-onnx inference, AudioTrack playback, audio focus,
  * lifecycle, model downloads, and the System-TTS fallback. No PCM crosses the
  * Tauri IPC — the webview only receives the small JSON events defined here.

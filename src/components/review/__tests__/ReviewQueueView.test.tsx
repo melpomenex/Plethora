@@ -208,7 +208,7 @@ describe("ReviewQueueView", () => {
       extracts: false,
       learningItems: false,
     };
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: { settings: persisted },
       version: 6,
     }));

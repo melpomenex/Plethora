@@ -267,11 +267,11 @@ export function EPUBViewer({
     if (!embedded) return;
     const openToc = () => setShowTocDrawer(true);
     const openSettings = () => setShowSettingsSheet(true);
-    window.addEventListener("incrementum-epub-open-toc", openToc);
-    window.addEventListener("incrementum-epub-open-settings", openSettings);
+    window.addEventListener("plethora-epub-open-toc", openToc);
+    window.addEventListener("plethora-epub-open-settings", openSettings);
     return () => {
-      window.removeEventListener("incrementum-epub-open-toc", openToc);
-      window.removeEventListener("incrementum-epub-open-settings", openSettings);
+      window.removeEventListener("plethora-epub-open-toc", openToc);
+      window.removeEventListener("plethora-epub-open-settings", openSettings);
     };
   }, [embedded]);
 
@@ -1118,7 +1118,7 @@ export function EPUBViewer({
             // so the queue's TikTok-style swipe handler can't see them. Handle
             // vertical swipes here instead: swipe up turns to the next page (like a
             // Kindle), swipe down to the previous page. When already on the last /
-            // first page, dispatch "incrementum-queue-swipe" so the parent
+            // first page, dispatch "plethora-queue-swipe" so the parent
             // QueueScrollPage advances to the next/previous queue item — that's how
             // a long EPUB bridges into the queue without forcing the reader to
             // "scroll to the bottom" of the whole book.
@@ -1132,7 +1132,7 @@ export function EPUBViewer({
             const dispatchQueueSwipe = (direction: "next" | "prev") => {
               try {
                 contents.window.parent.dispatchEvent(
-                  new CustomEvent("incrementum-queue-swipe", { detail: { direction } })
+                  new CustomEvent("plethora-queue-swipe", { detail: { direction } })
                 );
               } catch {
                 /* parent unreachable (standalone reader) — ignore */
@@ -1151,7 +1151,7 @@ export function EPUBViewer({
                   if (selection && !selection.isCollapsed && selection.toString().trim()) return;
                   epubLongPressTriggered = true;
                   try {
-                    contents.window.parent.dispatchEvent(new CustomEvent("incrementum-queue-long-press"));
+                    contents.window.parent.dispatchEvent(new CustomEvent("plethora-queue-long-press"));
                   } catch {
                     /* parent unreachable — ignore */
                   }
@@ -2124,11 +2124,11 @@ export function EPUBViewer({
     if (!embedded) return;
     const previousPage = () => handlePrevPage();
     const nextPage = () => handleNextPage();
-    window.addEventListener("incrementum-epub-previous-page", previousPage);
-    window.addEventListener("incrementum-epub-next-page", nextPage);
+    window.addEventListener("plethora-epub-previous-page", previousPage);
+    window.addEventListener("plethora-epub-next-page", nextPage);
     return () => {
-      window.removeEventListener("incrementum-epub-previous-page", previousPage);
-      window.removeEventListener("incrementum-epub-next-page", nextPage);
+      window.removeEventListener("plethora-epub-previous-page", previousPage);
+      window.removeEventListener("plethora-epub-next-page", nextPage);
     };
   }, [embedded, rendition, metadata]);
 
@@ -2442,7 +2442,7 @@ export function EPUBViewer({
         pageUp: () => {
           if (isMobile) {
             try {
-              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
             } catch { /* ignore */ }
           }
           handlePrevPage();
@@ -2450,7 +2450,7 @@ export function EPUBViewer({
         pageDown: () => {
           if (isMobile) {
             try {
-              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
             } catch { /* ignore */ }
           }
           handleNextPage();
@@ -2458,7 +2458,7 @@ export function EPUBViewer({
         scrollUp: () => {
           if (isMobile) {
             try {
-              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
             } catch { /* ignore */ }
           }
           scrollEpub("up");
@@ -2466,7 +2466,7 @@ export function EPUBViewer({
         scrollDown: () => {
           if (isMobile) {
             try {
-              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              window.dispatchEvent(new CustomEvent("plethora-queue-hide-controls"));
             } catch { /* ignore */ }
           }
           scrollEpub("down");

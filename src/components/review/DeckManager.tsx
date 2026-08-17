@@ -151,14 +151,14 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   }, [loading, allCards]);
 
   useEffect(() => {
-    const pendingCardId = sessionStorage.getItem("incrementum:pending-flashcard-id");
+    const pendingCardId = sessionStorage.getItem("plethora:pending-flashcard-id");
     if (!pendingCardId || allCards.length === 0) return;
     if (allCards.some((card) => card.id === pendingCardId)) {
       setPreviewCardId(pendingCardId);
       setRightPanelView("preview");
       if (isMobile) setMobileCardOpen(true);
     }
-    sessionStorage.removeItem("incrementum:pending-flashcard-id");
+    sessionStorage.removeItem("plethora:pending-flashcard-id");
   }, [allCards, isMobile]);
 
   // On mobile, auto-select first deck when cards load and none is selected

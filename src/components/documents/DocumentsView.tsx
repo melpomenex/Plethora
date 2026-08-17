@@ -861,8 +861,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   // Open a learning item in the Deck Manager's card editor, reusing the same
   // pending-id handoff the assistant / chat card links use.
   const openCard = useCallback((cardId: string) => {
-    sessionStorage.setItem("incrementum:pending-flashcard-id", cardId);
-    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", { detail: { cardId } }));
+    sessionStorage.setItem("plethora:pending-flashcard-id", cardId);
+    window.dispatchEvent(new CustomEvent("plethora:open-flashcard", { detail: { cardId } }));
   }, []);
 
   // One Cards group shared by every view mode. Defined once so a mode that

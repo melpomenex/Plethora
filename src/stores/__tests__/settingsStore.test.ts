@@ -18,7 +18,7 @@ describe("settingsStore notification persistence", () => {
       feedbackSoundsEnabled: true,
     });
 
-    const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
     expect(stored.version).toBe(6);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
@@ -28,7 +28,7 @@ describe("settingsStore notification persistence", () => {
   });
 
   it("deep-merges a partial persisted notification slice", async () => {
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: { settings: { notifications: { enabled: true, soundEnabled: false } } },
       version: 5,
     }));
@@ -51,7 +51,7 @@ describe("settingsStore flashcard generation target migration", () => {
   });
 
   it("seeds flashcardFixedCount from a previously persisted cardsPerExtract on migration", async () => {
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: { settings: { ai: { aiControls: { cardsPerExtract: 9 } } } },
       version: 5,
     }));
@@ -70,7 +70,7 @@ describe("settingsStore scroll queue composition migration", () => {
   });
 
   async function rehydrateWith(scrollQueue: Record<string, unknown>) {
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: { settings: { scrollQueue } },
       version: 6,
     }));
@@ -137,7 +137,7 @@ describe("settingsStore Arena review mode", () => {
       sm20ArenaReviewMode: "choose",
     });
 
-    const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
     expect(stored.state.settings.learning.sm20ArenaReviewMode).toBe("choose");
   });
 });
@@ -177,7 +177,7 @@ describe("settingsStore AI learning feature flags", () => {
       aiSocraticTutor: false,
     });
 
-    const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
     expect(stored.state.settings.features.aiLearnThis).toBe(false);
     expect(stored.state.settings.features.aiSocraticTutor).toBe(false);
     // Untouched flags keep the default.
@@ -188,7 +188,7 @@ describe("settingsStore AI learning feature flags", () => {
     // A pre-AI persist only knows the original four flags; the deep merge in
     // onRehydrateStorage must fill the new ones with defaults while preserving
     // any explicit persisted value.
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: {
         settings: {
           features: {
@@ -239,7 +239,7 @@ describe("settingsStore sessionItemTypes default", () => {
   it("keeps a persisted sessionItemTypes with extracts disabled through rehydration", async () => {
     // A user who deliberately unchecked Extracts (customization flag set)
     // keeps that selection after the all-true default change.
-    localStorage.setItem("incrementum-settings", JSON.stringify({
+    localStorage.setItem("plethora-settings", JSON.stringify({
       state: {
         settings: {
           smartQueue: {

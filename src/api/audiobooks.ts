@@ -8,6 +8,7 @@
  */
 
 import { isNativeMobile, isTauri } from "../lib/tauri";
+import { migratedGetItem } from "../lib/brandMigration";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTranscriptionStore } from "../stores/useTranscriptionStore";
 import { describeResolution, resolveTranscription } from "../lib/transcriptionProvider";
@@ -754,7 +755,7 @@ export async function transcribeAudiobookWithGroq(
   // server-side and can't read the JS store. Mirrors the podcast path.
   const { apiKey, model } = (() => {
     try {
-      const raw = localStorage.getItem("incrementum-settings");
+      const raw = migratedGetItem("plethora-settings");
       const parsed = raw ? JSON.parse(raw) : null;
       const g = parsed?.state?.settings?.audioTranscription?.groq;
       return { apiKey: g?.apiKey || "", model: g?.model || "whisper-large-v3-turbo" };

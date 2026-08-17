@@ -10,7 +10,7 @@ export interface ConversationalAssessment {
   feedback: string;
 }
 
-const STORAGE_KEY = "incrementum.conversational-review-assessments";
+const STORAGE_KEY = "plethora.conversational-review-assessments";
 
 export async function requestTutorFollowUp(topic: string, userResponse: string): Promise<{ question: string; score: number; feedback: string }> {
   const prompt = [

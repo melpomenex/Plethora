@@ -8,8 +8,8 @@
 import { isNativeMobile, isTauri } from './tauri';
 import type { DisplayMode, EinkCapabilities, EinkSettings } from '../types/display';
 
-const DISPLAY_MODE_STORAGE_KEY = 'incrementum-display-mode';
-const EINK_SETTINGS_STORAGE_KEY = 'incrementum-eink-settings';
+const DISPLAY_MODE_STORAGE_KEY = 'plethora-display-mode';
+const EINK_SETTINGS_STORAGE_KEY = 'plethora-eink-settings';
 
 export const DEFAULT_EINK_SETTINGS: EinkSettings = {
   displayMode: 'standard',

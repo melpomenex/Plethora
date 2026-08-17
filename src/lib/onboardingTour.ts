@@ -7,7 +7,7 @@
  * for the full policy. The invariant is: a single record, read once at
  * startup, written whole on every transition. Never partial field writes.
  *
- * Storage key: `incrementum-onboarding-tour`, registered in
+ * Storage key: `plethora-onboarding-tour`, registered in
  * `src/lib/localStorageSync.ts` so the record travels with the user's
  * synced settings.
  */
@@ -16,7 +16,7 @@
 export const ONBOARDING_TOUR_VERSION = 1 as const;
 
 /** localStorage key under which the record is persisted. */
-export const ONBOARDING_TOUR_STORAGE_KEY = "incrementum-onboarding-tour";
+export const ONBOARDING_TOUR_STORAGE_KEY = "plethora-onboarding-tour";
 
 /**
  * Monotonic opt-out tombstone. A separate, one-way boolean key set the
@@ -30,7 +30,7 @@ export const ONBOARDING_TOUR_STORAGE_KEY = "incrementum-onboarding-tour";
  * {@link resetOnboardingState} clears it. Blocklisted from sync in
  * `localStorageSync.ts` for the same reason.
  */
-export const ONBOARDING_TOUR_OPTOUT_STORAGE_KEY = "incrementum-onboarding-tour-optout";
+export const ONBOARDING_TOUR_OPTOUT_STORAGE_KEY = "plethora-onboarding-tour-optout";
 
 /**
  * Maximum number of *eligible* startup sessions in which the tour may

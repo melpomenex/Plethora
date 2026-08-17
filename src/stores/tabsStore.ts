@@ -1,3 +1,4 @@
+import { migratedGetItem } from "../lib/brandMigration";
 import { create } from "zustand";
 import type { ComponentType, ReactNode } from "react";
 import { generateId } from "../utils/id";
@@ -202,7 +203,7 @@ export interface TabsState {
   getDefaultTabs: () => Tab[];
 }
 
-const STORAGE_KEY = "incrementum-tabs";
+const STORAGE_KEY = "plethora-tabs";
 const TAB_SAVE_DEBOUNCE_MS = 180;
 
 /** Shared empty set, so a workspace that never evicts keeps one identity. */
@@ -1637,7 +1638,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       // Gate on the restoreSession setting
       if (!useSettingsStore.getState().settings.general.restoreSession) return false;
 
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = migratedGetItem(STORAGE_KEY);
       if (!stored) return false;
 
       const data = JSON.parse(stored);

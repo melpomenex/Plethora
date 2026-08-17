@@ -43,7 +43,7 @@ function pushRecord(record: DebugFetchRecord): void {
 export function isNetworkDebugEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
   if (import.meta.env.VITE_DEBUG_NETWORK === "1") return true;
-  return localStorage.getItem("incrementum.debug.network") === "1";
+  return localStorage.getItem("plethora.debug.network") === "1";
 }
 
 export function installNetworkDebugInstrumentation(): void {

@@ -34,7 +34,7 @@ export class MemoryPdfReflowCache implements PdfReflowCache {
   async clear(): Promise<void> { this.values.clear(); }
 }
 
-const DB_NAME = "incrementum-pdf-reflow";
+const DB_NAME = "plethora-pdf-reflow";
 const STORE_NAME = "documents";
 
 export class IndexedDbPdfReflowCache implements PdfReflowCache {

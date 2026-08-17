@@ -13,7 +13,7 @@ import { isTauri, isNativeMobile, nativePlatform } from "../lib/tauri";
 
 const GITHUB_LATEST_RELEASE_URL =
   "https://api.github.com/repos/melpomenex/incrementum-tauri/releases/latest";
-const SKIP_VERSION_KEY = "incrementum_skip_update_version";
+const SKIP_VERSION_KEY = "plethora_skip_update_version";
 
 // Re-export the updater's Update type lazily via a structural alias so callers
 // in UpdateAvailableDialog can call `.downloadAndInstall()` without a hard

@@ -429,7 +429,7 @@ export function DragDropUpload({
   useEffect(() => {
     // Check if a drag event is an internal tab drag (not a file drop)
     const isTabDrag = (types: readonly string[] | DOMStringList) =>
-      Array.from(types).includes("application/x-incrementum-tab");
+      Array.from(types).includes("application/x-plethora-tab");
 
     // For browser mode - use HTML5 drag and drop
     const handleGlobalDragEnter = (e: globalThis.DragEvent) => {

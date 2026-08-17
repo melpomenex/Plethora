@@ -8,7 +8,12 @@ import type { PdfSelectionContext } from '../types/selection';
 
 // Database version - increment when schema changes
 const DB_VERSION = 4;
-const DB_NAME = 'incrementum';
+const DB_NAME = 'plethora';
+// Legacy database name written by Incrementum releases. The one-shot
+// migration below copies its contents into the new database on first run;
+// the legacy database itself is NEVER deleted (rollback path).
+const LEGACY_DB_NAME = 'plethora';
+const DB_MIGRATION_FLAG = 'plethora.idb-library-migrated';
 
 // Store names
 const STORES = {
@@ -28,6 +33,125 @@ const MAX_DOCUMENT_CONTENT_CHARS = 2_000_000;
 let db: IDBDatabase | null = null;
 const corruptedDocumentIds = new Set<string>();
 
+// Singleton guard so concurrent first calls run the migration once.
+let migrationPromise: Promise<void> | null = null;
+
+/**
+ * One-shot Incrementum → Plethora IndexedDB library migration (rebrand task
+ * 3.3). Copies every record from the legacy `plethora` database into the
+ * new `plethora` database before the app opens it.
+ *
+ * Safety rules (data-loss review):
+ * - The legacy database is only READ; it is never modified or deleted.
+ * - Records are copied only into EMPTY stores, so a partially-used Plethora
+ *   database is never overwritten.
+ * - The completion flag is written only after the copy finishes (or the
+ *   legacy database is confirmed absent); failures leave the flag unset so
+ *   the next boot retries.
+ */
+async function migrateLegacyLibraryDatabase(): Promise<void> {
+    if (typeof indexedDB === 'undefined') return;
+    try {
+        if (localStorage.getItem(DB_MIGRATION_FLAG) === '1') return;
+    } catch {
+        return;
+    }
+
+    const enumerate = (indexedDB as unknown as {
+        databases?: () => Promise<Array<{ name?: string }>>;
+    }).databases;
+    if (typeof enumerate === 'function') {
+        try {
+            const dbs = await enumerate();
+            const names = new Set(dbs.map((d) => d.name));
+            if (!names.has(LEGACY_DB_NAME)) {
+                try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
+                return;
+            }
+            if (names.has(DB_NAME)) {
+                // A Plethora database already exists — never merge over it.
+                try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
+                return;
+            }
+        } catch {
+            // Enumeration failed — fall through and try the copy; the
+            // empty-store guard below keeps it safe either way.
+        }
+    }
+
+    const openExisting = (name: string) =>
+        new Promise<IDBDatabase | null>((resolve) => {
+            const request = indexedDB.open(name);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => resolve(null); // absent (Firefox) or blocked
+            request.onupgradeneeded = () => {
+                // Chromium creates a v1 database when the name is absent;
+                // that empty shell is useless — drop it again.
+                const created = request.result;
+                created.close();
+                resolve(null);
+                try { indexedDB.deleteDatabase(name); } catch { /* ignore */ }
+            };
+        });
+
+    const legacy = await openExisting(LEGACY_DB_NAME);
+    if (!legacy) {
+        try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
+        return;
+    }
+
+    try {
+        // The schema at the legacy database's version defines which stores
+        // exist; copy exactly those (all current stores use out-of-line
+        // auto-increment-free keys, so getAll/getAllKeys round-trips).
+        const storeNames = Array.from(legacy.objectStoreNames);
+        for (const storeName of storeNames) {
+            const readTx = legacy.transaction(storeName, 'readonly');
+            const store = readTx.objectStore(storeName);
+            const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+                const req = store.getAllKeys();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            if (keys.length === 0) continue;
+            const values = await new Promise<unknown[]>((resolve, reject) => {
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+
+            const writeTx = db!.transaction(storeName, 'readwrite');
+            const target = writeTx.objectStore(storeName);
+            const existing = await new Promise<number>((resolve, reject) => {
+                const req = target.count();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            if (existing > 0) {
+                // Never overwrite existing Plethora data.
+                continue;
+            }
+            await new Promise<void>((resolve, reject) => {
+                // All current stores use in-line keys (keyPath 'id'/'key'),
+                // so the value carries its own key.
+                values.forEach((value) => target.put(value));
+                writeTx.oncomplete = () => resolve();
+                writeTx.onerror = () => reject(writeTx.error);
+                writeTx.onabort = () => reject(writeTx.error);
+            });
+            console.info(
+                `[brand-migration] copied ${keys.length} record(s) from legacy IndexedDB store "${storeName}"`
+            );
+        }
+    } catch (err) {
+        console.warn('[brand-migration] legacy IndexedDB copy incomplete; will retry next boot', err);
+        legacy.close();
+        return; // flag stays unset → retry next boot
+    }
+    legacy.close();
+    try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
+}
+
 /**
  * Open the IndexedDB database.
  * If the cached connection was closed by the browser (tab backgrounding,
@@ -45,7 +169,10 @@ export async function openDatabase(): Promise<IDBDatabase> {
         db = null;
     }
 
-    return new Promise((resolve, reject) => {
+    // The migration needs the (schema-created) target database open, so it
+    // runs between the schema open below and any caller access. It is gated
+    // by `db != null` internally.
+    const opened = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onerror = () => {
@@ -122,6 +249,22 @@ export async function openDatabase(): Promise<IDBDatabase> {
             }
         };
     });
+
+    // Run the one-shot legacy library migration now that the target schema
+    // exists (the migration writes only into empty stores).
+    if (!migrationPromise) {
+        migrationPromise = migrateLegacyLibraryDatabase().catch((err) => {
+            console.warn('[brand-migration] library database migration failed', err);
+        });
+    }
+    await migrationPromise;
+
+    // The migration may have been interrupted by the browser closing the
+    // connection; re-probe before handing the database to callers.
+    if (!db || db.objectStoreNames.length === 0) {
+        return openDatabase();
+    }
+    return db;
 }
 
 /**

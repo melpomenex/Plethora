@@ -23,7 +23,7 @@ export interface InstalledPlugin {
   installedAt: string;
 }
 
-const STORAGE_KEY = "incrementum.plugins.v1";
+const STORAGE_KEY = "plethora.plugins.v1";
 
 type PluginStore = Record<string, InstalledPlugin>;
 
@@ -120,7 +120,7 @@ export function deactivatePlugin(pluginId: string): InstalledPlugin {
 }
 
 export function dispatchPluginEvent(pluginId: string, hook: PluginLifecycleHook, payload?: unknown): void {
-  const event = new CustomEvent("incrementum:plugin-hook", {
+  const event = new CustomEvent("plethora:plugin-hook", {
     detail: {
       pluginId,
       hook,

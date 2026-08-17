@@ -171,7 +171,7 @@ describe("emitFeedback", () => {
   it("honors the persisted once-per-calendar-day reminder cooldown", async () => {
     const now = new Date();
     const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    localStorage.setItem("incrementum-feedback:last-reminder", day);
+    localStorage.setItem("plethora-feedback:last-reminder", day);
 
     const result = await emitFeedback("reminder.reviews-due", { dueCount: 4 });
 
@@ -206,7 +206,7 @@ describe("emitFeedback", () => {
 
   it("logs resolutions only when feedback debug mode is enabled", async () => {
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
-    localStorage.setItem("incrementum-feedback:debug", "1");
+    localStorage.setItem("plethora-feedback:debug", "1");
 
     await emitFeedback("update.available", { latestVersion: "2.0.0" });
 

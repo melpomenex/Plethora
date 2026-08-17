@@ -1,5 +1,10 @@
 // Early error handler - must be first
 import { installPromiseCompat } from "./utils/promiseCompat";
+// Incrementum → Plethora localStorage migration — MUST evaluate before any
+// store module (zustand persist rehydrates at import time). The module runs
+// the migration as an import side effect; see lib/brandMigration.ts.
+import "./lib/brandMigration";
+import { migratedGetItem } from "./lib/brandMigration";
 import { installUint8ArrayCompat } from "./utils/uint8ArrayCompat";
 
 if (typeof window !== 'undefined') {
@@ -67,7 +72,7 @@ if (typeof window !== 'undefined') {
     }
 
     // Only replace the app UI during initial bootstrap. After React mounts,
-    const isMounted = root?.getAttribute("data-incrementum-mounted") === "true";
+    const isMounted = root?.getAttribute("data-plethora-mounted") === "true";
     console.error("[Global Error]", e.error ?? message);
     if (root && !isMounted) {
       const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -215,7 +220,7 @@ startTranscriptionConfigMirror();
 // Dynamically load only the user's selected font from bundled @fontsource packages.
 // Inter is imported statically as the critical default (see utils/fonts.ts).
 try {
-  const raw = localStorage.getItem("incrementum-settings");
+  const raw = migratedGetItem("plethora-settings");
   const parsed = raw ? JSON.parse(raw) : null;
   const fontFamily = parsed?.state?.settings?.appearance?.fontFamily;
   if (fontFamily && fontFamily !== "Inter" && fontFamily !== "system-ui" && fontFamily !== "serif" && fontFamily !== "sans-serif" && fontFamily !== "monospace") {
@@ -368,5 +373,5 @@ reactRoot.render(
 // Mark as mounted so the early error handler doesn't replace the UI for
 // runtime errors (it should only do that for bootstrap failures).
 requestAnimationFrame(() => {
-  rootEl?.setAttribute("data-incrementum-mounted", "true");
+  rootEl?.setAttribute("data-plethora-mounted", "true");
 });

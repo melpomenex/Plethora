@@ -3,6 +3,7 @@
  */
 
 import { invokeCommand, isTauri } from "../lib/tauri";
+import { migratedGetItem } from "../lib/brandMigration";
 import { browserInvoke } from "../lib/browser-backend";
 import type { TranscriptSegment as SyncTranscriptSegment } from "../components/media/TranscriptSync";
 
@@ -420,7 +421,7 @@ export async function transcribePodcastEpisodeWithGroq(
   // needs them passed explicitly — it runs server-side and can't read the JS store).
   const { apiKey, model } = (() => {
     try {
-      const raw = localStorage.getItem("incrementum-settings");
+      const raw = migratedGetItem("plethora-settings");
       const parsed = raw ? JSON.parse(raw) : null;
       const g = parsed?.state?.settings?.audioTranscription?.groq;
       return { apiKey: g?.apiKey || "", model: g?.model || "whisper-large-v3-turbo" };
@@ -517,7 +518,7 @@ async function transcribeEpisodeChunked(
   // exported, and we're in a dynamic-import context anyway).
   const { apiKey, model } = (() => {
     try {
-      const raw = localStorage.getItem("incrementum-settings");
+      const raw = migratedGetItem("plethora-settings");
       const parsed = raw ? JSON.parse(raw) : null;
       const g = parsed?.state?.settings?.audioTranscription?.groq;
       return { apiKey: g?.apiKey || "", model: g?.model || "whisper-large-v3-turbo" };

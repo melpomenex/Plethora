@@ -3124,7 +3124,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       return;
     }
     window.dispatchEvent(
-      new CustomEvent("incrementum:create-image-occlusion", {
+      new CustomEvent("plethora:create-image-occlusion", {
         detail: {
           assetId: selectedImageAssetIds[0],
           documentId: selectedDocument?.id ?? undefined,

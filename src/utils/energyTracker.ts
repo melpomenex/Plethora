@@ -6,7 +6,7 @@ export interface EnergyLog {
   reviewCount: number;
 }
 
-const STORAGE_KEY = "incrementum.energy-logs";
+const STORAGE_KEY = "plethora.energy-logs";
 
 export function addEnergyLog(entry: Omit<EnergyLog, "id" | "timestamp">): EnergyLog {
   const log: EnergyLog = {

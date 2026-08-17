@@ -293,15 +293,15 @@ describe("tab workspace persistence", () => {
       closable: true,
     });
     const paneId = useTabsStore.getState().rootPane.id;
-    window.localStorage.removeItem("incrementum-tabs");
+    window.localStorage.removeItem("plethora-tabs");
 
     useTabsStore.getState().setActiveTab(paneId, firstId);
     useTabsStore.getState().setActiveTab(paneId, secondId);
 
-    expect(window.localStorage.getItem("incrementum-tabs")).toBeNull();
+    expect(window.localStorage.getItem("plethora-tabs")).toBeNull();
     vi.advanceTimersByTime(180);
 
-    const snapshot = JSON.parse(window.localStorage.getItem("incrementum-tabs") ?? "null");
+    const snapshot = JSON.parse(window.localStorage.getItem("plethora-tabs") ?? "null");
     expect(snapshot.rootPane.activeTabId).toBe(secondId);
   });
 
@@ -322,13 +322,13 @@ describe("tab workspace persistence", () => {
       closable: true,
     });
     const paneId = useTabsStore.getState().rootPane.id;
-    window.localStorage.removeItem("incrementum-tabs");
+    window.localStorage.removeItem("plethora-tabs");
 
     useTabsStore.getState().setActiveTab(paneId, firstId);
     useTabsStore.getState().setActiveTab(paneId, secondId);
     window.dispatchEvent(new Event("pagehide"));
 
-    const snapshot = JSON.parse(window.localStorage.getItem("incrementum-tabs") ?? "null");
+    const snapshot = JSON.parse(window.localStorage.getItem("plethora-tabs") ?? "null");
     expect(snapshot.rootPane.activeTabId).toBe(secondId);
   });
 

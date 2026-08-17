@@ -14,7 +14,7 @@ export interface YouTubeCookie {
   path?: string;
 }
 
-const YOUTUBE_COOKIES_KEY = 'incrementum_youtube_cookies';
+const YOUTUBE_COOKIES_KEY = 'plethora_youtube_cookies';
 
 /**
  * Get stored YouTube cookies from localStorage

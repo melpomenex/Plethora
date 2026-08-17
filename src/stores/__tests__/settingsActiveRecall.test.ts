@@ -41,7 +41,7 @@ describe("settingsStore ai.activeRecallMode", () => {
 
   it("merges as off for persisted slices that predate the field", async () => {
     localStorage.setItem(
-      "incrementum-settings",
+      "plethora-settings",
       JSON.stringify({
         state: { settings: { ai: { preferOnDevice: false } } },
         version: 6,
@@ -55,7 +55,7 @@ describe("settingsStore ai.activeRecallMode", () => {
 
   it("keeps a persisted valid mode on rehydration", async () => {
     localStorage.setItem(
-      "incrementum-settings",
+      "plethora-settings",
       JSON.stringify({
         state: { settings: { ai: { activeRecallMode: "intensive" } } },
         version: 6,
@@ -67,7 +67,7 @@ describe("settingsStore ai.activeRecallMode", () => {
 
   it("resets an unknown persisted mode to off (defensive)", async () => {
     localStorage.setItem(
-      "incrementum-settings",
+      "plethora-settings",
       JSON.stringify({
         state: {
           settings: {

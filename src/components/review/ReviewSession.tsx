@@ -407,7 +407,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     setIsEditorOpen(false);
     if (occlusionAssetId) {
       window.dispatchEvent(
-        new CustomEvent("incrementum:create-image-occlusion", {
+        new CustomEvent("plethora:create-image-occlusion", {
           detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
         })
       );

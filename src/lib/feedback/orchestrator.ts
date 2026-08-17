@@ -84,8 +84,8 @@ type PresentablePayload = {
   dedupeKey?: unknown;
 };
 
-const LAST_REMINDER_KEY = "incrementum-feedback:last-reminder";
-const DEBUG_KEY = "incrementum-feedback:debug";
+const LAST_REMINDER_KEY = "plethora-feedback:last-reminder";
+const DEBUG_KEY = "plethora-feedback:debug";
 
 const ROLE_LOUDNESS: Record<SoundRole, number> = {
   acknowledge: 0.5,

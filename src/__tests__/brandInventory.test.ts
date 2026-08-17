@@ -33,11 +33,17 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
   describe("i18n locales", () => {
     const locales: Record<string, Record<string, string>> = { en, zh, es, de, fr, ja };
 
+    // The one-time migration dialog intentionally names the legacy product
+    // ("your Incrementum library") — users must recognize what is migrating.
+    const MIGRATION_COPY_EXEMPT = /^mainLayout\.legacyData/;
+    const valueOffenders = (dict: Record<string, string>) =>
+      Object.entries(dict)
+        .filter(([key, value]) => !MIGRATION_COPY_EXEMPT.test(key) && OLD_BRAND.test(value))
+        .map(([key, value]) => `${key}: ${value}`);
+
     it.each(Object.keys(locales))("%s carries no user-visible Incrementum strings", (loc) => {
       const dict = locales[loc];
-      const offenders = Object.entries(dict)
-        .filter(([, value]) => OLD_BRAND.test(value))
-        .map(([key, value]) => `${key}: ${value}`);
+      const offenders = valueOffenders(dict);
       expect(offenders, `locale ${loc} still mentions the old brand:\n${offenders.join("\n")}`).toEqual([]);
     });
 
@@ -115,9 +121,14 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
       }
     });
 
-    it("retains the Phase B identifiers (must not be renamed ahead of migration)", () => {
-      expect(conf.identifier).toBe("com.incrementum.app");
-      expect(conf.plugins?.updater?.endpoints?.[0]).toContain("melpomenex/incrementum-tauri");
+    it("uses the Phase B bundle identifier and updater chain", () => {
+      expect(conf.identifier).toBe("com.plethora.app");
+      // The updater endpoint moves to the Plethora repo in task 3.8; until
+      // then it must still reference the functional legacy repo.
+      expect(
+        conf.plugins?.updater?.endpoints?.[0],
+        "updater endpoint must target exactly one of the known repos"
+      ).toMatch(/melpomenex\/(incrementum-tauri|Plethora)\/releases/);
     });
   });
 
@@ -130,10 +141,14 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
       expect(sw).not.toContain("title: 'Incrementum'");
     });
 
-    it("keeps the legacy cache namespace until the Phase B storage migration", () => {
+    it("uses the Plethora cache namespace and purges legacy caches on activate", () => {
       const sw = read("public/sw.js");
-      expect(sw).toMatch(/const VERSION = 'incrementum-v\d+'/);
-      expect(sw).toContain("indexedDB.open('incrementum-sw', 1)");
+      expect(sw).toMatch(/const VERSION = 'plethora-v\d+'/);
+      // Legacy sweep must keep covering pre-rebrand caches and the legacy SW
+      // preferences database (migrated then removed on activate).
+      expect(sw).toContain("name.startsWith('incrementum-')");
+      expect(sw).toContain("indexedDB.open(LEGACY_DB, 1)");
+      expect(sw).toContain("indexedDB.open('plethora-sw', 1)");
     });
   });
 

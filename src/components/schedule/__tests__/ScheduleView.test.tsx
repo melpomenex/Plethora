@@ -72,8 +72,8 @@ describe("ScheduleView — workspace hierarchy and preferences (7.1)", () => {
   });
 
   it("restores a valid persisted view-mode and overview-collapse preference", async () => {
-    localStorage.setItem("incrementum_schedule_view_mode", "cards");
-    localStorage.setItem("incrementum_schedule_dashboard_collapsed", "true");
+    localStorage.setItem("plethora_schedule_view_mode", "cards");
+    localStorage.setItem("plethora_schedule_dashboard_collapsed", "true");
     mockScheduleData([makeRustItem({ id: "a", due_date: localDateKey(0) })]);
     render(<ScheduleView />);
     // Collapsed overview shows the compact due-now/overdue summary.
@@ -85,8 +85,8 @@ describe("ScheduleView — workspace hierarchy and preferences (7.1)", () => {
   });
 
   it("falls back safely on invalid persisted values", async () => {
-    localStorage.setItem("incrementum_schedule_view_mode", "bogus");
-    localStorage.setItem("incrementum_schedule_dashboard_collapsed", "maybe");
+    localStorage.setItem("plethora_schedule_view_mode", "bogus");
+    localStorage.setItem("plethora_schedule_dashboard_collapsed", "maybe");
     mockScheduleData([makeRustItem({ id: "a", due_date: localDateKey(0) })]);
     render(<ScheduleView />);
     // Invalid view mode falls back to the grid (desktop default); invalid

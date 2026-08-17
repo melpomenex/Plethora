@@ -3,7 +3,7 @@
  * Provides sample documents and flashcards for new users to explore Incrementum
  */
 
-const DEMO_CONTENT_KEY = "incrementum_demo_content_imported";
+const DEMO_CONTENT_KEY = "plethora_demo_content_imported";
 
 export interface DemoDocument {
   id: string;

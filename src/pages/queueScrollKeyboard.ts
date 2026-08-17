@@ -16,7 +16,7 @@ export type ScrollItemType = "document" | "rss" | "flashcard" | "extract" | "pod
 
 /** Window event the scroll page dispatches to reveal the current flashcard's
  *  answer when focus is outside the card (the card listens and reveals). */
-export const FLASHCARD_REVEAL_EVENT = "incrementum:flashcard-reveal-request";
+export const FLASHCARD_REVEAL_EVENT = "plethora:flashcard-reveal-request";
 
 /**
  * Whether the number keys should submit native 0-5 grades for the current
