@@ -1,12 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Plethora adaptive-icon background: solid white to match the icon master
+     (assets/brand/plethora-icon-master.svg). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <gradient
-        android:type="radial"
-        android:centerX="50%"
-        android:centerY="42%"
-        android:gradientRadius="76%p"
-        android:startColor="#E7EEDE"
-        android:centerColor="#F7F3E9"
-        android:endColor="#D9D2C3" />
+    <solid android:color="#FFFFFF" />
 </shape>
