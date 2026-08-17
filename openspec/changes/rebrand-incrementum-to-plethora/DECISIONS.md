@@ -115,12 +115,17 @@ the app's UI palette is still green app-wide, and changing only the PWA status-b
 color would be inconsistent. A palette migration is a design decision outside this
 change's "behavior-preserving" mandate. Follow-up recorded in BRANDING.md.
 
-### D12 — Docs handbooks: front matter + intro brand name only
-The six `docs/USER_HANDBOOK*.md` files get their H1 title and the brand name in the
-opening intro lines rebranded (translated naturally per language); the ~35 deeper body
-mentions per file are unchanged in Phase A (they describe the historical product; a
-full 6-language docs sweep is low-value churn now and belongs with the Phase B docs
-pass). The in-app handbook (`handbookContent.ts`) contains no brand strings.
+### D12 — Docs handbooks: full brand-name sweep (scope extended during execution)
+Initially scoped to front matter only, but `src/components/settings/handbookContent.ts`
+imports the six `docs/USER_HANDBOOK*.md` files via Vite `?raw` and renders them
+in-app — the bodies ARE user-visible. All brand-name mentions were rebranded across
+all six languages (Latin `Incrementum` → `Plethora`, fr `d'Incrementum` → `de
+Plethora`, de `Inkrementum`, ja `インクリメンタム`, zh brand-only uses of `增量`
+such as `添加到增量` — feature vocabulary like 增量阅读/增量备份 is untouched).
+Deliberately retained in the handbooks: the `.incrementum` backup-extension
+references (legacy format docs) and functional `github.com/melpomenex/incrementum-tauri`
+links. Repo-only docs (INSTALL.md, PROJECT_SUMMARY.md, …) are not bundled and keep
+their historical wording for the Phase B docs pass.
 
 ### D13 — Hardcoded user-visible strings in `src/` rebranded
 Beyond i18n: `constants.ts APP_NAME`, `documentStore.ts` save-notification title,
