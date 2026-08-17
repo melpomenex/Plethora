@@ -7,6 +7,8 @@ import { authRouter as v1AuthRouter } from './routes/v1/auth.js';
 import { entitlementsRouter as v1EntitlementsRouter } from './routes/v1/entitlements.js';
 import { jobsRouter as v1JobsRouter } from './routes/v1/jobs.js';
 import { usageRouter as v1UsageRouter } from './routes/v1/usage.js';
+import { billingRouter as v1BillingRouter } from './routes/v1/billing.js';
+import { syncRouter as v1SyncRouter } from './routes/v1/sync.js';
 import { authRouter as legacyAuthRouter } from './routes/auth.js';
 import { oauthRouter as legacyOauthRouter } from './routes/oauth.js';
 import { syncRouter } from './routes/sync.js';
@@ -48,6 +50,8 @@ app.use('/v1/auth', v1AuthRouter);
 app.use('/v1/entitlements', v1EntitlementsRouter);
 app.use('/v1/jobs', v1JobsRouter);
 app.use('/v1/usage', v1UsageRouter);
+app.use('/v1/billing', v1BillingRouter);
+app.use('/v1/sync', v1SyncRouter);
 
 // Legacy routes (during transition)
 app.use('/auth', legacyAuthRouter);

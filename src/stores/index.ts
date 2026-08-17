@@ -22,3 +22,5 @@ export type {
 export { useRssStudyStore } from "./rssStudyStore";
 export { useEntitlementStore } from "./entitlementStore";
 export { useAccountStore } from "./accountStore";
+export { useBillingStore } from "./billingStore";
+export { useSyncStore } from "./syncStore";

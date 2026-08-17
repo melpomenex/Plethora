@@ -1,8 +1,8 @@
 # Implementation Tasks
 
 ## 1. Contracts first (unblocks 8/9/12/13)
-- [ ] 1.1 `RagHit`/`RagCitation`/`source_kind` types + `rag_query` command signature doc
-- [ ] 1.2 Locator normalization helpers per format (pdf anchor, CFI, timestamp, extract id)
+- [x] 1.1 `RagHit`/`RagCitation`/`source_kind` types + `rag_query` command signature doc
+- [x] 1.2 Locator normalization helpers per format (pdf anchor, CFI, timestamp, extract id)
 
 ## 2. Index layer
 - [ ] 2.1 Migration: `semantic_chunks` source_kind/source_id/locator columns + indexes (next free number; re-anchor rule)

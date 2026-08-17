@@ -38,6 +38,7 @@ mod segmentation;
 mod services;
 mod study_json_import;
 mod supermemo_import;
+mod sync;
 mod tas;
 mod transcription;
 mod twitter;
@@ -1011,6 +1012,7 @@ pub fn run() {
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
+                app.manage(Arc::new(sync::SyncEngine::new()));
 
                 let app_dir = app
                     .path()
@@ -2050,6 +2052,11 @@ pub fn run() {
             plethora_cloud::cloud_job_submit,
             plethora_cloud::cloud_job_get_status,
             plethora_cloud::cloud_job_cancel,
+            // Sync commands
+            sync::sync_get_status,
+            sync::sync_push,
+            sync::sync_pull,
+            sync::sync_generate_recovery_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

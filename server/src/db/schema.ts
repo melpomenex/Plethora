@@ -221,6 +221,65 @@ CREATE TABLE IF NOT EXISTS capability_grants (
   PRIMARY KEY (user_id, capability)
 );
 
+-- Purchases table (active store subscriptions and checkout records)
+CREATE TABLE IF NOT EXISTS purchases (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider VARCHAR(50) NOT NULL,
+  product_id VARCHAR(100) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  transaction_id VARCHAR(255),
+  period VARCHAR(50) DEFAULT 'monthly',
+  renewal_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id, status);
+
+-- Subscription events (audit log of store webhooks)
+CREATE TABLE IF NOT EXISTS subscription_events (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  event_type VARCHAR(100) NOT NULL,
+  provider VARCHAR(50) NOT NULL,
+  payload_json JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Webhook idempotency deduplication table
+CREATE TABLE IF NOT EXISTS webhook_dedupe (
+  event_id VARCHAR(255) PRIMARY KEY,
+  provider VARCHAR(50) NOT NULL,
+  processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Sync records table (encrypted record deltas v2)
+CREATE TABLE IF NOT EXISTS sync_records (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  table_kind VARCHAR(100) NOT NULL,
+  record_id VARCHAR(255) NOT NULL,
+  hlc VARCHAR(100) NOT NULL,
+  device_id VARCHAR(255) NOT NULL,
+  payload_ciphertext TEXT NOT NULL,
+  aad VARCHAR(500) NOT NULL,
+  key_version INTEGER DEFAULT 1,
+  seq_number BIGSERIAL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_records_user_seq ON sync_records(user_id, seq_number);
+CREATE INDEX IF NOT EXISTS idx_sync_records_dedupe ON sync_records(user_id, device_id, hlc);
+
+-- Sync device cursors
+CREATE TABLE IF NOT EXISTS sync_device_cursors (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id VARCHAR(255) NOT NULL,
+  last_seq BIGINT DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, device_id)
+);
+
 -- Migrations
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(20) DEFAULT 'free';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
