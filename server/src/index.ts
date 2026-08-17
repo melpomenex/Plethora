@@ -11,6 +11,7 @@ import { billingRouter as v1BillingRouter } from './routes/v1/billing.js';
 import { syncRouter as v1SyncRouter } from './routes/v1/sync.js';
 import { apiRouter as v1ApiRouter } from './routes/v1/api.js';
 import { captureRouter as v1CaptureRouter, inboxRouter as v1InboxRouter } from './routes/v1/capture.js';
+import { metricsRouter, metricsMiddleware } from './routes/v1/metrics.js';
 import { authRouter as legacyAuthRouter } from './routes/auth.js';
 import { oauthRouter as legacyOauthRouter } from './routes/oauth.js';
 import { syncRouter } from './routes/sync.js';
@@ -42,10 +43,14 @@ app.use(
   })
 );
 app.use(express.json({ limit: '10mb' }));
+app.use(metricsMiddleware);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Prometheus metrics exposition
+app.use('/metrics', metricsRouter);
 
 // Plethora Cloud API v1 routes
 app.use('/v1/auth', v1AuthRouter);
