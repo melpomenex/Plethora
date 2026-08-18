@@ -553,4 +553,65 @@ describe("DocumentQATab audiobook section parity", () => {
     expect(systemPrompt).toContain("MINIMUM INFORMATION PRINCIPLE");
     expect(userPrompt).toContain("LIGHT_REACTIONS_DETAIL");
   });
+
+  // Issue #44 bug 03: a picked # chip vanished on the next keystroke because
+  // insertion wrote the title while filtering keyed on ids.
+  it("keeps a picked section chip across keystrokes and history restore", async () => {
+    const chapters: SectionNode[] = [
+      {
+        id: "sec-001",
+        title: "001",
+        content: "CHAPTER_ONE_CONTENT",
+        level: 1,
+        source: "media-transcript",
+        documentId: "doc-1",
+        preview: "CHAPTER_ONE_CONTENT",
+        parentId: null,
+        children: [],
+        breadcrumb: ["Transcript"],
+      },
+    ];
+    sectionHookState.flat = chapters;
+    sectionHookState.tree = chapters;
+    useDocumentOutlineStore.setState({
+      mediaSectionsByDocId: new Map([["doc-1", chapters]]),
+    });
+    useLLMProvidersStore.setState({
+      providers: [{
+        id: "provider-1",
+        provider: "openai",
+        name: "Test provider",
+        apiKey: "test-key",
+        model: "test-model",
+        enabled: true,
+        temperature: 0.2,
+        maxTokens: 1000,
+      }],
+    });
+    vi.mocked(chatWithContext).mockResolvedValue({ content: "ok" } as never);
+
+    render(<DocumentQATab />);
+    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
+    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)") as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
+    const sectionList = await screen.findByRole("listbox", { name: "Sections" });
+    fireEvent.click(within(sectionList).getByRole("option", { name: /001/ }));
+
+    // The pick inserted a stable id token, not the title.
+    expect(composer.value).toContain("#{sec-001}");
+
+    // Typing after the pick must not drop the chip.
+    const withSuffix = `${composer.value}summarize`;
+    fireEvent.change(composer, { target: { value: withSuffix, selectionStart: withSuffix.length } });
+    expect(composer.value).toContain("#{sec-001}");
+    expect(screen.getByText("Transcript > 001")).toBeInTheDocument();
+
+    // Send, then restore via history: the raw token history brings the chip
+    // back with its section selected.
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(composer, { key: "ArrowUp" });
+    await waitFor(() => expect(composer.value).toContain("#{sec-001}"));
+    expect(screen.getByText("Transcript > 001")).toBeInTheDocument();
+  });
 });
