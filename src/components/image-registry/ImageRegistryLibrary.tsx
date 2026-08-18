@@ -14,7 +14,7 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { describeImage, generateImageCards } from "../../lib/ai/imageAI";
 import { createLearningItem } from "../../api/learning-items";
 
@@ -413,10 +413,44 @@ export function ImageRegistryLibrary({
     }
   };
 
+  // Drag-and-drop ingest: image files go through the canonical
+  // ingestImageFile pipeline (with its type/size validation) and land
+  // selected; non-image drops are ignored quietly — no error pages.
+  const [isDragOver, setIsDragOver] = useState(false);
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      setIsDragOver(false);
+      // Always swallow file drops inside the library so the WebView never
+      // navigates to a dropped file, regardless of type.
+      if (files.length > 0 || event.dataTransfer?.types?.includes("Files")) {
+        event.preventDefault();
+      }
+      const images = files.filter((file) => file.type.startsWith("image/"));
+      if (images.length === 0) return;
+      void ingestFiles(images);
+    },
+    [ingestFiles]
+  );
+
   return (
     <div
-      className={cn("flex h-full min-h-0 flex-col rounded-[28px] border border-border/70 bg-background/95 shadow-xl", className)}
+      className={cn(
+        "flex h-full min-h-0 flex-col rounded-[28px] border bg-background/95 shadow-xl transition-colors",
+        isDragOver ? "border-primary border-dashed bg-primary/5" : "border-border/70",
+        className
+      )}
       onPasteCapture={handlePasteCapture}
+      onDragOver={(event) => {
+        if (!event.dataTransfer?.types?.includes("Files")) return;
+        event.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setIsDragOver(false);
+      }}
+      onDrop={handleDrop}
     >
       <div className="border-b border-border/70 bg-gradient-to-r from-primary/6 via-background to-secondary/10 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
