@@ -104,4 +104,83 @@ describe("NotebookLM workflow integration", () => {
       dedupe: true,
     });
   });
+
+  it("submits typed document, url, text, and file source attachment payloads", async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === "wait_for_backend_ready") return null;
+      if (cmd === "notebooklm_add_source") {
+        return {
+          id: "src_test",
+          title: "Added Source",
+          kind: "file",
+          status: "ready",
+        };
+      }
+      return null;
+    });
+
+    // 1. Typed Document source
+    await notebooklmAddSource({
+      notebookId: "nb_1",
+      kind: "document",
+      documentId: "doc_456",
+      title: "Dopamine Detox",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("notebooklm_add_source", {
+      req: {
+        notebookId: "nb_1",
+        kind: "document",
+        documentId: "doc_456",
+        title: "Dopamine Detox",
+      },
+    });
+
+    // 2. Typed URL source
+    await notebooklmAddSource({
+      notebookId: "nb_1",
+      kind: "url",
+      url: "https://example.com/guide",
+      title: "Web Guide",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("notebooklm_add_source", {
+      req: {
+        notebookId: "nb_1",
+        kind: "url",
+        url: "https://example.com/guide",
+        title: "Web Guide",
+      },
+    });
+
+    // 3. Typed Text source
+    await notebooklmAddSource({
+      notebookId: "nb_1",
+      kind: "text",
+      text: "Notes with smart quotes ‘here’ and em—dash.",
+      title: "Research Notes",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("notebooklm_add_source", {
+      req: {
+        notebookId: "nb_1",
+        kind: "text",
+        text: "Notes with smart quotes ‘here’ and em—dash.",
+        title: "Research Notes",
+      },
+    });
+
+    // 4. Typed File source
+    await notebooklmAddSource({
+      notebookId: "nb_1",
+      kind: "file",
+      path: "/path/to/paper.pdf",
+      title: "Whitepaper",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("notebooklm_add_source", {
+      req: {
+        notebookId: "nb_1",
+        kind: "file",
+        path: "/path/to/paper.pdf",
+        title: "Whitepaper",
+      },
+    });
+  });
 });
