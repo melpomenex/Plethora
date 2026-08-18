@@ -3605,7 +3605,26 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       const failedIds = results.filter((r) => !r.success).map((r) => r.id);
       const newlySaved = toCreate.length - failedIds.length;
       const savedCount = alreadySaved.length + newlySaved;
-      
+
+      // Materialize every deck reference among the saved cards in the same
+      // action: the picker deck's tags, the transient `:deck` seed, and any
+      // `deck:` tags. A deck referenced at creation must be immediately
+      // visible in Deck Manager (parity invariant, issue #44 bug 10).
+      if (newlySaved > 0) {
+        const savedDeckNames = new Set<string>(deckTags);
+        if (seed?.deckTag?.trim()) savedDeckNames.add(seed.deckTag.trim());
+        for (const card of toCreate) {
+          for (const tag of card.tags ?? []) {
+            if (tag.toLowerCase().startsWith("deck:")) {
+              const name = tag.slice(5).trim();
+              if (name) savedDeckNames.add(name);
+            }
+          }
+        }
+        if (savedDeckNames.size > 0) {
+          useStudyDeckStore.getState().ensureDecksExist([...savedDeckNames]);
+        }
+      }
       // Remove all selected cards from drafts (persisted ones + successfully created ones).
       // Keep failed ones so the user can retry.
       const idsToRemove = new Set([
