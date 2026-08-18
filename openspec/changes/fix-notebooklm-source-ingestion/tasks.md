@@ -31,7 +31,7 @@
 
 ## 6. Testing & Verification
 
-- [ ] 6.1 Add backend unit tests in `src-tauri/src/notebooklm.rs` for source classification, routing logic, temp-file RAII cleanup, and error redaction.
-- [ ] 6.2 Add regression test for a long-form book fixture (similar to *Dopamine Detox*) containing internal URLs and smart punctuation, verifying that it routes to file/temp-file transport, preserves UTF-8, and produces no `URL scheme '' is not allowed` errors.
-- [ ] 6.3 Add/update frontend integration tests in `src/api/__tests__/notebooklm.integration.test.ts` and `src/components/notebooklm/__tests__/notebooklmConnection.test.tsx`.
-- [ ] 6.4 Run `cargo test` and `npm run test` to verify zero regressions across the codebase.
+- [x] 6.1 Add backend unit tests in `src-tauri/src/notebooklm.rs` for source classification, routing logic, temp-file RAII cleanup, and error redaction.
+- [x] 6.2 Add regression test for a long-form book fixture (similar to *Dopamine Detox*) containing internal URLs and smart punctuation, verifying that it routes to file/temp-file transport, preserves UTF-8, and produces no `URL scheme '' is not allowed` errors.
+- [x] 6.3 Add/update frontend integration tests in `src/api/__tests__/notebooklm.integration.test.ts` and `src/components/notebooklm/__tests__/notebooklmConnection.test.tsx`.
+- [x] 6.4 Run `cargo test` and `npm run test` to verify zero regressions across the codebase.
