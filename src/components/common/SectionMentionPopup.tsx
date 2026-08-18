@@ -19,6 +19,12 @@ interface SectionMentionPopupProps {
   /** Prevents a partial fallback list while an authoritative catalog loads. */
   isLoading?: boolean;
   loadingLabel?: string;
+  /**
+   * When set, the popup explains why `#` cannot offer sections in this
+   * context (no document targeted) instead of listing sections or showing a
+   * bare "No sections available" dead end.
+   */
+  unavailableReason?: string | null;
 }
 
 function matchesQuery(node: SectionNode, q: string): boolean {
@@ -82,6 +88,7 @@ export function SectionMentionPopup({
   selectionEntry,
   isLoading = false,
   loadingLabel = "Loading sections…",
+  unavailableReason = null,
 }: SectionMentionPopupProps) {
   const { t } = useI18n();
   const parentRef = useRef<HTMLDivElement>(null);
@@ -139,6 +146,7 @@ export function SectionMentionPopup({
   const isBareHash = !query;
   const hasSections = flat.length > 0;
   const showNoSectionsState = !hasSections && !selectionEntry;
+  const isUnavailable = Boolean(unavailableReason);
 
   return (
     <div
@@ -150,7 +158,9 @@ export function SectionMentionPopup({
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
           <span className="text-xs font-medium text-foreground truncate">
-            {isLoading
+            {isUnavailable
+              ? t("sectionMention.unavailableTitle")
+              : isLoading
               ? loadingLabel
               : showNoSectionsState
               ? t("sectionMention.noSectionsAvailable")
@@ -159,7 +169,7 @@ export function SectionMentionPopup({
               : t("sectionMention.matchingSections", { count: filtered.length })}
           </span>
         </div>
-        {!showNoSectionsState && !isLoading && (
+        {!showNoSectionsState && !isLoading && !isUnavailable && (
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
             {isBareHash ? "Type to filter…" : `${filtered.length} results`}
           </span>
@@ -171,7 +181,12 @@ export function SectionMentionPopup({
         className="overflow-y-auto"
         style={{ maxHeight: `${maxHeight}px`, minHeight: "80px" }}
       >
-        {isLoading ? (
+        {isUnavailable ? (
+          <div className="p-4 text-center text-sm text-muted-foreground" role="note">
+            <Hash className="h-4 w-4 mx-auto mb-2 text-muted-foreground" />
+            {unavailableReason}
+          </div>
+        ) : isLoading ? (
           <div className="flex min-h-24 items-center justify-center gap-2 px-4 text-sm text-muted-foreground" role="status">
             <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" />
             <span>{loadingLabel}</span>

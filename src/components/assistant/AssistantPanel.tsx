@@ -56,6 +56,7 @@ import {
   createSelectionSection,
   describeSectionDiagnostic,
   hashSectionContent,
+  normalizeSectionTitleForMatch,
   resolvePromptSectionMentions,
   resolveSectionFocusedContext,
   type SectionNode,
@@ -348,12 +349,31 @@ export function AssistantPanel({
   useEffect(() => {
     const documentId = context?.documentId;
     const deckName = getDocumentDeckName(assistantDocumentTitle);
-    if (!documentId || !deckName) return;
-    const hasSavedDocumentCards = messages.some((message) =>
-      message.toolCalls?.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name) && call.status === "success"),
-    );
-    if (!hasSavedDocumentCards) return;
-    useStudyDeckStore.getState().addDeck(deckName, [deckName], documentId, "all");
+    const explicitDeckNames = new Set<string>();
+    let hasSavedDocumentCards = false;
+    for (const message of messages) {
+      for (const call of message.toolCalls ?? []) {
+        if (!CARD_CREATION_TOOL_NAMES.has(call.name) || call.status !== "success") continue;
+        hasSavedDocumentCards = true;
+        // Explicit `deck:` tags on saved cards materialize their decks in the
+        // same save path — a deck referenced at creation must be visible in
+        // Deck Manager immediately (issue #44 bug 10).
+        const tags = call.parameters?.tags;
+        if (!Array.isArray(tags)) continue;
+        for (const tag of tags) {
+          if (typeof tag === "string" && tag.toLowerCase().startsWith("deck:")) {
+            const name = tag.slice(5).trim();
+            if (name) explicitDeckNames.add(name);
+          }
+        }
+      }
+    }
+    if (documentId && deckName && hasSavedDocumentCards) {
+      useStudyDeckStore.getState().addDeck(deckName, [deckName], documentId, "all");
+    }
+    if (explicitDeckNames.size > 0) {
+      useStudyDeckStore.getState().ensureDecksExist([...explicitDeckNames]);
+    }
   }, [assistantDocumentTitle, context?.documentId, messages]);
 
   // Model selection UI states and store subscription
@@ -385,19 +405,30 @@ export function AssistantPanel({
     return createSelectionSection(context.selection, context.documentId);
   }, [context?.type, context?.selection, context?.documentId]);
 
-  // Load full document content for section parsing when documentId changes
+  // Load full document content for section parsing when documentId changes.
+  // While the fetch is in flight the section catalog is empty — the popup
+  // must say "loading" rather than a false "no sections available".
+  const [sectionTextLoading, setSectionTextLoading] = useState(false);
   useEffect(() => {
     if (!context?.documentId || !sectionsArmed || context.sections?.length) {
       setAssistantFullContent("");
+      setSectionTextLoading(false);
       return;
     }
     let mounted = true;
+    setSectionTextLoading(true);
     loadDocumentQaText(context.documentId, { getDocument, extractDocumentText })
       .then((content) => {
-        if (mounted) setAssistantFullContent(content);
+        if (mounted) {
+          setAssistantFullContent(content);
+          setSectionTextLoading(false);
+        }
       })
       .catch(() => {
-        if (mounted) setAssistantFullContent("");
+        if (mounted) {
+          setAssistantFullContent("");
+          setSectionTextLoading(false);
+        }
       });
     return () => {
       mounted = false;
@@ -1135,8 +1166,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     );
     const hasSectionMentions = mentionResolution.tokens.length > 0;
     if (mentionResolution.ambiguous.length > 0) {
+      const detail = mentionResolution.ambiguousTitles.find(
+        (entry) => entry.token === mentionResolution.ambiguous[0],
+      );
+      const names = detail?.titles.length ? ` (${detail.titles.join(", ")})` : "";
       throw new Error(
-        `The section chip “${mentionResolution.ambiguous[0]}” matches more than one section. Choose the intended section again; no request was made.`,
+        `The section chip “${mentionResolution.ambiguous[0]}” matches more than one section${names}. Choose the intended section again; no request was made.`,
       );
     }
     if (mentionResolution.unresolved.length > 0) {
@@ -1284,41 +1319,63 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       if (sectionNodes.length > 0 && llmContext?.type === "document") {
         const documentId = llmContext.documentId;
-        if (!documentId) throw new Error("Select the document that owns this section, then choose the heading again.");
+        // Pseudo-document contexts (podcast transcripts carry no documentId;
+        // scroll-mode assistants use `extract:<id>` ids) have no document row
+        // behind them, so structural document-text resolution can never
+        // succeed. `#` mentions there resolve against the attached content.
+        const realDocumentId = documentId && !documentId.startsWith("extract:") ? documentId : null;
+        const attachedKey = documentId || "attached-content";
 
-        // Section resolution occasionally misses on the very first request
-        // right after a document opens or a section is picked (the
-        // just-fetched canonical text can momentarily disagree with the
-        // TOC/heading offsets the section was picked against) and then
-        // succeeds immediately on an identical retry — users were seeing
-        // this as "reselect and resend". One transparent retry absorbs that
-        // transient miss instead of surfacing it. The retry also rebuilds
-        // the section tree from the freshly fetched text: the hook's tree
-        // can still be built from partial/older content when a message is
-        // sent right after the document opens, and resolving against that
-        // stale tree is exactly what forced the manual resend.
-        let sectionText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+        let sectionText: string;
+        let resolutionFlat: SectionNode[];
+        if (realDocumentId) {
+          // Section resolution occasionally misses on the very first request
+          // right after a document opens or a section is picked (the
+          // just-fetched canonical text can momentarily disagree with the
+          // TOC/heading offsets the section was picked against) and then
+          // succeeds immediately on an identical retry — users were seeing
+          // this as "reselect and resend". One transparent retry absorbs that
+          // transient miss instead of surfacing it. The retry also rebuilds
+          // the section tree from the freshly fetched text: the hook's tree
+          // can still be built from partial/older content when a message is
+          // sent right after the document opens, and resolving against that
+          // stale tree is exactly what forced the manual resend.
+          sectionText = await loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText });
+          resolutionFlat = assistantSectionFlat;
+        } else {
+          sectionText = llmContext.content || context?.content || "";
+          resolutionFlat = buildSectionsSnapshot(attachedKey, sectionText, undefined).flat;
+        }
+
         let focused = resolveSectionFocusedContext(
           sectionNodes,
-          assistantSectionFlat,
+          resolutionFlat,
           sectionText,
-          { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
+          { documentId: attachedKey, maxTokens: effectiveContextWindow, includeNeighbors: true },
         );
-        if (!focused.ok) {
-          sectionText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+        if (!focused.ok && realDocumentId) {
+          sectionText = await loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText });
           const freshFlat = buildSectionsSnapshot(
-            documentId,
+            realDocumentId,
             sectionText,
-            useDocumentOutlineStore.getState().getOutline(documentId),
+            useDocumentOutlineStore.getState().getOutline(realDocumentId),
           ).flat;
           focused = resolveSectionFocusedContext(
             sectionNodes,
             freshFlat,
             sectionText,
-            { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
+            { documentId: realDocumentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
           );
         }
         if (!focused.ok) {
+          if (!realDocumentId) {
+            const kind = documentId?.startsWith("extract:") ? "extract" : "transcript";
+            const detail = focused.unresolved.map(describeSectionDiagnostic).join("; ");
+            throw new Error(
+              `Could not focus the section within the attached ${kind}${detail ? `: ${detail}` : ""}. ` +
+                "`#` mentions here match headings of the attached content; pick the section again from the list. No request was made.",
+            );
+          }
           const detail = focused.unresolved.map(describeSectionDiagnostic).join("; ");
           throw new Error(
             `Could not focus the selected section${detail ? `: ${detail}` : ""}. Reselect it before sending; no request was made.`,
@@ -1999,15 +2056,24 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       historyDraftRef.current = value;
     }
 
-    if (context?.type !== "document") {
-      setShowSectionPopup(false);
-      return;
-    }
-
     const textarea = textareaRef.current;
     const cursorPos = textarea ? textarea.selectionStart : value.length;
     const beforeCursor = value.slice(0, cursorPos);
     const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+
+    if (context?.type !== "document") {
+      // `#` has no document to draw sections from in this context. Show the
+      // popup with an explanation instead of silently doing nothing.
+      if (hashMatch) {
+        setShowSectionPopup(true);
+        setSectionQuery(hashMatch[1]);
+        setSectionCursorIndex(0);
+      } else {
+        setShowSectionPopup(false);
+        setSectionQuery("");
+      }
+      return;
+    }
 
     if (hashMatch) {
       setShowSectionPopup(true);
@@ -2038,7 +2104,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
     if (hashMatch) {
       const hashPos = cursorPos - hashMatch[0].length;
-      const token = `#{${node.title}}`;
+      // Insert the node's stable id (rendered as its title chip by
+      // renderUserMessageContent); a title token could be dropped by later
+      // matching and can break when titles contain token characters.
+      const token = `#{${node.id}}`;
       const newValue = input.slice(0, hashPos) + token + " " + input.slice(cursorPos);
       setInput(newValue);
       setSelectedSectionNodes((prev) => {
@@ -2239,7 +2308,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       if (item.index > lastIdx) {
         elements.push(content.slice(lastIdx, item.index));
       }
-      const matchedNode = sectionsList.find((s) => s.id === item.token || s.title === item.token);
+      const matchedNode =
+        sectionsList.find((s) => s.id === item.token || s.title === item.token) ||
+        sectionsList.find(
+          (s) => normalizeSectionTitleForMatch(s.title) === normalizeSectionTitleForMatch(item.token),
+        );
       const label = matchedNode
         ? (matchedNode.breadcrumb.length > 0
             ? `${matchedNode.breadcrumb[matchedNode.breadcrumb.length - 1]} > ${matchedNode.title}`
@@ -3042,11 +3115,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           {/* Available Tools Hint */}
           <div className="text-xs text-muted-foreground flex items-center gap-1">
             <Sparkle className="w-3 h-3" />
-            <span>Type /tools to see available tools • # for sections</span>
+            <span>Type /tools to see available tools • # references sections of an open document</span>
           </div>
 
           {/* SectionMentionPopup - positioned above input */}
-          {showSectionPopup && context?.type === "document" && (
+          {showSectionPopup && (
             <div className="absolute bottom-full left-3 right-3 mb-2">
               <SectionMentionPopup
                 tree={assistantSectionTree}
@@ -3057,6 +3130,16 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 open={showSectionPopup}
                 maxHeight={260}
                 selectionEntry={selectionSection}
+                isLoading={
+                  context?.type === "document" &&
+                  sectionTextLoading &&
+                  assistantSectionFlat.length === 0
+                }
+                unavailableReason={
+                  context?.type !== "document"
+                    ? t("sectionMention.noDocumentTargeted")
+                    : null
+                }
               />
             </div>
           )}
