@@ -58,6 +58,24 @@ export interface SectionMentionResolution {
   nodes: SectionNode[];
   unresolved: string[];
   ambiguous: string[];
+  /** For each ambiguous token, the titles it could mean — error copy names them. */
+  ambiguousTitles: Array<{ token: string; titles: string[] }>;
+}
+
+/**
+ * Normalize a section title (or mention token) for tolerant matching:
+ * case-folded, punctuation/symbols stripped, whitespace collapsed. A stored
+ * chip whose title drifted only cosmetically from the freshly extracted
+ * heading must still resolve.
+ */
+export function normalizeSectionTitleForMatch(title: string): string {
+  return title
+    .toLowerCase()
+    // Punctuation becomes a separator so "A—B" ≈ "a b" and "Art: Methods"
+    // ≈ "art methods"; vanishing it would merge distinct words.
+    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -66,6 +84,10 @@ export interface SectionMentionResolution {
  * what renders the visible chip in chat; React's pick-time selection array is
  * only a disambiguation hint. This prevents a visible section chip and the
  * actual LLM payload from silently diverging.
+ *
+ * Title matching falls back to normalized comparison (case, whitespace,
+ * punctuation); a normalized match against more than one section is reported
+ * as ambiguous rather than guessed.
  */
 export function resolvePromptSectionMentions(
   prompt: string,
@@ -76,11 +98,28 @@ export function resolvePromptSectionMentions(
   const nodes: SectionNode[] = [];
   const unresolved: string[] = [];
   const ambiguous: string[] = [];
+  const ambiguousTitles: Array<{ token: string; titles: string[] }> = [];
+
+  const titleMatches = (candidates: SectionNode[], token: string): SectionNode[] => {
+    const exact = candidates.filter((node) => node.title === token);
+    if (exact.length > 0) return exact;
+    const normalized = normalizeSectionTitleForMatch(token);
+    if (!normalized) return [];
+    return candidates.filter((node) => normalizeSectionTitleForMatch(node.title) === normalized);
+  };
+  const markAmbiguous = (token: string, candidates: SectionNode[]) => {
+    const titles = candidates.map((node) => node.title);
+    if (!ambiguous.includes(token)) ambiguous.push(token);
+    if (!ambiguousTitles.some((entry) => entry.token === token)) {
+      ambiguousTitles.push({ token, titles });
+    }
+  };
 
   for (const token of tokens) {
-    const selectedMatches = selectedNodes.filter((node) => node.id === token || node.title === token);
+    const selectedById = selectedNodes.filter((node) => node.id === token);
+    const selectedMatches = selectedById.length > 0 ? selectedById : titleMatches(selectedNodes, token);
     const availableIdMatch = availableNodes.find((node) => node.id === token);
-    const availableTitleMatches = availableNodes.filter((node) => node.title === token);
+    const availableTitleMatches = titleMatches(availableNodes, token);
 
     let resolved: SectionNode | undefined;
     if (selectedMatches.length === 1) {
@@ -90,21 +129,21 @@ export function resolvePromptSectionMentions(
       if (!resolved && availableTitleMatches.length === 1) {
         resolved = availableTitleMatches[0];
       } else if (!resolved && availableTitleMatches.length > 1) {
-        ambiguous.push(token);
+        markAmbiguous(token, availableTitleMatches);
         continue;
       } else if (!resolved) {
         unresolved.push(token);
         continue;
       }
     } else if (selectedMatches.length > 1) {
-      ambiguous.push(token);
+      markAmbiguous(token, selectedMatches);
       continue;
     } else if (availableIdMatch) {
       resolved = availableIdMatch;
     } else if (availableTitleMatches.length === 1) {
       resolved = availableTitleMatches[0];
     } else if (availableTitleMatches.length > 1) {
-      ambiguous.push(token);
+      markAmbiguous(token, availableTitleMatches);
       continue;
     } else {
       unresolved.push(token);
@@ -114,7 +153,7 @@ export function resolvePromptSectionMentions(
     if (!nodes.some((node) => node.id === resolved.id)) nodes.push(resolved);
   }
 
-  return { tokens, nodes, unresolved, ambiguous };
+  return { tokens, nodes, unresolved, ambiguous, ambiguousTitles };
 }
 
 interface HeadingInfo {
