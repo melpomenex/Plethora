@@ -10,6 +10,9 @@ can be re-applied.
 | --- | --- | --- |
 | `app/build.gradle.kts` | `ndkVersion = "27.2.12479018"` | AGP otherwise picks a patch that is not installed locally and the build fails with `[CXX1104]`. |
 | `build.gradle.kts` | `kotlin-gradle-plugin` pinned to **2.2.21** and KSP to **2.3.11** (Tauri generates Kotlin 1.9.25) | Prompt beta4 carries Kotlin 2.3 metadata and structured output requires KSP 2.3.6+. Kotlin 2.2 can read the next metadata version while retaining compatibility with Tauri's generated legacy `kotlinOptions.jvmTarget` DSL. Kotlin 2.3.21 and 2.4.10 were rejected because both make that generated app assignment a build-script error, which would require an additional generated-file edit. |
+| `app/src/main/res/values/themes.xml` | `android:windowBackground` = `#0A0A0A` | Knowledge Peck launch continuity (API 24–30): pre-webview window matches the boot surface so cold launch shows no white flash. |
+| `app/src/main/res/values-night/themes.xml` | `android:windowBackground` = `#0A0A0A` | Same, night mode (the boot surface is theme-independent dark). |
+| `app/src/main/res/values-v31/themes.xml` | new file: full `Theme.plethora_tauri` re-declaration adding `android:windowSplashScreenBackground` = `#0A0A0A` | Android 12+ splash background matches the static pre-React frame's `#0A0A0A` (icon stays the launcher mascot) so native splash → static frame → animation read as one continuous launch. Pinned by `src/__tests__/brandInventory.test.ts`. |
 
 Everything else for the on-device AI feature lives in
 `src-tauri/plugins/android-genai/` — dependencies, R8 keep rules, manifest
@@ -89,4 +92,8 @@ lazily inside `checkStatus`, whose `catch (e: Throwable)` covers the
 
 1. Restore the `ndkVersion` line in `app/build.gradle.kts`.
 2. Restore the Kotlin 2.2.21 and KSP 2.3.11 classpath lines in `build.gradle.kts`.
-3. `npm run tauri:android:build` to confirm.
+3. Restore the `#0A0A0A` `android:windowBackground` items in
+   `app/src/main/res/values/themes.xml` and `values-night/themes.xml`, and
+   re-create `app/src/main/res/values-v31/themes.xml` (splash background
+   items) — see the hand-edit table above.
+4. `npm run tauri:android:build` to confirm.

@@ -55,7 +55,102 @@
   </head>
 
   <body data-plethora-app="true" data-incrementum-app="true">
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        Knowledge Peck static pre-React frame (openspec change
+        knowledge-peck-startup-animation, design D1/D7): the mascot in its
+        rest pose on the fixed #0A0A0A boot surface, painted before any JS
+        executes. createRoot().render() wipes this markup on mount, and the
+        StartupExperience overlay renders an identical first frame. Geometry
+        mirrors the exported KP_GEOMETRY constants (mascot 112px desktop /
+        132px phone, 480px scene cap) — pinned by
+        src/lib/startupAnimation/__tests__/staticFrame.test.ts. Fully
+        offline: no external references of any kind.
+      -->
+      <style id="kp-static-style">
+        #boot-frame {
+          position: fixed;
+          inset: 0;
+          z-index: 9000;
+          background: #0a0a0a;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+        }
+        #boot-frame .kp-static-scene {
+          position: relative;
+          width: 100%;
+          max-width: 480px;
+          height: 360px;
+        }
+        #boot-frame .kp-static-bird {
+          position: absolute;
+          left: 50%;
+          top: 118px;
+          width: 112px;
+          height: 112px;
+          margin: 0;
+          transform: translate(-50%, -50%);
+        }
+        @media (max-width: 1023px) {
+          #boot-frame .kp-static-scene {
+            height: 420px;
+          }
+          #boot-frame .kp-static-bird {
+            top: 132px;
+            width: 132px;
+            height: 132px;
+          }
+        }
+      </style>
+      <div id="boot-frame" aria-hidden="true">
+        <div class="kp-static-scene">
+          <svg
+            class="kp-static-bird"
+            viewBox="0 0 1024 1024"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <defs>
+              <linearGradient id="kp-static-bird-body" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#8B5CF6" />
+                <stop offset="55%" stop-color="#7C3AED" />
+                <stop offset="100%" stop-color="#5B21B6" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M232 664 C150 690 118 756 128 830 C220 806 286 758 318 692 Z"
+              fill="url(#kp-static-bird-body)"
+            />
+            <ellipse cx="430" cy="560" rx="250" ry="230" fill="url(#kp-static-bird-body)" />
+            <path
+              d="M380 480 C500 420 640 440 700 520 C640 610 500 640 380 600 C350 560 350 520 380 480 Z"
+              fill="#5B21B6"
+              opacity="0.92"
+            />
+            <g>
+              <circle cx="620" cy="330" r="150" fill="url(#kp-static-bird-body)" />
+              <path
+                d="M384 224 C362 176 327 145 286 138 C329 163 354 190 367 230 Z"
+                fill="url(#kp-static-bird-body)"
+              />
+              <path
+                d="M420 209 C398 150 355 113 313 102 C364 130 394 166 405 218 Z"
+                fill="url(#kp-static-bird-body)"
+              />
+              <path d="M756 330 L872 366 L756 402 Z" fill="#F59E0B" />
+              <circle cx="668" cy="300" r="30" fill="#FFFFFF" />
+              <circle cx="676" cy="302" r="14" fill="#1E1B4B" />
+            </g>
+            <g stroke="#F59E0B" stroke-width="18" stroke-linecap="round">
+              <line x1="390" y1="776" x2="390" y2="830" />
+              <line x1="500" y1="780" x2="500" y2="834" />
+            </g>
+          </svg>
+        </div>
+      </div>
+      <!-- /boot-frame -->
+    </div>
     <div
       id="error-display"
       style="

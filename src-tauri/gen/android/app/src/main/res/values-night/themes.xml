@@ -1,6 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.plethora_tauri" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Knowledge Peck launch continuity: dark window background in night
+             mode too (same #0A0A0A boot surface; see values/themes.xml). -->
+        <item name="android:windowBackground">#0A0A0A</item>
     </style>
 </resources>

@@ -294,6 +294,14 @@ interface InterfaceSettings {
   /** Use the dense library cockpit layout in Documents. */
   compactDocumentsView: boolean;
   animationsEnabled: boolean;
+  /**
+   * Knowledge Peck branded startup animation (default on, all platforms).
+   * Deliberately NOT gated by `animationsEnabled`: that flag is forced off
+   * on fresh native-mobile installs for ambient decoration, while the launch
+   * moment is a one-shot ~1.5 s experience (design D8 of the
+   * knowledge-peck-startup-animation change).
+   */
+  startupAnimationEnabled: boolean;
   /** Particle density / count multiplier for animated theme backdrops (0.25–8). */
   animationFrequency: number;
   /** Brightness gain stored in tenths, where 10 = 1.0x and 100 = 10.0x. */
@@ -687,6 +695,7 @@ export const defaultSettings: Settings = {
     compactMode: false,
     compactDocumentsView: false,
     animationsEnabled: true,
+    startupAnimationEnabled: true,
     animationFrequency: 1,
     animationBrightness: 12,
     reviewZenMode: false,

@@ -38,4 +38,10 @@ export interface StartupSnapshot {
   dueCount: number;
 }
 
-export type StartupSurface = "dashboard" | "continue-reading" | "queue";
+/**
+ * Surfaces that coordinate on the startup snapshot. "startup" is the branded
+ * launch overlay's label (knowledge-peck-startup-animation): it joins the
+ * dedupe/inflight map like any other surface and never crosses into Rust —
+ * `surface` only shapes the client-side request key and includeQueue default.
+ */
+export type StartupSurface = "dashboard" | "continue-reading" | "queue" | "startup";
