@@ -1,8 +1,23 @@
 import React from "react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { EPUBViewer, patchContentsInsertRuleGuard, patchThemesInsertRuleGuard, serializeEpubRules } from "../EPUBViewer";
 import ePub from "epubjs";
+
+// Guarantee unmount between tests so leaked components cannot re-register
+// content hooks or re-apply stale palettes in later tests.
+afterEach(() => {
+  cleanup();
+});
+
+// Mutable shell flag: the real useMobileShell() returns a boolean — the mock
+// must too, so tests can run explicit mobile/desktop cases instead of a
+// truthy-object pseudo-mobile branch.
+const mobileState = vi.hoisted(() => ({ isMobile: false }));
+
+// Mutable list backing rendition.getContents() (production exposes it on the
+// rendition itself, not under themes).
+const contentState = vi.hoisted(() => ({ docs: [] as any[] }));
 
 // Mock epubjs
 const mockRendition = {
@@ -16,8 +31,9 @@ const mockRendition = {
     register: vi.fn(),
     default: vi.fn(),
     select: vi.fn(),
-    getContents: vi.fn().mockReturnValue([]),
   },
+  // Same location as production epub.js: rendition.getContents().
+  getContents: vi.fn(() => contentState.docs),
   hooks: {
     render: { register: vi.fn() },
     content: { register: vi.fn() },
@@ -111,9 +127,7 @@ vi.mock("../../../contexts/ThemeContext", () => ({
 
 // Mock hooks
 vi.mock("../../../hooks/useMobileShell", () => ({
-  useMobileShell: () => ({
-    isMobile: false,
-  }),
+  useMobileShell: () => mobileState.isMobile,
 }));
 
 // Mock APIs
@@ -154,6 +168,8 @@ describe("EPUBViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockBook.ready = Promise.resolve();
+    mobileState.isMobile = false;
+    contentState.docs = [];
     HTMLDivElement.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
       width: 100,
       height: 100,
@@ -165,6 +181,7 @@ describe("EPUBViewer", () => {
   });
 
   it("keeps one set of top chrome controls when embedded", () => {
+    mobileState.isMobile = true;
     render(
       <EPUBViewer
         embedded
@@ -199,6 +216,7 @@ describe("EPUBViewer", () => {
   });
 
   it("does not render the old mobile bottom toolbar when standalone", () => {
+    mobileState.isMobile = true;
     render(
       <EPUBViewer
         documentId="doc-epub"
@@ -516,5 +534,279 @@ describe("epub.js insertRule crash guard", () => {
     const first = (contents as any).constructor.prototype.addStylesheetRules;
     patchContentsInsertRuleGuard(contents);
     expect((contents as any).constructor.prototype.addStylesheetRules).toBe(first);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EPUB reader theme layers (fix-mobile-epub-theme-regression).
+//
+// The success criterion is the ACTUAL content document's computed styles, not
+// rendition.themes.default() arguments. These tests invoke the registered
+// content hook against realistic EPUB-like DOM documents and assert all three
+// theme layers: epub.js's own theme node ([id^="epubjs-inserted-css-"]),
+// Plethora's #epub-override-styles, and the inline critical styles — plus the
+// computed background/text colors.
+// ---------------------------------------------------------------------------
+describe("EPUB reader theme layers", () => {
+  // Same fixtures as the EPUBViewer describe's beforeEach — each describe has
+  // its own scope, so the shared prototype mocks must be installed here too.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBook.ready = Promise.resolve();
+    mobileState.isMobile = false;
+    contentState.docs = [];
+    HTMLDivElement.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
+      width: 100,
+      height: 100,
+      top: 0,
+      left: 0,
+      bottom: 100,
+      right: 100,
+    });
+  });
+
+  const darkTheme = {
+    id: "test-dark",
+    variant: "dark",
+    colors: {
+      primary: "#38bdf8",
+      background: "#0d1926",
+      onBackground: "#d4e8f8",
+      text: "#d4e8f8",
+    },
+  };
+  const otherDarkTheme = {
+    id: "other-dark",
+    variant: "dark",
+    colors: {
+      primary: "#38bdf8",
+      background: "#020b14",
+      text: "#e0f2fe",
+    },
+  };
+
+  // An EPUB-like content document with publisher stylesheet link/style nodes
+  // and representative body content.
+  function makeEpubDocument(): Document {
+    return new DOMParser().parseFromString(
+      `<!DOCTYPE html><html><head>
+        <link rel="stylesheet" href="publisher.css">
+        <style class="pub">.pub { color: red; }</style>
+      </head><body><h1>Chapter</h1><p>Hello <a href="#">link</a></p>
+      <img src="x.png"><table><tr><td>cell</td></tr></table></body></html>`,
+      "text/html"
+    );
+  }
+
+  function makeFakeContents(doc: Document, index = 0) {
+    return {
+      document: doc,
+      // The real epub.js Contents exposes the iframe window; the jsdom global
+      // window is a realistic stand-in (getComputedStyle included).
+      window,
+      section: { index },
+      cfiFromRange: vi.fn(() => `epubcfi(/6/${index})`),
+    };
+  }
+
+  async function renderViewer(opts: { mobile?: boolean; embedded?: boolean; theme?: unknown } = {}) {
+    themeState.theme = (opts.theme ?? darkTheme) as any;
+    mobileState.isMobile = opts.mobile ?? false;
+    const view = render(
+      <EPUBViewer
+        embedded={opts.embedded ?? false}
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    const hook = mockRendition.hooks.content.register.mock.calls.at(-1)?.[0];
+    expect(hook).toBeTypeOf("function");
+    return { view, hook };
+  }
+
+  it("mobile dark theme: all three theme layers survive and compute dark", async () => {
+    const { hook } = await renderViewer({ mobile: true });
+    const doc = makeEpubDocument();
+    // epub.js's Themes layer, as epub.js injects it before our content hook:
+    const epubjsStyle = doc.createElement("style");
+    epubjsStyle.id = "epubjs-inserted-css-default";
+    epubjsStyle.textContent = "html{background:#0d1926 !important}";
+    doc.head!.appendChild(epubjsStyle);
+    const contents = makeFakeContents(doc);
+    contentState.docs = [contents];
+
+    await act(async () => {
+      hook(contents);
+    });
+
+    // Layer 1: epub.js's own theme node must survive the publisher cleanup.
+    expect(doc.getElementById("epubjs-inserted-css-default")).not.toBeNull();
+    // Layer 2: Plethora's override style, carrying the dark palette.
+    const override = doc.getElementById("epub-override-styles");
+    expect(override).not.toBeNull();
+    expect(override!.textContent).toContain("#0d1926");
+    expect(override!.textContent).toContain("#d4e8f8");
+    // Layer 3: inline critical styles on documentElement/body.
+    // (jsdom normalizes hex values to rgb in getPropertyValue.)
+    expect(doc.documentElement.style.getPropertyValue("background-color")).toBe("rgb(13, 25, 38)");
+    expect(doc.body.style.getPropertyValue("color")).toBe("rgb(212, 232, 248)");
+    expect(doc.body.style.getPropertyValue("font-family")).toContain("serif");
+    expect(doc.body.style.getPropertyValue("font-size")).toBe("100px");
+    expect(doc.body.style.getPropertyValue("line-height")).toBe("1.5");
+    // Publisher styles are removed, epub.js theme node is not.
+    expect(doc.querySelector('style.pub')).toBeNull();
+    expect(doc.querySelector('link[rel="stylesheet"]')).toBeNull();
+    // The content document's COMPUTED colors agree with the dark palette.
+    expect(getComputedStyle(doc.documentElement).backgroundColor).toBe("rgb(13, 25, 38)");
+    expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(13, 25, 38)");
+    expect(getComputedStyle(doc.body).color).toBe("rgb(212, 232, 248)");
+    // The readiness gate opens once the initial content is verified themed.
+    await waitFor(() => {
+      const viewer = document.querySelector('[data-epub-viewer="true"]') as HTMLElement;
+      expect(viewer.style.opacity).toBe("1");
+    });
+  });
+
+  it("desktop parity: identical dark theming with useMobileShell() === false", async () => {
+    const { hook } = await renderViewer({ mobile: false });
+    const doc = makeEpubDocument();
+    const contents = makeFakeContents(doc);
+    contentState.docs = [contents];
+
+    await act(async () => {
+      hook(contents);
+    });
+
+    expect(doc.getElementById("epub-override-styles")).not.toBeNull();
+    expect(doc.documentElement.style.getPropertyValue("background-color")).toBe("rgb(13, 25, 38)");
+    expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(13, 25, 38)");
+    expect(getComputedStyle(doc.body).color).toBe("rgb(212, 232, 248)");
+  });
+
+  it("stale light CSS variables cannot override the dark Theme object", async () => {
+    document.documentElement.style.setProperty("--color-background", "#ffffff");
+    document.documentElement.style.setProperty("--color-foreground", "#000000");
+    try {
+      const { hook } = await renderViewer({ mobile: true });
+      const doc = makeEpubDocument();
+      const contents = makeFakeContents(doc);
+
+      await act(async () => {
+        hook(contents);
+      });
+
+      // The Theme object is authoritative: the content must compute dark even
+      // though the parent document's variables still hold stale light values.
+      expect(getComputedStyle(doc.documentElement).backgroundColor).toBe("rgb(13, 25, 38)");
+      expect(getComputedStyle(doc.body).color).toBe("rgb(212, 232, 248)");
+    } finally {
+      document.documentElement.style.removeProperty("--color-background");
+      document.documentElement.style.removeProperty("--color-foreground");
+    }
+  });
+
+  it("installs the rendition theme before the first display()", async () => {
+    // Manual order log: vi.fn invocationCallOrder is cumulative across mocks
+    // and is not reset by clearAllMocks, so absolute order numbers are not
+    // comparable inside a single test.
+    const order: string[] = [];
+    mockRendition.themes.default.mockImplementation(() => {
+      order.push("default");
+    });
+    mockRendition.themes.select.mockImplementation(() => {
+      order.push("select");
+    });
+    mockRendition.display.mockImplementation(() => {
+      order.push("display");
+      return Promise.resolve();
+    });
+
+    await renderViewer({ mobile: true });
+
+    const defaultIdx = order.indexOf("default");
+    const selectIdx = order.indexOf("select");
+    const displayIdx = order.indexOf("display");
+    expect(defaultIdx).toBeGreaterThanOrEqual(0);
+    expect(selectIdx).toBeGreaterThanOrEqual(0);
+    expect(displayIdx).toBeGreaterThanOrEqual(0);
+    expect(defaultIdx).toBeLessThan(displayIdx);
+    expect(selectIdx).toBeLessThan(displayIdx);
+  });
+
+  it("re-styles mounted contents when the theme changes while open", async () => {
+    const { hook, view } = await renderViewer({ mobile: true });
+    const doc = makeEpubDocument();
+    const contents = makeFakeContents(doc);
+    contentState.docs = [contents];
+
+    await act(async () => {
+      hook(contents);
+    });
+    expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(13, 25, 38)");
+
+    mockRendition.themes.default.mockClear();
+    themeState.theme = otherDarkTheme as any;
+    view.rerender(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    // The mounted content document is restyled to the new palette without
+    // recreating the book/rendition.
+    await waitFor(() => expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(2, 11, 20)"));
+    expect(getComputedStyle(doc.body).color).toBe("rgb(224, 242, 254)");
+    expect(mockBook.renderTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("themes a newly mounted spine section with the active theme", async () => {
+    const { hook } = await renderViewer({ mobile: true });
+    const doc1 = makeEpubDocument();
+    const doc2 = makeEpubDocument();
+    const contents1 = makeFakeContents(doc1, 0);
+    const contents2 = makeFakeContents(doc2, 1);
+    contentState.docs = [contents1, contents2];
+
+    await act(async () => {
+      hook(contents1);
+      hook(contents2);
+    });
+
+    for (const doc of [doc1, doc2]) {
+      expect(doc.getElementById("epub-override-styles")).not.toBeNull();
+      expect(doc.documentElement.style.getPropertyValue("background-color")).toBe("rgb(13, 25, 38)");
+      expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(13, 25, 38)");
+    }
+  });
+
+  it("light theme applies light colors on mobile", async () => {
+    const lightTheme = {
+      id: "test-light",
+      variant: "light",
+      colors: {
+        primary: "#2563eb",
+        background: "#ffffff",
+        onBackground: "#1f2937",
+        text: "#1f2937",
+      },
+    };
+    const { hook } = await renderViewer({ mobile: true, theme: lightTheme });
+    const doc = makeEpubDocument();
+    const contents = makeFakeContents(doc);
+
+    await act(async () => {
+      hook(contents);
+    });
+
+    expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(doc.body).color).toBe("rgb(31, 41, 55)");
   });
 });

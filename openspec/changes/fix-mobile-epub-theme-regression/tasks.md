@@ -3,7 +3,7 @@
 ## 1. Reproduce and trace the mobile lifecycle
 
 - [ ] 1.1 Reproduce the regression on a native Android/Tauri build (and mobile PWA where available): open an EPUB under a dark theme and record whether the reader shows an un-themed white/browser-default frame, permanently or transiently.
-- [ ] 1.2 Temporarily instrument `src/components/viewer/EPUBViewer.tsx` with development-only logging: resolved active theme id, `isMobile`, resolved reader background/foreground, rendition creation, theme registration, content-hook and `rendered` execution, `#epub-override-styles` presence, computed `html`/`body` background and text color, iframe background, and `rendition.getContents()` count. Gate behind an env flag (`import.meta.env.DEV` or similar) so release builds are untouched.
+- [ ] 1.2 Temporarily instrument `src/components/viewer/EPUBViewer.tsx` with development-only logging: resolved active theme id, variant, resolved reader background/foreground, `isMobileShell`, rendition creation, theme registration, content-hook and `rendered` execution, `#epub-override-styles` presence, `#epubjs-inserted-css-default` presence, computed `html`/`body` background and text color, iframe background, and `rendition.getContents()` count. Gate behind a development flag so release builds stay quiet.
 - [ ] 1.3 Use the diagnostics to settle the remaining platform-timing questions on Android: whether the content hook executes for the initial spine item, whether `#epub-override-styles` is present after first paint, whether `rendition.getContents()` returns expected contents at theme-change time, and whether publisher styles are removed before Plethora styling exists.
 - [ ] 1.4 Record findings in the change notes; keep the instrumentation only until Task 17 removes it.
 
@@ -35,23 +35,27 @@
 
 ## 6. Make content style replacement failure-safe
 
-- [ ] 6.1 In the content hook (`EPUBViewer.tsx:1131-1158`), run `applyContentOverrides(contents)` (which installs/refreshes `#epub-override-styles`) before removing publisher `link[rel="stylesheet"]` and `<style>` nodes.
+- [ ] 6.1 In the content hook (`EPUBViewer.tsx:1131-1158`), run `applyContentOverrides(contents)` (which installs/refreshes `#epub-override-styles` AND critical inline styles on `documentElement`/`body`) before removing publisher nodes.
 - [ ] 6.2 Guard the publisher-style removal: only remove after `doc.getElementById("epub-override-styles")` is confirmed present; otherwise keep publisher styles and log a development warning.
-- [ ] 6.3 Add `verifyContentThemed(contents)`: `#epub-override-styles` exists and its `textContent` contains the current background color; iframe element carries the intended background color; re-applies the override when missing/stale.
-- [ ] 6.4 Call `verifyContentThemed` from the content hook, the `rendered` handler, and the theme-change path (for all mounted contents). Verify the style node survives after `content` and `rendered` lifecycle callbacks.
+- [ ] 6.3 Correct the removal selector to preserve epub.js's own theme nodes: `style:not(#epub-override-styles):not([id^="epubjs-inserted-css-"])`. Never remove `style#epubjs-inserted-css-default` (epub.js `Themes` layer, contents.js:728-747) — publisher `<style>` nodes without that prefix are still removed.
+- [ ] 6.4 Add the third theme layer in `applyContentOverrides`: `documentElement`/`body` `background-color`/`color` and `body` `font-family`/`font-size`/`line-height` via `style.setProperty(..., "important")`, updated on every re-apply.
+- [ ] 6.5 Add `verifyContentThemed(contents)`: `#epub-override-styles` exists and its `textContent` contains the current background color; computed styles (`getComputedStyle(documentElement/body).backgroundColor`, `getComputedStyle(body).color`) match the expected palette (normalized rgb triples); iframe element carries the intended background color; re-applies the override when missing/stale.
+- [ ] 6.6 Call `verifyContentThemed` from the content hook, the `rendered` handler, and the theme-change path (for all mounted contents). Verify the style node survives after `content` and `rendered` lifecycle callbacks.
 
 ## 7. Gate visibility on themed initial content
 
-- [ ] 7.1 Replace the plain `display()`-resolved `isLoading` gate (`EPUBViewer.tsx:1711-1713`, `:3155`) with a readiness invariant: book ready + rendition created + initial content rendered + reader theme installed/verified on that content → reader visible.
-- [ ] 7.2 Keep `opacity: 0` (or the spinner state) until the initial content document has been verified themed; do not use an arbitrary timeout as the primary fix.
+- [ ] 7.1 Replace the plain `display()`-resolved `isLoading` gate (`EPUBViewer.tsx:1711-1713`, `:3155`) with a readiness invariant: book ready + rendition created + initial content rendered + reader theme installed + critical computed colors verified on that content → reader visible.
+- [ ] 7.2 Keep `opacity: 0` (or the spinner state) until the initial content document has been verified themed (computed `html`/`body` background and `body` color agree with the palette); do not use an arbitrary timeout as the primary fix.
 - [ ] 7.3 Add a fallback release on the initial section's `rendered` event so a verification hiccup cannot permanently hang the reader.
 
 ## 8. Add real content-document regression tests
 
 - [ ] 8.1 Test E: capture the content hook, invoke it with the EPUB-like document from Task 2.5, and assert `#epub-override-styles` exists with the active theme's background and foreground, the font family, font size, and line height.
 - [ ] 8.2 Assert publisher `<link>`/`<style>` nodes are removed only after the override node exists, and retained when the override cannot be installed.
-- [ ] 8.3 Assert the iframe element receives the intended background color where applicable.
-- [ ] 8.4 Keep the existing `themes.default` argument assertions, but extend them with the content-document assertions so the tests no longer pass on argument checks alone.
+- [ ] 8.3 Assert the epub.js theme layer survives: a pre-existing `style#epubjs-inserted-css-default` in the content document is NOT removed by the publisher cleanup.
+- [ ] 8.4 Assert the third layer: `documentElement`/`body` carry inline `background-color`/`color` (and body font-family/size/line-height) matching the palette, and the document's computed `html`/`body` background and `body` color match the dark palette.
+- [ ] 8.5 Assert the iframe element receives the intended background color where applicable.
+- [ ] 8.6 Keep the existing `themes.default` argument assertions, but extend them with the content-document assertions so the tests no longer pass on argument checks alone.
 
 ## 9. Add mobile/desktop parity tests
 

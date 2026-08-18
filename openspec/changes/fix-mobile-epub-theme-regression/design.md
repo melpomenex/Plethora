@@ -95,6 +95,18 @@ consequence of the installation being optional and late:
    exists or that the iframe is non-default. If the hook errored or the
    palette was stale, the reader stays wrong until a later theme/settings
    change.
+5. **The cleanup selector deletes epub.js's own theme layer.** The hook's
+   `style:not(#epub-override-styles)` removal matches every style node epub.js
+   generates: `Contents._getStylesheetNode()` creates
+   `epubjs-inserted-css-<key>` (node_modules/epubjs/src/contents.js:728-747),
+   so `rendition.themes.default(...)` + `select("default")` produce
+   `style#epubjs-inserted-css-default` which the hook then deletes. The
+   epub.js theme layer is therefore destroyed on every content document, and
+   `#epub-override-styles` becomes the sole theme mechanism — a single point
+   of failure for the white/un-themed reader. `Themes.inject` runs before our
+   content hook (registered first), so the node exists at cleanup time and is
+   deleted; `Themes.update` (theme change) recreates it afterwards, which is
+   why the failure is intermittent across timing/platform.
 5. **The tests cannot see any of this** (see Test blind spots below).
 
 ### Answers to the ten lifecycle questions
@@ -267,14 +279,24 @@ rules) and `applyContentOverrides` (`#epub-override-styles`) call it. The
 transparent-theme opacity handling stays in the callers (it needs the iframe
 background decision).
 
-### Failure-safe content style replacement
+### Failure-safe content style replacement (three theme layers)
 
 In the content hook (`:1131-1158`):
 
 1. `applyContentOverrides(contents)` runs **first** — it is idempotent and
-   removes/re-inserts `#epub-override-styles` with the current palette.
-2. Only then remove publisher `link[rel="stylesheet"]` and `<style:not(#epub-override-styles)>`
-   nodes.
+   installs two independent Plethora layers on the content document:
+   - `#epub-override-styles` (full descendant normalization, as today), and
+   - **critical inline styles** directly on `documentElement` and `body`
+     (`background-color`, `color`, and `body` `font-family`/`font-size`/
+     `line-height`, all via `style.setProperty(..., "important")`). The
+     reader's basic background/foreground correctness must not depend on a
+     single dynamically inserted `<style>` node surviving.
+2. Only then remove publisher nodes — but with a corrected selector that
+   preserves Plethora's and epub.js's own nodes:
+   `style:not(#epub-override-styles):not([id^="epubjs-inserted-css-"])`.
+   epub.js's `Themes` layer (`style#epubjs-inserted-css-default`) is a
+   legitimate third layer and must survive; `link[rel="stylesheet"]` removal
+   stays (publisher stylesheets only).
 3. Wrap the removal in a guard that verifies `doc.getElementById("epub-override-styles")`
    exists after injection; if injection failed, skip the removal (publisher
    styles remain rather than leaving a naked document) and report a
@@ -282,14 +304,24 @@ In the content hook (`:1131-1158`):
 4. `verifyContentThemed(contents)`:
    - `#epub-override-styles` exists **and** its `textContent` contains the
      current background color; otherwise re-run `applyContentOverrides`;
+   - **computed-style verification** on the content document:
+     `getComputedStyle(documentElement).backgroundColor`,
+     `getComputedStyle(body).backgroundColor`, and
+     `getComputedStyle(body).color` are compared (normalized rgb triples)
+     against the expected Plethora palette; mismatch → re-run
+     `applyContentOverrides`;
    - the iframe element (`contents.window.frameElement` or the viewer's
      iframe) has the intended `backgroundColor`;
-   - sets the readiness flag for the initial content document.
+   - returns true when the critical computed colors agree — this feeds the
+     initial-readiness gate.
    Called from the content hook, the `rendered` handler (`:1449-1453`), and
    the theme-change path (for all `rendition.getContents()` items).
 
-Keep the existing normalization (removing publisher CSS) — it is intentional
-— but make the removal conditional on Plethora styling being present.
+The three layers, in document order, are: epub.js's `epubjs-inserted-css-*`
+(installed by `Themes.inject` before our hook), Plethora's
+`#epub-override-styles`, and Plethora's inline critical styles (highest
+specificity, independent of any stylesheet). Desktop behavior is unchanged —
+the layers are redundant reinforcement there.
 
 ### Theme change while open
 

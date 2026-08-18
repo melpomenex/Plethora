@@ -36,7 +36,20 @@ persists because three deeper lifecycle hazards remain:
    (`:1158`). If the injection fails, is delayed, or the palette resolves to
    the white fallback, the iframe is left with browser defaults — exactly the
    reported symptom. Nothing re-verifies the content afterwards.
-3. **The tests cannot catch this.** The rendition mock never invokes the
+3. **The cleanup also deletes epub.js's own theme layer.** The
+   `style:not(#epub-override-styles)` selector is broader than intended:
+   epub.js's `Contents.addStylesheetRules()` — the mechanism behind
+   `rendition.themes.default(...)` — injects its rules through a style node
+   whose id is `epubjs-inserted-css-<key>`
+   (`node_modules/epubjs/src/contents.js:728-747`, i.e.
+   `style#epubjs-inserted-css-default`). Plethora's cleanup therefore removes
+   epub.js's own theme layer from every content document, leaving
+   `#epub-override-styles` as the *only* theme mechanism. Any failure or
+   delay in that single node leaves the reader with browser defaults — the
+   reported white surface. The cleanup MUST preserve
+   `#epub-override-styles` and `[id^="epubjs-inserted-css-"]`; not every
+   non-Plethora `<style>` is publisher-owned.
+4. **The tests cannot catch this.** The rendition mock never invokes the
    registered content hook, `rendition.getContents()` is mocked at the wrong
    location (`themes.getContents`), `useMobileShell` is mocked as an object
    (`{ isMobile: false }`) so it is always truthy, and the regression tests
@@ -64,15 +77,22 @@ realistic EPUB content documents.
   initialization path after `renderTo()` and hook registration but **before**
   `rendition.display(...)`, eliminating the state-null no-op. The initial
   content document is also themed synchronously by the content hook.
-- **Failure-safe style replacement.** The content hook installs
-  `#epub-override-styles` before removing publisher styles, and a
-  verification step confirms the override node is present and reflects the
-  active palette; if not, it is re-applied. Publisher CSS is never removed
-  unless Plethora's replacement is confirmed present.
+- **Failure-safe style replacement with three theme layers.** The content
+  hook installs `#epub-override-styles` **and** critical inline styles
+  (documentElement/body background-color, color, body font-family/font-size/
+  line-height, all `!important`) before removing publisher styles. epub.js's
+  own theme nodes (`[id^="epubjs-inserted-css-"]`) and
+  `#epub-override-styles` are never removed; publisher CSS is removed only
+  after Plethora styling is confirmed present. The reader's basic
+  background/foreground correctness never depends on a single dynamically
+  inserted `<style>` node.
 - **Readiness invariant for visibility.** The reader container only becomes
   visible (`opacity` gate) after the initial content document is verified
-  themed: book ready + rendition created + content rendered + reader theme
-  installed. No arbitrary timeout as the primary fix.
+  themed — including a computed-style check
+  (`getComputedStyle(documentElement/body).backgroundColor/color` agreeing
+  with the expected palette): book ready + rendition created + content
+  rendered + reader theme installed + critical computed colors verified. No
+  arbitrary timeout as the primary fix.
 - **Corrected test doubles and real content-document tests.** The
   `useMobileShell` mock returns actual booleans with separate mobile/desktop
   cases; `getContents` is exposed on the rendition mock where production calls
