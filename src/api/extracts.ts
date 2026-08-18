@@ -65,6 +65,8 @@ export interface CreateExtractInput {
 export interface UpdateExtractInput {
   id: string;
   content?: string;
+  /** Rendered rich view (markdown or attached-image figures). Sent by the shared editor; None in Rust preserves the stored value. */
+  html_content?: string;
   note?: string;
   tags?: string[];
   category?: string;
