@@ -107,6 +107,14 @@ export async function updateDocument(
   return mapDocument(result) as Document;
 }
 
+/** Explicitly clear a document's category (empty string in updateDocument means "not provided"). */
+export async function clearDocumentCategory(id: string): Promise<Document> {
+  const result = isWebMode()
+    ? await browserInvoke<Document>("clear_document_category", { id })
+    : await invokeCommand<Document>("clear_document_category", { id });
+  return mapDocument(result) as Document;
+}
+
 export async function updateDocumentContent(
   id: string,
   content: string

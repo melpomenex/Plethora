@@ -40,6 +40,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { AnnaArchiveSearch } from "../import/AnnaArchiveSearch";
+import { ItemCategoryEditor } from "../common/ItemCategoryEditor";
 import { ArxivImportDialog } from "../import/ArxivImportDialog";
 import { WebArticleImportDialog } from "../import/WebArticleImportDialog";
 import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
@@ -1849,6 +1850,29 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     {t("documentsView.viewExtracts")}
                   </button>
                 )}
+                {/* Library-side category editing (the second surface the
+                    reporter expected): preset chips + free text + clear. */}
+                <div className="border-t border-border my-1" />
+                <div className="px-3 py-2 min-w-[240px]">
+                  <ItemCategoryEditor
+                    documentId={listCtxDoc.doc.id}
+                    category={listCtxDoc.doc.category}
+                    baseDocument={listCtxDoc.doc as unknown as Record<string, unknown>}
+                    onCategoryPersisted={(nextCategory) => {
+                      setListCtxDoc((prev) =>
+                        prev && prev.doc.id === listCtxDoc.doc.id
+                          ? {
+                              ...prev,
+                              doc: { ...prev.doc, category: nextCategory ?? undefined } as Document,
+                            }
+                          : prev
+                      );
+                      // Refresh so the Library filter values and queue chips
+                      // reflect the change without a reload.
+                      void loadDocuments?.();
+                    }}
+                  />
+                </div>
                 {(() => {
                   const companions = onReadAlong ? findCompanionDoc(listCtxDoc.doc, documents) : [];
                   const best = companions[0];

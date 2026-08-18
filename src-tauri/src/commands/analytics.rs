@@ -372,20 +372,60 @@ pub async fn get_activity_data(
     Ok(activities)
 }
 
-/// Get category statistics
+/// Get category statistics.
+///
+/// Categories come from BOTH extracts and documents (documents gained
+/// categories as a free-form field; the Stats breakdown previously grouped
+/// extract categories only — issue #44 bug 11). Each card is attributed
+/// once: its extract's category when it has one, else its document's.
 #[tauri::command]
 pub async fn get_category_stats(repo: State<'_, Repository>) -> Result<Vec<CategoryStats>, String> {
-    let pool = repo.pool();
+    category_stats(repo.pool()).await
+}
 
+/// Pure query body of [`get_category_stats`], separated so the grouping is
+/// unit-testable without a Tauri app handle.
+async fn category_stats(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<CategoryStats>, String> {
     let rows = sqlx::query(
         r#"
+        WITH categories AS (
+            SELECT DISTINCT NULLIF(TRIM(category), '') AS name FROM extracts
+            UNION
+            SELECT DISTINCT NULLIF(TRIM(category), '') FROM documents
+            UNION
+            SELECT 'Uncategorized' WHERE EXISTS (
+                SELECT 1 FROM learning_items li
+                LEFT JOIN extracts e ON e.id = li.extract_id
+                LEFT JOIN documents d ON d.id = li.document_id
+                WHERE li.is_suspended = false
+                  AND COALESCE(NULLIF(TRIM(e.category), ''), NULLIF(TRIM(d.category), '')) IS NULL
+            )
+        ),
+        attributed AS (
+            SELECT
+                li.id AS card_id,
+                li.review_count AS review_count,
+                li.lapses AS lapses,
+                COALESCE(NULLIF(TRIM(e.category), ''), NULLIF(TRIM(d.category), ''), 'Uncategorized') AS category
+            FROM learning_items li
+            LEFT JOIN extracts e ON e.id = li.extract_id
+            LEFT JOIN documents d ON d.id = li.document_id
+            WHERE li.is_suspended = false
+        )
         SELECT
-            COALESCE(e.category, 'Uncategorized') as category,
-            COUNT(DISTINCT li.id) as card_count,
-            SUM(li.review_count) as reviews_count
-        FROM extracts e
-        LEFT JOIN learning_items li ON e.id = li.extract_id AND li.is_suspended = false
-        GROUP BY e.category
+            c.name AS category,
+            COUNT(DISTINCT a.card_id) AS card_count,
+            COALESCE(SUM(a.review_count), 0) AS reviews_count,
+            COALESCE(
+                CAST(SUM(CASE WHEN a.review_count > 0 AND a.lapses = 0 THEN 1 ELSE 0 END) AS REAL)
+                / NULLIF(SUM(CASE WHEN a.review_count > 0 THEN 1 ELSE 0 END), 0),
+                0.0
+            ) AS retention_rate
+        FROM categories c
+        LEFT JOIN attributed a ON a.category = c.name
+        GROUP BY c.name
         ORDER BY card_count DESC
         "#,
     )
@@ -402,27 +442,10 @@ pub async fn get_category_stats(repo: State<'_, Repository>) -> Result<Vec<Categ
         let reviews_count: i64 = row
             .try_get("reviews_count")
             .expect("missing reviews_count column");
-
-        // Calculate retention rate for this category
-        let retention_row: Option<f64> = sqlx::query_scalar(
-            r#"
-            SELECT CAST(COUNT(*) AS REAL) / (
-                SELECT COUNT(*) FROM learning_items li
-                JOIN extracts e ON li.extract_id = e.id
-                WHERE COALESCE(e.category, 'Uncategorized') = ? AND li.review_count > 0 AND li.is_suspended = false
-            )
-            FROM learning_items li
-            JOIN extracts e ON li.extract_id = e.id
-            WHERE COALESCE(e.category, 'Uncategorized') = ? AND li.lapses = 0 AND li.review_count > 0 AND li.is_suspended = false
-            "#
-        )
-        .bind(&category)
-        .bind(&category)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
-
-        let retention_rate = retention_row.unwrap_or(0.0) * 100.0;
+        let retention_rate: f64 = row
+            .try_get::<f64, _>("retention_rate")
+            .unwrap_or(0.0)
+            * 100.0;
 
         stats.push(CategoryStats {
             category,
@@ -660,5 +683,61 @@ pub async fn get_workload_day_details(
             });
         }
         Ok(items)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::connection::Database;
+    use crate::models::{Document, Extract, FileType, ItemType, LearningItem};
+    use std::path::PathBuf;
+
+    async fn setup_repo() -> Repository {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        Repository::new(db.pool().clone())
+    }
+
+    #[tokio::test]
+    async fn category_stats_include_document_categories() {
+        let repo = setup_repo().await;
+
+        // A document with a category and one card attached via document_id
+        // (no extract → previously invisible to the extract-only grouping).
+        let mut doc = Document::new(
+            "Categorized doc".to_string(),
+            "/tmp/categorized.pdf".to_string(),
+            FileType::Pdf,
+        );
+        doc.category = Some("Physics".to_string());
+        let created_doc = repo.create_document(&doc).await.expect("doc");
+
+        let mut card = LearningItem::new(ItemType::Flashcard, "physics card".to_string());
+        card.document_id = Some(created_doc.id.clone());
+        card.review_count = 2;
+        repo.create_learning_item(&card).await.expect("card");
+
+        // An extract with a different category and its own card.
+        let mut extract = Extract::new(created_doc.id.clone(), "extract content".to_string());
+        extract.category = Some("Quotes".to_string());
+        let created_extract = repo.create_extract(&extract).await.expect("extract");
+        let mut extract_card = LearningItem::new(ItemType::Flashcard, "quote card".to_string());
+        extract_card.extract_id = Some(created_extract.id.clone());
+        extract_card.document_id = Some(created_doc.id.clone());
+        repo.create_learning_item(&extract_card).await.expect("extract card");
+
+        let stats = category_stats(repo.pool()).await.expect("stats");
+
+        let physics = stats.iter().find(|s| s.category == "Physics");
+        let quotes = stats.iter().find(|s| s.category == "Quotes");
+        assert!(
+            physics.is_some(),
+            "document categories must appear in the stats (got {:?})",
+            stats
+        );
+        assert_eq!(physics.unwrap().card_count, 1);
+        assert!(quotes.is_some(), "extract categories keep appearing");
+        assert_eq!(quotes.unwrap().card_count, 1);
     }
 }

@@ -23,6 +23,7 @@ import { useI18n } from "../../lib/i18n";
 import { useModal } from "./Modal";
 import { TagItemsModalContent } from "./TagItemsModal";
 import { ItemTagEditor } from "./ItemTagEditor";
+import { ItemCategoryEditor } from "./ItemCategoryEditor";
 import { ItemStatsSummaryBlock } from "./ItemStatsSummary";
 import { useItemStats } from "../../hooks/useItemStats";
 
@@ -465,8 +466,28 @@ export function ItemDetailsPopover({
 
             {(editorTags.length > 0 || target.category || canEditTags) && (
               <div className="space-y-1">
-                {target.category && (
-                  <div className="text-xs text-foreground/80">{t("itemDetails.category")}: {target.category}</div>
+                {canEditTags && target.type === "document" ? (
+                  // Inline category editor (pattern: ItemTagEditor) — the
+                  // category used to be read-only here, one of the two
+                  // surfaces the reporter expected to edit it from.
+                  <ItemCategoryEditor
+                    documentId={target.id}
+                    category={target.category}
+                    baseDocument={details.raw}
+                    onCategoryPersisted={(nextCategory) => {
+                      setDetails((prev) =>
+                        prev.raw
+                          ? { ...prev, raw: { ...prev.raw, category: nextCategory ?? undefined } }
+                          : prev
+                      );
+                    }}
+                  />
+                ) : (
+                  target.category && (
+                    <div className="text-xs text-foreground/80">
+                      {t("itemDetails.category")}: {target.category}
+                    </div>
+                  )
                 )}
                 {canEditTags && (
                   <ItemTagEditor
