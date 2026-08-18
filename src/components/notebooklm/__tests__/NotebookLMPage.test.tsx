@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
 // Per-test controllable API mocks. Hoisted so the vi.mock factory can reference them.
 const api = vi.hoisted(() => ({
@@ -96,5 +96,29 @@ describe("NotebookLMPage connection state machine", () => {
     expect(screen.queryByText("notebooklm.connected")).not.toBeInTheDocument();
     // Re-authenticate is still offered as a convenience on any listing failure.
     expect(screen.getByText("notebooklm.reauthenticate")).toBeInTheDocument();
+  });
+
+  it("surfaces a listing timeout as an error with a working Retry affordance", async () => {
+    api.notebooklmHealth.mockResolvedValue({ connected: true, message: "ok" });
+    api.notebooklmListNotebooks.mockRejectedValue(
+      new Error("NotebookLM notebook list timed out after 45s")
+    );
+
+    render(<NotebookLMPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/timed out after 45s/)).toBeInTheDocument()
+    );
+    // A timeout is never a Connected badge over an empty workspace…
+    expect(screen.queryByText("notebooklm.connected")).not.toBeInTheDocument();
+    // …and it offers a plain retry (a cold CLI start is often just slow).
+    const retry = screen.getByText("common.retry");
+    expect(retry).toBeInTheDocument();
+
+    api.notebooklmListNotebooks.mockResolvedValue([]);
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(screen.getByText("notebooklm.connected")).toBeInTheDocument()
+    );
   });
 });

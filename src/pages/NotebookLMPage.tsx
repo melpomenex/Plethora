@@ -43,6 +43,12 @@ import { isTauri } from "../lib/tauri";
 
 type ConnectionState = "checking" | "connected" | "disconnected" | "error" | "needs-reauth";
 
+// A cold CLI start launches a Playwright-backed browser before the first
+// response; 12 s was routinely too tight and reported a spurious timeout
+// error instead of a (slow) healthy session.
+const HEALTH_TIMEOUT_MS = 20_000;
+const LIST_TIMEOUT_MS = 45_000;
+
 export function NotebookLMPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -91,7 +97,11 @@ export function NotebookLMPage() {
   const checkConnection = async () => {
     setConnectionState("checking");
     try {
-      const health = await withTimeout(notebooklmHealth(), 12000, "NotebookLM health check");
+      const health = await withTimeout(
+        notebooklmHealth(),
+        HEALTH_TIMEOUT_MS,
+        "NotebookLM health check"
+      );
       if (!health.connected) {
         setConnectionState("disconnected");
         setConnectionMessage(t("notebooklm.notConnected"));
@@ -102,7 +112,7 @@ export function NotebookLMPage() {
       try {
         const all = await withTimeout(
           notebooklmListNotebooks(),
-          12000,
+          LIST_TIMEOUT_MS,
           "NotebookLM notebook list"
         );
         setNotebooks(all);
@@ -480,6 +490,18 @@ export function NotebookLMPage() {
                       <ArrowSquareOut className="w-4 h-4" />
                     )}
                     {isLoggingIn ? t("notebooklm.startingLogin") : t("notebooklm.reauthenticate")}
+                  </button>
+                )}
+                {/* Non-auth failures (timeouts included) get a plain retry of
+                    the connection check — a cold CLI start is often just slow,
+                    not broken. */}
+                {connectionState === "error" && (
+                  <button
+                    onClick={checkConnection}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
+                  >
+                    <ArrowsClockwise className="w-4 h-4" />
+                    {t("common.retry")}
                   </button>
                 )}
               </div>

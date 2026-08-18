@@ -18,6 +18,7 @@ import {
   notebooklmAddSource,
   notebooklmRefreshSource,
   type SourceSummary,
+  type NotebookLmSourcePayload,
 } from "../../api/integrations";
 import { getDocuments, getDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
@@ -93,11 +94,22 @@ export function NotebookLMSidebar({
     if (!sourceInput.trim()) return;
     setIsAdding(true);
     try {
+      const input = sourceInput.trim();
+      const title = sourceTitle.trim() || undefined;
+      let payload: NotebookLmSourcePayload;
+      if (sourceType === "url") {
+        payload = { kind: "url", url: input, title };
+      } else if (sourceType === "youtube") {
+        payload = { kind: "youtube", url: input, title };
+      } else if (sourceType === "file") {
+        payload = { kind: "file", path: input, title };
+      } else {
+        payload = { kind: "text", text: input, title };
+      }
+
       await notebooklmAddSource({
         notebookId,
-        kind: sourceType,
-        content: sourceInput.trim(),
-        title: sourceTitle.trim() || undefined,
+        ...payload,
       });
       setSourceInput("");
       setSourceTitle("");
@@ -110,8 +122,9 @@ export function NotebookLMSidebar({
     }
   };
 
-  /** Attach an existing library document as a source (its text content is
-   *  sent through the same `notebooklm_add_source` command). */
+  /** Attach an existing library document as a source. The backend chooses
+   *  between uploading the original file directly on disk or staging clean
+   *  markdown to a scoped temporary file. */
   const handleAddLibrarySource = async () => {
     if (!selectedLibraryDoc) return;
     setIsAdding(true);
@@ -121,25 +134,15 @@ export function NotebookLMSidebar({
         toast.error("Add Source", "Could not load the selected document.");
         return;
       }
-      // The document's text content is what NotebookLM can ingest. EPUB and
-      // PDF files are sent with a placeholder body — the automation layer
-      // ingests by title/URL for non-text files.
-      // A source is already attached when its title matches the document's.
       const existingSource = sources.find((s) => s.title === doc.title);
       if (existingSource) {
         toast.warning("Add Source", "This document is already a source on this notebook.");
         return;
       }
-      if ((doc.content?.length ?? 0) > LARGE_SOURCE_THRESHOLD_BYTES) {
-        toast.warning(
-          "Large document",
-          "This document is large; attaching it may take a while."
-        );
-      }
       await notebooklmAddSource({
         notebookId,
-        kind: "file",
-        content: doc.content || doc.title,
+        kind: "document",
+        documentId: doc.id,
         title: doc.title,
       });
       setShowAddSource(false);
