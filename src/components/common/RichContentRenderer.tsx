@@ -11,6 +11,7 @@
 import { useRef, useEffect, useState } from "react";
 import { ArrowSquareOut, CircleNotch, TextT } from "@phosphor-icons/react";
 import DOMPurify from "dompurify";
+import { renderMarkdown, hasMarkdownMarkup } from "../../utils/markdown";
 
 interface ThemeColors {
   background: string;
@@ -198,11 +199,21 @@ export function RichContentRenderer({
   const [iframeHeight, setIframeHeight] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Markdown in, rich out: when no stored html_content exists but the plain
+  // content carries annotation markup (bold/italic/bullets), it renders
+  // through the same sandboxed reading presentation instead of showing raw
+  // markup. Unformatted text keeps the accessible plain-text presentation.
+  const effectiveHtml =
+    htmlContent ??
+    (mode === "full" && content.trim() && hasMarkdownMarkup(content)
+      ? renderMarkdown(content)
+      : undefined);
+
   // useEffect must be called unconditionally (rules-of-hooks)
   useEffect(() => {
     if (mode === 'full' && iframeRef.current && expanded) {
       const theme = readThemeColors();
-      const doc = createIframeDocument(htmlContent, theme);
+      const doc = createIframeDocument(effectiveHtml, theme);
       const blob = new Blob([doc], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       iframeRef.current.src = url;
@@ -211,9 +222,9 @@ export function RichContentRenderer({
         URL.revokeObjectURL(url);
       };
     }
-  }, [htmlContent, expanded, mode]);
+  }, [effectiveHtml, expanded, mode]);
 
-  if (!htmlContent || mode === "text-only") {
+  if (!effectiveHtml || mode === "text-only") {
     return (
       <div className={`text-sm text-foreground leading-relaxed ${className}`}>
         {mode === "preview" ? (

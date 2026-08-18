@@ -25,6 +25,7 @@ import {
 import { generateProgressiveSummaries } from "../../api/ai";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
+import { renderMarkdown } from "../../utils/markdown";
 
 interface ExtractScrollItemProps {
     extract: Extract;
@@ -446,9 +447,10 @@ export function ExtractScrollItem({
                                         {levelLabel}
                                     </div>
                                 )}
-                                    <div className="p-10 text-lg leading-relaxed text-foreground">
-                                        {text}
-                                    </div>
+                                    <div
+                                        className="p-10 text-lg leading-relaxed text-foreground prose prose-lg dark:prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+                                    />
                                 </>
                             );
                         })()}

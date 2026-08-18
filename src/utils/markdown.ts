@@ -180,6 +180,16 @@ function formatInlineCore(
   return formatted;
 }
 
+/**
+ * Whether text carries markdown/annotation markup worth rendering (bold,
+ * italic, code, bullets, headings). Reading surfaces use this to keep plain
+ * text in its accessible plain-text presentation while formatted content
+ * renders through the markdown pipeline.
+ */
+export function hasMarkdownMarkup(text: string): boolean {
+  return /\*\*|__|`|^#{1,6} \S|^[-*+] \S/m.test(text);
+}
+
 export function renderMarkdown(text: string, options?: RenderMarkdownOptions): string {
   if (!text) return "";
 
