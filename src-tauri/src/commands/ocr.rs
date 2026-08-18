@@ -185,6 +185,45 @@ pub async fn init_ocr(config: OCRConfig) -> Result<()> {
     Ok(())
 }
 
+/// Initialize the global OCR processor with default settings. Called once at
+/// app startup so no OCR command can fail with "OCR processor not
+/// initialized" on a cold start (issue #44 bug 04). The user's persisted
+/// settings are pushed over the default via `update_ocr_config` when the
+/// settings UI loads or saves.
+pub async fn ensure_processor_initialized() {
+    let mut guard = get_processor().lock().await;
+    if guard.is_none() {
+        guard.replace(OCRProcessor::new(OCRConfig::default()));
+    }
+}
+
+/// Resolve the effective per-request config: the persisted config with any
+/// request-level language override applied.
+fn effective_config(base: &OCRConfig, language: &Option<String>) -> OCRConfig {
+    let mut config = base.clone();
+    if let Some(language) = language {
+        if !language.trim().is_empty() {
+            config.language = Some(language.trim().to_string());
+        }
+    }
+    config
+}
+
+/// Preflight the configured provider: when it is unavailable, the actionable
+/// guidance (installation instructions for local providers) is returned as an
+/// error message instead of letting the OCR run fail opaquely later.
+fn provider_preflight_error(provider: &dyn crate::ocr::providers::OCRProvider) -> Option<String> {
+    if provider.is_available() {
+        return None;
+    }
+    Some(provider.unavailability_guidance().unwrap_or_else(|| {
+        format!(
+            "OCR provider {} is not available. Configure it in Settings > Documents > OCR.",
+            provider.provider_name()
+        )
+    }))
+}
+
 /// Perform OCR on an image file
 #[tauri::command]
 pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
@@ -197,8 +236,24 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
     };
 
     let provider_type = resolve_provider_type(&request.provider, &processor)?;
-    let provider = crate::ocr::providers::create_provider(provider_type, processor.get_config())?;
+    let config = effective_config(processor.get_config(), &request.language);
+    let provider = crate::ocr::providers::create_provider(provider_type, &config)?;
     let format = format_for_provider(provider_type);
+
+    if let Some(guidance) = provider_preflight_error(provider.as_ref()) {
+        return Ok(OCRResponse {
+            text: String::new(),
+            confidence: 0.0,
+            line_count: 0,
+            word_count: 0,
+            processing_time_ms: 0,
+            provider: format!("{:?}", provider_type),
+            format: format.to_string(),
+            success: false,
+            error: Some(guidance),
+            lines: Vec::new(),
+        });
+    }
 
     if request.image_path.is_empty() {
         return Ok(OCRResponse {
@@ -294,8 +349,24 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
     .map_err(|e| PlethoraError::Internal(format!("Failed to decode base64: {}", e)))?;
 
     let provider_type = resolve_provider_type(&request.provider, &processor)?;
-    let provider = crate::ocr::providers::create_provider(provider_type, processor.get_config())?;
+    let config = effective_config(processor.get_config(), &request.language);
+    let provider = crate::ocr::providers::create_provider(provider_type, &config)?;
     let format = format_for_provider(provider_type);
+
+    if let Some(guidance) = provider_preflight_error(provider.as_ref()) {
+        return Ok(OCRResponse {
+            text: String::new(),
+            confidence: 0.0,
+            line_count: 0,
+            word_count: 0,
+            processing_time_ms: 0,
+            provider: format!("{:?}", provider_type),
+            format: format.to_string(),
+            success: false,
+            error: Some(guidance),
+            lines: Vec::new(),
+        });
+    }
 
     let start = std::time::Instant::now();
 
@@ -407,8 +478,25 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
     };
 
     let provider_type = resolve_provider_type(&request.provider, &processor)?;
-    let provider = crate::ocr::providers::create_provider(provider_type, processor.get_config())?;
+    let config = effective_config(processor.get_config(), &request.language);
+    let provider = crate::ocr::providers::create_provider(provider_type, &config)?;
     let format = format_for_provider(provider_type);
+
+    if let Some(guidance) = provider_preflight_error(provider.as_ref()) {
+        return Ok(OCRPdfResponse {
+            pages: Vec::new(),
+            combined_text: String::new(),
+            confidence: 0.0,
+            line_count: 0,
+            word_count: 0,
+            processing_time_ms: 0,
+            provider: format!("{:?}", provider_type),
+            format: format.to_string(),
+            page_count: 0,
+            success: false,
+            error: Some(guidance),
+        });
+    }
 
     if !request.pdf_path.exists() {
         return Ok(OCRPdfResponse {
@@ -479,6 +567,11 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
         // the Nth value corresponds to logical page N (1-indexed).
         let ordered_page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
 
+        // First real error across pages (and pages with no extractable
+        // image): when the whole run yields no text, this becomes the
+        // response error instead of a success with blank pages.
+        let mut first_error: Option<String> = None;
+
         // Loop through all pages in the document (1-indexed). We extract each
         // page's best image lazily inside the loop so only one page's image
         // bytes are resident at a time: the Document itself stays loaded, but
@@ -510,8 +603,14 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
                         });
                     }
                     Err(e) => {
-                        // If OCR fails for a single page, log and insert a blank page to preserve sequence
-                        println!("OCR failed on page {}: {}", page_num, e);
+                        // A single failed page keeps its slot (sequence
+                        // preservation) but is remembered; if every page
+                        // fails, the run is a failure — never a success full
+                        // of blank pages (issue #44 bug 04).
+                        tracing::warn!("OCR failed on page {}: {}", page_num, e);
+                        if first_error.is_none() {
+                            first_error = Some(format!("page {page_num}: {e}"));
+                        }
                         pages.push(OCRPdfPage {
                             page_number: page_num,
                             text: String::new(),
@@ -519,12 +618,41 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
                     }
                 }
             } else {
-                // No embedded image found on this page - insert an empty page
+                // No embedded JPEG/JPX image on this page. Pages like this
+                // need rasterization (the pdf.js-backed per-page flow);
+                // remember it so an all-imageless run reports the real
+                // reason instead of empty success.
+                if first_error.is_none() {
+                    first_error = Some(format!(
+                        "page {page_num}: no embedded page image (this PDF needs page rasterization)"
+                    ));
+                }
                 pages.push(OCRPdfPage {
                     page_number: page_num,
                     text: String::new(),
                 });
             }
+        }
+
+        // All pages failed or nothing extractable: report failure with the
+        // first real error rather than success with empty text.
+        if combined_text.trim().is_empty() {
+            let error = first_error.unwrap_or_else(|| {
+                "OCR produced no text for this PDF".to_string()
+            });
+            return Ok(OCRPdfResponse {
+                pages,
+                combined_text,
+                confidence: 0.0,
+                line_count: total_line_count,
+                word_count: total_word_count,
+                processing_time_ms: start.elapsed().as_millis() as u64,
+                provider: format!("{:?}", provider_type),
+                format: format.to_string(),
+                page_count,
+                success: false,
+                error: Some(error),
+            });
         }
     }
 
@@ -913,6 +1041,74 @@ pub async fn update_ocr_config(config: OCRConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tesseract_language_arg_defaults_to_eng_and_honors_override() {
+        let default = crate::ocr::providers::TesseractProvider::new(None, None);
+        assert_eq!(default.language_arg(), "eng");
+        let german = crate::ocr::providers::TesseractProvider::new(None, Some("deu".to_string()));
+        assert_eq!(german.language_arg(), "deu");
+    }
+
+    #[test]
+    fn tesseract_preflight_returns_install_guidance_when_missing() {
+        // A bogus binary path makes check_installation fail; the preflight
+        // must surface its actionable install message, not a bare "failed".
+        let provider = crate::ocr::providers::TesseractProvider::new(
+            Some("/nonexistent/tesseract-binary".to_string()),
+            None,
+        );
+        let guidance = provider_preflight_error(&provider);
+        assert!(guidance.is_some(), "missing Tesseract must produce guidance");
+        let message = guidance.unwrap();
+        assert!(
+            message.contains("Tesseract is not installed"),
+            "guidance should carry the install message, got: {message}"
+        );
+        assert!(message.contains("brew install tesseract") || message.contains("apt install"));
+    }
+
+    #[tokio::test]
+    async fn pdf_without_embedded_images_reports_failure_not_blank_success() {
+        // A text PDF has no embedded JPEG/JPX page images. With a provider
+        // that passes preflight (cloud config with an existing credentials
+        // file), the run must report failure naming the real reason —
+        // previously this returned success with one blank page per page.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let credentials = tmp.path().join("credentials.json");
+        std::fs::write(&credentials, "{}").expect("credentials file");
+
+        let config = OCRConfig {
+            google_document_ai: Some(crate::ocr::GoogleDocumentAIConfig {
+                project_id: "p".to_string(),
+                location: "us".to_string(),
+                processor_id: "x".to_string(),
+                credentials_path: credentials.to_string_lossy().to_string(),
+            }),
+            ..OCRConfig::default()
+        };
+        init_ocr(config).await.expect("init processor");
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdf-baseline/simple-text.pdf");
+        let response = ocr_pdf_file(OCRPdfRequest {
+            pdf_path: fixture,
+            provider: Some("google".to_string()),
+            language: None,
+        })
+        .await
+        .expect("command completes");
+
+        assert!(!response.success, "no-image PDF must not report success");
+        let error = response.error.expect("failure carries an error");
+        assert!(
+            error.contains("no embedded page image"),
+            "error should name the missing-image reason, got: {error}"
+        );
+
+        // Restore a neutral processor for any test that runs after this one.
+        init_ocr(OCRConfig::default()).await.expect("reset processor");
+    }
 
     #[test]
     fn test_extract_key_phrases() {

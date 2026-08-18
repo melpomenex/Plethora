@@ -11,6 +11,8 @@ import { invokeCommand } from "../lib/tauri";
 export interface OCRConfig {
   default_provider: string;
   tesseract_path?: string;
+  /** OCR language code passed through to providers that support one. */
+  language?: string;
   google_document_ai?: GoogleDocumentAIConfig;
   aws_textract?: AWSTextractConfig;
   azure_vision?: AzureVisionConfig;

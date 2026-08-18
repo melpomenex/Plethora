@@ -603,7 +603,6 @@ fn apply_theme_vibrancy(
     apply_platform_vibrancy(&window, &theme_id)
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// In dev (`tauri dev`) the binary runs unbundled, so macOS never applies the
 /// .app bundle's icns and the Dock falls back to a generic — or a stale
 /// Launch Services — icon. Set the rounded brand tile at runtime for
@@ -663,6 +662,7 @@ fn apply_window_icons(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Install the rustls crypto provider as the very first thing. reqwest's
     // `rustls-tls` feature compiles rustls 0.23 in `*-no-provider` mode, so no
@@ -1085,6 +1085,13 @@ pub fn run() {
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
                 app.manage(Arc::new(sync::SyncEngine::new()));
 
+                // Initialize the OCR processor with defaults before any IPC
+                // can arrive: cold-start OCR commands used to fail with
+                // "OCR processor not initialized" (issue #44 bug 04). The
+                // user's persisted settings replace the defaults when the
+                // settings UI loads/saves via update_ocr_config.
+                commands::ocr::ensure_processor_initialized().await;
+
                 let app_dir = app
                     .path()
                     .app_data_dir()
@@ -1470,6 +1477,7 @@ pub fn run() {
             commands::set_document_cover,
             commands::create_document,
             commands::update_document,
+            commands::clear_document_category,
                                                                                                                         commands::get_learning_item_ids_modified_since,
             commands::get_learning_items_for_postpone,
                                                                                                                                                                                                                                                                                                                                                                                     commands::update_document_content,

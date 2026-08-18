@@ -69,6 +69,7 @@ function buildOCRConfigFromSettings(settings: ReturnType<typeof useSettingsStore
   return {
     default_provider: settings.provider,
     tesseract_path: settings.tesseract_path,
+    language: settings.language || undefined,
     google_document_ai: googleConfigured
       ? {
           project_id: settings.googleProjectId as string,

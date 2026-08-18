@@ -20,6 +20,7 @@ import {
 } from "@phosphor-icons/react";
 import { isTauri, listen, openExternal, openFilePicker } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
+import { ensureOCRConfig } from "../../utils/documentAutoExtract";
 import {
   downloadOllamaInstaller,
   getGLMRuntimeStatus,
@@ -176,6 +177,19 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
   const defaultVllmEndpoint = "http://localhost:8080/v1";
   const resolvedGlmEndpoint =
     settings.glmEndpoint || (glmBackend === "ollama" ? defaultOllamaEndpoint : defaultVllmEndpoint);
+
+  // Settings save immediately on change; push the runtime-relevant OCR
+  // configuration to the backend at the same time. Persisting to localStorage
+  // alone never reached the backend processor (issue #44 bug 04), so changed
+  // providers/credentials/languages required another feature's action — or an
+  // app restart — to take effect. ensureOCRConfig dedupes by config hash, so
+  // unrelated re-renders do not spam the backend.
+  useEffect(() => {
+    if (!isTauri()) return;
+    void ensureOCRConfig(settings).catch(() => {
+      /* guidance-level validation errors are surfaced by the runtime status UI */
+    });
+  }, [settings]);
 
   const refreshRuntimeStatus = async () => {
     if (!isTauri() || settings.provider !== "glm") return;
