@@ -154,16 +154,21 @@ export function MarkdownViewer({
     const root = contentRef.current;
     if (!root) return;
 
-    const signature = `${document.id}:${content ?? ""}:${highlights.length}`;
-    const signatureChanged = root.dataset.searchHighlightSignature !== signature;
-    if (signatureChanged) {
-      root.dataset.searchHighlightSignature = signature;
-      // Cache original HTML for search highlight restore (content is renderMarkdown output, same origin)
-      root.dataset.searchHighlightOriginalHtml = root.innerHTML;
-    }
-
-    if (signatureChanged) {
-      root.innerHTML = root.dataset.searchHighlightOriginalHtml ?? root.innerHTML;
+    // Tear down every search mark from a previous run *surgically* before
+    // (re-)matching: unwrap mark → text node, then normalize() to merge the
+    // adjacent text nodes back together. No innerHTML reassignment, so live
+    // selections anchored in surviving text survive (and the empty-query
+    // branch below leaves a pristine DOM — previously stale amber marks
+    // persisted, re-searches nested marks inside marks, and any later
+    // highlight/content change baked the marks into the "original" cache).
+    const browserDocument = window.document;
+    const staleMarks = root.querySelectorAll("mark[data-search-highlight='true']");
+    for (const mark of staleMarks) {
+      const text = mark.textContent ?? "";
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(browserDocument.createTextNode(text), mark);
+      parent.normalize();
     }
 
     const query = searchQuery?.trim() || highlightQuery?.trim();
@@ -180,7 +185,6 @@ export function MarkdownViewer({
 
     const escaped = terms.map(escapeRegex);
     const regex = new RegExp(`(${escaped.join("|")})`, "gi");
-    const browserDocument = window.document;
     const walker = browserDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const textNodes: Text[] = [];
 
