@@ -45,6 +45,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { isTauri } from "../../lib/tauri";
+import { unwrapSearchRedirector } from "../../utils/searchRedirectors";
 import { useI18n } from "../../lib/i18n";
 import { getShortcutCombo } from "../common/KeyboardShortcuts";
 import { CompactTagEditor } from "../common/CompactTagEditor";
@@ -502,7 +503,9 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   // Some sites block the direct iframe (browser/PWA path) without firing its
   // error event, leaving a black box. If nothing has loaded within the grace
   // period, surface the blocked state (with Reader View / open-in-browser
-  // actions) instead.
+  // actions) instead. On the Tauri path the same timeout doubles as the
+  // watchdog for frames that escape the proxy: such a frame never posts a
+  // trusted bridge `ready`, so the blocked state replaces a silent blank.
   const scheduleIframeBlockedFallback = useCallback(() => {
     window.setTimeout(() => {
       setIframeStatus((prev) => (prev === "loading" ? "blocked" : prev));
@@ -564,10 +567,8 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     latestSelectionRef.current = null;
     setCurrentUrl(formattedUrl);
     setUrl(formattedUrl);
-    if (!isTauri()) {
-      setIframeStatus("loading");
-      scheduleIframeBlockedFallback();
-    }
+    setIframeStatus("loading");
+    scheduleIframeBlockedFallback();
     pushHistory(formattedUrl);
     setPageTitle(new URL(formattedUrl).hostname);
   }, [pushHistory, scheduleIframeBlockedFallback]);
@@ -604,6 +605,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
           })(),
         });
         setIsLoading(false);
+        setIframeStatus("idle");
       });
     return () => {
       cancelled = true;
@@ -623,10 +625,8 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     setIsLoading(true);
     setProxyFailure(null);
     latestSelectionRef.current = null;
-    if (!isTauri()) {
-      setIframeStatus("loading");
-      scheduleIframeBlockedFallback();
-    }
+    setIframeStatus("loading");
+    scheduleIframeBlockedFallback();
   }, [history, historyIndex, scheduleIframeBlockedFallback]);
 
   const handleForward = useCallback(() => {
@@ -642,20 +642,16 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     setIsLoading(true);
     setProxyFailure(null);
     latestSelectionRef.current = null;
-    if (!isTauri()) {
-      setIframeStatus("loading");
-      scheduleIframeBlockedFallback();
-    }
+    setIframeStatus("loading");
+    scheduleIframeBlockedFallback();
   }, [history, historyIndex, scheduleIframeBlockedFallback]);
 
   const handleRefresh = useCallback(() => {
     if (currentUrl) {
       setRefreshToken((token) => token + 1);
-      if (!isTauri()) {
-        setIsLoading(true);
-        setIframeStatus("loading");
-        scheduleIframeBlockedFallback();
-      }
+      setIsLoading(true);
+      setIframeStatus("loading");
+      scheduleIframeBlockedFallback();
     }
   }, [currentUrl, scheduleIframeBlockedFallback]);
 
@@ -677,7 +673,11 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const handleIframeLoad = () => {
     setIsLoading(false);
     setIframeStatus((prev) => {
-      const next = prev === "loading" ? "loaded" : prev;
+      // On Tauri the proxy injects the bridge into every page it serves, so
+      // a usable page always posts a trusted `ready`; the native load event
+      // also fires for escaped/off-proxy frames and must not cancel the
+      // watchdog.
+      const next = prev === "loading" ? (isTauri() ? prev : "loaded") : prev;
       if (process.env.NODE_ENV !== "production") {
         console.log(`[WebBrowserTab] iframe load: status ${prev} -> ${next} (url=${currentUrl})`);
       }
@@ -855,24 +855,37 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
   const handleBridgeNavigate = useCallback((payload: WebBridgeNavigatePayload) => {
     if (!isSafeWebUrl(payload.url)) return;
+    // Unwrap search-result redirectors (`google.com/url?q=…` & friends) to
+    // their target before navigating: the redirector itself renders a
+    // cookie-less interstitial in the proxied frame. The unwrapped target
+    // passes the same isSafeWebUrl check and the proxy's per-hop validation
+    // as any direct navigation — malformed params fall back to the original.
+    const targetUrl = unwrapSearchRedirector(payload.url);
+    if (!isSafeWebUrl(targetUrl)) return;
     if (payload.newTab) {
-      openNewBrowserTab(payload.url);
+      openNewBrowserTab(targetUrl);
       return;
     }
-    setRequestedUrl(payload.url);
-    setCurrentUrl(payload.url);
-    setUrl(payload.url);
-    setPageTitle(new URL(payload.url).hostname);
+    setRequestedUrl(targetUrl);
+    setCurrentUrl(targetUrl);
+    setUrl(targetUrl);
+    setPageTitle(new URL(targetUrl).hostname);
     setIsLoading(true);
     setProxyFailure(null);
     setReaderContent(null);
     latestSelectionRef.current = null;
-    pushHistory(payload.url);
-  }, [openNewBrowserTab, pushHistory, isSafeWebUrl]);
+    // Tauri watchdog: if the frame never posts a trusted bridge `ready`
+    // (off-proxy navigation, dead interstitial), surface the blocked state
+    // instead of a silent blank frame.
+    setIframeStatus("loading");
+    scheduleIframeBlockedFallback();
+    pushHistory(targetUrl);
+  }, [openNewBrowserTab, pushHistory, isSafeWebUrl, scheduleIframeBlockedFallback]);
 
   const handleBridgeProxyError = useCallback((payload: { reason: string; host: string }) => {
     setProxyFailure({ reason: payload.reason, host: payload.host });
     setIsLoading(false);
+    setIframeStatus("idle");
   }, []);
 
   // Bridge message listener: validate source (must be the proxied iframe),
@@ -924,11 +937,18 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     return () => unsub?.();
   }, [pushShortcutToFrame]);
 
+  // Navigate on mount / when a new tab targets a new URL. handleNavigate's
+  // identity changes with every history push (pushHistory depends on
+  // historyIndex), so listing it as a dependency re-triggered the navigation
+  // — an unbounded render loop whenever initialUrl was set. Read it through
+  // a ref so the effect fires once per initialUrl value.
+  const handleNavigateRef = useRef(handleNavigate);
+  handleNavigateRef.current = handleNavigate;
   useEffect(() => {
     if (initialUrl) {
-      void handleNavigate(initialUrl);
+      void handleNavigateRef.current(initialUrl);
     }
-  }, [initialUrl, handleNavigate]);
+  }, [initialUrl]);
 
   useEffect(() => {
     const saved = localStorage.getItem("web-browser-bookmarks");
@@ -1360,7 +1380,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                   </div>
                 </div>
               )}
-              {!isTauri() && iframeStatus === "blocked" && !readerContent && (
+              {iframeStatus === "blocked" && !readerContent && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/95 z-50">
                   <div className="text-center max-w-md px-4 space-y-3">
                     <p className="text-sm text-foreground font-semibold">
