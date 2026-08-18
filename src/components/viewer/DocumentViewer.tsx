@@ -2327,7 +2327,7 @@ export function DocumentViewer({
     }
 
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage, selectionV2]);
+  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage, selectionV2, selectedText]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
