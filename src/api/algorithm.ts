@@ -131,7 +131,13 @@ export interface DueForecastPoint {
   date: string;
   due_learning_items: number;
   due_documents: number;
+  /** Text extracts due this day (part of due_total). */
+  due_extracts?: number;
+  /** Video extracts due this day (part of due_total). */
+  due_video_extracts?: number;
   due_total: number;
+  /** True for the leading overdue/backlog bucket. */
+  is_backlog?: boolean;
 }
 
 export interface DueForecastSummary {

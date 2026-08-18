@@ -49,10 +49,16 @@ export interface ScheduleForecastDay {
   dueTotal: number;
   learningCount: number;
   documentCount: number;
+  /** Text extracts due this day (part of dueTotal). */
+  extractCount: number;
+  /** Video extracts due this day (part of dueTotal). */
+  videoExtractCount: number;
   /** Sum of estimated minutes for items due on this date (0 when unknown). */
   estimatedMinutes: number;
   isToday: boolean;
   isSelected: boolean;
+  /** Leading overdue/backlog bucket (date = the day before the window). */
+  isBacklog: boolean;
   isPeak: boolean;
   /** 0..1 relative magnitude vs. the horizon maximum (0 when no load). */
   magnitude: number;
@@ -196,10 +202,13 @@ export function buildForecastDays(
       dueTotal: p.due_total,
       learningCount: p.due_learning_items,
       documentCount: p.due_documents,
+      extractCount: p.due_extracts ?? 0,
+      videoExtractCount: p.due_video_extracts ?? 0,
       estimatedMinutes: minutesByDate.get(key) ?? 0,
       isToday,
       isSelected,
       isPeak,
+      isBacklog: p.is_backlog === true,
       magnitude: maxTotal > 0 ? p.due_total / maxTotal : 0,
       bucket: loadBucket(p.due_total),
     };

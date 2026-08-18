@@ -672,7 +672,14 @@ pub struct DueForecastPoint {
     pub date: String,
     pub due_learning_items: i32,
     pub due_documents: i32,
+    /// Text extracts due this day (is_dismissed = 0).
+    pub due_extracts: i32,
+    /// Video extracts due this day.
+    pub due_video_extracts: i32,
     pub due_total: i32,
+    /// True for the leading overdue/backlog bucket (date = start − 1 day).
+    #[serde(default)]
+    pub is_backlog: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -713,26 +720,55 @@ pub async fn get_due_workload_forecast(
     let horizon_days = days.unwrap_or(90).clamp(1, 365);
     let start = Utc::now().date_naive();
 
-    let (learning_rows, doc_rows) = repo
+    let grouped = repo
         .get_workload_forecast_grouped(start, horizon_days)
         .await?;
 
     use std::collections::HashMap;
-    let learning_map: HashMap<String, i64> = learning_rows.into_iter().collect();
-    let doc_map: HashMap<String, i64> = doc_rows.into_iter().collect();
+    let learning_map: HashMap<String, i64> = grouped.learning_rows.into_iter().collect();
+    let doc_map: HashMap<String, i64> = grouped.document_rows.into_iter().collect();
+    let extract_map: HashMap<String, i64> = grouped.extract_rows.into_iter().collect();
+    let video_extract_map: HashMap<String, i64> = grouped.video_extract_rows.into_iter().collect();
 
-    let mut points = Vec::with_capacity(horizon_days as usize);
+    let mut points: Vec<DueForecastPoint> = Vec::with_capacity(horizon_days as usize + 1);
+
+    // Leading overdue/backlog bucket: items whose due date is already before
+    // the window start were previously invisible, so an overdue-heavy library
+    // rendered a flat zero forecast (issue #44 bug 05).
+    let overdue_learning = grouped.overdue_learning_items;
+    let overdue_documents = grouped.overdue_documents;
+    let overdue_extracts = grouped.overdue_extracts;
+    let overdue_video = grouped.overdue_video_extracts;
+    let overdue_total =
+        overdue_learning + overdue_documents + overdue_extracts + overdue_video;
+    if overdue_total > 0 {
+        points.push(DueForecastPoint {
+            date: (start - Duration::days(1)).to_string(),
+            due_learning_items: overdue_learning as i32,
+            due_documents: overdue_documents as i32,
+            due_extracts: overdue_extracts as i32,
+            due_video_extracts: overdue_video as i32,
+            due_total: overdue_total as i32,
+            is_backlog: true,
+        });
+    }
+
     for i in 0..horizon_days {
         let date = start + Duration::days(i as i64);
         let date_str = date.to_string();
         let due_learning_items = learning_map.get(&date_str).copied().unwrap_or(0);
         let due_documents = doc_map.get(&date_str).copied().unwrap_or(0);
-        let due_total = due_learning_items + due_documents;
+        let due_extracts = extract_map.get(&date_str).copied().unwrap_or(0);
+        let due_video_extracts = video_extract_map.get(&date_str).copied().unwrap_or(0);
+        let due_total = due_learning_items + due_documents + due_extracts + due_video_extracts;
         points.push(DueForecastPoint {
             date: date_str,
             due_learning_items: due_learning_items as i32,
             due_documents: due_documents as i32,
+            due_extracts: due_extracts as i32,
+            due_video_extracts: due_video_extracts as i32,
             due_total: due_total as i32,
+            is_backlog: false,
         });
     }
 

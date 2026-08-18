@@ -36,7 +36,9 @@ function forecastDayAriaLabel(
   todayKey: string,
   t: ReturnType<typeof useI18n>["t"],
 ): string {
-  const base = relativeDateLabel(day.dateKey, todayKey, t);
+  const base = day.isBacklog
+    ? t("schedule.overdueBacklog")
+    : relativeDateLabel(day.dateKey, todayKey, t);
   const parts = [base];
   if (day.isToday) parts.push(t("schedule.today"));
   if (day.isSelected) parts.push(t("schedule.selected"));
@@ -47,6 +49,14 @@ function forecastDayAriaLabel(
         t("schedule.forecastDayComposition", {
           learning: day.learningCount,
           documents: day.documentCount,
+        }),
+      );
+    }
+    if (day.extractCount > 0 || day.videoExtractCount > 0) {
+      parts.push(
+        t("schedule.forecastDayExtracts", {
+          extracts: day.extractCount,
+          videoExtracts: day.videoExtractCount,
         }),
       );
     }
@@ -228,10 +238,16 @@ export function ScheduleWorkloadBand({
                 <span
                   className={cn(
                     "text-[10px] font-medium leading-none truncate w-full text-center",
-                    day.isToday ? "text-primary" : "text-muted-foreground",
+                    day.isBacklog
+                      ? "text-destructive font-semibold"
+                      : day.isToday
+                        ? "text-primary"
+                        : "text-muted-foreground",
                   )}
                 >
-                  {relativeDateLabel(day.dateKey, todayKey, t)}
+                  {day.isBacklog
+                    ? t("schedule.overdueBacklogShort")
+                    : relativeDateLabel(day.dateKey, todayKey, t)}
                 </span>
                 <span className="text-base font-semibold leading-tight tabular-nums">
                   {day.dueTotal > 0 ? day.dueTotal : "·"}
