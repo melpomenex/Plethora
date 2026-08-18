@@ -469,17 +469,52 @@ export function EPUBViewer({
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
 
-  const applyContentOverrides = useCallback((contents: any) => {
-    if (!contents || !contents.document) return;
-    const doc = contents.document as Document;
-
+  // Resolve the reader's colors from the active theme. The theme object is
+  // the primary source: when a theme change re-renders the tree, this
+  // component's effects run BEFORE ThemeContext's parent effect writes the
+  // new CSS variables to documentElement, so reading getComputedStyle here
+  // would capture the PREVIOUS theme's values and bake them into the iframe
+  // with nothing left to re-trigger once the variables land — the reader
+  // stayed stuck on the old (or boot-fallback light) theme. The computed
+  // variable remains only as a fallback for themes with partial palettes.
+  const resolveReaderPalette = useCallback(() => {
     const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
     const currentTheme = themeRef.current;
-    const rawBgColor = cs?.getPropertyValue("--color-background").trim() || currentTheme?.colors?.background || "#ffffff";
-    const textColor = cs?.getPropertyValue("--color-foreground").trim() || currentTheme?.colors?.onBackground || currentTheme?.colors?.text || "#000000";
-    const primaryColor = cs?.getPropertyValue("--color-primary").trim() || currentTheme?.colors?.primary || "#3b82f6";
-    const borderColor = cs?.getPropertyValue("--color-border").trim() || currentTheme?.colors?.border || currentTheme?.colors?.outline || textColor;
-    const isDark = currentTheme?.variant === "dark" || (typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+    const rawBgColor =
+      currentTheme?.colors?.background ||
+      cs?.getPropertyValue("--color-background").trim() ||
+      "#ffffff";
+    const textColor =
+      currentTheme?.colors?.onBackground ||
+      currentTheme?.colors?.text ||
+      cs?.getPropertyValue("--color-foreground").trim() ||
+      "#000000";
+    const primaryColor =
+      currentTheme?.colors?.primary ||
+      cs?.getPropertyValue("--color-primary").trim() ||
+      "#3b82f6";
+    const borderColor =
+      currentTheme?.colors?.border ||
+      currentTheme?.colors?.outline ||
+      cs?.getPropertyValue("--color-border").trim() ||
+      textColor;
+    const isDark =
+      currentTheme?.variant === "dark" ||
+      (typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+    const appFontFamily =
+      settingsRef.current?.appearance?.fontFamily ||
+      cs?.getPropertyValue("--font-family").trim() ||
+      currentTheme?.typography?.fontFamily ||
+      null;
+    const fontFamily = getEpubFontFamily(fontFamilyRef.current, appFontFamily, currentTheme?.typography?.fontFamily);
+    return { rawBgColor, textColor, primaryColor, borderColor, isDark, fontFamily };
+  }, []);
+
+  const applyContentOverrides = useCallback((contents: any) => {
+    if (!contents || !contents.document) return;
+    const doc = contents.document as globalThis.Document;
+
+    const { rawBgColor, textColor, primaryColor, borderColor, isDark, fontFamily } = resolveReaderPalette();
 
     const isTransparentTheme = rawBgColor === "transparent" || !rawBgColor;
     
@@ -497,11 +532,9 @@ export function EPUBViewer({
     // For transparent/glass themes, use a dark opaque background inside the iframe
     // to ensure text readability. The host-side frosted glass provides the visual effect.
     const bgColor = isTransparentTheme
-      ? makeColorOpaque(currentTheme?.colors?.toolbar || currentTheme?.colors?.surface || "rgba(15, 23, 42, 0.55)", "rgb(15, 23, 42)")
+      ? makeColorOpaque(themeRef.current?.colors?.toolbar || themeRef.current?.colors?.surface || "rgba(15, 23, 42, 0.55)", "rgb(15, 23, 42)")
       : rawBgColor;
 
-    const appFontFamily = cs?.getPropertyValue("--font-family").trim() || settingsRef.current?.appearance?.fontFamily || currentTheme?.typography?.fontFamily;
-    const fontFamily = getEpubFontFamily(fontFamilyRef.current, appFontFamily, currentTheme?.typography?.fontFamily);
     const contentPadding = isMobileRef.current ? "1.25rem 1rem 4.5rem" : "2rem 3rem";
     const contentMaxWidth = isMobileRef.current ? "40rem" : "100%";
     const contentMargin = isMobileRef.current ? "0 auto" : "0";
@@ -662,19 +695,12 @@ export function EPUBViewer({
   const applyRenditionTheme = useCallback(() => {
     if (!rendition) return;
 
-    const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
-    const currentTheme = themeRef.current;
-    const rawBg = cs?.getPropertyValue("--color-background").trim() || currentTheme?.colors?.background || "#ffffff";
-    const textColor = cs?.getPropertyValue("--color-foreground").trim() || currentTheme?.colors?.onBackground || currentTheme?.colors?.text || "#000000";
-    const isDark = currentTheme?.variant === "dark" || (typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+    const { rawBgColor, textColor, isDark, fontFamily } = resolveReaderPalette();
 
-    const isTransparent = rawBg === "transparent" || !rawBg;
+    const isTransparent = rawBgColor === "transparent" || !rawBgColor;
     const bg = isTransparent
-      ? (currentTheme?.colors?.toolbar || currentTheme?.colors?.surface || "rgba(15, 23, 42, 0.55)")
-      : rawBg;
-
-    const appFontFamily = cs?.getPropertyValue("--font-family").trim() || settingsRef.current?.appearance?.fontFamily || currentTheme?.typography?.fontFamily;
-    const fontFamily = getEpubFontFamily(fontFamilyRef.current, appFontFamily, currentTheme?.typography?.fontFamily);
+      ? (themeRef.current?.colors?.toolbar || themeRef.current?.colors?.surface || "rgba(15, 23, 42, 0.55)")
+      : rawBgColor;
 
     rendition.themes.default({
       html: {
