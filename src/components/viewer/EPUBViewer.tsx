@@ -34,9 +34,26 @@ import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 // Define outside component to keep a stable reference across renders
 const FONT_FAMILY_MAP: Record<string, string> = {
   serif: "\"Iowan Old Style\", \"Charter\", \"Source Serif 4\", \"Palatino Linotype\", Palatino, Georgia, \"Times New Roman\", serif",
-  "sans-serif": "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  monospace: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  "sans-serif": "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  monospace: "\"JetBrains Mono\", \"Fira Code\", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 };
+
+function getEpubFontFamily(preference: string, appFont?: string | null, themeFont?: string | null): string {
+  if (preference === "monospace") {
+    return FONT_FAMILY_MAP.monospace;
+  }
+  if (preference === "serif") {
+    return FONT_FAMILY_MAP.serif;
+  }
+  const resolved = appFont || themeFont;
+  if (resolved && resolved !== "serif" && resolved !== "monospace") {
+    if (resolved === "sans-serif" || resolved === "system-ui") {
+      return FONT_FAMILY_MAP["sans-serif"];
+    }
+    return `"${resolved}", ${FONT_FAMILY_MAP["sans-serif"]}`;
+  }
+  return FONT_FAMILY_MAP["sans-serif"];
+}
 
 function findEpubTextPoint(element: Element, requestedOffset: number): { node: Text; offset: number } {
   const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -341,6 +358,10 @@ export function EPUBViewer({
   const themeRef = useRef(theme);
   const { t } = useI18n();
   const { settings, updateSettings } = useSettingsStore();
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const isMobile = useMobileShell();
   const epubSettings = settings.documents.epubSettings;
   const fontSizeRef = useRef(epubSettings.fontSize);
@@ -449,38 +470,48 @@ export function EPUBViewer({
   isMobileRef.current = isMobile;
 
   const applyContentOverrides = useCallback((contents: any) => {
-    const textColor = themeRef.current.colors.onBackground || themeRef.current.colors.text;
-    const rawBgColor = themeRef.current.colors.background;
-    const fontFamily = FONT_FAMILY_MAP[fontFamilyRef.current] || FONT_FAMILY_MAP.serif;
-    const contentPadding = isMobileRef.current ? "1.25rem 1rem 4.5rem" : "2rem 3rem";
-    const contentMaxWidth = isMobileRef.current ? "40rem" : "100%";
-    const contentMargin = isMobileRef.current ? "0 auto" : "0";
+    if (!contents || !contents.document) return;
+    const doc = contents.document as Document;
+
+    const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
+    const currentTheme = themeRef.current;
+    const rawBgColor = cs?.getPropertyValue("--color-background").trim() || currentTheme?.colors?.background || "#ffffff";
+    const textColor = cs?.getPropertyValue("--color-foreground").trim() || currentTheme?.colors?.onBackground || currentTheme?.colors?.text || "#000000";
+    const primaryColor = cs?.getPropertyValue("--color-primary").trim() || currentTheme?.colors?.primary || "#3b82f6";
+    const borderColor = cs?.getPropertyValue("--color-border").trim() || currentTheme?.colors?.border || currentTheme?.colors?.outline || textColor;
+    const isDark = currentTheme?.variant === "dark" || (typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
 
     const isTransparentTheme = rawBgColor === "transparent" || !rawBgColor;
     
     const makeColorOpaque = (colorStr: string, fallback: string): string => {
-      const trimmed = colorStr.trim();
+      const trimmed = (colorStr || "").trim();
       if (trimmed.startsWith("rgba(")) {
         const match = trimmed.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
         if (match) {
           return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
         }
       }
-      return trimmed === "transparent" ? fallback : trimmed;
+      return trimmed === "transparent" || !trimmed ? fallback : trimmed;
     };
 
     // For transparent/glass themes, use a dark opaque background inside the iframe
     // to ensure text readability. The host-side frosted glass provides the visual effect.
     const bgColor = isTransparentTheme
-      ? makeColorOpaque(themeRef.current.colors.toolbar || themeRef.current.colors.surface || "rgba(15, 23, 42, 0.55)", "rgb(15, 23, 42)")
+      ? makeColorOpaque(currentTheme?.colors?.toolbar || currentTheme?.colors?.surface || "rgba(15, 23, 42, 0.55)", "rgb(15, 23, 42)")
       : rawBgColor;
 
-    const existing = contents.document.getElementById("epub-override-styles");
+    const appFontFamily = cs?.getPropertyValue("--font-family").trim() || settingsRef.current?.appearance?.fontFamily || currentTheme?.typography?.fontFamily;
+    const fontFamily = getEpubFontFamily(fontFamilyRef.current, appFontFamily, currentTheme?.typography?.fontFamily);
+    const contentPadding = isMobileRef.current ? "1.25rem 1rem 4.5rem" : "2rem 3rem";
+    const contentMaxWidth = isMobileRef.current ? "40rem" : "100%";
+    const contentMargin = isMobileRef.current ? "0 auto" : "0";
+
+    const existing = doc.getElementById("epub-override-styles");
     if (existing) {
       existing.remove();
     }
 
-    const style = contents.document.createElement("style");
+    const style = doc.createElement("style");
     style.id = "epub-override-styles";
     style.textContent = `
       * {
@@ -494,7 +525,9 @@ export function EPUBViewer({
         height: auto !important;
         min-height: 100% !important;
         background: ${bgColor} !important;
+        background-color: ${bgColor} !important;
         color: ${textColor} !important;
+        color-scheme: ${isDark ? "dark" : "light"} !important;
         overflow-x: hidden !important;
         overflow-y: visible !important;
       }
@@ -508,7 +541,9 @@ export function EPUBViewer({
         line-height: ${lineHeightRef.current} !important;
         color: ${textColor} !important;
         background: ${bgColor} !important;
+        background-color: ${bgColor} !important;
         font-size: ${fontSizeRef.current}px !important;
+        font-family: ${fontFamily} !important;
         padding-bottom: 80px !important;
         overflow-x: hidden !important;
         overflow-y: visible !important;
@@ -531,6 +566,7 @@ export function EPUBViewer({
         font-size: inherit !important;
         max-width: 100% !important;
         color: ${textColor} !important;
+        font-family: ${fontFamily} !important;
       }
       h1, h2, h3, h4, h5, h6 {
         line-height: 1.3 !important;
@@ -539,6 +575,7 @@ export function EPUBViewer({
         font-size: inherit !important;
         max-width: 100% !important;
         color: ${textColor} !important;
+        font-family: ${fontFamily} !important;
       }
       div, section, article, nav, aside, main, header, footer {
         line-height: inherit !important;
@@ -567,7 +604,7 @@ export function EPUBViewer({
       }
       td, th {
         padding: 0.5em !important;
-        border: 1px solid ${textColor} !important;
+        border: 1px solid ${borderColor} !important;
         color: ${textColor} !important;
       }
       ul, ol {
@@ -579,7 +616,7 @@ export function EPUBViewer({
         color: ${textColor} !important;
       }
       a {
-        color: ${themeRef.current.colors.primary} !important;
+        color: ${primaryColor} !important;
         text-decoration: underline !important;
         background-color: transparent !important;
       }
@@ -606,20 +643,46 @@ export function EPUBViewer({
       }
       ` : ""}
     `;
-    contents.document.head.appendChild(style);
+
+    const targetHead = doc.head || doc.querySelector("head") || doc.documentElement;
+    if (targetHead) {
+      targetHead.appendChild(style);
+    } else if (doc.body) {
+      doc.body.appendChild(style);
+    }
+
+    try {
+      const iframe = (contents.window?.frameElement || viewerRef.current?.querySelector("iframe")) as HTMLIFrameElement | null;
+      if (iframe) {
+        iframe.style.backgroundColor = bgColor;
+      }
+    } catch { /* ignore */ }
   }, []);
 
   const applyRenditionTheme = useCallback(() => {
     if (!rendition) return;
 
-    const textColor = themeRef.current.colors.onBackground || themeRef.current.colors.text;
-    const fontFamily = FONT_FAMILY_MAP[fontFamilyRef.current] || FONT_FAMILY_MAP.serif;
-    const rawBg = themeRef.current.colors.background;
+    const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
+    const currentTheme = themeRef.current;
+    const rawBg = cs?.getPropertyValue("--color-background").trim() || currentTheme?.colors?.background || "#ffffff";
+    const textColor = cs?.getPropertyValue("--color-foreground").trim() || currentTheme?.colors?.onBackground || currentTheme?.colors?.text || "#000000";
+    const isDark = currentTheme?.variant === "dark" || (typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+
     const isTransparent = rawBg === "transparent" || !rawBg;
     const bg = isTransparent
-      ? (themeRef.current.colors.toolbar || themeRef.current.colors.surface || "rgba(15, 23, 42, 0.55)")
+      ? (currentTheme?.colors?.toolbar || currentTheme?.colors?.surface || "rgba(15, 23, 42, 0.55)")
       : rawBg;
+
+    const appFontFamily = cs?.getPropertyValue("--font-family").trim() || settingsRef.current?.appearance?.fontFamily || currentTheme?.typography?.fontFamily;
+    const fontFamily = getEpubFontFamily(fontFamilyRef.current, appFontFamily, currentTheme?.typography?.fontFamily);
+
     rendition.themes.default({
+      html: {
+        "background": `${bg} !important`,
+        "background-color": `${bg} !important`,
+        "color": `${textColor} !important`,
+        "color-scheme": `${isDark ? "dark" : "light"} !important`,
+      },
       body: {
         "font-size": `${fontSizeRef.current}px !important`,
         "line-height": `${lineHeightRef.current} !important`,
@@ -627,6 +690,7 @@ export function EPUBViewer({
         "padding": "0 !important",
         "color": `${textColor} !important`,
         "background": `${bg} !important`,
+        "background-color": `${bg} !important`,
         ...(isTransparent
           ? {
               "background-image": "none !important",
@@ -638,12 +702,14 @@ export function EPUBViewer({
         "line-height": `${lineHeightRef.current} !important`,
         "margin": "1em 0 !important",
         "color": `${textColor} !important`,
+        "font-family": `${fontFamily} !important`,
       },
       "*": {
         "color": `${textColor} !important`,
         "background-color": "transparent !important",
         "box-sizing": "border-box !important",
         "max-width": "100% !important",
+        "font-family": `${fontFamily} !important`,
       },
     });
     rendition.themes.select("default");
@@ -1354,6 +1420,12 @@ export function EPUBViewer({
             }
           });
 
+          rendition.on("rendered", (_section: any, view: any) => {
+            if (view?.contents) {
+              applyContentOverrides(view.contents);
+            }
+          });
+
           rendition.themes.register("default", {});
           applyRenditionTheme();
 
@@ -1679,7 +1751,7 @@ export function EPUBViewer({
   // Re-apply styles when settings or theme change
   useEffect(() => {
     applyRenditionTheme();
-  }, [applyRenditionTheme, epubSettings.fontFamily, epubSettings.fontSize, epubSettings.lineHeight, theme]);
+  }, [applyRenditionTheme, epubSettings.fontFamily, epubSettings.fontSize, epubSettings.lineHeight, theme, settings.appearance?.fontFamily]);
 
   const removeSearchAnnotations = useCallback((cfis: string[]) => {
     if (!rendition || cfis.length === 0) return;
@@ -3052,7 +3124,7 @@ export function EPUBViewer({
           )}
           <div
             ref={viewerRef}
-            className="absolute inset-0"
+            className="absolute inset-0 bg-background"
             data-epub-viewer="true"
             style={{ opacity: isLoading ? 0 : 1 }}
           />
