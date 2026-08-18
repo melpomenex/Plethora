@@ -6,6 +6,7 @@ import {
   computeUsableViewportOffset,
   fitDistance,
   minHalfFov,
+  shouldFollowUpdatedHome,
 } from "../cameraFit";
 import { isTwoFingerTap, pinchZoomFactor, twistDelta } from "../gestureMath";
 
@@ -141,6 +142,38 @@ describe("computeUsableViewportOffset", () => {
     expect(computeUsableViewportOffset(800, -50, true)).toBe(400);
     expect(computeUsableViewportOffset(800, 900, true)).toBe(0);
     expect(computeUsableViewportOffset(0, 200, true)).toBe(0);
+  });
+});
+
+describe("shouldFollowUpdatedHome", () => {
+  it("re-frames on a dataset replacement from any camera state, even panned far from home", () => {
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: true, focusLevel: "universe", isAtHomeView: false })
+    ).toBe(true);
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: true, focusLevel: "universe", isAtHomeView: true })
+    ).toBe(true);
+  });
+
+  it("preserves a deliberately panned camera on same-data edits", () => {
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: false, focusLevel: "universe", isAtHomeView: false })
+    ).toBe(false);
+  });
+
+  it("keeps following home for same-data edits while the camera is already at home", () => {
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: false, focusLevel: "universe", isAtHomeView: true })
+    ).toBe(true);
+  });
+
+  it("preserves system and node focus regardless of scope change", () => {
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: true, focusLevel: "system", isAtHomeView: false })
+    ).toBe(false);
+    expect(
+      shouldFollowUpdatedHome({ scopeChanged: true, focusLevel: "node", isAtHomeView: true })
+    ).toBe(false);
   });
 });
 

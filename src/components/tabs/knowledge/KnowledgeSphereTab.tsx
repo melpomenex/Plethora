@@ -350,6 +350,7 @@ export function KnowledgeSphereTab() {
         <KnowledgeUniverseLazy
           nodes={nodes}
           edges={edges}
+          datasetKey={activeCollectionId ?? "all"}
           showHeader={false}
           onNodeDoubleClick={handleNodeDoubleClick}
           onNodeContextMenu={handleNodeContextMenu}

@@ -118,7 +118,7 @@ describe("computeUniverseLayout", () => {
     expect(a.bounds).toBe(b.bounds);
   });
 
-  it("centers an asymmetric visible layout and encloses every visible placement", () => {
+  it("centers the visible core and encloses every visible placement", () => {
     const { nodes, edges } = makeCollection({ docs: 7, extractsPerDoc: 3, cardsPerExtract: 5 });
     nodes.push({
       id: "tag-distant",
@@ -128,25 +128,41 @@ describe("computeUniverseLayout", () => {
       y: 0,
     });
     const layout = computeUniverseLayout(nodes, edges);
-    const extents = [
+    // Core = clusters + visible system nodes; rim (tags, belt) must not move
+    // the home target, only widen the fit bounds.
+    const coreExtents = [
+      ...layout.clusters.map((cluster) => ({ center: cluster.center, radius: cluster.radius })),
+      ...[...layout.placements.values()]
+        .filter((placement) => !placement.paged && placement.systemIndex >= 0)
+        .map((placement) => ({ center: placement.position, radius: 0 })),
+    ];
+    const allExtents = [
       ...layout.clusters.map((cluster) => ({ center: cluster.center, radius: cluster.radius })),
       ...[...layout.placements.values()]
         .filter((placement) => !placement.paged)
         .map((placement) => ({ center: placement.position, radius: 0 })),
     ];
 
-    const minX = Math.min(...extents.map((extent) => extent.center.x - extent.radius));
-    const maxX = Math.max(...extents.map((extent) => extent.center.x + extent.radius));
-    const minY = Math.min(...extents.map((extent) => extent.center.y - extent.radius));
-    const maxY = Math.max(...extents.map((extent) => extent.center.y + extent.radius));
-    const minZ = Math.min(...extents.map((extent) => extent.center.z - extent.radius));
-    const maxZ = Math.max(...extents.map((extent) => extent.center.z + extent.radius));
-
-    expect(layout.center.x).toBeCloseTo((minX + maxX) / 2, 10);
-    expect(layout.center.y).toBeCloseTo((minY + maxY) / 2, 10);
-    expect(layout.center.z).toBeCloseTo((minZ + maxZ) / 2, 10);
-    expect(layout.center).not.toEqual({ x: 0, y: 0, z: 0 });
-    for (const extent of extents) {
+    // Envelope center = (min(center − radius) + max(center + radius)) / 2 per axis.
+    expect(layout.center.x).toBeCloseTo(
+      (Math.min(...coreExtents.map((e) => e.center.x - (e.radius ?? 0))) +
+        Math.max(...coreExtents.map((e) => e.center.x + (e.radius ?? 0)))) /
+        2,
+      10
+    );
+    expect(layout.center.y).toBeCloseTo(
+      (Math.min(...coreExtents.map((e) => e.center.y - (e.radius ?? 0))) +
+        Math.max(...coreExtents.map((e) => e.center.y + (e.radius ?? 0)))) /
+        2,
+      10
+    );
+    expect(layout.center.z).toBeCloseTo(
+      (Math.min(...coreExtents.map((e) => e.center.z - (e.radius ?? 0))) +
+        Math.max(...coreExtents.map((e) => e.center.z + (e.radius ?? 0)))) /
+        2,
+      10
+    );
+    for (const extent of allExtents) {
       const distance = Math.hypot(
         extent.center.x - layout.center.x,
         extent.center.y - layout.center.y,
@@ -154,6 +170,53 @@ describe("computeUniverseLayout", () => {
       );
       expect(distance + extent.radius).toBeLessThanOrEqual(layout.bounds + 1e-8);
     }
+  });
+
+  it("keeps the home target on the core when rim content is one-sided", () => {
+    // A small collection keeps the core compact; a single tag plus one belt
+    // orphan put the rim content on the far side of it. The home target must
+    // stay on the core while the fit bounds still include the rim.
+    const { nodes, edges } = makeCollection({ docs: 6, extractsPerDoc: 3, cardsPerExtract: 2 });
+    const layout = computeUniverseLayout(nodes, edges);
+    const tag = layout.placements.get("tag-alpha")!;
+    const corePlacements = [...layout.placements.values()].filter(
+      (placement) => placement.systemIndex >= 0
+    );
+
+    const coreRadius = Math.max(
+      ...corePlacements.map((p) =>
+        Math.hypot(p.position.x - layout.center.x, p.position.z - layout.center.z)
+      )
+    );
+    const tagDistance = Math.hypot(
+      tag.position.x - layout.center.x,
+      tag.position.z - layout.center.z
+    );
+
+    // The rim sits outside the core, on one side of it.
+    expect(tag.systemIndex).toBe(-1);
+    expect(tagDistance).toBeGreaterThan(coreRadius);
+
+    // …yet the home target equals the core envelope's exact midpoint: the old
+    // full-envelope midpoint would be dragged toward the one-sided halo.
+    const coreEnvelopeMid = {
+      x: (Math.min(...corePlacements.map((p) => p.position.x)) +
+        Math.max(...corePlacements.map((p) => p.position.x))) /
+        2,
+      z: (Math.min(...corePlacements.map((p) => p.position.z)) +
+        Math.max(...corePlacements.map((p) => p.position.z))) /
+        2,
+    };
+    const coreMidOffset = Math.hypot(
+      layout.center.x - coreEnvelopeMid.x,
+      layout.center.z - coreEnvelopeMid.z
+    );
+    expect(coreMidOffset).toBeLessThan(tagDistance * 0.15);
+
+    // Rim-inclusive framing: the fit radius covers the halo node and the rim
+    // genuinely widens the framing beyond the core.
+    expect(layout.bounds).toBeGreaterThanOrEqual(tagDistance);
+    expect(layout.bounds).toBeGreaterThan(layout.coreBounds);
   });
 
   it("is invariant to input ordering", () => {

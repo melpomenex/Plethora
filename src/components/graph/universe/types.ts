@@ -23,6 +23,13 @@ export interface KnowledgeUniverseProps {
   ) => Promise<void> | void;
   showHeader?: boolean;
   selectedNodeId?: string | null;
+  /**
+   * Identity of the displayed dataset (collection/scope/filter). When it
+   * changes between renders, the incoming data is treated as a dataset
+   * *replacement* and the camera re-frames onto the new home view; omitted or
+   * unchanged keys preserve a deliberately panned/focused camera.
+   */
+  datasetKey?: string | number;
 }
 
 /** Semantic zoom focus levels. */
