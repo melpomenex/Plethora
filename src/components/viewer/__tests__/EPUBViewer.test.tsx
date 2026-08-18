@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { EPUBViewer } from "../EPUBViewer";
+import { EPUBViewer, patchContentsInsertRuleGuard, patchThemesInsertRuleGuard, serializeEpubRules } from "../EPUBViewer";
 import ePub from "epubjs";
 
 // Mock epubjs
@@ -398,5 +398,123 @@ describe("EPUBViewer", () => {
     const call = mockRendition.themes.default.mock.calls.at(-1)[0];
     expect(call.html.background).toContain("#020b14");
     expect(call.html.color).toContain("#e0f2fe");
+  });
+});
+
+// Regression: epub.js's Contents.addStylesheetRules() calls
+// this._getStylesheetNode(key).sheet.insertRule(...). On Android WebView a
+// <style> element just appended to an iframe document can have `sheet`
+// undefined synchronously, crashing the reader with "Cannot read properties
+// of undefined (reading 'insertRule')" whenever the rendition theme is
+// applied/updated. The guard patches the method to serialize rules to CSS
+// text when no stylesheet object is available and to survive partial
+// insertRule failures.
+describe("epub.js insertRule crash guard", () => {
+  const epubDoc = () =>
+    new DOMParser().parseFromString("<html><head></head><body></body></html>", "text/html");
+
+  it("serializes epub.js theme rules to CSS text", () => {
+    const css = serializeEpubRules({
+      html: { background: "#0d1926 !important", color: "#d4e8f8 !important" },
+      body: { "font-size": "16px !important", "line-height": "1.5 !important" },
+    });
+    expect(css).toContain("html{background:#0d1926 !important;color:#d4e8f8 !important}");
+    expect(css).toContain("body{font-size:16px !important;line-height:1.5 !important}");
+  });
+
+  it("falls back to serialized CSS when style.sheet is unavailable", () => {
+    // A Contents-like class whose addStylesheetRules reproduces the Android
+    // crash: it reads el.sheet (undefined here) and calls insertRule on it.
+    class FakeContents {
+      document: Document;
+      constructor(doc: Document) {
+        this.document = doc;
+      }
+      addStylesheetRules(rules: unknown, key?: string) {
+        const el = this.document.getElementById(`epubjs-inserted-css-${key || ""}`) as HTMLStyleElement;
+        (el as any).sheet.insertRule("html{}", 0);
+      }
+    }
+    const doc = epubDoc();
+    const contents = new FakeContents(doc);
+    const styleEl = doc.createElement("style");
+    styleEl.id = "epubjs-inserted-css-default";
+    // Simulate the WebView returning no stylesheet object.
+    Object.defineProperty(styleEl, "sheet", { value: undefined });
+    doc.head!.appendChild(styleEl);
+
+    patchContentsInsertRuleGuard(contents);
+
+    expect(() =>
+      (contents as any).addStylesheetRules({ html: { background: "#0d1926 !important" } }, "default")
+    ).not.toThrow();
+    expect(styleEl.textContent).toContain("html{background:#0d1926 !important}");
+  });
+
+  it("falls back to serialized CSS when insertRule throws partway", () => {
+    class ThrowingContents {
+      document: Document;
+      constructor(doc: Document) {
+        this.document = doc;
+      }
+      addStylesheetRules() {
+        throw new Error("insertRule boom");
+      }
+    }
+    const doc = epubDoc();
+    const contents = new ThrowingContents(doc);
+
+    patchContentsInsertRuleGuard(contents);
+    (contents as any).addStylesheetRules({ body: { color: "#fff !important" } }, "default");
+
+    const styleEl = doc.getElementById("epubjs-inserted-css-default") as HTMLStyleElement;
+    expect(styleEl).not.toBeNull();
+    expect(styleEl.textContent).toContain("body{color:#fff !important}");
+  });
+
+  it("installs the contents guard before the theme layer injects rules", () => {
+    class FakeContents {
+      document: Document;
+      constructor(doc: Document) {
+        this.document = doc;
+      }
+      addStylesheetRules() {
+        throw new Error("must not be reached on a missing sheet");
+      }
+    }
+    const themesProto = {
+      add: vi.fn(function (this: unknown, name: string, contents: unknown) {
+        (contents as any).addStylesheetRules({ html: { color: "#fff !important" } }, "default");
+      }),
+    };
+    const addSpy = themesProto.add;
+    const rendition = { themes: { constructor: { prototype: themesProto } } };
+    patchThemesInsertRuleGuard(rendition);
+
+    const doc = epubDoc();
+    const contents = new FakeContents(doc);
+    const styleEl = doc.createElement("style");
+    styleEl.id = "epubjs-inserted-css-default";
+    Object.defineProperty(styleEl, "sheet", { value: undefined });
+    doc.head!.appendChild(styleEl);
+
+    (themesProto.add as any)("default", contents);
+
+    expect(addSpy).toHaveBeenCalledWith("default", contents);
+    expect(styleEl.textContent).toContain("html{color:#fff !important}");
+  });
+
+  it("patches each Contents prototype only once", () => {
+    class FakeContents {
+      document: Document;
+      constructor(doc: Document) {
+        this.document = doc;
+      }
+    }
+    const contents = new FakeContents(epubDoc());
+    patchContentsInsertRuleGuard(contents);
+    const first = (contents as any).constructor.prototype.addStylesheetRules;
+    patchContentsInsertRuleGuard(contents);
+    expect((contents as any).constructor.prototype.addStylesheetRules).toBe(first);
   });
 });

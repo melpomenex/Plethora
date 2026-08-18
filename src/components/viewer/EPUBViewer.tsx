@@ -55,6 +55,116 @@ function getEpubFontFamily(preference: string, appFont?: string | null, themeFon
   return FONT_FAMILY_MAP["sans-serif"];
 }
 
+// ---------------------------------------------------------------------------
+// epub.js insertRule crash guard.
+//
+// epub.js's Contents.addStylesheetRules() (used by Themes.add/select and the
+// pre-paginated fit path) does roughly:
+//     styleSheet = this._getStylesheetNode(key).sheet;
+//     styleSheet.insertRule(...);
+// On Android WebView a <style> element that was just appended to an iframe
+// document can have `sheet` undefined synchronously, so the reader crashes
+// with "Cannot read properties of undefined (reading 'insertRule')" whenever
+// the rendition theme is applied or updated (themes.default() -> update() ->
+// add() -> addStylesheetRules()). We patch the method so that:
+//   - the style node is created up front (same id epub.js uses), so `sheet`
+//     is only queried on an attached node;
+//   - when the sheet is still unavailable, the rules are serialized to CSS
+//     text and assigned to the node's textContent — the same mechanism
+//     epub.js's addStylesheetCss() uses, which works in every engine without
+//     a CSSStyleSheet object;
+//   - a single rule whose insertRule() throws cannot abort theming — the
+//     fallback re-serializes the whole set.
+// The Themes.add wrapper installs the guard on the Contents prototype before
+// the first content injection (Themes.inject runs before our content hook),
+// and the content hook installs it again on every new Contents instance so
+// non-Themes callers (e.g. the pre-paginated fit path) are covered too.
+// ---------------------------------------------------------------------------
+const EPUB_INSERT_RULE_GUARD_FLAG = "__plethoraInsertRuleGuard";
+
+export function serializeEpubRules(rules: unknown): string {
+  if (Array.isArray(rules)) {
+    return (rules as any[])
+      .map((rule) => {
+        const selector = String(rule?.[0] ?? "");
+        const definition = Array.isArray(rule?.[1]?.[0]) ? rule[1] : [rule?.[1]];
+        const body = (definition as any[])
+          .map((item) => (item as any[]).map((pair: any) => `${pair[0]}:${pair[1]}`).join(";"))
+          .join(";");
+        return `${selector}{${body}}`;
+      })
+      .join("\n");
+  }
+  const rulesObj = rules as Record<string, unknown>;
+  return Object.keys(rulesObj)
+    .map((selector) => {
+      const definition = rulesObj[selector] as any;
+      const defs = Array.isArray(definition) ? definition : [definition];
+      const body = defs
+        .map((item: any) => Object.keys(item).map((prop) => `${prop}:${item[prop]}`).join(";"))
+        .join(";");
+      return `${selector}{${body}}`;
+    })
+    .join("\n");
+}
+
+export function patchContentsInsertRuleGuard(contents: unknown): void {
+  if (!contents || typeof (contents as any)?.constructor !== "function") return;
+  const proto = (contents as any).constructor.prototype as any;
+  if (!proto || Object.prototype.hasOwnProperty.call(proto, EPUB_INSERT_RULE_GUARD_FLAG)) return;
+  const original = proto.addStylesheetRules as ((rules: unknown, key?: string) => void) | undefined;
+  proto[EPUB_INSERT_RULE_GUARD_FLAG] = true;
+  proto.addStylesheetRules = function (this: any, rules: unknown, key?: string) {
+    const doc = this?.document as globalThis.Document | undefined;
+    if (!doc || !rules) return;
+    const styleId = `epubjs-inserted-css-${key || ""}`;
+    let styleEl = doc.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = doc.createElement("style");
+      styleEl.id = styleId;
+      const head = doc.head || doc.documentElement;
+      if (head) head.appendChild(styleEl);
+    }
+    const sheet = styleEl.sheet;
+    if (!sheet) {
+      // No stylesheet object (Android WebView quirk) — serialized CSS works
+      // without one and is how addStylesheetCss injects styles anyway.
+      styleEl.textContent = serializeEpubRules(rules);
+      return;
+    }
+    if (typeof original === "function") {
+      try {
+        original.call(this, rules, key);
+        return;
+      } catch {
+        // A partially applied rule set must not leave the reader un-themed —
+        // fall back to the serialized form.
+      }
+    }
+    styleEl.textContent = serializeEpubRules(rules);
+  };
+}
+
+export function patchThemesInsertRuleGuard(rendition: unknown): void {
+  try {
+    const themesProto = (rendition as any)?.themes?.constructor?.prototype as any;
+    if (!themesProto || Object.prototype.hasOwnProperty.call(themesProto, EPUB_INSERT_RULE_GUARD_FLAG)) return;
+    const originalAdd = themesProto.add as ((name: string, contents: unknown) => void) | undefined;
+    if (typeof originalAdd !== "function") return;
+    themesProto[EPUB_INSERT_RULE_GUARD_FLAG] = true;
+    themesProto.add = function (this: any, name: string, contents: unknown) {
+      try {
+        patchContentsInsertRuleGuard(contents);
+      } catch {
+        // The guard must never break theming.
+      }
+      return originalAdd.call(this, name, contents);
+    };
+  } catch {
+    // Ignore — patching is best-effort hardening.
+  }
+}
+
 function findEpubTextPoint(element: Element, requestedOffset: number): { node: Text; offset: number } {
   const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, requestedOffset);
@@ -1064,6 +1174,10 @@ export function EPUBViewer({
           renditionInstance = rendition;
           setRendition(rendition);
 
+          // Guard epub.js's insertRule-based theme injection against Android
+          // WebView stylesheet races (see patchThemesInsertRuleGuard).
+          patchThemesInsertRuleGuard(rendition);
+
           const vimRuntimeListeners = new Set<(event: { kind: "content" | "geometry" | "destroyed"; spineIndex?: number }) => void>();
           const spineItems = Array.from((epubBook.spine as any)?.spineItems ?? []) as any[];
           const vimRuntime: EpubVimRuntime = {
@@ -1130,6 +1244,12 @@ export function EPUBViewer({
           // Inject global styles to override EPUB internal styles
           rendition.hooks.content.register((contents: any) => {
             vimRuntimeListeners.forEach((listener) => listener({ kind: "content", spineIndex: contents.section?.index }));
+
+            // Ensure epub.js's insertRule-based theming cannot crash on this
+            // Contents instance (Android WebView sheet race) — see
+            // patchContentsInsertRuleGuard. Installed before any destructive
+            // DOM cleanup so a failure here can never leave a naked document.
+            patchContentsInsertRuleGuard(contents);
 
             // Disable all EPUB stylesheets by setting them to disabled
             const links = contents.document.querySelectorAll('link[rel="stylesheet"]');
