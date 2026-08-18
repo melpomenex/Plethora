@@ -51,6 +51,7 @@ import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildDocumentSections,
   describeSectionDiagnostic,
+  normalizeSectionTitleForMatch,
   resolvePromptSectionMentions,
   resolveMixedSectionFocusedContext,
   type FocusedSectionContextResult,
@@ -157,6 +158,7 @@ export function DocumentQATab() {
   const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [selectedSections, setSelectedSections] = useState<SectionNode[]>([]);
   const [fullContent, setFullContent] = useState("");
+  const [fullContentLoading, setFullContentLoading] = useState(false);
   const [mediaCatalogLoad, setMediaCatalogLoad] = useState<{
     documentId?: string;
     status: "idle" | "loading" | "ready";
@@ -194,22 +196,40 @@ export function DocumentQATab() {
   useEffect(() => {
     if (!targetDocId) {
       setFullContent("");
+      setFullContentLoading(false);
       return;
     }
+    // While the target document's text loads, the section catalog is empty;
+    // the popup must say "loading" instead of a false "no sections".
+    setFullContentLoading(true);
+    let cancelled = false;
+    const settle = () => {
+      if (!cancelled) setFullContentLoading(false);
+    };
     getDocument(targetDocId)
       .then((fullDoc) => {
         if (fullDoc && fullDoc.content) {
-          setFullContent(fullDoc.content);
+          if (!cancelled) setFullContent(fullDoc.content);
+          settle();
         } else {
           extractDocumentText(targetDocId)
             .then((res) => {
-              if (res?.content) setFullContent(res.content);
-              else setFullContent("");
+              if (!cancelled) setFullContent(res?.content || "");
+              settle();
             })
-            .catch(() => setFullContent(""));
+            .catch(() => {
+              if (!cancelled) setFullContent("");
+              settle();
+            });
         }
       })
-      .catch(() => setFullContent(""));
+      .catch(() => {
+        if (!cancelled) setFullContent("");
+        settle();
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [targetDocId]);
 
   const {
@@ -233,6 +253,11 @@ export function DocumentQATab() {
       .map((m) => m.content)
       .reverse();
   }, [messages]);
+
+  // Sent prompts in their raw token form (`#{id}` intact). Message contents
+  // are display-formatted (labels, no tokens), so restoring history from them
+  // could never recover the section chips. Newest first, like userQueries.
+  const [rawQueryHistory, setRawQueryHistory] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -463,6 +488,21 @@ export function DocumentQATab() {
     return { text, mentions: newMentions };
   }, [documents]);
 
+  // One token→section identity for every mention surface. Ids are primary
+  // (what pick-time insertion writes); exact- and normalized-title fallbacks
+  // keep `#{title}` tokens from older sessions rendering and surviving
+  // keystrokes instead of being silently discarded.
+  const sectionForToken = useCallback((token: string): SectionNode | undefined => {
+    return (
+      getSectionById(token) ||
+      sections.find((s) => s.id === token) ||
+      sections.find((s) => s.title === token) ||
+      sections.find(
+        (s) => normalizeSectionTitleForMatch(s.title) === normalizeSectionTitleForMatch(token)
+      )
+    );
+  }, [sections, getSectionById]);
+
   // Format input for display (replace tokens with badges) - now tree-aware with breadcrumb
   const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSections: SectionNode[] = []): string => {
     let formatted = text;
@@ -475,9 +515,7 @@ export function DocumentQATab() {
     if (sectionMatches) {
       sectionMatches.forEach((token) => {
         const secId = token.slice(2, -1);
-        const matchedSec = activeSections.find((section) => section.id === secId)
-          ? activeSections.find((section) => section.id === secId)
-          : getSectionById(secId) || sections.find(s => s.id === secId);
+        const matchedSec = activeSections.find((section) => section.id === secId) || sectionForToken(secId);
         if (matchedSec) {
           const label = matchedSec.breadcrumb.length > 0 ? `${matchedSec.breadcrumb[matchedSec.breadcrumb.length - 1]} > ${matchedSec.title}` : matchedSec.title;
           formatted = formatted.replace(token, `#${label}`);
@@ -485,7 +523,7 @@ export function DocumentQATab() {
       });
     }
     return formatted;
-  }, [sections, getSectionById]);
+  }, [sectionForToken]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -530,7 +568,14 @@ export function DocumentQATab() {
       nextSections = [];
     } else {
       const tokenIds = value.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
-      nextSections = selectedSections.filter((section) => tokenIds.includes(section.id));
+      const tokenSections = tokenIds
+        .map((token) => sectionForToken(token))
+        .filter((section): section is SectionNode => Boolean(section));
+      nextSections = selectedSections.filter(
+        (section) =>
+          tokenSections.some((resolved) => resolved.id === section.id) ||
+          tokenIds.includes(section.id)
+      );
       setSelectedSections(nextSections);
     }
 
@@ -579,7 +624,11 @@ export function DocumentQATab() {
 
     if (hashMatch) {
       const hashPosition = cursorPosition - hashMatch[0].length;
-      const sectionToken = `#{${sec.title}}`;
+      // Insert the section's stable id, not its title: the chip filter, the
+      // display formatter, and history restore all key on ids, and a title
+      // token was dropped by the very next keystroke (issue #44 bug 03).
+      // Titles may also contain characters that break the token itself.
+      const sectionToken = `#{${sec.id}}`;
       const newValue =
         value.slice(0, hashPosition) + sectionToken + " " + value.slice(cursorPosition);
 
@@ -655,18 +704,22 @@ export function DocumentQATab() {
       const textarea = textareaRef.current;
       if (textarea && textarea.selectionStart === 0 && userQueries.length > 0) {
         e.preventDefault();
+        // Prefer the raw token history: formatted message contents have no
+        // `#{...}` tokens, so restoring from them drops the section chips.
+        const history = rawQueryHistory.length > 0 ? rawQueryHistory : userQueries;
         const nextIndex = historyIndex + 1;
-        if (nextIndex < userQueries.length) {
+        if (nextIndex < history.length) {
           if (historyIndex === -1) {
             setInputDraft(rawInput);
           }
           setHistoryIndex(nextIndex);
-          const historicalQuery = userQueries[nextIndex];
+          const historicalQuery = history[nextIndex];
           setRawInput(historicalQuery);
           const { mentions: newMentions } = parseMentions(historicalQuery);
           setMentions(newMentions);
-          const tokenIds = historicalQuery.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
-          const historicalSections = sections.filter((section) => tokenIds.includes(section.id));
+          const historicalSections = (historicalQuery.match(SECTION_REGEX) ?? [])
+            .map((token) => sectionForToken(token.slice(2, -1)))
+            .filter((section): section is SectionNode => Boolean(section));
           setSelectedSections(historicalSections);
           setInput(formatInputForDisplay(historicalQuery, newMentions, historicalSections));
         }
@@ -675,21 +728,23 @@ export function DocumentQATab() {
       const textarea = textareaRef.current;
       if (textarea && textarea.selectionStart === textarea.value.length && historyIndex >= 0) {
         e.preventDefault();
+        const history = rawQueryHistory.length > 0 ? rawQueryHistory : userQueries;
         const nextIndex = historyIndex - 1;
         setHistoryIndex(nextIndex);
-        
+
         let newQuery = "";
         if (nextIndex === -1) {
           newQuery = inputDraft;
         } else {
-          newQuery = userQueries[nextIndex];
+          newQuery = history[nextIndex] ?? userQueries[nextIndex] ?? "";
         }
         
         setRawInput(newQuery);
         const { mentions: newMentions } = parseMentions(newQuery);
         setMentions(newMentions);
-        const tokenIds = newQuery.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
-        const historicalSections = sections.filter((section) => tokenIds.includes(section.id));
+        const historicalSections = (newQuery.match(SECTION_REGEX) ?? [])
+          .map((token) => sectionForToken(token.slice(2, -1)))
+          .filter((section): section is SectionNode => Boolean(section));
         setSelectedSections(historicalSections);
         setInput(formatInputForDisplay(newQuery, newMentions, historicalSections));
       }
@@ -1558,6 +1613,7 @@ export function DocumentQATab() {
     setInput("");
     setMentions([]);
     setSelectedSections([]);
+    setRawQueryHistory((prev) => [savedRawInput, ...prev]);
     setDetectedChapter(null);
     setProviderError(null);
     setIsProcessing(true);
@@ -1602,7 +1658,10 @@ export function DocumentQATab() {
         if (submittedSectionMentions.unresolved.length > 0 || submittedSectionMentions.ambiguous.length > 0) {
           const detail = [
             ...submittedSectionMentions.unresolved.map((token) => `${token} is unavailable`),
-            ...submittedSectionMentions.ambiguous.map((token) => `${token} matches multiple sections`),
+            ...submittedSectionMentions.ambiguous.map((token) => {
+              const entry = submittedSectionMentions.ambiguousTitles.find((e) => e.token === token);
+              return `${token} matches multiple sections${entry ? ` (${entry.titles.join(", ")})` : ""}`;
+            }),
           ].join("; ");
           addMessage({
             id: `error-${Date.now()}`,
@@ -2624,8 +2683,14 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             selectedIndex={sectionCursorIndex}
             onSelect={handleSelectSection}
             open={showSectionPopup}
-            isLoading={isMediaCatalogLoading}
+            isLoading={
+              isMediaCatalogLoading ||
+              (Boolean(targetDocId) && fullContentLoading && pickerSectionFlat.length === 0)
+            }
             loadingLabel="Loading transcript chapters…"
+            unavailableReason={
+              !targetDocId ? t("sectionMention.noDocumentTargeted") : null
+            }
           />
         )}
       </div>
