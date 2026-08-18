@@ -150,6 +150,8 @@ export const fr: Dict = {
   "layout.statistics": "Statistiques",
   "layout.itemsTotal": "{count} éléments au total",
   "settings.title": "Paramètres",
+  "settings.interface.startupAnimationLabel": "Animation de démarrage de marque",
+  "settings.interface.startupAnimationHelp": "Lance l'animation de démarrage Knowledge Peck : la mascotte picore des connaissances flottantes en cartes pendant le chargement. Désactivez-la pour entrer directement.",
   "settings.searchPlaceholder": "Rechercher dans les paramètres...",
   "settings.searchResults": "Résultats de recherche",
   "settings.noSettingsFound": "Aucun paramètre trouvé pour « {query} »",
