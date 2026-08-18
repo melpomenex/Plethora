@@ -165,6 +165,58 @@ export function patchThemesInsertRuleGuard(rendition: unknown): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reader-palette color helpers + temporary theme diagnostics.
+// ---------------------------------------------------------------------------
+
+// Extract "rgb(r, g, b)" / "rgba(r, g, b, a)" / "#rrggbb" / "#rgb" → [r,g,b].
+function parseColorTriple(value: string): [number, number, number] | null {
+  const v = (value || "").trim();
+  const rgb = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  const hex = v.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const hex3 = v.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3) {
+    const h = hex3[1];
+    return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+  }
+  return null;
+}
+
+function colorsMatch(a: string, b: string): boolean {
+  const pa = parseColorTriple(a);
+  const pb = parseColorTriple(b);
+  if (!pa || !pb) return false;
+  return pa.every((c, i) => Math.abs(c - pb[i]) <= 1);
+}
+
+// For transparent/glass themes, use a dark opaque background inside the iframe
+// to ensure text readability. The host-side frosted glass provides the visual effect.
+function makeColorOpaque(colorStr: string, fallback: string): string {
+  const trimmed = (colorStr || "").trim();
+  if (trimmed.startsWith("rgba(")) {
+    const match = trimmed.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (match) {
+      return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
+    }
+  }
+  return trimmed === "transparent" || !trimmed ? fallback : trimmed;
+}
+
+// TEMPORARY diagnostics for native mobile EPUB-theme validation (openspec
+// change fix-mobile-epub-theme-regression, tasks 1.x / 16). Flip to false (or
+// delete) once native QA confirms the fix; never ship enabled.
+const EPUB_THEME_DIAGNOSTICS = true;
+function epubDiag(...args: unknown[]): void {
+  if (!EPUB_THEME_DIAGNOSTICS) return;
+  // eslint-disable-next-line no-console
+  console.debug("[epub-theme]", ...args);
+}
+
 function findEpubTextPoint(element: Element, requestedOffset: number): { node: Text; offset: number } {
   const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, requestedOffset);
@@ -380,6 +432,13 @@ export function EPUBViewer({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rendition, setRendition] = useState<any>(null);
+  // Authoritative rendition reference — assigned synchronously at renderTo()
+  // time, never gated on the async React state (see applyRenditionTheme).
+  const renditionRef = useRef<any>(null);
+  // Readiness gate: the reader may only become visible once the initial
+  // content document has been processed and its critical computed colors
+  // agree with the active Plethora palette (see verifyContentThemed).
+  const [initialContentThemed, setInitialContentThemed] = useState(false);
   const [book, setBook] = useState<any>(null);
   const [toc, setToc] = useState<any[]>([]);
   const tocRef = useRef<any[]>([]);
@@ -627,17 +686,6 @@ export function EPUBViewer({
     const { rawBgColor, textColor, primaryColor, borderColor, isDark, fontFamily } = resolveReaderPalette();
 
     const isTransparentTheme = rawBgColor === "transparent" || !rawBgColor;
-    
-    const makeColorOpaque = (colorStr: string, fallback: string): string => {
-      const trimmed = (colorStr || "").trim();
-      if (trimmed.startsWith("rgba(")) {
-        const match = trimmed.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-        if (match) {
-          return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
-        }
-      }
-      return trimmed === "transparent" || !trimmed ? fallback : trimmed;
-    };
 
     // For transparent/glass themes, use a dark opaque background inside the iframe
     // to ensure text readability. The host-side frosted glass provides the visual effect.
@@ -800,10 +848,75 @@ export function EPUBViewer({
         iframe.style.backgroundColor = bgColor;
       }
     } catch { /* ignore */ }
+
+    // Third, independent theme layer: critical colors/typography directly on
+    // the content elements with !important. The reader's basic
+    // background/foreground correctness must not depend on a single
+    // dynamically inserted <style> node surviving.
+    try {
+      const rootEl = doc.documentElement;
+      const bodyEl = doc.body;
+      if (rootEl) {
+        rootEl.style.setProperty("background-color", bgColor, "important");
+        rootEl.style.setProperty("color", textColor, "important");
+      }
+      if (bodyEl) {
+        bodyEl.style.setProperty("background-color", bgColor, "important");
+        bodyEl.style.setProperty("color", textColor, "important");
+        bodyEl.style.setProperty("font-family", fontFamily, "important");
+        bodyEl.style.setProperty("font-size", `${fontSizeRef.current}px`, "important");
+        bodyEl.style.setProperty("line-height", String(lineHeightRef.current), "important");
+      }
+    } catch { /* ignore */ }
+
+    // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
+    try {
+      const win = contents?.window ?? doc.defaultView ?? null;
+      const frame = (contents.window?.frameElement || viewerRef.current?.querySelector("iframe")) as HTMLIFrameElement | null;
+      epubDiag("content styled", {
+        override: !!doc.getElementById("epub-override-styles"),
+        epubjsStyle: !!doc.getElementById("epubjs-inserted-css-default"),
+        htmlBg: win && typeof win.getComputedStyle === "function" ? win.getComputedStyle(doc.documentElement).backgroundColor : null,
+        bodyBg: win && typeof win.getComputedStyle === "function" ? win.getComputedStyle(doc.body).backgroundColor : null,
+        bodyColor: win && typeof win.getComputedStyle === "function" ? win.getComputedStyle(doc.body).color : null,
+        iframeBg: frame?.style?.backgroundColor ?? null,
+        inlineHtmlBg: doc.documentElement?.style.getPropertyValue("background-color") ?? null,
+      });
+    } catch { /* ignore */ }
   }, []);
 
-  const applyRenditionTheme = useCallback(() => {
-    if (!rendition) return;
+  // Computed-style verification for the initial content document: the reader
+  // may only become visible once the content's critical colors actually agree
+  // with the active Plethora palette.
+  const verifyContentThemed = useCallback((contents: any): boolean => {
+    try {
+      const doc = contents?.document as globalThis.Document | undefined;
+      if (!doc?.documentElement || !doc.body) return false;
+      const win = contents?.window ?? doc.defaultView ?? null;
+      if (!win || typeof win.getComputedStyle !== "function") return false;
+      const { rawBgColor, textColor } = resolveReaderPalette();
+      const isTransparent = rawBgColor === "transparent" || !rawBgColor;
+      const bgColor = isTransparent
+        ? makeColorOpaque(themeRef.current?.colors?.toolbar || themeRef.current?.colors?.surface || "rgba(15, 23, 42, 0.55)", "rgb(15, 23, 42)")
+        : rawBgColor;
+      const htmlBg = win.getComputedStyle(doc.documentElement).backgroundColor;
+      const bodyBg = win.getComputedStyle(doc.body).backgroundColor;
+      const bodyColor = win.getComputedStyle(doc.body).color;
+      const ok = colorsMatch(htmlBg, bgColor) && colorsMatch(bodyBg, bgColor) && colorsMatch(bodyColor, textColor);
+      epubDiag("verify", { ok, htmlBg, bodyBg, bodyColor, expectedBg: bgColor, expectedFg: textColor });
+      return ok;
+    } catch {
+      return false;
+    }
+  }, [resolveReaderPalette]);
+
+  // Apply the reader theme to a concrete rendition instance. The instance is
+  // taken from the argument, then the synchronously-assigned renditionRef,
+  // and only as a last resort the React state — the initialization path must
+  // never wait for setRendition() to commit.
+  const applyRenditionTheme = useCallback((targetRendition?: any) => {
+    const r = targetRendition ?? renditionRef.current ?? rendition;
+    if (!r) return;
 
     const { rawBgColor, textColor, isDark, fontFamily } = resolveReaderPalette();
 
@@ -812,7 +925,19 @@ export function EPUBViewer({
       ? (themeRef.current?.colors?.toolbar || themeRef.current?.colors?.surface || "rgba(15, 23, 42, 0.55)")
       : rawBgColor;
 
-    rendition.themes.default({
+    // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
+    epubDiag("apply theme", {
+      themeId: themeRef.current?.id,
+      variant: themeRef.current?.variant,
+      isMobileShell: isMobileRef.current,
+      bg,
+      fg: textColor,
+      contents: (() => {
+        try { return r.getContents?.()?.length ?? -1; } catch { return -1; }
+      })(),
+    });
+
+    r.themes.default({
       html: {
         "background": `${bg} !important`,
         "background-color": `${bg} !important`,
@@ -848,10 +973,10 @@ export function EPUBViewer({
         "font-family": `${fontFamily} !important`,
       },
     });
-    rendition.themes.select("default");
+    r.themes.select("default");
 
     try {
-      rendition.getContents().forEach((contents: any) => {
+      r.getContents().forEach((contents: any) => {
         applyContentOverrides(contents);
       });
     } catch {
@@ -1009,7 +1134,16 @@ export function EPUBViewer({
 
     const loadEPUB = async () => {
       setIsLoading(true);
+      setInitialContentThemed(false);
       setError(null);
+
+      epubDiag("open", {
+        themeId: themeRef.current?.id,
+        variant: themeRef.current?.variant,
+        isMobileShell: isMobileRef.current,
+        fileUrl: !!fileUrl,
+        fileData: !!fileData,
+      });
 
       try {
         if (!fileUrl && !fileData) {
@@ -1041,6 +1175,8 @@ export function EPUBViewer({
           bookReadySettled = true;
           if (destroyBookWhenReady && locationsSettled) destroyBookInstance();
         }
+
+        epubDiag("ready", { bookReadySettled });
 
         if (!mounted) return;
 
@@ -1172,7 +1308,10 @@ export function EPUBViewer({
           });
 
           renditionInstance = rendition;
+          renditionRef.current = rendition;
           setRendition(rendition);
+
+          epubDiag("rendition created", { themeId: themeRef.current?.id });
 
           // Guard epub.js's insertRule-based theme injection against Android
           // WebView stylesheet races (see patchThemesInsertRuleGuard).
@@ -1251,14 +1390,24 @@ export function EPUBViewer({
             // DOM cleanup so a failure here can never leave a naked document.
             patchContentsInsertRuleGuard(contents);
 
-            // Disable all EPUB stylesheets by setting them to disabled
+            // Install Plethora's theme layers FIRST so cleanup can never
+            // leave the document naked: #epub-override-styles plus critical
+            // inline styles on documentElement/body (applyContentOverrides).
+            applyContentOverrides(contents);
+
+            // Remove publisher stylesheets — but NEVER epub.js's own theme
+            // layer ([id^="epubjs-inserted-css-"], e.g.
+            // style#epubjs-inserted-css-default created by
+            // Contents.addStylesheetRules via themes.default/select) nor
+            // Plethora's override node. Not every non-Plethora <style> is
+            // publisher-owned.
             const links = contents.document.querySelectorAll('link[rel="stylesheet"]');
             links.forEach((link: any) => {
               link.disabled = true;
               link.remove(); // Completely remove the stylesheet element
             });
 
-            const styleTags = contents.document.querySelectorAll('style:not(#epub-override-styles)');
+            const styleTags = contents.document.querySelectorAll('style:not(#epub-override-styles):not([id^="epubjs-inserted-css-"])');
             styleTags.forEach((tag: any) => {
               tag.remove();
             });
@@ -1274,8 +1423,26 @@ export function EPUBViewer({
               }
             });
 
-            // Now inject our consistent styling
-            applyContentOverrides(contents);
+            // Plethora's theme layers were installed before the cleanup above
+            // (applyContentOverrides is idempotent; one call per content
+            // document is enough).
+
+            // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
+            epubDiag("content hook", {
+              spineIndex: contents.section?.index,
+              override: !!contents.document.getElementById("epub-override-styles"),
+              epubjsStyle: !!contents.document.getElementById("epubjs-inserted-css-default"),
+              getContentsCount: (() => {
+                try { return renditionInstance?.getContents?.()?.length ?? -1; } catch { return -1; }
+              })(),
+            });
+
+            // Readiness: once the initial content document's critical
+            // computed colors match the palette, the reader may become
+            // visible. The `rendered` event is the fallback release.
+            if (mounted && verifyContentThemed(contents)) {
+              setInitialContentThemed(true);
+            }
 
             // Selection wiring (overhaul-reader-selection-ux):
             //  - V2 bridge present: register this content document with the
@@ -1569,11 +1736,23 @@ export function EPUBViewer({
           rendition.on("rendered", (_section: any, view: any) => {
             if (view?.contents) {
               applyContentOverrides(view.contents);
+              if (!verifyContentThemed(view.contents)) {
+                applyContentOverrides(view.contents);
+              }
             }
+            // The initial section has been rendered: the content hook has run
+            // by construction (epub.js fires it before `rendered`), so the
+            // reader is allowed to become visible. Fallback release for the
+            // readiness gate — never a timeout.
+            if (mounted) setInitialContentThemed(true);
+            epubDiag("rendered", { spineIndex: _section?.index });
           });
 
           rendition.themes.register("default", {});
-          applyRenditionTheme();
+          // Apply the theme to the CONCRETE rendition instance before the
+          // first display — the React state has not been committed yet, so a
+          // state-gated call would be a no-op here.
+          applyRenditionTheme(rendition);
 
           // Display the book at saved position or start
           const savedPosition = await loadReadingPositionRef.current();
@@ -3272,7 +3451,7 @@ export function EPUBViewer({
             ref={viewerRef}
             className="absolute inset-0 bg-background"
             data-epub-viewer="true"
-            style={{ opacity: isLoading ? 0 : 1 }}
+            style={{ opacity: isLoading || !initialContentThemed ? 0 : 1 }}
           />
         </div>
         </ReaderTapZones>

@@ -86,14 +86,17 @@ mechanism.
 - **AND** the reader SHALL remain hidden while any of those conditions is
   unmet
 
-### Requirement: EPUB content style replacement is failure-safe
+### Requirement: EPUB content style replacement is failure-safe and preserves every theme layer
 
-The EPUB viewer SHALL install its `#epub-override-styles` node before removing
-publisher stylesheets, and SHALL verify that the override node exists and
-reflects the active palette. Publisher styles SHALL NOT be removed unless the
-Plethora override is confirmed present in the same content document. If the
-override is missing or stale at any lifecycle point (content hook, `rendered`
-event, theme change), the viewer SHALL re-apply it.
+The EPUB viewer SHALL install its `#epub-override-styles` node and critical
+inline styles on the content document before removing publisher styles, and
+SHALL verify that the override node exists and reflects the active palette.
+Publisher styles SHALL NOT be removed unless the Plethora override is
+confirmed present in the same content document. The viewer SHALL preserve
+epub.js's own theme nodes (`[id^="epubjs-inserted-css-"]`) and
+`#epub-override-styles` during cleanup. If the override is missing or stale at
+any lifecycle point (content hook, `rendered` event, theme change), the viewer
+SHALL re-apply it.
 
 #### Scenario: Publisher styles are removed only after the override exists
 
@@ -105,6 +108,14 @@ event, theme change), the viewer SHALL re-apply it.
 - **AND** if the override node cannot be installed, the publisher nodes SHALL
   be retained
 
+#### Scenario: epub.js's own theme layer survives cleanup
+
+- **WHEN** a content document contains `style#epubjs-inserted-css-default`
+  (epub.js's rendition-theme node) or any `[id^="epubjs-inserted-css-"]` node
+- **AND** the content hook runs
+- **THEN** those nodes SHALL remain in the document after cleanup
+- **AND** publisher `<style>` nodes without that id prefix SHALL be removed
+
 #### Scenario: Missing override is re-applied
 
 - **WHEN** a mounted EPUB content document has no `#epub-override-styles` node
@@ -114,8 +125,56 @@ event, theme change), the viewer SHALL re-apply it.
 #### Scenario: Styling never leaves browser defaults
 
 - **WHEN** an EPUB content document is mounted or re-styled
-- **THEN** the document SHALL carry either Plethora's override styling or the
-  publisher's own styling — never a state where both are absent
+- **THEN** the document SHALL carry either Plethora's override styling, the
+  critical inline Plethora styles, or the publisher's own styling — never a
+  state where all three are absent
+
+### Requirement: Critical colors are applied directly to the content elements
+
+For every EPUB content document, the viewer SHALL apply at least
+`documentElement` `background-color` and `color`, and `body`
+`background-color`, `color`, `font-family`, `font-size`, and `line-height`
+directly via `HTMLElement.style.setProperty(..., "important")`, so the
+reader's basic background/foreground correctness does not depend on any
+single dynamically inserted `<style>` node.
+
+#### Scenario: Inline critical styles are present after content processing
+
+- **WHEN** an EPUB content document has been processed by the content hook
+- **THEN** `documentElement` and `body` SHALL carry inline `background-color`
+  and `color` matching the active Plethora palette
+- **AND** `body` SHALL carry the reader font family, font size, and line
+  height inline
+
+#### Scenario: Inline critical styles update on theme change
+
+- **WHEN** the app theme changes while an EPUB is open
+- **THEN** the inline critical styles of every mounted content document SHALL
+  be updated to the new palette
+
+### Requirement: Initial visibility requires verified themed content
+
+The reader container SHALL remain hidden until the initial content document
+has been processed and its critical computed colors agree with the expected
+Plethora reader palette: `getComputedStyle(documentElement).backgroundColor`,
+`getComputedStyle(body).backgroundColor`, and `getComputedStyle(body).color`.
+No arbitrary timeout SHALL be used as the primary readiness mechanism.
+
+#### Scenario: Computed colors gate visibility
+
+- **WHEN** the EPUB book is ready, the rendition is created, and the initial
+  content document is rendered
+- **AND** the content document's computed `html`/`body` background and `body`
+  color match the active Plethora palette
+- **THEN** the reader container SHALL become visible
+
+#### Scenario: Unverified content keeps the reader hidden
+
+- **WHEN** the initial content document's computed critical colors do not
+  match the expected palette
+- **THEN** the reader container SHALL remain hidden
+- **AND** the viewer SHALL re-apply the Plethora styling to the content
+  document
 
 ### Requirement: Theme changes restyle the open EPUB without recreation
 
