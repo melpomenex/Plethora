@@ -974,6 +974,14 @@ pub async fn update_document(
     Ok(updated)
 }
 
+/// Explicitly clear a document's category. `update_document` treats an empty
+/// category as "not provided" (partial-update safety), so clearing needs its
+/// own path (issue #44 bug 11).
+#[tauri::command]
+pub async fn clear_document_category(id: String, repo: State<'_, Repository>) -> Result<Document> {
+    repo.clear_document_category(&id).await
+}
+
 #[tauri::command]
 pub async fn update_document_content(
     id: String,
