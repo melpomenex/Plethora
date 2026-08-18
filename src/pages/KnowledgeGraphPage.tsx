@@ -630,6 +630,7 @@ export function KnowledgeGraphPage() {
             <KnowledgeUniverseLazy
               nodes={filteredData.nodes}
               edges={filteredData.edges}
+              datasetKey={`${activeCollectionId ?? "all"}|${JSON.stringify(filters)}`}
               selectedNodeId={selectedNode}
               onNodeClick={handleNodeClick}
               onNodeDoubleClick={handleNodeDoubleClick}

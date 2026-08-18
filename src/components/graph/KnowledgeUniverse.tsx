@@ -191,10 +191,19 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
   }, []);
 
   // Data → engine; drop stale focus/selection when the collection changes.
+  // A datasetKey change (collection/scope/filter switch) is a dataset
+  // replacement: the engine deliberately re-frames onto the new home.
+  const lastDatasetKeyRef = useRef<string | number | null>(null);
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.setData(layout, nodes, edges);
+    const datasetKey = propsRef.current.datasetKey;
+    const scopeChanged =
+      datasetKey !== undefined &&
+      lastDatasetKeyRef.current !== null &&
+      datasetKey !== lastDatasetKeyRef.current;
+    lastDatasetKeyRef.current = datasetKey ?? null;
+    engine.setData(layout, nodes, edges, { scopeChanged });
     const f = focusRef.current;
     if (f.level !== "universe" && !layout.systems.has(f.docId)) {
       setFocus({ level: "universe" });

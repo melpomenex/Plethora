@@ -76,6 +76,28 @@ export function computeUsableViewportOffset(
   return (viewportWidth - visibleRight) / 2;
 }
 
+export interface FollowHomeDecision {
+  /** The dataset was replaced (collection/scope/filter switch), not edited in place. */
+  scopeChanged: boolean;
+  /** Current camera focus level; "universe" means framing the whole galaxy. */
+  focusLevel: "universe" | "system" | "node";
+  /** Whether the camera currently sits at the home view. */
+  isAtHomeView: boolean;
+}
+
+/**
+ * Whether `setData` should carry the camera to the (possibly moved) home view.
+ *
+ * A dataset replacement re-frames from any camera state — the content under
+ * the old framing is gone. Same-data edits follow home only when the camera is
+ * already there (a deliberately panned camera is the user's). A focused
+ * system/node always wins: the caller reconciles focus separately.
+ */
+export function shouldFollowUpdatedHome(decision: FollowHomeDecision): boolean {
+  if (decision.focusLevel !== "universe") return false;
+  return decision.scopeChanged || decision.isAtHomeView;
+}
+
 /**
  * Focal-point zoom: the orbit target that keeps `anchor` (a point on the plane
  * through `target` perpendicular to the view axis) at the same screen position

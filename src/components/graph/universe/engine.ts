@@ -24,7 +24,7 @@ import {
   STAR_FRAGMENT,
 } from "./shaders";
 import { rand01 } from "./layout";
-import { anchorShift, computeCameraRange } from "./cameraFit";
+import { anchorShift, computeCameraRange, shouldFollowUpdatedHome } from "./cameraFit";
 import {
   TWIST_ENGAGE_RAD,
   isTwoFingerTap,
@@ -48,6 +48,7 @@ const STAR_COUNT = 1400;
 const MAX_NEBULAE = 8;
 const FOCUS_TWEEN_MS = 600;
 const WARP_TWEEN_MS = 950;
+const SCOPE_TWEEN_MS = 500;
 const HOVER_THROTTLE_MS = 33;
 const DRAG_THRESHOLD_PX = 5;
 const TAP_ZOOM_TWEEN_MS = 380;
@@ -759,10 +760,22 @@ export class UniverseEngine {
 
   // ------------------------------------------------------------------ data
 
-  setData(layout: UniverseLayout, nodes: GraphNode[], edges: GraphEdge[]) {
+  setData(
+    layout: UniverseLayout,
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+    opts: { scopeChanged?: boolean } = {}
+  ) {
     // Detect this before replacing the layout/home values. A camera that is
-    // zoomed, panned, or focused must not be reset merely because data changed.
-    const followUpdatedHome = this.layout === null || this.isAtHomeView();
+    // zoomed, panned, or focused must not be reset merely because data changed;
+    // a dataset *replacement* (scope/collection/filter switch, or the very
+    // first data) re-frames from any camera state.
+    const firstData = this.layout === null;
+    const followUpdatedHome = shouldFollowUpdatedHome({
+      scopeChanged: opts.scopeChanged === true || firstData,
+      focusLevel: this.focus.level,
+      isAtHomeView: this.isAtHomeView(),
+    });
     this.disposeData();
     this.layout = layout;
     this.nodesById = new Map(nodes.map((n) => [n.id, n]));
@@ -847,9 +860,14 @@ export class UniverseEngine {
     this.layoutCoreBounds = layout.coreBounds;
     this.homeTarget.set(layout.center.x, layout.center.y, layout.center.z);
     this.updateCameraRange();
-    if (this.focus.level === "universe" && followUpdatedHome) {
-      this.orbit.target.copy(this.homeTarget);
-      this.orbit.dist = this.homeDist;
+    if (followUpdatedHome) {
+      if (firstData) {
+        this.orbit.target.copy(this.homeTarget);
+        this.orbit.dist = this.homeDist;
+      } else {
+        // Dataset replacement: deliberately re-frame onto the new home.
+        this.tweenTo({ target: this.homeTarget.clone(), dist: this.homeDist }, SCOPE_TWEEN_MS);
+      }
     }
 
     // Restore transient visual state onto the fresh buffers
