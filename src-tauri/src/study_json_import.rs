@@ -178,12 +178,24 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
 }
 
 /// Build a `LearningItem` from a question + card pair.
-fn build_learning_item(question: &str, card: &StudyJsonCard, document_id: &str) -> LearningItem {
+///
+/// `collection_id` must match the imported document's collection: cards that
+/// strand in the default collection while their document lands in the chosen
+/// one are invisible in that collection's Due All queue (issue #44 bug 05).
+fn build_learning_item(
+    question: &str,
+    card: &StudyJsonCard,
+    document_id: &str,
+    collection_id: Option<&str>,
+) -> LearningItem {
     let mut item = LearningItem::new(ItemType::Flashcard, question.to_string());
 
     // Deterministic ID from question text
     item.id = hex_sha256(question);
     item.document_id = Some(document_id.to_string());
+    item.collection_id = collection_id
+        .unwrap_or(crate::models::collection::DEFAULT_COLLECTION_ID)
+        .to_string();
     item.answer = Some(card.answer.clone());
 
     item.ease_factor = card.ease_factor;
@@ -267,7 +279,7 @@ pub async fn import_study_json_file(
         deck.deck_name.clone(),
         format!("study-json://{}", filename),
         FileType::Other,
-        collection_id,
+        collection_id.clone(),
     );
     doc.category = Some(deck.subject.clone());
     doc.tags = vec![
@@ -295,7 +307,7 @@ pub async fn import_study_json_file(
             continue;
         }
 
-        let item = build_learning_item(question, card, &document_id);
+        let item = build_learning_item(question, card, &document_id, collection_id.as_deref());
         repo.create_learning_item(&item).await?;
         imported += 1;
     }
@@ -325,6 +337,41 @@ mod tests {
         write!(f, "{}", content).expect("write");
         f
     }
+
+#[test]
+fn imported_cards_carry_the_chosen_collection() {
+    let card = StudyJsonCard {
+        answer: "A".to_string(),
+        subject: "Physics".to_string(),
+        deck_name: "Mechanics".to_string(),
+        difficulty: None,
+        difficulty_score: None,
+        correct_count: 0,
+        missed_count: 0,
+        review_count: 0,
+        ease_factor: default_ease_factor(),
+        interval_days: 0,
+        repetitions: 0,
+        lapse_count: 0,
+        retention_rate: 0.0,
+        lapse_rate: 0.0,
+        due_at: None,
+        last_reviewed: None,
+        manual_review: false,
+        save_for_later: false,
+        known_pile: false,
+    };
+
+    let chosen = "11111111-2222-3333-4444-555555555555";
+    let item = build_learning_item("Question?", &card, "doc-1", Some(chosen));
+    assert_eq!(item.collection_id, chosen, "cards must follow the chosen collection");
+
+    let fallback = build_learning_item("Question?", &card, "doc-1", None);
+    assert_eq!(
+        fallback.collection_id,
+        crate::models::collection::DEFAULT_COLLECTION_ID
+    );
+}
 
     fn sample_card() -> serde_json::Value {
         serde_json::json!({
@@ -434,7 +481,7 @@ mod tests {
     #[test]
     fn test_build_learning_item_review() {
         let card: StudyJsonCard = serde_json::from_value(sample_card()).unwrap();
-        let item = build_learning_item("What is DNA synthesis?", &card, "doc-123");
+        let item = build_learning_item("What is DNA synthesis?", &card, "doc-123", None);
 
         assert_eq!(item.item_type, ItemType::Flashcard);
         assert_eq!(item.document_id.as_deref(), Some("doc-123"));
@@ -459,7 +506,7 @@ mod tests {
     #[test]
     fn test_build_learning_item_new() {
         let card: StudyJsonCard = serde_json::from_value(new_card()).unwrap();
-        let item = build_learning_item("Why do alcohols H-bond?", &card, "doc-123");
+        let item = build_learning_item("Why do alcohols H-bond?", &card, "doc-123", None);
 
         assert!(matches!(item.state, ItemState::New));
         assert_eq!(item.interval, 0.0);
@@ -473,7 +520,7 @@ mod tests {
         let mut json = sample_card();
         json["known_pile"] = serde_json::json!(true);
         let card: StudyJsonCard = serde_json::from_value(json).unwrap();
-        let item = build_learning_item("Known thing?", &card, "doc-123");
+        let item = build_learning_item("Known thing?", &card, "doc-123", None);
 
         assert!(item.is_suspended);
         assert!(matches!(item.state, ItemState::Review));

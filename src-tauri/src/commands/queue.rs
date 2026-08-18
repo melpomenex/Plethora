@@ -7,6 +7,33 @@ use crate::models::QueueItem;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use tauri::State;
+use crate::models::collection::DEFAULT_COLLECTION_ID;
+
+/// Uniform "default collection" scoping for every queue item type: the
+/// default collection (the real UUID sentinel, the legacy "default" literal,
+/// or an empty id) includes rows assigned to it *and* legacy NULL/empty rows;
+/// any other collection matches only its own id exactly. Previously each item
+/// type scoped differently, so legacy rows appeared in one type's queue but
+/// not another's (issue #44 bug 05).
+fn is_default_collection_scope(cid: Option<&str>) -> bool {
+    cid.map(|c| c == DEFAULT_COLLECTION_ID || c == "default" || c.is_empty())
+        .unwrap_or(false)
+}
+
+/// Whether a row with `row_collection` is visible under `cid` (None = all).
+fn collection_allows(cid: Option<&str>, row_collection: &str) -> bool {
+    let Some(cid) = cid else {
+        return true;
+    };
+    if is_default_collection_scope(Some(cid)) {
+        row_collection.is_empty()
+            || row_collection == cid
+            || row_collection == DEFAULT_COLLECTION_ID
+            || row_collection == "default"
+    } else {
+        row_collection == cid
+    }
+}
 
 fn preview_text(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
@@ -155,10 +182,8 @@ async fn get_queue_items_from_repo(
         }
 
         // Filter by collection if specified
-        if let Some(cid) = collection_id {
-            if item.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &item.collection_id) {
+            continue;
         }
 
         let is_due = item.due_date <= now;
@@ -229,10 +254,8 @@ async fn get_queue_items_from_repo(
 
     for extract in extracts {
         // Filter by collection if specified
-        if let Some(cid) = collection_id {
-            if extract.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &extract.collection_id) {
+            continue;
         }
 
         let document_title = doc_titles
@@ -281,10 +304,8 @@ async fn get_queue_items_from_repo(
 
     for extract in video_extracts {
         // Filter by collection if specified
-        if let Some(cid) = collection_id {
-            if extract.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &extract.collection_id) {
+            continue;
         }
 
         let document_title = doc_titles
@@ -343,10 +364,8 @@ async fn get_queue_items_from_repo(
         }
 
         // Filter by collection if specified
-        if let Some(cid) = collection_id {
-            if document.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &document.collection_id) {
+            continue;
         }
 
         let progress = match (document.current_page, document.total_pages) {
@@ -674,10 +693,8 @@ async fn get_due_queue_items_from_repo_at(
     }
 
     for extract in extracts {
-        if let Some(cid) = collection_id {
-            if extract.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &extract.collection_id) {
+            continue;
         }
 
         let document_title = doc_titles
@@ -719,10 +736,8 @@ async fn get_due_queue_items_from_repo_at(
     }
 
     for extract in video_extracts {
-        if let Some(cid) = collection_id {
-            if extract.collection_id != cid {
-                continue;
-            }
+        if !collection_allows(collection_id, &extract.collection_id) {
+            continue;
         }
 
         let document_title = doc_titles
@@ -1341,5 +1356,38 @@ mod tests {
         .expect("startup queue preview");
         assert_eq!(items.len(), 2);
         assert_eq!(total, 3);
+    }
+}
+
+#[cfg(test)]
+mod collection_scope_tests {
+    use super::*;
+
+    const OTHER: &str = "11111111-2222-3333-4444-555555555555";
+
+    #[test]
+    fn default_scope_includes_sentinel_legacy_and_unassigned_rows() {
+        // Rows for each of the four queue item types under default scope.
+        for row in ["", "00000000-0000-0000-0000-000000000001", "default"] {
+            assert!(collection_allows(Some(DEFAULT_COLLECTION_ID), row), "row {row:?}");
+        }
+        // The legacy "default" literal scope behaves identically.
+        assert!(collection_allows(Some("default"), ""));
+        assert!(collection_allows(Some("default"), DEFAULT_COLLECTION_ID));
+    }
+
+    #[test]
+    fn non_default_collection_matches_only_its_own_rows() {
+        assert!(collection_allows(Some(OTHER), OTHER));
+        assert!(!collection_allows(Some(OTHER), ""));
+        assert!(!collection_allows(Some(OTHER), DEFAULT_COLLECTION_ID));
+        assert!(!collection_allows(Some(OTHER), "default"));
+    }
+
+    #[test]
+    fn no_collection_scope_includes_everything() {
+        assert!(collection_allows(None, ""));
+        assert!(collection_allows(None, OTHER));
+        assert!(collection_allows(None, DEFAULT_COLLECTION_ID));
     }
 }

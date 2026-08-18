@@ -95,4 +95,27 @@ describe("studyDeckStore deck membership", () => {
       { id: "global", name: "Everything", tagFilters: [], filterType: "all" },
     ]);
   });
+
+  // Issue #44 bug 10 hardening: a deck referenced while saving a card must
+  // exist in the one shared store afterwards — Deck Manager and the studio
+  // picker both render this exact list, so this is the parity invariant.
+  it("materializes a new deck referenced at card-save time (picker ↔ manager parity)", () => {
+    const [deckId] = useStudyDeckStore.getState().ensureDecksExist(["Brand New Deck"]);
+
+    const decks = useStudyDeckStore.getState().decks;
+    const created = decks.find((deck) => deck.id === deckId)!;
+    expect(created.name).toBe("Brand New Deck");
+
+    // The deck matches cards carrying its deck tag, so the saved card lands
+    // in it — Deck Manager lists it with the card matched.
+    expect(matchesDeck({ tags: ["deck:Brand New Deck"] }, created)).toBe(true);
+
+    // Every deck in the store is what both surfaces list; re-running the
+    // materialization is idempotent (no duplicate decks).
+    useStudyDeckStore.getState().ensureDecksExist(["Brand New Deck"]);
+    const sameName = useStudyDeckStore
+      .getState()
+      .decks.filter((deck) => deck.name.toLowerCase() === "brand new deck");
+    expect(sameName).toHaveLength(1);
+  });
 });
