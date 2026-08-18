@@ -23,6 +23,10 @@ pub struct OCRConfig {
     pub default_provider: OCRProviderType,
     /// Tesseract installation path (for local OCR)
     pub tesseract_path: Option<String>,
+    /// OCR language code passed through to providers that support one
+    /// (e.g. Tesseract's `-l` argument). `None` means the provider default.
+    #[serde(default)]
+    pub language: Option<String>,
     /// Google Document AI credentials
     pub google_document_ai: Option<GoogleDocumentAIConfig>,
     /// AWS Textract configuration
@@ -83,6 +87,7 @@ impl Default for OCRConfig {
         Self {
             default_provider: OCRProviderType::Tesseract,
             tesseract_path: None,
+            language: None,
             google_document_ai: None,
             aws_textract: None,
             azure_vision: None,

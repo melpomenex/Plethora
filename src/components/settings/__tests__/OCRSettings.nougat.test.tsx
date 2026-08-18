@@ -22,6 +22,7 @@ vi.mock("../../../lib/tauri", () => ({
 
 vi.mock("../../../api/ocrCommands", () => ({
   downloadOllamaInstaller: vi.fn(),
+  updateOCRConfig: vi.fn().mockResolvedValue(undefined),
   getGLMRuntimeStatus: vi.fn(),
   getNougatRuntimeStatus: mocks.getNougatRuntimeStatus,
   installManagedNougat: mocks.installManagedNougat,

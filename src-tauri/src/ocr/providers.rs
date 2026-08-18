@@ -359,6 +359,12 @@ pub trait OCRProvider: Send + Sync {
     /// Check if provider is available
     fn is_available(&self) -> bool;
 
+    /// Actionable installation/configuration guidance for when
+    /// `is_available()` is false. `None` falls back to a generic message.
+    fn unavailability_guidance(&self) -> Option<String> {
+        None
+    }
+
     /// Get provider name for display
     fn provider_name(&self) -> &str;
 }
@@ -366,15 +372,22 @@ pub trait OCRProvider: Send + Sync {
 /// Tesseract OCR provider (local)
 pub struct TesseractProvider {
     tesseract_path: Option<String>,
+    /// Tesseract language code (`-l`); `None` falls back to "eng".
+    language: Option<String>,
     client: reqwest::Client,
 }
 
 impl TesseractProvider {
-    pub fn new(tesseract_path: Option<String>) -> Self {
+    pub fn new(tesseract_path: Option<String>, language: Option<String>) -> Self {
         Self {
             tesseract_path,
+            language,
             client: reqwest::Client::new(),
         }
+    }
+
+    pub fn language_arg(&self) -> &str {
+        self.language.as_deref().unwrap_or("eng")
     }
 
     /// Resolve the tesseract binary path.
@@ -447,7 +460,7 @@ impl OCRProvider for TesseractProvider {
             .arg(image_path)
             .arg("stdout")
             .arg("-l")
-            .arg("eng")
+            .arg(self.language_arg())
             .output()
             .map_err(|e| PlethoraError::Internal(format!("Failed to run Tesseract: {}", e)))?;
 
@@ -506,7 +519,7 @@ impl OCRProvider for TesseractProvider {
             .arg(&temp_file)
             .arg("stdout")
             .arg("-l")
-            .arg("eng")
+            .arg(self.language_arg())
             .arg("tsv")
             .output();
         if let Ok(output) = tsv_output {
@@ -525,6 +538,10 @@ impl OCRProvider for TesseractProvider {
 
     fn is_available(&self) -> bool {
         self.check_installation().is_ok()
+    }
+
+    fn unavailability_guidance(&self) -> Option<String> {
+        self.check_installation().err().map(|e| e.to_string())
     }
 
     fn provider_name(&self) -> &str {
@@ -1754,6 +1771,7 @@ pub fn create_provider(
     match provider_type {
         OCRProviderType::Tesseract => Ok(Box::new(TesseractProvider::new(
             config.tesseract_path.clone(),
+            config.language.clone(),
         ))),
         OCRProviderType::GoogleDocumentAI => {
             let google_config = config.google_document_ai.as_ref().ok_or_else(|| {
