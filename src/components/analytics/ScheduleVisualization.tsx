@@ -18,7 +18,13 @@ interface DueWorkloadForecast {
     date: string;
     due_learning_items: number;
     due_documents: number;
+    /** Text extracts due this day (part of due_total). */
+    due_extracts?: number;
+    /** Video extracts due this day (part of due_total). */
+    due_video_extracts?: number;
     due_total: number;
+    /** True for the leading overdue/backlog bucket. */
+    is_backlog?: boolean;
   }>;
   summaries: Array<{
     horizon_days: number;
@@ -88,6 +94,11 @@ export function ScheduleVisualization() {
   const due60 = dueByHorizon(60);
   const due90 = dueByHorizon(90);
 
+  // The leading overdue/backlog bucket (when present) represents items whose
+  // due date already passed — counted per item type like every other day.
+  const backlogPoint = forecast.points.find((point) => point.is_backlog) ?? null;
+  const backlogExtracts = (backlogPoint?.due_extracts ?? 0) + (backlogPoint?.due_video_extracts ?? 0);
+
   // Calculate bar widths (percentage of max value)
   const maxDue = Math.max(due30, due60, due90, 1);
   const due30Width = (due30 / maxDue) * 100;
@@ -125,6 +136,19 @@ export function ScheduleVisualization() {
             <div className="text-sm text-muted-foreground">Retention Rate</div>
           </div>
         </div>
+
+        {/* Overdue backlog note — the forecast's leading bucket */}
+        {backlogPoint && backlogPoint.due_total > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm">
+            <span className="text-foreground">
+              Overdue backlog: <strong>{backlogPoint.due_total}</strong> items due before today
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {backlogPoint.due_learning_items} cards · {backlogPoint.due_documents} documents ·{" "}
+              {backlogExtracts} extracts
+            </span>
+          </div>
+        )}
 
         {/* Due Items Bar Chart */}
         <div>

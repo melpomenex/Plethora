@@ -22,6 +22,22 @@ pub struct DocumentQueueInfo {
     pub is_dismissed: bool,
 }
 
+/// Daily due-count rows per item type plus the overdue backlog counts, as
+/// served by `get_workload_forecast_grouped`. Extracts and video extracts are
+/// counted alongside learning items and documents so the forecast covers the
+/// same types the Due All queue serves.
+#[derive(Debug, Default)]
+pub struct WorkloadForecastGrouped {
+    pub learning_rows: Vec<(String, i64)>,
+    pub document_rows: Vec<(String, i64)>,
+    pub extract_rows: Vec<(String, i64)>,
+    pub video_extract_rows: Vec<(String, i64)>,
+    pub overdue_learning_items: i64,
+    pub overdue_documents: i64,
+    pub overdue_extracts: i64,
+    pub overdue_video_extracts: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SM20OptimizerProfileRow {
     pub coefficients: crate::algorithms::sm20::SM20RecallCoefficients,
@@ -1142,19 +1158,38 @@ impl Repository {
              collection_id";
 
         let rows = if let Some(cid) = collection_id {
-            sqlx::query(&format!(
-                "SELECT {} FROM documents \
-                 WHERE is_archived = 0 \
-                   AND COALESCE(is_dismissed, 0) = 0 \
-                   AND collection_id = ? \
-                   AND (next_reading_date IS NULL OR next_reading_date <= ?) \
-                 ORDER BY next_reading_date IS NULL, next_reading_date, date_added DESC",
-                columns
-            ))
-            .bind(cid)
-            .bind(before)
-            .fetch_all(&self.pool)
-            .await?
+            // Default-collection scope includes legacy NULL/empty rows and the
+            // real UUID sentinel, mirroring get_due_learning_items exactly.
+            if cid == DEFAULT_COLLECTION_ID || cid == "default" || cid.is_empty() {
+                sqlx::query(&format!(
+                    "SELECT {} FROM documents \
+                     WHERE is_archived = 0 \
+                       AND COALESCE(is_dismissed, 0) = 0 \
+                       AND (collection_id = ? OR collection_id IS NULL OR collection_id = '' OR collection_id = ?) \
+                       AND (next_reading_date IS NULL OR next_reading_date <= ?) \
+                     ORDER BY next_reading_date IS NULL, next_reading_date, date_added DESC",
+                    columns
+                ))
+                .bind(cid)
+                .bind(DEFAULT_COLLECTION_ID)
+                .bind(before)
+                .fetch_all(&self.pool)
+                .await?
+            } else {
+                sqlx::query(&format!(
+                    "SELECT {} FROM documents \
+                     WHERE is_archived = 0 \
+                       AND COALESCE(is_dismissed, 0) = 0 \
+                       AND collection_id = ? \
+                       AND (next_reading_date IS NULL OR next_reading_date <= ?) \
+                     ORDER BY next_reading_date IS NULL, next_reading_date, date_added DESC",
+                    columns
+                ))
+                .bind(cid)
+                .bind(before)
+                .fetch_all(&self.pool)
+                .await?
+            }
         } else {
             sqlx::query(&format!(
                 "SELECT {} FROM documents \
@@ -1270,6 +1305,23 @@ impl Repository {
         .bind(id)
         .execute(&self.pool)
         .await?;
+
+        self.get_document(id)
+            .await?
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+    }
+
+    /// Clear a document's category. Deliberately separate from
+    /// `update_document`, whose empty-string-means-unprovided convention
+    /// (there to keep partial updates from clobbering content-bearing
+    /// columns) makes an explicit clear indistinguishable from "leave
+    /// unchanged" — the two must not share a path (issue #44 bug 11).
+    pub async fn clear_document_category(&self, id: &str) -> Result<Document> {
+        sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
+            .bind(chrono::Utc::now())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         self.get_document(id)
             .await?
@@ -2593,10 +2645,15 @@ impl Repository {
         collection_id: Option<&str>,
     ) -> Result<Vec<LearningItem>> {
         let rows = if let Some(cid) = collection_id {
-            if cid == "default" || cid.is_empty() {
-                sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND (collection_id = ? OR collection_id IS NULL OR collection_id = '') ORDER BY due_date")
+            // The default collection includes legacy NULL/empty rows. The
+            // guard must cover the real UUID sentinel (what the app sends),
+            // not just the legacy "default" literal — the two coexist across
+            // schema generations.
+            if cid == DEFAULT_COLLECTION_ID || cid == "default" || cid.is_empty() {
+                sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND (collection_id = ? OR collection_id IS NULL OR collection_id = '' OR collection_id = ?) ORDER BY due_date")
                     .bind(before)
                     .bind(cid)
+                    .bind(DEFAULT_COLLECTION_ID)
                     .fetch_all(&self.pool)
                     .await?
             } else {
@@ -6148,12 +6205,18 @@ impl Repository {
         Ok(map)
     }
 
-    /// Get workload forecast using GROUP BY aggregation (replaces per-day loop)
+    /// Get workload forecast using GROUP BY aggregation (replaces per-day loop).
+    ///
+    /// Counts the same item types the Due All queue serves — learning items,
+    /// documents, text extracts, and video extracts — and also reports how
+    /// many of each are already overdue relative to the window start, so an
+    /// overdue- or extract-heavy library renders a non-zero forecast instead
+    /// of a flat zero line (issue #44 bug 05).
     pub async fn get_workload_forecast_grouped(
         &self,
         start_date: chrono::NaiveDate,
         horizon_days: i32,
-    ) -> Result<(Vec<(String, i64)>, Vec<(String, i64)>)> {
+    ) -> Result<WorkloadForecastGrouped> {
         let end_date = start_date + chrono::Duration::days(horizon_days as i64 - 1);
         let day_start = start_date
             .and_hms_opt(0, 0, 0)
@@ -6182,7 +6245,63 @@ impl Repository {
         .await
         .map_err(PlethoraError::Database)?;
 
-        Ok((learning_rows, doc_rows))
+        let extract_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT DATE(next_review_date) as day, COUNT(*) as count FROM extracts WHERE next_review_date IS NOT NULL AND next_review_date >= ?1 AND next_review_date <= ?2 AND is_dismissed = 0 GROUP BY DATE(next_review_date)"
+        )
+        .bind(day_start)
+        .bind(day_end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+
+        let video_extract_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT DATE(next_review_date) as day, COUNT(*) as count FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date >= ?1 AND next_review_date <= ?2 GROUP BY DATE(next_review_date)"
+        )
+        .bind(day_start)
+        .bind(day_end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+
+        let overdue_learning_items: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM learning_items WHERE due_date < ?1 AND is_suspended = false",
+        )
+        .bind(day_start)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+        let overdue_documents: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM documents WHERE next_reading_date IS NOT NULL AND next_reading_date < ?1 AND is_archived = false",
+        )
+        .bind(day_start)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+        let overdue_extracts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM extracts WHERE next_review_date IS NOT NULL AND next_review_date < ?1 AND is_dismissed = 0",
+        )
+        .bind(day_start)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+        let overdue_video_extracts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date < ?1",
+        )
+        .bind(day_start)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(PlethoraError::Database)?;
+
+        Ok(WorkloadForecastGrouped {
+            learning_rows,
+            document_rows: doc_rows,
+            extract_rows,
+            video_extract_rows,
+            overdue_learning_items,
+            overdue_documents,
+            overdue_extracts,
+            overdue_video_extracts,
+        })
     }
 
     /// Get all video extracts
@@ -7900,6 +8019,196 @@ mod tests {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
         db.migrate().await.expect("migrate");
         Repository::new(db.pool().clone())
+    }
+
+    #[tokio::test]
+    async fn default_collection_scope_includes_legacy_null_and_empty_rows() {
+        let repo = setup_repo().await;
+        let now = Utc::now();
+
+        // A learning item with a legacy empty collection id (the column is
+        // NOT NULL since the collections backfill, so legacy unassigned rows
+        // carry '' rather than NULL).
+        let mut item = LearningItem::new(ItemType::Flashcard, "Legacy empty card".to_string());
+        item.due_date = now - chrono::Duration::hours(1);
+        let created_item = repo.create_learning_item(&item).await.expect("item");
+        sqlx::query("UPDATE learning_items SET collection_id = '' WHERE id = ?")
+            .bind(&created_item.id)
+            .execute(&repo.pool)
+            .await
+            .expect("legacy empty collection");
+
+        // A due document with a legacy empty-string collection id.
+        let doc = repo
+            .create_document(&Document::new(
+                "Legacy empty-collection doc".to_string(),
+                "/tmp/legacy.pdf".to_string(),
+                FileType::Pdf,
+            ))
+            .await
+            .expect("document");
+        sqlx::query("UPDATE documents SET collection_id = '', next_reading_date = ? WHERE id = ?")
+            .bind(now - chrono::Duration::hours(1))
+            .bind(&doc.id)
+            .execute(&repo.pool)
+            .await
+            .expect("legacy empty collection");
+
+        // The real default-collection sentinel must include both legacy rows…
+        let due_items = repo
+            .get_due_learning_items(&now, Some(DEFAULT_COLLECTION_ID))
+            .await
+            .expect("due learning items");
+        assert!(
+            due_items.iter().any(|i| i.id == created_item.id),
+            "legacy empty-collection item must be visible under the default sentinel"
+        );
+
+        let due_docs = repo
+            .list_due_documents_for_queue(&now, Some(DEFAULT_COLLECTION_ID))
+            .await
+            .expect("due documents");
+        assert!(
+            due_docs.iter().any(|d| d.id == doc.id),
+            "legacy empty-collection document must be visible under the default sentinel"
+        );
+
+        // …and a different collection must exclude both.
+        let other = "11111111-2222-3333-4444-555555555555";
+        let excluded_items = repo
+            .get_due_learning_items(&now, Some(other))
+            .await
+            .expect("other collection items");
+        assert!(excluded_items.iter().all(|i| i.id != created_item.id));
+        let excluded_docs = repo
+            .list_due_documents_for_queue(&now, Some(other))
+            .await
+            .expect("other collection docs");
+        assert!(excluded_docs.iter().all(|d| d.id != doc.id));
+    }
+
+    #[tokio::test]
+    async fn document_category_set_preserve_and_clear_semantics() {
+        let repo = setup_repo().await;
+        let doc = repo
+            .create_document(&Document::new(
+                "Category doc".to_string(),
+                "/tmp/category.md".to_string(),
+                FileType::Markdown,
+            ))
+            .await
+            .expect("document");
+
+        // SET: a non-empty category writes.
+        let mut updated = doc.clone();
+        updated.category = Some("History".to_string());
+        let saved = repo.update_document(&doc.id, &updated).await.expect("set");
+        assert_eq!(saved.category.as_deref(), Some("History"));
+
+        // PRESERVE: a partial update without a category (None or empty string
+        // — the not-provided convention) leaves the stored category alone.
+        let mut partial = saved.clone();
+        partial.category = None;
+        partial.is_favorite = !saved.is_favorite;
+        let preserved = repo.update_document(&doc.id, &partial).await.expect("preserve");
+        assert_eq!(preserved.category.as_deref(), Some("History"));
+
+        let mut empty = preserved.clone();
+        empty.category = Some(String::new());
+        let still_preserved = repo.update_document(&doc.id, &empty).await.expect("preserve empty");
+        assert_eq!(
+            still_preserved.category.as_deref(),
+            Some("History"),
+            "empty string means not-provided, not clear"
+        );
+
+        // CLEAR: the dedicated path is the only way to unset.
+        let cleared = repo.clear_document_category(&doc.id).await.expect("clear");
+        assert!(cleared.category.is_none());
+        let reloaded = repo.get_document(&doc.id).await.expect("read").expect("row");
+        assert!(reloaded.category.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_extract_writes_and_roundtrips_html_content() {
+        let repo = setup_repo().await;
+        let doc = repo
+            .create_document(&Document::new(
+                "Extract doc".to_string(),
+                "/tmp/extracts.md".to_string(),
+                FileType::Markdown,
+            ))
+            .await
+            .expect("document");
+
+        let mut extract = Extract::new(doc.id.clone(), "Plain **bold** content".to_string());
+        extract.html_content = Some("<p>Plain <strong>bold</strong> content</p>".to_string());
+        let created = repo.create_extract(&extract).await.expect("create");
+
+        // A new html_content (regenerated by the shared editor) is written.
+        let mut updated = created.clone();
+        updated.html_content = Some(
+            "<div><p>Plain <strong>bold</strong> content</p><figure><img src=\"data:image/png;base64,FULL\"/></figure></div>".to_string(),
+        );
+        let saved = repo.update_extract(&updated).await.expect("update");
+        assert_eq!(saved.html_content.as_deref(), updated.html_content.as_deref());
+
+        // …and the write roundtrips through a fresh read.
+        let reloaded = repo.get_extract(&created.id).await.expect("read").expect("row");
+        assert!(reloaded
+            .html_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("data:image/png;base64,FULL"));
+    }
+
+    #[tokio::test]
+    async fn workload_forecast_counts_extracts_and_overdue_backlog() {
+        let repo = setup_repo().await;
+        let now = Utc::now();
+
+        let doc = repo
+            .create_document(&Document::new(
+                "Forecast doc".to_string(),
+                "/tmp/forecast.mp4".to_string(),
+                FileType::Video,
+            ))
+            .await
+            .expect("document");
+
+        // One overdue text extract, one in-window text extract, one overdue
+        // video extract, one overdue learning item.
+        let mut overdue_extract = Extract::new(doc.id.clone(), "overdue extract".to_string());
+        overdue_extract.next_review_date = Some(now - chrono::Duration::days(1));
+        repo.create_extract(&overdue_extract).await.expect("overdue extract");
+
+        let mut future_extract = Extract::new(doc.id.clone(), "future extract".to_string());
+        future_extract.next_review_date = Some(now + chrono::Duration::days(2));
+        repo.create_extract(&future_extract).await.expect("future extract");
+
+        let video = crate::models::VideoExtract::with_scheduling(
+            doc.id.clone(),
+            0.0,
+            60.0,
+            "overdue segment".to_string(),
+            now - chrono::Duration::days(1),
+        );
+        repo.create_video_extract(&video).await.expect("overdue video extract");
+
+        let mut item = LearningItem::new(ItemType::Flashcard, "overdue card".to_string());
+        item.due_date = now - chrono::Duration::days(1);
+        repo.create_learning_item(&item).await.expect("overdue card");
+
+        let start = Utc::now().date_naive();
+        let grouped = repo.get_workload_forecast_grouped(start, 7).await.expect("forecast");
+
+        assert!(
+            !grouped.extract_rows.is_empty(),
+            "in-window extracts must be counted in the daily rows"
+        );
+        assert_eq!(grouped.overdue_extracts, 1, "overdue text extract must be counted");
+        assert_eq!(grouped.overdue_video_extracts, 1, "overdue video extract must be counted");
+        assert_eq!(grouped.overdue_learning_items, 1, "overdue card must be counted");
     }
 
     fn sha_hex(bytes: &[u8]) -> String {
