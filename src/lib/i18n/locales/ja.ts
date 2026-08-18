@@ -151,6 +151,8 @@ export const ja: Dict = {
   "layout.statistics": "統計",
   "layout.itemsTotal": "合計 {count} 項目",
   "settings.title": "設定",
+  "settings.interface.startupAnimationLabel": "ブランド起動アニメーション",
+  "settings.interface.startupAnimationHelp": "Knowledge Peck 起動アニメーションを再生します。アプリの読み込み中に、マスコットが浮遊する知識をカードに啄み込みます。オフにするとすぐにアプリを表示します。",
   "settings.searchPlaceholder": "設定を検索...",
   "settings.searchResults": "検索結果",
   "settings.noSettingsFound": "「{query}」に関連する設定が見つかりません",
