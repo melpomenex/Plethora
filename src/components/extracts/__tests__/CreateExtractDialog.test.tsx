@@ -6,6 +6,7 @@ import { CreateExtractDialog } from "../CreateExtractDialog";
 const mocks = vi.hoisted(() => ({
   createExtract: vi.fn(),
   ingestRemoteImage: vi.fn(),
+  getImageAssetById: vi.fn(),
   captureAppWindowRegion: vi.fn(),
   saveScreenshotToRegistry: vi.fn(),
   documents: [] as Array<Record<string, unknown>>,
@@ -19,6 +20,9 @@ vi.mock("../../../api/learning-items", () => ({
 }));
 vi.mock("../../../api/image-registry", () => ({
   ingestRemoteImage: mocks.ingestRemoteImage,
+  ingestImageFile: vi.fn(),
+  // The shared editor fetches the full-resolution rendition for embeds.
+  getImageAssetById: mocks.getImageAssetById,
 }));
 vi.mock("../../../utils/screenshotCapture", () => ({
   captureAppWindowRegion: mocks.captureAppWindowRegion,
@@ -89,6 +93,13 @@ describe("CreateExtractDialog image attachments", () => {
     mocks.createExtract.mockReset();
     mocks.createExtract.mockResolvedValue(createdExtract);
     mocks.ingestRemoteImage.mockReset();
+    // The full rendition resolves to the same asset the registry stub lists.
+    mocks.getImageAssetById.mockReset();
+    mocks.getImageAssetById.mockImplementation(async (id: string) => ({
+      id,
+      file_name: "diagram.png",
+      data_url: "data:image/png;base64,UkVHSVNUUlk=",
+    }));
     mocks.captureAppWindowRegion.mockReset();
     mocks.saveScreenshotToRegistry.mockReset();
     mocks.documents.length = 0;

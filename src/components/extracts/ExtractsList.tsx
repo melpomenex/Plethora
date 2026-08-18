@@ -20,6 +20,8 @@ import { generateLearningItemsFromExtract } from "../../api/learning-items";
 import { bulkGenerateCards } from "../../api/extract-bulk";
 import { useUndoableOperations } from "../../api/undoable";
 import { cn } from "../../utils";
+import { hasMarkdownMarkup } from "../../utils/markdown";
+
 import { sanitizeHtml, RichContentRenderer } from "../common/RichContentRenderer";
 import { EditExtractDialog } from "./EditExtractDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
@@ -625,9 +627,11 @@ export function ExtractsList({
               </div>
             </div>
 
-            {/* Content with Rich HTML support */}
+            {/* Content with Rich HTML support. Extracts whose content carries
+                annotation markup (bold/italic/bullets) render it; plain-text
+                extracts keep the interactive highlight surface. */}
             <div className="mb-3">
-              {extract.html_content ? (
+              {extract.html_content || hasMarkdownMarkup(extract.content) ? (
                 <RichContentRenderer
                   content={extract.content}
                   htmlContent={extract.html_content}
