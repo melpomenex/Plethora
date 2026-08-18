@@ -161,13 +161,130 @@ pub struct GenerateArtifactRequest {
     pub style: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NotebookLmSourcePayload {
+    /// Direct file on disk
+    File {
+        path: String,
+        title: Option<String>,
+        mime_type: Option<String>,
+    },
+    /// Web URL
+    Url {
+        url: String,
+        title: Option<String>,
+    },
+    /// YouTube Video URL
+    Youtube {
+        url: String,
+        title: Option<String>,
+    },
+    /// In-memory text (transported via ephemeral temp file)
+    Text {
+        text: String,
+        title: Option<String>,
+    },
+    /// Existing Plethora Library Document ID
+    Document {
+        document_id: String,
+        title: Option<String>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawSourcePayload {
+    kind: String,
+    title: Option<String>,
+    path: Option<String>,
+    url: Option<String>,
+    text: Option<String>,
+    #[serde(alias = "document_id")]
+    document_id: Option<String>,
+    content: Option<String>,
+    #[serde(alias = "mime_type")]
+    mime_type: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for NotebookLmSourcePayload {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawSourcePayload::deserialize(deserializer)?;
+        let kind = raw.kind.to_lowercase();
+        let title = raw.title;
+        match kind.as_str() {
+            "file" => {
+                let path = raw.path.or(raw.content).ok_or_else(|| {
+                    serde::de::Error::missing_field("path (or legacy content)")
+                })?;
+                Ok(NotebookLmSourcePayload::File {
+                    path,
+                    title,
+                    mime_type: raw.mime_type,
+                })
+            }
+            "url" => {
+                let url = raw.url.or(raw.content).ok_or_else(|| {
+                    serde::de::Error::missing_field("url (or legacy content)")
+                })?;
+                Ok(NotebookLmSourcePayload::Url { url, title })
+            }
+            "youtube" => {
+                let url = raw.url.or(raw.content).ok_or_else(|| {
+                    serde::de::Error::missing_field("url (or legacy content)")
+                })?;
+                Ok(NotebookLmSourcePayload::Youtube { url, title })
+            }
+            "text" => {
+                let text = raw.text.or(raw.content).ok_or_else(|| {
+                    serde::de::Error::missing_field("text (or legacy content)")
+                })?;
+                Ok(NotebookLmSourcePayload::Text { text, title })
+            }
+            "document" | "library" => {
+                let document_id = raw.document_id.or(raw.content).ok_or_else(|| {
+                    serde::de::Error::missing_field("document_id (or legacy content)")
+                })?;
+                Ok(NotebookLmSourcePayload::Document { document_id, title })
+            }
+            other => Err(serde::de::Error::custom(format!(
+                "Unsupported source kind '{other}'. Expected file, url, youtube, text, or document."
+            ))),
+        }
+    }
+}
+
+impl NotebookLmSourcePayload {
+    pub fn title(&self) -> Option<&str> {
+        match self {
+            Self::File { title, .. }
+            | Self::Url { title, .. }
+            | Self::Youtube { title, .. }
+            | Self::Text { title, .. }
+            | Self::Document { title, .. } => title.as_deref(),
+        }
+    }
+
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Self::File { .. } => "file",
+            Self::Url { .. } => "url",
+            Self::Youtube { .. } => "youtube",
+            Self::Text { .. } => "text",
+            Self::Document { .. } => "document",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddSourceRequest {
     pub notebook_id: Option<String>,
-    pub kind: String,
-    pub content: String,
-    pub title: Option<String>,
+    #[serde(flatten)]
+    pub payload: NotebookLmSourcePayload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,6 +421,7 @@ trait NotebookLMProvider: Send + Sync {
         ctx: &ProviderContext,
         notebook_id: &str,
         req: &AddSourceRequest,
+        repo: Option<&Repository>,
     ) -> Result<SourceSummary, AppError>;
     async fn refresh_source(
         &self,
@@ -429,6 +547,7 @@ impl NotebookLMProvider for MockNotebookLMProvider {
         ctx: &ProviderContext,
         notebook_id: &str,
         req: &AddSourceRequest,
+        _repo: Option<&Repository>,
     ) -> Result<SourceSummary, AppError> {
         let mut state = load_mock_state(&ctx.app_dir)?;
         let notebook = state
@@ -436,13 +555,27 @@ impl NotebookLMProvider for MockNotebookLMProvider {
             .iter_mut()
             .find(|n| n.id == notebook_id)
             .ok_or_else(|| AppError::NotFound(format!("Notebook {notebook_id} not found")))?;
+        let title = req
+            .payload
+            .title()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| match &req.payload {
+                NotebookLmSourcePayload::File { path, .. } => Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Untitled File")
+                    .to_string(),
+                NotebookLmSourcePayload::Url { url, .. } => url.clone(),
+                NotebookLmSourcePayload::Youtube { url, .. } => url.clone(),
+                NotebookLmSourcePayload::Text { text, .. } => text.chars().take(60).collect(),
+                NotebookLmSourcePayload::Document { document_id, .. } => {
+                    format!("Document {}", document_id)
+                }
+            });
         let source = SourceSummary {
             id: format!("src_{}", Uuid::new_v4().simple()),
-            title: req
-                .title
-                .clone()
-                .unwrap_or_else(|| req.content.chars().take(60).collect()),
-            kind: req.kind.clone(),
+            title,
+            kind: req.payload.kind_str().to_string(),
             status: "ready".to_string(),
         };
         notebook.sources.push(source.clone());
@@ -638,6 +771,145 @@ impl NotebookLMProvider for MockNotebookLMProvider {
     }
 }
 
+/// RAII guard for temporary files created to stage source text or synthesized documents
+/// for NotebookLM ingestion. Deletes the underlying file automatically when dropped.
+pub struct ScopedTempSourceFile {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl ScopedTempSourceFile {
+    pub async fn create(
+        stage_dir: &Path,
+        content: &str,
+        extension: &str,
+    ) -> Result<Self, AppError> {
+        tokio::fs::create_dir_all(stage_dir).await.map_err(|e| {
+            AppError::IntegrationError(format!(
+                "Failed to create staged directory {}: {}",
+                stage_dir.display(),
+                e
+            ))
+        })?;
+
+        let file_name = format!("{}.{}", Uuid::new_v4(), extension.trim_start_matches('.'));
+        let path = stage_dir.join(file_name);
+
+        tokio::fs::write(&path, content.as_bytes()).await.map_err(|e| {
+            AppError::IntegrationError(format!(
+                "Failed to write scoped temp file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        Ok(Self { path, keep: false })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    #[allow(dead_code)]
+    pub fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for ScopedTempSourceFile {
+    fn drop(&mut self) {
+        if !self.keep && self.path.exists() {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Sweep and delete any orphaned staged files in <app_dir>/notebooklm_staged/ older than 1 hour.
+pub async fn sweep_staged_notebooklm_artifacts(app_dir: &Path) {
+    let staged_dir = app_dir.join("notebooklm_staged");
+    if !staged_dir.exists() {
+        return;
+    }
+
+    let Ok(mut entries) = tokio::fs::read_dir(&staged_dir).await else {
+        return;
+    };
+
+    let one_hour_ago = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(3600))
+        .unwrap_or_else(std::time::SystemTime::now);
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(meta) = entry.metadata().await {
+                if let Ok(modified) = meta.modified() {
+                    if modified < one_hour_ago {
+                        let _ = tokio::fs::remove_file(&path).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn sanitize_arg_for_log(arg: &str) -> String {
+    if arg.len() > 100 {
+        format!("[{} chars]", arg.len())
+    } else {
+        arg.to_string()
+    }
+}
+
+fn format_sanitized_command_label(program: &std::ffi::OsStr, args: &[String]) -> String {
+    let program_name = Path::new(program)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("cli");
+    let sanitized: Vec<String> = args.iter().map(|a| sanitize_arg_for_log(a)).collect();
+    format!("{} {}", program_name, sanitized.join(" "))
+}
+
+fn extract_clean_cli_error(stderr: &str, stdout: &str) -> String {
+    for text in &[stdout, stderr] {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+            if let Some(msg) = json.get("message").and_then(|m| m.as_str()) {
+                let err_code = json.get("code").and_then(|c| c.as_str()).unwrap_or("CLI_ERROR");
+                return format!("{}: {}", err_code, msg.trim());
+            }
+            if let Some(err) = json.get("error").and_then(|e| e.as_str()) {
+                return err.trim().to_string();
+            }
+        }
+    }
+
+    let raw = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        "no stdout/stderr output"
+    };
+
+    let trimmed = raw.trim();
+    let lines: Vec<&str> = trimmed.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    if let Some(last_line) = lines.last() {
+        if last_line.contains("Error:") || last_line.contains("Exception:") {
+            if lines.len() > 1 {
+                return format!("{} (from: {})", last_line, lines[0]);
+            }
+            return last_line.to_string();
+        }
+    }
+
+    if trimmed.chars().count() > 500 {
+        let truncated: String = trimmed.chars().take(500).collect();
+        format!("{}... [truncated]", truncated)
+    } else {
+        trimmed.to_string()
+    }
+}
+
 struct CliNotebookLMProvider;
 
 #[derive(Debug, Clone)]
@@ -660,18 +932,12 @@ async fn execute_notebooklm_command_with_input(
     stdin_input: Option<&str>,
     input_delay_ms: u64,
 ) -> Result<CliCommandResult, AppError> {
-    let command_label = format!(
-        "{} {}",
-        command.as_std().get_program().to_string_lossy(),
-        command
-            .as_std()
-            .get_args()
-            .map(|a| a.to_string_lossy().to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
-    )
-    .trim()
-    .to_string();
+    let raw_args: Vec<String> = command
+        .as_std()
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    let command_label = format_sanitized_command_label(command.as_std().get_program(), &raw_args);
 
     let output = if let Some(input) = stdin_input {
         command
@@ -714,13 +980,7 @@ async fn execute_notebooklm_command_with_input(
             .unwrap_or_else(|| "signal".to_string());
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let details = if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            format!("stdout: {stdout}")
-        } else {
-            "no stdout/stderr output".to_string()
-        };
+        let details = extract_clean_cli_error(&stderr, &stdout);
         return Err(AppError::IntegrationError(format!(
             "command `{}` failed (exit {}): {}",
             command_label, code, details
@@ -1147,9 +1407,15 @@ async fn run_first_success_with_bootstrap(
         };
         match result {
             Ok(result) => return Ok(result),
-            Err(err) => errors.push(format!("{} -> {}", args.join(" "), err)),
+            Err(err) => {
+                let sanitized: Vec<String> =
+                    args.iter().map(|a| sanitize_arg_for_log(a)).collect();
+                errors.push(format!("{} -> {}", sanitized.join(" "), err));
+            }
         }
     }
+
+    errors.dedup();
 
     Err(AppError::IntegrationError(format!(
         "All notebooklm CLI command attempts failed:\n{}",
@@ -1169,6 +1435,40 @@ async fn run_first_success_no_bootstrap(
     candidates: Vec<Vec<String>>,
 ) -> Result<CliCommandResult, AppError> {
     run_first_success_with_bootstrap(ctx, candidates, false).await
+}
+
+/// Affirmatively verify that the CLI session is usable: `auth check --json`
+/// must *report* an authenticated session (the body decides, not the exit
+/// status). `auth check` does not exist in older CLI versions, where a
+/// successful `list --json` — a command that requires a session — is the
+/// affirmative evidence instead.
+async fn verify_cli_session(ctx: &ProviderContext) -> bool {
+    let verification = run_first_success_no_bootstrap(
+        ctx,
+        vec![vec![
+            "auth".to_string(),
+            "check".to_string(),
+            "--json".to_string(),
+        ]],
+    )
+    .await;
+
+    match &verification {
+        Ok(command) => stdout_reports_authenticated(&command.stdout),
+        Err(err) => {
+            let msg = err.to_string();
+            if msg.contains("no such command") || msg.contains("No such command") {
+                run_first_success_no_bootstrap(
+                    ctx,
+                    vec![vec!["list".to_string(), "--json".to_string()]],
+                )
+                .await
+                .is_ok()
+            } else {
+                false
+            }
+        }
+    }
 }
 
 fn notebook_text(v: &serde_json::Value, keys: &[&str]) -> Option<String> {
@@ -1255,46 +1555,61 @@ async fn cli_use_notebook(ctx: &ProviderContext, notebook_id: &str) -> Result<()
     Ok(())
 }
 
-fn parse_notebook_list(value: &serde_json::Value) -> Vec<NotebookSummary> {
-    if let Some(array) = value.as_array() {
-        return array
-            .iter()
-            .filter_map(|item| {
-                let id = notebook_text(item, &["id", "notebook_id"])?;
-                let title = notebook_text(item, &["title", "name"])
-                    .unwrap_or_else(|| "Notebook".to_string());
-                let sources_count =
-                    notebook_usize(item, &["sources_count", "sourcesCount", "source_count"])
-                        .unwrap_or(0);
-                Some(NotebookSummary {
-                    id,
-                    title,
-                    sources_count,
-                })
-            })
-            .collect();
+/// Truncate raw CLI output embedded in error messages so a runaway stdout
+/// cannot produce a multi-megabyte toast.
+fn truncate_cli_output(raw: &str, max_chars: usize) -> String {
+    let trimmed = raw.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let head: String = trimmed.chars().take(max_chars).collect();
+    format!("{head}… [truncated]")
+}
+
+/// Parse the JSON output of `notebooklm list --json` into notebook
+/// summaries.
+///
+/// Fail-closed: only a bare array or a `{"notebooks": [...]}` envelope is a
+/// known shape — anything else is an error, never a silent empty list (the
+/// original bug: an unknown shape was mapped to `vec![]`, which the UI then
+/// rendered as a healthy "Connected · 0 notebooks"). Entries missing an id
+/// are counted and reported rather than silently dropped.
+fn parse_notebook_list(value: &serde_json::Value) -> Result<Vec<NotebookSummary>, String> {
+    let array = value
+        .as_array()
+        .cloned()
+        .or_else(|| value.get("notebooks").and_then(|v| v.as_array()).cloned())
+        .ok_or_else(|| {
+            format!(
+                "NotebookLM list returned an unrecognized envelope (expected an array or \
+                 {{\"notebooks\": [...]}}): {}",
+                truncate_cli_output(&value.to_string(), 300)
+            )
+        })?;
+
+    let mut notebooks = Vec::with_capacity(array.len());
+    let mut missing_ids = 0usize;
+    for item in &array {
+        let Some(id) = notebook_text(item, &["id", "notebook_id"]) else {
+            missing_ids += 1;
+            continue;
+        };
+        notebooks.push(NotebookSummary {
+            id,
+            title: notebook_text(item, &["title", "name"])
+                .unwrap_or_else(|| "Notebook".to_string()),
+            sources_count: notebook_usize(item, &["sources_count", "sourcesCount", "source_count"])
+                .unwrap_or(0),
+        });
     }
 
-    if let Some(array) = value.get("notebooks").and_then(|v| v.as_array()) {
-        return array
-            .iter()
-            .filter_map(|item| {
-                let id = notebook_text(item, &["id", "notebook_id"])?;
-                let title = notebook_text(item, &["title", "name"])
-                    .unwrap_or_else(|| "Notebook".to_string());
-                let sources_count =
-                    notebook_usize(item, &["sources_count", "sourcesCount", "source_count"])
-                        .unwrap_or(0);
-                Some(NotebookSummary {
-                    id,
-                    title,
-                    sources_count,
-                })
-            })
-            .collect();
+    if missing_ids > 0 {
+        return Err(format!(
+            "NotebookLM list returned {missing_ids} notebook entries without an id; \
+             the list could not be read reliably"
+        ));
     }
-
-    vec![]
+    Ok(notebooks)
 }
 
 fn normalize_cli_type(raw: &str) -> String {
@@ -1457,12 +1772,24 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             }
         };
         if let Some(json) = result.json() {
-            return Ok(parse_notebook_list(&json));
+            return parse_notebook_list(&json).map_err(|message| {
+                tracing::warn!("NotebookLM list produced an unparseable result: {message}");
+                AppError::IntegrationError(message)
+            });
         }
-        // The command exited successfully but produced no JSON: treat this as a
-        // genuine empty list (some CLI builds print nothing when there are no
-        // notebooks) rather than guessing it is an error.
-        Ok(vec![])
+        // Exit 0 with empty stdout is a known empty-account shape (some CLI
+        // builds print nothing when there are no notebooks). Anything else —
+        // a "Redirect Notice" interstitial, a login page, a traceback — is a
+        // failure the user must see, never a fabricated empty list.
+        let raw = result.stdout.trim();
+        if raw.is_empty() {
+            return Ok(vec![]);
+        }
+        tracing::warn!("NotebookLM list exited 0 with non-JSON output: {raw}");
+        Err(AppError::IntegrationError(format!(
+            "NotebookLM list returned unrecognized output: {}",
+            truncate_cli_output(raw, 500)
+        )))
     }
 
     async fn create_notebook(
@@ -1536,50 +1863,216 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         ctx: &ProviderContext,
         notebook_id: &str,
         req: &AddSourceRequest,
+        repo: Option<&Repository>,
     ) -> Result<SourceSummary, AppError> {
+        let start = std::time::Instant::now();
+
+        // 1. Resolve source target, type flag, title, transport, byte size, and optional temp file
+        let (target, cli_type, title, transport, byte_size, temp_file_guard): (
+            String,
+            String,
+            Option<String>,
+            &'static str,
+            usize,
+            Option<ScopedTempSourceFile>,
+        ) = match &req.payload {
+            NotebookLmSourcePayload::Url { url, title } => {
+                let u = url.trim().to_string();
+                let t = title.clone().or_else(|| Some(u.clone()));
+                let bytes = u.len();
+                (u, "url".to_string(), t, "direct_url", bytes, None)
+            }
+            NotebookLmSourcePayload::Youtube { url, title } => {
+                let u = url.trim().to_string();
+                let t = title.clone().or_else(|| Some(u.clone()));
+                let bytes = u.len();
+                (u, "youtube".to_string(), t, "direct_youtube", bytes, None)
+            }
+            NotebookLmSourcePayload::File {
+                path,
+                title,
+                mime_type: _,
+            } => {
+                let file_path = Path::new(path);
+                if !file_path.is_file() {
+                    return Err(AppError::NotFound(format!(
+                        "Source file does not exist: {path}"
+                    )));
+                }
+                let bytes = fs::metadata(file_path).map(|m| m.len() as usize).unwrap_or(0);
+                let t = title.clone().or_else(|| {
+                    file_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
+                });
+                (path.clone(), "file".to_string(), t, "original_file", bytes, None)
+            }
+            NotebookLmSourcePayload::Text { text, title } => {
+                let staged = ScopedTempSourceFile::create(
+                    &ctx.app_dir.join("notebooklm_staged"),
+                    text,
+                    "md",
+                )
+                .await?;
+                let target_path = staged.path().to_string_lossy().to_string();
+                let bytes = text.len();
+                let t = title.clone().or_else(|| Some("Text Source".to_string()));
+                (
+                    target_path,
+                    "file".to_string(),
+                    t,
+                    "scoped_temp_markdown",
+                    bytes,
+                    Some(staged),
+                )
+            }
+            NotebookLmSourcePayload::Document { document_id, title } => {
+                let repo = repo.ok_or_else(|| {
+                    AppError::Internal("Database repository unavailable".to_string())
+                })?;
+                let doc = repo.get_document(document_id).await?.ok_or_else(|| {
+                    AppError::NotFound(format!("Document {document_id} not found"))
+                })?;
+                let doc_title = title.clone().unwrap_or(doc.title.clone());
+
+                let file_path = Path::new(&doc.file_path);
+                let ext = file_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let is_supported_ext = matches!(ext.as_str(), "pdf" | "epub" | "docx" | "txt" | "md");
+
+                if is_supported_ext && file_path.is_file() {
+                    let bytes = fs::metadata(file_path).map(|m| m.len() as usize).unwrap_or(0);
+                    (
+                        doc.file_path.clone(),
+                        "file".to_string(),
+                        Some(doc_title),
+                        "original_file",
+                        bytes,
+                        None,
+                    )
+                } else {
+                    // Fallback to scoped temp markdown/text
+                    let content = doc
+                        .content
+                        .as_deref()
+                        .filter(|c| !c.trim().is_empty())
+                        .unwrap_or(&doc.title);
+                    let temp_ext = if ext == "html" || ext == "htm" || doc.file_type == FileType::Html {
+                        "md"
+                    } else {
+                        "md"
+                    };
+                    let staged = ScopedTempSourceFile::create(
+                        &ctx.app_dir.join("notebooklm_staged"),
+                        content,
+                        temp_ext,
+                    )
+                    .await?;
+                    let target_path = staged.path().to_string_lossy().to_string();
+                    let bytes = content.len();
+                    let transport = if is_supported_ext {
+                        "scoped_temp_fallback_missing_file"
+                    } else {
+                        "scoped_temp_markdown"
+                    };
+                    (
+                        target_path,
+                        "file".to_string(),
+                        Some(doc_title),
+                        transport,
+                        bytes,
+                        Some(staged),
+                    )
+                }
+            }
+        };
+
+        // 2. Construct CLI arguments with explicit --type, --notebook, and --json
         let mut base = vec![
             "source".to_string(),
             "add".to_string(),
-            req.content.clone(),
+            target.clone(),
+            "--type".to_string(),
+            cli_type.clone(),
             "--json".to_string(),
             "--notebook".to_string(),
             notebook_id.to_string(),
         ];
-        if let Some(title) = &req.title {
+        if let Some(t) = &title {
             base.push("--title".to_string());
-            base.push(title.clone());
+            base.push(t.clone());
         }
 
         let mut alt = vec![
             "source".to_string(),
             "add".to_string(),
-            req.content.clone(),
+            target.clone(),
+            "--type".to_string(),
+            cli_type.clone(),
             "--json".to_string(),
             "-n".to_string(),
             notebook_id.to_string(),
         ];
-        if let Some(title) = &req.title {
+        if let Some(t) = &title {
             alt.push("--title".to_string());
-            alt.push(title.clone());
+            alt.push(t.clone());
         }
 
-        let result = run_first_success(ctx, vec![base, alt]).await?;
-        let Some(json) = result.json() else {
-            return Err(AppError::IntegrationError(
-                "NotebookLM CLI source add returned non-JSON output.".to_string(),
-            ));
+        // 3. Execute command
+        let result = run_first_success(ctx, vec![base, alt]).await;
+        let duration_ms = start.elapsed().as_millis();
+
+        // 4. Handle result and log structured telemetry
+        let source_res = match result {
+            Ok(cmd_result) => {
+                let Some(json) = cmd_result.json() else {
+                    return Err(AppError::IntegrationError(
+                        "NotebookLM CLI source add returned non-JSON output.".to_string(),
+                    ));
+                };
+                let mut summary = parse_source_summary_json(&json).ok_or_else(|| {
+                    AppError::IntegrationError(
+                        "NotebookLM CLI source add did not return source ID".to_string(),
+                    )
+                })?;
+                if summary.status == "unknown" {
+                    summary.status = "processing".to_string();
+                }
+                tracing::info!(
+                    operation = "source_add",
+                    source_type = %cli_type,
+                    transport = %transport,
+                    byte_size = byte_size,
+                    title = %title.as_deref().unwrap_or(""),
+                    duration_ms = duration_ms,
+                    source_id = %summary.id,
+                    "NotebookLM source added successfully"
+                );
+                Ok(summary)
+            }
+            Err(err) => {
+                tracing::error!(
+                    operation = "source_add",
+                    source_type = %cli_type,
+                    transport = %transport,
+                    byte_size = byte_size,
+                    title = %title.as_deref().unwrap_or(""),
+                    duration_ms = duration_ms,
+                    error = %err,
+                    "NotebookLM source add failed"
+                );
+                Err(err)
+            }
         };
-        let mut summary = parse_source_summary_json(&json).ok_or_else(|| {
-            AppError::IntegrationError(
-                "NotebookLM CLI source add did not return source ID".to_string(),
-            )
-        })?;
-        // A freshly added source is processing until ingestion resolves; the
-        // CLI summary carries no status field for the add path.
-        if summary.status == "unknown" {
-            summary.status = "processing".to_string();
-        }
-        Ok(summary)
+
+        // Explicitly keep temp_file_guard referenced until after CLI finishes
+        drop(temp_file_guard);
+
+        source_res
     }
 
     async fn refresh_source(
@@ -2807,6 +3300,8 @@ fn resolve_notebooklm_binary(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 async fn provider_context(app: &tauri::AppHandle, app_dir: PathBuf) -> ProviderContext {
+    sweep_staged_notebooklm_artifacts(&app_dir).await;
+
     let (
         notebooklm_runtime_python,
         notebooklm_runtime_site_packages,
@@ -2910,6 +3405,22 @@ fn persist_cli_auth_state(root: &Path, storage: &Path) -> Result<(), AppError> {
     settings.provider = "cli".to_string();
     save_settings(root, &settings)?;
     Ok(())
+}
+
+/// Verify the CLI session, and only then persist the connected auth state.
+/// An unverified session persists nothing — the caller falls through to the
+/// next login strategy instead of reporting success.
+async fn connect_verified_cli_session(
+    ctx: &ProviderContext,
+    root: &Path,
+    app_storage: &Path,
+) -> Result<(), AppError> {
+    if !verify_cli_session(ctx).await {
+        return Err(AppError::IntegrationAuthError(
+            "CLI session could not be verified".to_string(),
+        ));
+    }
+    persist_cli_auth_state(root, app_storage)
 }
 
 fn load_jobs(root: &Path) -> Result<JobsFile, AppError> {
@@ -3264,10 +3775,29 @@ pub async fn notebooklm_connect(
     }
 
     let mut auth = load_auth(&root)?;
-    auth.connected = true;
     auth.last_connected_at = Some(Utc::now().to_rfc3339());
     auth.provider = settings.provider.clone();
     auth.storage_path = Some(storage.to_string_lossy().to_string());
+
+    // A CLI connect must be backed by a verified session. Previously this
+    // command persisted `connected = true` unconditionally, so connecting
+    // with missing/expired credentials produced the "Connected · 0 notebooks"
+    // state over a session that could not list anything.
+    if settings.provider == "cli" {
+        let ctx = provider_context(&app, root.clone()).await;
+        if !verify_cli_session(&ctx).await {
+            auth.connected = false;
+            save_auth(&root, &auth)?;
+            tracing::warn!("notebooklm.connect rejected: CLI session could not be verified");
+            return Err(AppError::IntegrationAuthError(
+                "NotebookLM session could not be verified. Run 'notebooklm login' in a \
+                 terminal (or use the Sign In button), then connect again."
+                    .to_string(),
+            ));
+        }
+    }
+
+    auth.connected = true;
     save_auth(&root, &auth)?;
     tracing::info!("notebooklm.connect provider={}", auth.provider);
     Ok(auth)
@@ -3383,13 +3913,17 @@ pub async fn notebooklm_add_source(
     let auth = load_auth(&root)?;
     let selected = resolve_notebook_id(&settings, &req.notebook_id)?;
     let provider = provider_for(&settings);
+    let repo_state = app.try_state::<Repository>();
+    let repo = repo_state.as_deref();
+    let ctx = provider_context(&app, root.clone()).await;
     let source = provider
         .add_source(
             &auth,
             &settings,
-            &provider_context(&app, root.clone()).await,
+            &ctx,
             &selected,
             &req,
+            repo,
         )
         .await?;
     tracing::info!(
@@ -4518,52 +5052,10 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
     if let Some(source_path) = try_copy_system_auth(&app_storage) {
         tracing::info!("Strategy 1: Found system auth at {}", source_path.display());
 
-        // Verify the copied auth actually works
-        let verify = run_first_success_no_bootstrap(
-            &ctx,
-            vec![vec![
-                "auth".to_string(),
-                "check".to_string(),
-                "--json".to_string(),
-            ]],
-        )
-        .await;
-
-        let auth_valid = match &verify {
-            // The body decides, not the exit status: `auth check --json` can
-            // exit 0 while reporting an unauthenticated session.
-            Ok(command) => stdout_reports_authenticated(&command.stdout),
-            Err(verify_err) => {
-                let msg = verify_err.to_string();
-                // `auth check` does not exist in older CLI versions. Falling
-                // back to a command that requires a session is legitimate
-                // evidence; any other failure is not.
-                if msg.contains("no such command") || msg.contains("No such command") {
-                    run_first_success_no_bootstrap(
-                        &ctx,
-                        vec![vec!["list".to_string(), "--json".to_string()]],
-                    )
-                    .await
-                    .is_ok()
-                } else {
-                    false
-                }
-            }
-        };
-
-        if auth_valid {
+        // Verify the copied auth actually works before connecting.
+        if verify_cli_session(&ctx).await {
             // Auto-connect after successful auth copy
-            let mut auth_state = load_auth(&root)?;
-            auth_state.connected = true;
-            auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
-            auth_state.provider = "cli".to_string();
-            auth_state.storage_path = Some(app_storage.to_string_lossy().to_string());
-            save_auth(&root, &auth_state)?;
-
-            let mut settings = load_settings(&root)?;
-            settings.enabled = true;
-            settings.provider = "cli".to_string();
-            save_settings(&root, &settings)?;
+            persist_cli_auth_state(&root, &app_storage)?;
 
             tracing::info!("Strategy 1 succeeded: reused system auth");
             return Ok(serde_json::json!({
@@ -4646,36 +5138,35 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
             Ok(stdout) => {
                 tracing::info!("Strategy 2: system CLI login completed");
 
-                // Copy the newly-created system auth to our app dir
-                if try_copy_system_auth(&app_storage).is_some() {
-                    // Auto-connect
-                    let mut auth_state = load_auth(&root)?;
-                    auth_state.connected = true;
-                    auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
-                    auth_state.provider = "cli".to_string();
-                    auth_state.storage_path = Some(app_storage.to_string_lossy().to_string());
-                    save_auth(&root, &auth_state)?;
-
-                    let mut settings = load_settings(&root)?;
-                    settings.enabled = true;
-                    settings.provider = "cli".to_string();
-                    save_settings(&root, &settings)?;
-
-                    return Ok(serde_json::json!({
-                        "success": true,
-                        "message": "Login successful via system browser",
-                        "strategy": "system_cli_login",
-                        "output": stdout,
-                    }));
+                // Copy the newly-created system auth to our app dir, then
+                // verify the session before reporting success or persisting
+                // `auth.connected = true`. A login process exiting 0 is not
+                // evidence of a usable session — that assumption is what left
+                // a green "Connected" badge over a session that had never
+                // logged in.
+                if try_copy_system_auth(&app_storage).is_none() {
+                    tracing::warn!(
+                        "Strategy 2: login exited 0 but system auth could not be copied, continuing to next strategy"
+                    );
+                } else {
+                    match connect_verified_cli_session(&ctx, &root, &app_storage).await {
+                        Ok(()) => {
+                            return Ok(serde_json::json!({
+                                "success": true,
+                                "message": "Login successful via system browser",
+                                "strategy": "system_cli_login",
+                                "output": stdout,
+                            }));
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "Strategy 2: login exited 0 but session verification failed ({err}), continuing to next strategy"
+                            );
+                        }
+                    }
                 }
-
-                // Even if copy failed, login may have still written to system path
-                return Ok(serde_json::json!({
-                    "success": true,
-                    "message": "Login completed. You may need to reconnect.",
-                    "strategy": "system_cli_login",
-                    "output": stdout,
-                }));
+                // Unverified: fall through to strategy 3 without persisting a
+                // connected state.
             }
             Err(err_str) => {
                 tracing::warn!("Strategy 2: system CLI login failed: {}", err_str);
@@ -5286,5 +5777,410 @@ mod tests {
             }
         }
         None
+    }
+
+    // ── Listing integrity (fail-closed) ────────────────────────────────────
+
+    /// Write a fake `notebooklm` CLI that exits 0 and prints `body` on stdout.
+    fn write_fake_cli(dir: &Path, body: &str) -> PathBuf {
+        let script = dir.join("notebooklm");
+        let payload = format!("#!/bin/sh\ncat <<'PLETHORA_EOF'\n{body}\nPLETHORA_EOF\n");
+        std::fs::write(&script, payload).expect("write fake cli");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake cli");
+        }
+        script
+    }
+
+    fn fake_cli_context(dir: &Path, script: PathBuf) -> ProviderContext {
+        ProviderContext {
+            app_dir: dir.to_path_buf(),
+            notebooklm_bin: Some(script),
+            notebooklm_runtime_base: None,
+            notebooklm_runtime_python: None,
+            notebooklm_runtime_site_packages: None,
+            notebooklm_runtime_playwright: None,
+            notebooklm_runtime_validation_error: None,
+            notebooklm_managed_python: None,
+            is_appimage: false,
+        }
+    }
+
+    async fn list_with_fake_cli(body: &str) -> Result<Vec<NotebookSummary>, AppError> {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ctx = fake_cli_context(tmp.path(), write_fake_cli(tmp.path(), body));
+        CliNotebookLMProvider
+            .list_notebooks(&NotebookLMAuthState::default(), &NotebookLMSettings::default(), &ctx)
+            .await
+    }
+
+    #[tokio::test]
+    async fn list_exit0_non_json_output_is_an_error_with_raw_output() {
+        // Regression (issue #44 bug 02): exit-0 non-JSON stdout used to become
+        // Ok(vec![]), which the UI rendered as a healthy Connected · 0
+        // notebooks. It must surface as an error carrying the raw output.
+        let err = list_with_fake_cli("Redirect Notice\nThe previous page moved...")
+            .await
+            .expect_err("non-JSON output must error");
+        let msg = err.to_string();
+        assert!(matches!(err, AppError::IntegrationError(_)), "got {err:?}");
+        assert!(msg.contains("Redirect Notice"), "raw output missing: {msg}");
+    }
+
+    #[tokio::test]
+    async fn list_unknown_json_envelope_is_an_error() {
+        let err = list_with_fake_cli("{\"foo\": 1}")
+            .await
+            .expect_err("unknown envelope must error");
+        assert!(matches!(err, AppError::IntegrationError(_)), "got {err:?}");
+        assert!(err.to_string().contains("unrecognized envelope"));
+    }
+
+    #[tokio::test]
+    async fn list_entries_missing_ids_are_counted_in_the_error() {
+        let err = list_with_fake_cli("[{\"title\":\"A\"},{\"id\":\"x\",\"title\":\"B\"}]")
+            .await
+            .expect_err("id-less entries must error");
+        assert!(matches!(err, AppError::IntegrationError(_)), "got {err:?}");
+        assert!(
+            err.to_string().contains("1 notebook entries without an id"),
+            "count missing: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn list_parseable_empty_envelope_is_a_healthy_empty_list() {
+        let notebooks = list_with_fake_cli("{\"notebooks\": []}")
+            .await
+            .expect("parseable empty envelope must be Ok");
+        assert!(notebooks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_empty_stdout_is_a_healthy_empty_list() {
+        let notebooks = list_with_fake_cli("")
+            .await
+            .expect("empty stdout (known empty-account shape) must be Ok");
+        assert!(notebooks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_valid_envelope_parses_notebooks() {
+        let notebooks =
+            list_with_fake_cli("{\"notebooks\": [{\"id\":\"a\",\"title\":\"A\",\"sources_count\":2}]}")
+                .await
+                .expect("valid envelope must parse");
+        assert_eq!(notebooks.len(), 1);
+        assert_eq!(notebooks[0].id, "a");
+        assert_eq!(notebooks[0].sources_count, 2);
+    }
+
+    /// A fake CLI whose `auth check --json` reports an unauthenticated
+    /// session; `list` answers with a valid envelope so only the verification
+    /// verdict differs.
+    fn write_unauthenticated_fake_cli(dir: &Path) -> PathBuf {
+        let script = dir.join("notebooklm");
+        let payload = "#!/bin/sh\ncase \"$*\" in\n  *auth*check*) echo '{\"authenticated\": false}' ;;\n  *) echo '[]' ;;\nesac\n";
+        std::fs::write(&script, payload).expect("write fake cli");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake cli");
+        }
+        script
+    }
+
+    #[tokio::test]
+    async fn unverified_strategy2_session_does_not_persist_connected() {
+        // Regression (issue #44 bug 02): strategy 2 used to persist
+        // auth.connected = true straight after an exit-0 login. The verified
+        // path must refuse to persist when the session does not verify.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ctx = fake_cli_context(
+            tmp.path(),
+            write_unauthenticated_fake_cli(tmp.path()),
+        );
+
+        let auth = NotebookLMAuthState::default();
+        assert!(!auth.connected, "default auth must start disconnected");
+        let settings = NotebookLMSettings::default();
+        save_auth(tmp.path(), &auth).expect("seed auth state");
+        save_settings(tmp.path(), &settings).expect("seed settings");
+
+        let app_storage = tmp.path().join("storage_state.json");
+        let result = connect_verified_cli_session(&ctx, tmp.path(), &app_storage).await;
+        assert!(result.is_err(), "unverified session must not connect");
+
+        let persisted = load_auth(tmp.path()).expect("reload auth");
+        assert!(
+            !persisted.connected,
+            "auth.connected must not be persisted from an unverified login"
+        );
+    }
+
+    #[tokio::test]
+    async fn authenticated_auth_check_body_verifies_session() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_cli(tmp.path(), "{\"authenticated\": true, \"email\": \"u@example.com\"}");
+        let ctx = fake_cli_context(tmp.path(), script);
+        assert!(verify_cli_session(&ctx).await);
+    }
+
+    // ── Source Ingestion & Payload Tests ───────────────────────────────────
+
+    #[test]
+    fn deserializes_typed_source_payloads() {
+        // Url payload
+        let json = serde_json::json!({
+            "notebookId": "nb_1",
+            "kind": "url",
+            "url": "https://example.com/article",
+            "title": "My Article"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize url");
+        assert_eq!(req.notebook_id, Some("nb_1".to_string()));
+        match req.payload {
+            NotebookLmSourcePayload::Url { url, title } => {
+                assert_eq!(url, "https://example.com/article");
+                assert_eq!(title, Some("My Article".to_string()));
+            }
+            _ => panic!("expected Url payload"),
+        }
+
+        // Youtube payload
+        let json = serde_json::json!({
+            "kind": "youtube",
+            "url": "https://www.youtube.com/watch?v=12345"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize youtube");
+        match req.payload {
+            NotebookLmSourcePayload::Youtube { url, title } => {
+                assert_eq!(url, "https://www.youtube.com/watch?v=12345");
+                assert_eq!(title, None);
+            }
+            _ => panic!("expected Youtube payload"),
+        }
+
+        // File payload
+        let json = serde_json::json!({
+            "kind": "file",
+            "path": "/path/to/book.epub",
+            "title": "Book Title"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize file");
+        match req.payload {
+            NotebookLmSourcePayload::File { path, title, .. } => {
+                assert_eq!(path, "/path/to/book.epub");
+                assert_eq!(title, Some("Book Title".to_string()));
+            }
+            _ => panic!("expected File payload"),
+        }
+
+        // Text payload
+        let json = serde_json::json!({
+            "kind": "text",
+            "text": "Some important research notes…",
+            "title": "Notes"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize text");
+        match req.payload {
+            NotebookLmSourcePayload::Text { text, title } => {
+                assert_eq!(text, "Some important research notes…");
+                assert_eq!(title, Some("Notes".to_string()));
+            }
+            _ => panic!("expected Text payload"),
+        }
+
+        // Document payload (camelCase documentId)
+        let json = serde_json::json!({
+            "kind": "document",
+            "documentId": "doc_xyz",
+            "title": "Doc Title"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize document");
+        match req.payload {
+            NotebookLmSourcePayload::Document { document_id, title } => {
+                assert_eq!(document_id, "doc_xyz");
+                assert_eq!(title, Some("Doc Title".to_string()));
+            }
+            _ => panic!("expected Document payload"),
+        }
+    }
+
+    #[test]
+    fn deserializes_legacy_source_payloads() {
+        // Legacy url via content
+        let json = serde_json::json!({
+            "notebookId": "nb_legacy",
+            "kind": "url",
+            "content": "https://example.com"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize legacy url");
+        assert_eq!(req.notebook_id, Some("nb_legacy".to_string()));
+        match req.payload {
+            NotebookLmSourcePayload::Url { url, .. } => {
+                assert_eq!(url, "https://example.com");
+            }
+            _ => panic!("expected Url payload"),
+        }
+
+        // Legacy library doc via content
+        let json = serde_json::json!({
+            "kind": "library",
+            "content": "doc_legacy_123"
+        });
+        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize legacy library");
+        match req.payload {
+            NotebookLmSourcePayload::Document { document_id, .. } => {
+                assert_eq!(document_id, "doc_legacy_123");
+            }
+            _ => panic!("expected Document payload"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scoped_temp_source_file_lifecycle_and_raii_cleanup() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let stage_dir = tmp.path().join("notebooklm_staged");
+        let sample_text = "‘Dopamine Detox’ notes with curly quotes “and” em—dash.\n\nCitation: https://example.com/ref";
+
+        let temp_path;
+        {
+            let guard = ScopedTempSourceFile::create(&stage_dir, sample_text, "md")
+                .await
+                .expect("create scoped temp file");
+            temp_path = guard.path().to_path_buf();
+
+            assert!(temp_path.is_file(), "temp file must exist while in scope");
+            assert!(temp_path.to_string_lossy().ends_with(".md"));
+
+            let read_back = tokio::fs::read_to_string(&temp_path).await.expect("read back");
+            assert_eq!(read_back, sample_text, "UTF-8 content must match verbatim");
+            // guard drops here at end of block
+        }
+
+        assert!(!temp_path.exists(), "temp file must be deleted on Drop");
+    }
+
+    #[tokio::test]
+    async fn sweep_purges_stale_staged_files() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let stage_dir = tmp.path().join("notebooklm_staged");
+        fs::create_dir_all(&stage_dir).expect("create stage dir");
+
+        let fresh_file = stage_dir.join("fresh.md");
+        fs::write(&fresh_file, "fresh content").expect("write fresh");
+
+        // Fresh file is preserved by sweep
+        sweep_staged_notebooklm_artifacts(tmp.path()).await;
+        assert!(fresh_file.exists(), "fresh file should not be purged");
+    }
+
+    #[test]
+    fn argument_sanitization_and_error_redaction() {
+        // Short argument is preserved
+        assert_eq!(sanitize_arg_for_log("--notebook"), "--notebook");
+        assert_eq!(sanitize_arg_for_log("nb_12345"), "nb_12345");
+
+        // Long payload argument (e.g. 50,000 character book text) is redacted
+        let giant_book_text = "a".repeat(50_000);
+        let sanitized = sanitize_arg_for_log(&giant_book_text);
+        assert_eq!(sanitized, "[50000 chars]");
+        assert!(!sanitized.contains("aaaaa"));
+
+        // Clean structured JSON error extraction
+        let json_err = r#"{"error": true, "code": "VALIDATION_ERROR", "message": "Source document is empty."}"#;
+        let clean = extract_clean_cli_error("", json_err);
+        assert_eq!(clean, "VALIDATION_ERROR: Source document is empty.");
+
+        // Error message truncation for giant tracebacks
+        let giant_traceback = "Traceback (most recent call last):\n".to_string() + &"  frame x\n".repeat(100);
+        let truncated = extract_clean_cli_error(&giant_traceback, "");
+        assert!(truncated.len() <= 600);
+    }
+
+    #[tokio::test]
+    async fn regression_long_form_book_with_urls_and_unicode_routes_safely() {
+        // Fixture mimicking a book like 'Dopamine Detox' with internal URLs, citations,
+        // and typographic punctuation.
+        let book_content = "Title Page\n\
+            Dopamine Detox: A Short Guide to Remove Distractions\n\n\
+            Chapter 1: The Dopamine Trap\n\
+            In today’s world, we are constantly stimulated by notifications.\n\
+            As noted in research (see https://pubmed.ncbi.nlm.nih.gov/12345/ and http://dx.doi.org/10.1001/jama.2020),\n\
+            dopamine drives our anticipation of rewards—not just pleasure.\n\n\
+            Chapter 2: Implementing the 48-Hour Reset\n\
+            1. Turn off notifications.\n\
+            2. Avoid social media (https://twitter.com, https://youtube.com).\n\
+            3. Read physical books or offline texts.\n\n\
+            “Simplicity is the ultimate sophistication.” — Leonardo da Vinci\n";
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let fake_cli_script = tmp.path().join("notebooklm");
+
+        // A mock CLI script that enforces:
+        // 1. Argument list MUST contain `--type file` (not auto-detect or url)
+        // 2. The source path argument MUST point to an existing file containing the book content
+        // 3. Raw book text MUST NOT be passed in argv
+        // 4. Returns valid added source JSON
+        let script_content = r#"#!/bin/sh
+has_type_file=0
+for arg in "$@"; do
+    if [ "$arg" = "--type" ]; then
+        has_type_file=1
+    fi
+    # Verify no raw book text leaked into argv
+    case "$arg" in
+        *"Dopamine Detox: A Short Guide"*)
+            echo '{"error": true, "code": "ARGV_LEAK", "message": "Raw book text found in process argv!"}' >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$has_type_file" -eq 1 ]; then
+    echo '{"source": {"id": "src_dopamine_detox_123", "title": "Dopamine Detox", "type": "file", "status": "processing"}}'
+    exit 0
+else
+    echo '{"error": true, "code": "VALIDATION_ERROR", "message": "URL scheme \"\" is not allowed; only http and https URLs are accepted as sources"}' >&2
+    exit 1
+fi
+"#;
+        fs::write(&fake_cli_script, script_content).expect("write fake cli");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&fake_cli_script, fs::Permissions::from_mode(0o755)).expect("chmod");
+        }
+
+        let ctx = fake_cli_context(tmp.path(), fake_cli_script);
+
+        let req = AddSourceRequest {
+            notebook_id: Some("nb_test".to_string()),
+            payload: NotebookLmSourcePayload::Text {
+                text: book_content.to_string(),
+                title: Some("Dopamine Detox".to_string()),
+            },
+        };
+
+        let result = CliNotebookLMProvider
+            .add_source(
+                &NotebookLMAuthState::default(),
+                &NotebookLMSettings::default(),
+                &ctx,
+                "nb_test",
+                &req,
+                None,
+            )
+            .await;
+
+        let source = result.expect("source add for long-form book with internal URLs must succeed");
+        assert_eq!(source.id, "src_dopamine_detox_123");
+        assert_eq!(source.kind, "file");
     }
 }

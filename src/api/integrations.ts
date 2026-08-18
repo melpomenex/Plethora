@@ -825,12 +825,50 @@ export async function notebooklmListSources(notebookId?: string): Promise<Source
   return await invokeCommand<SourceSummary[]>("notebooklm_list_sources", { notebookId });
 }
 
-export async function notebooklmAddSource(req: {
+export type NotebookLmSourcePayload =
+  | {
+      kind: "file";
+      path: string;
+      title?: string;
+      mimeType?: string;
+    }
+  | {
+      kind: "url";
+      url: string;
+      title?: string;
+    }
+  | {
+      kind: "youtube";
+      url: string;
+      title?: string;
+    }
+  | {
+      kind: "text";
+      text: string;
+      title?: string;
+    }
+  | {
+      kind: "document";
+      documentId: string;
+      title?: string;
+    }
+  | {
+      kind: "url" | "youtube" | "text" | "file" | "document" | string;
+      content: string;
+      title?: string;
+      path?: string;
+      url?: string;
+      text?: string;
+      documentId?: string;
+    };
+
+export type NotebookLmAddSourceRequest = {
   notebookId?: string;
-  kind: "url" | "youtube" | "text" | "file" | string;
-  content: string;
-  title?: string;
-}): Promise<SourceSummary> {
+} & NotebookLmSourcePayload;
+
+export async function notebooklmAddSource(
+  req: NotebookLmAddSourceRequest
+): Promise<SourceSummary> {
   return await invokeCommand<SourceSummary>("notebooklm_add_source", { req });
 }
 

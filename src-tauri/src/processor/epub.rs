@@ -51,52 +51,48 @@ fn extract_text_from_html(html: &str) -> String {
     ];
 
     let mut result = String::new();
-    let bytes = html.as_bytes();
-    let mut i = 0;
-    let n = bytes.len();
+    let mut chars = html.chars().peekable();
 
-    while i < n {
-        let c = bytes[i];
-        if c != b'<' {
+    while let Some(c) = chars.next() {
+        if c != '<' {
             // Outside a tag: copy visible text, normalizing whitespace to a
             // single space (newlines inside a run of inline text collapse too).
-            if c.is_ascii_whitespace() {
+            if c.is_whitespace() {
                 if !result.ends_with(' ') && !result.ends_with('\n') {
                     result.push(' ');
                 }
             } else {
-                result.push(c as char);
+                result.push(c);
             }
-            i += 1;
             continue;
         }
 
-        // We're at a '<'. Parse the tag name to decide its effect.
-        let tag_start = i + 1;
-        let mut j = tag_start;
-        while j < n && bytes[j] != b'>' {
-            j += 1;
+        // We're at a '<'. Collect tag body up to '>'.
+        let mut tag_body = String::new();
+        for tc in chars.by_ref() {
+            if tc == '>' {
+                break;
+            }
+            tag_body.push(tc);
         }
-        // j now points at '>' (or end of string).
-        let tag_body = &html[tag_start..j.min(n)];
-        let tag_name = tag_name(tag_body);
+
+        let name = tag_name(&tag_body);
 
         // Skip raw text content of <style>/<script> entirely.
-        if tag_name == "style" || tag_name == "script" {
-            // Advance past the closing tag of this element.
-            let close = format!("</{}", tag_name);
-            if let Some(rel) = html[j..].to_lowercase().find(&close) {
-                // Find the '>' of the closing tag.
-                let after = j + rel + close.len();
-                let mut k = after;
-                while k < n && bytes[k] != b'>' {
-                    k += 1;
+        if name == "style" || name == "script" {
+            let close = format!("</{}", name);
+            let mut buffer = String::new();
+            for sc in chars.by_ref() {
+                buffer.push(sc);
+                if buffer.to_lowercase().ends_with(&close) {
+                    for tc in chars.by_ref() {
+                        if tc == '>' {
+                            break;
+                        }
+                    }
+                    break;
                 }
-                i = (k + 1).min(n);
-            } else {
-                i = n;
             }
-            // Ensure a clean boundary after dropped content.
             if !result.ends_with('\n') && !result.ends_with(' ') {
                 result.push('\n');
             }
@@ -106,21 +102,17 @@ fn extract_text_from_html(html: &str) -> String {
         // <br> forces a single line break; block/heading end-tags force one too
         // (they close a block). Opening block tags also get a break so that the
         // heading text starts on a fresh line.
-        let is_break = tag_name == "br"
-            || (tag_body.starts_with('/') && BLOCK_TAGS.contains(&tag_name.as_str()))
-            || (!tag_body.starts_with('/') && BLOCK_TAGS.contains(&tag_name.as_str()));
+        let is_break = name == "br"
+            || (tag_body.starts_with('/') && BLOCK_TAGS.contains(&name.as_str()))
+            || (!tag_body.starts_with('/') && BLOCK_TAGS.contains(&name.as_str()));
         if is_break {
             if !result.ends_with('\n') {
-                // Trim a trailing inline space before the line break so the
-                // heading lands cleanly at column 0.
                 while result.ends_with(' ') {
                     result.pop();
                 }
                 result.push('\n');
             }
         }
-
-        i = (j + 1).min(n);
     }
 
     // Normalize: collapse 3+ newlines to 2, and strip leading whitespace per line.
@@ -144,12 +136,11 @@ fn extract_text_from_html(html: &str) -> String {
 /// Lowercased tag name from the inside of `<...>`, ignoring `/`, attributes,
 /// and whitespace. e.g. `"/h1 "` -> "h1", `"br /"` -> "br".
 fn tag_name(tag_body: &str) -> String {
-    let mut s = tag_body.trim().trim_start_matches('/');
+    let s = tag_body.trim().trim_start_matches('/');
     let end = s
         .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
         .unwrap_or(s.len());
-    s = &s[..end];
-    s.to_lowercase()
+    s[..end].to_lowercase()
 }
 
 fn should_extract_text(mime: &str) -> bool {
@@ -383,5 +374,30 @@ mod tests {
         assert!(text.contains("Second paragraph."));
         // Two block elements -> at least one newline between them.
         assert!(text.contains('\n'));
+    }
+
+    #[test]
+    fn extract_text_preserves_unicode_characters() {
+        // Smart quotes, dashes, ellipses, accented Latin, and CJK text
+        let html = "<div>\
+            <p>‘Single’ and “double” quotation marks, em—dash, en–dash, and ellipsis…</p>\
+            <p>Accents: café, über, naïve, niño.</p>\
+            <p>CJK & Cyrillic: 日本語, 中文, 한국어, Привет мир.</p>\
+            <p>Mathematical: ∑(x) = ∫ f(t) dt ≠ ∞.</p>\
+            </div>";
+        let text = extract_text_from_html(html);
+
+        // Smart punctuation must be preserved verbatim (no â mojibake)
+        assert!(text.contains("‘Single’ and “double” quotation marks, em—dash, en–dash, and ellipsis…"));
+        assert!(!text.contains('â'));
+
+        // Accents
+        assert!(text.contains("Accents: café, über, naïve, niño."));
+
+        // CJK and Cyrillic
+        assert!(text.contains("CJK & Cyrillic: 日本語, 中文, 한국어, Привет мир."));
+
+        // Math
+        assert!(text.contains("Mathematical: ∑(x) = ∫ f(t) dt ≠ ∞."));
     }
 }
