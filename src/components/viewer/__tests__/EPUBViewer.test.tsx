@@ -88,16 +88,24 @@ vi.mock("../../../stores/documentOutlineStore", () => ({
   }),
 }));
 
+// Mutable theme so theme-change tests can rerender with a new palette.
+// Hoisted because the vi.mock factory runs before module scope.
+const themeState = vi.hoisted(() => ({
+  theme: {
+    id: "test-dark",
+    variant: "dark",
+    colors: {
+      primary: "#000",
+      background: "#fff",
+      text: "#000",
+    },
+  } as { id: string; variant: string; colors: Record<string, string> },
+}));
+
 // Mock contexts
 vi.mock("../../../contexts/ThemeContext", () => ({
   useTheme: () => ({
-    theme: {
-      colors: {
-        primary: "#000",
-        background: "#fff",
-        text: "#000",
-      },
-    },
+    theme: themeState.theme,
   }),
 }));
 
@@ -310,5 +318,85 @@ describe("EPUBViewer", () => {
         "fill-opacity": "1",
       }
     );
+  });
+
+  // Regression: the reader must resolve its palette from the active theme
+  // object, not from live documentElement CSS variables. On a theme change
+  // the viewer's re-apply effect runs BEFORE ThemeContext's parent effect
+  // writes the new variables, so the computed values are one theme behind —
+  // reading them baked the PREVIOUS theme into the iframe and the reader
+  // stayed stuck on it (white reader under a dark app theme).
+  it("themes the rendition from the theme object even when CSS variables still hold stale values", async () => {
+    document.documentElement.style.setProperty("--color-background", "#ffffff");
+    document.documentElement.style.setProperty("--color-foreground", "#000000");
+    themeState.theme = {
+      id: "test-dark",
+      variant: "dark",
+      colors: {
+        primary: "#38bdf8",
+        background: "#0d1926",
+        onBackground: "#d4e8f8",
+        text: "#d4e8f8",
+      },
+    };
+
+    render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    const call = mockRendition.themes.default.mock.calls.at(-1)[0];
+    expect(call.html.background).toContain("#0d1926");
+    expect(call.html.color).toContain("#d4e8f8");
+
+    document.documentElement.style.removeProperty("--color-background");
+    document.documentElement.style.removeProperty("--color-foreground");
+  });
+
+  it("re-applies the rendition theme when the app theme changes while a book is open", async () => {
+    themeState.theme = {
+      id: "test-dark",
+      variant: "dark",
+      colors: { primary: "#38bdf8", background: "#0d1926", text: "#d4e8f8" },
+    };
+
+    const view = render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    mockRendition.themes.default.mockClear();
+
+    themeState.theme = {
+      id: "other-dark",
+      variant: "dark",
+      colors: { primary: "#38bdf8", background: "#020b14", text: "#e0f2fe" },
+    };
+    view.rerender(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    const call = mockRendition.themes.default.mock.calls.at(-1)[0];
+    expect(call.html.background).toContain("#020b14");
+    expect(call.html.color).toContain("#e0f2fe");
   });
 });
