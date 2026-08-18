@@ -115,6 +115,7 @@ import { Toast } from "./components/common/Toast";
 import { OnDeviceRunIndicator } from "./components/common/OnDeviceRunIndicator";
 import { Modal } from "./components/common/Modal";
 import { KindleImportDialogHost } from "./components/import/KindleImportDialogHost";
+import { StartupExperience } from "./components/startup/StartupExperience";
 const CompanionHost = lazy(() => import("./components/companion/CompanionHost"));
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
@@ -169,6 +170,30 @@ function PageLoader() {
       `}</style>
     </div>
   );
+}
+
+/**
+ * Startup overlay boundary: a startup animation failure must never take the
+ * app down with it — the fallback is simply no overlay (openspec change
+ * knowledge-peck-startup-animation, task 6.4).
+ */
+class StartupExperienceBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[StartupExperience] overlay failed:', error);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
 }
 
 /**
@@ -398,6 +423,15 @@ reactRoot.render(
             <KindleImportDialogHost />
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
             {!isTauri() && <Analytics />}
+            {/* Knowledge Peck branded startup overlay (openspec change
+                knowledge-peck-startup-animation). Statically imported — it
+                must render before lazy routes resolve — and mounted as the
+                last child so it covers boot above the app (z 9000). Arms
+                only on a genuine main-window launch; see
+                src/lib/startupAnimation/store.ts. */}
+            <StartupExperienceBoundary>
+              <StartupExperience />
+            </StartupExperienceBoundary>
           </HashRouter>
           </BatteryProvider>
         </ThemeProvider>

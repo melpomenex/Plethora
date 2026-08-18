@@ -162,6 +162,35 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
     });
   });
 
+  describe("Android native splash continuity (Knowledge Peck)", () => {
+    const res = "src-tauri/gen/android/app/src/main/res";
+
+    it("Android 12+ splash background equals the #0A0A0A boot surface", () => {
+      const xml = read(`${res}/values-v31/themes.xml`);
+      expect(xml).toContain(
+        '<item name="android:windowSplashScreenBackground">#0A0A0A</item>'
+      );
+      // The v31 re-declaration must not drop the base theme's system bars.
+      expect(xml).toContain('name="Theme.plethora_tauri"');
+    });
+
+    it.each(["values/themes.xml", "values-night/themes.xml"])(
+      "%s pins the pre-31 window background to the same boot surface",
+      (rel) => {
+        const xml = read(`${res}/${rel}`);
+        expect(xml).toContain(
+          '<item name="android:windowBackground">#0A0A0A</item>'
+        );
+      }
+    );
+
+    it("the boot surface matches the static frame + KP_GEOMETRY constant", async () => {
+      const { KP_GEOMETRY } = await import("../lib/startupAnimation/types");
+      const html = read("index.html");
+      expect(html.toLowerCase()).toContain(KP_GEOMETRY.bootSurface.toLowerCase());
+    });
+  });
+
   describe("browser extension manifest", () => {
     const manifest = JSON.parse(read("browser_extension/manifest.json"));
 
@@ -275,8 +304,53 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
   });
 });
 
-describe("brand inventory: icon registry (source of truth in BRANDING.md)", () => {
-  /** Minimal PNG header parse: [width, height] from bytes 16..24 (big-endian). */
+describe("brand inventory: Knowledge Peck startup mascot", () => {
+  const CANONICAL_HEXES = ["#8B5CF6", "#7C3AED", "#5B21B6"];
+  const BEAK = "#F59E0B";
+  const PUPIL = "#1E1B4B";
+  // The only hexes a Plethora mascot surface may carry (white = eye/glare).
+  const ALLOWED = new Set([...CANONICAL_HEXES, BEAK, PUPIL, "#FFFFFF"]);
+
+  const hexLiterals = (source: string): string[] =>
+    [...source.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((m) => m[0].toUpperCase());
+
+  it("StartupBird.tsx carries the canonical gradient, amber beak, and brand pupil", () => {
+    const svg = read("src/components/startup/StartupBird.tsx");
+    for (const hex of CANONICAL_HEXES) {
+      expect(svg, `StartupBird is missing canonical hex ${hex}`).toContain(hex);
+    }
+    expect(svg).toContain(BEAK);
+    expect(svg).toContain(PUPIL);
+  });
+
+  it("StartupBird.tsx introduces no divergent mascot palette", () => {
+    const svg = read("src/components/startup/StartupBird.tsx");
+    for (const hex of hexLiterals(svg)) {
+      expect(ALLOWED, `StartupBird carries off-palette hex ${hex}`).toContain(hex);
+    }
+  });
+
+  it("the index.html static-frame copy carries the same canonical palette", () => {
+    const html = read("index.html");
+    // Palette scope: the mascot SVG markup only — the frame's inline <style>
+    // legitimately carries the #0A0A0A boot surface, which is not palette.
+    const frame = html.slice(
+      html.indexOf('<div id="boot-frame"'),
+      html.indexOf("<!-- /boot-frame -->")
+    );
+    expect(frame.length, "index.html static frame is missing").toBeGreaterThan(0);
+    for (const hex of CANONICAL_HEXES) {
+      expect(frame, `static frame is missing canonical hex ${hex}`).toContain(hex);
+    }
+    expect(frame).toContain(BEAK);
+    expect(frame).toContain(PUPIL);
+    for (const hex of hexLiterals(frame)) {
+      expect(ALLOWED, `static frame carries off-palette hex ${hex}`).toContain(hex);
+    }
+  });
+});
+
+describe("brand inventory: icon registry (source of truth in BRANDING.md)", () => {  /** Minimal PNG header parse: [width, height] from bytes 16..24 (big-endian). */
   function pngSize(buf: Buffer): [number, number] {
     expect(buf.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a".replace(/ /g, ""));
     return [buf.readUInt32BE(16), buf.readUInt32BE(20)];

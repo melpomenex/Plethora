@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTabsStore, normalizePane, useDocumentStore, useSettingsStore, useUIStore, type TabType } from "../../stores";
 import { useStartupStore } from "../../stores/startupStore";
+import { useStartupExperienceStore } from "../../lib/startupAnimation/store";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useI18n } from "../../lib/i18n";
@@ -252,6 +253,14 @@ export function MainLayout() {
     };
 
     void initTabs();
+
+    // Knowledge Peck startup overlay (design D2): MainLayout is the catch-all
+    // main route — its first painted frame is the route-ready signal. Utility
+    // routes (#/auth/callback, #/screenshot-overlay) never render MainLayout,
+    // so only a genuine main-window launch marks readiness.
+    requestAnimationFrame(() => {
+      useStartupExperienceStore.getState().markRoutePainted();
+    });
   }, []);
 
   // Boot-time queue preload. The queue surface is only fetched by the

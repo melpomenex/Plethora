@@ -5,5 +5,10 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Knowledge Peck launch continuity (API 24-30): the pre-webview
+             window matches the #0A0A0A boot surface behind the static frame
+             and the native splash, so cold launch shows no white flash. The
+             WebView covers this immediately. -->
+        <item name="android:windowBackground">#0A0A0A</item>
     </style>
 </resources>

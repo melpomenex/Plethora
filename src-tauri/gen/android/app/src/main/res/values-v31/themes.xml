@@ -1,0 +1,15 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- API 31+ theme: same base theme plus the Android 12+ splash screen.
+         Knowledge Peck launch continuity: the splash background matches the
+         #0A0A0A boot surface behind the static pre-React frame, and the
+         splash icon is the existing launcher icon (the mascot), so native
+         splash -> static frame -> choreography read as one continuous dark
+         branded launch. Pinned by src/__tests__/brandInventory.test.ts. -->
+    <style name="Theme.plethora_tauri" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#0A0A0A</item>
+        <item name="android:windowSplashScreenBackground">#0A0A0A</item>
+    </style>
+</resources>

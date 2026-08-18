@@ -7,6 +7,18 @@
   },
   "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run.",
   "benchmarks": {
+    "kp-timeline/build": {
+      "cost": 0.0103,
+      "reason": "knowledge-peck-startup-animation: initial baseline for the startup overlay's launch-time registry lookup + phase-closure build (200 iterations)."
+    },
+    "kp-timeline/sample-sweep-desktop": {
+      "cost": 0.1521,
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+    },
+    "kp-timeline/sample-sweep-phone": {
+      "cost": 0.0776,
+      "reason": "knowledge-peck-startup-animation: initial baseline for the phone (2-fragment) sampleTimeline sweep; ~half the desktop cost, matching the smaller element count."
+    },
     "article-import-static-small-40p": {
       "cost": 131.2,
       "reason": "overhaul-web-article-import: initial baseline for the article static pipeline (parse + metadata + Defuddle + Readability on clones + scoring + normalization + sanitization) on a seeded 40-paragraph synthetic page; fetch and rendered fallback excluded by design (D14)."

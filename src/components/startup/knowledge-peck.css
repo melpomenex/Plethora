@@ -1,0 +1,267 @@
+/*
+ * Knowledge Peck startup animation — overlay, scene, and micro-motion styles.
+ *
+ * Discipline (spec: performance constraints): animated properties are
+ * transform/opacity only; idle micro-motion is a compositor CSS keyframe
+ * (the rAF driver stops at idle); reduced-motion and e-ink kill everything.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Overlay: fixed boot surface above the app, below #error-display.   */
+/* ------------------------------------------------------------------ */
+
+.kp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* Reveal crossfade: toggled via data-fading, 250 ms per design D1/D5. */
+  transition: opacity 250ms ease-out;
+}
+
+.kp-overlay[data-fading="true"] {
+  opacity: 0;
+}
+
+/* Transparent shield: blocks interaction only while the choreography plays
+   (released at reveal start so the app is interactive immediately). */
+.kp-shield {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.kp-shield[data-inactive="true"] {
+  pointer-events: none;
+}
+
+/* E-ink: white surface, no transitions (one deliberate full repaint). */
+[data-display-mode="eink"] .kp-overlay {
+  background: #fff;
+  transition: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Scene: centered container capped at 480 px (KP_GEOMETRY).          */
+/* ------------------------------------------------------------------ */
+
+.kp-scene {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  height: 360px;
+}
+
+.kp-scene[data-form-factor="phone"] {
+  height: 420px;
+  max-width: 480px;
+}
+
+/* Safe-area-aware centering on mobile. */
+@supports (padding: env(safe-area-inset-top)) {
+  .kp-overlay[data-form-factor="phone"] {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* All driver-animated scene elements start pinned at the top-left origin;
+   the driver's transform carries the actual position. Fragments and the
+   wordmark start invisible so the pre-rAF first frame shows only the
+   static-parity mascot (matching the index.html frame). */
+.kp-fragment {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Reduced-motion variant: the one allowed card sits below the mascot and
+   appears with a single ≤ 200 ms opacity step (design D8). */
+.kp-scene[data-variant="reduced-motion"] .kp-fragment {
+  opacity: 1;
+  left: 50%;
+  top: 258px;
+  transition: opacity 200ms linear;
+}
+
+.kp-scene[data-variant="reduced-motion"][data-form-factor="phone"] .kp-fragment {
+  top: 278px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Token cards and connectors.                                        */
+/* ------------------------------------------------------------------ */
+
+.kp-card {
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(139, 92, 246, 0.22);
+  backdrop-filter: none; /* no filters animated — restraint by construction */
+}
+
+.kp-card .kp-card-bar {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.kp-card .kp-card-dot {
+  background: rgba(139, 92, 246, 0.55);
+  border-radius: 50%;
+  align-self: flex-start;
+}
+
+/* Pecked: the emphasized structural card — accent edge, brighter bars. */
+.kp-fragment[data-visual="card"] .kp-card {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.14);
+}
+
+.kp-fragment[data-visual="card"] .kp-card-bar {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kp-fragment[data-visual="card"] .kp-card-dot {
+  background: #8b5cf6;
+}
+
+/* E-ink stills: crisp monochrome, no translucency. */
+[data-display-mode="eink"] .kp-card {
+  background: #fff;
+  border: 2px solid #333;
+}
+[data-display-mode="eink"] .kp-card-bar {
+  background: #555;
+}
+[data-display-mode="eink"] .kp-fragment[data-visual="card"] .kp-card {
+  border-color: #000;
+}
+
+.kp-connector {
+  position: absolute;
+  height: 2px;
+  background: #8b5cf6;
+  transform-origin: left center;
+  border-radius: 1px;
+}
+
+[data-display-mode="eink"] .kp-connector {
+  background: #333;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mascot articulation (SVG groups driven by inline transforms).       */
+/* ------------------------------------------------------------------ */
+
+.kp-bird-head {
+  transform-box: fill-box;
+  transform-origin: 22% 82%; /* neck pivot */
+}
+
+.kp-bird-wing {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Wordmark.                                                           */
+/* ------------------------------------------------------------------ */
+
+/* Anchor (driver-owned transform) pins the wordmark center to (x, y).
+   Starts invisible; the driver fades it in with the resolve phase. */
+.kp-wordmark-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.kp-wordmark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.kp-scene[data-form-factor="phone"] .kp-wordmark {
+  font-size: 34px;
+}
+
+[data-display-mode="eink"] .kp-wordmark {
+  color: #000;
+}
+
+/* ------------------------------------------------------------------ */
+/* Idle micro-motion: CSS keyframes only; the rAF loop is stopped.    */
+/* ------------------------------------------------------------------ */
+
+@keyframes kp-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes kp-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95%,
+  97% {
+    transform: scaleY(0.12);
+  }
+}
+
+/* Breathing applies to the bird wrapper; the driver no longer writes to it
+   at idle. Blink rides the pupil (companion idiom, ~4 s cadence). */
+.kp-scene[data-idle="true"] .kp-bird-breathe {
+  animation: kp-breathe 3s ease-in-out infinite;
+}
+
+.kp-scene[data-idle="true"] .kp-bird-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: kp-blink 4s linear infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion & e-ink: nothing moves, no loops.                    */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .kp-overlay,
+  .kp-overlay * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+[data-display-mode="eink"] .kp-overlay,
+[data-display-mode="eink"] .kp-overlay * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Reduced-motion variant: the single allowed opacity step for the one
+   appearing card (≤ 200 ms per design D8). */
+.kp-scene[data-variant="reduced-motion"] .kp-fragment {
+  transition: opacity 200ms linear;
+}
