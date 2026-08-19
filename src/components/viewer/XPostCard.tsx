@@ -117,7 +117,8 @@ function ExpandedLinks({ post }: { post: TwitterPost }) {
   );
 }
 
-function Engagement({ post }: { post: TwitterPost }) {  const items: Array<{ icon: React.ReactNode; value: number; label: string }> = [];
+function Engagement({ post }: { post: TwitterPost }) {
+  const items: Array<{ icon: React.ReactNode; value: number; label: string }> = [];
   if (post.replyCount != null && post.replyCount > 0)
     items.push({ icon: <ChatCircle size={14} />, value: post.replyCount, label: "replies" });
   if (post.retweetCount != null && post.retweetCount > 0)
