@@ -1,21 +1,23 @@
 /**
  * Cloud-fallback guard tests (design D27 / ai-task-architecture spec).
  *
- * The automatic on-device → cloud retry inside `runTask` must be a SILENT
- * no-op unless the user allows cloud fallback at all, and must never re-send
- * content after a user cancellation or an on-device safety refusal.
+ * The automatic on-device → cloud retry inside `runTask` must never re-send
+ * content without explicit consent (ai-billing-safety #14): a paid cloud
+ * retry proceeds only when the consent surface is approved (or the persisted
+ * opt-in is set), a denial stops the operation, and neither user cancellations
+ * nor on-device safety refusals are ever retried.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AIProvider } from "../providers/types";
 
-const { allowCloudFallbackMock, routingMock } = vi.hoisted(() => ({
-  allowCloudFallbackMock: vi.fn((): boolean => true),
+const { requestCloudFallbackMock, routingMock } = vi.hoisted(() => ({
+  requestCloudFallbackMock: vi.fn((): Promise<boolean> => Promise.resolve(true)),
   routingMock: { providers: [] as AIProvider[] },
 }));
 
 vi.mock("../provider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../provider")>()),
-  allowCloudFallback: allowCloudFallbackMock,
+  requestCloudFallback: requestCloudFallbackMock,
 }));
 
 vi.mock("../providers", async (importOriginal) => ({
@@ -57,7 +59,8 @@ function route(error: Error, cloudAnswer: string) {
 
 beforeEach(() => {
   clearTaskDiagnostics();
-  allowCloudFallbackMock.mockReturnValue(true);
+  requestCloudFallbackMock.mockClear();
+  requestCloudFallbackMock.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -65,21 +68,33 @@ afterEach(() => {
 });
 
 describe("runTask on-device → cloud fallback guard", () => {
-  it("retries on the cloud provider when fallback is allowed", async () => {
+  it("retries on the cloud provider when fallback consent is granted", async () => {
     const { cloud } = route(new Error("on-device exploded"), "cloud answer");
     const result = await runTask(task(), { q: "x" });
     expect(result.output).toBe("cloud answer");
     expect(cloud.callCount).toBe(1);
+    expect(requestCloudFallbackMock).toHaveBeenCalled();
   });
 
-  it("never touches a cloud provider when allowCloudFallback is off", async () => {
-    allowCloudFallbackMock.mockReturnValue(false);
+  it("never touches a cloud provider when fallback consent is denied", async () => {
+    requestCloudFallbackMock.mockResolvedValue(false);
     const { cloud } = route(new Error("on-device exploded"), "cloud answer");
 
     await expect(runTask(task(), { q: "x" })).rejects.toMatchObject({
       category: "GenerationFailed",
     });
     expect(cloud.callCount).toBe(0);
+  });
+
+  it("does not consult the consent gate for a user cancellation", async () => {
+    requestCloudFallbackMock.mockResolvedValue(false);
+    const { cloud } = route(new AIError("Cancelled", "user aborted"), "cloud answer");
+
+    await expect(runTask(task(), { q: "x" })).rejects.toMatchObject({
+      category: "Cancelled",
+    });
+    expect(cloud.callCount).toBe(0);
+    expect(requestCloudFallbackMock).not.toHaveBeenCalled();
   });
 
   it("never re-sends content the on-device model refused (SafetyBlocked)", async () => {
@@ -92,6 +107,7 @@ describe("runTask on-device → cloud fallback guard", () => {
       category: "SafetyBlocked",
     });
     expect(cloud.callCount).toBe(0);
+    expect(requestCloudFallbackMock).not.toHaveBeenCalled();
   });
 
   it("never falls back for cancellations", async () => {

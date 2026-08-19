@@ -18,6 +18,9 @@ import {
   type OnDeviceRequirement,
 } from "./onDeviceAI";
 import { isCancelledError, toAIError } from "./errors";
+import { requestPaidConsent } from "../../utils/aiBillingConsent";
+import { getActiveCloudConfig } from "./providers/cloudProvider";
+import { t } from "../i18n";
 
 export type AiPath = "ondevice" | "cloud" | "none";
 
@@ -74,6 +77,41 @@ export async function isAnyAiAvailable(
 }
 
 /**
+ * Whether the configured cloud provider is billable. Ollama and local
+ * OpenAI-compatible endpoints are free/local (never a billable fallback target);
+ * every other configured cloud provider bills an external API.
+ */
+export function cloudProviderIsPaid(): boolean {
+  const config = getActiveCloudConfig();
+  if (!config) return false;
+  return !providerAllowsKeylessAccess(config.provider, config.baseUrl);
+}
+
+/**
+ * Gate the on-device → cloud automatic retry (ai-billing-safety #14).
+ * Returns true when the retry may proceed:
+ * - a free/local cloud target (Ollama / local endpoint) is never billable, so
+ *   it proceeds — the caller still shows the informational toast (never silent);
+ * - a paid cloud target proceeds when the user has explicitly opted in via the
+ *   persisted `allowCloudFallback` flag;
+ * - otherwise the paid retry surfaces the `ai-fallback` consent surface; a
+ *   denial returns false and the operation stops with feedback.
+ */
+export async function requestCloudFallback(
+  label: string,
+  isPaid: boolean = cloudProviderIsPaid()
+): Promise<boolean> {
+  if (!isPaid) return true;
+  const settings = useSettingsStore.getState().settings;
+  if (settings.ai?.allowCloudFallback === true) return true;
+  return requestPaidConsent({
+    kind: "ai-fallback",
+    provider: "cloud",
+    label,
+  });
+}
+
+/**
  * Run an AI action on the resolved path, falling back to cloud if the
  * on-device attempt fails after it started.
  *
@@ -109,15 +147,14 @@ export async function runAiAction<T>(
     if (!hasCloudProvider()) throw typed;
 
     // ai-billing-safety #14: an on-device failure must NOT silently retry on a
-    // paid cloud provider. `allowCloudFallback` (now default OFF) is the
-    // explicit opt-in; when it is disabled the action stops with a clear
-    // message instead of auto-invoking a billable provider.
-    if (!allowCloudFallback()) {
+    // paid cloud provider. The retry is gated by explicit consent — the
+    // persisted `allowCloudFallback` flag, or the ai-fallback consent surface
+    // (the in-app re-enable path). A denial stops the action with feedback.
+    if (!(await requestCloudFallback(label))) {
       useToastStore.getState().addToast({
         type: ToastType.Warning,
         title: `${label} stayed on-device`,
-        message:
-          "On-device AI could not finish and cloud fallback is disabled. Enable “Allow cloud fallback” in Settings → AI to retry on the cloud provider.",
+        message: t("paid.fallbackBlocked"),
       });
       throw typed;
     }
