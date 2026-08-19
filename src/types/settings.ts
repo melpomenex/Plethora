@@ -24,6 +24,8 @@ export interface InterfaceSettings {
   showStatistics: boolean;
   hintMode: boolean;
   hintModePersistent: boolean;
+  /** Expanded sidebar (toolbar rail) width in px (clamped to 128–320). */
+  sidebarWidth: number;
 }
 
 // Document Settings
