@@ -170,7 +170,7 @@ export function CategoryManagementView({ open, onClose }: CategoryManagementView
             filtered.map((category) => (
               <div
                 key={category.name}
-                className="flex items-center gap-2 px-3 py-2 rounded hover:bg-muted/40 group"
+                className="flex items-center gap-2 px-3 py-2 rounded hover:bg-muted/40"
               >
                 {renamingName === category.name ? (
                   <input
@@ -212,9 +212,20 @@ export function CategoryManagementView({ open, onClose }: CategoryManagementView
                       </button>
                     </>
                   ) : confirmDelete === category.name ? (
-                    <span className="text-xs text-destructive shrink-0">
-                      {t("categoryManagement.confirmHint")}
-                    </span>
+                    <>
+                      <button
+                        onClick={() => void handleDelete(category.name)}
+                        className="p-1 text-red-500 hover:bg-red-500/10 rounded text-xs"
+                      >
+                        {t("categoryManagement.confirm")}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        className="p-1 text-muted-foreground hover:bg-muted/60 rounded text-xs"
+                      >
+                        {t("categoryManagement.cancel")}
+                      </button>
+                    </>
                   ) : (
                     <>
                       <button
@@ -222,7 +233,7 @@ export function CategoryManagementView({ open, onClose }: CategoryManagementView
                           setRenamingName(category.name);
                           setRenameValue(category.name);
                         }}
-                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded"
                         aria-label={t("categoryManagement.renameAction", { name: category.name })}
                         title={t("categoryManagement.renameAction", { name: category.name })}
                       >
@@ -230,7 +241,7 @@ export function CategoryManagementView({ open, onClose }: CategoryManagementView
                       </button>
                       <button
                         onClick={() => setConfirmDelete(category.name)}
-                        className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded"
                         aria-label={t("categoryManagement.deleteAction", { name: category.name })}
                         title={t("categoryManagement.deleteAction", { name: category.name })}
                       >
@@ -243,28 +254,6 @@ export function CategoryManagementView({ open, onClose }: CategoryManagementView
             ))
           )}
         </div>
-
-        {confirmDelete && (
-          <div className="px-4 py-3 border-t border-border bg-muted/30">
-            <p className="text-xs text-muted-foreground mb-2">
-              {t("categoryManagement.deleteConfirm", { name: confirmDelete })}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => void handleDelete(confirmDelete)}
-                className="px-3 py-1.5 text-xs bg-destructive text-destructive-foreground rounded-md hover:opacity-90"
-              >
-                {t("categoryManagement.confirm")}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="px-3 py-1.5 text-xs bg-background border border-border rounded-md hover:bg-muted/60 text-foreground"
-              >
-                {t("categoryManagement.cancel")}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
