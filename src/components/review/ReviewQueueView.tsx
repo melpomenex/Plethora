@@ -978,6 +978,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     if (queueMode === "review") {
       const seen = new Set<string>();
       const reviewQueueIds = visibleItems
+        // Preserve the previous session-customization cap: the removed
+        // session blocks applied `maxItems` to the queue before splitting.
+        .slice(0, sessionCustomization.maxItems)
         .filter((item) => item.itemType === "learning-item")
         .map((item) => item.learningItemId ?? item.id)
         .filter((itemId) => {
