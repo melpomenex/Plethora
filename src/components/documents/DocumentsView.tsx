@@ -42,6 +42,7 @@ import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { AnnaArchiveSearch } from "../import/AnnaArchiveSearch";
 import { ItemCategoryEditor } from "../common/ItemCategoryEditor";
+import { CategoryManagementView } from "../common/CategoryManagementView";
 import { ArxivImportDialog } from "../import/ArxivImportDialog";
 import { WebArticleImportDialog } from "../import/WebArticleImportDialog";
 import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
@@ -264,6 +265,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [showNextAction, setShowNextAction] = useState(true);
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
   const [compactFilter, setCompactFilter] = useState<CompactDocumentFilter>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
@@ -1342,6 +1344,16 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 </div>
               )}
 
+              {/* Manage Categories */}
+              <button
+                onClick={() => setIsCategoryManagerOpen(true)}
+                aria-label={t("documentsView.manageCategories")}
+                title={t("documentsView.manageCategories")}
+                className="px-3 py-2 bg-muted text-foreground rounded-lg text-sm hover:bg-muted/80 transition-colors"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
+
               {/* Saved Views */}
               <MobileSavedViewsMenu
                 savedViews={savedViews}
@@ -1435,6 +1447,15 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                   </div>
                 </div>
               )}
+
+              {/* Manage Categories */}
+              <button
+                onClick={() => setIsCategoryManagerOpen(true)}
+                className="px-3 py-2.5 bg-muted text-foreground rounded-lg text-sm hover:bg-muted/80 transition-colors flex items-center gap-1.5"
+              >
+                <FolderOpen className="w-4 h-4" />
+                {t("documentsView.manageCategories")}
+              </button>
 
               {/* Saved Views */}
               <div className="flex items-center gap-2">
@@ -2333,6 +2354,17 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
           isOpen={showArxivImport}
           onClose={() => setShowArxivImport(false)}
           onOpenDocument={onOpenDocument}
+        />
+
+        {/* Category Management */}
+        <CategoryManagementView
+          open={isCategoryManagerOpen}
+          onClose={() => {
+            setIsCategoryManagerOpen(false);
+            // Refresh so the library's category filter and any in-memory docs
+            // reflect renames/deletes made in the manager.
+            void loadDocuments();
+          }}
         />
 
         {/* Web Article Import Dialog */}

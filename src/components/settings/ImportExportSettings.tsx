@@ -367,11 +367,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
     }
   };
 
-  const handleExportFromCPlusPlus = () => {
-    // Launch C++ database reader
-    alert("C++ database migration will be implemented in Phase 4.6");
-  };
-
   const handlePodcastImport = async () => {
     if (!podcastFile) {
       alert("Select an .mp3 or .m4a file first.");
@@ -747,39 +742,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
               </>
             )}
           </button>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        title={t("importExport.migrateFromCpp")}
-        description={t("importExport.migrateFromCppDesc")}
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {t("importExport.migrateDesc")}
-          </p>
-
-          <div className="p-4 bg-muted/30 rounded-lg">
-            <h4 className="text-sm font-medium mb-2 text-foreground">{t("importExport.whatWillBeImported")}</h4>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• {t("importExport.allDocumentsMetadata")}</li>
-              <li>• {t("importExport.extractsHighlights")}</li>
-              <li>• {t("importExport.flashcardsScheduling")}</li>
-              <li>• {t("importExport.categoriesTags")}</li>
-              <li>• {t("importExport.reviewHistory")}</li>
-              <li>• {t("importExport.appSettings")}</li>
-            </ul>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleExportFromCPlusPlus}
-              className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-md hover:bg-accent/90"
-            >
-              <ArrowsClockwise className="w-4 h-4" />
-              {t("importExport.startMigration")}
-            </button>
-          </div>
         </div>
       </SettingsSection>
 

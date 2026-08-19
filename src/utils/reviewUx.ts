@@ -19,21 +19,6 @@ export type PriorityVector = {
 
 export type QueueStatus = "new" | "learning" | "review" | "drifted" | "due" | "due-overdue" | "scheduled";
 
-export type SessionBlock = {
-  id: string;
-  title: string;
-  timeBudgetMinutes: number;
-  items: QueueItem[];
-  safeStopCount: number;
-};
-
-export type SessionBlockTimeBudgets = {
-  overdue: number;
-  maintenance: number;
-  explore: number;
-  empty: number;
-};
-
 export type SessionFilters = {
   tags: string[];
   categories: string[];
@@ -55,7 +40,6 @@ export type OrderedQueueItem = QueueItem & {
 
 export type SessionCustomizationOptions = {
   maxItems?: number;
-  blockTimeBudgets?: SessionBlockTimeBudgets;
   filters?: SessionFilters;
   itemTypes?: SessionItemTypes;
   priorityPreset?: PriorityPreset;
@@ -328,31 +312,6 @@ export function formatMinutesRange(range: { min: number; max: number }): string 
   return `${range.min}-${range.max} min`;
 }
 
-export function buildSessionBlocks(items: QueueItem[], options?: SessionCustomizationOptions): SessionBlock[] {
-  const filteredItems = applyFilters(items, options);
-  const prioritizedItems = applyMaxItems(filteredItems, options?.maxItems);
-  const timeBudgets = options?.blockTimeBudgets || { overdue: 10, maintenance: 15, explore: 20, empty: 15 };
-
-  const overdue = prioritizedItems.filter((item) => getQueueStatus(item) === "drifted");
-  const learning = prioritizedItems.filter((item) => item.itemType === "learning-item");
-  const reading = prioritizedItems.filter((item) => item.itemType !== "learning-item");
-
-  const blocks: SessionBlock[] = [];
-  if (overdue.length > 0) {
-    blocks.push(buildBlock("overdue", "Overdue Rescue", overdue, timeBudgets.overdue));
-  }
-  if (learning.length > 0) {
-    blocks.push(buildBlock("maintenance", "High-Retention Maintenance", learning, timeBudgets.maintenance));
-  }
-  if (reading.length > 0) {
-    blocks.push(buildBlock("explore", "New Material Exploration", reading, timeBudgets.explore));
-  }
-  if (blocks.length === 0) {
-    blocks.push(buildBlock("empty", "Focus Block", prioritizedItems, timeBudgets.empty));
-  }
-  return blocks;
-}
-
 export function applyFilters(items: QueueItem[], options?: SessionCustomizationOptions): QueueItem[] {
   let filtered = [...items];
 
@@ -404,32 +363,6 @@ export function applyFilters(items: QueueItem[], options?: SessionCustomizationO
   }
 
   return filtered;
-}
-
-function applyMaxItems(items: QueueItem[], maxItems?: number): QueueItem[] {
-  if (maxItems && maxItems > 0) {
-    return items.slice(0, maxItems);
-  }
-  return items;
-}
-
-function buildBlock(id: string, title: string, items: QueueItem[], timeBudgetMinutes: number): SessionBlock {
-  const safeStopCount = computeSafeStop(items, timeBudgetMinutes);
-  return { id, title, timeBudgetMinutes, items, safeStopCount };
-}
-
-function computeSafeStop(items: QueueItem[], timeBudgetMinutes: number): number {
-  let total = 0;
-  let count = 0;
-  for (const item of items) {
-    const estimate = item.estimatedTime || DEFAULT_TIME_PER_ITEM;
-    if (total + estimate > timeBudgetMinutes) {
-      return Math.max(1, count);
-    }
-    total += estimate;
-    count += 1;
-  }
-  return Math.max(1, count);
 }
 
 export function getStatusLabel(status: QueueStatus): string {

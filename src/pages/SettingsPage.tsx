@@ -350,7 +350,7 @@ function AboutSettings() {
         </p>
         <div className="flex justify-center gap-4 text-sm">
           <a
-            href="https://github.com/melpomenex/Incrementum"
+            href="https://github.com/melpomenex/Plethora"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary-600 hover:underline"
