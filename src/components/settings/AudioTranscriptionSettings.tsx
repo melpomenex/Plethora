@@ -598,39 +598,43 @@ export function AudioTranscriptionSettings() {
       {/* Groq Cloud Settings - Shown on both desktop and web */}
       {(activeTab === 'groq' || !isDesktop) && (
         <div className="space-y-8">
-          {/* Groq Introduction */}
-          <div className="bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-200 rounded-xl p-5 space-y-3">
-            <div className="flex items-center gap-2 text-orange-600">
-              <Lightning className="w-5 h-5" />
-              <h5 className="font-bold">{t("settings.audioFastCloud")}</h5>
+          {/* Groq Introduction — themed with Plethora tokens (bg-card /
+              border-border / bg-primary) so it matches neighboring cards in
+              light, dark, custom, and high-contrast themes. */}
+          <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
+              <div className="flex items-center gap-2">
+                <Lightning className="w-5 h-5" />
+                <h5 className="font-bold text-foreground">{t("settings.audioFastCloud")}</h5>
+              </div>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {t("settings.audioFastCloudDesc")}
             </p>
             <div className="flex flex-wrap gap-2 pt-2">
-              <span className="px-2 py-1 bg-orange-500/20 text-orange-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
                 ⚡ 200x faster than real-time
               </span>
-              <span className="px-2 py-1 bg-green-500/20 text-green-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-secondary/10 text-secondary-foreground text-xs rounded-full font-medium">
                 🎁 Generous free tier
               </span>
-              <span className="px-2 py-1 bg-purple-500/20 text-purple-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-muted text-muted-foreground text-xs rounded-full font-medium">
                 📁 Unlimited file size (auto-chunking)
               </span>
-              <span className="px-2 py-1 bg-blue-500/20 text-blue-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
                 🔒 API key never leaves your device
               </span>
             </div>
           </div>
 
           {/* Privacy Reminder - New! */}
-          <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
-            <div className="p-2 bg-green-500/10 rounded-lg">
-              <Lock className="w-5 h-5 text-green-600" />
+          <div className="flex items-start gap-3 p-4 bg-primary/10 border border-primary/20 rounded-xl">
+            <div className="p-2 bg-primary/15 rounded-lg">
+              <Lock className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="font-medium text-green-900">{t("settings.audioDataPrivate")}</p>
-              <p className="text-sm text-green-800/90 mt-1">
+              <p className="font-medium text-foreground">{t("settings.audioDataPrivate")}</p>
+              <p className="text-sm text-muted-foreground mt-1">
                 {t("settings.audioDataPrivateDesc")}
               </p>
             </div>

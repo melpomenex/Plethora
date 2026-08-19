@@ -1541,17 +1541,42 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           </label>
         </SettingsRow>
 
-        {/* Not implemented — the sidebar has a fixed width. */}
-        <SettingsRow label="Sidebar Width" description="Not available yet">
-          <select
-            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
-            value="medium"
-            disabled
-            aria-label="Sidebar Width"
-            onChange={() => {}}
-          >
-            <option value="medium">Medium</option>
-          </select>
+        {/* User-configurable expanded sidebar (toolbar rail) width. The
+            collapsed rail (icons only) stays fixed at 3rem; this value feeds
+            `--toolbar-expanded-w`. Mobile shells don't render the desktop
+            toolbar, so the setting has no effect there. */}
+        <SettingsRow label={t("settings.sidebarWidth")} description={t("settings.sidebarWidthDesc")}>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="128"
+              max="320"
+              step="8"
+              value={settings.interface.sidebarWidth}
+              onChange={(e) => {
+                updateSettingsCategory("interface", {
+                  sidebarWidth: Number(e.target.value),
+                });
+                onChange();
+              }}
+              className="w-32"
+              aria-label={t("settings.sidebarWidth")}
+            />
+            <NumericInput
+              min={128}
+              max={320}
+              step={8}
+              value={settings.interface.sidebarWidth}
+              onChange={(value) => {
+                updateSettingsCategory("interface", { sidebarWidth: value });
+                onChange();
+              }}
+              className="w-20 px-2 py-1 rounded border bg-input text-sm"
+            />
+            <span className="text-sm text-muted-foreground w-14">
+              {(settings.interface.sidebarWidth / 16).toFixed(1)}rem
+            </span>
+          </div>
         </SettingsRow>
       </SettingsSection>
     </>

@@ -22,8 +22,8 @@ export interface LLMProviderConfig {
 
 interface LLMProvidersState {
   providers: LLMProviderConfig[];
-  addProvider: (provider: Omit<LLMProviderConfig, 'id'>) => void;
-  updateProvider: (id: string, updates: Partial<LLMProviderConfig>) => void;
+  addProvider: (provider: Omit<LLMProviderConfig, 'id'>) => Promise<boolean>;
+  updateProvider: (id: string, updates: Partial<LLMProviderConfig>) => Promise<boolean>;
   removeProvider: (id: string) => void;
   getProvider: (id: string) => LLMProviderConfig | undefined;
   getEnabledProviders: () => LLMProviderConfig[];
@@ -32,16 +32,22 @@ interface LLMProvidersState {
 
 export async function syncPrimaryProviderToNativeAI(
   providers: LLMProviderConfig[],
-): Promise<void> {
-  if (typeof window === 'undefined' || !isTauri()) return;
+): Promise<boolean> {
+  // Resolves `true` when there is nothing to sync (web/desktop-less runtime,
+  // no enabled provider, or a Gemini provider that stays on the chat path) or
+  // when every native write succeeded. Resolves `false` if any native write
+  // (`set_api_key` / `set_ai_config`) rejected, so the save UI can surface an
+  // accurate error toast instead of claiming success.
+  if (typeof window === 'undefined' || !isTauri()) return true;
 
   const provider = providers.find((candidate) => candidate.enabled);
   // Gemini's API is not OpenAI-compatible with the native AI provider enum
   // used by flashcard generation, Q&A, and summarization, so it stays on the
   // assistant chat path (commands/llm.rs). DeepSeek is OpenAI-compatible and
   // syncs into the native enum through its own provider variant and base URL.
-  if (!provider || provider.provider === 'gemini') return;
+  if (!provider || provider.provider === 'gemini') return true;
 
+  let succeeded = true;
   try {
     if (provider.provider !== 'ollama' && provider.apiKey.trim()) {
       try {
@@ -52,8 +58,10 @@ export async function syncPrimaryProviderToNativeAI(
       } catch (error) {
         // The provider registry already owns this configured secret. A keychain
         // migration failure must not prevent the browser extension from using
-        // the same live provider as the desktop UI.
+        // the same live provider as the desktop UI — but it IS a persistence
+        // failure the user should hear about.
         console.warn('[AI] Could not migrate provider key to the keychain:', error);
+        succeeded = false;
       }
     }
 
@@ -72,35 +80,42 @@ export async function syncPrimaryProviderToNativeAI(
       apiKeys[provider.provider] = provider.apiKey;
     }
 
-    await invokeCommand('set_ai_config', {
-      config: {
-        default_provider: {
-          openai: 'OpenAI',
-          anthropic: 'Anthropic',
-          openrouter: 'OpenRouter',
-          ollama: 'Ollama',
-          deepseek: 'DeepSeek',
-        }[provider.provider],
-        api_keys: apiKeys,
-        models,
-        local_settings: {
-          ollama_base_url: provider.provider === 'ollama'
-            ? (provider.baseUrl || 'http://localhost:11434').replace(/\/v1\/?$/, '')
-            : 'http://localhost:11434',
-          // OpenAI-compatible custom endpoints (e.g. Inception Mercury) must
-          // reach the native Q&A/summarize/flashcard commands too, not just chat.
-          openai_base_url: provider.provider === 'openai' && provider.baseUrl?.trim()
-            ? provider.baseUrl.trim()
-            : 'https://api.openai.com/v1',
-          deepseek_base_url: provider.provider === 'deepseek' && provider.baseUrl?.trim()
-            ? provider.baseUrl.trim()
-            : 'https://api.deepseek.com/v1',
+    try {
+      await invokeCommand('set_ai_config', {
+        config: {
+          default_provider: {
+            openai: 'OpenAI',
+            anthropic: 'Anthropic',
+            openrouter: 'OpenRouter',
+            ollama: 'Ollama',
+            deepseek: 'DeepSeek',
+          }[provider.provider],
+          api_keys: apiKeys,
+          models,
+          local_settings: {
+            ollama_base_url: provider.provider === 'ollama'
+              ? (provider.baseUrl || 'http://localhost:11434').replace(/\/v1\/?$/, '')
+              : 'http://localhost:11434',
+            // OpenAI-compatible custom endpoints (e.g. Inception Mercury) must
+            // reach the native Q&A/summarize/flashcard commands too, not just chat.
+            openai_base_url: provider.provider === 'openai' && provider.baseUrl?.trim()
+              ? provider.baseUrl.trim()
+              : 'https://api.openai.com/v1',
+            deepseek_base_url: provider.provider === 'deepseek' && provider.baseUrl?.trim()
+              ? provider.baseUrl.trim()
+              : 'https://api.deepseek.com/v1',
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      console.warn('[AI] Failed to synchronize the provider registry with native AI:', error);
+      succeeded = false;
+    }
   } catch (error) {
     console.warn('[AI] Failed to synchronize the provider registry with native AI:', error);
+    succeeded = false;
   }
+  return succeeded;
 }
 
 export const useLLMProvidersStore = create<LLMProvidersState>()(
@@ -118,7 +133,7 @@ export const useLLMProvidersStore = create<LLMProvidersState>()(
         set((state) => ({
           providers: [...state.providers, newProvider],
         }));
-        void syncPrimaryProviderToNativeAI(get().providers);
+        return syncPrimaryProviderToNativeAI(get().providers);
       },
 
       updateProvider: (id, updates) => {
@@ -127,7 +142,7 @@ export const useLLMProvidersStore = create<LLMProvidersState>()(
             p.id === id ? { ...p, ...updates } : p
           ),
         }));
-        void syncPrimaryProviderToNativeAI(get().providers);
+        return syncPrimaryProviderToNativeAI(get().providers);
       },
 
       removeProvider: (id) => {

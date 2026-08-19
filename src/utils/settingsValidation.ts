@@ -23,6 +23,7 @@ export const InterfaceSettingsSchema = z.object({
   showStatistics: z.boolean().default(true),
   hintMode: z.boolean().default(false),
   hintModePersistent: z.boolean().default(false),
+  sidebarWidth: z.number().min(128).max(320).default(184),
 });
 
 // Document Settings Schema
