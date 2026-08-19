@@ -201,7 +201,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
     if (saved) {
       toast.success(t("llmProvider.savedToast"));
     } else {
-      toast.error(t("llmProvider.saveFailedToast"));
+      toast.error(t("llmProvider.saveFailedToast"), t("llmProvider.saveFailedDesc"));
     }
     onChange();
   };
@@ -211,7 +211,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
     if (saved) {
       toast.success(t("llmProvider.savedToast"));
     } else {
-      toast.error(t("llmProvider.saveFailedToast"));
+      toast.error(t("llmProvider.saveFailedToast"), t("llmProvider.saveFailedDesc"));
     }
     onChange();
   };
