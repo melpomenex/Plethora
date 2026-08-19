@@ -3035,6 +3035,34 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_listening_session_items_session ON listening_session_items(session_id);
         "#,
     ),
+    // Migration 090: user-installed Hugging Face speech model registry.
+    // One row per installed HF repo (repo id + revision + runtime). The rows
+    // drive the STT model picker, TTS model surface, duplicate-install
+    // prevention, and restart re-detection (the frontend calls
+    // get_installed_hf_models / get_transcription_profiles on boot, which
+    // re-verifies files on disk).
+    Migration::new(
+        "090_hf_installed_models",
+        r#"
+        CREATE TABLE IF NOT EXISTS hf_installed_models (
+            id TEXT PRIMARY KEY,
+            repo_id TEXT NOT NULL,
+            revision TEXT NOT NULL DEFAULT 'main',
+            runtime TEXT NOT NULL,
+            artifact_kind TEXT NOT NULL,
+            install_dir TEXT NOT NULL,
+            artifact_files TEXT NOT NULL,
+            download_size_bytes INTEGER NOT NULL DEFAULT 0,
+            license TEXT,
+            run_contract TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            installed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_hf_installed_models_repo
+            ON hf_installed_models(repo_id, revision, runtime);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -27,6 +27,7 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
+import { HuggingFaceModelManager } from "./HuggingFaceModelManager";
 import {
   deleteTranscriptionModel,
   downloadTranscriptionModel,
@@ -510,6 +511,20 @@ export function AudioTranscriptionSettings() {
                 );
               })}
             </div>
+          </section>
+
+          {/* Hugging Face model manager (requirement #19) */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-muted-foreground" />
+              <h4 className="font-semibold text-foreground">Install Models from Hugging Face</h4>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Install compatible whisper.cpp (ggml) or sherpa-onnx (ONNX) STT models from
+              Hugging Face. Plethora checks your hardware first and only offers models the
+              local runtimes can actually run.
+            </p>
+            <HuggingFaceModelManager mode="stt" />
           </section>
 
           {/* Info & Requirements */}

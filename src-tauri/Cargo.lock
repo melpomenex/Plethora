@@ -6385,6 +6385,7 @@ dependencies = [
  "sha2",
  "souvlaki",
  "sqlx",
+ "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
