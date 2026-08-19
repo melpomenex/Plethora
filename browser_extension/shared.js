@@ -228,6 +228,22 @@
     };
   }
 
+  /**
+   * True when `url` is an x.com/twitter.com status URL:
+   * `https://(www.|mobile.)?(x|twitter).com/<user>/status/<id>`, tolerating
+   * query params (`?s=20`), fragments, and `/photo/n`-style suffixes.
+   * Profile, search, home, and other non-status X pages are NOT matches —
+   * they save through the generic page-capture path. The generic
+   * `/i/status/<id>` redirect format is excluded too (no real <user>
+   * segment). Mirrors `is_x_status_url` in
+   * src-tauri/src/browser_sync_server.rs — the two cannot literally share
+   * code across the process boundary, so keep them in sync by hand.
+   */
+  function isXStatusURL(url) {
+    if (typeof url !== 'string') return false;
+    return /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?!i\/)([A-Za-z0-9_]{1,64})\/status\/\d+(?:[\/?#].*)?$/i.test(url.trim());
+  }
+
   return {
     TRANSPORT_LIMITS,
     DEFAULT_REQUEST_BUDGET,
@@ -238,6 +254,7 @@
     fitAiRequestToBudget,
     checkRequestBudget,
     withoutRichContent,
-    describeDegradation
+    describeDegradation,
+    isXStatusURL
   };
 });

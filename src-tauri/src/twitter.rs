@@ -25,7 +25,6 @@ use crate::models::{Document, DocumentMetadata, FileType};
 use crate::threadreader::{
     fetch_unrolled_thread_with_header, ping_thread, ThreadError, TraHttp, TraPost,
 };
-
 // ── constants ─────────────────────────────────────────────────────────────
 
 const API_BASE: &str = "https://api.x.com";
@@ -111,6 +110,17 @@ pub struct TwitterQuotedPost {
     pub url: String,
 }
 
+/// A referenced status id together with the @handle embedded in its status
+/// link (`x.com/<user>/status/<id>`), extracted from the quoting post's
+/// ThreadReaderApp HTML. Enrichment uses it to attribute quoted posts whose
+/// fetched payload yields no parseable author.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TwitterPostRef {
+    pub id: String,
+    pub screen_name: String,
+}
+
 /// Single post within an X thread.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +144,11 @@ pub struct TwitterPost {
     /// `quoted_post`; the viewer renders the rest as fallback cards.
     #[serde(default)]
     pub ref_ids: Vec<String>,
+    /// URL-derived handles for the statuses in `ref_ids` (id → @handle from
+    /// the status link). Additive: threads persisted before this field
+    /// existed restore with an empty list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ref_handles: Vec<TwitterPostRef>,
 }
 
 /// Normalized multi-post or single-post X thread.
@@ -323,6 +338,36 @@ pub fn build_status_url(screen_name: &str, tweet_id: &str) -> String {
 /// Build profile URL.
 pub fn build_profile_url(screen_name: &str) -> String {
     format!("https://x.com/{}", screen_name)
+}
+
+/// True when `author` is the hardcoded `parse_author` fallback — the payload
+/// carried no parseable user shape (restricted/unavailable users, rotated
+/// payload shapes). Quote resolution substitutes a URL-derived handle in this
+/// case; the thread/post guards keep the TRA/URL identity.
+fn is_unknown_author(author: &TwitterAuthor) -> bool {
+    author.name == "Unknown" && author.screen_name == "unknown"
+}
+
+/// Minimal author recovered from a status-link @handle: no avatar/verified
+/// state (the URL carries neither), profile + permalink rebuilt from the
+/// handle alone. Mirrors the single-post fallback's URL-derived identity.
+fn author_from_screen_name(handle: &str) -> TwitterAuthor {
+    TwitterAuthor {
+        name: handle.to_string(),
+        screen_name: handle.to_string(),
+        avatar_url: None,
+        verified: false,
+        profile_url: build_profile_url(handle),
+    }
+}
+
+/// URL-derived handle for a referenced status id, if the quoting post's
+/// ThreadReaderApp HTML carried one in the status link.
+fn ref_handle(post: &TwitterPost, ref_id: &str) -> Option<String> {
+    post.ref_handles
+        .iter()
+        .find(|r| r.id == ref_id)
+        .map(|r| r.screen_name.clone())
 }
 
 /// Strip t.co link wrappers and collapse whitespace.
@@ -775,6 +820,7 @@ pub fn parse_post(val: &serde_json::Value, fallback_id: &str) -> TwitterPost {
         is_note_tweet,
         url,
         ref_ids: vec![],
+        ref_handles: vec![],
     }
 }
 
@@ -1041,15 +1087,9 @@ fn build_single_post_thread(
 ) -> TwitterThread {
     let mut post = parse_post(val, tweet_id);
     post.post_index = 1;
-    if post.author.screen_name == "unknown" && post.author.name == "Unknown" {
+    if is_unknown_author(&post.author) {
         if let Some(handle) = url_handle {
-            post.author = TwitterAuthor {
-                name: handle.to_string(),
-                screen_name: handle.to_string(),
-                avatar_url: None,
-                verified: false,
-                profile_url: build_profile_url(handle),
-            };
+            post.author = author_from_screen_name(handle);
         }
     }
     let author = post.author.clone();
@@ -1112,7 +1152,16 @@ fn build_tra_thread(
                 bookmark_count: None,
                 is_note_tweet: false,
                 url: build_status_url(&author.screen_name, &tp.id),
-                ref_ids: tp.ref_ids.clone(),
+                ref_ids: tp.refs.iter().map(|r| r.id.clone()).collect(),
+                ref_handles: tp
+                    .refs
+                    .iter()
+                    .filter_map(|r| {
+                        r.screen_name
+                            .clone()
+                            .map(|screen_name| TwitterPostRef { id: r.id.clone(), screen_name })
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -1227,6 +1276,33 @@ pub async fn resolve_twitter_thread(url: &str) -> Result<TwitterThread, ThreadEr
     resolve_twitter_thread_with(&crate::threadreader::LiveTraHttp, &LiveTweetSource, url).await
 }
 
+/// Resolve a thread and apply per-post enrichment in one step. Used by the
+/// browser-extension capture server, which has no open viewer to run the
+/// background enrichment step: one capture ack = one complete document
+/// (quotes, media, counts). Enrichment is best-effort — on failure the
+/// resolved (TRA-only) thread is returned so the capture still persists.
+pub async fn resolve_and_enrich_twitter_thread_with(
+    http: &dyn TraHttp,
+    source: &dyn TweetResultSource,
+    url: &str,
+) -> Result<TwitterThread, ThreadError> {
+    let thread = resolve_twitter_thread_with(http, source, url).await?;
+    match enrich_twitter_thread_with(source, thread.clone()).await {
+        Ok(enriched) => Ok(enriched),
+        Err(e) => {
+            tracing::warn!("Post-resolve enrichment failed for {}: {}", url, e);
+            Ok(thread)
+        }
+    }
+}
+
+/// Production entry point: [`resolve_and_enrich_twitter_thread_with`] over the
+/// live ThreadReaderApp HTTP layer and the GraphQL/syndication tweet source.
+pub async fn resolve_and_enrich_twitter_thread(url: &str) -> Result<TwitterThread, ThreadError> {
+    resolve_and_enrich_twitter_thread_with(&crate::threadreader::LiveTraHttp, &LiveTweetSource, url)
+        .await
+}
+
 /// Enrich a normalized thread with per-post X data via GraphQL (syndication
 /// fallback), merged by post id with bounded concurrency (4).
 ///
@@ -1269,11 +1345,25 @@ pub async fn enrich_twitter_thread_with(
                         if np.media.is_empty() {
                             np.media = p.media.clone();
                         }
+                        // URL-derived quote handles travel with the TRA
+                        // identity so phase 2 (and persisted docs) keep them.
+                        np.ref_handles = p.ref_handles.clone();
+                        // Embedded quoted post: when the payload's user shape
+                        // could not be parsed, fall back to the @handle
+                        // embedded in the quoting post's status link.
+                        if let Some(qp) = np.quoted_post.as_mut() {
+                            if is_unknown_author(&qp.author) {
+                                if let Some(handle) = ref_handle(&p, &qp.id) {
+                                    qp.author = author_from_screen_name(&handle);
+                                    qp.url = build_status_url(&handle, &qp.id);
+                                }
+                            }
+                        }
                         // Keep the TRA identity when the payload's author
                         // cannot be parsed (restricted/unavailable users,
                         // unexpected shapes) — never replace a known @handle
                         // with the "Unknown" fallback.
-                        if np.author.screen_name == "unknown" && np.author.name == "Unknown" {
+                        if is_unknown_author(&np.author) {
                             np.author = p.author.clone();
                         } else if np.author.avatar_url.is_none() {
                             np.author.avatar_url = p.author.avatar_url.clone();
@@ -1355,7 +1445,17 @@ pub async fn enrich_twitter_thread_with(
     for (rid, post_index) in &quote_queue {
         if let Some((_, Some(qp))) = quotes.iter().find(|(id, _)| id == rid) {
             if enriched[*post_index].quoted_post.is_none() {
-                enriched[*post_index].quoted_post = Some(qp.clone());
+                let mut qp = qp.clone();
+                // The fetched quote payload yielded no parseable author —
+                // fall back to the @handle embedded in the quoting post's
+                // status link and rebuild the permalink from it.
+                if is_unknown_author(&qp.author) {
+                    if let Some(handle) = ref_handle(&enriched[*post_index], rid) {
+                        qp.author = author_from_screen_name(&handle);
+                        qp.url = build_status_url(&handle, &qp.id);
+                    }
+                }
+                enriched[*post_index].quoted_post = Some(qp);
             }
         }
     }
@@ -1365,7 +1465,7 @@ pub async fn enrich_twitter_thread_with(
         // Upgrade the thread author only when the payload actually carried a
         // parseable identity — a restricted/unavailable first post must not
         // clobber the TRA/URL-derived @handle with the "Unknown" fallback.
-        if first.author.screen_name != "unknown" || first.author.name != "Unknown" {
+        if !is_unknown_author(&first.author) {
             thread.author = first.author.clone();
         }
     }
@@ -1605,26 +1705,15 @@ pub async fn import_twitter_video(
         .map_err(|e| format!("Failed to save document to database: {}", e))
 }
 
-/// Import an X/Twitter post or thread as an `Html` document.
-///
-/// When `thread` is provided (the frontend already fetched it), it is reused
-/// instead of re-running the ThreadReaderApp pipeline — one open performs one
-/// ping + one page fetch, never two.
-#[tauri::command]
-pub async fn import_twitter_thread(
-    url: String,
+/// Build the persisted `Document` for a resolved X thread. Shared by the
+/// in-app `import_twitter_thread` command and the browser-extension capture
+/// server so both produce identical documents (category, tags, article HTML,
+/// structured content, cover image).
+pub fn build_twitter_thread_document(
+    thread: &TwitterThread,
     collection_id: Option<String>,
-    thread: Option<TwitterThread>,
-    repo: State<'_, Repository>,
-) -> Result<Document, String> {
-    let thread = match thread {
-        Some(t) => t,
-        None => resolve_twitter_thread(&url)
-            .await
-            .map_err(|e| thread_error_to_string(&e))?,
-    };
+) -> Document {
     let now = chrono::Utc::now();
-
     let mut doc = Document::with_collection(
         thread.title.clone(),
         thread.root_url.clone(),
@@ -1653,9 +1742,32 @@ pub async fn import_twitter_thread(
         fetched_at: Some(now),
         site_name: Some("X".to_string()),
         article_html: Some(thread.html_content.clone()),
-        structured_content: serde_json::to_value(&thread).ok(),
+        structured_content: serde_json::to_value(thread).ok(),
         ..Default::default()
     });
+
+    doc
+}
+
+/// Import an X/Twitter post or thread as an `Html` document.
+///
+/// When `thread` is provided (the frontend already fetched it), it is reused
+/// instead of re-running the ThreadReaderApp pipeline — one open performs one
+/// ping + one page fetch, never two.
+#[tauri::command]
+pub async fn import_twitter_thread(
+    url: String,
+    collection_id: Option<String>,
+    thread: Option<TwitterThread>,
+    repo: State<'_, Repository>,
+) -> Result<Document, String> {
+    let thread = match thread {
+        Some(t) => t,
+        None => resolve_twitter_thread(&url)
+            .await
+            .map_err(|e| thread_error_to_string(&e))?,
+    };
+    let doc = build_twitter_thread_document(&thread, collection_id);
 
     repo.create_document(&doc)
         .await
@@ -1850,6 +1962,7 @@ mod tests {
                 is_note_tweet: false,
                 url: "https://x.com/alicescholar/status/201".to_string(),
                 ref_ids: vec![],
+                ref_handles: vec![],
             },
             TwitterPost {
                 id: "202".to_string(),
@@ -1867,6 +1980,7 @@ mod tests {
                 is_note_tweet: false,
                 url: "https://x.com/alicescholar/status/202".to_string(),
                 ref_ids: vec![],
+                ref_handles: vec![],
             },
         ];
 
@@ -2220,6 +2334,62 @@ Third post text.
         assert_eq!(thread.source_kind, "threadreader");
     }
 
+    #[tokio::test]
+    async fn pipeline_preserves_quote_link_handles() {
+        let html = r#"<div class="content-tweet" data-screenname="janeresearch" data-tweet="1001">See <a href="https://twitter.com/Quoted_Author/status/9999999999999999999">this quote</a>.</div>"#;
+        let http = MockTraHttp::new(vec![
+            (
+                "https://threadreaderapp.com/api/v0/ping/1001.json",
+                200,
+                r#"{"code":200,"pong":"1001"}"#,
+            ),
+            (&tra_json_url("1001"), 404, "Not Found"),
+            (&tra_html_url("1001"), 200, html),
+        ]);
+        let source = MockTweetSource::new(vec![]);
+        let thread = resolve_twitter_thread_with(&http, &source, "https://x.com/u/status/1001")
+            .await
+            .unwrap();
+        assert_eq!(thread.posts[0].ref_ids, vec!["9999999999999999999".to_string()]);
+        assert_eq!(
+            thread.posts[0].ref_handles,
+            vec![TwitterPostRef {
+                id: "9999999999999999999".to_string(),
+                screen_name: "Quoted_Author".to_string(),
+            }]
+        );
+    }
+
+    /// Backward compatibility: threads persisted before quote-handle capture
+    /// (no `refHandles` field) deserialize unchanged, and re-serializing an
+    /// empty handle list omits the field entirely.
+    #[test]
+    fn twitter_post_parses_legacy_json_without_ref_handles() {
+        let post: TwitterPost = serde_json::from_value(serde_json::json!({
+            "id": "1001",
+            "postIndex": 1,
+            "author": {
+                "name": "Jane",
+                "screenName": "jane",
+                "avatarUrl": null,
+                "verified": false,
+                "profileUrl": "https://x.com/jane"
+            },
+            "text": "t",
+            "fullText": "t",
+            "media": [],
+            "isNoteTweet": false,
+            "url": "https://x.com/jane/status/1001",
+            "refIds": ["9999999999999999999"]
+        }))
+        .expect("legacy JSON parses");
+        assert_eq!(post.ref_ids, vec!["9999999999999999999".to_string()]);
+        assert!(post.ref_handles.is_empty());
+
+        let value = serde_json::to_value(&post).expect("serializes");
+        assert!(value.get("refHandles").is_none());
+    }
+
     // ── enrichment tests ──────────────────────────────────────────────────
 
     fn video_payload(id: &str, screen: &str, text: &str) -> serde_json::Value {
@@ -2289,6 +2459,7 @@ Third post text.
                 is_note_tweet: false,
                 url: "https://x.com/janeresearch/status/1001".to_string(),
                 ref_ids: vec![],
+                ref_handles: vec![],
             },
             TwitterPost {
                 id: "1002".to_string(),
@@ -2306,6 +2477,7 @@ Third post text.
                 is_note_tweet: false,
                 url: "https://x.com/janeresearch/status/1002".to_string(),
                 ref_ids: vec!["9999999999999999999".to_string()],
+                ref_handles: vec![],
             },
         ];
         let mut thread = build_thread(&author, posts, "threadreader");
@@ -2356,6 +2528,172 @@ Third post text.
         assert_eq!(q.id, "9999999999999999999");
         assert_eq!(q.author.screen_name, "quotedauthor");
         assert_eq!(q.text, "The original quote.");
+    }
+
+    // ── quote-author fallback from URL-derived handles ───────────────────
+
+    #[test]
+    fn is_unknown_author_matches_only_the_parse_author_fallback() {
+        let unknown = parse_author(&serde_json::json!({"__typename": "TweetUnavailable"}));
+        assert!(is_unknown_author(&unknown));
+        assert!(is_unknown_author(&TwitterAuthor {
+            name: "Unknown".to_string(),
+            screen_name: "unknown".to_string(),
+            avatar_url: None,
+            verified: false,
+            profile_url: "https://x.com".to_string(),
+        }));
+        // A real handle named "unknown" with a display name is not the
+        // fallback; partial matches (one field) are not either.
+        assert!(!is_unknown_author(&TwitterAuthor {
+            name: "someone".to_string(),
+            screen_name: "unknown".to_string(),
+            avatar_url: None,
+            verified: false,
+            profile_url: "https://x.com/unknown".to_string(),
+        }));
+        assert!(!is_unknown_author(&author_from_screen_name("handle")));
+    }
+
+    #[test]
+    fn author_from_screen_name_builds_identity_without_avatar() {
+        let author = author_from_screen_name("PhillipAKennedy");
+        assert_eq!(author.name, "PhillipAKennedy");
+        assert_eq!(author.screen_name, "PhillipAKennedy");
+        assert_eq!(author.avatar_url, None);
+        assert!(!author.verified);
+        assert_eq!(author.profile_url, "https://x.com/PhillipAKennedy");
+    }
+
+    /// Restricted/unavailable quote payload: no parseable user, but the
+    /// quoting post's status link carried the @handle — enrichment must
+    /// recover the author and rebuild the permalink from it.
+    #[tokio::test]
+    async fn quote_ref_handle_recovers_unparseable_quote_author() {
+        let restricted_quote = serde_json::json!({
+            "__typename": "TweetUnavailable",
+            "rest_id": "9999999999999999999",
+            "reason": "This Tweet is unavailable."
+        });
+        let source = MockTweetSource::new(vec![
+            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
+            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            ("9999999999999999999", restricted_quote),
+        ]);
+        let mut thread = tra_thread_fixture();
+        thread.posts[1].ref_handles = vec![TwitterPostRef {
+            id: "9999999999999999999".to_string(),
+            screen_name: "quotedauthor".to_string(),
+        }];
+        let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
+        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        assert_eq!(q.author.screen_name, "quotedauthor");
+        assert_eq!(q.author.name, "quotedauthor");
+        assert_eq!(q.author.profile_url, "https://x.com/quotedauthor");
+        assert_eq!(q.url, "https://x.com/quotedauthor/status/9999999999999999999");
+        // URL-derived handles survive into the enriched (persisted) posts.
+        assert_eq!(
+            enriched.posts[1].ref_handles,
+            vec![TwitterPostRef {
+                id: "9999999999999999999".to_string(),
+                screen_name: "quotedauthor".to_string(),
+            }]
+        );
+    }
+
+    /// A parseable payload author always wins — the URL-derived handle must
+    /// not override a real identity (name, handle, avatar, verified).
+    #[tokio::test]
+    async fn quote_ref_handle_never_overrides_a_parseable_quote_author() {
+        let source = MockTweetSource::new(vec![
+            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
+            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "9999999999999999999",
+                tweet_payload("9999999999999999999", "payloadauthor", "The original quote."),
+            ),
+        ]);
+        let mut thread = tra_thread_fixture();
+        thread.posts[1].ref_handles = vec![TwitterPostRef {
+            id: "9999999999999999999".to_string(),
+            screen_name: "urlhandle".to_string(),
+        }];
+        let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
+        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        assert_eq!(q.author.screen_name, "payloadauthor");
+        assert_eq!(q.author.name, "Jane Researcher");
+        assert!(q.author.avatar_url.is_some());
+        assert!(q.author.verified);
+        assert_eq!(q.url, "https://x.com/payloadauthor/status/9999999999999999999");
+    }
+
+    /// No URL-derived handle for the quote id → the Unknown fallback is
+    /// retained (the viewer renders its neutral "Quoted post" header).
+    #[tokio::test]
+    async fn quote_without_ref_handle_keeps_unknown_fallback() {
+        let restricted_quote = serde_json::json!({
+            "__typename": "TweetUnavailable",
+            "rest_id": "9999999999999999999",
+            "reason": "This Tweet is unavailable."
+        });
+        let source = MockTweetSource::new(vec![
+            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
+            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            ("9999999999999999999", restricted_quote),
+        ]);
+        // ref_ids present, ref_handles empty (legacy shape / link carried no
+        // usable <user> segment).
+        let thread = tra_thread_fixture();
+        let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
+        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        assert!(is_unknown_author(&q.author));
+    }
+
+    /// Phase-1 embedded quoted post with an unparseable user: the same
+    /// substitution applies when the ref handle matches the embedded quote id.
+    #[tokio::test]
+    async fn embedded_quote_ref_handle_recovers_unparseable_author() {
+        let quoting_post = serde_json::json!({
+            "__typename": "Tweet",
+            "rest_id": "1002",
+            "legacy": {
+                "id_str": "1002",
+                "full_text": "Second post with quote link.",
+                "created_at": "Mon Jan 01 12:00:00 +0000 2024",
+                "favorite_count": 42
+            },
+            "core": {
+                "user_results": {
+                    "result": {
+                        "legacy": { "name": "Jane Researcher", "screen_name": "janeresearch" }
+                    }
+                }
+            },
+            "quoted_status_result": {
+                "result": {
+                    "__typename": "TweetUnavailable",
+                    "rest_id": "9999999999999999999",
+                    "reason": "This Tweet is unavailable."
+                }
+            }
+        });
+        let source = MockTweetSource::new(vec![
+            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
+            ("1002", quoting_post),
+        ]);
+        let mut thread = tra_thread_fixture();
+        // Phase 1 only queues phase-2 fetches for unresolved quotes; the
+        // embedded one resolves here, so no 9999... payload is needed.
+        thread.posts[1].ref_ids = vec![];
+        thread.posts[1].ref_handles = vec![TwitterPostRef {
+            id: "9999999999999999999".to_string(),
+            screen_name: "embeddedquote".to_string(),
+        }];
+        let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
+        let q = enriched.posts[1].quoted_post.as_ref().expect("embedded quote parsed");
+        assert_eq!(q.id, "9999999999999999999");
+        assert_eq!(q.author.screen_name, "embeddedquote");
+        assert_eq!(q.url, "https://x.com/embeddedquote/status/9999999999999999999");
     }
 
     #[tokio::test]

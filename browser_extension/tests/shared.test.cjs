@@ -9,6 +9,7 @@ const {
   describeDegradation,
   fitAiRequestToBudget,
   fitPayloadToBudget,
+  isXStatusURL,
   serializedByteLength,
   withoutRichContent
 } = globalThis.IncrementumExtensionShared;
@@ -245,4 +246,33 @@ test('the extension request budget stays strictly below the server limit', () =>
   const inflatedImageBytes = Math.ceil(TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES * 4 / 3);
   const headroom = TRANSPORT_LIMITS.SERVER_MAX_REQUEST_BYTES - inflatedImageBytes;
   assert.ok(headroom > 0, 'a maximal occlusion image must not exceed the server limit on its own');
+});
+
+test('isXStatusURL matches status and thread URLs across hosts and suffixes', () => {
+  assert.equal(isXStatusURL('https://x.com/user/status/1234567890'), true);
+  assert.equal(isXStatusURL('https://www.x.com/PhillipAKennedy/status/1789999999999999999'), true);
+  assert.equal(isXStatusURL('https://mobile.twitter.com/Some_User/status/9876543210?s=20&t=abc'), true);
+  assert.equal(isXStatusURL('https://twitter.com/user/status/1234567890/photo/1'), true);
+  assert.equal(isXStatusURL('https://x.com/user/status/1234567890/'), true);
+  assert.equal(isXStatusURL('https://x.com/user/status/1234567890#anchor'), true);
+  // Mid-thread URL — still a status URL (the server resolves it to the root).
+  assert.equal(isXStatusURL('https://x.com/user/status/1111111111111111112?s=20'), true);
+});
+
+test('isXStatusURL rejects non-status X pages and lookalikes', () => {
+  // X pages that are not statuses save through the generic page path.
+  assert.equal(isXStatusURL('https://x.com/PhillipAKennedy'), false);
+  assert.equal(isXStatusURL('https://x.com/PhillipAKennedy/with_replies'), false);
+  assert.equal(isXStatusURL('https://x.com/search?q=threadreader'), false);
+  assert.equal(isXStatusURL('https://x.com/home'), false);
+  assert.equal(isXStatusURL('https://x.com/i/status/1234567890'), false);
+  assert.equal(isXStatusURL('https://x.com/user/status/notanid'), false);
+  // Other sites, including lookalikes, never match.
+  assert.equal(isXStatusURL('https://notx.com/user/status/1234567890'), false);
+  assert.equal(isXStatusURL('https://x.com.evil.example/user/status/1234567890'), false);
+  assert.equal(isXStatusURL('https://www.youtube.com/watch?v=abc'), false);
+  assert.equal(isXStatusURL('about:blank'), false);
+  assert.equal(isXStatusURL(''), false);
+  assert.equal(isXStatusURL(null), false);
+  assert.equal(isXStatusURL(undefined), false);
 });

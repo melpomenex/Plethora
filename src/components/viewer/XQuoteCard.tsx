@@ -53,6 +53,11 @@ export const XQuoteCard = memo(function XQuoteCard({
 }) {
   const qUrl = quote?.url || `https://x.com/i/status/${parentPost.refIds?.[0] ?? ""}`;
   const screenName = quote?.author.screenName ?? parentPost.author.screenName;
+  // Mirror of the backend's `is_unknown_author`: the quote resolved, but its
+  // payload carried no parseable user and no URL-derived handle existed —
+  // render a neutral header instead of the "Unknown (@unknown)" placeholder.
+  const isUnknownAuthor =
+    quote?.author.name === "Unknown" && quote?.author.screenName === "unknown";
 
   if (!quote) {
     // Unresolved quote (enrichment failed or pending) — subdued fallback card.
@@ -78,7 +83,7 @@ export const XQuoteCard = memo(function XQuoteCard({
   return (
     <article
       data-testid="x-quote-card"
-      aria-label={`Quoted post by @${quote.author.screenName}`}
+      aria-label={isUnknownAuthor ? "Quoted post" : `Quoted post by @${quote.author.screenName}`}
       className="mt-3 overflow-hidden rounded-xl border border-border border-l-2 border-l-primary/40 bg-muted/40"
     >
       <a
@@ -90,24 +95,32 @@ export const XQuoteCard = memo(function XQuoteCard({
         className="block px-3 py-2.5 transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         <div className="flex items-center gap-2">
-          <AuthorAvatar
-            name={quote.author.name}
-            screenName={quote.author.screenName}
-            avatarUrl={quote.author.avatarUrl}
-            size={20}
-          />
-          <span className="truncate text-sm font-semibold text-foreground">
-            {quote.author.name}
-          </span>
-          {quote.author.verified && (
-            <CheckCircle
-              size={14}
-              weight="fill"
-              className="shrink-0 text-primary"
-              aria-label="Verified"
-            />
+          {isUnknownAuthor ? (
+            <span className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Quoted post
+            </span>
+          ) : (
+            <>
+              <AuthorAvatar
+                name={quote.author.name}
+                screenName={quote.author.screenName}
+                avatarUrl={quote.author.avatarUrl}
+                size={20}
+              />
+              <span className="truncate text-sm font-semibold text-foreground">
+                {quote.author.name}
+              </span>
+              {quote.author.verified && (
+                <CheckCircle
+                  size={14}
+                  weight="fill"
+                  className="shrink-0 text-primary"
+                  aria-label="Verified"
+                />
+              )}
+              <span className="truncate text-xs text-muted-foreground">@{quote.author.screenName}</span>
+            </>
           )}
-          <span className="truncate text-xs text-muted-foreground">@{quote.author.screenName}</span>
           <ArrowSquareOut size={13} className="ml-auto shrink-0 text-muted-foreground" />
         </div>
         {quote.text && (

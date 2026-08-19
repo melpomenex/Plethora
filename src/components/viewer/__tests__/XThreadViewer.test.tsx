@@ -206,6 +206,27 @@ describe("XThreadViewer", () => {
     expect(screen.getByTestId("x-quote-fallback")).toBeInTheDocument();
   });
 
+  it("renders a neutral header for a quote whose author is the Unknown fallback", () => {
+    renderThread([
+      makePost({
+        quotedPost: {
+          id: "999",
+          author: { name: "Unknown", screenName: "unknown", avatarUrl: null, verified: false, profileUrl: "https://x.com" },
+          text: "Quote text from an unavailable account",
+          media: [],
+          createdAt: null,
+          url: "https://x.com/unknown/status/999",
+        },
+      }),
+    ]);
+    expect(screen.getByTestId("x-quote-card")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quoted post")).toBeInTheDocument();
+    expect(screen.getByText("Quote text from an unavailable account")).toBeInTheDocument();
+    // The placeholder identity never surfaces.
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+    expect(screen.queryByText("@unknown")).not.toBeInTheDocument();
+  });
+
   it("shows the skeleton for a loading placeholder document", () => {
     const doc = makeDoc({ xThreadLoading: true });
     render(<XThreadViewer document={doc} />);

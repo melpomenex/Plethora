@@ -84,6 +84,30 @@ describe("mapDocument X-thread restoration", () => {
     expect(mapped?.metadata?.xThread?.posts).toHaveLength(1);
   });
 
+  it("tolerates quote-handle fields: legacy threads lack refHandles, new threads keep them", () => {
+    // Legacy shape (persisted before quote-handle capture): no refIds /
+    // refHandles anywhere — restores identically.
+    const legacy = makeDoc({
+      metadata: { structuredContent: makeThread() },
+    });
+    const mappedLegacy = mapDocument(legacy);
+    expect(mappedLegacy?.metadata?.xThread?.posts[0].refHandles).toBeUndefined();
+
+    // New shape: handles ride along and survive restoration.
+    const withHandles = makeThread();
+    (withHandles.posts as Array<Record<string, unknown>>)[0] = {
+      ...(withHandles.posts as Array<Record<string, unknown>>)[0],
+      refIds: ["9999999999999999999"],
+      refHandles: [{ id: "9999999999999999999", screenName: "quotedauthor" }],
+    };
+    const mappedNew = mapDocument(makeDoc({ metadata: { structuredContent: withHandles } }));
+    expect(mappedNew?.metadata?.xThread?.posts[0].refHandles).toEqual([
+      { id: "9999999999999999999", screenName: "quotedauthor" },
+    ]);
+    // The type guard is shape-based on core fields only, so both pass.
+    expect(isTwitterThreadShape(withHandles)).toBe(true);
+  });
+
   it("does not overwrite an existing metadata.xThread", () => {
     const existing = { ...makeThread(), rootId: "9999" } as unknown as TwitterThread;
     const doc = makeDoc({
