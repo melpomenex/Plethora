@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize } from "../api/tts";
+import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize, TTSServiceError } from "../api/tts";
 import { resolveProviderKey } from "../api/tts/auth";
 import { getAdapter } from "../api/tts/registry";
 import { getProviderSettings } from "../utils/ttsSettings";
@@ -281,6 +281,13 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       const normalizedText = cleanText(text);
       if (!normalizedText) return;
 
+      const runProvider = async (): Promise<void> => {
+        const maxChunkSize = await resolveTTSMaxChunkSize(settings);
+        for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
+          await speakWithProvider(chunk, overrides);
+        }
+      };
+
       try {
         // System TTS synthesizes directly via the device engine (no audio URL).
         if (isSystemProvider && hasSpeechSynthesis) {
@@ -302,10 +309,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
             setLastError(t("paid.ttsReadAloudBlocked"));
             return;
           }
-          const maxChunkSize = await resolveTTSMaxChunkSize(settings);
-          for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
-            await speakWithProvider(chunk, overrides);
-          }
+          await runProvider();
         } else {
           await speakWithWebSpeech(normalizedText);
         }
@@ -313,7 +317,39 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         setIsGenerating(false);
         setIsSpeaking(false);
         setIsPaused(false);
-        setLastError(error instanceof Error ? error.message : "TTS generation failed.");
+
+        // Defensive backstop (ai-billing-safety #14): a billable adapter was
+        // reached without consent (the pre-loop gate was bypassed/stale).
+        // Surface the opt-in surface; granted ⇒ retry once, denied ⇒ stop
+        // with feedback instead of showing a bare provider error.
+        let retryFailure: Error | undefined;
+        if (error instanceof TTSServiceError && error.consentRequired) {
+          const granted = await requestPaidConsent({
+            kind: "tts",
+            provider: String(ttsSettings?.provider),
+            model: activeConfig?.modelId,
+            label: activeAdapter.label,
+          });
+          if (granted) {
+            try {
+              await runProvider();
+              return;
+            } catch (retryError) {
+              retryFailure =
+                retryError instanceof Error
+                  ? retryError
+                  : new Error(String(retryError));
+            }
+          } else {
+            setLastError(t("paid.ttsReadAloudBlocked"));
+            return;
+          }
+        }
+
+        setLastError(
+          retryFailure?.message ??
+            (error instanceof Error ? error.message : "TTS generation failed.")
+        );
 
         if (hasSpeechSynthesis) {
           await speakWithWebSpeech(normalizedText);
