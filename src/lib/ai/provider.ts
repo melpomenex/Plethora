@@ -108,6 +108,20 @@ export async function runAiAction<T>(
 
     if (!hasCloudProvider()) throw typed;
 
+    // ai-billing-safety #14: an on-device failure must NOT silently retry on a
+    // paid cloud provider. `allowCloudFallback` (now default OFF) is the
+    // explicit opt-in; when it is disabled the action stops with a clear
+    // message instead of auto-invoking a billable provider.
+    if (!allowCloudFallback()) {
+      useToastStore.getState().addToast({
+        type: ToastType.Warning,
+        title: `${label} stayed on-device`,
+        message:
+          "On-device AI could not finish and cloud fallback is disabled. Enable “Allow cloud fallback” in Settings → AI to retry on the cloud provider.",
+      });
+      throw typed;
+    }
+
     useToastStore.getState().addToast({
       type: ToastType.Info,
       title: `${label} used the cloud provider`,
