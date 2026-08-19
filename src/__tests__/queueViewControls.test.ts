@@ -76,4 +76,12 @@ describe("unrelated scheduling/retention preserved (#12)", () => {
     const en = read("src/lib/i18n/locales/en.ts");
     expect(en).toContain('"review.retentionMaintenance"');
   });
+
+  it("optimal-session review queue still honors the maxItems cap", () => {
+    // With the session blocks gone, handleStartOptimalSession derives the
+    // review queue from visibleItems; the maxItems cap from the session
+    // customization must be preserved (previously applied by applyMaxItems).
+    const source = read("src/components/review/ReviewQueueView.tsx");
+    expect(source).toContain(".slice(0, sessionCustomization.maxItems)");
+  });
 });
