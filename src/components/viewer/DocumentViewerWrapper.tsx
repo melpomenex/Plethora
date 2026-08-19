@@ -3,7 +3,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentViewer as BaseDocumentViewer } from "./DocumentViewer";
-import { AssistantPanel, type AssistantContext, type AssistantPosition } from "../assistant/AssistantPanel";
+import { AssistantPanel, type AssistantContext, type AssistantPosition, READER_MIN_WIDTH } from "../assistant/AssistantPanel";
 import { PwaAssistantButton } from "../assistant/PwaAssistantButton";
 import { useDocumentStore, useSettingsStore } from "../../stores";
 import * as documentsApi from "../../api/documents";
@@ -400,17 +400,30 @@ export function DocumentViewer({
     localStorage.setItem(ASSISTANT_POSITION_KEY, newPosition);
   };
 
+  // Consume the assistant's live width (the same value the panel clamps to
+  // ASSISTANT_MIN_WIDTH..ASSISTANT_MAX_WIDTH) so the host owns the split and
+  // can keep the reader from collapsing. The reader keeps a usable floor via
+  // `minWidth: READER_MIN_WIDTH` below; the EPUB's own ResizeObserver turns
+  // the resulting width change into a live `rendition.resize` reflow.
+  const assistantWidthRef = useRef<number | null>(null);
+
   const assistantPanel = (
     <AssistantPanel
       context={assistantContext}
       className="flex-shrink-0"
       position={assistantPosition}
       onPositionChange={handlePositionChange}
+      onWidthChange={(width) => {
+        assistantWidthRef.current = width;
+      }}
     />
   );
 
   const documentViewer = (
-    <div className="flex-1 h-full min-h-0 overflow-hidden">
+    <div
+      className="flex-1 h-full min-h-0 overflow-hidden"
+      style={{ minWidth: READER_MIN_WIDTH }}
+    >
       <BaseDocumentViewer
         documentId={documentId}
         onSelectionChange={setSelection}

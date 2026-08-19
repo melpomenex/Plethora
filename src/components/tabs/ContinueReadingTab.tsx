@@ -19,10 +19,17 @@ import { formatRelativeTime } from "../../utils/relativeTime";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
+import { importWithRetry } from "../../utils/importWithRetry";
 import type { StartupProgressItem } from "../../types/startup";
 
+// Open a document from Continue Reading goes through the same timeout+retry
+// lazy wrapper as every other document-viewer tab (TabRegistry.debugLazy):
+// a cold WebView chunk stall must self-heal in place instead of leaving the
+// viewer spinning until the user navigates away and back.
 const DocumentViewer = lazy(() =>
-  import("../viewer/DocumentViewerWrapper").then((m) => ({ default: m.DocumentViewer }))
+  importWithRetry("ContinueReadingTab/DocumentViewer", () =>
+    import("../viewer/DocumentViewerWrapper").then((m) => ({ default: m.DocumentViewer }))
+  )
 );
 
 interface GroupedDocuments {
