@@ -13,7 +13,6 @@ use crate::error::PlethoraError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
-
 /// Summary of a queue item for embedding purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,10 +130,15 @@ pub async fn embed_queue_items(
     app: tauri::AppHandle,
     items: Vec<QueueItemSummary>,
     config: EmbeddingConfigInput,
+    paid_embeddings_enabled: Option<bool>,
 ) -> Result<u32> {
     if items.is_empty() {
         return Ok(0);
     }
+
+    // Defensive gate (ai-billing-safety #14): a billable cloud embedding
+    // provider requires explicit consent — never silently bill.
+    crate::commands::ai_learning::ensure_embedding_consent(Some(&config), paid_embeddings_enabled)?;
 
     let provider = get_provider(&config)?;
     let provider_str = provider_name(&config);
@@ -217,8 +221,9 @@ pub async fn embed_active_rss_articles(
     app: tauri::AppHandle,
     items: Vec<QueueItemSummary>,
     config: EmbeddingConfigInput,
+    paid_embeddings_enabled: Option<bool>,
 ) -> Result<u32> {
-    embed_queue_items(repo, app, items, config).await
+    embed_queue_items(repo, app, items, config, paid_embeddings_enabled).await
 }
 
 #[tauri::command]
