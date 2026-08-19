@@ -242,13 +242,13 @@ export const IntegrationSettingsSchema = z.object({
   obsidian: z.object({
     enabled: z.boolean().default(false),
     vaultPath: z.string().default(''),
-    template: z.string().default('---\ntitle: {{title}}\ntags: [incrementum]\n---\n\n{{content}}'),
+    template: z.string().default('---\ntitle: {{title}}\ntags: [plethora]\n---\n\n{{content}}'),
     dailyNotes: z.boolean().default(false),
     bidirectionalSync: z.boolean().default(false),
   }),
   anki: z.object({
     enabled: z.boolean().default(false),
-    deckName: z.string().default('Incrementum'),
+    deckName: z.string().default('Plethora'),
     bidirectionalSync: z.boolean().default(false),
     syncEnabled: z.boolean().default(false),
     serverUrl: z.string().default('http://localhost:8765'),

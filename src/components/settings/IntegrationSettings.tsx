@@ -90,13 +90,13 @@ export function IntegrationSettings() {
 
   // Obsidian state
   const [obsidianVault, setObsidianVault] = useState("");
-  const [obsidianNotes, setObsidianNotes] = useState("Incrementum");
-  const [obsidianAttachments, setObsidianAttachments] = useState("Incrementum Assets");
+  const [obsidianNotes, setObsidianNotes] = useState("Plethora");
+  const [obsidianAttachments, setObsidianAttachments] = useState("Plethora Assets");
   const [obsidianDataview, setObsidianDataview] = useState("");
 
   // Anki state
   const [ankiUrl, setAnkiUrl] = useState("http://localhost:8765");
-  const [ankiDeck, setAnkiDeck] = useState("Incrementum");
+  const [ankiDeck, setAnkiDeck] = useState("Plethora");
   const [ankiModel, setAnkiModel] = useState("Basic");
   const [ankiConnected, setAnkiConnected] = useState(false);
   const [ankiDecks, setAnkiDecks] = useState<string[]>([]);
@@ -259,8 +259,8 @@ export function IntegrationSettings() {
 
   const buildObsidianConfig = (): ObsidianConfig => ({
       vaultPath: obsidianVault,
-      notesFolder: obsidianNotes || "Incrementum",
-      attachmentsFolder: obsidianAttachments || "Incrementum Assets",
+      notesFolder: obsidianNotes || "Plethora",
+      attachmentsFolder: obsidianAttachments || "Plethora Assets",
       dataviewFolder: obsidianDataview || undefined,
   });
 
@@ -588,7 +588,7 @@ export function IntegrationSettings() {
                   type="text"
                   value={obsidianNotes}
                   onChange={(e) => setObsidianNotes(e.target.value)}
-                  placeholder="Incrementum"
+                  placeholder="Plethora"
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -602,7 +602,7 @@ export function IntegrationSettings() {
                   type="text"
                   value={obsidianAttachments}
                   onChange={(e) => setObsidianAttachments(e.target.value)}
-                  placeholder="Incrementum Assets"
+                  placeholder="Plethora Assets"
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>

@@ -48,8 +48,8 @@ export function IntegrationsPage() {
       await invoke("sync_to_obsidian", {
         config: {
           vaultPath: obsidianVault,
-          notesFolder: "Incrementum",
-          attachmentsFolder: "Incrementum Assets",
+          notesFolder: "Plethora",
+          attachmentsFolder: "Plethora Assets",
         },
       });
       setObsidianStatus("success");
@@ -71,8 +71,8 @@ export function IntegrationsPage() {
       await invoke("sync_to_obsidian", {
         config: {
           vaultPath: obsidianVault,
-          notesFolder: "Incrementum",
-          attachmentsFolder: "Incrementum Assets",
+          notesFolder: "Plethora",
+          attachmentsFolder: "Plethora Assets",
         },
       });
       setObsidianStatus("success");
