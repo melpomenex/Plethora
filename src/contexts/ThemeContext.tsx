@@ -278,6 +278,12 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     return defaultTheme || loadLastThemeId();
   });
 
+  // A theme that is being live-previewed (applied to the DOM but not yet
+  // committed). `null` means no preview is active and the committed theme
+  // renders. The ThemePicker sets this on hover/keyboard-focus and only calls
+  // `commitPreview` (or `setTheme`) on an explicit selection.
+  const [previewThemeId, setPreviewThemeId] = useState<ThemeId | null>(null);
+
   // Track the ids of known built-in themes. Used to filter builtins out when
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
   // populated with the full set once the catalog loads.
@@ -286,6 +292,11 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   );
 
   const currentTheme = themes.find((t) => t.id === currentThemeId) || themes[0];
+  // While previewing, the DOM reflects the previewed theme; `theme` in the
+  // context stays the committed theme so the UI can show the "Previewing"
+  // notice against the actual active theme.
+  const appliedTheme =
+    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) || currentTheme;
 
   // Lazy-load the full built-in theme catalog on mount. Until it resolves, the
   // app renders with the active/default fallback theme; once loaded, the catalog
@@ -311,16 +322,17 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     };
   }, []);
 
-  // Apply theme to DOM whenever it changes
+  // Apply theme to DOM whenever it changes (committed theme or live preview).
   useEffect(() => {
     // Load font family from settings and apply theme with font override
     const savedFontFamily = loadSavedFontFamily();
-    applyThemeToDOM(currentTheme, savedFontFamily);
+    applyThemeToDOM(appliedTheme, savedFontFamily);
     if (savedFontFamily) loadGoogleFont(savedFontFamily);
-    saveLastThemeId(currentThemeId);
+    // Never persist a previewed theme as "last selected".
+    if (previewThemeId === null) saveLastThemeId(currentThemeId);
 
     // Apply native platform vibrancy if supported
-    invokeCommand<boolean>("apply_theme_vibrancy", { themeId: currentThemeId, colors: currentTheme.colors })
+    invokeCommand<boolean>("apply_theme_vibrancy", { themeId: appliedTheme.id, colors: appliedTheme.colors })
       .then((success) => {
         const root = document.documentElement;
         if (success) {
@@ -333,13 +345,25 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
         console.error("Failed to apply vibrancy:", err);
         document.documentElement.removeAttribute("data-vibrancy-active");
       });
-  }, [currentTheme, currentThemeId]);
+  }, [appliedTheme, previewThemeId, currentThemeId]);
 
   const setTheme = (themeId: ThemeId) => {
     const theme = themes.find((t) => t.id === themeId);
     if (theme) {
+      setPreviewThemeId(null);
       setCurrentThemeId(themeId);
     }
+  };
+
+  const previewTheme = (themeId: ThemeId | null) => {
+    setPreviewThemeId(themeId);
+  };
+
+  const commitPreview = () => {
+    if (previewThemeId !== null && previewThemeId !== currentThemeId) {
+      setCurrentThemeId(previewThemeId);
+    }
+    setPreviewThemeId(null);
   };
 
   const addCustomTheme = (theme: Theme) => {
@@ -407,6 +431,9 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     removeCustomTheme,
     exportTheme,
     importTheme,
+    previewThemeId,
+    previewTheme,
+    commitPreview,
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
