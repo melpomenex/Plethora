@@ -31,6 +31,7 @@ import {
 } from "../../utils/audioEditionEstimation";
 import { getAdapter } from "../../api/tts/registry";
 import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
+import { t } from "../../lib/i18n";
 
 interface CreateAudioEditionDialogProps {
   isOpen: boolean;
@@ -189,7 +190,7 @@ export function CreateAudioEditionDialog({
           label: activeAdapter.label,
         });
         if (!granted) {
-          setErrorMsg(`Paid TTS is disabled for ${activeAdapter.label}. Enable it in Settings → Voice & TTS to generate this edition.`);
+          setErrorMsg(t("paid.audioEditionConsentRequired", { label: activeAdapter.label }));
           return;
         }
       }
@@ -472,7 +473,8 @@ export function CreateAudioEditionDialog({
           <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Pre-Flight Summary
-            </span>            <div className="grid grid-cols-3 gap-3 pt-1">
+            </span>
+            <div className="grid grid-cols-3 gap-3 pt-1">
               <div className="flex items-center gap-2">
                 <BookOpen size={16} className="text-muted-foreground shrink-0" />
                 <div>
@@ -505,11 +507,9 @@ export function CreateAudioEditionDialog({
               <p className="flex items-start gap-1.5 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
                 <WarningCircle size={13} className="shrink-0 mt-0.5" />
                 <span>
-                  This edition will be synthesized with {getAdapter(provider).label}, a paid
-                  cloud API
                   {settings.tts?.paidTtsEnabled !== true
-                    ? " — paid TTS is currently off, so you'll be asked to enable it before generation."
-                    : "."}
+                    ? t("paid.audioEditionPaidNotice", { label: getAdapter(provider).label })
+                    : t("paid.audioEditionPaidEnabled", { label: getAdapter(provider).label })}
                 </span>
               </p>
             )}

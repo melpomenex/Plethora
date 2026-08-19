@@ -16,6 +16,7 @@ import type {
 } from "../types/audioEdition";
 import { getAdapter } from "./tts/registry";
 import { isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { t } from "../lib/i18n";
 
 // In-memory fallback for browser / mock mode
 const browserEditionStore = new Map<string, AudioEdition>();
@@ -270,7 +271,7 @@ export async function auditionVoicePreview(
       label: adapter.label,
     });
     if (!consent) {
-      throw new Error(`Paid TTS is disabled for ${adapter.label}. Enable it in Settings → Voice & TTS.`);
+      throw new Error(t("paid.auditionConsentRequired", { label: adapter.label }));
     }
   }
 
