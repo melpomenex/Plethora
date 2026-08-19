@@ -1,8 +1,10 @@
-import { Brain, Database, Lightning } from "@phosphor-icons/react";
+import { Brain, Database, Lightning, Warning } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
 import { NumericInput } from "../common";
+import { isPaidEmbeddingProvider } from "../../utils/aiBillingConsent";
+import { embeddingProviderLabel } from "../../utils/embeddingEstimation";
 
 /**
  * Embedding provider settings: choose a cloud or local embedding provider and
@@ -92,6 +94,43 @@ export function EmbeddingSettings() {
 
         {settings.provider !== "ollama" && (
           <p className="text-xs text-muted-foreground">{t("embeddings.apiKeyNote")}</p>
+        )}
+
+        {/* Paid/cloud indicator + explicit consent (ai-billing-safety #14) */}
+        {isPaidEmbeddingProvider(settings.provider) && (
+          <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+              <Warning className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span>
+                {t("embeddings.paidIndicatorDesc", {
+                  provider: embeddingProviderLabel(settings.provider),
+                })}
+              </span>
+            </p>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.paidEmbeddingsEnabled === true}
+                onChange={(e) => update({ paidEmbeddingsEnabled: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium text-foreground block">
+                  {t("paid.embeddingsEnabledLabel")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("paid.embeddingsEnabledDesc")}
+                </span>
+              </span>
+            </label>
+            {settings.paidEmbeddingsEnabled !== true && (
+              <p className="text-xs text-muted-foreground">
+                {t("paid.embeddingsDisabledHint", {
+                  provider: embeddingProviderLabel(settings.provider),
+                })}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

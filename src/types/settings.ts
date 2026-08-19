@@ -100,6 +100,13 @@ export interface EmbeddingSettings {
   chunkOverlap: number;
   topK: number;
   minSimilarity: number;
+  /**
+   * Explicit consent to billable (cloud) embeddings (ai-billing-safety). An
+   * API key authorizes, it does not consent. Default false; gates indexing,
+   * per-chunk embedding jobs, query-side `embed_text` and semantic-graph
+   * embedding for OpenAI/Cohere/OpenRouter.
+   */
+  paidEmbeddingsEnabled: boolean;
 }
 
 // Automation Settings

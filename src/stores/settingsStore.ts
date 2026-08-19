@@ -127,6 +127,11 @@ export interface EmbeddingSettings {
   chunkOverlap: number;
   topK: number;
   minSimilarity: number;
+  /**
+   * Explicit consent to billable (cloud) embeddings (ai-billing-safety).
+   * Off by default; gates every billable embedding call path.
+   */
+  paidEmbeddingsEnabled: boolean;
 }
 
 /**
@@ -372,9 +377,10 @@ interface AISettings {
   preferOnDevice: boolean;
   /**
    * Whether an on-device failure may automatically retry on a configured
-   * cloud provider (design D27). Default true (matches the long-standing
-   * `runAiAction` fallback-with-toast behavior); turning it off is the
-   * "on-device only" lock — no AI content ever leaves the device.
+   * cloud provider (design D27). Default **false** since ai-billing-safety
+   * (#14): an on-device failure must not silently route content to a paid
+   * cloud provider. Enabling it is the explicit "on-device only is not
+   * required" opt-in; the retry keeps the informational toast.
    */
   allowCloudFallback: boolean;
   /**
@@ -1015,7 +1021,10 @@ export const defaultSettings: Settings = {
     pwaAssistantButtonEnabled: false,
     pwaAssistantButtonSide: "right",
     preferOnDevice: true,
-    allowCloudFallback: true,
+    // ai-billing-safety (#14): cloud fallback after an on-device failure is an
+    // explicit opt-in. Default OFF — an on-device failure must not silently
+    // send content to a paid cloud provider.
+    allowCloudFallback: false,
     // Active recall ships dark (design D19: off is the default + kill switch).
     activeRecallMode: "off",
     aiControls: {
@@ -1171,6 +1180,9 @@ export const defaultSettings: Settings = {
     chunkOverlap: 20,
     topK: 8,
     minSimilarity: 0.25,
+    // Explicit enablement for billable cloud embeddings (ai-billing-safety):
+    // an API key authorizes, it does not consent. Off by default.
+    paidEmbeddingsEnabled: false,
   },
   handsFreeStudy: DEFAULT_HANDS_FREE_STUDY_SETTINGS,
   plethora: {
@@ -1225,7 +1237,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 7,
+      version: 8,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1273,6 +1285,17 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 7) {
           if (root && !root.plethora) {
             root.plethora = { overrides: {} };
+          }
+        }
+        // v7 -> v8 (ai-billing-safety #14): paid/cloud embeddings and TTS are
+        // now explicit opt-ins. Existing users keep their configured providers
+        // but never implicitly consent to billing — both flags default false.
+        if (version < 8) {
+          if (root?.embedding && typeof root.embedding.paidEmbeddingsEnabled !== "boolean") {
+            root.embedding.paidEmbeddingsEnabled = false;
+          }
+          if (root?.tts && typeof root.tts.paidTtsEnabled !== "boolean") {
+            root.tts.paidTtsEnabled = false;
           }
         }
         return persisted as SettingsState;

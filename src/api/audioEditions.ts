@@ -15,6 +15,8 @@ import type {
   AudioEditionSettings,
 } from "../types/audioEdition";
 import { getAdapter } from "./tts/registry";
+import { isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { t } from "../lib/i18n";
 
 // In-memory fallback for browser / mock mode
 const browserEditionStore = new Map<string, AudioEdition>();
@@ -256,6 +258,21 @@ export async function auditionVoicePreview(
   const adapter = getAdapter(providerId);
   if (!adapter) {
     throw new Error(`TTS provider adapter '${providerId}' is not registered or supported.`);
+  }
+
+  // Paid/cloud gate (ai-billing-safety #14): an audition is a billable
+  // synthesis for paid providers. Ask for consent first; a denial throws a
+  // clear error the dialog surfaces (no request is sent).
+  if (isPaidTtsProvider(providerId)) {
+    const consent = await requestPaidConsent({
+      kind: "tts",
+      provider: providerId,
+      model: modelId,
+      label: adapter.label,
+    });
+    if (!consent) {
+      throw new Error(t("paid.auditionConsentRequired", { label: adapter.label }));
+    }
   }
 
   const sample = text.trim().slice(0, 200) || "This is an audition of the selected voice for your audio edition.";

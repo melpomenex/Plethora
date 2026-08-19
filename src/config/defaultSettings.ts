@@ -287,6 +287,9 @@ tags: [plethora]
     chunkOverlap: 20,
     topK: 8,
     minSimilarity: 0.25,
+    // Explicit enablement for billable cloud embeddings (ai-billing-safety):
+    // an API key authorizes, it does not consent. Off by default.
+    paidEmbeddingsEnabled: false,
   },
   plethora: {
     overrides: {},
