@@ -1,5 +1,6 @@
 //! Data models for Incrementum
 
+pub mod audio_edition;
 pub mod category;
 pub mod collection;
 pub mod document;
@@ -16,6 +17,10 @@ pub mod tag;
 pub mod transcription_queue;
 pub mod video_extract;
 
+pub use audio_edition::{
+    AudioEdition, AudioEditionAnchor, AudioEditionSection, AudioEditionWithSections,
+    ListeningSession, ListeningSessionItem, ListeningSessionWithItems,
+};
 pub use category::Category;
 pub use collection::{Collection, DEFAULT_COLLECTION_ID};
 pub use document::{

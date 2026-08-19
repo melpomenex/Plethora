@@ -25,8 +25,8 @@ describe("useShareTarget", () => {
   });
 
   it("registers share listener and routes twitter URL to openTwitterThread", async () => {
-    let capturedHandler: ((batch: any) => Promise<void>) | null = null;
-    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation((handler) => {
+    let capturedHandler: ((batch: any) => void) | null = null;
+    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation((handler: any) => {
       capturedHandler = handler;
       return () => {};
     });

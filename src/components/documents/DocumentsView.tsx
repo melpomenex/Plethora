@@ -28,6 +28,7 @@ import {
   Plus,
   SortAscending,
   Sparkle,
+  SpeakerHigh,
   Stack,
   TextT,
   Trash,
@@ -44,6 +45,7 @@ import { ItemCategoryEditor } from "../common/ItemCategoryEditor";
 import { ArxivImportDialog } from "../import/ArxivImportDialog";
 import { WebArticleImportDialog } from "../import/WebArticleImportDialog";
 import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
+import { CreateAudioEditionDialog } from "../audio/CreateAudioEditionDialog";
 import { ImportProgressIndicator } from "../import/ImportProgressIndicator";
 import { MarkdownBundlePreview, type ImportBundleOptions } from "../import/MarkdownBundlePreview";
 import { EmptyDocuments, EmptySearch } from "../common/EmptyState";
@@ -285,6 +287,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   });
   const [listPairPicker, setListPairPicker] = useState<Document | null>(null);
   const [listPairSearch, setListPairSearch] = useState("");
+  const [audioEditionDoc, setAudioEditionDoc] = useState<Document | null>(null);
 
   // Confirmation dialog for destructive actions
   const confirmDialog = useConfirmDialog();
@@ -1893,6 +1896,19 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     </button>
                   );
                 })()}
+                {listCtxDoc.doc.fileType !== "audio" && (
+                  <button
+                    className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                    onClick={() => {
+                      const target = listCtxDoc.doc;
+                      setListCtxDoc(null);
+                      setAudioEditionDoc(target);
+                    }}
+                  >
+                    <SpeakerHigh className="h-3.5 w-3.5 text-purple-500" />
+                    Create Audio Edition
+                  </button>
+                )}
                 {onReadAlong && (listCtxDoc.doc.fileType === "audio" || listCtxDoc.doc.fileType === "epub") && (
                   <button
                     className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
@@ -2332,6 +2348,15 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
           onClose={() => setShowAudiobookImport(false)}
           onOpenDocument={onOpenDocument}
         />
+
+        {/* Create Audio Edition Dialog */}
+        {audioEditionDoc && (
+          <CreateAudioEditionDialog
+            isOpen={Boolean(audioEditionDoc)}
+            onClose={() => setAudioEditionDoc(null)}
+            document={audioEditionDoc}
+          />
+        )}
 
         {/* Markdown Bundle Preview */}
         {detectedBundle && (

@@ -16,6 +16,10 @@ import {
 import { useDocumentStore, useTabsStore } from "../../stores";
 import { Document } from "../../types/document";
 import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
+import { CreateAudioEditionDialog } from "../audio/CreateAudioEditionDialog";
+import { listAudioEditions } from "../../api/audioEditions";
+import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
+import type { AudioEdition } from "../../types/audioEdition";
 import { DocumentViewer } from "./TabRegistry";
 import { cn } from "../../utils";
 import { formatDuration } from "../../api/audiobooks";
@@ -194,13 +198,15 @@ export function AudiobooksTab() {
             Listen, track progress, and practice incremental reading of audiobooks.
           </p>
         </div>
-        <button
-          onClick={() => setIsImportOpen(true)}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 transition-opacity"
-        >
-          <Plus className="w-5 h-5 font-bold" />
-          Import Audiobook
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsImportOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 border border-border bg-card text-foreground font-semibold rounded-lg hover:bg-muted transition-colors"
+          >
+            <Plus className="w-5 h-5 font-bold" />
+            Import Audiobook
+          </button>
+        </div>
       </div>
 
       {/* Statistics Dashboard */}

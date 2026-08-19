@@ -5,6 +5,14 @@ export interface SyncSegment {
   endTime: number;
 }
 
+export type ConfidenceTier = "high" | "medium" | "low";
+
+export function getAlignmentConfidenceTier(score: number): ConfidenceTier {
+  if (score >= 0.85) return "high";
+  if (score >= 0.5) return "medium";
+  return "low";
+}
+
 interface TextNodeEntry {
   node: Text;
   text: string;

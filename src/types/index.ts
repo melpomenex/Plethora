@@ -3,6 +3,7 @@ export * from "./document";
 export * from "./queue";
 export * from "./api";
 export * from "./rssSummary";
+export * from "./audioEdition";
 
 // UI-specific types
 export interface Theme {

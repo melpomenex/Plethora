@@ -634,6 +634,26 @@ interface FeatureFlags {
   selectionInteractionV2: boolean;
 }
 
+export interface HandsFreeStudySettings {
+  enabled: boolean;
+  captureLookbackSec: number;
+  chimeVolume: number;
+  duckingRatio: number;
+  singlePressAction: "smart_extract" | "bookmark" | "skip_forward";
+  doublePressAction: "bookmark" | "smart_extract" | "mark_confusing";
+  triplePressAction: "mark_confusing" | "bookmark" | "ask_plethora";
+}
+
+export const DEFAULT_HANDS_FREE_STUDY_SETTINGS: HandsFreeStudySettings = {
+  enabled: false,
+  captureLookbackSec: 30,
+  chimeVolume: 0.8,
+  duckingRatio: 0.25,
+  singlePressAction: "smart_extract",
+  doublePressAction: "bookmark",
+  triplePressAction: "mark_confusing",
+};
+
 export interface PlethoraSettings {
   overrides: Record<string, boolean>;
 }
@@ -662,6 +682,7 @@ export interface Settings {
   features: FeatureFlags;
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
+  handsFreeStudy: HandsFreeStudySettings;
   plethora?: PlethoraSettings;
 }
 
@@ -983,6 +1004,7 @@ export const defaultSettings: Settings = {
     topK: 8,
     minSimilarity: 0.25,
   },
+  handsFreeStudy: DEFAULT_HANDS_FREE_STUDY_SETTINGS,
   plethora: {
     overrides: {},
   },

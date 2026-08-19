@@ -1464,3 +1464,337 @@ export function convertEpubTocToSectionNodes(
     return node;
   });
 }
+
+export interface AudioEditionSemanticSection {
+  id: string;
+  sectionIndex: number;
+  title: string;
+  sourceSectionId?: string;
+  sourceStartAnchor?: string;
+  sourceEndAnchor?: string;
+  characterCount: number;
+  content: string;
+  level: number;
+}
+
+/**
+ * Strip HTML tags and decode common entities to plain text
+ */
+export function stripHtmlTags(html: string): string {
+  if (!html) return "";
+  let text = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    .replace(/<(?:p|br|div|h[1-6]|li|tr|blockquote)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&ndash;/gi, "–");
+
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Extract semantic sections from an HTML or Markdown article for Audio Edition synthesis
+ */
+export function extractArticleSemanticSections(
+  content: string,
+  options: { minSectionChars?: number; targetChars?: number } = {}
+): AudioEditionSemanticSection[] {
+  const { targetChars = 1500 } = options;
+  if (!content || !content.trim()) return [];
+
+  const isHtml = /<(?:h[1-6]|p|div|article|section)\b/i.test(content);
+  const sections: AudioEditionSemanticSection[] = [];
+
+  if (isHtml) {
+    // Look for <h1>, <h2>, <h3> tags
+    const headingRegex = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
+    const matches = Array.from(content.matchAll(headingRegex));
+
+    if (matches.length > 0) {
+      for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        const level = parseInt(match[1], 10);
+        const title = stripHtmlTags(match[2]).trim() || `Section ${i + 1}`;
+        const startIndex = match.index! + match[0].length;
+        const nextIndex = i + 1 < matches.length ? matches[i + 1].index! : content.length;
+        const rawBody = content.slice(startIndex, nextIndex);
+        const plainBody = stripHtmlTags(rawBody);
+
+        sections.push({
+          id: `sec-${i}`,
+          sectionIndex: i,
+          title,
+          sourceStartAnchor: `char:${match.index}`,
+          sourceEndAnchor: `char:${nextIndex}`,
+          characterCount: plainBody.length,
+          content: plainBody,
+          level,
+        });
+      }
+
+      // Check if there was preamble content before the first heading
+      const firstHeadingIndex = matches[0].index!;
+      if (firstHeadingIndex > 0) {
+        const preambleText = stripHtmlTags(content.slice(0, firstHeadingIndex)).trim();
+        if (preambleText.length > 100) {
+          sections.unshift({
+            id: "sec-preamble",
+            sectionIndex: 0,
+            title: "Introduction",
+            sourceStartAnchor: "char:0",
+            sourceEndAnchor: `char:${firstHeadingIndex}`,
+            characterCount: preambleText.length,
+            content: preambleText,
+            level: 1,
+          });
+          // Re-index
+          sections.forEach((s, idx) => {
+            s.sectionIndex = idx;
+            s.id = `sec-${idx}`;
+          });
+        }
+      }
+    }
+  }
+
+  // If HTML heading matching yielded nothing, try Markdown heading parsing
+  if (sections.length === 0) {
+    const mdHeadings = parseMarkdownHeadings(content);
+    if (mdHeadings.length > 0) {
+      for (let i = 0; i < mdHeadings.length; i++) {
+        const h = mdHeadings[i];
+        const nextStart = i + 1 < mdHeadings.length ? mdHeadings[i + 1].charIndex : content.length;
+        const endChar = h.charIndex + (h.rawLine?.length || h.title.length);
+        const bodyText = content.slice(endChar, nextStart).trim();
+
+        sections.push({
+          id: `sec-${i}`,
+          sectionIndex: i,
+          title: h.title,
+          sourceStartAnchor: `char:${h.charIndex}`,
+          sourceEndAnchor: `char:${nextStart}`,
+          characterCount: bodyText.length,
+          content: bodyText,
+          level: h.level,
+        });
+      }
+
+      // Check for preamble
+      if (mdHeadings[0].charIndex > 0) {
+        const preamble = content.slice(0, mdHeadings[0].charIndex).trim();
+        if (preamble.length > 100) {
+          sections.unshift({
+            id: "sec-preamble",
+            sectionIndex: 0,
+            title: "Introduction",
+            sourceStartAnchor: "char:0",
+            sourceEndAnchor: `char:${mdHeadings[0].charIndex}`,
+            characterCount: preamble.length,
+            content: preamble,
+            level: 1,
+          });
+          sections.forEach((s, idx) => {
+            s.sectionIndex = idx;
+            s.id = `sec-${idx}`;
+          });
+        }
+      }
+    }
+  }
+
+  // Fallback: If no headings found, or only 1 giant section, use heuristic paragraph grouping
+  if (sections.length === 0 || (sections.length === 1 && sections[0].content.length > targetChars * 2)) {
+    const plainText = isHtml ? stripHtmlTags(content) : content;
+    const heuristicNodes = buildHeuristicParagraphSections(plainText, { targetChars });
+    if (heuristicNodes.length > 0) {
+      return heuristicNodes.map((node, idx) => ({
+        id: `sec-${idx}`,
+        sectionIndex: idx,
+        title: node.title,
+        sourceStartAnchor: `char:${node.startChar ?? 0}`,
+        sourceEndAnchor: `char:${node.endChar ?? plainText.length}`,
+        characterCount: node.content.length,
+        content: node.content,
+        level: 1,
+      }));
+    }
+
+    // Ultimate fallback: single section
+    return [
+      {
+        id: "sec-0",
+        sectionIndex: 0,
+        title: "Article",
+        sourceStartAnchor: "char:0",
+        sourceEndAnchor: `char:${plainText.length}`,
+        characterCount: plainText.length,
+        content: plainText,
+        level: 1,
+      },
+    ];
+  }
+
+  return sections;
+}
+
+/**
+ * Extract semantic sections from EPUB navigation TOC and spine structure
+ */
+export function extractEpubSemanticSections(
+  toc: Array<{ label?: string; title?: string; href?: string; subitems?: any[] }>,
+  spine?: Array<{ href: string; title?: string; text?: string }>,
+  contentMap?: Record<string, string>
+): AudioEditionSemanticSection[] {
+  const flatToc: Array<{ title: string; href?: string; level: number }> = [];
+
+  const flatten = (items: typeof toc, level = 1) => {
+    for (const item of items) {
+      const title = (item.label || item.title || "Untitled").trim();
+      flatToc.push({ title, href: item.href, level });
+      if (item.subitems && item.subitems.length > 0) {
+        flatten(item.subitems, level + 1);
+      }
+    }
+  };
+
+  flatten(toc);
+
+  if (flatToc.length > 0) {
+    return flatToc.map((item, idx) => {
+      const cleanHref = item.href ? item.href.split("#")[0] : "";
+      const text = contentMap && cleanHref && contentMap[cleanHref]
+        ? stripHtmlTags(contentMap[cleanHref])
+        : "";
+
+      return {
+        id: `sec-${idx}`,
+        sectionIndex: idx,
+        title: item.title,
+        sourceStartAnchor: item.href || `spine:${idx}`,
+        characterCount: text.length,
+        content: text,
+        level: item.level,
+      };
+    });
+  }
+
+  // Fallback to spine items
+  if (spine && spine.length > 0) {
+    return spine.map((item, idx) => {
+      const text = item.text ? stripHtmlTags(item.text) : "";
+      return {
+        id: `sec-${idx}`,
+        sectionIndex: idx,
+        title: item.title || `Section ${idx + 1}`,
+        sourceStartAnchor: item.href || `spine:${idx}`,
+        characterCount: text.length,
+        content: text,
+        level: 1,
+      };
+    });
+  }
+
+  return [];
+}
+
+/**
+ * Extract semantic sections from PDF outline and page content
+ */
+export function extractPdfSemanticSections(
+  outline: Array<{ title: string; pageNumber?: number; items?: any[] }>,
+  pageContents?: Array<{ pageNumber: number; text: string }>,
+  fullContent?: string
+): AudioEditionSemanticSection[] {
+  const flatOutline: Array<{ title: string; pageNumber: number; level: number }> = [];
+
+  const flatten = (items: typeof outline, level = 1) => {
+    for (const item of items) {
+      const title = (item.title || "Untitled").trim();
+      const page = item.pageNumber || 1;
+      flatOutline.push({ title, pageNumber: page, level });
+      if (item.items && item.items.length > 0) {
+        flatten(item.items, level + 1);
+      }
+    }
+  };
+
+  flatten(outline);
+
+  if (flatOutline.length > 0) {
+    return flatOutline.map((item, idx) => {
+      const nextPage = idx + 1 < flatOutline.length ? flatOutline[idx + 1].pageNumber : undefined;
+      let sectionText = "";
+
+      if (pageContents && pageContents.length > 0) {
+        const pages = pageContents.filter((p) =>
+          p.pageNumber >= item.pageNumber && (nextPage === undefined || p.pageNumber < nextPage)
+        );
+        sectionText = pages.map((p) => p.text).join("\n\n");
+      } else if (fullContent) {
+        const titleIdx = fullContent.indexOf(item.title);
+        if (titleIdx !== -1) {
+          const nextItem = idx + 1 < flatOutline.length ? flatOutline[idx + 1] : undefined;
+          const nextIdx = nextItem ? fullContent.indexOf(nextItem.title, titleIdx + item.title.length) : -1;
+          sectionText = nextIdx !== -1 ? fullContent.slice(titleIdx, nextIdx).trim() : fullContent.slice(titleIdx).trim();
+        } else {
+          sectionText = item.title;
+        }
+      }
+
+      return {
+        id: `sec-${idx}`,
+        sectionIndex: idx,
+        title: item.title,
+        sourceStartAnchor: `page:${item.pageNumber}`,
+        sourceEndAnchor: nextPage ? `page:${nextPage - 1}` : undefined,
+        characterCount: sectionText.length,
+        content: sectionText,
+        level: item.level,
+      };
+    });
+  }
+
+  // Fallback: If pageContents exists, group pages into chapters (e.g. 5 pages per section)
+  if (pageContents && pageContents.length > 0) {
+    const sections: AudioEditionSemanticSection[] = [];
+    const pageSize = 5;
+    for (let i = 0; i < pageContents.length; i += pageSize) {
+      const chunk = pageContents.slice(i, i + pageSize);
+      const startPage = chunk[0].pageNumber;
+      const endPage = chunk[chunk.length - 1].pageNumber;
+      const text = chunk.map((p) => p.text).join("\n\n");
+      const secIdx = Math.floor(i / pageSize);
+
+      sections.push({
+        id: `sec-${secIdx}`,
+        sectionIndex: secIdx,
+        title: `Pages ${startPage}–${endPage}`,
+        sourceStartAnchor: `page:${startPage}`,
+        sourceEndAnchor: `page:${endPage}`,
+        characterCount: text.length,
+        content: text,
+        level: 1,
+      });
+    }
+    return sections;
+  }
+
+  // Fallback to fullContent heuristic
+  if (fullContent) {
+    return extractArticleSemanticSections(fullContent);
+  }
+
+  return [];
+}
+
