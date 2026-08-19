@@ -13,7 +13,7 @@
     },
     "kp-timeline/sample-sweep-desktop": {
       "cost": 0.1521,
-      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) \u2014 the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
@@ -108,6 +108,26 @@
     "anchor resolution via textQuote fallback": {
       "cost": 0.09592,
       "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
+    },
+    "audioEdition/anchor-resolve-10k-sentences": {
+      "cost": 0.004156,
+      "reason": "add-audio-editions-and-hands-free-study-mode: initial baseline for hands-free anchor resolution (binary search over a 10k-sentence book, 64 probes per iteration; design Decision 13)."
+    },
+    "audioEdition/recent-passage-30s-window-10k": {
+      "cost": 0.018856,
+      "reason": "add-audio-editions-and-hands-free-study-mode: initial baseline for the Smart Recent Extract window expansion on a 10k-sentence book (64 captures per iteration)."
+    },
+    "reader-speech-index/build": {
+      "cost": 3.759,
+      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections \u00d7 30 paragraphs, CHUNK_MAX packing with page markers)."
+    },
+    "reader-speech-index/locate": {
+      "cost": 4.128,
+      "reason": "improve-reader-tts: initial baseline for 2k locate() lookups (epub anchors via per-section offsetForAnchor, binary search) against the built index."
+    },
+    "visible-text/first-visible-scan": {
+      "cost": 0.05649,
+      "reason": "improve-reader-tts: initial baseline for first-visible-word scan (400 synthetic paragraphs, visible-word short-circuit on first word)."
     }
   }
 }
