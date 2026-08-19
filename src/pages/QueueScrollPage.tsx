@@ -542,12 +542,6 @@ export function QueueScrollPage() {
     const saved = localStorage.getItem("assistant-panel-position");
     return saved === "left" ? "left" : "right";
   });
-  // Live assistant width reported through `onWidthChange` (clamped to
-  // ASSISTANT_MIN_WIDTH..ASSISTANT_MAX_WIDTH). Consumed so the host owns the
-  // split and the reader below keeps `minWidth: READER_MIN_WIDTH` — the EPUB
-  // ResizeObserver turns the width change into a live `rendition.resize`
-  // reflow, identical to the document-viewer layout (#17).
-  const assistantPanelWidthRef = useRef<number | null>(null);
 
   // AI Summary panel state — mirrors the summary experience from RSS Scroll
   // Mode, but works across document and RSS items in the unified Optimal Queue.
@@ -4010,9 +4004,6 @@ export function QueueScrollPage() {
                   setAssistantPosition(newPosition);
                   localStorage.setItem("assistant-panel-position", newPosition);
                 }}
-                onWidthChange={(width) => {
-                  assistantPanelWidthRef.current = width;
-                }}
                 selectedProvider={selectedProvider}
                 onProviderChange={setSelectedProvider}
               />
@@ -4360,9 +4351,6 @@ export function QueueScrollPage() {
                 onPositionChange={(newPosition) => {
                   setAssistantPosition(newPosition);
                   localStorage.setItem("assistant-panel-position", newPosition);
-                }}
-                onWidthChange={(width) => {
-                  assistantPanelWidthRef.current = width;
                 }}
                 selectedProvider={selectedProvider}
                 onProviderChange={setSelectedProvider}

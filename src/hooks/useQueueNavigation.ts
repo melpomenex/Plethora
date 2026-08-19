@@ -2,11 +2,17 @@ import { lazy, useCallback, useMemo, useState, useEffect } from "react";
 import { useQueueStore } from "../stores/queueStore";
 import { useTabsStore } from "../stores/tabsStore";
 import type { QueueItem } from "../types";
+import { importWithRetry } from "../utils/importWithRetry";
 
+// Same timeout+retry lazy wrapper as every other document-viewer tab
+// (TabRegistry.debugLazy / ContinueReadingTab): a cold WebView chunk stall
+// must self-heal in place instead of leaving the viewer spinning.
 const QueueDocumentViewer = lazy(() =>
-  import("../components/viewer/DocumentViewerWrapper").then((m) => ({
-    default: m.DocumentViewer,
-  }))
+  importWithRetry("QueueNavigation/DocumentViewer", () =>
+    import("../components/viewer/DocumentViewerWrapper").then((m) => ({
+      default: m.DocumentViewer,
+    }))
+  )
 );
 
 export interface DocumentGroup {
