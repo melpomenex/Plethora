@@ -125,33 +125,45 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
   };
 
   useEffect(() => {
-    const loadCards = async () => {
-      setIsLoading(true);
-      setError(null);
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
 
-      try {
-        const data = await getLearningItems(documentId);
-        setCards(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load cards");
-      } finally {
-        setIsLoading(false);
-      }
+    getLearningItems(documentId)
+      .then((data) => {
+        if (!cancelled) {
+          setCards(data);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load cards");
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
     };
-
-    loadCards();
   }, [documentId]);
 
   useEffect(() => {
+    let cancelled = false;
     const loadPrerequisites = async () => {
       const entries = await Promise.all(
         cards.map(async (card) => [card.id, await getLearningItemPrerequisites(card.id)] as const)
       );
-      setPrereqByCard(Object.fromEntries(entries));
+      if (!cancelled) {
+        setPrereqByCard(Object.fromEntries(entries));
+      }
     };
     if (cards.length > 0) {
       void loadPrerequisites();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [cards]);
 
   useEffect(() => {

@@ -3679,11 +3679,11 @@ export function QueueScrollPage() {
 
   // `overrideText` lets an AI result be extracted with the same source wiring
   // as the selection it came from.
-  const handleCreateRssExtract = useCallback(async (overrideText?: string) => {
-    if (!renderedItem || renderedItem.type !== "rss" || !renderedItem.rssItem) return;
+  const handleCreateRssExtract = useCallback(async (overrideText?: string): Promise<Extract | null> => {
+    if (!renderedItem || renderedItem.type !== "rss" || !renderedItem.rssItem) return null;
 
     const selectionText = (overrideText ?? activeRssSelection).trim();
-    if (!selectionText) return;
+    if (!selectionText) return null;
 
     const rssItem = renderedItem.rssItem;
     const rssContent = rssItem.content || rssItem.description || "";
@@ -3743,18 +3743,20 @@ export function QueueScrollPage() {
           : undefined
       );
       clearRssTextSelection();
+      return createdExtract;
     } catch (error) {
       console.error("Failed to create extract from RSS item:", error);
       toast.error(
         t("queueScroll.failedCreateExtract"),
         error instanceof Error ? error.message : t("queueScroll.anErrorOccurred")
       );
+      return null;
     }
   }, [renderedItem, activeRssSelection, documents, addDocument, updateDocument, toast, buildQueueExtractSourceContext, openExtractInDocumentTab, clearRssTextSelection]);
 
   // Mobile PWA: Handle extract creation from mobile RSS selection
-  const handleMobileRssExtract = useCallback(async () => {
-    if (!mobileRssSelection.text) return;
+  const handleMobileRssExtract = useCallback(async (): Promise<Extract | null> => {
+    if (!mobileRssSelection.text) return null;
 
     // Set the RSS selected text and last selection ref
     setRssSelectedText(mobileRssSelection.text);
@@ -3764,7 +3766,7 @@ export function QueueScrollPage() {
     setMobileRssSelection(prev => ({ ...prev, showButton: false }));
 
     // Call the regular handler
-    await handleCreateRssExtract();
+    return handleCreateRssExtract();
   }, [mobileRssSelection.text, handleCreateRssExtract]);
 
   // Dictionary Lookup for selected RSS text
@@ -4583,16 +4585,16 @@ export function QueueScrollPage() {
           clearRssTextSelection();
         }}
         onCreateExtract={() =>
-          void (selectionV2
+          selectionV2
             ? (() => {
                 const snapshot = selectionController.captureForAction();
-                if (!snapshot) return Promise.resolve();
+                if (!snapshot) return Promise.resolve(null);
                 setRssSelectedText(snapshot.text);
                 return handleCreateRssExtract(snapshot.text);
               })()
-            : handleMobileRssExtract())
+            : handleMobileRssExtract()
         }
-        onCreateExtractFromResult={(resultText) => void handleCreateRssExtract(resultText)}
+        onCreateExtractFromResult={(resultText) => handleCreateRssExtract(resultText)}
       />
 
       {/* Scroll Queue Settings Panel */}

@@ -16,6 +16,7 @@ import {
   getAssistantContextErrorMessage,
   resolveGenericAssistantContext,
   resolvePdfAssistantContext,
+  resolveTwitterThreadAssistantContext,
   type ResolvedAssistantContext,
 } from "../../utils/assistantContext";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
@@ -217,7 +218,7 @@ export function DocumentViewer({
     }
 
     // Otherwise use regular document content
-    const baseContent = pdfContextText ?? currentDoc?.content ?? documentContent ?? selection;
+    const baseContent = currentDoc?.metadata?.xThread?.structuredText ?? pdfContextText ?? currentDoc?.content ?? documentContent ?? selection;
 
     if (!baseContent) {
       setAssistantContent(undefined);
@@ -264,6 +265,25 @@ export function DocumentViewer({
 
     if (videoContextRef.current?.videoId) {
       return resolveGenericAssistantContext(assistantContentRef.current, "video-transcript");
+    }
+
+    if (activeDoc?.metadata?.xThread) {
+      const resolution = resolveTwitterThreadAssistantContext(activeDoc, activeSelection);
+      if (resolution.status !== "ready" || !resolution.content) {
+        return resolution;
+      }
+      try {
+        const trimmed = await trimToTokenWindow(resolution.content, maxTokens, aiModel, activeSelection);
+        return {
+          ...resolution,
+          content: trimmed,
+        };
+      } catch {
+        return {
+          ...resolution,
+          content: resolution.content.slice(0, maxTokens * 4),
+        };
+      }
     }
 
     if (activeDoc?.fileType === "pdf") {

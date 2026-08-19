@@ -19,12 +19,12 @@ vi.mock("../../../lib/i18n", () => ({
 import { ItemCategoryEditor } from "../ItemCategoryEditor";
 import { useDocumentStore } from "../../../stores/documentStore";
 
-const baseDoc = {
+const baseDoc: Record<string, unknown> = {
   id: "doc-1",
   title: "Categorized",
   category: "History",
   tags: [],
-} as never;
+};
 
 beforeEach(() => {
   vi.clearAllMocks();

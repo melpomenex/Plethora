@@ -154,6 +154,8 @@ export interface DocumentMetadata {
   // Markdown bundle metadata
   bundleImages?: Record<string, string>; // relative path -> stored filename
   hasBundleImages?: boolean;
+  // X / Twitter Thread metadata
+  xThread?: TwitterThread;
 
   // Virtual & Physical Chunking fields
   parentDocumentId?: string;
@@ -166,6 +168,61 @@ export interface DocumentMetadata {
   chunkStartPos?: number;
   chunkEndPos?: number;
   estimatedReadingTimeMins?: number;
+}
+
+export interface TwitterAuthor {
+  name: string;
+  screenName: string;
+  avatarUrl?: string | null;
+  verified: boolean;
+  profileUrl: string;
+}
+
+export interface TwitterMedia {
+  kind: string;
+  mediaUrl: string;
+  thumbnailUrl?: string | null;
+  altText?: string | null;
+  aspectRatio?: number | null;
+}
+
+export interface TwitterQuotedPost {
+  id: string;
+  author: TwitterAuthor;
+  text: string;
+  media: TwitterMedia[];
+  createdAt?: string | null;
+  url: string;
+}
+
+export interface TwitterPost {
+  id: string;
+  postIndex: number;
+  author: TwitterAuthor;
+  text: string;
+  fullText: string;
+  media: TwitterMedia[];
+  quotedPost?: TwitterQuotedPost | null;
+  createdAt?: string | null;
+  replyCount?: number | null;
+  retweetCount?: number | null;
+  favoriteCount?: number | null;
+  bookmarkCount?: number | null;
+  isNoteTweet: boolean;
+  url: string;
+}
+
+export interface TwitterThread {
+  id: string;
+  rootId: string;
+  rootUrl: string;
+  author: TwitterAuthor;
+  title: string;
+  posts: TwitterPost[];
+  totalPosts: number;
+  htmlContent: string;
+  structuredText: string;
+  createdAt?: string | null;
 }
 
 export interface Extract {

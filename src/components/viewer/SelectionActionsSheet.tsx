@@ -55,7 +55,9 @@ import {
 } from "../../lib/ai/passageAI";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorSheet } from "../tutor/TutorSheet";
-import { openLibrarySource } from "../../utils/openLibrarySource";export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
+import { openLibrarySource } from "../../utils/openLibrarySource";import type { Extract } from "../../api/extracts";
+
+export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
 
 /** Document context for the "Learn this" proposal (task 2.3). */
 export interface LearnThisContext {
@@ -84,9 +86,9 @@ export interface SelectionActionsSheetProps {
   initialAction?: SelectionAiAction;
   onClose: () => void;
   /** Omitted on surfaces with no extract path (e.g. transcripts). */
-  onCreateExtract?: (text: string) => void;
+  onCreateExtract?: (text: string) => Promise<Extract | null> | Promise<void> | void;
   /** Omitted when the surface cannot attach an extract to an AI result. */
-  onCreateExtractFromResult?: (text: string) => void;
+  onCreateExtractFromResult?: (text: string) => Promise<Extract | null> | Promise<void> | void;
   /** Document context for the "Learn this" action (task 2.3). */
   learnThis?: LearnThisContext;
   /**
@@ -226,6 +228,9 @@ export function SelectionActionsSheet({
   const [downloadState, setDownloadState] = useState<"idle" | "downloadable" | "downloading">(
     "idle"
   );
+  const [extractSaveState, setExtractSaveState] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle"
+  );
 
   const abortRef = useRef<AbortController | null>(null);
   // `||`, not `??`: a surface with no reachable surrounding text (EPUB/HTML
@@ -247,6 +252,7 @@ export function SelectionActionsSheet({
     setPrereqRunning(false);
     setPrereqError(null);
     setPrereqResult(null);
+    setExtractSaveState("idle");
     resetLibrary();
   }, [resetLibrary]);
 
@@ -371,6 +377,26 @@ export function SelectionActionsSheet({
     }
   }, [open, initialAction, text, start]);
 
+  const handleCreateExtractFromResult = useCallback(async () => {
+    if (!onCreateExtractFromResult || !output || extractSaveState === "saving") return;
+    setExtractSaveState("saving");
+    try {
+      const res = await onCreateExtractFromResult(output);
+      if (res === null) {
+        setExtractSaveState("error");
+        return;
+      }
+      setExtractSaveState("saved");
+      if (operationId) {
+        onSettled?.(operationId, "success");
+      }
+      onClose();
+    } catch (err) {
+      console.error("Failed to create extract from AI result:", err);
+      setExtractSaveState("error");
+    }
+  }, [onCreateExtractFromResult, output, extractSaveState, operationId, onSettled, onClose]);
+
   const startDownload = useCallback(() => {
     setDownloadState("downloading");
     void requestModelDownload("all").catch(() => setDownloadState("downloadable"));
@@ -443,7 +469,27 @@ export function SelectionActionsSheet({
             </p>
 
             {onCreateExtract && (
-              <button className={mobileSheetItemClass} onClick={() => onCreateExtract(text)}>
+              <button
+                className={mobileSheetItemClass}
+                disabled={extractSaveState === "saving"}
+                onClick={async () => {
+                  if (extractSaveState === "saving") return;
+                  setExtractSaveState("saving");
+                  try {
+                    const res = await onCreateExtract(text);
+                    if (res !== null) {
+                      setExtractSaveState("saved");
+                      if (operationId) onSettled?.(operationId, "success");
+                      onClose();
+                    } else {
+                      setExtractSaveState("error");
+                    }
+                  } catch (err) {
+                    console.error("Failed to create extract:", err);
+                    setExtractSaveState("error");
+                  }
+                }}
+              >
                 <Lightbulb className="w-5 h-5" aria-hidden="true" />
                 {t("selectionSheet.createExtract")}
               </button>
@@ -796,10 +842,24 @@ export function SelectionActionsSheet({
                   )}
                   {!error && output && onCreateExtractFromResult && (
                     <button
-                      className="rounded-lg bg-primary px-3 py-2 text-[14px] text-primary-foreground"
-                      onClick={() => onCreateExtractFromResult(output)}
+                      className="rounded-lg bg-primary px-3 py-2 text-[14px] text-primary-foreground disabled:opacity-50 inline-flex items-center gap-2"
+                      disabled={extractSaveState === "saving"}
+                      aria-busy={extractSaveState === "saving"}
+                      onClick={handleCreateExtractFromResult}
                     >
-                      {t("selectionSheet.createExtractFromResult")}
+                      {extractSaveState === "saving" ? (
+                        <>
+                          <ArrowsClockwise className="w-4 h-4 animate-spin" aria-hidden="true" />
+                          <span>{t("common.saving") || "Saving..."}</span>
+                        </>
+                      ) : extractSaveState === "error" ? (
+                        <>
+                          <ArrowsClockwise className="w-4 h-4" aria-hidden="true" />
+                          <span>{t("selectionSheet.retryCreateExtract") || "Retry create extract"}</span>
+                        </>
+                      ) : (
+                        t("selectionSheet.createExtractFromResult")
+                      )}
                     </button>
                   )}
                 </>

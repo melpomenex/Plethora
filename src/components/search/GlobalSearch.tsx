@@ -263,14 +263,23 @@ export function GlobalSearch({
    
       const documentId = (result as any)?.document_id || (result as any)?.id;
 
+      if (urlDetection.type === URLType.Twitter && options.twitterMode !== "video") {
+        if (documentId && onNavigateToDocument) {
+          onNavigateToDocument(documentId);
+        }
+        setIsOpen(false);
+        setQuery("");
+        setImportOptions({ tags: [], collectionId: undefined });
+        return;
+      }
+
       const title = urlMetadata
         ? (urlDetection.type === URLType.YouTube
-   
             ? `Imported: ${(urlMetadata as any).title}`
             : urlDetection.type === URLType.RSSFeed
-   
             ? `Subscribed to: ${(urlMetadata as any).title}`
-   
+            : urlDetection.type === URLType.Twitter
+            ? `Imported video: ${(urlMetadata as any).title}`
             : `Imported: ${(urlMetadata as any).title}`)
         : `Imported: ${urlDetection.url}`;
 

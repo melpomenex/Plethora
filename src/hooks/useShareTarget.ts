@@ -16,6 +16,7 @@ import { DocumentViewer } from "../components/viewer/DocumentViewer";
 import { TextT } from "@phosphor-icons/react";
 import type { SharedBatch, SharedItem } from "../types/share";
 import { ArticleImportError } from "../utils/articleImport/errors";
+import { urlDetectorUtils } from "./useURLDetector";
 
 export function useShareTarget() {
   const toast = useToast();
@@ -28,7 +29,7 @@ export function useShareTarget() {
       if (isProcessingRef.current) return;
       isProcessingRef.current = true;
 
-      const { importFromUrl, importFromFiles, loadDocuments } =
+      const { importFromUrl, openTwitterThread, importFromFiles, loadDocuments } =
         useDocumentStore.getState();
       const addTab = useTabsStore.getState().addTab;
 
@@ -49,8 +50,13 @@ export function useShareTarget() {
         for (const item of urlItems) {
           if (!item.url) continue;
           try {
-            const doc = await importFromUrl(item.url);
-            importedDocs.push(doc);
+            if (urlDetectorUtils.isTwitterURL(item.url)) {
+              const doc = await openTwitterThread(item.url);
+              importedDocs.push(doc);
+            } else {
+              const doc = await importFromUrl(item.url);
+              importedDocs.push(doc);
+            }
           } catch (e) {
             console.error("[Share Target] Failed to import shared URL:", item.url, e);
             // Typed failure: show the reason with a retry action (or "Open

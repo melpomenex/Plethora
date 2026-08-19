@@ -60,6 +60,25 @@ interface ThemeProviderProps {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 /**
+ * Ensures a color value is opaque by stripping alpha or falling back to a solid color.
+ */
+function makeOpaque(color: string | undefined, fallback = "#1e293b"): string {
+  if (!color) return fallback;
+  const trimmed = color.trim();
+  const rgbaMatch = trimmed.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*[\d.]+\s*\)$/i);
+  if (rgbaMatch) {
+    return `rgb(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]})`;
+  }
+  if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) {
+    return trimmed.slice(0, 7);
+  }
+  if (/^#[0-9a-fA-F]{4}$/.test(trimmed)) {
+    return trimmed.slice(0, 4);
+  }
+  return trimmed;
+}
+
+/**
  * Apply theme CSS variables to document root
  */
 function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void {
@@ -70,6 +89,9 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
     root.style.setProperty(`--color-${key}`, value);
   });
 
+  const defaultOpaque = theme.variant === "dark" ? "#121426" : "#ffffff";
+  const popoverColor = makeOpaque(theme.colors.card || theme.colors.surface, defaultOpaque);
+
   root.style.setProperty("--color-foreground", theme.colors.onBackground || theme.colors.text);
   root.style.setProperty("--color-muted", theme.colors.surfaceVariant || theme.colors.surface);
   root.style.setProperty(
@@ -78,7 +100,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   );
   root.style.setProperty("--color-card", theme.colors.card || theme.colors.surface);
   root.style.setProperty("--color-card-foreground", theme.colors.onSurface || theme.colors.text);
-  root.style.setProperty("--color-popover", theme.colors.card || theme.colors.surface);
+  root.style.setProperty("--color-popover", popoverColor);
   root.style.setProperty("--color-popover-foreground", theme.colors.onSurface || theme.colors.text);
   root.style.setProperty("--color-border", theme.colors.border || theme.colors.outline);
   root.style.setProperty(
@@ -116,7 +138,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   );
   root.style.setProperty("--color-card", theme.colors.card || theme.colors.surface);
   root.style.setProperty("--color-card-foreground", theme.colors.onSurface || theme.colors.text);
-  root.style.setProperty("--color-popover", theme.colors.card || theme.colors.surface);
+  root.style.setProperty("--color-popover", popoverColor);
   root.style.setProperty("--color-popover-foreground", theme.colors.onSurface || theme.colors.text);
   root.style.setProperty("--color-border", theme.colors.border || theme.colors.outline);
   root.style.setProperty(

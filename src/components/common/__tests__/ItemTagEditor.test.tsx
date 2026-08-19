@@ -170,4 +170,17 @@ describe("ItemTagEditor", () => {
     // resolution are rejected — exactly one persisted add.
     expect(mocks.persistItemTags.mock.calls.length).toBe(1);
   });
+
+  it("applies high-contrast theme classes to tag chips and input field", () => {
+    render(<ItemTagEditor target={target()} />);
+    const chip = screen.getByText("alpha").closest(".inline-flex");
+    expect(chip?.className).toContain("bg-muted/80");
+    expect(chip?.className).toContain("text-foreground");
+    expect(chip?.className).toContain("border-border/70");
+
+    const input = screen.getByPlaceholderText("itemDetails.addTagPlaceholder");
+    expect(input.className).toContain("bg-background");
+    expect(input.className).toContain("text-foreground");
+    expect(input.className).toContain("border-border");
+  });
 });

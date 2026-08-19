@@ -70,7 +70,7 @@ export function ItemTagEditor({
           <span
             key={tag}
             className={cn(
-              "inline-flex items-center gap-1 rounded bg-muted/60 text-foreground border border-border/50",
+              "inline-flex items-center gap-1 rounded bg-muted/80 text-foreground border border-border/70",
               chipClass
             )}
           >
@@ -92,7 +92,7 @@ export function ItemTagEditor({
                 onClick={() => removeTag(tag)}
                 disabled={busy}
                 aria-label={t("itemDetails.removeTag", { tag })}
-                className="text-muted-foreground hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-muted-foreground hover:text-destructive focus:text-destructive focus:outline-none rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -112,7 +112,7 @@ export function ItemTagEditor({
               autoFocus={autoFocus}
               aria-label={t("itemDetails.addTag")}
               className={cn(
-                "px-1.5 py-0.5 text-xs rounded border border-border/50 bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50",
+                "px-1.5 py-0.5 text-xs rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50",
                 dense ? "w-20" : "w-24"
               )}
             />
@@ -121,7 +121,7 @@ export function ItemTagEditor({
               onClick={addTag}
               disabled={busy || !input.trim()}
               aria-label={t("itemDetails.addTag")}
-              className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+              className="text-muted-foreground hover:text-foreground focus:text-foreground focus:outline-none rounded p-0.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {busy ? (
                 <CircleNotch className="w-3.5 h-3.5 animate-spin" />

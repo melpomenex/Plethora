@@ -27,6 +27,7 @@ import { EditExtractDialog } from "./EditExtractDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { GeneratedCardsPopover } from "../common/GeneratedCardsPopover";
 import { useI18n } from "../../lib/i18n";
+import { useExtractStore } from "../../stores/extractStore";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { EditableContentPalette } from "../common/EditableContentPalette";
 import { CompactTagEditor } from "../common/CompactTagEditor";
@@ -199,21 +200,42 @@ export function ExtractsList({
   }, [extracts]);
 
   useEffect(() => {
-    const loadExtracts = async () => {
-      setIsLoading(true);
-      setError(null);
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
 
-      try {
-        const data = await getExtracts(documentId);
-        setExtracts(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t("extracts.failedToLoad"));
-      } finally {
+    getExtracts(documentId)
+      .then((data) => {
+        if (!cancelled) {
+          setExtracts(data);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : t("extracts.failedToLoad"));
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsub = useExtractStore.subscribe((state) => {
+      if (cancelled) return;
+      if (state.loadedDocumentId === documentId && state.extracts) {
+        setExtracts(state.extracts);
         setIsLoading(false);
       }
+    });
+    return () => {
+      cancelled = true;
+      unsub();
     };
-
-    loadExtracts();
   }, [documentId]);
 
   useEffect(() => {
