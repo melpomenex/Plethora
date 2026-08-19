@@ -124,12 +124,10 @@ const EVICT_BEHIND_COUNT = 3; // keep N already-played chunks in memory
 interface BufferedAudio {
   audioUrl: string;
   durationSec?: number;
-  /** The chunk text this audio was generated for (sliced chunks differ). */
   text?: string;
-  /** Measured provider word timings, present when the adapter returned alignment data. */
   wordTimings?: WordTiming[];
-  /** Set when using System TTS — no audio URL, synthesized via speechSynthesis. */
   system?: boolean;
+  cacheSource?: string;
 }
 
 export const ReaderTTSControls = forwardRef<ReaderTTSHandle, ReaderTTSControlsProps>(
@@ -1185,8 +1183,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
   const speedOptions = [0.8, 1, 1.2, 1.5, 2];
 
-  if (!ttsEnabled) return null;
   if (chunks.length === 0) return null;
+  if (!ttsEnabled) {
+    // Discoverable affordance stays available; playback bar hidden when disabled is handled by DocumentViewer Listen button.
+    // Keep handle available but don't render bar here.
+    return null;
+  }
 
   const currentChunk = chunks[Math.min(chunkIndex, chunks.length - 1)]?.text ?? "";
   const currentBufferStatus = bufferStatus.get(chunkIndex);

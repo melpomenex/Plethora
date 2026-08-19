@@ -1,6 +1,7 @@
 import type { Settings } from "../stores/settingsStore";
 import { getProviderSettings, type TTSPreset, type TTSSettings, type TTSVoiceProfile } from "../utils/ttsSettings";
-import { getCachedAudio, makeCacheKey, setCachedAudio } from "../utils/ttsCache";
+import { getCachedAudio, makeCacheKey, makeTTSCacheKeyV2, digestJson128, digestText128, setCachedAudioDurable } from "../utils/ttsCache";
+import { getOrCreateTTSGeneration } from "./tts/dedup";
 import { resolveProviderKey } from "./tts/auth";
 import { TTSServiceError } from "./tts/errors";
 import { getAdapter } from "./tts/registry";
@@ -8,6 +9,7 @@ import { invokeFalModel } from "./tts/providers/fal";
 import { audioMime } from "./tts/providers/shared";
 import { chunkTextForTTS } from "../utils/ttsTextExtraction";
 import type { WordTiming } from "../utils/wordTimings";
+import { foldForMatch } from "../utils/readerSpeechIndex";
 
 export { TTSServiceError } from "./tts/errors";
 
@@ -26,23 +28,23 @@ export interface GenerateSpeechRequest {
   text: string;
   voiceId?: string;
   presetId?: string;
-  /** Ask the provider for measured word timings when it supports them. */
   includeTimings?: boolean;
+  signal?: AbortSignal;
+  awaitCache?: boolean;
 }
 
 export interface GenerateSpeechResult {
   audioUrl: string;
   durationSec?: number;
   rawOutput: Record<string, unknown>;
-  /** Measured word timings (provider alignment data), when available. */
   wordTimings?: WordTiming[];
+  cacheSource?: string;
 }
 
 export function getTTSSettingsFromStore(settings: Settings): TTSSettings {
   return settings.tts;
 }
 
-/** Resolve the selected model's input window, falling back to adapter defaults. */
 export async function resolveTTSMaxChunkSize(settings: Settings): Promise<number> {
   const tts = getTTSSettingsFromStore(settings);
   const adapter = getAdapter(String(tts.provider));
@@ -51,12 +53,10 @@ export async function resolveTTSMaxChunkSize(settings: Settings): Promise<number
     const model = (await adapter.listModels({ settings, tts, config })).find((item) => item.id === config.modelId);
     if (model?.contextLength && model.contextLength > 0) return model.contextLength;
   } catch {
-    // Offline catalogs and local providers use the adapter default.
   }
   return adapter.capabilities.maxInputChars;
 }
 
-/** Synchronous helper for callers that already have a catalog model. */
 export function chunkSpeechText(text: string, maxChunkSize: number): string[] {
   return chunkTextForTTS(text, maxChunkSize);
 }
@@ -89,21 +89,38 @@ function formatForProvider(tts: TTSSettings, provider: string): string {
   return typeof format === "string" && format.trim() ? format : "mp3";
 }
 
-async function cacheAudioResult(
+const PAID_PROVIDERS = new Set(["fal","elevenlabs","openai","openai-compatible","openrouter","plethora","groq"]);
+
+function buildV2Key(tts: TTSSettings, providerId: string, model: string, actualVoice: string, speed: number, format: string, text: string, preset: TTSPreset, voice: TTSVoiceProfile): string {
+  const adapter = getAdapter(providerId, () => {});
+  const config = getProviderSettings(tts, providerId);
+  const supportsInstructions = Boolean(adapter.capabilities.supportsInstructions);
+  const supportsLanguage = providerId === "fal";
+  const presetDigest = preset.id !== tts.presets[0]?.id ? digestJson128({ prompt: foldForMatch(preset.prompt), temperature: Number(preset.temperature.toFixed(2)), topP: Number(preset.topP.toFixed(2)), topK: preset.topK, repetitionPenalty: Number(preset.repetitionPenalty.toFixed(2)) }) : "";
+  const pronDict = tts.pronunciationDictionary && Object.keys(tts.pronunciationDictionary).length ? digestJson128(Object.fromEntries(Object.entries(tts.pronunciationDictionary).sort().map(([k,v])=>[foldForMatch(k), foldForMatch(v)]))) : "";
+  const clonedDigest = voice.speakerEmbeddingUrl ? digestText128(voice.speakerEmbeddingUrl) : voice.kind==="cloned" ? digestText128(voice.id) : "";
+  const baseUrl = config.baseUrl ?? "";
+  return makeTTSCacheKeyV2({ provider: providerId, model, voice: actualVoice, speed, format, text, language: config.language, instructions: config.instructions, presetDigest, pronunciationDigest: pronDict, clonedVoiceDigest: clonedDigest, baseUrl, supportsInstructions, supportsLanguage });
+}
+
+async function cacheAudioResultDurable(
   cacheKey: string,
   audioUrl: string,
   audioData: ArrayBuffer | undefined,
   durationSec: number | undefined,
+  wordTimings: WordTiming[] | undefined,
+  awaitCache: boolean,
 ): Promise<void> {
   try {
-    if (audioData) {
-      await setCachedAudio(cacheKey, audioData, durationSec ?? 0);
-      return;
+    let buffer = audioData;
+    if (!buffer) {
+      const response = await fetch(audioUrl);
+      if (!response.ok) return;
+      buffer = await response.arrayBuffer();
     }
-    const response = await fetch(audioUrl);
-    if (response.ok) await setCachedAudio(cacheKey, await response.arrayBuffer(), durationSec ?? 0);
+    const p = setCachedAudioDurable(cacheKey, buffer, durationSec ?? 0, wordTimings);
+    if (awaitCache) await p;
   } catch {
-    // Cache writes are best-effort and must not affect playback.
   }
 }
 
@@ -154,39 +171,48 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
   const format = formatForProvider(tts, providerId);
   const speed = config.speed ?? 1;
   const actualVoice = voice.voice || voice.id;
-  const cacheKey = makeCacheKey(providerId, model, actualVoice, speed, format, request.text);
+  const legacyKey = makeCacheKey(providerId, model, actualVoice, speed, format, request.text);
+  const v2Key = buildV2Key(tts, providerId, model, actualVoice, speed, format, request.text, preset, voice);
 
-  const cached = await getCachedAudio(cacheKey);
+  let cached = await getCachedAudio(v2Key);
   if (cached) {
     const audioUrl = URL.createObjectURL(new Blob([cached.audioData], { type: audioMime(format) }));
-    return { audioUrl, durationSec: cached.durationSec, rawOutput: { provider: providerId, model, fromCache: true } };
+    if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "persistent", hasWordTimings: Boolean(cached.wordTimings), durationSec: cached.durationSec });
+    return { audioUrl, durationSec: cached.durationSec, wordTimings: cached.wordTimings, rawOutput: { provider: providerId, model, fromCache: true }, cacheSource: "persistent" };
+  }
+  cached = await getCachedAudio(legacyKey);
+  if (cached) {
+    const audioUrl = URL.createObjectURL(new Blob([cached.audioData], { type: audioMime(format) }));
+    setCachedAudioDurable(v2Key, cached.audioData, cached.durationSec, cached.wordTimings).catch(()=>{});
+    if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "persistent-legacy", hasWordTimings: Boolean(cached.wordTimings), durationSec: cached.durationSec });
+    return { audioUrl, durationSec: cached.durationSec, wordTimings: cached.wordTimings, rawOutput: { provider: providerId, model, fromCache: true }, cacheSource: "persistent" };
   }
 
-  const resolvedKey = resolveProviderKey(adapter, settings);
-  const result = await adapter.synthesize({
-    settings,
-    tts,
-    config,
-    apiKey: resolvedKey.key || undefined,
-    borrowedFrom: resolvedKey.source,
-    notice: (message) => console.warn(message),
-  }, {
-    text: request.text,
-    model,
-    voice: actualVoice,
-    responseFormat: format,
-    speed,
-    instructions: config.instructions,
-    preset: preset as unknown as Record<string, unknown>,
-    voiceProfile: voice,
-    includeTimings: request.includeTimings ?? true,
-  });
-
-  void cacheAudioResult(cacheKey, result.audioUrl, result.audioData, result.durationSec);
-  return {
-    audioUrl: result.audioUrl,
-    durationSec: result.durationSec,
-    rawOutput: result.rawOutput,
-    wordTimings: result.wordTimings,
+  const awaitCache = request.awaitCache ?? PAID_PROVIDERS.has(providerId);
+  const factory = async (): Promise<GenerateSpeechResult> => {
+    const resolvedKey = resolveProviderKey(adapter, settings);
+    const result = await adapter.synthesize({
+      settings,
+      tts,
+      config,
+      apiKey: resolvedKey.key || undefined,
+      borrowedFrom: resolvedKey.source,
+      notice: (message) => console.warn(message),
+    }, {
+      text: request.text,
+      model,
+      voice: actualVoice,
+      responseFormat: format,
+      speed,
+      instructions: config.instructions,
+      preset: preset as unknown as Record<string, unknown>,
+      voiceProfile: voice,
+      includeTimings: request.includeTimings ?? true,
+    });
+    await cacheAudioResultDurable(v2Key, result.audioUrl, result.audioData, result.durationSec, result.wordTimings, awaitCache);
+    if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "synthesized", hasWordTimings: Boolean(result.wordTimings), durationSec: result.durationSec });
+    return { audioUrl: result.audioUrl, durationSec: result.durationSec, rawOutput: result.rawOutput, wordTimings: result.wordTimings, cacheSource: "synthesized" };
   };
+
+  return getOrCreateTTSGeneration(v2Key, factory, request.signal);
 }
