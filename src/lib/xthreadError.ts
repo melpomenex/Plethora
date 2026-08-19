@@ -123,22 +123,39 @@ export function resolveThreadError(error: unknown): ResolvedThreadError {
 }
 
 /**
+ * Attempt to parse a `{"type":...,"message":...}` envelope embedded anywhere
+ * in a rejection message (the Rust backend serializes `ThreadError` this way
+ * and Tauri wraps it in a longer message). Locating the envelope signature
+ * `{"type"` and `JSON.parse`-ing from there — rather than a regex — survives
+ * messages whose `message` field itself contains `"` characters.
+ */
+function tryParseEmbeddedEnvelope(message: string): { type: string; message: string } | null {
+  const marker = message.indexOf('{"type"');
+  if (marker < 0) return null;
+  try {
+    const parsed = JSON.parse(message.slice(marker));
+    if (parsed && typeof parsed === "object" && typeof parsed.type === "string") {
+      return {
+        type: parsed.type,
+        message: typeof parsed.message === "string" ? parsed.message : "",
+      };
+    }
+  } catch {
+    /* not JSON — plain message */
+  }
+  return null;
+}
+
+/**
  * Parse a Tauri rejection into a typed thread error. The returned `type` is
  * normalized to canonical camelCase so every consumer branches identically.
  */
 export function parseThreadError(error: unknown): XThreadError {
   if (!error) return { message: "Unknown error" };
   if (typeof error === "string") {
-    try {
-      const parsed = JSON.parse(error);
-      if (parsed && typeof parsed === "object" && typeof parsed.type === "string") {
-        return {
-          type: normalizeThreadErrorType(parsed.type),
-          message: typeof parsed.message === "string" ? parsed.message : String(parsed.message ?? ""),
-        };
-      }
-    } catch {
-      /* not JSON — plain message */
+    const embedded = tryParseEmbeddedEnvelope(error);
+    if (embedded) {
+      return { type: normalizeThreadErrorType(embedded.type), message: embedded.message };
     }
     return { message: error };
   }
@@ -149,8 +166,10 @@ export function parseThreadError(error: unknown): XThreadError {
     if (e.type) {
       return { type: normalizeThreadErrorType(e.type), message: e.message };
     }
-    const match = e.message.match(/\{"type"\s*:\s*"([^"]+)"\s*,\s*"message"\s*:\s*"([^"]*)"\s*\}/);
-    if (match) return { type: normalizeThreadErrorType(match[1]), message: match[2] };
+    const embedded = tryParseEmbeddedEnvelope(e.message);
+    if (embedded) {
+      return { type: normalizeThreadErrorType(embedded.type), message: embedded.message };
+    }
     return { message: e.message };
   }
   if (error && typeof error === "object") {

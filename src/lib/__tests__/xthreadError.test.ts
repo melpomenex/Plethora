@@ -73,6 +73,32 @@ describe("xthreadError — Rust/UI error-type parity", () => {
     expect(viaJsonString.message).toBe("bad");
   });
 
+  it("extracts the embedded envelope even when the message contains quotes", () => {
+    // The backend message itself contains `"` characters — the old regex
+    // `\{"type"...\}` would bail and silently drop the type (generic
+    // fallback, the exact bug this fix targets). JSON.parse of the substring
+    // from the envelope signature survives embedded quotes.
+    const withQuotes =
+      'Tauri command "get_twitter_thread" failed: {"type":"thread_reader_unavailable","message":"ThreadReaderApp 500: \\"boom\\" for id 123"}';
+    const parsed = parseThreadError(withQuotes);
+    expect(parsed.type).toBe("threadReaderUnavailable");
+    expect(parsed.message).toBe('ThreadReaderApp 500: "boom" for id 123');
+
+    // Same via an Error wrapper (the real Tauri rejection path).
+    const viaError = new Error(
+      'Tauri command "get_twitter_thread" failed: {"type":"rate_limited","message":"wait \\"a\\" moment"}'
+    );
+    expect(parseThreadError(viaError).type).toBe("rateLimited");
+    expect(parseThreadError(viaError).message).toBe('wait "a" moment');
+  });
+
+  it("falls back to the plain message when no envelope is embedded", () => {
+    expect(parseThreadError(new Error("Something exploded with { braces }")).message).toBe(
+      "Something exploded with { braces }"
+    );
+    expect(parseThreadError("plain rejection text")).toEqual({ message: "plain rejection text" });
+  });
+
   it("resolveThreadError maps typed errors to their copy and keeps raw text secondary", () => {
     const resolved = resolveThreadError({ type: "thread_unavailable", message: "Tweet not found or restricted in GraphQL" });
     expect(resolved.typed).toBe(true);
