@@ -199,6 +199,15 @@ export interface TwitterQuotedPost {
   url: string;
 }
 
+/** A referenced status id with the @handle embedded in its status-link URL
+ *  (`x.com/<user>/status/<id>`), captured from the quoting post's
+ *  ThreadReaderApp HTML. Absent on threads persisted before quote-handle
+ *  capture. */
+export interface TwitterPostRef {
+  id: string;
+  screenName: string;
+}
+
 export interface TwitterPost {
   id: string;
   postIndex: number;
@@ -217,6 +226,10 @@ export interface TwitterPost {
   /** Status ids referenced by this post (quoted/embedded posts), from the
    *  ThreadReaderApp page; enrichment resolves them into `quotedPost`. */
   refIds?: string[];
+  /** URL-derived handles for `refIds` (id → @handle from the status link),
+   *  used to attribute quoted posts whose author could not be parsed.
+   *  Optional — absent on legacy threads. */
+  refHandles?: TwitterPostRef[];
 }
 
 export interface TwitterThread {

@@ -952,8 +952,45 @@ async function saveLink(url, sourceTabId, linkText) {
   }
 }
 
+/**
+ * Save an X post/thread tab as a URL-only typed capture. x.com's DOM is
+ * JS-rendered and useless for parsing, and the app's ThreadReaderApp-first
+ * pipeline is authoritative — so no page content is requested from the
+ * content script or transmitted; the desktop app resolves, enriches, and
+ * persists the thread itself. An unreachable server goes through the shared
+ * offline queue so the capture flushes when the app starts; failures reuse
+ * the in-page toast plumbing and name the typed reason the server returned.
+ */
+async function saveXThreadCapture(url, title, tabId = null) {
+  const payload = { url, title, text: '', type: 'x-thread' };
+  const result = await sendToIncrementum(payload);
+
+  if (!result.success && isRetryableConnectionError(result)) {
+    const queuedItem = await queueExtractForSync(payload);
+    return {
+      success: true,
+      queued: true,
+      queueId: queuedItem.queueId,
+      message: 'Thread capture cached and will sync when Plethora is available.'
+    };
+  }
+
+  if (!result.success) {
+    await sendInPageToast(tabId, false, `X thread capture failed: ${result.error || 'unknown error'}`);
+  }
+  return result;
+}
+
 async function savePage(url, title, tabId = null) {
   try {
+    // X status URLs are captured URL-only (see saveXThreadCapture) — before
+    // any page-content request, so the content script is never asked to
+    // scrape x.com. Covers single-tab save, save-all-tabs, and context-menu
+    // save, which all funnel through here.
+    if (globalThis.IncrementumExtensionShared?.isXStatusURL?.(url)) {
+      return saveXThreadCapture(url, title, tabId);
+    }
+
     let resolvedTabId = tabId;
     if (!resolvedTabId) {
       const tabs = await chrome.tabs.query({ url: url });

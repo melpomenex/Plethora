@@ -797,6 +797,19 @@ async fn handle_extension_request(
     // Browser extension "page"/link saves should be treated as HTML, not "other",
     // so they remain directly viewable in-app.
     let request_kind = classify_extension_request(&payload);
+    if matches!(request_kind, ExtensionRequestKind::XThread) {
+        // X captures resolve + enrich server-side (seconds, not milliseconds),
+        // and retrieval failures are typed — so this arm owns its response
+        // mapping instead of folding into the generic 500 handler below.
+        return match handle_x_thread_request(&state, &payload).await {
+            Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+            Err(XThreadCaptureError::Retrieval(e)) => x_thread_error_response(&e),
+            Err(XThreadCaptureError::Persist(e)) => {
+                error!("Error handling x-thread request: {}", e);
+                error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())
+            }
+        };
+    }
     let result = match request_kind {
         ExtensionRequestKind::Extract => handle_extract_request(&state, &payload).await,
         ExtensionRequestKind::Video => {
@@ -814,6 +827,9 @@ async fn handle_extension_request(
             let file_type = infer_extension_file_type(&payload);
             handle_import_request(&state, &payload, file_type).await
         }
+        // Handled by the early-return branch above; this arm exists only to
+        // keep the match exhaustive.
+        ExtensionRequestKind::XThread => unreachable!("XThread handled before match"),
     };
 
     match result {
@@ -831,9 +847,52 @@ enum ExtensionRequestKind {
     Extract,
     Video,
     Import,
+    /// X post/thread status URL — routed to the ThreadReaderApp-first
+    /// pipeline regardless of the declared `type`.
+    XThread,
+}
+
+/// True when `raw` is an x.com/twitter.com status URL
+/// (`https://(www.|mobile.)?(x|twitter).com/<user>/status/<id>`), tolerating
+/// query params and `/photo/n`-style suffixes. Extension captures for these
+/// URLs route into the X thread pipeline regardless of their declared `type`
+/// (an older extension sends `type: "page"` for x.com saves); non-status X
+/// URLs (profiles, search, home) stay on the generic page path. Mirrors
+/// `isXStatusURL` in browser_extension/shared.js — keep both sides in sync
+/// by hand.
+fn is_x_status_url(raw: &str) -> bool {
+    let Ok(url) = Url::parse(raw.trim()) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let host = host
+        .strip_prefix("www.")
+        .or_else(|| host.strip_prefix("mobile."))
+        .unwrap_or(host.as_str());
+    if host != "x.com" && host != "twitter.com" {
+        return false;
+    }
+    let segments: Vec<&str> = url.path().split('/').filter(|s| !s.is_empty()).collect();
+    if segments.len() < 3 {
+        return false;
+    }
+    let user = segments[0];
+    let is_handle = !user.is_empty()
+        && user.len() <= 64
+        && user.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        // The generic `/i/status/<id>` redirect format carries no real user.
+        && !user.eq_ignore_ascii_case("i");
+    is_handle
+        && segments[1].eq_ignore_ascii_case("status")
+        && !segments[2].is_empty()
+        && segments[2].chars().all(|c| c.is_ascii_digit())
 }
 
 fn classify_extension_request(payload: &ExtensionRequest) -> ExtensionRequestKind {
+    // URL wins over `type`: any X status URL goes to the thread pipeline.
+    if is_x_status_url(&payload.url) {
+        return ExtensionRequestKind::XThread;
+    }
     match payload.r#type.trim().to_ascii_lowercase().as_str() {
         "extract" => ExtensionRequestKind::Extract,
         "video" => ExtensionRequestKind::Video,
@@ -1441,6 +1500,153 @@ async fn handle_import_request(
         extract_id: None,
         error: None,
     })
+}
+
+/// Failure modes of an extension X-thread capture. `Retrieval` carries the
+/// typed [`ThreadError`] so the extension can surface the reason (post
+/// unavailable, rate limited, network) instead of a generic 500.
+#[derive(Debug)]
+enum XThreadCaptureError {
+    Retrieval(crate::threadreader::ThreadError),
+    Persist(AppError),
+}
+
+impl From<AppError> for XThreadCaptureError {
+    fn from(e: AppError) -> Self {
+        Self::Persist(e)
+    }
+}
+
+/// Resolve, enrich, and persist an extension X-thread capture — the inner
+/// path of [`handle_x_thread_request`], with the retrieval pipeline injected
+/// so tests run against a mock source. Dedupes by canonical status URL (the
+/// resolved thread's `root_url`, then the normalized/raw payload URL) so
+/// repeat captures and in-app imports of the same thread land on one
+/// document.
+async fn capture_x_thread_document<F, Fut>(
+    repo: &Repository,
+    url: &str,
+    resolve: F,
+) -> Result<Document, XThreadCaptureError>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<crate::twitter::TwitterThread, crate::threadreader::ThreadError>>,
+{
+    let thread = resolve(url.to_string())
+        .await
+        .map_err(XThreadCaptureError::Retrieval)?;
+
+    let canonical_url = thread.root_url.clone();
+    let normalized = normalize_browser_source_url(url);
+    let existing = match repo.find_document_by_url(&canonical_url).await {
+        Ok(Some(doc)) => Some(doc),
+        _ => match repo.find_document_by_url(&normalized).await {
+            Ok(Some(doc)) => Some(doc),
+            _ if normalized != url => repo.find_document_by_url(url).await.ok().flatten(),
+            _ => None,
+        },
+    };
+    if let Some(doc) = existing {
+        info!(
+            "X thread already saved for URL: {}, returning existing doc",
+            url
+        );
+        return Ok(doc);
+    }
+
+    let collection_id = resolve_browser_import_collection_id(repo).await;
+    let document = crate::twitter::build_twitter_thread_document(&thread, Some(collection_id));
+    let created = repo
+        .create_document(&document)
+        .await
+        .map_err(XThreadCaptureError::Persist)?;
+    info!(
+        "Created X thread document for URL: {} with id: {}",
+        url, created.id
+    );
+    Ok(created)
+}
+
+/// Handle an X post/thread capture: URL-only requests routed here by
+/// `classify_extension_request` for any X status URL. The server performs the
+/// full retrieval (ThreadReaderApp-first, same path as `get_twitter_thread`)
+/// plus enrichment inline — extension captures have no open viewer to run the
+/// background enrichment step, so one capture ack = one complete document —
+/// then persists exactly like an in-app `import_twitter_thread` and notifies
+/// the library like every other capture.
+async fn handle_x_thread_request(
+    state: &ServerState,
+    payload: &ExtensionRequest,
+) -> Result<ExtensionResponse, XThreadCaptureError> {
+    let document = capture_x_thread_document(&state.repo, &payload.url, |url| async move {
+        crate::twitter::resolve_and_enrich_twitter_thread(&url).await
+    })
+    .await?;
+
+    let _ = state.app_handle.emit(
+        "browser-sync://document-saved",
+        DocumentSavedEvent {
+            document_id: document.id.clone(),
+            title: document.title.clone(),
+            url: payload.url.clone(),
+        },
+    );
+
+    Ok(ExtensionResponse {
+        success: true,
+        document_id: Some(document.id),
+        extract_id: None,
+        error: None,
+    })
+}
+
+/// Typed error response for a failed X-thread retrieval: the HTTP status
+/// names the failure class, and the body carries a typed `errorType` plus a
+/// human-readable `error` naming the reason, so the extension's failure
+/// notification can say why the capture failed.
+fn x_thread_error_response(e: &crate::threadreader::ThreadError) -> Response {
+    use crate::threadreader::ThreadError;
+    let (status, reason, message, kind) = match e {
+        ThreadError::InvalidUrl(m) => (
+            StatusCode::BAD_REQUEST,
+            "Invalid X post URL",
+            m,
+            "invalid_url",
+        ),
+        ThreadError::RateLimited(m) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rate limited while loading this X thread",
+            m,
+            "rate_limited",
+        ),
+        ThreadError::ThreadUnavailable(m) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "This X post is unavailable",
+            m,
+            "thread_unavailable",
+        ),
+        ThreadError::NetworkError(m) => (
+            StatusCode::BAD_GATEWAY,
+            "Network error while loading this X thread",
+            m,
+            "network_error",
+        ),
+        ThreadError::ThreadReaderUnavailable(m) => (
+            StatusCode::BAD_GATEWAY,
+            "Could not load this X thread",
+            m,
+            "thread_reader_unavailable",
+        ),
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "success": false,
+            "error": format!("{}: {}", reason, message),
+            "errorType": kind,
+        })),
+    )
+        .into_response()
 }
 
 /// Handle extract save request
@@ -5157,5 +5363,186 @@ mod oversized_request_diagnostics_tests {
             .expect("response");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+}
+
+#[cfg(test)]
+mod x_thread_capture_tests {
+    use super::*;
+    use crate::database::Database;
+    use crate::threadreader::ThreadError;
+    use crate::twitter::{TwitterAuthor, TwitterThread};
+    use axum::body::to_bytes;
+    use std::path::PathBuf;
+
+    /// Mirror of the in-tree test helper at `database/repository.rs:7282`:
+    /// in-memory SQLite + full migration, so each test runs in isolation.
+    async fn setup_repo() -> Repository {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        Repository::new(db.pool().clone())
+    }
+
+    fn x_payload(kind: &str, url: &str) -> ExtensionRequest {
+        ExtensionRequest {
+            url: url.to_string(),
+            title: "Some X post".to_string(),
+            text: String::new(),
+            html_content: None,
+            extracted_images: None,
+            r#type: kind.to_string(),
+            source: "browser_extension".to_string(),
+            timestamp: None,
+            context: None,
+            tags: None,
+            priority: None,
+            analysis: None,
+            fsrs_data: None,
+            test: Some(true),
+        }
+    }
+
+    fn thread_fixture() -> TwitterThread {
+        TwitterThread {
+            id: "1001".to_string(),
+            root_id: "1001".to_string(),
+            root_url: "https://x.com/janeresearch/status/1001".to_string(),
+            author: TwitterAuthor {
+                name: "Jane Researcher".to_string(),
+                screen_name: "janeresearch".to_string(),
+                avatar_url: None,
+                verified: false,
+                profile_url: "https://x.com/janeresearch".to_string(),
+            },
+            title: "Jane Researcher (@janeresearch) on X: \"First post\"".to_string(),
+            posts: vec![],
+            total_posts: 1,
+            html_content: "<div class=\"x-thread-container\">html</div>".to_string(),
+            structured_text: "X Thread by Jane Researcher (@janeresearch):".to_string(),
+            created_at: None,
+            source_kind: "threadreader".to_string(),
+        }
+    }
+
+    #[test]
+    fn x_status_urls_route_to_the_thread_pipeline_regardless_of_type() {
+        for kind in ["x-thread", "page", "link", "", "extract", "video", " PAGE "] {
+            for url in [
+                "https://x.com/user/status/1234567890",
+                "https://twitter.com/Some_User/status/9876543210?s=20",
+                "https://www.x.com/user/status/1111111111111111111",
+                "https://mobile.twitter.com/user/status/2222222222222222222/photo/1",
+            ] {
+                assert_eq!(
+                    classify_extension_request(&x_payload(kind, url)),
+                    ExtensionRequestKind::XThread,
+                    "kind={:?} url={}",
+                    kind,
+                    url
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn non_status_x_urls_and_lookalikes_stay_generic() {
+        for url in [
+            "https://x.com/PhillipAKennedy",
+            "https://x.com/PhillipAKennedy/with_replies",
+            "https://x.com/search?q=threadreader",
+            "https://x.com/home",
+            "https://x.com/i/status/1234567890",
+            "https://x.com/user/status/notanid",
+            "https://evil.example/x/user/status/1234567890",
+            "https://www.youtube.com/watch?v=abc",
+        ] {
+            assert_eq!(
+                classify_extension_request(&x_payload("page", url)),
+                ExtensionRequestKind::Page,
+                "url={}",
+                url
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn x_thread_capture_persists_a_thread_document_like_an_import() {
+        let repo = setup_repo().await;
+        let thread = thread_fixture();
+        let doc = capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
+            Ok(thread.clone())
+        })
+        .await
+        .expect("capture persists");
+
+        assert_eq!(doc.category.as_deref(), Some("X Threads"));
+        assert_eq!(doc.tags, vec!["x", "twitter", "thread"]);
+        assert_eq!(doc.file_type, FileType::Html);
+        // Canonical (root) URL is the dedupe key, same as import_twitter_thread.
+        assert_eq!(doc.file_path, "https://x.com/janeresearch/status/1001");
+        let metadata = doc.metadata.expect("metadata present");
+        assert_eq!(metadata.article_html.as_deref(), Some("<div class=\"x-thread-container\">html</div>"));
+        assert!(metadata.structured_content.is_some());
+        assert_eq!(metadata.site_name.as_deref(), Some("X"));
+        assert_eq!(metadata.author.as_deref(), Some("Jane Researcher"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_x_thread_capture_dedupes_by_canonical_url() {
+        let repo = setup_repo().await;
+        let thread = thread_fixture();
+        let first = capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
+            Ok(thread.clone())
+        })
+        .await
+        .expect("first capture");
+        // Second capture arrives with a query string and a twitter.com host —
+        // the resolved root URL is identical, so no second document.
+        let second = capture_x_thread_document(
+            &repo,
+            "https://twitter.com/janeresearch/status/1001?s=20",
+            |_| async { Ok(thread_fixture()) },
+        )
+        .await
+        .expect("second capture");
+        assert_eq!(first.id, second.id);
+        assert!(
+            repo.find_document_by_url("https://x.com/janeresearch/status/1001")
+                .await
+                .expect("lookup")
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn x_thread_retrieval_failure_is_typed_not_a_generic_500() {
+        let repo = setup_repo().await;
+        let result = capture_x_thread_document(&repo, "https://x.com/user/status/1234567890", |_| async {
+            Err(ThreadError::RateLimited(
+                "ThreadReaderApp rate-limited (HTTP 429) for thread 1234567890".to_string(),
+            ))
+        })
+        .await;
+        match result {
+            Err(XThreadCaptureError::Retrieval(ThreadError::RateLimited(_))) => {}
+            other => panic!("expected typed RateLimited retrieval error, got {:?}", other),
+        }
+
+        // The HTTP mapping carries the typed kind + a reason the extension
+        // can surface verbatim.
+        let response = x_thread_error_response(&ThreadError::RateLimited(
+            "ThreadReaderApp rate-limited".to_string(),
+        ));
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("read body");
+        let parsed: serde_json::Value = serde_json::from_slice(&body).expect("JSON body");
+        assert_eq!(parsed["success"], false);
+        assert_eq!(parsed["errorType"], "rate_limited");
+        assert!(parsed["error"]
+            .as_str()
+            .expect("error string")
+            .contains("Rate limited"));
     }
 }

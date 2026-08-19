@@ -122,6 +122,15 @@ impl TraHttp for LiveTraHttp {
 
 // ── parsed model ──────────────────────────────────────────────────────────
 
+/// A status link referenced by a post (quote/embed): the status id plus the
+/// `<user>` segment embedded in the link URL, when the link carried one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraRef {
+    pub id: String,
+    pub screen_name: Option<String>,
+}
+
 /// A single authored post extracted from an unrolled thread page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,9 +141,10 @@ pub struct TraPost {
     pub text: String,
     /// Allow-listed media URLs (`pbs.twimg.com` / `video.twimg.com`).
     pub media: Vec<String>,
-    /// Status-link ids referenced by this post (quotes/embeds), excluding the
-    /// thread's own post ids.
-    pub ref_ids: Vec<String>,
+    /// Status links referenced by this post (quotes/embeds), excluding the
+    /// thread's own post ids. The preserved @handles let enrichment attribute
+    /// quoted posts whose fetched payload carries no parseable user.
+    pub refs: Vec<TraRef>,
 }
 
 /// Author/thread header parsed from the TRA page (outside the post blocks).
@@ -658,11 +668,11 @@ fn is_allowlisted_media_url(url: &str) -> bool {
         && url.len() < 512
 }
 
-/// Extract referenced status ids (`x.com|twitter.com/<user>/status/<id>`)
-/// from a post's inner HTML.
-fn extract_ref_ids(inner: &str) -> Vec<String> {
+/// Extract referenced status links (`x.com|twitter.com/<user>/status/<id>`)
+/// from a post's inner HTML, preserving the @handle embedded in each URL.
+fn extract_ref_ids(inner: &str) -> Vec<TraRef> {
     let lower = inner.to_ascii_lowercase();
-    let mut ids = Vec::new();
+    let mut refs = Vec::new();
     let mut seen = HashSet::new();
     for needle in ["twitter.com/", "x.com/"] {
         let mut idx = 0;
@@ -691,13 +701,23 @@ fn extract_ref_ids(inner: &str) -> Vec<String> {
             let id = &id_rest[..id_end];
             if id.len() >= 10 && id.len() <= 25 {
                 if seen.insert(id.to_string()) {
-                    ids.push(id.to_string());
+                    // The generic `/i/status/<id>` redirect format carries no
+                    // real handle — keep the id, drop the placeholder user.
+                    let screen_name = if user.eq_ignore_ascii_case("i") {
+                        None
+                    } else {
+                        Some(user.to_string())
+                    };
+                    refs.push(TraRef {
+                        id: id.to_string(),
+                        screen_name,
+                    });
                 }
             }
             idx = after_user + "/status/".len() + id_end;
         }
     }
-    ids
+    refs
 }
 
 /// Parse an unrolled TRA thread page into ordered posts.
@@ -710,7 +730,7 @@ pub fn parse_unrolled_thread(html: &str) -> Vec<TraPost> {
     let clean = strip_foreign_blocks(html);
 
     // Pass 1: locate blocks and extract raw data.
-    let mut raw: Vec<(String, String, String, Vec<String>, Vec<String>)> = Vec::new();
+    let mut raw: Vec<(String, String, String, Vec<String>, Vec<TraRef>)> = Vec::new();
     let mut pos = 0;
     while let Some((inner_start, tag)) = next_content_tweet(&clean, pos) {
         let id = attr_value(&tag, "data-tweet").unwrap_or_default();
@@ -734,16 +754,16 @@ pub fn parse_unrolled_thread(html: &str) -> Vec<TraPost> {
         if id.is_empty() || !seen.insert(id.clone()) {
             continue;
         }
-        let ref_ids: Vec<String> = refs
+        let refs: Vec<TraRef> = refs
             .into_iter()
-            .filter(|r| !own_ids.contains(r))
+            .filter(|r| !own_ids.contains(&r.id))
             .collect();
         posts.push(TraPost {
             id,
             screen_name,
             text,
             media,
-            ref_ids,
+            refs,
         });
     }
     posts
@@ -796,7 +816,7 @@ pub fn parse_thread_json_content(json: &serde_json::Value, root_id: &str) -> Opt
             screen_name: screen_name.clone(),
             text,
             media,
-            ref_ids: refs,
+            refs,
         });
     }
     Some(posts)
@@ -1080,10 +1100,46 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
     #[test]
     fn extracts_quoted_ref_ids_excluding_own() {
         let posts = parse_unrolled_thread(MULTI_POST_HTML);
-        assert!(posts[2].ref_ids.contains(&"2065597531644743999".to_string()));
+        // The quote link's @handle is preserved alongside the id.
+        assert!(posts[2].refs.contains(&TraRef {
+            id: "2065597531644743999".to_string(),
+            screen_name: Some("AnthropicAI".to_string()),
+        }));
         // own ids must be excluded
-        assert!(!posts[2].ref_ids.contains(&"2003".to_string()));
-        assert!(posts[0].ref_ids.is_empty());
+        assert!(!posts[2].refs.iter().any(|r| r.id == "2003"));
+        assert!(posts[0].refs.is_empty());
+    }
+
+    #[test]
+    fn quoted_ref_handles_survive_url_variants() {
+        // www./twitter.com hosts, mixed case, query strings, and photo
+        // suffixes all keep the <user> segment; the generic /i/status
+        // redirect format yields no handle.
+        let html = concat!(
+            r#"<div class="content-tweet" data-screenname="alice" data-tweet="7001">"#,
+            r#"<a href="https://www.x.com/Handle_One/status/1111111111111111111">a</a>"#,
+            r#"<a href="https://mobile.twitter.com/handle_two/status/2222222222222222222?s=20">b</a>"#,
+            r#"<a href="https://x.com/handle_three/status/3333333333333333333/photo/1">c</a>"#,
+            r#"<a href="https://x.com/i/status/4444444444444444444">d</a>"#,
+            "</div>",
+        );
+        let posts = parse_unrolled_thread(html);
+        assert!(posts[0].refs.contains(&TraRef {
+            id: "1111111111111111111".to_string(),
+            screen_name: Some("Handle_One".to_string()),
+        }));
+        assert!(posts[0].refs.contains(&TraRef {
+            id: "2222222222222222222".to_string(),
+            screen_name: Some("handle_two".to_string()),
+        }));
+        assert!(posts[0].refs.contains(&TraRef {
+            id: "3333333333333333333".to_string(),
+            screen_name: Some("handle_three".to_string()),
+        }));
+        assert!(posts[0].refs.contains(&TraRef {
+            id: "4444444444444444444".to_string(),
+            screen_name: None,
+        }));
     }
 
     #[test]
@@ -1163,7 +1219,10 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
         );
         assert_eq!(posts[0].media, vec!["https://pbs.twimg.com/media/aa.jpg"]);
         assert_eq!(posts[1].id, "2002");
-        assert!(posts[1].ref_ids.contains(&"9999999999999999999".to_string()));
+        assert!(posts[1].refs.contains(&TraRef {
+            id: "9999999999999999999".to_string(),
+            screen_name: Some("Someone".to_string()),
+        }));
     }
 
     #[test]
