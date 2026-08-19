@@ -15,7 +15,11 @@
 import { ModalType, useModalStore } from "../../components/common/Modal";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { t } from "../i18n";
-import { setPaidConsentHandler, type PaidConsentRequest } from "../../utils/aiBillingConsent";
+import {
+  clearPaidConsentDenialsFor,
+  setPaidConsentHandler,
+  type PaidConsentRequest,
+} from "../../utils/aiBillingConsent";
 
 function messageFor(request: PaidConsentRequest): { title: string; message: string } {
   const workload = request.detail ? `\n\n${request.detail}` : "";
@@ -54,6 +58,9 @@ function persistConsent(kind: PaidConsentRequest["kind"]): void {
     useSettingsStore.setState({
       settings: { ...store.settings, tts: { ...store.settings.tts, paidTtsEnabled: true } },
     });
+    // The flag now governs consent; drop any earlier session denial so a
+    // subsequent request is not deadlocked until restart.
+    clearPaidConsentDenialsFor("tts");
   } else if (kind === "embeddings") {
     useSettingsStore.setState({
       settings: {
@@ -61,6 +68,7 @@ function persistConsent(kind: PaidConsentRequest["kind"]): void {
         embedding: { ...store.settings.embedding, paidEmbeddingsEnabled: true },
       },
     });
+    clearPaidConsentDenialsFor("embeddings");
   }
   // `ai-fallback` consent is per-occurrence and not persisted — re-confirmed
   // each time the user explicitly enables cloud fallback.
