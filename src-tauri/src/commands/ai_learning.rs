@@ -202,6 +202,31 @@ pub async fn ai_learning_reset_index(
     reset_index(repo.inner()).await
 }
 
+/// Resolve the backend for a query-side retrieve, gating any billable cloud
+/// backend behind explicit consent (ai-billing-safety #14).
+///
+/// The frontend may pass `config: None` when it has nothing new to send; the
+/// STORED config — the backend the library was indexed with — is then the
+/// effective one. That stored cloud backend still performs a billable
+/// query-side `embed_text`, so it must be gated exactly like an explicitly
+/// passed config: consent off must never let a stored cloud backend bill on a
+/// query.
+fn gated_retrieve_backend(
+    state: &AiLearningState,
+    config: Option<&EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
+) -> Result<EmbeddingBackend> {
+    let effective = config.cloned().or_else(|| {
+        state
+            .config
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    });
+    ensure_embedding_consent(effective.as_ref(), paid_embeddings_enabled)?;
+    Ok(state.backend())
+}
+
 /// Retrieve the top-k chunks for a query (task 4.6). Falls back to
 /// lexical-only mode when no embedding backend is available or the index has
 /// no current-version embeddings.
@@ -216,12 +241,13 @@ pub async fn ai_learning_retrieve(
     repo: State<'_, Repository>,
 ) -> Result<RetrievalResponse> {
     // Query-side embed_text on a billable cloud backend requires consent; a
-    // denied/stale caller is rejected rather than silently billing.
-    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
+    // denied/stale caller is rejected rather than silently billing. The gate
+    // resolves the EFFECTIVE config (the one just passed or the stored one),
+    // so a stored cloud backend cannot bill a query while consent is off.
     if let Some(cfg) = config.as_ref() {
         state.update_config(Some(cfg.clone()));
     }
-    let backend = state.backend();
+    let backend = gated_retrieve_backend(&state, config.as_ref(), paid_embeddings_enabled)?;
     let filters = filters.unwrap_or_default();
     let mut response = retrieval::retrieve(
         repo.inner(),
@@ -316,6 +342,39 @@ mod tests {
             ensure_embedding_consent(Some(&cloud_config()), Some(true)).is_ok(),
             "explicitly enabled paid embeddings must be allowed"
         );
+    }
+
+    #[tokio::test]
+    async fn stored_cloud_backend_requires_consent_on_retrieve_with_config_none() {
+        use crate::ai_learning::embeddings_backend::EmbeddingBackendKind;
+
+        let repo = Repository::new(crate::ai_learning::test_support::test_pool().await);
+        let state = AiLearningState::new(repo);
+        // The library was indexed with a paid cloud backend (stored config).
+        state.update_config(Some(cloud_config()));
+
+        // config: None + consent off ⇒ the STORED cloud backend must be
+        // rejected, not silently billed by a query-side embed_text.
+        let err = gated_retrieve_backend(&state, None, None)
+            .expect_err("stored cloud backend without consent must be rejected");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+
+        // config: None + explicit consent ⇒ the stored cloud backend is allowed.
+        let backend =
+            gated_retrieve_backend(&state, None, Some(true)).expect("consent allows the backend");
+        assert_eq!(backend.kind(), EmbeddingBackendKind::Cloud);
+
+        // An explicitly passed cloud config is gated the same way as the stored one.
+        let err = gated_retrieve_backend(&state, Some(&cloud_config()), None)
+            .expect_err("passed cloud config without consent must be rejected");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+
+        // No stored config + no passed config ⇒ no gate (offline/lexical default).
+        let empty = AiLearningState::new(Repository::new(
+            crate::ai_learning::test_support::test_pool().await,
+        ));
+        let backend = gated_retrieve_backend(&empty, None, None).expect("no backend ⇒ ok");
+        assert_eq!(backend.kind(), EmbeddingBackendKind::OnDevice);
     }
 
     #[test]
