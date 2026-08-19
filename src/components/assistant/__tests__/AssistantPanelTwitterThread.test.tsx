@@ -49,7 +49,7 @@ describe("AssistantPanel Twitter Thread Integration", () => {
     seedProviders();
   });
 
-  const mockThreadDoc: Document = {
+  const mockThreadDoc = {
     id: "thread-doc-1",
     title: "X Thread by @karpathy",
     filePath: "https://x.com/karpathy/status/1880000000000000000",
@@ -61,9 +61,11 @@ describe("AssistantPanel Twitter Thread Integration", () => {
       source: "https://x.com/karpathy/status/1880000000000000000",
       xThread: {
         id: "1880000000000000000",
-        url: "https://x.com/karpathy/status/1880000000000000000",
+        rootId: "1880000000000000000",
+        rootUrl: "https://x.com/karpathy/status/1880000000000000000",
+        title: "Thread by @karpathy",
+        htmlContent: "<p>Post 1</p>",
         author: {
-          id: "123",
           name: "Andrej Karpathy",
           screenName: "karpathy",
           profileUrl: "https://x.com/karpathy",
@@ -74,7 +76,6 @@ describe("AssistantPanel Twitter Thread Integration", () => {
             id: "1880000000000000000",
             postIndex: 1,
             author: {
-              id: "123",
               name: "Andrej Karpathy",
               screenName: "karpathy",
               profileUrl: "https://x.com/karpathy",
@@ -90,7 +91,6 @@ describe("AssistantPanel Twitter Thread Integration", () => {
             id: "1880000000000000001",
             postIndex: 2,
             author: {
-              id: "123",
               name: "Andrej Karpathy",
               screenName: "karpathy",
               profileUrl: "https://x.com/karpathy",
@@ -105,12 +105,11 @@ describe("AssistantPanel Twitter Thread Integration", () => {
         ],
         structuredText: "X Thread by Andrej Karpathy (@karpathy):\n\n[Post 1 by @karpathy]\nDeep dive on transformer architectures.\n\n[Post 2 by @karpathy]\nAttention mechanisms allow quadratic context scaling.\n\n",
         totalPosts: 2,
-        fetchedAt: new Date().toISOString(),
       },
     },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    dateAdded: new Date().toISOString(),
+    dateModified: new Date().toISOString(),
+  } as unknown as Document;
 
   it("renders thread scope badge and quick actions when thread context is active", () => {
     useDocumentStore.setState({

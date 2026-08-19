@@ -287,6 +287,8 @@ export function TTSSettings() {
   const [systemVoiceSearch, setSystemVoiceSearch] = useState("");
   const [showAllSystemVoices, setShowAllSystemVoices] = useState(false);
   const [systemPreviewingId, setSystemPreviewingId] = useState<string | null>(null);
+  const [newPronunciationWord, setNewPronunciationWord] = useState("");
+  const [newPronunciationReplacement, setNewPronunciationReplacement] = useState("");
 
   useEffect(() => {
     const config = getProviderSettings(tts, String(tts.provider));
@@ -1655,6 +1657,84 @@ export function TTSSettings() {
         )}
 
         {generatedAudioUrl && <audio controls src={generatedAudioUrl} className="w-full" />}
+      </section>
+
+      {/* Pronunciation Dictionary Section */}
+      <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-base font-semibold text-foreground">
+              Pronunciation Dictionary
+            </h4>
+            <p className="text-sm text-muted-foreground">
+              Custom phonetic overrides for terms, acronyms, and names (e.g. "Episteme" → "eh-PISS-tuh-mee").
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {Object.entries(tts.pronunciationDictionary || {}).map(([word, replacement]) => (
+            <div key={word} className="flex items-center gap-3 p-2.5 rounded-lg border border-border/80 bg-background/50">
+              <span className="font-medium text-xs text-foreground min-w-[120px] truncate">{word}</span>
+              <span className="text-muted-foreground text-xs">→</span>
+              <span className="text-xs text-muted-foreground font-mono flex-1 truncate">{replacement}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDict = { ...(tts.pronunciationDictionary || {}) };
+                  delete nextDict[word];
+                  updateTTS({ pronunciationDictionary: nextDict });
+                }}
+                className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
+                aria-label={`Remove ${word}`}
+              >
+                <Trash className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {Object.keys(tts.pronunciationDictionary || {}).length === 0 && (
+            <p className="text-xs text-muted-foreground italic py-1">No custom pronunciation rules defined yet.</p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 pt-2 border-t border-border/40">
+          <input
+            type="text"
+            placeholder="Word / Term (e.g. SQLite)"
+            value={newPronunciationWord}
+            onChange={(e) => setNewPronunciationWord(e.target.value)}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs"
+          />
+          <input
+            type="text"
+            placeholder="Spoken as (e.g. sequel-lite)"
+            value={newPronunciationReplacement}
+            onChange={(e) => setNewPronunciationReplacement(e.target.value)}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const w = newPronunciationWord.trim();
+              const r = newPronunciationReplacement.trim();
+              if (!w || !r) return;
+              updateTTS({
+                pronunciationDictionary: {
+                  ...(tts.pronunciationDictionary || {}),
+                  [w]: r,
+                },
+              });
+              setNewPronunciationWord("");
+              setNewPronunciationReplacement("");
+            }}
+            disabled={!newPronunciationWord.trim() || !newPronunciationReplacement.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Rule
+          </button>
+        </div>
       </section>
 
       {operationMessage && (

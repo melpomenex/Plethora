@@ -1,6 +1,7 @@
 //! Database layer for Incrementum
 
 pub mod ai_provenance_repository;
+pub mod audio_edition_repository;
 pub mod concept_repository;
 pub mod connection;
 pub mod element_tree_repository;
@@ -12,6 +13,7 @@ pub mod priority_rank;
 pub mod repository;
 
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
+pub use audio_edition_repository::AudioEditionRepository;
 pub use concept_repository::{
     normalize_concept_name, Concept, ConceptBacklink, ConceptLink, ConceptRepository,
     LinkProposalOutcome, CONCEPT_RELATION_TYPES, MAX_AI_LINKS_PER_DAY,

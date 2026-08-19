@@ -148,6 +148,7 @@ export interface TTSSettings {
   presets: TTSPreset[];
   favorites: string[];
   recents: string[];
+  pronunciationDictionary?: Record<string, string>;
 
   // Deprecated v2 mirrors. They remain readable for older integrations, but
   // new code reads the selected entry in `providers`.
@@ -346,6 +347,7 @@ export function createDefaultTTSSettings(): TTSSettings {
     presets: DEFAULT_TTS_PRESETS,
     favorites: [],
     recents: [],
+    pronunciationDictionary: {},
     ...legacyMirrors("fal", providers),
   };
 }
@@ -581,6 +583,9 @@ export function sanitizeTTSSettings(input: unknown): TTSSettings {
     presets,
     favorites: capIds(migrated.favorites),
     recents: capIds(migrated.recents),
+    pronunciationDictionary: isObject(migrated.pronunciationDictionary)
+      ? (migrated.pronunciationDictionary as Record<string, string>)
+      : {},
     ...legacyMirrors(provider, providers),
   };
   return result;
