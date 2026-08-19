@@ -204,7 +204,15 @@ impl AutoTranscriptionQueue {
         let engine = TranscriptionEngine::new(app.clone());
         let model_manager = ModelManager::new(app)?;
 
-        let model_path = model_manager.get_model_path(&entry.model_id);
+        let model_path = match crate::models::hf::manager::resolve_installed_path(
+            repo.pool(),
+            &entry.model_id,
+        )
+        .await
+        {
+            Some(p) => p,
+            None => model_manager.get_model_path(&entry.model_id),
+        };
         if !model_path.exists() {
             return Err(anyhow::anyhow!(
                 "Transcription model not found: {}",
@@ -299,12 +307,11 @@ impl AutoTranscriptionQueue {
             });
         });
 
-        // Route to the right engine based on the model family. Sherpa-onnx models
-        // (parakeet-*, sense-voice-*) run via the sherpa-onnx sidecar; everything
-        // else is a Whisper (ggml) model.
-        let model_id = entry.model_id.as_str();
-        let is_parakeet = model_id.starts_with("parakeet-");
-        let is_sense_voice = model_id.starts_with("sense-voice-");
+        // Route to the right engine based on the model family. HF-installed
+        // models carry their run contract in the registry; pinned catalog models
+        // use the id-prefix convention (parakeet-*, sense-voice-*).
+        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &entry.model_id)
+            .await;
 
         // Batched per-segment persistence (Finding G, Part 2). The per-segment
         // callback is a cheap `tx.send(seg)` into an mpsc channel; a SINGLE
@@ -331,37 +338,16 @@ impl AutoTranscriptionQueue {
             let _ = seg_tx.send(seg);
         };
 
-        let transcription_result = if is_sense_voice {
-            engine
-                .transcribe_sensevoice(
-                    &wav_path,
-                    &model_path,
-                    &entry.language,
-                    on_segment,
-                    Some(progress_cb),
-                )
-                .await
-        } else if is_parakeet {
-            engine
-                .transcribe_parakeet(
-                    &wav_path,
-                    &model_path,
-                    &entry.language,
-                    on_segment,
-                    Some(progress_cb),
-                )
-                .await
-        } else {
-            engine
-                .transcribe(
-                    &wav_path,
-                    &model_path,
-                    &entry.language,
-                    on_segment,
-                    Some(progress_cb),
-                )
-                .await
-        };
+        let transcription_result = engine
+            .transcribe_route(
+                &wav_path,
+                &model_path,
+                &route,
+                &entry.language,
+                on_segment,
+                Some(progress_cb),
+            )
+            .await;
 
         // Drop the sender + await the consumer so the final buffered batch is
         // flushed before completion or before a retry after an engine error.

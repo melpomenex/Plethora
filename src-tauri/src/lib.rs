@@ -1282,6 +1282,7 @@ pub fn run() {
                 app.manage(auth_store.clone());
                 app.manage(ai_key_store.clone());
                 app.manage(pocket_tts::PocketTTSState::default());
+                app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
                     job_queue: transcription::job_queue::JobQueue::new(
                         app.handle().clone(),
@@ -2101,6 +2102,12 @@ pub fn run() {
             transcription::download_transcription_model,
             transcription::delete_transcription_model,
             transcription::start_transcription,
+            models::hf::commands::hf_inspect_model,
+            models::hf::commands::hf_install_model,
+            models::hf::commands::hf_cancel_install,
+            models::hf::commands::hf_uninstall_model,
+            models::hf::commands::get_installed_hf_models,
+            models::hf::commands::get_system_info,
             transcription::get_transcript,
             transcription::save_transcript,
             transcription::enqueue_auto_transcription,
