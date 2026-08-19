@@ -219,6 +219,75 @@ export function placeAnchoredBar(
   };
 }
 
+/** Placement for the (taller) dictionary peek card. */
+export interface PeekCardPlacement extends BarPlacement {
+  /** False when no anchor geometry existed (bottom-anchored fallback). */
+  anchored: boolean;
+  /** Height budget the card content may occupy (viewport cap applied). */
+  maxHeight: number;
+}
+
+/** Fraction of the viewport height the peek card may never exceed. */
+export const PEEK_VIEWPORT_HEIGHT_CAP = 0.6;
+
+/**
+ * Pure anchored placement for the dictionary peek card (task 4.1): the same
+ * above → below → nearest-safe-region preference as `placeAnchoredBar`,
+ * parameterized for a TALLER card whose height is capped to a fraction of
+ * the viewport so a long sense list never swallows the page. A null anchor
+ * rect (unreadable range, iframe edge cases, menu-invoked lookups without
+ * geometry) falls back to a bottom-anchored card.
+ */
+export function placePeekCard(
+  selectionRect: Rect | null,
+  cardSize: { width: number; height: number },
+  viewport: ViewportLike,
+  insets: SafeInsets = {},
+): PeekCardPlacement {
+  const safeLeft = (insets.left ?? 0) + VIEWPORT_MARGIN_PX;
+  const safeRight = (insets.right ?? 0) + VIEWPORT_MARGIN_PX;
+  const safeTop = (insets.top ?? 0) + VIEWPORT_MARGIN_PX;
+  const safeBottom = (insets.bottom ?? 0) + (insets.keyboard ?? 0) + VIEWPORT_MARGIN_PX;
+  const availableWidth = Math.max(0, viewport.width - safeLeft - safeRight);
+  const maxWidth = Math.min(cardSize.width, availableWidth);
+
+  // Cap the card to a viewport fraction; never below the safe area either.
+  const maxHeight = Math.max(
+    0,
+    Math.min(cardSize.height, Math.round(viewport.height * PEEK_VIEWPORT_HEIGHT_CAP)),
+  );
+
+  if (!selectionRect) {
+    // Bottom-anchored fallback: readable without covering the (unknown)
+    // selection position.
+    return {
+      top: Math.max(safeTop, viewport.height - safeBottom - maxHeight),
+      left: Math.min(
+        Math.max(viewport.width / 2 - maxWidth / 2, safeLeft),
+        viewport.width - safeRight - maxWidth,
+      ),
+      maxWidth,
+      placement: "docked-bottom",
+      anchored: false,
+      maxHeight,
+    };
+  }
+
+  const anchored = placeAnchoredBar(
+    selectionRect,
+    { width: cardSize.width, height: maxHeight },
+    viewport,
+    insets,
+    {
+      // Android's system selection toolbar floats above the selection; the
+      // taller peek takes the below slot first when it fits.
+      preferBelow: true,
+      systemToolbarClearance: 52,
+    },
+  );
+  return { ...anchored, anchored: true, maxHeight };
+}
+
 /**
  * Read the safe insets the app already publishes: `--shell-safe-*` CSS vars
  * (safe areas) and the visual-viewport keyboard height. Returns zeros when
