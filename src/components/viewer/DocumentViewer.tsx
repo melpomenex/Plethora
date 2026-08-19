@@ -8423,6 +8423,7 @@ export function DocumentViewer({
             ref={ttsHandleRef}
             text={readerContextText}
             sections={speechSections}
+            documentId={documentId}
             resolveViewportAnchor={resolveReaderViewportAnchor}
             resolvePositionAnchor={resolveReaderPositionAnchor}
             cfiToEpubAnchor={docType === "epub" ? resolveEpubCfiToAnchor : undefined}
