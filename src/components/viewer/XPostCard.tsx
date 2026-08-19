@@ -6,8 +6,8 @@
  * Flashcard, Copy post text, Open on X). Engagement row only when values are
  * known. Stable `id="x-post-{post.id}"` anchors AI citations.
  */
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { TwitterPost } from "../../types/document";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TwitterPost, TwitterExpandedUrl } from "../../types/document";
 import { openExternal } from "../../lib/tauri";
 import { cn } from "../../utils";
 import { CheckCircle, DotsThree, Copy, NotePencil, ArrowSquareOut, Heart, Repeat, ChatCircle, BookmarkSimple } from "@phosphor-icons/react";
@@ -72,8 +72,52 @@ export function renderPostText(text: string, postId: string): React.ReactNode {
   });
 }
 
-function Engagement({ post }: { post: TwitterPost }) {
-  const items: Array<{ icon: React.ReactNode; value: number; label: string }> = [];
+/** Expand the tweet's t.co URL entities into clickable, real targets (the
+ *  structured `expandedUrls` from GraphQL/syndication enrichment — the raw
+ *  text renders `t.co/…` shortlinks, which are useless to a reader). Media
+ *  preview links (pic.twitter.com) are already rendered by the media grid. */
+function ExpandedLinks({ post }: { post: TwitterPost }) {
+  const links = useMemo(() => {
+    const all = post.expandedUrls ?? [];
+    if (all.length === 0) return null;
+    const seen = new Set<string>();
+    const out: TwitterExpandedUrl[] = [];
+    for (const u of all) {
+      const href = u.expandedUrl || u.url;
+      if (!href || /^https?:\/\/pic\.twitter\.com\//i.test(href)) continue;
+      if (seen.has(href)) continue;
+      seen.add(href);
+      out.push(u);
+    }
+    return out.length > 0 ? out : null;
+  }, [post.expandedUrls]);
+
+  if (!links) return null;
+  return (
+    <div data-testid="x-post-links" className="mt-2.5 flex flex-col gap-1">
+      {links.map((u) => {
+        const href = u.expandedUrl || u.url;
+        return (
+          <a
+            key={href}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-sm text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+            onClick={(e) => {
+              e.preventDefault();
+              void openExternal(href);
+            }}
+          >
+            {u.displayUrl || href}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function Engagement({ post }: { post: TwitterPost }) {  const items: Array<{ icon: React.ReactNode; value: number; label: string }> = [];
   if (post.replyCount != null && post.replyCount > 0)
     items.push({ icon: <ChatCircle size={14} />, value: post.replyCount, label: "replies" });
   if (post.retweetCount != null && post.retweetCount > 0)
@@ -261,6 +305,8 @@ export const XPostCard = memo(function XPostCard({
       <div className="mt-2.5 text-[15px] leading-relaxed text-foreground">
         <p className="whitespace-pre-wrap break-words">{renderPostText(post.fullText || post.text, post.id)}</p>
       </div>
+
+      <ExpandedLinks post={post} />
 
       <XThreadMediaGrid media={post.media} postId={post.id} />
 

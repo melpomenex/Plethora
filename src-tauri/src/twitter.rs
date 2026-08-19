@@ -121,6 +121,25 @@ pub struct TwitterPostRef {
     pub screen_name: String,
 }
 
+/// A `@mention` parsed from a tweet's `entities` (mirrors `xcom.py._parse_tweet`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TwitterMention {
+    pub screen_name: String,
+    pub name: Option<String>,
+}
+
+/// A URL entity parsed from a tweet's `entities`: `url` is the t.co shortlink
+/// as it appears in `full_text`; `expanded_url`/`display_url` the real target
+/// and its display form (mirrors `xcom.py._parse_tweet`'s `urls`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TwitterUrl {
+    pub url: String,
+    pub expanded_url: String,
+    pub display_url: Option<String>,
+}
+
 /// Single post within an X thread.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +168,17 @@ pub struct TwitterPost {
     /// existed restore with an empty list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ref_handles: Vec<TwitterPostRef>,
+    /// Hashtags parsed from the tweet's `entities` (GraphQL/syndication).
+    /// Empty on TRA-only threads; enrichment/single-post retrieval fill it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hashtags: Vec<String>,
+    /// @mentions parsed from the tweet's `entities`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<TwitterMention>,
+    /// URL entities (t.co shortlink → expanded target). The expanded target
+    /// is what the reader surfaces instead of a useless `t.co/...` link.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expanded_urls: Vec<TwitterUrl>,
 }
 
 /// Normalized multi-post or single-post X thread.
@@ -173,18 +203,39 @@ pub struct TwitterThread {
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
+/// True when `part` is the host of an x.com/twitter.com status URL, accepting
+/// `www.`/`mobile.` (and any other) subdomains: `x.com`, `twitter.com`,
+/// `mobile.twitter.com`, `www.x.com`, …
+fn is_x_host(part: &str) -> bool {
+    let lower = part.to_ascii_lowercase();
+    lower == "x.com"
+        || lower == "twitter.com"
+        || lower.ends_with(".x.com")
+        || lower.ends_with(".twitter.com")
+}
+
 /// Extract the numeric tweet id from an `x.com`/`twitter.com` status URL
-/// (e.g. `https://x.com/user/status/123?s=20` → `123`).
+/// (e.g. `https://x.com/user/status/123?s=20` → `123`). Accepts optional
+/// scheme, `www.`/`mobile.` subdomains, `/i/status/`, query strings, and
+/// trailing slashes; rejects non-X hosts and non-numeric ids.
 pub fn extract_tweet_id(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
-    let no_query = trimmed.split('?').next().unwrap_or(trimmed);
+    let no_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
-    let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("status"));
-    let id = idx
-        .and_then(|i| parts.get(i + 1))
+    let idx = parts
+        .iter()
+        .position(|p| p.eq_ignore_ascii_case("status"))
+        .ok_or_else(|| "Could not find a tweet id in the URL".to_string())?;
+    let id = parts
+        .get(idx + 1)
         .ok_or_else(|| "Could not find a tweet id in the URL".to_string())?;
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
         return Err(format!("Invalid tweet id: {}", id));
+    }
+    // The URL must actually be an X/Twitter status link — a random
+    // `example.com/status/123` must not invoke any provider.
+    if !parts.iter().any(|p| is_x_host(p)) {
+        return Err("URL is not an x.com/twitter.com status link".to_string());
     }
     Ok((*id).to_string())
 }
@@ -736,6 +787,73 @@ pub fn parse_quoted_post(val: &serde_json::Value) -> Option<TwitterQuotedPost> {
     None
 }
 
+/// Parse hashtags / mentions / URL entities from a tweet payload, mirroring
+/// `xcom.py._parse_tweet`. GraphQL exposes them under `legacy.entities`;
+/// syndication exposes them at the top level. Any shape failure yields empty
+/// lists — entities are a best-effort enrichment, never fatal.
+fn parse_entities(val: &serde_json::Value) -> (Vec<String>, Vec<TwitterMention>, Vec<TwitterUrl>) {
+    let val = unwrap_result(val);
+    let entities = val
+        .get("legacy")
+        .and_then(|l| l.get("entities"))
+        .or_else(|| val.get("entities"));
+
+    let mut hashtags: Vec<String> = Vec::new();
+    let mut mentions: Vec<TwitterMention> = Vec::new();
+    let mut urls: Vec<TwitterUrl> = Vec::new();
+
+    let Some(entities) = entities else {
+        return (hashtags, mentions, urls);
+    };
+
+    if let Some(arr) = entities.get("hashtags").and_then(|h| h.as_array()) {
+        for h in arr {
+            if let Some(text) = h.get("text").and_then(|t| t.as_str()) {
+                if !text.is_empty() {
+                    hashtags.push(text.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(arr) = entities.get("user_mentions").and_then(|m| m.as_array()) {
+        for m in arr {
+            if let Some(screen) = m.get("screen_name").and_then(|s| s.as_str()) {
+                if screen.is_empty() {
+                    continue;
+                }
+                mentions.push(TwitterMention {
+                    screen_name: screen.to_string(),
+                    name: m.get("name").and_then(|n| n.as_str()).map(str::to_string),
+                });
+            }
+        }
+    }
+
+    if let Some(arr) = entities.get("urls").and_then(|u| u.as_array()) {
+        for u in arr {
+            let Some(url) = u.get("url").and_then(|x| x.as_str()) else {
+                continue;
+            };
+            if url.is_empty() {
+                continue;
+            }
+            urls.push(TwitterUrl {
+                url: url.to_string(),
+                expanded_url: u
+                    .get("expanded_url")
+                    .or_else(|| u.get("expandedUrl"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or(url)
+                    .to_string(),
+                display_url: u.get("display_url").and_then(|d| d.as_str()).map(str::to_string),
+            });
+        }
+    }
+
+    (hashtags, mentions, urls)
+}
+
 /// Parse a complete TwitterPost from GraphQL or Syndication JSON.
 pub fn parse_post(val: &serde_json::Value, fallback_id: &str) -> TwitterPost {
     let val = unwrap_result(val);
@@ -774,6 +892,7 @@ pub fn parse_post(val: &serde_json::Value, fallback_id: &str) -> TwitterPost {
 
     let media = parse_media(val);
     let quoted_post = parse_quoted_post(val);
+    let (hashtags, mentions, expanded_urls) = parse_entities(val);
 
     let legacy = val.get("legacy");
     let created_at = legacy
@@ -821,6 +940,9 @@ pub fn parse_post(val: &serde_json::Value, fallback_id: &str) -> TwitterPost {
         url,
         ref_ids: vec![],
         ref_handles: vec![],
+        hashtags,
+        mentions,
+        expanded_urls,
     }
 }
 
@@ -1162,6 +1284,11 @@ fn build_tra_thread(
                             .map(|screen_name| TwitterPostRef { id: r.id.clone(), screen_name })
                     })
                     .collect(),
+                // Entity fields are filled by enrichment (parse_entities) —
+                // the TRA page carries no structured entities.
+                hashtags: Vec::new(),
+                mentions: Vec::new(),
+                expanded_urls: Vec::new(),
             }
         })
         .collect();
@@ -1181,10 +1308,15 @@ fn build_tra_thread(
 /// Classify a single-tweet fetch failure into a typed [`ThreadError`].
 fn classify_single_fetch_error(e: &str) -> ThreadError {
     let lower = e.to_lowercase();
-    if lower.contains("not found") || lower.contains("restricted") || lower.contains("404") {
-        ThreadError::ThreadUnavailable(e.to_string())
-    } else if lower.contains("429") || lower.contains("rate limit") {
+    if lower.contains("429") || lower.contains("rate limit") {
         ThreadError::RateLimited(e.to_string())
+    } else if lower.contains("not found") || lower.contains("restricted") || lower.contains("404") {
+        ThreadError::ThreadUnavailable(e.to_string())
+    } else if lower.contains("401") || lower.contains("403")
+        || lower.contains("unauthorized") || lower.contains("guest token")
+        || lower.contains("session is invalid") || lower.contains("credentials")
+    {
+        ThreadError::Auth(e.to_string())
     } else if lower.contains("failed to fetch") || lower.contains("failed to request")
         || lower.contains("timeout") || lower.contains("tls") || lower.contains("dns")
         || lower.contains("connect")
@@ -1815,6 +1947,154 @@ mod tests {
     }
 
     #[test]
+    fn extracts_tweet_id_across_url_variants() {
+        let cases = vec![
+            // www / mobile subdomains, either host, optional scheme.
+            ("https://www.x.com/user/status/1234567890", "1234567890"),
+            ("http://mobile.twitter.com/user/status/9876543210", "9876543210"),
+            ("mobile.x.com/Some_User/status/5555", "5555"),
+            // Generic /i/status/ redirect format.
+            ("https://x.com/i/status/111222333", "111222333"),
+            // Query strings + trailing slash (incl. analytics/photo suffixes).
+            ("https://twitter.com/Someone/status/987?s=20&t=abc", "987"),
+            ("https://x.com/u/status/42/", "42"),
+            ("https://x.com/u/status/42/?s=20", "42"),
+            ("https://x.com/u/status/42/photo/1", "42"),
+            // Uppercase path segment.
+            ("https://x.com/u/STATUS/99", "99"),
+        ];
+        for (url, expected) in cases {
+            assert_eq!(
+                extract_tweet_id(url).unwrap(),
+                expected,
+                "failed to extract {} from {}",
+                expected,
+                url
+            );
+        }
+        for bad in [
+            "https://x.com/user",
+            "https://x.com/user/status",
+            "https://x.com/u/status/abc",
+            "https://x.com/i/status/",
+            "not a url",
+            "https://example.com/status/123",
+        ] {
+            assert!(extract_tweet_id(bad).is_err(), "expected error for {}", bad);
+        }
+    }
+
+    #[test]
+    fn extracts_screen_name_across_url_variants() {
+        assert_eq!(
+            extract_screen_name_from_url("http://mobile.twitter.com/Some_User/status/42?s=20").as_deref(),
+            Some("Some_User")
+        );
+        assert_eq!(
+            extract_screen_name_from_url("https://www.x.com/Handle/status/1/").as_deref(),
+            Some("Handle")
+        );
+        // /i/status/ carries no real handle; bare-host status links neither.
+        assert_eq!(extract_screen_name_from_url("https://x.com/i/status/42"), None);
+        assert_eq!(extract_screen_name_from_url("https://x.com/status/42"), None);
+    }
+
+    #[test]
+    fn classifies_single_fetch_auth_failures() {
+        assert!(matches!(
+            classify_single_fetch_error("Guest token request failed: HTTP 401"),
+            ThreadError::Auth(_)
+        ));
+        assert!(matches!(
+            classify_single_fetch_error("GraphQL request failed: HTTP 403 — forbidden"),
+            ThreadError::Auth(_)
+        ));
+        assert!(matches!(
+            classify_single_fetch_error("X search session is invalid or expired"),
+            ThreadError::Auth(_)
+        ));
+        // Rate limit wins over the "guest token" substring.
+        assert!(matches!(
+            classify_single_fetch_error("Guest token request failed: HTTP 429"),
+            ThreadError::RateLimited(_)
+        ));
+    }
+
+    #[test]
+    fn parses_entities_from_graphql_legacy_shape() {
+        let result = serde_json::json!({
+            "__typename": "Tweet",
+            "rest_id": "1010",
+            "legacy": {
+                "id_str": "1010",
+                "full_text": "Testing #rust #threads via @janeresearch https://t.co/abc",
+                "entities": {
+                    "hashtags": [
+                        {"text": "rust", "indices": [8, 13]},
+                        {"text": "threads", "indices": [14, 22]}
+                    ],
+                    "user_mentions": [
+                        {"screen_name": "janeresearch", "name": "Jane Researcher", "id_str": "99"}
+                    ],
+                    "urls": [
+                        {
+                            "url": "https://t.co/abc",
+                            "expanded_url": "https://example.com/deep-link",
+                            "display_url": "example.com/deep-link",
+                            "indices": [50, 73]
+                        }
+                    ]
+                }
+            },
+            "core": {
+                "user_results": { "result": { "legacy": { "screen_name": "janeresearch" } } }
+            }
+        });
+        let post = parse_post(&result, "1010");
+        assert_eq!(post.hashtags, vec!["rust", "threads"]);
+        assert_eq!(post.mentions.len(), 1);
+        assert_eq!(post.mentions[0].screen_name, "janeresearch");
+        assert_eq!(post.mentions[0].name.as_deref(), Some("Jane Researcher"));
+        assert_eq!(post.expanded_urls.len(), 1);
+        assert_eq!(post.expanded_urls[0].url, "https://t.co/abc");
+        assert_eq!(post.expanded_urls[0].expanded_url, "https://example.com/deep-link");
+        assert_eq!(post.expanded_urls[0].display_url.as_deref(), Some("example.com/deep-link"));
+    }
+
+    #[test]
+    fn parses_entities_from_syndication_top_level_shape() {
+        let result = serde_json::json!({
+            "__typename": "Tweet",
+            "id_str": "1011",
+            "text": "Check @quoteauthor https://t.co/xyz",
+            "entities": {
+                "hashtags": [{"text": "verified"}],
+                "user_mentions": [{"screen_name": "quoteauthor"}],
+                "urls": [{"url": "https://t.co/xyz", "expanded_url": "https://news.example.com"}]
+            },
+            "user": { "name": "Syn User", "screen_name": "synuser" }
+        });
+        let post = parse_post(&result, "1011");
+        assert_eq!(post.hashtags, vec!["verified"]);
+        assert_eq!(post.mentions[0].screen_name, "quoteauthor");
+        assert_eq!(post.expanded_urls[0].expanded_url, "https://news.example.com");
+    }
+
+    #[test]
+    fn missing_entities_yields_empty_lists() {
+        let result = serde_json::json!({
+            "__typename": "Tweet",
+            "rest_id": "1012",
+            "legacy": { "id_str": "1012", "full_text": "no entities" },
+            "core": { "user_results": { "result": { "legacy": { "screen_name": "u" } } } }
+        });
+        let post = parse_post(&result, "1012");
+        assert!(post.hashtags.is_empty());
+        assert!(post.mentions.is_empty());
+        assert!(post.expanded_urls.is_empty());
+    }
+
+    #[test]
     fn parses_single_tweet_graphql() {
         let result = serde_json::json!({
             "__typename": "Tweet",
@@ -1963,6 +2243,9 @@ mod tests {
                 url: "https://x.com/alicescholar/status/201".to_string(),
                 ref_ids: vec![],
                 ref_handles: vec![],
+                hashtags: vec![],
+                mentions: vec![],
+                expanded_urls: vec![],
             },
             TwitterPost {
                 id: "202".to_string(),
@@ -1981,6 +2264,9 @@ mod tests {
                 url: "https://x.com/alicescholar/status/202".to_string(),
                 ref_ids: vec![],
                 ref_handles: vec![],
+                hashtags: vec![],
+                mentions: vec![],
+                expanded_urls: vec![],
             },
         ];
 
@@ -2460,6 +2746,9 @@ Third post text.
                 url: "https://x.com/janeresearch/status/1001".to_string(),
                 ref_ids: vec![],
                 ref_handles: vec![],
+                hashtags: vec![],
+                mentions: vec![],
+                expanded_urls: vec![],
             },
             TwitterPost {
                 id: "1002".to_string(),
@@ -2478,6 +2767,9 @@ Third post text.
                 url: "https://x.com/janeresearch/status/1002".to_string(),
                 ref_ids: vec!["9999999999999999999".to_string()],
                 ref_handles: vec![],
+                hashtags: vec![],
+                mentions: vec![],
+                expanded_urls: vec![],
             },
         ];
         let mut thread = build_thread(&author, posts, "threadreader");
