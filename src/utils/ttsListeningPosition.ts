@@ -27,7 +27,7 @@ const STORE_NAME = "plethora-tts-positions";
 const DB_NAME = "plethora-tts-positions-db";
 const DB_VERSION = 1;
 
-function getProfileId(): string {
+export function getProfileId(): string {
   try {
     const raw = localStorage.getItem("plethora_user");
     if (raw) { const parsed = JSON.parse(raw); if (parsed?.id) return `u:${parsed.id}`; }
@@ -120,6 +120,17 @@ async function persist(pos: TTSListeningPosition): Promise<void> {
 
 export async function flushPendingListeningPosition(): Promise<void> {
   if (pendingSave) { const p = pendingSave; pendingSave = null; if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; } await persist(p); lastSaveAt = Date.now(); }
+}
+
+/**
+ * Synchronous localStorage write used at unload (beforeunload/pagehide): an
+ * IndexedDB transaction is not guaranteed to complete before the process
+ * exits, so a best-effort sync write ensures the record survives a restart.
+ * Idempotent with the async path — both write the same `tts-pos:<id>` key.
+ */
+export function writeListeningPositionSync(pos: TTSListeningPosition): void {
+  const id = keyFor(pos.documentId, pos.profileId);
+  try { localStorage.setItem(`tts-pos:${id}`, JSON.stringify(pos)); } catch {}
 }
 
 export async function clearTTSListeningPosition(documentId: string, profileId?: string): Promise<void> {
