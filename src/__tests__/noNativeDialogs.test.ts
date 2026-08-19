@@ -58,7 +58,6 @@ const PENDING_MIGRATION = [
   "src/components/media/MediaLibrary.tsx",
   "src/components/media/RSSReader.tsx",
   "src/components/media/YouTubePlaylistManager.tsx",
-  "src/components/migration/DataMigrationUI.tsx",
   "src/components/newsletter/NewsletterDirectory.tsx",
   "src/components/newsletter/NewsletterDirectoryEnhanced.tsx",
   "src/components/newsletter/NewsletterPreviewModal.tsx",
