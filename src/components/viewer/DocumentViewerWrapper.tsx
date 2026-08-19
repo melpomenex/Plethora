@@ -400,22 +400,12 @@ export function DocumentViewer({
     localStorage.setItem(ASSISTANT_POSITION_KEY, newPosition);
   };
 
-  // Consume the assistant's live width (the same value the panel clamps to
-  // ASSISTANT_MIN_WIDTH..ASSISTANT_MAX_WIDTH) so the host owns the split and
-  // can keep the reader from collapsing. The reader keeps a usable floor via
-  // `minWidth: READER_MIN_WIDTH` below; the EPUB's own ResizeObserver turns
-  // the resulting width change into a live `rendition.resize` reflow.
-  const assistantWidthRef = useRef<number | null>(null);
-
   const assistantPanel = (
     <AssistantPanel
       context={assistantContext}
       className="flex-shrink-0"
       position={assistantPosition}
       onPositionChange={handlePositionChange}
-      onWidthChange={(width) => {
-        assistantWidthRef.current = width;
-      }}
     />
   );
 
