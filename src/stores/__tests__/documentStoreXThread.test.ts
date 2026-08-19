@@ -175,7 +175,10 @@ describe("documentStore.openTwitterThread (X thread progressive open)", () => {
       new Error('Tauri command "get_twitter_thread" failed: {"type":"thread_unavailable","message":"gone"}')
     );
     const errored = await useDocumentStore.getState().openTwitterThread(URL_ROOT);
-    expect(errored.metadata?.xThreadError?.type).toBe("thread_unavailable");
+    // parseThreadError normalizes the backend snake_case type to the camelCase
+    // UI key, so the error state renders the typed (non-generic) copy.
+    expect(errored.metadata?.xThreadError?.type).toBe("threadUnavailable");
+    expect(errored.metadata?.xThreadError?.message).toBe("gone");
     expect(errored.metadata?.xThreadLoading).toBe(false);
 
     // Retry: the stale placeholder is skipped and the fetch runs again.

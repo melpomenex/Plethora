@@ -1,38 +1,20 @@
 /**
  * XThreadErrorState — native, actionable error states for the X thread
  * reader: thread unavailable (private/deleted), ThreadReaderApp unavailable,
- * rate limited, network error, or invalid URL. Includes Retry / Open on X /
- * copy-URL actions. Never a blank page or white iframe fallback.
+ * rate limited, network error, invalid URL, or auth/credentials. Includes
+ * Retry / Open on X / copy-URL actions. Never a blank page or white iframe
+ * fallback, and never a raw internal exception as the primary message.
  */
 import { memo, useCallback } from "react";
 import { ArrowClockwise, Copy, WarningCircle, ArrowSquareOut } from "@phosphor-icons/react";
 import { openExternal } from "../../lib/tauri";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useToast } from "../common/Toast";
-import { parseThreadError, type XThreadError } from "../../lib/xthreadError";
+import { resolveThreadError, type XThreadError } from "../../lib/xthreadError";
 
 export type { XThreadError };
-export { parseThreadError };
 
-const TITLES: Record<string, string> = {
-  threadUnavailable: "Unable to load this X thread",
-  threadReaderUnavailable: "Thread could not be retrieved",
-  rateLimited: "Rate limited",
-  networkError: "Network error",
-  invalidUrl: "Invalid X link",
-};
-
-const DETAILS: Record<string, string> = {
-  threadUnavailable:
-    "This post or thread may be private, deleted, or otherwise unavailable on X.",
-  threadReaderUnavailable:
-    "ThreadReaderApp could not unroll this thread. The post may still open directly on X.",
-  rateLimited: "Too many requests. Wait a moment and try again.",
-  networkError: "Could not reach the thread service. Check your connection and retry.",
-  invalidUrl: "This doesn't look like a valid X status link.",
-};
-
-export const XThreadErrorState = memo(function XThreadErrorState({
+const XThreadErrorStateImpl = function XThreadErrorState({
   error,
   statusUrl,
   onRetry,
@@ -42,7 +24,7 @@ export const XThreadErrorState = memo(function XThreadErrorState({
   statusUrl?: string;
   onRetry?: () => void;
 }) {
-  const { type, message } = parseThreadError(error);
+  const { type, copy, message } = resolveThreadError(error);
   const toast = useToast();
 
   const copyUrl = useCallback(async () => {
@@ -50,6 +32,12 @@ export const XThreadErrorState = memo(function XThreadErrorState({
     await copySelectionTextToClipboard(statusUrl);
     toast.success("Copied", "Status URL copied to clipboard");
   }, [statusUrl, toast]);
+
+  // Invalid links carry no usable status URL — opening or copying them is
+  // meaningless (the backend rejected the id before any provider was called).
+  const openable = Boolean(statusUrl) && type !== "invalidUrl";
+  // Raw backend text is secondary detail only — never the primary message.
+  const showDetail = message && message !== copy.detail;
 
   return (
     <div
@@ -61,12 +49,16 @@ export const XThreadErrorState = memo(function XThreadErrorState({
         <WarningCircle size={24} weight="duotone" />
       </div>
       <div className="space-y-1.5">
-        <h2 className="text-base font-semibold text-foreground">
-          {TITLES[type ?? ""] ?? "Unable to load this X thread"}
-        </h2>
-        <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">
-          {DETAILS[type ?? ""] ?? message ?? "Something went wrong while fetching this thread."}
-        </p>
+        <h2 className="text-base font-semibold text-foreground">{copy.title}</h2>
+        <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">{copy.detail}</p>
+        {showDetail && (
+          <p
+            data-testid="x-thread-error-detail"
+            className="mx-auto max-w-sm break-words text-xs leading-relaxed text-muted-foreground/70"
+          >
+            {message}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         {onRetry && (
@@ -78,16 +70,16 @@ export const XThreadErrorState = memo(function XThreadErrorState({
             Retry
           </button>
         )}
-        {statusUrl && (
+        {openable && (
           <button
-            onClick={() => openExternal(statusUrl)}
+            onClick={() => openExternal(statusUrl!)}
             className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
             <ArrowSquareOut size={15} />
             Open on X
           </button>
         )}
-        {statusUrl && (
+        {openable && (
           <button
             onClick={copyUrl}
             aria-label="Copy status URL"
@@ -100,4 +92,6 @@ export const XThreadErrorState = memo(function XThreadErrorState({
       </div>
     </div>
   );
-});
+};
+
+export const XThreadErrorState = memo(XThreadErrorStateImpl);

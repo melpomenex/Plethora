@@ -21,6 +21,7 @@ import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
 import { parseThreadError } from "../lib/xthreadError";
+import { extractXStatusId } from "../lib/xthreadUrl";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Web Article Import Pipeline support (overhaul-web-article-import)
@@ -1180,9 +1181,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Fetching X thread...` } });
     try {
       // 1. Check if document is already in store (skip stale placeholders so
-      //    a failed load can be retried)
-      const statusIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/);
-      const statusId = statusIdMatch ? statusIdMatch[1] : null;
+      //    a failed load can be retried). The status-id detector accepts the
+      //    same URL variants as the backend (www/mobile subdomains, query
+      //    strings, trailing slashes, `/i/status/`).
+      const statusId = extractXStatusId(url);
       const isStalePlaceholder = (d: Document) =>
         d.id.startsWith("x-thread-") && Boolean(d.metadata?.xThreadLoading || d.metadata?.xThreadError);
 
