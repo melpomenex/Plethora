@@ -85,6 +85,24 @@ enum SherpaFamily {
     /// Alibaba SenseVoice — `--sense-voice-model` + `--sense-voice-language`.
     /// Supports zh/en/ja/ko/yue; non-autoregressive; has ITN punctuation.
     SenseVoice,
+    /// Zipformer transducer — `--zipformer-model` (combined) or the split
+    /// `--encoder/--decoder/--joiner` form. Generic sherpa-onnx STT family used
+    /// by most HF ONNX STT repos.
+    Zipformer,
+    /// FunASR Paraformer — `--paraformer-model`.
+    Paraformer,
+}
+
+/// The concrete files a sherpa-onnx STT invocation needs (paths already
+/// resolved against the model dir).
+#[derive(Clone)]
+struct SherpaModelFiles {
+    model: PathBuf,
+    tokens: Option<PathBuf>,
+    decoder: Option<PathBuf>,
+    joiner: Option<PathBuf>,
+    /// Enable SenseVoice ITN (punctuation + casing).
+    use_itn: bool,
 }
 
 impl TranscriptionEngine {
@@ -492,8 +510,16 @@ impl TranscriptionEngine {
         on_segment: impl Fn(TranscriptSegment),
         on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
     ) -> Result<()> {
+        let files = SherpaModelFiles {
+            model: model_dir.join("model.int8.onnx"),
+            tokens: Some(model_dir.join("tokens.txt")),
+            decoder: None,
+            joiner: None,
+            use_itn: false,
+        };
         self.transcribe_sherpa(
             SherpaFamily::Parakeet,
+            files,
             audio_path,
             model_dir,
             "auto", // Parakeet ignores language (English model)
@@ -513,8 +539,16 @@ impl TranscriptionEngine {
         on_segment: impl Fn(TranscriptSegment),
         on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
     ) -> Result<()> {
+        let files = SherpaModelFiles {
+            model: model_dir.join("model.int8.onnx"),
+            tokens: Some(model_dir.join("tokens.txt")),
+            decoder: None,
+            joiner: None,
+            use_itn: true,
+        };
         self.transcribe_sherpa(
             SherpaFamily::SenseVoice,
+            files,
             audio_path,
             model_dir,
             language,
@@ -522,6 +556,191 @@ impl TranscriptionEngine {
             on_progress,
         )
         .await
+    }
+
+    /// Transcribe audio with a generic Zipformer transducer model (installed
+    /// from Hugging Face). `combined` is the single ONNX model file, or None
+    /// when the model ships as split `encoder/decoder/joiner` files.
+    pub async fn transcribe_zipformer(
+        &self,
+        audio_path: &Path,
+        model_dir: &Path,
+        combined: Option<PathBuf>,
+        encoder: Option<PathBuf>,
+        decoder: Option<PathBuf>,
+        joiner: Option<PathBuf>,
+        on_segment: impl Fn(TranscriptSegment),
+        on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
+    ) -> Result<()> {
+        let model = combined
+            .or(encoder.clone())
+            .unwrap_or_else(|| model_dir.join("model.onnx"));
+        let tokens = Some(model_dir.join("tokens.txt"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| model_dir.join("tokens.json"));
+        let files = SherpaModelFiles {
+            model,
+            tokens: Some(tokens),
+            decoder: decoder.or_else(|| {
+                encoder
+                    .as_ref()
+                    .and_then(|_| Some(model_dir.join("decoder.onnx")).filter(|p| p.exists()))
+            }),
+            joiner: joiner.or_else(|| {
+                encoder
+                    .as_ref()
+                    .and_then(|_| Some(model_dir.join("joiner.onnx")).filter(|p| p.exists()))
+            }),
+            use_itn: false,
+        };
+        self.transcribe_sherpa(
+            SherpaFamily::Zipformer,
+            files,
+            audio_path,
+            model_dir,
+            "auto",
+            on_segment,
+            on_progress,
+        )
+        .await
+    }
+
+    /// Transcribe audio with a Paraformer model (installed from Hugging Face).
+    pub async fn transcribe_paraformer(
+        &self,
+        audio_path: &Path,
+        model_dir: &Path,
+        model_file: PathBuf,
+        on_segment: impl Fn(TranscriptSegment),
+        on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
+    ) -> Result<()> {
+        let tokens = Some(model_dir.join("tokens.txt"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| model_dir.join("tokens.json"));
+        let files = SherpaModelFiles {
+            model: model_file,
+            tokens: Some(tokens),
+            decoder: None,
+            joiner: None,
+            use_itn: false,
+        };
+        self.transcribe_sherpa(
+            SherpaFamily::Paraformer,
+            files,
+            audio_path,
+            model_dir,
+            "auto",
+            on_segment,
+            on_progress,
+        )
+        .await
+    }
+
+    /// Dispatch a transcription to the right engine based on a resolved route
+    /// (used by the job queue / auto queue for both pinned and HF-installed
+    /// models).
+    pub async fn transcribe_route(
+        &self,
+        audio_path: &Path,
+        model_path: &Path,
+        route: &crate::models::hf::manager::SttEngineRoute,
+        language: &str,
+        on_segment: impl Fn(TranscriptSegment),
+        on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
+    ) -> Result<()> {
+        use crate::models::hf::manager::SttEngineRoute;
+        // Resolve the tokens file the same way the dedicated sherpa methods do.
+        let tokens_for = |model_dir: &Path| {
+            Some(model_dir.join("tokens.txt"))
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| model_dir.join("tokens.json"))
+        };
+        match route {
+            SttEngineRoute::Whisper => {
+                self.transcribe(audio_path, model_path, language, on_segment, on_progress)
+                    .await
+            }
+            SttEngineRoute::Parakeet { model } => {
+                let files = SherpaModelFiles {
+                    model: model_path.join(model),
+                    tokens: Some(tokens_for(model_path)),
+                    decoder: None,
+                    joiner: None,
+                    use_itn: false,
+                };
+                self.transcribe_sherpa(
+                    SherpaFamily::Parakeet,
+                    files,
+                    audio_path,
+                    model_path,
+                    "auto",
+                    on_segment,
+                    on_progress,
+                )
+                .await
+            }
+            SttEngineRoute::SenseVoice { model } => {
+                let files = SherpaModelFiles {
+                    model: model_path.join(model),
+                    tokens: Some(tokens_for(model_path)),
+                    decoder: None,
+                    joiner: None,
+                    use_itn: true,
+                };
+                self.transcribe_sherpa(
+                    SherpaFamily::SenseVoice,
+                    files,
+                    audio_path,
+                    model_path,
+                    language,
+                    on_segment,
+                    on_progress,
+                )
+                .await
+            }
+            SttEngineRoute::Zipformer {
+                model,
+                decoder,
+                joiner,
+            } => {
+                let has_split = decoder.is_some() && joiner.is_some();
+                let combined = if has_split {
+                    None
+                } else {
+                    Some(model_path.join(model))
+                };
+                let encoder = if has_split {
+                    Some(model_path.join(model))
+                } else {
+                    None
+                };
+                let decoder_path = decoder.as_ref().map(|d| model_path.join(d));
+                let joiner_path = joiner.as_ref().map(|j| model_path.join(j));
+                self.transcribe_zipformer(
+                    audio_path,
+                    model_path,
+                    combined,
+                    encoder,
+                    decoder_path,
+                    joiner_path,
+                    on_segment,
+                    on_progress,
+                )
+                .await
+            }
+            SttEngineRoute::Paraformer { model } => self
+                .transcribe_paraformer(
+                    audio_path,
+                    model_path,
+                    model_path.join(model),
+                    on_segment,
+                    on_progress,
+                )
+                .await,
+            SttEngineRoute::NotTranscription => Err(anyhow!(
+                "This model is a TTS model and cannot be used for transcription."
+            )),
+        }
     }
 
     /// Shared sherpa-onnx transcription path used by all model families.
@@ -541,6 +760,7 @@ impl TranscriptionEngine {
     async fn transcribe_sherpa(
         &self,
         family: SherpaFamily,
+        files: SherpaModelFiles,
         audio_path: &Path,
         model_dir: &Path,
         language: &str,
@@ -577,7 +797,7 @@ impl TranscriptionEngine {
         // one segment. Avoids chunk-WAV bookkeeping for the common short case.
         if total_duration_ms <= chunk_duration_ms {
             let text = self
-                .run_sherpa_sidecar(family, model_dir, audio_path, language)
+                .run_sherpa_sidecar(family, files, audio_path, language)
                 .await?;
             if let Some(ref cb) = on_progress {
                 cb(100);
@@ -643,7 +863,7 @@ impl TranscriptionEngine {
             // file — log and continue with an empty segment (matches the legacy
             // moonshine behavior).
             let text = match self
-                .run_sherpa_sidecar(family, model_dir, &chunk_path, language)
+                .run_sherpa_sidecar(family, files.clone(), &chunk_path, language)
                 .await
             {
                 Ok(t) => t,
@@ -678,7 +898,7 @@ impl TranscriptionEngine {
     async fn run_sherpa_sidecar(
         &self,
         family: SherpaFamily,
-        model_dir: &Path,
+        files: SherpaModelFiles,
         wav_path: &Path,
         language: &str,
     ) -> Result<String> {
@@ -688,14 +908,21 @@ impl TranscriptionEngine {
             return Err(anyhow!(reason));
         }
 
-        let model_file = model_dir.join("model.int8.onnx");
-        let tokens_file = model_dir.join("tokens.txt");
-        if !model_file.exists() || !tokens_file.exists() {
+        if !files.model.exists() {
             return Err(anyhow!(
-                "Model files missing in {} (expected model.int8.onnx and tokens.txt)",
-                model_dir.display()
+                "Model file missing: {} (expected {} in {})",
+                files.model.display(),
+                files.model.file_name().unwrap_or_default().to_string_lossy(),
+                files.model.parent().map(|p| p.display().to_string()).unwrap_or_default()
             ));
         }
+        let tokens_file = match files.tokens.as_ref() {
+            Some(t) if t.exists() => t.clone(),
+            _ => return Err(anyhow!(
+                "Tokens file missing in {} (expected tokens.txt)",
+                files.model.parent().map(|p| p.display().to_string()).unwrap_or_default()
+            )),
+        };
 
         let mut cmd = self
             .app_handle
@@ -714,12 +941,12 @@ impl TranscriptionEngine {
         let mut args = vec![format!("--tokens={}", tokens_file.to_string_lossy())];
         match family {
             SherpaFamily::Parakeet => {
-                args.push(format!("--nemo-ctc-model={}", model_file.to_string_lossy()));
+                args.push(format!("--nemo-ctc-model={}", files.model.to_string_lossy()));
             }
             SherpaFamily::SenseVoice => {
                 args.push(format!(
                     "--sense-voice-model={}",
-                    model_file.to_string_lossy()
+                    files.model.to_string_lossy()
                 ));
                 // Language: auto-detect by default; valid values are
                 // auto/zh/en/ja/ko/yue. SenseVoice requires a non-empty value,
@@ -732,7 +959,23 @@ impl TranscriptionEngine {
                 };
                 args.push(format!("--sense-voice-language={}", lang));
                 // ITN adds punctuation + casing (e.g. "开放时间早上9点至下午5点。").
-                args.push("--sense-voice-use-itn=1".to_string());
+                if files.use_itn {
+                    args.push("--sense-voice-use-itn=1".to_string());
+                }
+            }
+            SherpaFamily::Zipformer => {
+                // Split transducer: --encoder/--decoder/--joiner.
+                if let (Some(dec), Some(join)) = (files.decoder.as_ref(), files.joiner.as_ref()) {
+                    args.push(format!("--encoder={}", files.model.to_string_lossy()));
+                    args.push(format!("--decoder={}", dec.to_string_lossy()));
+                    args.push(format!("--joiner={}", join.to_string_lossy()));
+                } else {
+                    // Combined single-file zipformer.
+                    args.push(format!("--zipformer-model={}", files.model.to_string_lossy()));
+                }
+            }
+            SherpaFamily::Paraformer => {
+                args.push(format!("--paraformer-model={}", files.model.to_string_lossy()));
             }
         }
         args.push(wav_path.to_string_lossy().to_string());

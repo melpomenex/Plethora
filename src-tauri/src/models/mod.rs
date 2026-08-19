@@ -5,6 +5,7 @@ pub mod category;
 pub mod collection;
 pub mod document;
 pub mod extract;
+pub mod hf;
 pub mod image_asset;
 pub mod item_activity;
 pub mod item_stats;

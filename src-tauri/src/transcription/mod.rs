@@ -30,10 +30,18 @@ pub struct TranscriptionState {
 }
 
 #[command]
-pub async fn get_transcription_profiles(app_handle: AppHandle) -> Result<Vec<ModelProfile>> {
+pub async fn get_transcription_profiles(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<Vec<ModelProfile>> {
     let manager = ModelManager::new(&app_handle)
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
-    Ok(manager.list_profiles())
+    let mut profiles = manager.list_profiles();
+    // Merge user-installed Hugging Face STT models (whisper ggml + sherpa-onnx)
+    // into the picker so they are selectable without a fresh download.
+    let hf_profiles = crate::models::hf::manager::hf_stt_profiles(repo.pool()).await;
+    profiles.extend(hf_profiles);
+    Ok(profiles)
 }
 
 #[command]
