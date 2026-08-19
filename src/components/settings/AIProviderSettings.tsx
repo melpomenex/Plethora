@@ -19,12 +19,14 @@ import { AIDiagnosticsModal } from "./AIDiagnosticsModal";
 import { useState, useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
 import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
+import { useToast } from "../common/Toast";
 
 /**
  * AI Provider Settings
  */
 export function AISettings({ onChange }: { onChange: () => void }) {
   const { t } = useI18n();
+  const toast = useToast();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const providers = useLLMProvidersStore((state) => state.providers);
   const addProvider = useLLMProvidersStore((state) => state.addProvider);
@@ -191,13 +193,26 @@ export function AISettings({ onChange }: { onChange: () => void }) {
     return true;
   };
 
-  const handleAddProvider = (provider: Omit<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }, "id">) => {
-    addProvider(provider);
+  const handleAddProvider = async (provider: Omit<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }, "id">) => {
+    // Toast only after persistence completes: the store persists synchronously
+    // (zustand persist) and awaits the native key-store / set_ai_config sync.
+    // A rejected native write surfaces an error toast instead of a false success.
+    const saved = await addProvider(provider);
+    if (saved) {
+      toast.success(t("llmProvider.savedToast"));
+    } else {
+      toast.error(t("llmProvider.saveFailedToast"));
+    }
     onChange();
   };
 
-  const handleUpdateProvider = (id: string, updates: Partial<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }>) => {
-    updateProvider(id, updates);
+  const handleUpdateProvider = async (id: string, updates: Partial<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }>) => {
+    const saved = await updateProvider(id, updates);
+    if (saved) {
+      toast.success(t("llmProvider.savedToast"));
+    } else {
+      toast.error(t("llmProvider.saveFailedToast"));
+    }
     onChange();
   };
 
