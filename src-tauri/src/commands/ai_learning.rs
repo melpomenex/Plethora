@@ -14,9 +14,10 @@ use crate::ai_learning::indexer::{
 };
 use crate::ai_learning::models::{RetrievalFilters, RetrievalResponse};
 use crate::ai_learning::retrieval::{self, DEFAULT_K};
+use crate::ai::embeddings::EmbeddingProviderType;
 use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::Repository;
-use crate::error::Result;
+use crate::error::{PlethoraError, Result};
 use std::sync::{Arc, RwLock};
 use tauri::State;
 
@@ -57,6 +58,29 @@ impl AiLearningState {
     }
 }
 
+/// Defensive consent gate (ai-billing-safety #14): a billable cloud embedding
+/// provider (everything except Ollama) requires the explicit
+/// `paid_embeddings_enabled` flag. Local/on-device backends never do, so a
+/// stale or malicious frontend cannot silently trigger paid embedding work.
+pub fn ensure_embedding_consent(
+    config: Option<&EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
+) -> Result<()> {
+    let Some(cfg) = config else {
+        return Ok(());
+    };
+    if cfg.provider == EmbeddingProviderType::Ollama {
+        return Ok(());
+    }
+    if paid_embeddings_enabled != Some(true) {
+        return Err(PlethoraError::PaidOperationNotConsented(format!(
+            "cloud embedding provider '{}' requires paid embeddings to be enabled",
+            crate::ai::embedding_config::provider_name(cfg)
+        )));
+    }
+    Ok(())
+}
+
 /// Enqueue a single document for (re)indexing. Called from TS on import and
 /// on content update; the content-hash diff makes it a no-op when nothing
 /// changed.
@@ -64,8 +88,10 @@ impl AiLearningState {
 pub async fn ai_learning_enqueue_document(
     document_id: String,
     config: Option<EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
     state: State<'_, AiLearningState>,
 ) -> Result<()> {
+    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
     state.update_config(config);
     state.queue.enqueue_document(document_id)
 }
@@ -77,9 +103,11 @@ pub async fn ai_learning_enqueue_document(
 pub async fn ai_learning_enqueue_all(
     require_charging: Option<bool>,
     config: Option<EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
     state: State<'_, AiLearningState>,
     repo: State<'_, Repository>,
 ) -> Result<()> {
+    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
     state.update_config(config);
     mark_stale_on_backend_change(&state, repo.inner()).await;
     state.queue.enqueue_all(require_charging.unwrap_or(true))
@@ -183,9 +211,13 @@ pub async fn ai_learning_retrieve(
     k: Option<usize>,
     filters: Option<RetrievalFilters>,
     config: Option<EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
     state: State<'_, AiLearningState>,
     repo: State<'_, Repository>,
 ) -> Result<RetrievalResponse> {
+    // Query-side embed_text on a billable cloud backend requires consent; a
+    // denied/stale caller is rejected rather than silently billing.
+    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
     if let Some(cfg) = config.as_ref() {
         state.update_config(Some(cfg.clone()));
     }
@@ -223,6 +255,69 @@ pub async fn ai_learning_remove_source_chunks(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::error::PlethoraError;
+
+    fn cloud_config() -> EmbeddingConfigInput {
+        EmbeddingConfigInput {
+            provider: EmbeddingProviderType::OpenAI,
+            openai_api_key: Some("sk-test".into()),
+            openai_model: Some("text-embedding-3-small".into()),
+            cohere_api_key: None,
+            cohere_model: None,
+            openrouter_api_key: None,
+            openrouter_model: None,
+            ollama_base_url: None,
+            ollama_model: None,
+        }
+    }
+
+    fn ollama_config() -> EmbeddingConfigInput {
+        EmbeddingConfigInput {
+            provider: EmbeddingProviderType::Ollama,
+            openai_api_key: None,
+            openai_model: None,
+            cohere_api_key: None,
+            cohere_model: None,
+            openrouter_api_key: None,
+            openrouter_model: None,
+            ollama_base_url: Some("http://localhost:11434".into()),
+            ollama_model: Some("nomic-embed-text".into()),
+        }
+    }
+
+    #[test]
+    fn consent_gate_allows_no_config_and_local_ollama() {
+        assert!(ensure_embedding_consent(None, None).is_ok());
+        assert!(ensure_embedding_consent(None, Some(false)).is_ok());
+        assert!(
+            ensure_embedding_consent(Some(&ollama_config()), None).is_ok(),
+            "local Ollama must never require paid consent"
+        );
+        assert!(
+            ensure_embedding_consent(Some(&ollama_config()), Some(false)).is_ok(),
+            "local Ollama must proceed with consent off"
+        );
+    }
+
+    #[test]
+    fn consent_gate_rejects_cloud_without_consent() {
+        let err = ensure_embedding_consent(Some(&cloud_config()), None)
+            .expect_err("cloud embedding without consent must be rejected");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+        let err = ensure_embedding_consent(Some(&cloud_config()), Some(false))
+            .expect_err("explicit false must reject cloud embedding");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+    }
+
+    #[test]
+    fn consent_gate_allows_cloud_with_consent() {
+        assert!(
+            ensure_embedding_consent(Some(&cloud_config()), Some(true)).is_ok(),
+            "explicitly enabled paid embeddings must be allowed"
+        );
+    }
+
     #[test]
     fn command_names_are_stable() {
         // The TS wrappers in src/api/ai-learning.ts invoke these exact names;

@@ -21,6 +21,13 @@ pub enum PlethoraError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    /// A billable (paid/cloud) operation was attempted without the explicit
+    /// consent flag (ai-billing-safety #14). Serialized as
+    /// `paid_operation_not_consented` so the frontend can surface the opt-in
+    /// prompt instead of a generic error.
+    #[error("Paid operation requires consent: {0}")]
+    PaidOperationNotConsented(String),
+
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -101,6 +108,7 @@ impl serde::Serialize for PlethoraError {
             Self::Fsrs(e) => ("fsrs", e.to_string()),
             Self::NotFound(msg) => ("not_found", msg.clone()),
             Self::InvalidInput(msg) => ("invalid_input", msg.clone()),
+            Self::PaidOperationNotConsented(msg) => ("paid_operation_not_consented", msg.clone()),
             Self::Validation(msg) => ("validation", msg.clone()),
             Self::ArenaPreviewStale(msg) => ("arena_preview_stale", msg.clone()),
             Self::ArenaInvalidInterval(msg) => ("arena_invalid_interval", msg.clone()),
