@@ -24,7 +24,7 @@ vi.mock("../../api/hfModels", () => ({
 import { useHfModelStore } from "../useHfModelStore";
 
 const installedModel = {
-  id: "hf:whisper:someone/whisper-tiny",
+  id: "hf:whisper-cpp:someone/whisper-tiny",
   repo_id: "someone/whisper-tiny",
   revision: "main",
   runtime: "whisper-cpp",
@@ -86,21 +86,21 @@ describe("useHfModelStore", () => {
   it("cancelInstall clears progress and invokes backend cancel", async () => {
     mocks.hfCancelInstall.mockResolvedValue(undefined);
     useHfModelStore.getState().setProgress({
-      id: "hf:whisper:someone/whisper-tiny",
+      id: "hf:whisper-cpp:someone/whisper-tiny",
       file: "ggml-tiny.bin",
       received: 10,
       total: 100,
       percent: 10,
     });
-    expect(useHfModelStore.getState().progress).toHaveProperty("hf:whisper:someone/whisper-tiny");
-    await useHfModelStore.getState().cancelInstall("hf:whisper:someone/whisper-tiny");
-    expect(mocks.hfCancelInstall).toHaveBeenCalledWith("hf:whisper:someone/whisper-tiny");
+    expect(useHfModelStore.getState().progress).toHaveProperty("hf:whisper-cpp:someone/whisper-tiny");
+    await useHfModelStore.getState().cancelInstall("hf:whisper-cpp:someone/whisper-tiny");
+    expect(mocks.hfCancelInstall).toHaveBeenCalledWith("hf:whisper-cpp:someone/whisper-tiny");
     expect(useHfModelStore.getState().progress).toEqual({});
   });
 
   it("uninstall removes the model from the installed list", async () => {
     mocks.hfUninstallModel.mockResolvedValue(undefined);
-    await useHfModelStore.getState().uninstall("hf:whisper:someone/whisper-tiny");
-    expect(mocks.hfUninstallModel).toHaveBeenCalledWith("hf:whisper:someone/whisper-tiny");
+    await useHfModelStore.getState().uninstall("hf:whisper-cpp:someone/whisper-tiny");
+    expect(mocks.hfUninstallModel).toHaveBeenCalledWith("hf:whisper-cpp:someone/whisper-tiny");
   });
 });
