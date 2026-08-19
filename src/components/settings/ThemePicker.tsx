@@ -138,6 +138,12 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
     };
   }, [open]);
 
+  // If the picker unmounts while a theme is being live-previewed (e.g. the
+  // user switches settings tabs), drop the preview so the committed theme is
+  // re-applied to the DOM instead of leaving the stale preview active for the
+  // rest of the session.
+  useEffect(() => () => previewTheme(null), []);
+
   // Reset keyboard position whenever the list changes or the panel opens.
   useEffect(() => {
     setActiveIndex(0);

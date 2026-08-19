@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "../../../contexts/ThemeContext";
 import { ThemePicker } from "../ThemePicker";
@@ -137,5 +138,41 @@ describe("ThemePicker", () => {
     });
     // The listbox closes after a selection.
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("clears a live preview on unmount without persisting it", async () => {
+    function Harness() {
+      const [show, setShow] = useState(true);
+      return (
+        <div>
+          <button type="button" onClick={() => setShow(false)}>close picker</button>
+          {show && <ThemePicker />}
+        </div>
+      );
+    }
+    render(
+      <ThemeProvider>
+        <Harness />
+      </ThemeProvider>
+    );
+
+    // Live-preview a non-active theme (the DOM reflects it).
+    fireEvent.click(screen.getByRole("button", { name: /Biolume Abyss/ }));
+    await screen.findByText("Nord");
+    fireEvent.mouseEnter(screen.getByText("Nord").closest("button") as HTMLElement);
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme-id")).toBe("nord");
+    });
+    // Not persisted as the selected theme while merely previewing.
+    expect(localStorage.getItem("plethora-last-theme")).not.toBe("nord");
+
+    // Unmounting the picker (keeping the provider mounted, as when switching
+    // settings tabs) clears the stale preview and re-applies the committed
+    // theme.
+    fireEvent.click(screen.getByRole("button", { name: "close picker" }));
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme-id")).toBe("biolume-abyss");
+    });
+    expect(localStorage.getItem("plethora-last-theme")).not.toBe("nord");
   });
 });
