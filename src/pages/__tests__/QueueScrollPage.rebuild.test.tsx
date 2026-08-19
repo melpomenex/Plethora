@@ -231,6 +231,9 @@ vi.mock("../../components/viewer/AudiobookViewer", () => ({
 }));
 vi.mock("../../components/assistant/AssistantPanel", () => ({
   AssistantPanel: () => null,
+  ASSISTANT_MIN_WIDTH: 300,
+  ASSISTANT_MAX_WIDTH: 800,
+  READER_MIN_WIDTH: 320,
 }));
 vi.mock("../../components/media/summary", () => ({
   ModernSummaryPanel: () => null,

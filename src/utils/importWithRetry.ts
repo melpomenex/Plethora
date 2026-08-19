@@ -12,6 +12,8 @@
  * A successfully loaded module is cached by the ESM loader, so retries only
  * ever re-fetch chunks that never arrived.
  */
+import { firstViewChunkEnd, firstViewChunkFailed, firstViewChunkStart } from "./firstViewDiagnostics";
+
 export async function importWithRetry<T>(
   name: string,
   loader: () => Promise<T>,
@@ -19,6 +21,11 @@ export async function importWithRetry<T>(
 ): Promise<T> {
   const { timeoutMs = 15_000, retries = 2 } = options;
   let lastError: unknown = new Error(`chunk load failed: ${name}`);
+
+  // Development-only instrumentation: cold chunk-fetch latency is the dominant
+  // term in first-open stalls, and warm repeats must stay fast (see
+  // firstViewDiagnostics.ts).
+  firstViewChunkStart(name);
 
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -29,7 +36,9 @@ export async function importWithRetry<T>(
           timeoutMs
         );
       });
-      return await Promise.race([loader(), timeout]);
+      const result = await Promise.race([loader(), timeout]);
+      firstViewChunkEnd(name);
+      return result;
     } catch (error) {
       lastError = error;
       console.error(
@@ -41,5 +50,6 @@ export async function importWithRetry<T>(
     }
   }
 
+  firstViewChunkFailed(name);
   throw lastError;
 }

@@ -18,6 +18,36 @@ interface TabBarProps {
   onSplitPane?: (paneId: string, tabId: string, direction: "horizontal" | "vertical", side: "before" | "after") => void;
 }
 
+/**
+ * Horizontal scroll delta for a wheel/trackpad event: native horizontal
+ * trackpad gestures and Shift+wheel arrive as `deltaX`; a conventional
+ * vertical wheel (deltaX === 0) is translated to horizontal while the pointer
+ * hovers the strip.
+ */
+export function wheelToHorizontalDelta(deltaX: number, deltaY: number): number {
+  return deltaX !== 0 ? deltaX : deltaY;
+}
+
+/** True when the strip has content that overflows its visible width. */
+export function hasHorizontalOverflow(el: HTMLElement | null | undefined): boolean {
+  return !!el && el.scrollWidth > el.clientWidth + 1;
+}
+
+/**
+ * True when the strip can still consume a horizontal scroll of `delta` pixels
+ * in the gesture direction (i.e. it has overflow and is not at that boundary).
+ * This is the "release" check: at a boundary the wheel is allowed to fall
+ * through to the page instead of being swallowed with no effect.
+ */
+export function canScrollInDirection(el: HTMLElement | null | undefined, delta: number): boolean {
+  if (!el || delta === 0) return false;
+  if (!hasHorizontalOverflow(el)) return false;
+  if (delta > 0) {
+    return el.scrollLeft < el.scrollWidth - el.clientWidth - 1;
+  }
+  return el.scrollLeft > 1;
+}
+
 function TabBarImpl({
   tabs,
   activeTabId,
@@ -143,26 +173,43 @@ function TabBarImpl({
     return () => window.removeEventListener("click", handleClick);
   }, []);
 
-  // Use onWheel prop instead of addEventListener for better cross-platform compat
-  // (WebKitGTK in Linux AppImage ignores addEventListener passive:false on some builds)
+  // Wheel/trackpad scrolling of the (possibly overflowing) tab strip.
+  //
+  // The strip is a horizontal-only scroll container, so a conventional
+  // vertical wheel is translated into horizontal scrolling while the pointer
+  // hovers it, native horizontal trackpad gestures and Shift+wheel arrive as
+  // deltaX, and momentum/inertial bursts are handled per-event via scrollBy
+  // with behavior "auto". Scrolling only ever touches the strip container:
+  // it can never activate a tab (no click is synthesized) or scroll the
+  // content pane.
+  //
+  // Use onWheel prop instead of addEventListener for better cross-platform
+  // compat (WebKitGTK in Linux AppImage ignores addEventListener passive:false
+  // on some builds), and a capture-phase non-passive listener as the fallback
+  // that prevents the page-level scroll — but ONLY while the strip has
+  // overflow remaining in the gesture direction, so a wheel over a boundary
+  // (or over a non-overflowed strip) releases to the page instead of being
+  // trapped with no effect.
   const handleTabWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.deltaY !== 0) {
-      // deltaY is read-only on React.WheelEvent; scroll manually
-      scrollContainerRef.current?.scrollBy({ left: e.deltaY, behavior: "auto" });
+    const delta = wheelToHorizontalDelta(e.deltaX, e.deltaY);
+    if (delta !== 0) {
+      // delta* is read-only on React.WheelEvent; scroll manually
+      scrollContainerRef.current?.scrollBy({ left: delta, behavior: "auto" });
     }
   };
 
-  // Fallback: also attach a capture-phase non-passive listener to block
-  // the page-level scroll on WebKitGTK when hovering the tab bar.
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     const preventPageScroll = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > 0) {
+      const delta = wheelToHorizontalDelta(e.deltaX, e.deltaY);
+      if (delta === 0) return;
+      if (canScrollInDirection(scrollContainerRef.current, delta)) {
         e.preventDefault();
-        e.stopPropagation();
       }
+      // Note: no stopPropagation — the React onWheel handler above still
+      // needs the event to reach it so it can scrollBy() the strip.
     };
 
     container.addEventListener("wheel", preventPageScroll, { passive: false, capture: true });
