@@ -12,7 +12,9 @@ export class TTSServiceError extends Error {
   recoverable: boolean;
   /**
    * True when the operation was blocked because the paid-TTS consent flag is
-   * off (ai-billing-safety #14). The UI maps this to the opt-in surface.
+   * off (ai-billing-safety #14). The read-aloud path (`useTTS`) consumes this
+   * as a defensive backstop: it re-surfaces the opt-in surface and retries on
+   * grant. Other callers surface the typed error message directly.
    */
   consentRequired: boolean;
 
