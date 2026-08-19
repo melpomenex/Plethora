@@ -67,7 +67,7 @@ export function Switch({
       <div
         aria-hidden="true"
         className={cn(
-          "relative h-6 w-11 shrink-0 rounded-full bg-muted transition-colors",
+          "switch-track relative h-6 w-11 shrink-0 rounded-full bg-muted transition-colors",
           "after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-transform",
           "peer-checked:bg-primary peer-checked:after:translate-x-5",
           "peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-card",
