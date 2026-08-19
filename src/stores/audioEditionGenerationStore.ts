@@ -143,6 +143,14 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
             parsedSettings = edition.generationSettings;
           }
 
+          // Global dictionary as the base layer, per-edition overrides merged
+          // on top (task 3.7): dictionary edits in Settings affect newly
+          // generated editions without per-edition re-entry.
+          const mergedPronunciationDictionary: Record<string, string> = {
+            ...(settings.tts?.pronunciationDictionary ?? {}),
+            ...(parsedSettings.pronunciationDictionary ?? {}),
+          };
+
           for (const section of sections) {
             if (pausedJobIds.has(editionId) || cancelledJobIds.has(editionId)) {
               break;
@@ -172,7 +180,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
             const rawText = sectionTextMap[section.id] || section.title;
             const textToSynthesize = applyPronunciationDictionary(
               rawText,
-              parsedSettings.pronunciationDictionary
+              mergedPronunciationDictionary
             );
 
             try {

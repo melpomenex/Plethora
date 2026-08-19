@@ -206,6 +206,8 @@ export const queryKeys = {
   document: (id: string) => ["documents", id] as const,
   extracts: (documentId: string) => ["extracts", documentId] as const,
   learningItems: (documentId: string) => ["learning-items", documentId] as const,
+  /** Dictionary entries (`useDictionaryEntry`); staleTime Infinity — in-session repeats never refetch. */
+  dictionary: (word: string) => ["dictionary", word] as const,
   review: ["review"] as const,
   analytics: (timeRange?: string) => ["analytics", timeRange] as const,
   categories: ["categories"] as const,
@@ -334,6 +336,23 @@ runAfterFirstPaint(() => {
   import("./lib/syncResidueCleanup").then(({ runSyncResidueCleanup }) =>
     runSyncResidueCleanup(),
   );
+});
+
+// Idempotent legacy-audiobook → Audio Edition migration (openspec change
+// add-audio-editions-and-hands-free-study-mode, task 1.5). Guarded by a
+// localStorage completion flag plus per-document edition checks, so repeated
+// startups are cheap no-ops.
+runAfterFirstPaint(() => {
+  import("./utils/audioEditionMigration")
+    .then(({ runLegacyAudiobookMigration }) => runLegacyAudiobookMigration())
+    .then(({ migratedCount }) => {
+      if (migratedCount > 0) {
+        console.log(`[AudioEdition] Migrated ${migratedCount} legacy audiobook(s).`);
+      }
+    })
+    .catch((error) => {
+      console.warn("[AudioEdition] Legacy audiobook migration failed:", error);
+    });
 });
 
 // Dev/Tauri: ensure no service worker or cache is present to avoid stale assets.

@@ -28,6 +28,17 @@ import type { PdfDest, ViewState } from "../../types/readerPosition";
 import type { PdfRect, PdfSelectionContext, ViewportRect } from "../../types/selection";
 import type { DocumentPosition } from "../../types/position";
 import type { DocumentMetadata, Document } from "../../types/document";
+
+/**
+ * Speech-index metadata for one page of the canonical text window: the page's
+ * emitted text (no `<page number/>` marker) plus the offset→wordId table built
+ * from its canonical body blocks, so TTS anchors resolve to canonical word IDs.
+ */
+export interface PdfSpeechPage {
+  pageNumber: number;
+  text: string;
+  words: Array<{ offset: number; wordId: string }>;
+}
 import { saveDocumentPosition, getDocumentPosition, pagePosition, scrollPosition as createScrollPosition } from "../../api/position";
 import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents";
 import { getFormFactor, isTauri } from "../../lib/tauri";
@@ -58,6 +69,38 @@ import {
 } from "./pdfSelectionPersistence";
 import { resolvePdfContextMenu } from "./pdfContextMenu";
 import { useI18n } from "../../lib/i18n";
+
+/**
+ * Build the offset→wordId table for a canonical page's emitted text: body
+ * blocks in reading order, their wordIds paired positionally with the words of
+ * each block's text. Blocks whose word count doesn't match their wordIds
+ * contribute no anchors (their words fall back to page anchors).
+ */
+function buildPageWordTable(
+  orderedBlocks: Array<{ text?: string; altText?: string; wordIds?: string[] }>,
+  pageText: string,
+): PdfSpeechPage["words"] {
+  const words: PdfSpeechPage["words"] = [];
+  let searchFrom = 0;
+  for (const block of orderedBlocks) {
+    const text = (block.text || block.altText || "").trim();
+    if (!text) continue;
+    const blockStart = pageText.indexOf(text, searchFrom);
+    if (blockStart < 0) continue;
+    searchFrom = blockStart + text.length;
+    const ids = block.wordIds ?? [];
+    const re = /\S+/g;
+    let match: RegExpExecArray | null;
+    let i = 0;
+    while ((match = re.exec(text)) !== null) {
+      const id = ids[i];
+      if (id) words.push({ offset: blockStart + match.index, wordId: id });
+      i += 1;
+    }
+  }
+  words.sort((a, b) => a.offset - b.offset);
+  return words;
+}
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 // 3-layer architecture components
@@ -401,7 +444,9 @@ interface PDFViewerProps {
   restoreRequestId?: number;
   onUserScrollDuringRestore?: () => void;
   contextPageWindow?: number;
-  onTextWindowChange?: (text: string) => void;
+  onTextWindowChange?: (text: string, speechPages?: PdfSpeechPage[]) => void;
+  /** TOC navigation settled — the host resolves the visible TTS anchor. */
+  onNavigationSettled?: () => void;
   onSelectionChange?: (text: string, context?: PdfSelectionContext | null) => void;
   onTextSelectionCapabilityChange?: (capability: PdfTextSelectionCapability) => void;
   onSearchResultsChange?: (state: {
@@ -481,6 +526,7 @@ export function PDFViewer({
   onUserScrollDuringRestore,
   contextPageWindow = 2,
   onTextWindowChange,
+  onNavigationSettled,
   onSelectionChange,
   onTextSelectionCapabilityChange,
   onSearchResultsChange,
@@ -754,6 +800,11 @@ export function PDFViewer({
   const activeNavTokenRef = useRef<number | null>(null);
   const latestTocRequestTokenRef = useRef<number | null>(null);
   const navSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onNavigationSettledRef = useRef(onNavigationSettled);
+  onNavigationSettledRef.current = onNavigationSettled;
+  // Origin of the current programmatic navigation; only TOC-initiated
+  // completions notify TTS synchronization.
+  const navOriginRef = useRef<"toc" | "other">("other");
   const navSettleStableSinceRef = useRef<number | null>(null);
   const navSettleTargetRef = useRef<{ token: number; targetTop: number; pageNumber: number } | null>(null);
   const pdfNavStabilityEnabledRef = useRef(true);
@@ -2331,6 +2382,7 @@ export function PDFViewer({
       // columns. Legacy flattened text covers unanalyzed pages.
       if (canonicalPipelineActive) {
         const canonicalChunks: string[] = [];
+        const speechPages: PdfSpeechPage[] = [];
         let covered = 0;
         for (let page = windowStart; page <= windowEnd; page += 1) {
           const model = canonicalPages.get(page);
@@ -2339,14 +2391,19 @@ export function PDFViewer({
           const ordered = [...model.blocks]
             .filter((block) => block.role === "body")
             .sort((a, b) => a.readingOrder - b.readingOrder);
-          const text = ordered
+          const pageText = ordered
             .map((block) => block.text || block.altText || "")
             .filter(Boolean)
             .join("\n\n");
-          canonicalChunks.push(`<page number="${page}"/>${text}`);
+          canonicalChunks.push(`<page number="${page}"/>${pageText}`);
+          speechPages.push({
+            pageNumber: page,
+            text: pageText,
+            words: buildPageWordTable(ordered, pageText),
+          });
         }
         if (covered > 0) {
-          onTextWindowChange(canonicalChunks.join("\n\n"));
+          onTextWindowChange(canonicalChunks.join("\n\n"), speechPages);
           return;
         }
       }
@@ -3031,6 +3088,17 @@ export function PDFViewer({
       setNavigationMode("idle", reason);
     }
     logNav("programmatic-nav-complete", { token, reason });
+    if (navOriginRef.current === "toc") {
+      navOriginRef.current = "other";
+      // Let the scroll truly settle before the host resolves the anchor.
+      setTimeout(() => {
+        try {
+          onNavigationSettledRef.current?.();
+        } catch {
+          /* ignore */
+        }
+      }, 120);
+    }
   }, [clearNavigationSettleTimeout, logNav, setNavigationMode]);
 
   const startNavigationSettleCheck = useCallback((token: number, targetTop: number, targetPageNumber: number) => {
@@ -3467,6 +3535,7 @@ export function PDFViewer({
 
   const handleTocClick = useCallback(async (dest: any) => {
     const requestToken = ++navTokenCounterRef.current;
+    navOriginRef.current = "toc";
     latestTocRequestTokenRef.current = requestToken;
     const resolved = await resolveOutlineDest(dest);
     if (!resolved) {

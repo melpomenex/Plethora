@@ -32,6 +32,7 @@ export const androidAdapter: TTSProviderAdapter = {
     supportsInstructions: false,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: false,
     audioFormats: [], // native playback; no downloadable audio format
     maxInputChars: 5000,
   },

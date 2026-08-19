@@ -25,6 +25,9 @@
  */
 
 import { isSuppressedSelection } from "../touchSelectionDismissal";
+import type { GestureOrigin, SelectionIntent } from "./intent";
+
+export type { GestureOrigin, SelectionIntent } from "./intent";
 
 export type SelectionPhase =
   | "idle"
@@ -77,7 +80,23 @@ export interface ReadySelection {
   geometry: import("./geometry").SelectionGeometry | null;
   /** Reading context at settle (chapter/page/mode) for staleness checks. */
   readerContext: unknown;
+  /**
+   * Resolved intent of the settled text (single word / phrase / URL / none),
+   * computed once by the binding at the READY boundary. Hosts never re-derive
+   * it (spec: selection-intent-resolution).
+   */
+  intent: SelectionIntent;
+  /** How the gesture that produced this READY selection was performed. */
+  gestureOrigin: GestureOrigin;
 }
+
+/**
+ * Host-constructible subset for the external commit port: intent and gesture
+ * origin are derived by the controller when they are omitted (origin becomes
+ * "commit"), so existing port callers keep compiling unchanged.
+ */
+export type CommittableReadySelection = Omit<ReadySelection, "intent" | "gestureOrigin"> &
+  Partial<Pick<ReadySelection, "intent" | "gestureOrigin">>;
 
 /** Immutable application-owned snapshot taken at action invocation. */
 export interface CapturedSelection {

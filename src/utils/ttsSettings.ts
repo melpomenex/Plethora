@@ -1,4 +1,4 @@
-export const TTS_SETTINGS_SCHEMA_VERSION = 3;
+export const TTS_SETTINGS_SCHEMA_VERSION = 4;
 
 export const FAL_BUILTIN_VOICES = [
   "Vivian",
@@ -149,6 +149,10 @@ export interface TTSSettings {
   favorites: string[];
   recents: string[];
   pronunciationDictionary?: Record<string, string>;
+  /** v4: highlight the spoken word in document readers (default on). */
+  highlightSpokenWord: boolean;
+  /** v4: auto-follow the spoken word in the viewport (default on). */
+  followSpokenWord: boolean;
 
   // Deprecated v2 mirrors. They remain readable for older integrations, but
   // new code reads the selected entry in `providers`.
@@ -341,6 +345,8 @@ export function createDefaultTTSSettings(): TTSSettings {
     enabled: false,
     provider: "fal",
     providers,
+    highlightSpokenWord: true,
+    followSpokenWord: true,
     defaultVoiceId: "fal-builtin-Vivian",
     defaultPresetId: DEFAULT_TTS_PRESETS[0].id,
     voiceProfiles: makeDefaultTTSVoiceProfiles(),
@@ -485,8 +491,21 @@ function normalizeProviderSettings(
 export function migrateTTSSettings(input: unknown): Record<string, unknown> {
   if (!isObject(input)) return createDefaultTTSSettings() as unknown as Record<string, unknown>;
   const defaults = createDefaultTTSSettings();
-  const hasV3Providers = input.schemaVersion === 3 && isObject(input.providers);
-  if (hasV3Providers) return input;
+  // v3 → v4: fill the spoken-word preferences with their defaults.
+  if (input.schemaVersion === 3 && isObject(input.providers)) {
+    return {
+      ...input,
+      schemaVersion: TTS_SETTINGS_SCHEMA_VERSION,
+      highlightSpokenWord:
+        typeof (input as { highlightSpokenWord?: unknown }).highlightSpokenWord === "boolean"
+          ? (input as { highlightSpokenWord: boolean }).highlightSpokenWord
+          : defaults.highlightSpokenWord,
+      followSpokenWord:
+        typeof (input as { followSpokenWord?: unknown }).followSpokenWord === "boolean"
+          ? (input as { followSpokenWord: boolean }).followSpokenWord
+          : defaults.followSpokenWord,
+    };
+  }
 
   const providers = { ...defaults.providers };
   providers.fal = {
@@ -586,6 +605,14 @@ export function sanitizeTTSSettings(input: unknown): TTSSettings {
     pronunciationDictionary: isObject(migrated.pronunciationDictionary)
       ? (migrated.pronunciationDictionary as Record<string, string>)
       : {},
+    highlightSpokenWord:
+      typeof migrated.highlightSpokenWord === "boolean"
+        ? migrated.highlightSpokenWord
+        : defaults.highlightSpokenWord,
+    followSpokenWord:
+      typeof migrated.followSpokenWord === "boolean"
+        ? migrated.followSpokenWord
+        : defaults.followSpokenWord,
     ...legacyMirrors(provider, providers),
   };
   return result;

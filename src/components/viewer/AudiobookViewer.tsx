@@ -87,6 +87,19 @@ import {
   buildMediaTranscriptSections,
   type SectionNode,
 } from "../../utils/sectionIndex";
+import { useRemoteMediaBridge } from "../../hooks/useRemoteMediaBridge";
+import { useListeningSessionTracker } from "../../hooks/useListeningSessionTracker";
+import { StudyModeToggle } from "../audio/StudyModeToggle";
+import { ListeningSessionInbox } from "../audio/ListeningSessionInbox";
+import { ListenLaterQueue } from "../audio/ListenLaterQueue";
+import { useListenLaterStore } from "../../stores/listenLaterStore";
+import { getAudioEditionAnchors, getAudioEditionByDocument } from "../../api/audioEditions";
+import { sectionAudioBlobCache } from "../../stores/audioEditionGenerationStore";
+import { ensureTranscriptEdition } from "../../utils/transcriptEdition";
+import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
+import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
+import type { AudioEdition, AudioEditionAnchor } from "../../types/audioEdition";
+import { createLearningItem } from "../../api/learning-items";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
 
@@ -869,6 +882,191 @@ export function AudiobookViewer({
     [multiPartInfo?.partDurations]
   );
 
+  // -----------------------------------------------------------------------
+  // Audio Edition integration (openspec add-audio-editions-and-hands-free-
+  // study-mode): ready editions become a section playlist on the existing
+  // multi-part machinery; transcripts become anchor sources; every remote
+  // media command flows through the single dispatcher.
+  // -----------------------------------------------------------------------
+
+  const [audioEdition, setAudioEdition] = useState<AudioEdition | null>(null);
+  const [sectionAnchors, setSectionAnchors] = useState<AudioEditionAnchor[]>([]);
+  const [showInbox, setShowInbox] = useState(false);
+  const [showListenLater, setShowListenLater] = useState(false);
+  const editionSectionIdsRef = useRef<string[]>([]);
+
+  // Load the document's Audio Edition once per document. A ready edition with
+  // section audio takes over the playlist (parts = ready sections, chapters =
+  // sections on the global timeline). Without an edition, a timed transcript
+  // still yields a transcript-backed edition so hands-free capture works.
+  useEffect(() => {
+    let cancelled = false;
+    setAudioEdition(null);
+    setSectionAnchors([]);
+    editionSectionIdsRef.current = [];
+
+    void (async () => {
+      try {
+        let edition = await getAudioEditionByDocument(document.id);
+        if (cancelled) return;
+
+        if (!edition) {
+          const transcriptSegments =
+            podcastTranscriptSegments.length > 0
+              ? podcastTranscriptSegments
+              : (transcript?.segments as any[] | undefined) ?? [];
+          if (transcriptSegments.length > 0) {
+            const total = getTotalDurationSeconds() ?? duration ?? 0;
+            edition = await ensureTranscriptEdition({
+              documentId: document.id,
+              title: metadata.title || document.title,
+              durationSec: total,
+              segments: transcriptSegments,
+              audioFilePath: document.filePath ?? null,
+            });
+          }
+        }
+        if (cancelled || !edition) return;
+
+        setAudioEdition(edition);
+
+        const sections = (edition.sections ?? [])
+          .slice()
+          .sort((a, b) => a.sectionIndex - b.sectionIndex);
+        const readySections = sections.filter(
+          (s) => s.generationStatus === "ready" && (sectionAudioBlobCache.get(s.id) || s.audioFilePath)
+        );
+        editionSectionIdsRef.current = readySections.map((s) => s.id);
+
+        // Generated editions drive playback through the section playlist.
+        // Transcript editions (single section) leave the existing source
+        // machinery untouched — they only contribute anchors.
+        if (
+          edition.provider !== "transcript" &&
+          readySections.length > 0 &&
+          !multiPartInfo
+        ) {
+          const sources = readySections.map(
+            (s) => sectionAudioBlobCache.get(s.id) || (s.audioFilePath as string)
+          );
+          const durations = readySections.map((s) => s.durationSec || 0);
+          setPartSources(sources);
+          setMultiPartInfo({
+            totalParts: sources.length,
+            partFiles: sources,
+            partDurations: durations,
+          });
+
+          let cumulative = 0;
+          const editionChapters: AudiobookChapter[] = readySections.map((s, i) => {
+            const chapter = {
+              id: i + 1,
+              title: s.title || `Section ${i + 1}`,
+              startTime: cumulative,
+            };
+            cumulative += durations[i] || 0;
+            return chapter;
+          });
+          setChapters(editionChapters);
+        }
+      } catch (err) {
+        console.warn("[AudiobookViewer] Failed to load audio edition:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document.id]);
+
+  // Section-local anchors for the part currently playing (design Decision 13:
+  // ~hundreds of anchors per section, O(log n) resolution per press).
+  useEffect(() => {
+    const sectionId = editionSectionIdsRef.current[currentPartIndex];
+    if (!sectionId) {
+      setSectionAnchors([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const anchors = await getAudioEditionAnchors(sectionId);
+        if (!cancelled) setSectionAnchors(anchors);
+      } catch {
+        if (!cancelled) setSectionAnchors([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPartIndex, audioEdition?.id]);
+
+  // Listening session lifecycle: create/resume on play, close on
+  // inactivity/content change/unmount (no micro-sessions).
+  const listeningSession = useListeningSessionTracker({
+    editionId: audioEdition?.id,
+    isPlaying,
+  });
+
+  // Listen Later lazy prefetch (task 8.5): near the end of the current item,
+  // start synthesizing the next queued item so playback continues without a
+  // gap. Immediate mode already synthesizes everything up front.
+  const prefetchGuardRef = useRef<string | null>(null);
+  const listenLaterCount = useListenLaterStore((s) => s.queue.length);
+  useEffect(() => {
+    if (!isPlaying || !Number.isFinite(duration) || duration <= 0) return;
+    const remaining = duration - currentTime;
+    if (remaining > 60) return;
+
+    const store = useListenLaterStore.getState();
+    if (store.schedulerMode !== "lazy") return;
+    const next = store.queue[store.currentIndex + 1];
+    if (!next || next.isSynthesized || prefetchGuardRef.current === next.id) return;
+
+    prefetchGuardRef.current = next.id;
+    void store.ensureItemSynthesized(next);
+  }, [isPlaying, currentTime, duration]);
+
+  // Source-provenance flashcard from the recent passage (task 7.6).
+  const createFlashcardFromPassage = useCallback(async () => {
+    const ctx = remoteMediaContextRef.current;
+    const passage = resolveRecentPassage(
+      ctx.anchors,
+      ctx.currentTimestampSec,
+      useSettingsStore.getState().settings.handsFreeStudy.captureWindow ?? 30,
+      ctx.captureConfidence ?? "high"
+    );
+    if (!passage.text) {
+      showInfo(
+        t("viewer.flashcardNoPassage", {
+          defaultValue: "No synced passage to make a flashcard from yet.",
+        }),
+        undefined
+      );
+      return;
+    }
+    try {
+      await createLearningItem({
+        document_id: document.id,
+        item_type: "Qa",
+        question: `What is the key insight from this passage?\n\n"${passage.text.slice(0, 180)}..."`,
+        answer: passage.text,
+        tags: ["audio-capture", "hands-free"],
+      });
+      showSuccess(
+        t("viewer.flashcardCreated", { defaultValue: "Flashcard created" }),
+        undefined
+      );
+    } catch (err) {
+      console.error("[AudiobookViewer] flashcard creation failed:", err);
+      showError(
+        t("viewer.flashcardFailed", { defaultValue: "Failed to create flashcard" }),
+        err instanceof Error ? err.message : undefined
+      );
+    }
+  }, [document.id, showInfo, showSuccess, showError, t]);
+
   const persistPosition = useCallback(
     async (timeInPart: number) => {
       const docId = documentIdRef.current;
@@ -1289,12 +1487,43 @@ export function AudiobookViewer({
       return;
     }
 
+    // Listen Later auto-advance (task 8.4): when the queue is armed, natural
+    // end of the current item opens the next queued item's edition player.
+    const listenLater = useListenLaterStore.getState();
+    if (listenLater.queue.length > 1 && listenLater.currentIndex < listenLater.queue.length - 1) {
+      listenLater.nextTrack();
+      const next = listenLater.queue[listenLater.currentIndex];
+      if (next) {
+        showInfo("Listen Later", `Up next: ${next.title}`);
+        void import("../viewer/DocumentViewerWrapper").then(
+          ({ DocumentViewer: PlayerTab }) => {
+            void import("../../stores/tabsStore").then(({ useTabsStore }) => {
+              useTabsStore.getState().addTab({
+                title: next.title,
+                icon: <Headphones className="w-4 h-4 text-primary" />,
+                type: "document-viewer",
+                content: PlayerTab,
+                closable: true,
+                data: {
+                  documentId: next.documentId,
+                  listenToEdition: true,
+                  autoPlay: true,
+                  initialJump: { kind: "audio", timeSeconds: 0 },
+                },
+              });
+            });
+          }
+        );
+        return;
+      }
+    }
+
     // Podcast episode: mark as played when it ends naturally
     if (episodeId) {
       void markEpisodePlayed(episodeId, true);
       onEpisodeEnded?.();
     }
-    
+
     setIsPlaying(false);
     showInfo(t("viewer.audiobookFinished"), t("viewer.reachedTheEnd"));
   };
@@ -1818,92 +2047,88 @@ export function AudiobookViewer({
     return () => clearInterval(interval);
   }, [silenceSkipEnabled, analyserNode, isPlaying]);
 
-  // Web Media Session API synchronization
-  useEffect(() => {
-    if ("mediaSession" in navigator && document) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: metadata.title || document.title,
-        artist: metadata.author || document.metadata?.author || "Unknown Author",
-        album: "Audiobook",
-        artwork: localCoverUrl ? [
-          { src: localCoverUrl, sizes: "256x256", type: "image/png" }
-        ] : []
-      });
+  // -----------------------------------------------------------------------
+  // Single authoritative media-command path (openspec add-audio-editions-
+  // and-hands-free-study-mode, task 9.1): the legacy direct
+  // navigator.mediaSession handlers are GONE. The platform bridge below
+  // (web / desktop Rust / Android Media3) normalizes every command into
+  // dispatchRemoteMediaCommand — Normal Mode keeps transport, Study Mode
+  // applies the configured per-command mappings.
+  // -----------------------------------------------------------------------
+
+  const goNextSectionOrChapter = useCallback(() => {
+    if (multiPartInfo && currentPartIndex < multiPartInfo.partFiles.length - 1) {
+      goToPart(currentPartIndex + 1);
+      return true;
     }
-  }, [document, metadata, localCoverUrl]);
-
-  useEffect(() => {
-    if ("mediaSession" in navigator) {
-      try {
-        navigator.mediaSession.setActionHandler("play", () => {
-          if (audioRef.current) {
-            audioRef.current.play().catch(() => {});
-            setIsPlaying(true);
-          }
-        });
-        
-        navigator.mediaSession.setActionHandler("pause", () => {
-          if (audioRef.current) {
-            audioRef.current.pause();
-            setIsPlaying(false);
-          }
-        });
-
-        navigator.mediaSession.setActionHandler("seekbackward", (details) => {
-          const offset = details.seekOffset || 15;
-          skip(-offset);
-        });
-
-        navigator.mediaSession.setActionHandler("seekforward", (details) => {
-          const offset = details.seekOffset || 15;
-          skip(offset);
-        });
-
-        navigator.mediaSession.setActionHandler("previoustrack", () => {
-          if (audioRef.current) {
-            audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
-          }
-        });
-
-        navigator.mediaSession.setActionHandler("nexttrack", () => {
-          skip(30);
-        });
-      } catch (err) {
-        console.warn("Media Session action handlers failed to register:", err);
-      }
+    const next = chapters.find((c) => c.startTime > currentTime + 1);
+    if (next) {
+      seek(next.startTime);
+      return true;
     }
-    
-    return () => {
-      if ("mediaSession" in navigator) {
-        navigator.mediaSession.setActionHandler("play", null);
-        navigator.mediaSession.setActionHandler("pause", null);
-        navigator.mediaSession.setActionHandler("seekbackward", null);
-        navigator.mediaSession.setActionHandler("seekforward", null);
-        navigator.mediaSession.setActionHandler("previoustrack", null);
-        navigator.mediaSession.setActionHandler("nexttrack", null);
-      }
-    };
-  }, [isPlaying]);
+    return false;
+  }, [multiPartInfo, currentPartIndex, chapters, currentTime, goToPart, seek]);
 
-  useEffect(() => {
-    if ("mediaSession" in navigator && audioRef.current) {
-      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  const goPrevSectionOrChapter = useCallback(() => {
+    if (multiPartInfo && currentPartIndex > 0) {
+      goToPart(currentPartIndex - 1);
+      return true;
     }
-  }, [isPlaying]);
+    const prev = [...chapters].reverse().find((c) => c.startTime < currentTime - 3);
+    if (prev) {
+      seek(prev.startTime);
+      return true;
+    }
+    return false;
+  }, [multiPartInfo, currentPartIndex, chapters, currentTime, goToPart, seek]);
 
-  useEffect(() => {
-    if ("mediaSession" in navigator && audioRef.current && Number.isFinite(duration) && duration > 0) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: duration,
-          playbackRate: playbackRate,
-          position: currentTime
-        });
-      } catch (e) {
-        // ignore
-      }
-    }
-  }, [currentTime, duration, playbackRate]);
+  // The single RemoteMediaContext every adapter dispatches into. Updated via
+  // ref so stale closures can never capture an old timestamp/anchor set.
+  const remoteMediaContextRef = useRef<RemoteMediaContext>({
+    documentId: document.id,
+    documentTitle: document.title,
+    audioElement: null,
+    currentTimestampSec: 0,
+    anchors: [],
+  });
+  remoteMediaContextRef.current = {
+    documentId: document.id,
+    documentTitle: document.title,
+    editionId: audioEdition?.id,
+    sessionId: listeningSession?.id,
+    audioElement: audioRef.current,
+    // Anchors are section-local: the capture timestamp is the time within the
+    // CURRENT part, not the global timeline.
+    currentTimestampSec: currentTime,
+    anchors: sectionAnchors,
+    sectionId: editionSectionIdsRef.current[currentPartIndex],
+    // Generated editions anchor precisely; anything without anchors falls to
+    // the typed pending-bookmark outcome inside the resolver.
+    captureConfidence: sectionAnchors.length > 0 ? "high" : "low",
+    provider: audioEdition?.provider,
+    onPlayPause: () => {
+      void togglePlay();
+    },
+    onNextChapter: () => {
+      if (!goNextSectionOrChapter()) skip(30);
+    },
+    onPrevChapter: () => {
+      if (!goPrevSectionOrChapter()) skip(-15);
+    },
+    onSeekRelative: (deltaSec: number) => skip(deltaSec),
+  };
+
+  // Exactly one media-command adapter per platform (web / desktop / Android).
+  useRemoteMediaBridge({
+    getContext: () => remoteMediaContextRef.current,
+    title: metadata.title || episodeTitle || document.title,
+    artist: metadata.author || podcastTitle || document.metadata?.author || "Plethora",
+    album: podcastTitle || "Audiobook",
+    artworkUrl: localCoverUrl,
+    isPlaying,
+    duration: getTotalDurationSeconds() ?? duration,
+    currentTime: Math.floor(currentGlobalTimeRef.current || currentTime),
+  });
   
   // Bookmarks
   const addBookmark = () => {
@@ -3027,6 +3252,46 @@ export function AudiobookViewer({
               
               {/* Right - Additional controls */}
               <div className="flex items-center gap-3">
+                {/* Study Mode quick toggle with persistent indicator (task 9.4):
+                    always visible so an active Study Mode is never silent. */}
+                <StudyModeToggle />
+
+                {/* Listening Session Inbox (task 8.1): review hands-free
+                    captures from the player surface. */}
+                <button
+                  onClick={() => setShowInbox(true)}
+                  className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+                  title="Review Listening Session"
+                  aria-label="Review listening session captures"
+                >
+                  <Headphones className="h-5 w-5" />
+                </button>
+
+                {/* Listen Later queue (task 8.4): continuous playlist. */}
+                <button
+                  onClick={() => setShowListenLater(true)}
+                  className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground relative"
+                  title="Listen Later queue"
+                  aria-label="Open the Listen Later queue"
+                >
+                  <List className="h-5 w-5" />
+                  {listenLaterCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                      {listenLaterCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Source-provenance flashcard from the recent passage (7.6) */}
+                <button
+                  onClick={() => void createFlashcardFromPassage()}
+                  className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+                  title="Create flashcard from recent passage"
+                  aria-label="Create flashcard from recent passage"
+                >
+                  <Sparkle className="h-5 w-5" />
+                </button>
+
                 {/* Sleep timer indicator */}
                 {sleepTimer && (
                   <button
@@ -3478,6 +3743,12 @@ export function AudiobookViewer({
         selectedText={selectedText}
         pageNumber={Math.floor(currentTime)} // Use time as "page" for audio
       />
+
+      {/* Listening Session Inbox — triage hands-free captures (task 8.1). */}
+      <ListeningSessionInbox isOpen={showInbox} onClose={() => setShowInbox(false)} />
+
+      {/* Listen Later queue drawer (task 8.4). */}
+      <ListenLaterQueue isOpen={showListenLater} onClose={() => setShowListenLater(false)} />
 
       {/* Chapters sheet — adaptive (bottom sheet on mobile / dialog on desktop).
           Backs the chapter chip above the progress bar and the chapters button in

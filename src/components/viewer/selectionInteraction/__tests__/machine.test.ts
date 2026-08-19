@@ -20,6 +20,8 @@ function ready(overrides: Partial<ReadySelection> = {}): ReadySelection {
     selectionContext: null,
     geometry: null,
     readerContext: null,
+    intent: { kind: "phrase" },
+    gestureOrigin: "touch",
     ...overrides,
   };
 }

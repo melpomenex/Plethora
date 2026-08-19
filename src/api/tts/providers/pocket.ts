@@ -12,6 +12,7 @@ export const pocketAdapter: TTSProviderAdapter = {
     supportsInstructions: false,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: false,
     audioFormats: ["wav"],
     maxInputChars: 5000,
   },

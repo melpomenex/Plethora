@@ -21,6 +21,7 @@ mod integrations;
 mod kindle_clippings;
 mod legacy_data;
 mod mcp;
+mod media_control;
 mod models;
 mod notebooklm;
 mod notifications;
@@ -1080,6 +1081,7 @@ pub fn run() {
                     config: Arc::new(std::sync::Mutex::new(saved_ai_config)),
                 });
                 app.manage(FocusTimer::new());
+            app.manage(media_control::MediaControlBridge::default());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
@@ -1783,9 +1785,15 @@ pub fn run() {
             commands::end_listening_session,
             commands::mark_listening_session_reviewed,
             commands::list_unreviewed_listening_sessions,
+            commands::list_listening_sessions,
             commands::add_listening_session_item,
             commands::get_listening_session_items,
             commands::delete_listening_session_item,
+            commands::update_listening_session_item,
+            // Desktop remote-media bridge (souvlaki): normalized media-key
+            // events + metadata/playback-state updates.
+            media_control::update_media_metadata,
+            media_control::detach_media_controls,
             // YouTube playlist auto-import commands
             commands::subscribe_to_playlist,
             commands::get_playlist_subscriptions,

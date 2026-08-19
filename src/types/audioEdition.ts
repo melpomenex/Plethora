@@ -89,14 +89,12 @@ export interface ListeningSessionItem {
   createdAt: number;
 }
 
+/**
+ * Canonical remote media command vocabulary (design Decision 6): every adapter
+ * (Android Media3 bridge, desktop Rust bridge, web MediaSession) normalizes
+ * into exactly these canonical-cased values.
+ */
 export type RemoteMediaCommand =
-  | "play"
-  | "pause"
-  | "togglePlayPause"
-  | "next"
-  | "previous"
-  | "seekForward"
-  | "seekBackward"
   | "Play"
   | "Pause"
   | "TogglePlayPause"
@@ -105,28 +103,76 @@ export type RemoteMediaCommand =
   | "SeekForward"
   | "SeekBackward";
 
-export type StudyActionType =
-  | "saveRecentExtract"
-  | "bookmark"
-  | "replayRecentPassage"
-  | "markInteresting"
-  | "markConfusing"
-  | "skipForward"
-  | "skipBackward"
-  | "default";
+/** Which adapter produced a command envelope. */
+export type RemoteMediaCommandSource = "android" | "desktop" | "web";
 
-export interface StudyModeConfig {
-  enabled: boolean;
-  lookbackSeconds: number; // default: 30
-  extensionWindowMs: number; // default: 2500
-  audioChimeEnabled: boolean;
-  volumeDuckingPercent: number; // default: 40 (meaning 40% volume)
-  mappings: {
-    next?: StudyActionType;
-    previous?: StudyActionType;
-    seekForward?: StudyActionType;
-    seekBackward?: StudyActionType;
-  };
+/**
+ * Normalized command envelope (design Decision 6/12): every dispatched command
+ * carries a unique event ID, its origin, and the epoch-ms time it occurred, so
+ * duplicate delivery (native + web, Bluetooth double-fire, replayed queue
+ * entries) can be suppressed deterministically.
+ */
+export interface RemoteMediaCommandEnvelope {
+  command: RemoteMediaCommand;
+  /** UUID unique to one physical button press. */
+  eventId: string;
+  source: RemoteMediaCommandSource;
+  /** Epoch milliseconds when the button was pressed (native clock). */
+  occurredAt: number;
+  /** Optional playback position at press time, used when reconciling queued commands. */
+  positionHintSec?: number;
+}
+
+/**
+ * Canonical Study Mode action enum (design Decision 7). One union shared by
+ * the settings schema, settings UI, dispatcher, and persisted state. Every
+ * value has an implementation in `executeStudyAction`.
+ */
+export type StudyAction =
+  | "save_recent_extract"
+  | "bookmark"
+  | "replay_recent_passage"
+  | "mark_interesting"
+  | "mark_confusing"
+  | "ask_plethora"
+  | "skip_forward"
+  | "skip_backward"
+  | "next_chapter"
+  | "previous_chapter"
+  | "none";
+
+/** Capture windows offered in Settings; "smart" snaps to semantic units (≤ 90 s). */
+export type CaptureWindow = 15 | 30 | 60 | "smart";
+
+/**
+ * Typed capture outcome (design Decision 9). A hands-free capture resolves to
+ * exactly one of these — placeholder text such as "Audio extract at 123s" is
+ * prohibited.
+ */
+export type CaptureOutcomeKind =
+  | "resolved"
+  | "needs_confirmation"
+  | "pending_audio_bookmark";
+
+/** Alignment confidence tier for paired external audiobooks / transcripts. */
+export type CaptureConfidence = "high" | "medium" | "low";
+
+/**
+ * Durable audio provenance persisted on the extract's `selection_context`
+ * JSON column (no schema migration) and consumed by "Open in source".
+ */
+export interface AudioCaptureProvenance {
+  kind: "audio_capture";
+  documentId: string;
+  editionId?: string;
+  sectionId?: string;
+  sourceStartAnchor: string;
+  sourceEndAnchor: string;
+  audioTimestampSec: number;
+  captureWindowSec: number | "smart";
+  sessionId?: string;
+  confidence: CaptureConfidence;
+  provider?: string;
 }
 
 export interface AudioEditionEstimation {

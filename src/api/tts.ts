@@ -7,6 +7,7 @@ import { getAdapter } from "./tts/registry";
 import { invokeFalModel } from "./tts/providers/fal";
 import { audioMime } from "./tts/providers/shared";
 import { chunkTextForTTS } from "../utils/ttsTextExtraction";
+import type { WordTiming } from "../utils/wordTimings";
 
 export { TTSServiceError } from "./tts/errors";
 
@@ -25,12 +26,16 @@ export interface GenerateSpeechRequest {
   text: string;
   voiceId?: string;
   presetId?: string;
+  /** Ask the provider for measured word timings when it supports them. */
+  includeTimings?: boolean;
 }
 
 export interface GenerateSpeechResult {
   audioUrl: string;
   durationSec?: number;
   rawOutput: Record<string, unknown>;
+  /** Measured word timings (provider alignment data), when available. */
+  wordTimings?: WordTiming[];
 }
 
 export function getTTSSettingsFromStore(settings: Settings): TTSSettings {
@@ -174,8 +179,14 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
     instructions: config.instructions,
     preset: preset as unknown as Record<string, unknown>,
     voiceProfile: voice,
+    includeTimings: request.includeTimings ?? true,
   });
 
   void cacheAudioResult(cacheKey, result.audioUrl, result.audioData, result.durationSec);
-  return { audioUrl: result.audioUrl, durationSec: result.durationSec, rawOutput: result.rawOutput };
+  return {
+    audioUrl: result.audioUrl,
+    durationSec: result.durationSec,
+    rawOutput: result.rawOutput,
+    wordTimings: result.wordTimings,
+  };
 }

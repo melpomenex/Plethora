@@ -393,4 +393,98 @@ describe("useSelectionInteraction", () => {
     advanceSettle();
     expect(result.current.phase).toBe("idle");
   });
+
+  it("attaches intent at settleConfirmed (single word vs phrase)", () => {
+    const { root, para } = makeContent("hello world");
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "markdown", documentId: "d1", enabled: true }),
+    );
+
+    touchStart(root);
+    selectText(para, 7, 12); // "hello"
+    touchEnd(root);
+    advanceSettle();
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.intent).toEqual({
+      kind: "word",
+      word: "hello",
+      queryWord: "hello",
+    });
+    expect(result.current.readySelection?.gestureOrigin).toBe("touch");
+
+    // Expand to a phrase: re-settled capture carries the phrase intent.
+    touchStart(root);
+    selectText(para, 7, 17); // "hello world"
+    touchEnd(root);
+    advanceSettle();
+    expect(result.current.readySelection?.intent).toEqual({ kind: "phrase" });
+  });
+
+  it("gestureOrigin is double-click after a dblclick and mouse after a plain release", () => {
+    const { para } = makeContent("hello world");
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "markdown", documentId: "d1", enabled: true }),
+    );
+
+    const dblclick = () =>
+      act(() => {
+        document.dispatchEvent(new Event("dblclick"));
+      });
+    const mousePointerUp = () => {
+      const pointerUp = new Event("pointerup", { bubbles: true });
+      Object.defineProperty(pointerUp, "pointerType", { value: "mouse" });
+      act(() => {
+        document.dispatchEvent(pointerUp);
+      });
+    };
+    const drainJsdomSelectionTask = () =>
+      act(() => {
+        vi.advanceTimersByTime(20);
+      });
+
+    // Double-click word selection: release, dblclick (most recent gesture),
+    // then the settle lands → origin double-click.
+    dblclick();
+    selectText(para, 7, 12);
+    drainJsdomSelectionTask();
+    mousePointerUp();
+    dblclick();
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.gestureOrigin).toBe("double-click");
+
+    // A later plain mouse selection settles as mouse origin.
+    selectText(para, 7, 17);
+    drainJsdomSelectionTask();
+    mousePointerUp();
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(result.current.readySelection?.gestureOrigin).toBe("mouse");
+  });
+
+  it("commitReadySelection derives intent and defaults the origin to commit", () => {
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "pdf-fixed", documentId: "d1", enabled: true }),
+    );
+    act(() => {
+      result.current.commitReadySelection({
+        text: "validated",
+        passage: "passage",
+        fingerprint: "fp-commit",
+        selectionContext: { type: "pdf" },
+        geometry: null,
+        readerContext: null,
+      });
+    });
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.intent).toEqual({
+      kind: "word",
+      word: "validated",
+      queryWord: "validated",
+    });
+    expect(result.current.readySelection?.gestureOrigin).toBe("commit");
+  });
 });

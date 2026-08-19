@@ -149,3 +149,51 @@ describe("Audio Edition End-to-End Integration Pipeline", () => {
     expect(estimation.isFreeTier).toBe(false);
   });
 });
+
+describe("Audio Edition playback + capture round-trip (task 12.1 extension)", () => {
+  it("document → sections → anchors → hands-free capture → provenance round-trips", async () => {
+    const { computeSentenceAnchors, resolveRecentPassage } = await import("../audioEditionAnchors");
+
+    // 1. A document chapterizes into sections (EPUB-style text content).
+    const chapterText = [
+      "The first paragraph states the thesis clearly.",
+      "It unfolds across two sentences.",
+      "",
+      "The second paragraph raises the objection.",
+      "And the third paragraph resolves it with evidence.",
+    ].join(" ");
+
+    // 2. Section synthesis computes sentence anchors over the audio span.
+    const anchors = computeSentenceAnchors("sec-rt", chapterText, 60, "0");
+    expect(anchors.length).toBeGreaterThanOrEqual(4);
+
+    // 3. During playback at t=50 with a 15 s window, a hands-free capture
+    //    resolves REAL source text at sentence boundaries…
+    const capture = resolveRecentPassage(anchors, 50, 15, "high");
+    expect(capture.kind).toBe("resolved");
+    expect(capture.text).toContain("third paragraph");
+
+    // 4. …and carries durable provenance for "Open in source".
+    const provenance = {
+      kind: "audio_capture" as const,
+      documentId: "doc-rt",
+      editionId: "ed-rt",
+      sectionId: "sec-rt",
+      sourceStartAnchor: capture.startAnchor,
+      sourceEndAnchor: capture.endAnchor,
+      audioTimestampSec: 50,
+      captureWindowSec: 15,
+      sessionId: "sess-rt",
+      confidence: "high",
+    };
+    expect(provenance.sourceStartAnchor).toMatch(/^\d+$/);
+    expect(provenance.sourceEndAnchor).toMatch(/^\d+$/);
+
+    // 5. The same anchor set supports repeat-extension backward: a second
+    //    capture within the window extends over the preceding sentence.
+    const { extendStartBySemanticUnit } = await import("../audioEditionAnchors");
+    const startIdx = anchors.findIndex((a) => a.sourceStartAnchor === capture.startAnchor);
+    expect(startIdx).toBeGreaterThan(0);
+    expect(extendStartBySemanticUnit(anchors, startIdx)).toBeLessThan(startIdx);
+  });
+});

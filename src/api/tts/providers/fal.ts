@@ -4,6 +4,7 @@ import { resolveProviderKey } from "../auth";
 import { mapHttpError, readProviderMessage, TTSServiceError } from "../errors";
 import type { TTSAdapterContext, TTSModelInfo, TTSProviderAdapter, TTSVoiceInfo } from "../types";
 import { audioMime, runWithRetry } from "./shared";
+import { normalizeFalTimestamps } from "../timing";
 
 const DEFAULT_BASE_URL = "https://fal.run";
 
@@ -50,6 +51,7 @@ export const falAdapter: TTSProviderAdapter = {
     supportsInstructions: true,
     supportsCloning: true,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: true,
     audioFormats: ["mp3"],
     maxInputChars: 5000,
   },
@@ -86,6 +88,10 @@ export const falAdapter: TTSProviderAdapter = {
     const output = await invokeFalModel(ctx.settings, ctx.tts, request.model, input);
     const audio = (output.audio as { url?: string } | undefined)?.url || (output.audio_url as string | undefined) || (output.file as { url?: string } | undefined)?.url;
     if (!audio) throw new TTSServiceError("Fal response did not include playable audio output.", "provider", true);
-    return { audioUrl: audio, mimeType: audioMime("mp3"), rawOutput: output };
+    // Known timing shapes surfaced in the provider JSON normalize onto the
+    // chunk's word boundaries; unknown shapes yield no timings (synthesized
+    // fallback covers highlighting).
+    const wordTimings = request.includeTimings ? normalizeFalTimestamps(request.text, output) : undefined;
+    return { audioUrl: audio, mimeType: audioMime("mp3"), rawOutput: output, wordTimings };
   },
 };

@@ -4013,6 +4013,7 @@ export const ja: Dict = {
   "keyboardShortcutsHelp.proTipBody":
     "Ctrl/⌘ + K を押すと、いつでもコマンドパレットからすばやく移動できます。",
   "keyboardShortcutsHelp.pressEscToClose": "Esc で閉じる",
+  "selectionBar.readFromHere": "ここから読み上げる",
   "readerTts.previousChunk": "前の区切り",
   "readerTts.resume": "再開",
   "readerTts.pause": "一時停止",

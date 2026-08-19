@@ -9,6 +9,7 @@ import {
 import { normalizeFsrsParameters } from "../utils/fsrsParameters";
 import { isNativeMobile } from "../lib/tauri";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
+import type { StudyAction } from "../types/audioEdition";
 
 export type { ActiveRecallMode };
 
@@ -632,27 +633,193 @@ interface FeatureFlags {
    * disable the flag (old paths remain until the flag is removed).
    */
   selectionInteractionV2: boolean;
+  /**
+   * Dictionary Peek (OpenSpec `unify-selection-dictionary-lookup`): auto-open
+   * the shared dictionary card when a settled selection resolves to a single
+   * lexical word. Gates AUTO-OPEN only — the explicit dictionary rows
+   * (context menu, selection action sheet) stay available when disabled.
+   */
+  dictionaryPeek: boolean;
 }
 
+/**
+ * Hands-Free Study Mode settings v2 (design Decision 7). Replaces the v1
+ * single/double/triple-press gesture model with per-command OS mappings.
+ */
 export interface HandsFreeStudySettings {
+  /** Master toggle. Normal Mode (transport controls) is the default. */
   enabled: boolean;
-  captureLookbackSec: number;
+  /** How much recent audio a capture tries to cover; "smart" snaps to semantic units (≤ 90 s). */
+  captureWindow: 15 | 30 | 60 | "smart";
+  /** Repeat-extension window in ms: a second Save Recent Extract within it extends the same capture. */
+  extensionWindowMs: number;
+  /** Study Mode action for each remappable OS command. Play/Pause are never remapped. */
+  mappings: {
+    next: StudyAction;
+    previous: StudyAction;
+    seekForward: StudyAction;
+    seekBackward: StudyAction;
+  };
+  /** Audible confirmation earcons on/off. */
+  chimeEnabled: boolean;
+  /** Earcon volume 0..1 — actually consumed by `playChime`. */
   chimeVolume: number;
+  /** Volume floor (0..1 of current volume) while ducked for a chime. */
   duckingRatio: number;
-  singlePressAction: "smart_extract" | "bookmark" | "skip_forward";
-  doublePressAction: "bookmark" | "smart_extract" | "mark_confusing";
-  triplePressAction: "mark_confusing" | "bookmark" | "ask_plethora";
 }
+
+/** v1 shape persisted before the per-command mapping model existed. */
+type LegacyHandsFreeStudySettings = Partial<HandsFreeStudySettings> & {
+  captureLookbackSec?: number;
+  singlePressAction?: string;
+  doublePressAction?: string;
+  triplePressAction?: string;
+  audioChimeEnabled?: boolean;
+};
+
+const DEFAULT_HANDS_FREE_MAPPINGS: HandsFreeStudySettings["mappings"] = {
+  next: "save_recent_extract",
+  previous: "replay_recent_passage",
+  seekForward: "skip_forward",
+  seekBackward: "skip_backward",
+};
 
 export const DEFAULT_HANDS_FREE_STUDY_SETTINGS: HandsFreeStudySettings = {
   enabled: false,
-  captureLookbackSec: 30,
+  captureWindow: 30,
+  extensionWindowMs: 2500,
+  mappings: { ...DEFAULT_HANDS_FREE_MAPPINGS },
+  chimeEnabled: true,
   chimeVolume: 0.8,
   duckingRatio: 0.25,
-  singlePressAction: "smart_extract",
-  doublePressAction: "bookmark",
-  triplePressAction: "mark_confusing",
 };
+
+/** Every StudyAction the dispatcher implements; also drives the Settings UI pickers. */
+export const VALID_STUDY_ACTIONS: readonly StudyAction[] = [
+  "save_recent_extract",
+  "bookmark",
+  "replay_recent_passage",
+  "mark_interesting",
+  "mark_confusing",
+  "ask_plethora",
+  "skip_forward",
+  "skip_backward",
+  "next_chapter",
+  "previous_chapter",
+  "none",
+];
+
+/** Legacy v1 / camelCase action aliases → canonical StudyAction values. */
+const LEGACY_ACTION_ALIASES: Record<string, StudyAction> = {
+  // v1 dispatcher vocabulary
+  smart_extract: "save_recent_extract",
+  // camelCase variant of the canonical union
+  saveRecentExtract: "save_recent_extract",
+  replayRecentPassage: "replay_recent_passage",
+  markInteresting: "mark_interesting",
+  markConfusing: "mark_confusing",
+  askPlethora: "ask_plethora",
+  skipForward: "skip_forward",
+  skipBackward: "skip_backward",
+  nextChapter: "next_chapter",
+  previousChapter: "previous_chapter",
+};
+
+/**
+ * Coerce any persisted value into a valid StudyAction, falling back to the
+ * mapping slot's default when unknown (design Decision 7: invalid values →
+ * defaults, never an error).
+ */
+export function coerceStudyAction(value: unknown, fallback: StudyAction): StudyAction {
+  if (typeof value === "string") {
+    if ((VALID_STUDY_ACTIONS as readonly string[]).includes(value)) {
+      return value as StudyAction;
+    }
+    const alias = LEGACY_ACTION_ALIASES[value];
+    if (alias) return alias;
+  }
+  return fallback;
+}
+
+/**
+ * Merge persisted hands-free settings over the defaults, migrating the v1
+ * gesture shape (singlePressAction/doublePressAction/triplePressAction,
+ * captureLookbackSec) defensively into v2 per-command mappings. Unknown
+ * values at any layer fall back to that slot's default.
+ */
+export function mergeHandsFreeStudySettings(
+  persisted?: Partial<HandsFreeStudySettings>
+): HandsFreeStudySettings {
+  const legacy = (persisted ?? {}) as LegacyHandsFreeStudySettings;
+
+  // v1 stored the window as `captureLookbackSec`; v2 uses `captureWindow`.
+  // A valid v2 value wins; otherwise a valid legacy value migrates; anything
+  // else (missing/invalid) falls back to the default.
+  let captureWindow: HandsFreeStudySettings["captureWindow"];
+  const legacyLookback = [15, 30, 60].includes(legacy.captureLookbackSec as number)
+    ? (legacy.captureLookbackSec as 15 | 30 | 60)
+    : undefined;
+  if (legacy.captureWindow === "smart" || [15, 30, 60].includes(legacy.captureWindow as number)) {
+    captureWindow = legacy.captureWindow as HandsFreeStudySettings["captureWindow"];
+  } else {
+    captureWindow = legacyLookback ?? DEFAULT_HANDS_FREE_STUDY_SETTINGS.captureWindow;
+  }
+
+  // v1 → v2: the single-press action becomes the `next` mapping; double and
+  // triple press actions are dropped (repeat-extension replaces them).
+  const nextFromLegacy =
+    legacy.mappings?.next ?? legacy.singlePressAction ?? DEFAULT_HANDS_FREE_MAPPINGS.next;
+
+  const clampUnit = (value: unknown, min: number, max: number, fallback: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(max, Math.max(min, value))
+      : fallback;
+
+  return {
+    enabled: legacy.enabled === true,
+    captureWindow,
+    extensionWindowMs: clampUnit(
+      legacy.extensionWindowMs,
+      500,
+      10000,
+      DEFAULT_HANDS_FREE_STUDY_SETTINGS.extensionWindowMs
+    ),
+    mappings: {
+      next: coerceStudyAction(nextFromLegacy, DEFAULT_HANDS_FREE_MAPPINGS.next),
+      previous: coerceStudyAction(
+        legacy.mappings?.previous ?? DEFAULT_HANDS_FREE_MAPPINGS.previous,
+        DEFAULT_HANDS_FREE_MAPPINGS.previous
+      ),
+      seekForward: coerceStudyAction(
+        legacy.mappings?.seekForward ??
+          (legacy.singlePressAction === "skip_forward" ? "skip_forward" : undefined),
+        DEFAULT_HANDS_FREE_MAPPINGS.seekForward
+      ),
+      seekBackward: coerceStudyAction(
+        legacy.mappings?.seekBackward,
+        DEFAULT_HANDS_FREE_MAPPINGS.seekBackward
+      ),
+    },
+    chimeEnabled:
+      typeof legacy.chimeEnabled === "boolean"
+        ? legacy.chimeEnabled
+        : typeof legacy.audioChimeEnabled === "boolean"
+          ? legacy.audioChimeEnabled
+          : DEFAULT_HANDS_FREE_STUDY_SETTINGS.chimeEnabled,
+    chimeVolume: clampUnit(
+      legacy.chimeVolume,
+      0,
+      1,
+      DEFAULT_HANDS_FREE_STUDY_SETTINGS.chimeVolume
+    ),
+    duckingRatio: clampUnit(
+      legacy.duckingRatio,
+      0,
+      1,
+      DEFAULT_HANDS_FREE_STUDY_SETTINGS.duckingRatio
+    ),
+  };
+}
 
 export interface PlethoraSettings {
   overrides: Record<string, boolean>;
@@ -984,6 +1151,7 @@ export const defaultSettings: Settings = {
     // QA soak phase (overhaul-reader-selection-ux task 7.8, first half): the
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,
+    dictionaryPeek: true,
   },
   audioReviewMode: {
     enabled: false,
@@ -1207,6 +1375,7 @@ export const useSettingsStore = create<SettingsState>()(
           features: { ...defaultSettings.features, ...persisted.features },
           audioReviewMode: { ...defaultSettings.audioReviewMode, ...persisted.audioReviewMode },
           embedding: { ...defaultSettings.embedding, ...persisted.embedding },
+          handsFreeStudy: mergeHandsFreeStudySettings(persisted.handsFreeStudy),
           plethora: {
             ...defaultSettings.plethora,
             ...persisted.plethora,

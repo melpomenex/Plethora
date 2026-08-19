@@ -77,6 +77,19 @@ pub struct ListeningSessionItem {
     pub created_at: i64,
 }
 
+/// Partial update for a listening-session item. `None` = leave unchanged;
+/// `Some(None)` on a nullable field = clear it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ListeningSessionItemUpdate {
+    pub extract_id: Option<Option<String>>,
+    pub marker_type: Option<String>,
+    pub audio_timestamp: Option<f64>,
+    pub source_anchor: Option<String>,
+    pub snippet_text: Option<String>,
+    pub note: Option<Option<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioEditionWithSections {

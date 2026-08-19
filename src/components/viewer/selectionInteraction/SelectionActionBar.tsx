@@ -13,14 +13,16 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Copy, DotsThree, Lightbulb, Question, TextAlignLeft } from "@phosphor-icons/react";
+import { Copy, DotsThree, Lightbulb, Question, TextAlignLeft,
+  SpeakerHigh,
+} from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
 import { useOverlayDismissal } from "../../../hooks/useOverlayDismissal";
 import { SELECTION_INTERACTION_UI_ATTR } from "./adapters";
 import type { BarPlacement } from "./geometry";
 
-export type SelectionBarAction = "summarize" | "explain" | "ask" | "extract" | "copy";
+export type SelectionBarAction = "summarize" | "explain" | "ask" | "readFromHere" | "extract" | "copy";
 
 export interface SelectionActionBarProps {
   placement: BarPlacement | null;
@@ -33,6 +35,9 @@ export interface SelectionActionBarProps {
   aiAvailable?: boolean;
   /** Whether the Extract chip renders (transcripts have no extract path). */
   canExtract?: boolean;
+  /** Whether the "Read from here" TTS chip renders (TTS configured + surface
+   *  can map the selection to an anchor). */
+  canReadAloud?: boolean;
   /** Focus returns here after Escape dismissal. */
   readerContainerRef?: React.RefObject<HTMLElement | null>;
   /** Measured size flows back into the controller's placement math. */
@@ -72,6 +77,7 @@ export function SelectionActionBar({
   onDismiss,
   aiAvailable = true,
   canExtract = true,
+  canReadAloud = false,
   readerContainerRef,
   onMeasure,
 }: SelectionActionBarProps) {
@@ -132,6 +138,14 @@ export function SelectionActionBar({
             onClick={() => onAction("ask")}
           />
         </>
+      )}
+      {canReadAloud && (
+        <Chip
+          reducedMotion={reducedMotion}
+          label={t("selectionBar.readFromHere")}
+          icon={<SpeakerHigh className="h-4 w-4" weight="bold" />}
+          onClick={() => onAction("readFromHere")}
+        />
       )}
       {canExtract && (
         <Chip

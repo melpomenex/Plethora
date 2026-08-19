@@ -16,6 +16,10 @@ export interface ImageOcclusionRegion {
 }
 
 export interface LearningItemInteractionMetadata {
+  /** UI surface that created the item (e.g. "dictionary-peek"). */
+  origin?: string;
+  /** Bounded source sentence/passage preserved as creation context. */
+  sentence?: string;
   typedMode?: "exact" | "fuzzy" | "semantic";
   hints?: string[];
   acceptedAnswers?: string[];

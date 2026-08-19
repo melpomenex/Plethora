@@ -4336,6 +4336,7 @@ export const zh: Dict = {
   "keyboardShortcutsHelp.proTipLabel": "提示：",
   "keyboardShortcutsHelp.proTipBody": "随时按 Ctrl/⌘ + K 打开命令面板，进行快速导航。",
   "keyboardShortcutsHelp.pressEscToClose": "按 Esc 关闭",
+  "selectionBar.readFromHere": "从此处开始朗读",
   "readerTts.previousChunk": "上一段",
   "readerTts.resume": "继续",
   "readerTts.pause": "暂停",

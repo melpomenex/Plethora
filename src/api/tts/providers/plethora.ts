@@ -23,6 +23,9 @@ export const plethoraAdapter: TTSProviderAdapter = {
     supportsInstructions: true,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    // The hosted model advertises timestamp synchronization, but the API does
+    // not return a word-timing payload yet — opt in when it ships.
+    supportsWordTimings: false,
     audioFormats: ["mp3", "opus", "wav"],
     maxInputChars: 10000,
   },

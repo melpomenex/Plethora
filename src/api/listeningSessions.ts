@@ -14,6 +14,15 @@ import type {
 const browserSessionStore = new Map<string, ListeningSession>();
 const browserSessionItemsStore = new Map<string, ListeningSessionItem[]>();
 
+/** The Rust side stores is_reviewed as an INTEGER; normalize on every read. */
+function normalizeSession(raw: any): ListeningSession {
+  return { ...raw, isReviewed: Boolean(raw?.isReviewed) };
+}
+
+function normalizeSessionWithItems(raw: any): ListeningSession {
+  return { ...normalizeSession(raw), items: raw?.items ?? [] };
+}
+
 export async function createListeningSession(
   session: Partial<ListeningSession> & { editionId: string }
 ): Promise<ListeningSession> {
@@ -34,12 +43,14 @@ export async function createListeningSession(
     return newSession;
   }
 
-  return await invokeCommand<ListeningSession>("create_listening_session", {
-    session: {
-      ...newSession,
-      isReviewed: newSession.isReviewed ? 1 : 0,
-    },
-  });
+  return normalizeSession(
+    await invokeCommand<any>("create_listening_session", {
+      session: {
+        ...newSession,
+        isReviewed: newSession.isReviewed ? 1 : 0,
+      },
+    })
+  );
 }
 
 export async function getListeningSession(id: string): Promise<ListeningSession | null> {
@@ -51,10 +62,7 @@ export async function getListeningSession(id: string): Promise<ListeningSession 
 
   const result = await invokeCommand<any>("get_listening_session", { id });
   if (!result) return null;
-  return {
-    ...result,
-    isReviewed: Boolean(result.isReviewed),
-  };
+  return normalizeSessionWithItems(result);
 }
 
 export async function getActiveListeningSession(editionId: string): Promise<ListeningSession | null> {
@@ -69,10 +77,7 @@ export async function getActiveListeningSession(editionId: string): Promise<List
 
   const result = await invokeCommand<any>("get_active_listening_session", { editionId });
   if (!result) return null;
-  return {
-    ...result,
-    isReviewed: Boolean(result.isReviewed),
-  };
+  return normalizeSessionWithItems(result);
 }
 
 export async function endListeningSession(
@@ -126,10 +131,7 @@ export async function listUnreviewedListeningSessions(): Promise<ListeningSessio
   }
 
   const list = await invokeCommand<any[]>("list_unreviewed_listening_sessions");
-  return (list || []).map(s => ({
-    ...s,
-    isReviewed: Boolean(s.isReviewed),
-  }));
+  return (list || []).map(normalizeSessionWithItems);
 }
 
 export async function addListeningSessionItem(
@@ -152,8 +154,9 @@ export async function addListeningSessionItem(
     items.push(newItem);
     browserSessionItemsStore.set(item.sessionId, items);
 
+    // Mirror the backend rule: only actual extracts bump extract_count.
     const s = browserSessionStore.get(item.sessionId);
-    if (s) s.extractCount += 1;
+    if (s && newItem.markerType === "extract") s.extractCount += 1;
     return newItem;
   }
 
@@ -177,9 +180,10 @@ export async function deleteListeningSessionItem(id: string): Promise<void> {
     for (const [sessId, items] of browserSessionItemsStore.entries()) {
       const idx = items.findIndex(i => i.id === id);
       if (idx !== -1) {
+        const removed = items[idx];
         items.splice(idx, 1);
         const s = browserSessionStore.get(sessId);
-        if (s && s.extractCount > 0) s.extractCount -= 1;
+        if (s && removed.markerType === "extract" && s.extractCount > 0) s.extractCount -= 1;
         break;
       }
     }
@@ -189,8 +193,20 @@ export async function deleteListeningSessionItem(id: string): Promise<void> {
   await invokeCommand<void>("delete_listening_session_item", { id });
 }
 
-export async function listListeningSessions(_unreviewedOnly = true): Promise<ListeningSession[]> {
-  return await listUnreviewedListeningSessions();
+export async function listListeningSessions(unreviewedOnly = true): Promise<ListeningSession[]> {
+  if (unreviewedOnly) {
+    return listUnreviewedListeningSessions();
+  }
+  if (!isTauri()) {
+    return Array.from(browserSessionStore.values()).map(s => ({
+      ...s,
+      items: browserSessionItemsStore.get(s.id) || [],
+    }));
+  }
+  const list = await invokeCommand<any[]>("list_listening_sessions", {
+    unreviewedOnly: false,
+  });
+  return (list || []).map(normalizeSessionWithItems);
 }
 
 export async function updateListeningSessionItem(
@@ -205,6 +221,9 @@ export async function updateListeningSessionItem(
         break;
       }
     }
+    return;
   }
+
+  await invokeCommand<any>("update_listening_session_item", { id, updates });
 }
 

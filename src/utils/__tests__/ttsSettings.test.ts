@@ -85,7 +85,7 @@ describe("ttsSettings", () => {
       defaultVoiceId: "groq-builtin-fiora",
       defaultPresetId: "balanced-default",
     });
-    expect(settings.schemaVersion).toBe(3);
+    expect(settings.schemaVersion).toBeGreaterThanOrEqual(3);
     expect(settings.providers.fal).toMatchObject({ apiKey: "fal-key", modelId: "fal-model", cloneModelId: "clone-model", requestMode: "proxy", proxyUrl: "https://proxy.example" });
     expect(settings.providers.groq).toMatchObject({ modelId: "playai-tts-arabic", responseFormat: "wav" });
     expect(settings.providers.pocket).toMatchObject({ pocketSpeed: 1.5, pocketAvailable: true });
@@ -111,5 +111,36 @@ describe("ttsSettings", () => {
   it("exposes the migration shape for callers that need to inspect it", () => {
     const migrated = migrateTTSSettings({ schemaVersion: 2, modelId: "legacy" });
     expect((migrated.providers as Record<string, { modelId: string }>).fal.modelId).toBe("legacy");
+  });
+});
+
+describe("ttsSettings v4 spoken-word preferences", () => {
+  it("defaults highlightSpokenWord/followSpokenWord to true for v3 payloads", () => {
+    const settings = sanitizeTTSSettings({ schemaVersion: 3, providers: {} });
+    expect(settings.schemaVersion).toBe(4);
+    expect(settings.highlightSpokenWord).toBe(true);
+    expect(settings.followSpokenWord).toBe(true);
+  });
+
+  it("preserves explicit v4 values", () => {
+    const settings = sanitizeTTSSettings({
+      schemaVersion: 4,
+      providers: {},
+      highlightSpokenWord: false,
+      followSpokenWord: true,
+    });
+    expect(settings.highlightSpokenWord).toBe(false);
+    expect(settings.followSpokenWord).toBe(true);
+  });
+
+  it("sanitizes non-boolean values back to the defaults", () => {
+    const settings = sanitizeTTSSettings({
+      schemaVersion: 4,
+      providers: {},
+      highlightSpokenWord: "yes",
+      followSpokenWord: 0,
+    });
+    expect(settings.highlightSpokenWord).toBe(true);
+    expect(settings.followSpokenWord).toBe(true);
   });
 });

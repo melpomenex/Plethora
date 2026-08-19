@@ -431,9 +431,14 @@ impl PositionService {
             .collect())
     }
 
-    /// Get daily reading stats for streak calculation
+    /// Get daily reading stats for streak calculation.
+    ///
+    /// Listening sessions count toward daily study stats (openspec
+    /// add-audio-editions-and-hands-free-study-mode, task 8.3): their
+    /// durations and source documents merge into the same per-day totals so
+    /// the workload calendar reflects listening study.
     pub async fn get_daily_stats(&self, days: u32) -> Result<Vec<(String, u32, u32)>> {
-        let rows = sqlx::query_as::<_, (String, u32, u32)>(
+        let reading_rows = sqlx::query_as::<_, (String, u32, u32)>(
             r#"
             SELECT
                 DATE(started_at) as date,
@@ -448,9 +453,45 @@ impl PositionService {
         )
         .bind(days as i64)
         .fetch_all(&self.pool)
-        .await
-        .map_err(|e| PlethoraError::Internal(format!("Failed to get daily stats: {}", e)))?;
+        .await;
 
-        Ok(rows)
+        let listening_rows = sqlx::query_as::<_, (String, u32, u32)>(
+            r#"
+            SELECT
+                DATE(ls.started_at) as date,
+                SUM(ls.duration_seconds) as total_seconds,
+                COUNT(DISTINCT ae.source_document_id) as documents_read
+            FROM listening_sessions ls
+            JOIN audio_editions ae ON ls.edition_id = ae.id
+            WHERE ls.started_at >= date('now', '-' || ?1 || ' days')
+            GROUP BY DATE(ls.started_at)
+            "#,
+        )
+        .bind(days as i64)
+        .fetch_all(&self.pool)
+        .await;
+
+        // Listening stats are additive on a best-effort basis: a missing
+        // audio_editions table (pre-migration DB) must not break reading stats.
+        let mut merged: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::new();
+        let mut all_rows: Vec<(String, u32, u32)> = Vec::new();
+        match reading_rows {
+            Ok(rows) => all_rows.extend(rows),
+            Err(e) => return Err(PlethoraError::Internal(format!("Failed to get daily stats: {}", e))),
+        }
+        if let Ok(rows) = listening_rows {
+            all_rows.extend(rows);
+        }
+        for (date, total_seconds, documents_read) in all_rows {
+            let entry = merged.entry(date).or_insert((0, 0));
+            entry.0 = entry.0.saturating_add(total_seconds);
+            entry.1 = entry.1.saturating_add(documents_read);
+        }
+
+        let mut result: Vec<(String, u32, u32)> =
+            merged.into_iter().map(|(date, (secs, docs))| (date, secs, docs)).collect();
+        result.sort_by(|a, b| b.0.cmp(&a.0));
+        Ok(result)
     }
 }

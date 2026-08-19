@@ -302,12 +302,22 @@ describe("desktop audiobook source resolution failures", () => {
   });
 
   it("re-runs source resolution when the user retries after a failure", async () => {
-    tauriMocks.invokeCommand.mockRejectedValueOnce(
-      new Error("Cannot stream media file: file not found on disk"),
-    );
-    tauriMocks.invokeCommand.mockResolvedValueOnce(
-      "http://127.0.0.1:43123/stream?path=%2FUsers%2Ftest%2FMusic%2Ftest-book.mp3",
-    );
+    // Command-aware mock: the first media-server resolution fails, the retry
+    // succeeds. Other commands the player issues on mount (audio-edition
+    // probe, media-bridge metadata) resolve neutrally so they cannot consume
+    // the queued failure/success pair.
+    let streamAttempts = 0;
+    tauriMocks.invokeCommand.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_media_stream_url") {
+        streamAttempts += 1;
+        if (streamAttempts === 1) {
+          throw new Error("Cannot stream media file: file not found on disk");
+        }
+        return "http://127.0.0.1:43123/stream?path=%2FUsers%2Ftest%2FMusic%2Ftest-book.mp3";
+      }
+      if (cmd === "get_audio_edition_by_document") return null;
+      return undefined;
+    });
     // jsdom does not implement HTMLMediaElement.play() (it returns undefined),
     // and the retry control defers a play() call — stub it so that deferred
     // call cannot throw an uncaught exception when the test unwinds.
@@ -324,9 +334,9 @@ describe("desktop audiobook source resolution failures", () => {
     // The retry control must re-resolve the source (and clear the error),
     // not leave the player idle with no src and no message.
     await waitFor(() => {
-      expect(tauriMocks.invokeCommand).toHaveBeenCalledTimes(2);
+      expect(streamAttempts).toBe(2);
     });
-    expect(tauriMocks.invokeCommand).toHaveBeenLastCalledWith("get_media_stream_url", {
+    expect(tauriMocks.invokeCommand).toHaveBeenCalledWith("get_media_stream_url", {
       filePath: "/Users/test/Music/test-book.mp3",
     });
     expect(screen.queryByRole("alert")).toBeNull();

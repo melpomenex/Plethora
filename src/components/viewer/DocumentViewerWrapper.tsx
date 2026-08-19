@@ -22,6 +22,7 @@ import {
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { SectionNode } from "../../utils/sectionIndex";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
+import { consumeAskPlethora } from "../../utils/audioCaptureNavigation";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 
@@ -38,6 +39,8 @@ interface DocumentViewerWithAssistantProps {
   // underlying viewer so the tab-data signal survives the wrapper.
   openedFrom?: string;
   hideRatingOrbs?: boolean;
+  /** Render the document in the Audio Edition player (AudiobooksTab Listen). */
+  listenToEdition?: boolean;
 }
 
 export function DocumentViewer({
@@ -50,6 +53,7 @@ export function DocumentViewer({
   extractSourceContext,
   openedFrom,
   hideRatingOrbs,
+  listenToEdition,
 }: DocumentViewerWithAssistantProps) {
   const isActiveTab = useIsActiveTab();
 
@@ -111,6 +115,17 @@ export function DocumentViewer({
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  // Deferred Ask Plethora (openspec add-audio-editions-and-hands-free-study-
+  // mode, task 7.5): when the Inbox queues a captured passage for this
+  // document, scope the assistant context to it by seeding the selection so
+  // Document Q&A opens pre-scoped to what the listener asked about.
+  useEffect(() => {
+    const pending = consumeAskPlethora(documentId);
+    if (pending?.passage) {
+      setSelection(pending.passage);
+    }
+  }, [documentId]);
 
   useEffect(() => {
     pdfContextTextRef.current = pdfContextText;
@@ -404,6 +419,7 @@ export function DocumentViewer({
         highlightQuery={highlightQuery}
         initialJump={initialJump}
         autoPlay={autoPlay}
+        listenToEdition={listenToEdition}
         focusedExtractId={focusedExtractId}
         extractSourceContext={extractSourceContext}
         onPdfContextTextChange={setPdfContextText}

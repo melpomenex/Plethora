@@ -58,6 +58,15 @@ class DownloadModelArgs {
     var modelId: String? = null
 }
 
+class UpdateMediaMetadataArgs {
+    var positionSec: Double? = null
+    var isPlaying: Boolean? = null
+}
+
+class AckMediaCommandsArgs {
+    var eventIds: List<String>? = null
+}
+
 @InvokeArg
 class CancelDownloadArgs {
     var modelId: String? = null
@@ -152,6 +161,10 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     override fun load(webView: android.webkit.WebView) {
         super.load(webView)
         this.webView = webView
+        // The Media3 session service emits normalized media-button envelopes
+        // to this WebView; register it on the shared bridge.
+        MediaBridge.ensureQueue(ctx)
+        MediaBridge.webView = java.lang.ref.WeakReference(webView)
     }
 
     override fun onPause() {
@@ -331,6 +344,64 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    // Remote media session commands (tasks 6.1 + 10.1): the frontend player
+    // starts/stops the Media3 session with its own playback and feeds it
+    // position/metadata so media-button envelopes can carry a position hint.
+    // ──────────────────────────────────────────────────────────────────
+
+    @Command
+    fun startMediaSession(invoke: Invoke) {
+        MediaBridge.ensureQueue(ctx)
+        RemoteMediaSessionService.start(ctx)
+        invoke.resolve()
+    }
+
+    @Command
+    fun stopMediaSession(invoke: Invoke) {
+        RemoteMediaSessionService.stop(ctx)
+        invoke.resolve()
+    }
+
+    @Command
+    fun updateMediaMetadata(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(UpdateMediaMetadataArgs::class.java)
+            args.positionSec?.let { MediaBridge.lastPositionSec = it }
+            args.isPlaying?.let { MediaBridge.isPlaying = it }
+        } catch (_: Throwable) {
+        }
+        invoke.resolve()
+    }
+
+    /** Acknowledge envelopes the frontend dispatcher accepted (Decision 8). */
+    @Command
+    fun ackMediaCommands(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AckMediaCommandsArgs::class.java)
+            val ids = args.eventIds ?: emptyList()
+            MediaBridge.ensureQueue(ctx).ack(ids)
+        } catch (e: Throwable) {
+            Logger.warn("ack_media_commands failed: ${e.message}")
+        }
+        invoke.resolve()
+    }
+
+    /** Drain unacked commands (oldest-first) for frontend reconcile on resume. */
+    @Command
+    fun drainPendingMediaCommands(invoke: Invoke) {
+        try {
+            val queue = MediaBridge.ensureQueue(ctx)
+            val unacked = queue.drainUnacked()
+            val res = JSObject()
+            res.put("commands", queue.toJsonArray(unacked))
+            invoke.resolve(res)
+        } catch (e: Throwable) {
+            Logger.warn("drain_pending_media_commands failed: ${e.message}")
+            invoke.resolve(JSObject().put("commands", org.json.JSONArray()))
+        }
+    }
+
     @Command
     fun deleteModel(invoke: Invoke) {
         val args = invoke.parseArgs(DeleteModelArgs::class.java)
@@ -443,12 +514,20 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     private fun runSystemFallback(sentences: List<String>, utteranceId: Int) {
         emitPlaybackState(PlaybackState.PLAYING)
         systemFallback.stop()
-        val joined = sentences.joinToString(separator = " ")
+        // Track each sentence's start offset in the joined text so word
+        // charIndex offsets (joined-text space) resolve to their sentence.
+        val starts = WordPositionOffsets.sentenceStarts(sentences)
+        val joined = WordPositionOffsets.joinSentences(sentences)
         val tag = "utt-$utteranceId-${UUID.randomUUID()}"
         systemFallback.speak(
             text = joined,
             rate = speed,
             utteranceId = tag,
+            onWordPosition = { _, charIndex, charLength ->
+                val (sentenceIndex, within, length) = WordPositionOffsets
+                    .resolve(sentences, starts, charIndex, charLength)
+                emitWordPosition(utteranceId, sentenceIndex, within, length)
+            },
             onDone = {
                 mainHandler.post {
                     if (!stopFlag.get()) {
@@ -658,6 +737,23 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         )
     }
 
+    /** Exact spoken-word position from the System-TTS fallback engine. */
+    private fun emitWordPosition(
+        utteranceId: Int,
+        sentenceIndex: Int,
+        charIndex: Int,
+        charLength: Int,
+    ) {
+        dispatchEvent(
+            "tts://word-position",
+            JSONObject()
+                .put("utteranceId", utteranceId)
+                .put("sentenceIndex", sentenceIndex)
+                .put("charIndex", charIndex)
+                .put("charLength", charLength),
+        )
+    }
+
     private fun emitUtteranceComplete(utteranceId: Int) {
         dispatchEvent("tts://utterance-complete", JSONObject().put("utteranceId", utteranceId))
     }
@@ -681,5 +777,41 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             "tts://download-state",
             JSONObject().put("modelId", modelId).put("installing", installing),
         )
+    }
+
+}
+
+/** Pure offset math for word-position events: joined-text char offsets →
+ * (sentence index, within-sentence char index, clamped length). Extracted for
+ * JVM unit testing; mirrors the SystemTtsFallback joined-speak space. */
+internal object WordPositionOffsets {
+    fun sentenceStarts(sentences: List<String>): IntArray {
+        val starts = IntArray(sentences.size)
+        var length = 0
+        for (i in sentences.indices) {
+            starts[i] = length
+            length += sentences[i].length + 1 // + joining space
+        }
+        return starts
+    }
+
+    fun joinSentences(sentences: List<String>): String = sentences.joinToString(" ")
+
+    fun resolve(
+        sentences: List<String>,
+        starts: IntArray,
+        charIndex: Int,
+        charLength: Int,
+    ): Triple<Int, Int, Int> {
+        var lo = 0
+        var hi = starts.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) ushr 1
+            if (starts[mid] <= charIndex) lo = mid else hi = mid - 1
+        }
+        val within = charIndex - starts[lo]
+        val sentenceLength = sentences.getOrNull(lo)?.length ?: 0
+        val length = charLength.coerceAtMost((sentenceLength - within).coerceAtLeast(0))
+        return Triple(lo, within.coerceAtLeast(0), length)
     }
 }

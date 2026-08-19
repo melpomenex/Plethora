@@ -38,6 +38,23 @@ import {
 } from "../../utils/ttsSettings";
 import { cn } from "../../utils";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
+import { playChime } from "../../utils/audioFeedback";
+import type { StudyAction } from "../../types/audioEdition";
+
+/** User-facing labels for every implemented StudyAction (task 4.5). */
+const STUDY_ACTION_OPTIONS: Array<{ value: StudyAction; label: string }> = [
+  { value: "save_recent_extract", label: "Save Recent Extract" },
+  { value: "bookmark", label: "Bookmark" },
+  { value: "replay_recent_passage", label: "Replay Recent Passage" },
+  { value: "mark_interesting", label: "Mark Interesting (#interesting)" },
+  { value: "mark_confusing", label: "Mark Confusing (#needs-explanation)" },
+  { value: "ask_plethora", label: "Ask Plethora (deferred)" },
+  { value: "skip_forward", label: "Skip Forward (+30 s)" },
+  { value: "skip_backward", label: "Skip Backward (−15 s)" },
+  { value: "next_chapter", label: "Next Chapter/Section" },
+  { value: "previous_chapter", label: "Previous Chapter/Section" },
+  { value: "none", label: "Do Nothing" },
+];
 import {
   useSystemVoices,
   resolveSystemVoice,
@@ -289,6 +306,15 @@ export function TTSSettings() {
   const [systemPreviewingId, setSystemPreviewingId] = useState<string | null>(null);
   const [newPronunciationWord, setNewPronunciationWord] = useState("");
   const [newPronunciationReplacement, setNewPronunciationReplacement] = useState("");
+
+  // Hands-Free Study Mode (task 4.5): every offered choice maps to an
+  // implemented StudyAction; the store coerces invalid persisted values.
+  const handsFree = settings.handsFreeStudy;
+  const updateHandsFree = (updates: Partial<typeof handsFree>) =>
+    updateSettings({
+      ...settings,
+      handsFreeStudy: { ...handsFree, ...updates },
+    });
 
   useEffect(() => {
     const config = getProviderSettings(tts, String(tts.provider));
@@ -1734,6 +1760,173 @@ export function TTSSettings() {
             <Plus className="h-3.5 w-3.5" />
             Add Rule
           </button>
+        </div>
+      </section>
+
+      {/* Hands-Free Study Mode Section (openspec add-audio-editions-and-
+          hands-free-study-mode, task 4.5) */}
+      <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h4 className="text-base font-semibold text-foreground">
+              Hands-Free Study Mode
+            </h4>
+            <p className="text-sm text-muted-foreground">
+              Capture extracts, bookmarks, and learning moments with ordinary
+              headphone controls while listening — without looking at a screen.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={handsFree.enabled}
+            aria-label="Enable Hands-Free Study Mode"
+            onClick={() => {
+              const next = !handsFree.enabled;
+              updateHandsFree({ enabled: next });
+              playChime(next ? "mode_study" : "mode_normal");
+            }}
+            className={cn(
+              "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+              handsFree.enabled ? "bg-primary" : "bg-muted-foreground/30"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-all",
+                handsFree.enabled ? "left-[22px]" : "left-0.5"
+              )}
+            />
+          </button>
+        </div>
+
+        <p className="text-xs text-muted-foreground bg-muted/40 border border-border/50 rounded-lg px-3 py-2">
+          Plethora responds to the media command your headphones send (such as
+          Next or Previous). The physical gesture that produces that command
+          depends on your headphones. Play/Pause is never remapped, and
+          repeating Save Recent Extract within the extension window extends the
+          same capture backward instead of creating a duplicate.
+        </p>
+
+        {/* Capture window */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-foreground">Capture window</span>
+            <select
+              value={String(handsFree.captureWindow)}
+              onChange={(e) =>
+                updateHandsFree({
+                  captureWindow:
+                    e.target.value === "smart" ? "smart" : (Number(e.target.value) as 15 | 30 | 60),
+                })
+              }
+              className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs"
+            >
+              <option value="15">15 seconds</option>
+              <option value="30">30 seconds</option>
+              <option value="60">60 seconds</option>
+              <option value="smart">Smart (snap to sentences &amp; paragraphs, ≤ 90 s)</option>
+            </select>
+          </label>
+
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-foreground">
+              Repeat-extension window: {(handsFree.extensionWindowMs / 1000).toFixed(1)} s
+            </span>
+            <input
+              type="range"
+              min={500}
+              max={5000}
+              step={250}
+              value={handsFree.extensionWindowMs}
+              onChange={(e) => updateHandsFree({ extensionWindowMs: Number(e.target.value) })}
+              className="w-full accent-primary"
+              aria-label="Repeat extension window in milliseconds"
+            />
+            <span className="block text-[11px] text-muted-foreground">
+              A repeated Save Extract within this window extends the same capture.
+            </span>
+          </label>
+        </div>
+
+        {/* Per-command mappings */}
+        <div className="space-y-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Study Mode command mappings
+          </span>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                ["next", "Next"],
+                ["previous", "Previous"],
+                ["seekForward", "Seek Forward"],
+                ["seekBackward", "Seek Backward"],
+              ] as const
+            ).map(([slot, label]) => (
+              <label key={slot} className="space-y-1.5">
+                <span className="text-xs font-medium text-foreground">{label}</span>
+                <select
+                  value={handsFree.mappings[slot]}
+                  onChange={(e) =>
+                    updateHandsFree({
+                      mappings: { ...handsFree.mappings, [slot]: e.target.value as StudyAction },
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs"
+                  aria-label={`Study Mode action for ${label}`}
+                >
+                  {STUDY_ACTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Feedback controls */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+            <input
+              type="checkbox"
+              checked={handsFree.chimeEnabled}
+              onChange={(e) => updateHandsFree({ chimeEnabled: e.target.checked })}
+              className="accent-primary"
+            />
+            Confirmation chimes
+          </label>
+
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-foreground">
+              Chime volume: {Math.round(handsFree.chimeVolume * 100)}%
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(handsFree.chimeVolume * 100)}
+              onChange={(e) => updateHandsFree({ chimeVolume: Number(e.target.value) / 100 })}
+              className="w-full accent-primary"
+              aria-label="Chime volume"
+            />
+          </label>
+
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-foreground">
+              Ducking: to {Math.round(handsFree.duckingRatio * 100)}% during chimes
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(handsFree.duckingRatio * 100)}
+              onChange={(e) => updateHandsFree({ duckingRatio: Number(e.target.value) / 100 })}
+              className="w-full accent-primary"
+              aria-label="Ducking amount"
+            />
+          </label>
         </div>
       </section>
 

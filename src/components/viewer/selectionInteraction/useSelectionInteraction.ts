@@ -34,7 +34,9 @@ import {
   reduceSelectionMachine,
   type ActionOutcome,
   type CapturedSelection,
+  type CommittableReadySelection,
   type ContextInvalidationReason,
+  type GestureOrigin,
   type ReadySelection,
   type SelectionInput,
   type SelectionMachineConfig,
@@ -42,6 +44,7 @@ import {
   type SelectionPhase,
   type SelectionSurface,
 } from "./machine";
+import { resolveSelectionIntent } from "./intent";
 import {
   attachContentDocumentBridge,
   attachTopDocumentAdapter,
@@ -92,7 +95,7 @@ export interface SelectionInteractionController {
   invalidate: (reason: ContextInvalidationReason) => void;
   dismiss: (options?: { suppressCurrentText?: boolean }) => void;
   /** External commit port (PDF fixed mode's validated selections). */
-  commitReadySelection: (selection: ReadySelection) => void;
+  commitReadySelection: (selection: CommittableReadySelection) => void;
   /**
    * Commit the current live selection as READY, overriding its context (the
    * PDF validated-commit port: canonical context arrives with the commit).
@@ -153,6 +156,15 @@ export function useSelectionInteraction(
   const settleTimerFiredRef = useRef<() => void>(() => {});
   const currentHandlersRef = useRef<SelectionAdapterHandlers | null>(null);
   const bridgeDetachersRef = useRef(new Set<() => void>());
+  /**
+   * Most recent gesture that could have produced a selection (touch,
+   * double-click, mouse/pen release). The NEXT settle reads it as its
+   * `gestureOrigin`; with no gesture on record the selection was keyboard-made.
+   */
+  const lastGestureRef = useRef<{ origin: GestureOrigin; at: number }>({
+    origin: "keyboard",
+    at: 0,
+  });
 
   // ── React-visible mirror: updated ONLY on observable changes ─────────────
   const [mirror, setMirror] = useState(() => ({
@@ -264,6 +276,8 @@ export function useSelectionInteraction(
         null,
       geometry: captureSelectionGeometry(live.range, live.offset),
       readerContext: getReaderContext?.() ?? null,
+      intent: resolveSelectionIntent(live.text),
+      gestureOrigin: lastGestureRef.current.origin,
     };
   }, []);
 
@@ -393,6 +407,7 @@ export function useSelectionInteraction(
       onContentTouchStart: (inContent) => {
         touchActiveRef.current = true;
         lastTouchAtRef.current = Date.now();
+        lastGestureRef.current = { origin: "touch", at: Date.now() };
         apply({ type: "touchStart", inContent });
       },
       onContentTouchEnd: () => {
@@ -404,10 +419,17 @@ export function useSelectionInteraction(
         apply({ type: "touchEnd" });
       },
       onPointerRelease: () => {
+        lastGestureRef.current = { origin: "mouse", at: Date.now() };
         apply({ type: "pointerUp" });
         // Desktop: no artificial delay — confirm as soon as the range is set.
         const phase = machineRef.current.phase;
         if (phase === "settling" || phase === "selecting") armSettleTimer(true);
+      },
+      onDoubleClick: () => {
+        // Fires after the second pointerup: the most-recent-gesture rule makes
+        // the word selected by this double-click settle as "double-click" (the
+        // only desktop origin that auto-opens the dictionary peek).
+        lastGestureRef.current = { origin: "double-click", at: Date.now() };
       },
       onContentScroll: (target, top, left) => {
         scheduleRevalidate(); // reposition at most once per frame…
@@ -498,7 +520,14 @@ export function useSelectionInteraction(
   );
 
   const commitReadySelection = useCallback(
-    (selection: ReadySelection) => {
+    (committable: CommittableReadySelection) => {
+      // External commits derive their intent; unmarked origin means the port
+      // itself produced the READY state ("commit").
+      const selection: ReadySelection = {
+        ...committable,
+        intent: committable.intent ?? resolveSelectionIntent(committable.text),
+        gestureOrigin: committable.gestureOrigin ?? "commit",
+      };
       apply({ type: "commitReady", selection });
       setPlacement(computePlacement(selection.geometry));
     },

@@ -4097,6 +4097,7 @@ export const de: Dict = {
   "keyboardShortcutsHelp.proTipBody":
     "Drücke jederzeit Ctrl/⌘ + K, um die Befehlspalette für die Schnellnavigation zu öffnen.",
   "keyboardShortcutsHelp.pressEscToClose": "Esc drücken zum Schließen",
+  "selectionBar.readFromHere": "Ab hier vorlesen",
   "readerTts.previousChunk": "Vorheriger Abschnitt",
   "readerTts.resume": "Fortsetzen",
   "readerTts.pause": "Pause",

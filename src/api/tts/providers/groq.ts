@@ -16,6 +16,7 @@ export const groqAdapter: TTSProviderAdapter = {
     supportsInstructions: false,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: false,
     audioFormats: ["mp3", "wav"],
     maxInputChars: 5000,
   },

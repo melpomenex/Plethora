@@ -32,5 +32,14 @@
             android:name=".TtsPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- Media3 media session service (tasks 6.1 + 10.1): real media-button
+             routing, lock-screen/notification controls, and audio-focus
+             handling for hands-free study mode. Exported=false is standard for
+             Media3 services; media buttons reach it via the MediaSession, not
+             direct binds. -->
+        <service
+            android:name=".RemoteMediaSessionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

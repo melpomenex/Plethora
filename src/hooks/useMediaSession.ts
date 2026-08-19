@@ -1,13 +1,21 @@
 /**
- * Web MediaSession & OS Media Key Integration Hook
- * 
- * Synchronizes lock screen media notification, artwork, playback state,
- * and routes remote media key events into dispatchRemoteMediaCommand.
+ * Web MediaSession Adapter (browser/dev only)
+ *
+ * Synchronizes the browser lock-screen media notification, artwork, playback
+ * state, and routes W3C Media Session action events into the single
+ * dispatcher as normalized envelopes. Per design Decision 6 this adapter is
+ * the ACTIVE adapter only when not running inside the Tauri app — inside
+ * Tauri the native bridges (Android Media3 / desktop Rust) own media
+ * commands, so this hook never registers handlers there (no double firing).
  */
 
 import { useEffect, useRef } from "react";
+import { isTauri } from "../lib/tauri";
 import type { RemoteMediaContext } from "../utils/remoteMediaDispatcher";
-import { dispatchRemoteMediaCommand } from "../utils/remoteMediaDispatcher";
+import {
+  dispatchRemoteMediaCommand,
+  envelopeForCommand,
+} from "../utils/remoteMediaDispatcher";
 
 export interface MediaSessionOptions {
   title: string;
@@ -24,8 +32,11 @@ export function useMediaSession(options: MediaSessionOptions): void {
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // Single-adapter rule: inside Tauri the native bridge owns media commands.
+  const active = typeof window !== "undefined" && "mediaSession" in navigator && !isTauri();
+
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (!active) {
       return;
     }
 
@@ -68,6 +79,7 @@ export function useMediaSession(options: MediaSessionOptions): void {
       }
     }
   }, [
+    active,
     options.title,
     options.artist,
     options.album,
@@ -78,18 +90,26 @@ export function useMediaSession(options: MediaSessionOptions): void {
   ]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("mediaSession" in navigator)) {
+    if (!active) {
       return;
     }
 
-    const actionHandlers: Array<[MediaSessionAction, (details: MediaSessionActionDetails) => void]> = [
-      ["play", () => dispatchRemoteMediaCommand("Play", optionsRef.current.context)],
-      ["pause", () => dispatchRemoteMediaCommand("Pause", optionsRef.current.context)],
-      ["nexttrack", () => dispatchRemoteMediaCommand("Next", optionsRef.current.context)],
-      ["previoustrack", () => dispatchRemoteMediaCommand("Previous", optionsRef.current.context)],
-      ["seekforward", () => dispatchRemoteMediaCommand("SeekForward", optionsRef.current.context)],
-      ["seekbackward", () => dispatchRemoteMediaCommand("SeekBackward", optionsRef.current.context)],
-      ["stop", () => dispatchRemoteMediaCommand("Pause", optionsRef.current.context)],
+    const emit = (command: Parameters<typeof envelopeForCommand>[0]) => {
+      // Each handler invocation is one physical press → its own envelope.
+      dispatchRemoteMediaCommand(
+        envelopeForCommand(command, "web", optionsRef.current.context.currentTimestampSec),
+        optionsRef.current.context
+      );
+    };
+
+    const actionHandlers: Array<[MediaSessionAction, () => void]> = [
+      ["play", () => emit("Play")],
+      ["pause", () => emit("Pause")],
+      ["nexttrack", () => emit("Next")],
+      ["previoustrack", () => emit("Previous")],
+      ["seekforward", () => emit("SeekForward")],
+      ["seekbackward", () => emit("SeekBackward")],
+      ["stop", () => emit("Pause")],
     ];
 
     actionHandlers.forEach(([action, handler]) => {
@@ -109,5 +129,5 @@ export function useMediaSession(options: MediaSessionOptions): void {
         }
       });
     };
-  }, []);
+  }, [active]);
 }

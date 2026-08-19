@@ -350,6 +350,20 @@ interface EPUBViewerProps {
   /** Callback when user right-clicks on selected text */
   onContextMenu?: (event: { x: number; y: number; selectedText: string; selectionContext?: SelectionContext | null }) => void;
   onContextTextChange?: (text: string) => void;
+  /**
+   * Section-structured speech text for TTS anchoring: one entry per mounted
+   * spine item, fired at the same debounced cadence as onContextTextChange.
+   * `text` follows the same extraction rules as the joined context text
+   * (body.textContent, whitespace-trimmed) and `spineIndex`/`href` identify
+   * the section so speech offsets resolve to EPUB anchors.
+   */
+  onSpeechSectionsChange?: (sections: Array<{ spineIndex: number; href: string; text: string }>) => void;
+  /**
+   * TOC navigation settled: rendition.display resolved, `relocated` fired, and
+   * a render pass completed. The host resolves the now-visible anchor for TTS
+   * synchronization (never trust scroll percentages right after a jump).
+   */
+  onNavigationSettled?: () => void;
   initialCfi?: string;
   initialSearchMatchIndex?: number;
   initialSearchTextQuote?: string;
@@ -407,6 +421,8 @@ export function EPUBViewer({
   onSelectionChange,
   onContextMenu,
   onContextTextChange,
+  onSpeechSectionsChange,
+  onNavigationSettled,
   initialCfi,
   initialSearchMatchIndex,
   initialSearchTextQuote,
@@ -539,7 +555,11 @@ export function EPUBViewer({
 
   // Use refs for callback props so the main loading effect doesn't re-run when they change
   const onContextTextChangeRef = useRef(onContextTextChange);
+  const onSpeechSectionsChangeRef = useRef(onSpeechSectionsChange);
+  const onNavigationSettledRef = useRef(onNavigationSettled);
   onContextTextChangeRef.current = onContextTextChange;
+  onSpeechSectionsChangeRef.current = onSpeechSectionsChange;
+  onNavigationSettledRef.current = onNavigationSettled;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
   const selectionInteractionBridgeRef = useRef(selectionInteractionBridge);
@@ -1780,7 +1800,7 @@ export function EPUBViewer({
             await rendition.display();
           }
 
-          if (onContextTextChangeRef.current) {
+          if (onContextTextChangeRef.current || onSpeechSectionsChangeRef.current) {
             // Extract text from current chapter only (not entire book).
             // NOTE: in epub.js continuous-scrolled mode, `relocated` fires on
             // every section boundary crossed during scrolling, and this reads
@@ -1795,12 +1815,27 @@ export function EPUBViewer({
               try {
                 const contents = rendition?.getContents?.() as unknown as any[] | undefined;
                 if (contents && contents.length > 0) {
-                  const text = contents
-                    .map((content: any) => content?.document?.body?.textContent?.trim())
-                    .filter(Boolean)
-                    .join("\n\n");
+                  const sectionTexts = contents.map((content: any) =>
+                    content?.document?.body?.textContent?.trim(),
+                  );
+                  const text = sectionTexts.filter(Boolean).join("\n\n");
                   if (text && mounted) {
                     onContextTextChangeRef.current?.(text);
+                  }
+                  // Section-structured variant for the anchored speech index:
+                  // one entry per mounted spine item, same extraction rules.
+                  if (onSpeechSectionsChangeRef.current && mounted) {
+                    const sections = contents
+                      .map((content: any, i: number) => ({
+                        spineIndex:
+                          Number(content?.sectionIndex ?? content?.section?.index ?? i) || i,
+                        href: String(content?.section?.href ?? ""),
+                        text: String(sectionTexts[i] ?? ""),
+                      }))
+                      .filter((section: { text: string }) => section.text.length > 0);
+                    if (sections.length > 0) {
+                      onSpeechSectionsChangeRef.current?.(sections);
+                    }
                   }
                 }
               } catch (err) {
