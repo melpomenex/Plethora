@@ -99,8 +99,17 @@ impl JobQueue {
             .prepare_audio(std::path::Path::new(&job.audio_path))
             .await?;
 
-        // 3. Get model path
-        let model_path = model_manager.get_model_path(&job.model_id);
+        // 3. Get model path. HF-installed models resolve from the registry;
+        //    pinned catalog models use the legacy get_model_path.
+        let model_path = match crate::models::hf::manager::resolve_installed_path(
+            repo.pool(),
+            &job.model_id,
+        )
+        .await
+        {
+            Some(p) => p,
+            None => model_manager.get_model_path(&job.model_id),
+        };
 
         // 4. Transcribe
         //
@@ -117,12 +126,11 @@ impl JobQueue {
         let app_handle_clone = app_handle.clone();
         let book_id = job.book_id.clone();
         let chapter_id = job.chapter_id.clone();
-        // Route to the right engine based on the model family. Sherpa-onnx models
-        // (parakeet-*, sense-voice-*) run via the sherpa-onnx sidecar; everything
-        // else is a Whisper (ggml) model.
-        let model_id = job.model_id.as_str();
-        let is_parakeet = model_id.starts_with("parakeet-");
-        let is_sense_voice = model_id.starts_with("sense-voice-");
+        // Route to the right engine based on the model family. HF-installed
+        // models carry their run contract in the registry; pinned catalog models
+        // use the id-prefix convention (parakeet-*, sense-voice-*).
+        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &job.model_id)
+            .await;
 
         // Unbounded channel: the per-segment callback is a sync `Fn` that cannot
         // await, so it must never block. Unbounded matches the old fire-and-forget
@@ -146,19 +154,16 @@ impl JobQueue {
             let _ = seg_tx.send(seg);
         };
 
-        if is_sense_voice {
-            engine
-                .transcribe_sensevoice(&wav_path, &model_path, &job.language, on_segment, None)
-                .await?;
-        } else if is_parakeet {
-            engine
-                .transcribe_parakeet(&wav_path, &model_path, &job.language, on_segment, None)
-                .await?;
-        } else {
-            engine
-                .transcribe(&wav_path, &model_path, &job.language, on_segment, None)
-                .await?;
-        }
+        engine
+            .transcribe_route(
+                &wav_path,
+                &model_path,
+                &route,
+                &job.language,
+                on_segment,
+                None,
+            )
+            .await?;
 
         // Signal the consumer that no more segments are coming (drop the last
         // sender) and wait for it to flush any buffered batch to the DB. This

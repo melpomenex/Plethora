@@ -82,6 +82,11 @@ tokio-util = { version = "0.7", features = ["io"] }
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# System-info detection (CPU cores, RAM, disk, GPU) for the HF speech-model
+# suitability analysis. Already in the dependency graph via burn-train; pinned
+# to the same 0.33 line already resolved in Cargo.lock.
+sysinfo = "0.33"
+
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
 
