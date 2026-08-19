@@ -230,6 +230,26 @@ export interface TwitterPost {
    *  used to attribute quoted posts whose author could not be parsed.
    *  Optional — absent on legacy threads. */
   refHandles?: TwitterPostRef[];
+  /** Hashtags parsed from the tweet's `entities` (GraphQL/syndication
+   *  enrichment). Optional — absent on TRA-only threads. */
+  hashtags?: string[];
+  /** @mentions parsed from the tweet's `entities`. Optional. */
+  mentions?: TwitterMention[];
+  /** URLs parsed from the tweet's `entities` — the `url` is the t.co
+   *  shortlink as it appears in `fullText`, `expandedUrl` the real target.
+   *  Optional; populated by enrichment/single-post retrieval. */
+  expandedUrls?: TwitterExpandedUrl[];
+}
+
+export interface TwitterMention {
+  screenName: string;
+  name?: string;
+}
+
+export interface TwitterExpandedUrl {
+  url: string;
+  expandedUrl: string;
+  displayUrl?: string;
 }
 
 export interface TwitterThread {

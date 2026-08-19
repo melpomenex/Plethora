@@ -63,6 +63,8 @@ pub enum ThreadError {
     NetworkError(String),
     /// The input URL does not contain a valid status id.
     InvalidUrl(String),
+    /// X rejected anonymous access (guest token / session / credentials).
+    Auth(String),
 }
 
 impl std::fmt::Display for ThreadError {
@@ -73,6 +75,7 @@ impl std::fmt::Display for ThreadError {
             Self::RateLimited(m) => write!(f, "Rate limited: {m}"),
             Self::NetworkError(m) => write!(f, "Network error: {m}"),
             Self::InvalidUrl(m) => write!(f, "Invalid URL: {m}"),
+            Self::Auth(m) => write!(f, "X API credentials unavailable: {m}"),
         }
     }
 }
@@ -1416,5 +1419,77 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
             Err(ThreadError::ThreadUnavailable(_)) => {}
             other => panic!("expected ThreadUnavailable, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn unroll_html_5xx_is_thread_reader_unavailable() {
+        // A server-side failure on the live HTML page (not a missing thread)
+        // must classify as ThreadReaderUnavailable, never ThreadUnavailable.
+        let http = MockTraHttp::new(vec![
+            (
+                &format!("{}/api/v0/thread/2001.json", TRA_BASE),
+                404,
+                "Not Found",
+            ),
+            (
+                &format!("{}/thread/2001.html", TRA_BASE),
+                500,
+                "Internal Server Error",
+            ),
+        ]);
+        match fetch_unrolled_thread(&http, "2001").await {
+            Err(ThreadError::ThreadReaderUnavailable(_)) => {}
+            other => panic!("expected ThreadReaderUnavailable, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn unroll_html_429_is_rate_limited() {
+        let http = MockTraHttp::new(vec![
+            (
+                &format!("{}/api/v0/thread/2001.json", TRA_BASE),
+                404,
+                "Not Found",
+            ),
+            (
+                &format!("{}/thread/2001.html", TRA_BASE),
+                429,
+                "Too Many Requests",
+            ),
+        ]);
+        match fetch_unrolled_thread(&http, "2001").await {
+            Err(ThreadError::RateLimited(_)) => {}
+            other => panic!("expected RateLimited, got {:?}", other),
+        }
+    }
+
+    /// Error-type parity anchor: every `ThreadError` variant serializes as a
+    /// snake_case `{type, message}` envelope — the exact shape the frontend's
+    /// `normalizeThreadErrorType` maps to the camelCase UI copy keys
+    /// (`src/lib/xthreadError.ts`, mirrored in `docs/X_THREAD_RETRIEVAL.md`).
+    #[test]
+    fn thread_error_serializes_as_snake_case_type_message() {
+        let cases: Vec<(&str, ThreadError)> = vec![
+            ("thread_unavailable", ThreadError::ThreadUnavailable("gone".into())),
+            ("thread_reader_unavailable", ThreadError::ThreadReaderUnavailable("down".into())),
+            ("rate_limited", ThreadError::RateLimited("429".into())),
+            ("network_error", ThreadError::NetworkError("reset".into())),
+            ("invalid_url", ThreadError::InvalidUrl("bad".into())),
+            ("auth", ThreadError::Auth("guest token rejected".into())),
+        ];
+        for (expected_type, err) in cases {
+            let json = serde_json::to_value(&err).expect("serializes");
+            assert_eq!(json["type"].as_str(), Some(expected_type));
+            assert!(json["message"].is_string());
+        }
+    }
+
+    #[test]
+    fn thread_error_deserializes_from_snake_case_envelope() {
+        // Frontend/persisted stores always round-trip through this shape.
+        let err: ThreadError =
+            serde_json::from_str(r#"{"type":"thread_reader_unavailable","message":"boom"}"#)
+                .expect("snake_case envelope parses");
+        assert!(matches!(err, ThreadError::ThreadReaderUnavailable(m) if m == "boom"));
     }
 }

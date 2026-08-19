@@ -1637,6 +1637,12 @@ fn x_thread_error_response(e: &crate::threadreader::ThreadError) -> Response {
             m,
             "thread_reader_unavailable",
         ),
+        ThreadError::Auth(m) => (
+            StatusCode::FORBIDDEN,
+            "X rejected anonymous access to this X thread",
+            m,
+            "auth",
+        ),
     };
     (
         status,
