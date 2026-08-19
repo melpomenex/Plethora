@@ -1,17 +1,20 @@
 /**
  * Integration tests for TTS listening-position persistence (#2): save/flush/
  * restore round-trips (localStorage fallback — jsdom has no IndexedDB),
- * per-document independence, fingerprint-based reconciliation against a
- * (re)built speech index, and the sync unload write.
+ * per-document independence, nearest-anchor reconciliation against a (re)built
+ * speech index, the sync unload write, and freshest-record selection when both
+ * the IndexedDB and localStorage backends hold a record.
  */
 
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { ReaderSpeechIndex, type SpeechSectionInput } from "../readerSpeechIndex";
+import { digestText128 } from "../ttsCache";
 import {
   clearTTSListeningPosition,
   flushPendingListeningPosition,
   getProfileId,
   getTTSListeningPosition,
+  resetTTSListeningPositionState,
   resolveListeningPosition,
   saveTTSListeningPosition,
   writeListeningPositionSync,
@@ -60,7 +63,7 @@ function makePosition(
     voiceId: "voice-1",
     stableAnchor: { kind: "text", surface: "test", startOffset: word?.sectionOffset ?? 0 },
     chunkIndex,
-    chunkTextHash: "",
+    chunkTextHash: digestText128(chunk.text),
     wordIndex,
     normalizedCharOffset: word?.sectionOffset ?? 0,
     intraChunkMs: 1200,
@@ -72,13 +75,50 @@ function makePosition(
   };
 }
 
+/**
+ * Minimal IndexedDB mock so the module's IDB path can hold a record alongside
+ * the localStorage fallback (jsdom ships no IndexedDB). `records` is keyed by
+ * the store id (`<profile>::<documentId>`).
+ */
+function mockIndexedDB(records: Map<string, TTSListeningPosition>): void {
+  (globalThis as any).indexedDB = {
+    open: () => {
+      const req: any = { result: null, error: null };
+      req.onupgradeneeded = null;
+      req.onsuccess = null;
+      req.onerror = null;
+      const db = {
+        transaction: () => ({
+          objectStore: () => ({
+            get: (id: string) => {
+              const getReq: any = {
+                onsuccess: null,
+                onerror: null,
+                result: records.get(id) ? { id, value: records.get(id) } : undefined,
+              };
+              queueMicrotask(() => getReq.onsuccess?.());
+              return getReq;
+            },
+          }),
+        }),
+      };
+      req.result = db;
+      queueMicrotask(() => req.onsuccess?.());
+      return req;
+    },
+  };
+}
+
 describe("ttsListeningPosition", () => {
   beforeEach(() => {
+    resetTTSListeningPositionState();
     localStorage.clear();
   });
 
   afterEach(() => {
+    resetTTSListeningPositionState();
     localStorage.clear();
+    delete (globalThis as any).indexedDB;
   });
 
   it("saves and restores the exact chunk+word via the localStorage fallback", async () => {
@@ -86,7 +126,7 @@ describe("ttsListeningPosition", () => {
     const chunkIdx = Math.min(2, index.chunks.length - 1);
     const wordIdx = 3;
 
-    const pos = makePosition("doc-a", index, chunkIdx, wordIdx, { chunkTextHash: "" });
+    const pos = makePosition("doc-a", index, chunkIdx, wordIdx);
     await saveTTSListeningPosition(pos, { flush: true });
 
     const restored = await getTTSListeningPosition("doc-a");
@@ -104,7 +144,8 @@ describe("ttsListeningPosition", () => {
   it("throttled save is flushed on demand (restart reads the latest position)", async () => {
     const index = makeIndex();
     const first = makePosition("doc-b", index, 0, 1);
-    // Throttled (non-flush) write: lands in the pending slot.
+    // Throttled (non-flush) write: with the reset throttle state this always
+    // lands in the pending slot (deterministic, not order-dependent).
     await saveTTSListeningPosition(first, { flush: false });
     // A later throttled update supersedes the pending record without persisting yet.
     const second = makePosition("doc-b", index, 1, 0, { intraChunkMs: 555 });
@@ -135,20 +176,40 @@ describe("ttsListeningPosition", () => {
     expect((await getTTSListeningPosition("doc-b"))!.chunkIndex).toBe(last);
   });
 
-  it("reconciles a persisted position against a changed document via nearest anchor", async () => {
-    const original = makeIndex();
-    const saved = makePosition("doc-c", original, 0, 0);
-    // Document regenerated between sessions: same surface but new offsets/text.
-    const regenerated = makeIndex(
-      "Beta gamma delta epsilon zeta theta. Iota kappa lambda mu nu xi omicron. " +
-        "Pi rho sigma tau upsilon phi chi psi omega omega omega.",
-    );
-    const resolved = resolveListeningPosition(regenerated, saved);
-    // Nearest resolvable position (never null, never the session start chunk 0
-    // when the anchor resolves to a later chunk).
+  it("rejects an exact anchor when the chunk text hash no longer matches (nearest-anchor fallback)", async () => {
+    const index = makeIndex();
+    const chunkIdx = Math.min(2, index.chunks.length - 1);
+    // The anchor still locates, but the stored chunk hash no longer matches
+    // the current chunk text (document regenerated) → exact-word resolution
+    // must be rejected in favor of the nearest resolvable chunk.
+    const saved = makePosition("doc-c", index, chunkIdx, 3, { chunkTextHash: "0".repeat(32) });
+    const resolved = resolveListeningPosition(index, saved);
     expect(resolved).not.toBeNull();
-    expect(resolved!.chunkIndex).toBeGreaterThanOrEqual(0);
-    expect(resolved!.chunkIndex).toBeLessThan(regenerated.chunks.length);
+    expect(resolved!.wordIndex).toBe(0);
+    const foldedChunk = index.chunks[resolved!.chunkIndex].text.replace(/\s+/g, " ").toLowerCase();
+    expect(foldedChunk).toContain(saved.surroundingText.slice(0, 20).toLowerCase());
+  });
+
+  it("resolves to the nearest existing chunk when the anchor no longer exists", async () => {
+    const index = makeIndex();
+    const chunkIdx = Math.min(2, index.chunks.length - 1);
+    const saved = makePosition("doc-c", index, chunkIdx, 3, {
+      stableAnchor: { kind: "text", surface: "gone", startOffset: 0 },
+    });
+    const resolved = resolveListeningPosition(index, saved);
+    // Unresolvable anchor → the chunk still containing the surrounding text.
+    expect(resolved).not.toBeNull();
+    expect(resolved!.wordIndex).toBe(0);
+    const foldedChunk = index.chunks[resolved!.chunkIndex].text.replace(/\s+/g, " ").toLowerCase();
+    expect(foldedChunk).toContain(saved.surroundingText.slice(0, 20).toLowerCase());
+  });
+
+  it("returns the exact word when the stored chunk hash still matches", async () => {
+    const index = makeIndex();
+    const chunkIdx = Math.min(2, index.chunks.length - 1);
+    const saved = makePosition("doc-c", index, chunkIdx, 3);
+    const resolved = resolveListeningPosition(index, saved);
+    expect(resolved).toEqual({ chunkIndex: chunkIdx, wordIndex: 3 });
   });
 
   it("writeListeningPositionSync persists for unload and is readable after restart", async () => {
@@ -160,6 +221,34 @@ describe("ttsListeningPosition", () => {
     expect(restored).not.toBeNull();
     expect(restored!.chunkIndex).toBe(1);
     expect(restored!.wordIndex).toBe(2);
+  });
+
+  it("restores the freshest record when IndexedDB and localStorage disagree (unload sync write wins)", async () => {
+    const index = makeIndex();
+    const staleIdb = makePosition("doc-f", index, 1, 0, { updatedAt: 1000 });
+    mockIndexedDB(new Map([["anon::doc-f", staleIdb]]));
+
+    // The unload handler writes the NEWER exact position synchronously to
+    // localStorage; the async IDB write may have been throttled/stale.
+    const freshLocal = makePosition("doc-f", index, 7, 2, { updatedAt: 9999 });
+    writeListeningPositionSync(freshLocal);
+
+    const restored = await getTTSListeningPosition("doc-f");
+    expect(restored).not.toBeNull();
+    expect(restored!.chunkIndex).toBe(7);
+    expect(restored!.wordIndex).toBe(2);
+  });
+
+  it("restores the freshest record when IndexedDB is newer than localStorage", async () => {
+    const index = makeIndex();
+    const freshIdb = makePosition("doc-g", index, 9, 1, { updatedAt: 9999 });
+    mockIndexedDB(new Map([["anon::doc-g", freshIdb]]));
+    const staleLocal = makePosition("doc-g", index, 0, 0, { updatedAt: 100 });
+    writeListeningPositionSync(staleLocal);
+
+    const restored = await getTTSListeningPosition("doc-g");
+    expect(restored).not.toBeNull();
+    expect(restored!.chunkIndex).toBe(9);
   });
 
   it("namespaces by profile id", async () => {

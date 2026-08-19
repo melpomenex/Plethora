@@ -12,6 +12,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { ReaderTTSControls, type ReaderTTSHandle } from "../ReaderTTSControls";
+import { getTTSListeningPosition } from "../../../utils/ttsListeningPosition";
 import type { SpeechSectionInput, SourceAnchor } from "../../../utils/readerSpeechIndex";
 
 const generateSpeechMock = vi.hoisted(() => vi.fn());
@@ -306,7 +307,7 @@ describe("ReaderTTSControls pause/resume correctness (#5)", () => {
     await waitFor(() => expect(ref.current!.playbackState()).toBe("playing"));
   });
 
-  it("text re-extraction while paused preserves the session position", async () => {
+  it("text re-extraction while paused preserves the session position (no stale audio on resume)", async () => {
     const onChunkStart = vi.fn();
     const { rerender } = render(
       <ReaderTTSControls
@@ -339,9 +340,21 @@ describe("ReaderTTSControls pause/resume correctness (#5)", () => {
       />,
     );
 
-    // Never reset while paused: no new utterance, canonical position intact.
+    // While paused: no auto-play (no new utterance), position stays put, and
+    // the stale pre-change audio is cancelled rather than left buffered.
     expect(harness.speakMock.mock.calls.length).toBe(speaksBeforeReextract);
     expect(chunkCounter()).toBe(pausedCounter);
+
+    // Resume must restart from the reconciled position with NEW-content audio —
+    // it can never resume a cancelled/stale pre-change utterance.
+    pressPlayPause();
+    await waitFor(() =>
+      expect(harness.speakMock.mock.calls.length).toBeGreaterThan(speaksBeforeReextract),
+    );
+    const resumedText = harness.speakMock.mock.calls.at(-1)![0].text;
+    expect(resumedText).toContain("Rev");
+    expect(resumedText).not.toContain("Section");
+    await waitFor(() => expect(chunkCounter()).toBe(pausedCounter));
   });
 
   it("genuine document text change while playing resets safely (no stale audio, no crash)", async () => {
@@ -527,6 +540,100 @@ describe("ReaderTTSControls cross-feature sequence + audio parity", () => {
     // Exact resume: same <audio> cursor continues, no new element for a
     // re-anchored start.
     expect(played.length).toBe(audioCount);
+  });
+
+  it("queue advancement flushes the OLD document only — no spurious record for the new document", async () => {
+    const docAText =
+      "AAA alpha beta gamma. Delta epsilon zeta eta theta. Iota kappa lambda mu nu xi.";
+    const docBText =
+      "BBB alpha beta gamma. Delta epsilon zeta eta theta. Iota kappa lambda mu nu xi.";
+    const onComplete = vi.fn();
+    const onChunkStart = vi.fn();
+    const { rerender } = render(
+      <ReaderTTSControls
+        documentId="doc-queue-a"
+        text={docAText}
+        sections={sectionsFor(docAText)}
+        resolveViewportAnchor={() => null}
+        onChunkStart={onChunkStart}
+        onComplete={onComplete}
+      />,
+    );
+    pressPlayPause();
+    await waitFor(() => expect(harness.speakMock).toHaveBeenCalled());
+    harness.speakMock.mock.calls[0][0].onstart?.();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Drive playback to the last chunk so the completion path marks the Queue
+    // advance (`advancingRef`).
+    for (let i = 0; i < 60; i++) {
+      const u = harness.speakMock.mock.calls.at(-1)?.[0];
+      if (!u) break;
+      u.onstart?.();
+      u.onend?.();
+      await new Promise((r) => setTimeout(r, 0));
+      if (onComplete.mock.calls.length > 0) break;
+    }
+    expect(onComplete).toHaveBeenCalled();
+
+    // Queue advances to document B (new document id + new text).
+    rerender(
+      <ReaderTTSControls
+        documentId="doc-queue-b"
+        text={docBText}
+        sections={sectionsFor(docBText)}
+        resolveViewportAnchor={() => null}
+        onChunkStart={onChunkStart}
+        onComplete={onComplete}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+
+    // The completed document's position is flushed; the new document must NOT
+    // have a record (it has not been listened to).
+    expect(await getTTSListeningPosition("doc-queue-a")).not.toBeNull();
+    expect(await getTTSListeningPosition("doc-queue-b")).toBeNull();
+  });
+
+  it("reopen after TTS advanced past the viewed page resumes from the saved position, not the earlier viewport", async () => {
+    // First session: play from the start, let narration advance deep into the
+    // document (Section 51), then stop and close — the exact position flushes.
+    const onChunkStart = vi.fn();
+    render(
+      <ReaderTTSControls
+        documentId="doc-reopen"
+        text={TEXT}
+        sections={sectionsFor(TEXT)}
+        resolveViewportAnchor={() => anchorAtWord("Section 0")}
+        onChunkStart={onChunkStart}
+      />,
+    );
+    pressPlayPause();
+    await waitFor(() => expect(harness.speakMock).toHaveBeenCalled());
+    await advanceToTextContainingSeq(onChunkStart, "Section 51");
+    pressStop(); // flushes the position
+    await new Promise((r) => setTimeout(r, 20));
+    cleanup();
+
+    // Reopen: the user manually scrolled away — the reading viewport is EARLIER
+    // (Section 0) while TTS had advanced to Section 51. TTS must resume from
+    // the saved position, not the earlier viewport.
+    render(
+      <ReaderTTSControls
+        documentId="doc-reopen"
+        text={TEXT}
+        sections={sectionsFor(TEXT)}
+        resolveViewportAnchor={() => anchorAtWord("Section 0")}
+        resolvePositionAnchor={() => null}
+        onChunkStart={onChunkStart}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    pressPlayPause();
+    await waitFor(() =>
+      expect(harness.speakMock.mock.calls.at(-1)![0].text).toContain("Section 51"),
+    );
+    expect(harness.speakMock.mock.calls.at(-1)![0].text).not.toContain("Section 0");
   });
 
   // Local helper mirroring advanceToTextContaining but scoped to this describe
