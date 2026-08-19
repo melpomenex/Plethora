@@ -200,6 +200,67 @@ describe("getScrollPercent", () => {
   });
 });
 
+describe("sentenceStartFor (deliberate-scroll resume look-behind)", () => {
+  const TEXT =
+    "Alpha beta gamma delta. Epsilon zeta eta theta iota kappa. " +
+    "Lambda mu nu xi omicron pi rho. Sigma tau upsilon phi chi psi omega.";
+
+  function anchoredIndex(maxChunk: number): ReaderSpeechIndex {
+    return new ReaderSpeechIndex(
+      [
+        {
+          key: "doc",
+          text: TEXT,
+          anchorAt: (offset) => ({ kind: "text", surface: "test", startOffset: offset }),
+          offsetForAnchor: (anchor) =>
+            anchor.kind === "text" && anchor.surface === "test" ? anchor.startOffset : null,
+        },
+      ],
+      maxChunk,
+    );
+  }
+
+  it("returns the start of the sentence containing the word within one chunk", () => {
+    const index = anchoredIndex(700); // single chunk
+    const pos = index.locate({ kind: "text", surface: "test", startOffset: TEXT.indexOf("upsilon") });
+    expect(pos).toEqual({ chunkIndex: 0, wordIndex: 19 });
+    const start = index.sentenceStartFor(pos!);
+    // The sentence "Sigma tau upsilon…" begins at word 17.
+    expect(index.chunks[start.chunkIndex].words[start.wordIndex].text).toBe("Sigma");
+  });
+
+  it("starts a fresh sentence at the current chunk's first word when the previous chunk ends a sentence", () => {
+    // Chunk 0 = "Alpha…rho." (three sentences), chunk 1 = "Sigma…omega." —
+    // "Sigma" is a fresh sentence in chunk 1, so the look-behind must NOT jump
+    // back into chunk 0's final sentence.
+    const index = anchoredIndex(120);
+    expect(index.chunks.length).toBeGreaterThan(1);
+    const pos = index.locate({ kind: "text", surface: "test", startOffset: TEXT.indexOf("upsilon") });
+    const start = index.sentenceStartFor(pos!);
+    expect(index.chunks[start.chunkIndex].words[start.wordIndex].text).toBe("Sigma");
+    expect(start.chunkIndex).toBe(pos!.chunkIndex);
+  });
+
+  it("looks back into the previous chunk when the sentence continues across the boundary", () => {
+    const longSentence =
+      "Theta theta theta theta theta theta theta theta theta theta theta theta theta theta theta " +
+      "theta theta theta theta theta theta theta theta theta theta theta theta theta theta theta " +
+      "theta theta theta theta theta theta theta theta theta theta theta theta theta theta theta " +
+      "theta theta theta theta theta theta theta theta theta theta theta theta theta theta theta " +
+      "theta theta theta theta theta theta theta theta theta theta theta theta theta theta theta.";
+    const index = buildSpeechIndexFromText(longSentence, 60);
+    // The single long sentence hard-wraps across chunks with no sentence
+    // boundary between them; the target word's sentence continues from the
+    // previous chunk, so the look-behind steps back one chunk (bounded).
+    const lastChunk = index.chunks.length - 1;
+    expect(lastChunk).toBeGreaterThan(1);
+    const pos = { chunkIndex: lastChunk, wordIndex: 0 };
+    const start = index.sentenceStartFor(pos);
+    expect(start.chunkIndex).toBe(lastChunk - 1);
+    expect(start.wordIndex).toBe(0);
+  });
+});
+
 describe("foldForMatch", () => {
   it("folds curly quotes, apostrophes, dashes, ligatures, and whitespace", () => {
     expect(foldForMatch("“quoted”")).toBe('"quoted"');

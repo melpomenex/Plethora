@@ -27,7 +27,7 @@ const STORE_NAME = "plethora-tts-positions";
 const DB_NAME = "plethora-tts-positions-db";
 const DB_VERSION = 1;
 
-function getProfileId(): string {
+export function getProfileId(): string {
   try {
     const raw = localStorage.getItem("plethora_user");
     if (raw) { const parsed = JSON.parse(raw); if (parsed?.id) return `u:${parsed.id}`; }
@@ -64,28 +64,58 @@ let pendingSave: TTSListeningPosition | null = null;
 let lastSaveAt = 0;
 let throttleTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Test/diagnostic hook: clears the module-global throttle state. */
+export function resetTTSListeningPositionState(): void {
+  pendingSave = null;
+  // Treat the throttle as if a save just happened, so a subsequent non-flush
+  // save deterministically lands in the pending slot.
+  lastSaveAt = Date.now();
+  if (throttleTimer) {
+    clearTimeout(throttleTimer);
+    throttleTimer = null;
+  }
+}
+
+/**
+ * Read the freshest position for a document+profile. Both backends may hold a
+ * record for the same key: the async IndexedDB write is the normal path, but
+ * the unload handler writes synchronously to localStorage (an IDB transaction
+ * is not guaranteed to survive process exit), which can be NEWER than the last
+ * throttled IDB write. Return whichever record has the greatest `updatedAt`,
+ * falling back gracefully when either source is missing.
+ */
 export async function getTTSListeningPosition(documentId: string, profileId?: string): Promise<TTSListeningPosition | null> {
   const pid = profileId ?? getProfileId();
   const id = keyFor(documentId, pid);
+
+  let idbRecord: TTSListeningPosition | null = null;
   try {
     const db = await openDB();
-    return await new Promise((resolve) => {
+    idbRecord = await new Promise<TTSListeningPosition | null>((resolve) => {
       const tx = db.transaction(STORE_NAME, "readonly");
       const req = tx.objectStore(STORE_NAME).get(id);
       req.onsuccess = () => {
         const val = req.result?.value as TTSListeningPosition | undefined;
-        if (!val) resolve(null);
-        else resolve(val);
+        resolve(val ?? null);
       };
       req.onerror = () => resolve(null);
     });
   } catch {
-    try {
-      const raw = localStorage.getItem(`tts-pos:${id}`);
-      if (!raw) return null;
-      return JSON.parse(raw) as TTSListeningPosition;
-    } catch { return null; }
+    idbRecord = null;
   }
+
+  let localRecord: TTSListeningPosition | null = null;
+  try {
+    const raw = localStorage.getItem(`tts-pos:${id}`);
+    if (raw) localRecord = JSON.parse(raw) as TTSListeningPosition;
+  } catch {
+    localRecord = null;
+  }
+
+  if (idbRecord && localRecord) {
+    return idbRecord.updatedAt >= localRecord.updatedAt ? idbRecord : localRecord;
+  }
+  return idbRecord ?? localRecord;
 }
 
 export async function saveTTSListeningPosition(pos: TTSListeningPosition, opts: { flush?: boolean } = {}): Promise<void> {
@@ -122,6 +152,17 @@ export async function flushPendingListeningPosition(): Promise<void> {
   if (pendingSave) { const p = pendingSave; pendingSave = null; if (throttleTimer) { clearTimeout(throttleTimer); throttleTimer = null; } await persist(p); lastSaveAt = Date.now(); }
 }
 
+/**
+ * Synchronous localStorage write used at unload (beforeunload/pagehide): an
+ * IndexedDB transaction is not guaranteed to complete before the process
+ * exits, so a best-effort sync write ensures the record survives a restart.
+ * Idempotent with the async path — both write the same `tts-pos:<id>` key.
+ */
+export function writeListeningPositionSync(pos: TTSListeningPosition): void {
+  const id = keyFor(pos.documentId, pos.profileId);
+  try { localStorage.setItem(`tts-pos:${id}`, JSON.stringify(pos)); } catch {}
+}
+
 export async function clearTTSListeningPosition(documentId: string, profileId?: string): Promise<void> {
   const pid = profileId ?? getProfileId();
   const id = keyFor(documentId, pid);
@@ -140,9 +181,14 @@ export async function clearTTSListeningPosition(documentId: string, profileId?: 
 export function resolveListeningPosition(index: ReaderSpeechIndex, pos: TTSListeningPosition): SpeechPosition | null {
   const viaAnchor = index.locate(pos.stableAnchor);
   if (viaAnchor) {
+    // Exact-word resolution is trustworthy only when the located chunk's text
+    // still matches the stored chunk text. On a mismatch the document was
+    // regenerated and the anchor may have shifted to a different word — fall
+    // through to the nearest-anchor chain below. An absent stored hash skips
+    // the check (legacy/no data).
     const chunk = index.chunks[viaAnchor.chunkIndex];
-    if (chunk && digestText128(chunk.text) === pos.chunkTextHash) return viaAnchor;
-    if (chunk) return viaAnchor;
+    const hashMatches = !pos.chunkTextHash || (chunk && digestText128(chunk.text) === pos.chunkTextHash);
+    if (hashMatches) return viaAnchor;
   }
   const folded = foldForMatch(pos.surroundingText);
   if (folded) {
