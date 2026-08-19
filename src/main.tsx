@@ -397,6 +397,17 @@ import('./lib/tagEditing/storeReconciliation')
     console.error('[Tag Editing] Reconciliation wiring failed:', error);
   });
 
+// Paid-operation consent handler (ai-billing-safety #14): surfaces the opt-in
+// modal whenever a billable embedding/TTS operation is attempted while the
+// relevant consent flag is off. The <Modal /> host below renders the dialog.
+import('./lib/paidConsent/registerPaidConsentHandler')
+  .then(({ registerPaidConsentHandler }) => {
+    registerPaidConsentHandler();
+  })
+  .catch((error) => {
+    console.error('[Paid Consent] Handler registration failed:', error);
+  });
+
 // Memory benchmark harness (bound-runtime-memory-and-gate): drives the app
 // through a deterministic scenario when the harness env vars are present.
 // Inert in any other configuration (the backend command returns null).

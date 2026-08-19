@@ -752,6 +752,56 @@ export const en: Dict = {
   "aiLibrary.indexState_stale": "stale",
   "aiLibrary.indexState_failed": "failed",
   "aiLibrary.indexState_unindexed": "not indexed",
+  "aiLibrary.indexPaidIndicator": "Paid API",
+  "aiLibrary.indexPaidIndicatorDesc":
+    "This embedding provider is an external paid API. Billable embedding requests are only sent after you enable paid embeddings.",
+  "aiLibrary.indexConfirmTitle": "Start library indexing",
+  "aiLibrary.indexConfirmMessage":
+    "Indexing {docs} document(s) will embed about {chunks} chunks with {provider} ({model}). This is a paid API operation{estimate}. Start indexing?",
+  "aiLibrary.indexConsentRequiredMessage":
+    "{provider} is a paid cloud embedding provider. Enable paid embeddings to index the library with it (an estimate is shown before work starts).",
+  "aiLibrary.indexConsentError":
+    "Indexing was blocked because paid embeddings are not enabled. Enable them in the embedding settings, then retry.",
+  "aiLibrary.indexCostUnknown": " — an exact cost cannot be estimated",
+  "paidConsent.enable": "Enable",
+  "paidConsent.cancel": "Not now",
+  "paidConsent.ttsTitle": "Enable paid TTS?",
+  "paidConsent.ttsMessage":
+    "{label} is a paid cloud voice provider. Generating speech with it may consume API credits. Enable paid TTS to continue (you can turn it off anytime in Settings → Voice & TTS).",
+  "paidConsent.embeddingsTitle": "Enable paid embeddings?",
+  "paidConsent.embeddingsMessage":
+    "{label} is a paid cloud embedding provider. Embedding your content with it may consume API credits. Enable paid embeddings to continue (you can turn it off anytime in Settings → Embeddings).",
+  "paidConsent.aiFallbackTitle": "Retry using the cloud provider?",
+  "paidConsent.aiFallbackMessage":
+    "On-device AI could not finish. Retry with the configured cloud provider? This may consume API credits.",
+  "paid.badge": "Paid API",
+  "paid.badgeTooltip": "This option uses an external paid API. Billable requests are only sent after you enable it.",
+  "paid.embeddingsEnabledLabel": "Allow paid embeddings",
+  "paid.embeddingsEnabledDesc":
+    "Send embedding requests to OpenAI, Cohere or OpenRouter when a cloud provider is selected. Off by default — an API key alone never authorizes billing.",
+  "paid.ttsEnabledLabel": "Allow paid TTS/voice",
+  "paid.ttsEnabledDesc":
+    "Generate speech through paid cloud providers (fal, OpenRouter, ElevenLabs, OpenAI, Groq, Plethora Neural). Off by default — an API key alone never authorizes billing.",
+  "paid.embeddingsDisabledHint":
+    "Paid embeddings are off. Embedding requests for {provider} are blocked until you enable them below.",
+  "paid.ttsDisabledHint":
+    "Paid TTS is off. Speech generation through {label} is blocked until you enable it below.",
+  "paid.ttsReadAloudBlocked":
+    "Paid TTS is off. Enable it in Settings → Voice & TTS, or switch to a free/local voice provider.",
+  "paid.ttsGenerationBlocked":
+    "Speech generation is blocked because paid TTS is disabled for {label}.",
+  "paid.audioEditionConsentRequired":
+    "This audio edition uses {label}, a paid cloud voice provider. You must enable paid TTS before generating it.",
+  "paid.audioEditionPaidNotice":
+    "This edition will be synthesized with {label}, a paid cloud API. You'll be asked to enable paid TTS before generation starts.",
+  "paid.audioEditionPaidEnabled":
+    "This edition will be synthesized with {label}, a paid cloud API.",
+  "paid.voicePreviewBlocked":
+    "Preview blocked — paid TTS is disabled for {label}.",
+  "paid.auditionConsentRequired":
+    "Auditioning this voice uses {label}, a paid API. Enable paid TTS to continue.",
+  "paid.fallbackBlocked":
+    "On-device AI could not finish and the cloud retry was declined — nothing was sent to the cloud provider. Re-run the action to retry on the cloud provider.",
   "confirm.itemsSelected": "{count} items selected",
   "confirm.itemsAffected": "{count} items to be affected:",
   "confirm.andMore": "...and {count} more",
@@ -5674,6 +5724,8 @@ export const en: Dict = {
   "embeddings.ollamaBaseUrl": "Ollama base URL",
   "embeddings.apiKeyNote":
     "API keys are read from your configured AI providers (Settings → AI). Local Ollama needs no key — only the base URL above.",
+  "embeddings.paidIndicatorDesc":
+    "{provider} is a paid cloud embedding provider. Embedding requests are blocked until you enable paid embeddings below.",
   "embeddings.retrievalTuning": "Retrieval Tuning",
   "embeddings.chunkSize": "Chunk size (words)",
   "embeddings.chunkOverlap": "Chunk overlap (words)",

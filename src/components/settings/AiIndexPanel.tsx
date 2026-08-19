@@ -47,6 +47,16 @@ import {
   type IndexStatusResponse,
 } from "../../api/ai-learning";
 import { resolveEmbeddingConfigForRag } from "../assistant/ragConfig";
+import {
+  isPaidEmbeddingProvider,
+  paidEmbeddingsEnabled,
+  requestPaidConsent,
+} from "../../utils/aiBillingConsent";
+import {
+  embeddingProviderLabel,
+  estimateEmbeddingWorkload,
+  formatEmbeddingCostClause,
+} from "../../utils/embeddingEstimation";
 
 /** Poll cadence while the indexer has work (queued/indexing/pending). */
 const ACTIVE_POLL_MS = 2_500;
@@ -61,6 +71,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** True when the error payload is the backend's consent rejection. */
+function isPaidConsentError(error: unknown): boolean {
+  const type =
+    typeof error === "object" && error !== null && "type" in error
+      ? (error as { type?: unknown }).type
+      : undefined;
+  return type === "paid_operation_not_consented";
+}
+
 const STATE_BADGE_CLASS: Record<string, string> = {
   indexed: "bg-success/15 text-success",
   queued: "bg-primary/15 text-primary",
@@ -73,20 +92,30 @@ const STATE_BADGE_CLASS: Record<string, string> = {
 export function AiIndexPanel() {
   const { t } = useI18n();
   const { confirm: confirmModal } = useModal();
-  const { enabled, updateSettingsCategory, embeddingProvider, embeddingModel } = useSettingsStore(
-    useShallow((s) => ({
-      enabled: s.settings.features.aiSemanticIndex,
-      updateSettingsCategory: s.updateSettingsCategory,
-      embeddingProvider: s.settings.embedding.provider,
-      embeddingModel:
-        s.settings.embedding.ollamaModel ||
-        s.settings.embedding.openaiModel ||
-        s.settings.embedding.cohereModel ||
-        s.settings.embedding.openrouterModel ||
-        "",
-    }))
-  );
+  const { enabled, updateSettingsCategory, embeddingProvider, embeddingModel, embeddingSettings } =
+    useSettingsStore(
+      useShallow((s) => ({
+        enabled: s.settings.features.aiSemanticIndex,
+        updateSettingsCategory: s.updateSettingsCategory,
+        embeddingProvider: s.settings.embedding.provider,
+        embeddingModel:
+          s.settings.embedding.ollamaModel ||
+          s.settings.embedding.openaiModel ||
+          s.settings.embedding.cohereModel ||
+          s.settings.embedding.openrouterModel ||
+          "",
+        embeddingSettings: s.settings.embedding,
+      }))
+    );
   const documents = useDocumentStore((s) => s.documents);
+
+  // Workload basis for the paid pre-flight estimate: total extractable chars
+  // across the library (the chunker splits on this; an empty estimate is
+  // expressed as "cannot be precisely estimated" rather than guessed).
+  const libraryCharCount = useMemo(
+    () => documents.reduce((acc, doc) => acc + (doc.content?.length ?? 0), 0),
+    [documents]
+  );
 
   const [status, setStatus] = useState<IndexStatusResponse | null>(null);
   const [mode, setMode] = useState<RetrievalModeIndicator>("unknown");
@@ -162,19 +191,96 @@ export function AiIndexPanel() {
         await action();
         await refresh();
       } catch (e) {
+        // Defensive backend gate (paid_operation_not_consented): surface the
+        // opt-in so the user can enable paid embeddings and retry instead of
+        // just showing a raw error.
+        if (isPaidConsentError(e)) {
+          const granted = await requestPaidConsent({
+            kind: "embeddings",
+            provider: embeddingSettings.provider,
+            model: embeddingModel,
+            label: embeddingProviderLabel(embeddingSettings.provider),
+          });
+          if (!granted) {
+            setError(t("aiLibrary.indexConsentError"));
+          }
+          return;
+        }
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(null);
       }
     },
-    [refresh]
+    [refresh, t, embeddingSettings, embeddingModel]
   );
+
+  /**
+   * Paid pre-flight gate for bulk indexing (ai-billing-safety #14):
+   *  - local/free providers (Ollama) proceed without consent or confirmation;
+   *  - paid cloud providers require the `paidEmbeddingsEnabled` flag (opt-in
+   *    surface when off) AND a confirmation showing the workload estimate
+   *    (chunks × model) and a cost estimate when pricing is known.
+   * Returns false when the user declines at any step (nothing is enqueued).
+   */
+  const requestIndexConsent = useCallback(async (): Promise<boolean> => {
+    const provider = embeddingSettings.provider;
+    if (!isPaidEmbeddingProvider(provider)) return true;
+
+    if (!paidEmbeddingsEnabled()) {
+      const granted = await requestPaidConsent({
+        kind: "embeddings",
+        provider,
+        model: embeddingModel,
+        label: embeddingProviderLabel(provider),
+      });
+      if (!granted) {
+        setError(
+          t("aiLibrary.indexConsentRequiredMessage", {
+            provider: embeddingProviderLabel(provider),
+          })
+        );
+        return false;
+      }
+    }
+
+    const estimate = estimateEmbeddingWorkload({
+      characterCount: libraryCharCount,
+      provider,
+      model: embeddingModel,
+      chunkSize: embeddingSettings.chunkSize,
+    });
+    const docCount = documents.length;
+    const estimateClause = estimate.costUnknown
+      ? t("aiLibrary.indexCostUnknown")
+      : ` — ${formatEmbeddingCostClause(estimate)}`;
+    return confirmModal(
+      t("aiLibrary.indexConfirmMessage", {
+        docs: docCount,
+        chunks: estimate.estimatedChunks,
+        provider: embeddingProviderLabel(provider),
+        model: embeddingModel || "default",
+        estimate: estimateClause,
+      }),
+      t("aiLibrary.indexConfirmTitle")
+    );
+  }, [embeddingSettings, embeddingModel, libraryCharCount, documents, t, confirmModal]);
 
   /** Enable-flag CTA: turn the feature on and start the bulk backfill. */
   const enableIndexing = useCallback(() => {
-    updateSettingsCategory("features", { aiSemanticIndex: true });
-    void runAction("enable", () => enqueueAllAIDocuments(requireCharging));
-  }, [updateSettingsCategory, runAction, requireCharging]);
+    void (async () => {
+      if (!(await requestIndexConsent())) return;
+      updateSettingsCategory("features", { aiSemanticIndex: true });
+      await runAction("enable", () => enqueueAllAIDocuments(requireCharging));
+    })();
+  }, [requestIndexConsent, updateSettingsCategory, runAction, requireCharging]);
+
+  /** Reindex stale documents — same paid gate as the initial enable. */
+  const reindexStale = useCallback(() => {
+    void (async () => {
+      if (!(await requestIndexConsent())) return;
+      await runAction("reindex", () => enqueueAllAIDocuments(requireCharging));
+    })();
+  }, [requestIndexConsent, runAction, requireCharging]);
 
   /**
    * Reset needs an explicit in-app confirmation (`useModal` — native
@@ -201,6 +307,12 @@ export function AiIndexPanel() {
             <Sparkle className="w-4 h-4" /> {t("aiLibrary.indexTitle")}
           </h3>
           <p className="text-sm text-muted-foreground">{t("aiLibrary.indexEnableDesc")}</p>
+          {isPaidEmbeddingProvider(embeddingProvider) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+              <Warning className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              {t("aiLibrary.indexPaidIndicatorDesc")}
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -315,9 +427,18 @@ export function AiIndexPanel() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span>{t("aiLibrary.indexProvider")}</span>
-                <span className="font-medium text-foreground">
+                <span className="font-medium text-foreground inline-flex items-center gap-1.5">
                   {embeddingProvider}
                   {embeddingModel ? ` · ${embeddingModel}` : ""}
+                  {isPaidEmbeddingProvider(embeddingProvider) && (
+                    <span
+                      title={t("aiLibrary.indexPaidIndicatorDesc")}
+                      className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                    >
+                      <Warning className="w-3 h-3" />
+                      {t("aiLibrary.indexPaidIndicator")}
+                    </span>
+                  )}
                 </span>
               </div>
               {aggregate.embeddingModels.map((m) => (
@@ -347,7 +468,7 @@ export function AiIndexPanel() {
 
             {aggregate.staleDocuments > 0 && (
               <button
-                onClick={() => void runAction("reindex", () => enqueueAllAIDocuments(requireCharging))}
+                onClick={reindexStale}
                 disabled={busy !== null}
                 className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:opacity-90 disabled:opacity-60"
               >

@@ -8,12 +8,14 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize } from "../api/tts";
+import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize, TTSServiceError } from "../api/tts";
 import { resolveProviderKey } from "../api/tts/auth";
 import { getAdapter } from "../api/tts/registry";
 import { getProviderSettings } from "../utils/ttsSettings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useNativeAndroidTTS } from "./useNativeAndroidTTS";
+import { cloudTtsRequiresConsent, requestPaidConsent } from "../utils/aiBillingConsent";
+import { t } from "../lib/i18n";
 
 interface UseTTSOptions {
   rate?: number;
@@ -279,15 +281,35 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       const normalizedText = cleanText(text);
       if (!normalizedText) return;
 
+      const runProvider = async (): Promise<void> => {
+        const maxChunkSize = await resolveTTSMaxChunkSize(settings);
+        for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
+          await speakWithProvider(chunk, overrides);
+        }
+      };
+
       try {
         // System TTS synthesizes directly via the device engine (no audio URL).
         if (isSystemProvider && hasSpeechSynthesis) {
           await speakWithWebSpeech(normalizedText);
         } else if (providerConfigured) {
-          const maxChunkSize = await resolveTTSMaxChunkSize(settings);
-          for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
-            await speakWithProvider(chunk, overrides);
+          // Paid/cloud consent gate runs once BEFORE the chunk loop so
+          // read-aloud prompts at most once, never once per chunk
+          // (ai-billing-safety #14). A denial stops the read rather than
+          // throwing a per-chunk consent error.
+          if (
+            cloudTtsRequiresConsent(String(ttsSettings?.provider), settings) &&
+            !(await requestPaidConsent({
+              kind: "tts",
+              provider: String(ttsSettings?.provider),
+              model: activeConfig?.modelId,
+              label: activeAdapter.label,
+            }))
+          ) {
+            setLastError(t("paid.ttsReadAloudBlocked"));
+            return;
           }
+          await runProvider();
         } else {
           await speakWithWebSpeech(normalizedText);
         }
@@ -295,7 +317,39 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         setIsGenerating(false);
         setIsSpeaking(false);
         setIsPaused(false);
-        setLastError(error instanceof Error ? error.message : "TTS generation failed.");
+
+        // Defensive backstop (ai-billing-safety #14): a billable adapter was
+        // reached without consent (the pre-loop gate was bypassed/stale).
+        // Surface the opt-in surface; granted ⇒ retry once, denied ⇒ stop
+        // with feedback instead of showing a bare provider error.
+        let retryFailure: Error | undefined;
+        if (error instanceof TTSServiceError && error.consentRequired) {
+          const granted = await requestPaidConsent({
+            kind: "tts",
+            provider: String(ttsSettings?.provider),
+            model: activeConfig?.modelId,
+            label: activeAdapter.label,
+          });
+          if (granted) {
+            try {
+              await runProvider();
+              return;
+            } catch (retryError) {
+              retryFailure =
+                retryError instanceof Error
+                  ? retryError
+                  : new Error(String(retryError));
+            }
+          } else {
+            setLastError(t("paid.ttsReadAloudBlocked"));
+            return;
+          }
+        }
+
+        setLastError(
+          retryFailure?.message ??
+            (error instanceof Error ? error.message : "TTS generation failed.")
+        );
 
         if (hasSpeechSynthesis) {
           await speakWithWebSpeech(normalizedText);
@@ -311,6 +365,9 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       speakWithProvider,
       speakWithWebSpeech,
       settings,
+      ttsSettings,
+      activeConfig,
+      activeAdapter,
     ]
   );
 

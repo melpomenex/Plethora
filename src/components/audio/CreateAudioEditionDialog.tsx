@@ -29,6 +29,9 @@ import {
   estimateAudioEditionCost,
   formatAudioDuration,
 } from "../../utils/audioEditionEstimation";
+import { getAdapter } from "../../api/tts/registry";
+import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
+import { t } from "../../lib/i18n";
 
 interface CreateAudioEditionDialogProps {
   isOpen: boolean;
@@ -175,6 +178,23 @@ export function CreateAudioEditionDialog({
     setErrorMsg(null);
 
     try {
+      const activeAdapter = getAdapter(provider);
+      // Paid/cloud gate (ai-billing-safety #14): never start a billable
+      // audio-edition synthesis without explicit consent. The pre-flight
+      // summary already discloses the provider/cost; this enforces the flag.
+      if (isPaidTtsProvider(provider)) {
+        const granted = await requestPaidConsent({
+          kind: "tts",
+          provider,
+          model,
+          label: activeAdapter.label,
+        });
+        if (!granted) {
+          setErrorMsg(t("paid.audioEditionConsentRequired", { label: activeAdapter.label }));
+          return;
+        }
+      }
+
       const editionId = typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `ed-${Date.now()}`;
@@ -483,6 +503,16 @@ export function CreateAudioEditionDialog({
                 </div>
               </div>
             </div>
+            {isPaidTtsProvider(provider) && (
+              <p className="flex items-start gap-1.5 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                <WarningCircle size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  {settings.tts?.paidTtsEnabled !== true
+                    ? t("paid.audioEditionPaidNotice", { label: getAdapter(provider).label })
+                    : t("paid.audioEditionPaidEnabled", { label: getAdapter(provider).label })}
+                </span>
+              </p>
+            )}
           </div>
 
           {errorMsg && (

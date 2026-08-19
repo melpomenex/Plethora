@@ -17,7 +17,7 @@
 import { estimateTokens } from "../chunkTextByTokens";
 import { recordTaskDiagnostic } from "../diagnostics";
 import { AIError, isCancelledError, toAIError } from "../errors";
-import { allowCloudFallback } from "../provider";
+import { requestCloudFallback } from "../provider";
 import type {
   AIModelCapabilities,
   AIRequest,
@@ -269,30 +269,31 @@ async function executeTask<I, O>(
 
     // On-device failure (e.g. timeout or generation failure) may retry on the
     // configured cloud provider — mirroring the long-standing `runAiAction`
-    // fallback — but ONLY when the user allows cloud fallback at all (design
-    // D27: cloud transmission is never silent, and the "on-device only"
-    // preference is a hard lock), never for user cancellations, and never for
-    // SafetyBlocked (content the on-device model refused must not be re-sent
-    // to a cloud provider).
+    // fallback — but ONLY with explicit consent (ai-billing-safety #14 /
+    // design D27: cloud transmission is never silent). Free/local cloud
+    // targets (Ollama, local endpoints) are never billable and proceed; a
+    // paid cloud target proceeds when the persisted `allowCloudFallback` flag
+    // is set or the ai-fallback consent surface is approved. A denial stops
+    // the operation (the original error surfaces to the caller's UI), and a
+    // user cancellation or on-device safety refusal never re-sends content.
     if (
       provider.kind === "ondevice" &&
       !options.kind &&
       !options.provider &&
       !options.signal?.aborted &&
       mapped.category !== "Cancelled" &&
-      mapped.category !== "SafetyBlocked" &&
-      allowCloudFallback()
+      mapped.category !== "SafetyBlocked"
     ) {
-      try {
-        const cloudRoute = await resolveTaskRoute(task, { kind: "cloud" });
-        if (cloudRoute) {
+      const cloudRoute = await resolveTaskRoute(task, { kind: "cloud" }).catch(() => null);
+      if (cloudRoute && (await requestCloudFallback(task.id))) {
+        try {
           return await executeTask(task, input, {
             ...options,
             provider: cloudRoute.provider,
           });
+        } catch {
+          // Fallback also failed or unavailable; throw original mapped error below
         }
-      } catch {
-        // Fallback also failed or unavailable; throw original mapped error below
       }
     }
 
