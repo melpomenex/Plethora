@@ -127,6 +127,7 @@ export function TranscriptPanel({
 
   const handleBarAction = (action: SelectionBarAction) => {
     if (action === "extract") return; // transcripts have no extract path
+    if (action === "readFromHere") return; // document readers own TTS starts
     if (action === "copy") {
       void copySelectionTextToClipboard(controller.readySelection?.text ?? "");
       controller.dismiss({ suppressCurrentText: true });
@@ -134,7 +135,7 @@ export function TranscriptPanel({
     }
     const snapshot = controller.captureForAction();
     if (!snapshot) return;
-    setPendingAction({ action, text: snapshot.text, passage: snapshot.passage });
+    setPendingAction({ action: action as SelectionAiAction, text: snapshot.text, passage: snapshot.passage });
   };
 
   // Comfort-offset + debounced + user-scroll-aware auto-scroll. Mirrors the

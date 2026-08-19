@@ -1872,7 +1872,12 @@ export function QueueScrollPage() {
       selectionController.dismiss();
       return;
     }
-    setPendingAiAction({ action, text: snapshot.text, passage: snapshot.passage });
+    if (action === "readFromHere" || action === "copy") {
+      // Document readers own TTS starts; copy is handled above.
+      selectionController.dismiss();
+      return;
+    }
+    setPendingAiAction({ action: action as SelectionAiAction, text: snapshot.text, passage: snapshot.passage });
   };
 
   // When a podcast episode is the rendered queue item, ensure it has a real

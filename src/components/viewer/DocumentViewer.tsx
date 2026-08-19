@@ -14,6 +14,7 @@ import {
   Flag,
   Gear,
   GraduationCap,
+  Headphones,
   Highlighter,
   Lightbulb,
   List,
@@ -46,6 +47,26 @@ import { attachIframePointerActivityForwarder } from "../../utils/iframePointerA
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { PDFViewer } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
+import type { PdfSpeechPage } from "./PDFViewer";
+import {
+  buildDOMSectionInput,
+  buildPdfSpeechPageInput,
+  extractSpeechSectionsFromDOM,
+  type DOMSpeechSection,
+} from "../../utils/ttsTextExtraction";
+import {
+  selectionContextToTTSAnchor,
+  sourceAnchorToTTSStartAnchor,
+  type SpeechSectionInput,
+  type SourceAnchor,
+  type TTSStartAnchor,
+} from "../../utils/readerSpeechIndex";
+import { foldForMatch } from "../../utils/readerSpeechIndex";
+import {
+  buildTextContentOffsetMapper,
+  findFirstVisibleWord,
+  flatOffsetOfWord,
+} from "../../utils/visibleText";
 import { ImageViewer } from "./ImageViewer";
 import { XThreadViewer, isXThreadDocument } from "./XThreadViewer";
 import { StructuredDocumentViewer } from "../notebooklm/artifacts/StructuredDocumentViewer";
@@ -53,6 +74,7 @@ import { EPUBViewer } from "./EPUBViewer";
 import { YouTubeViewer } from "./YouTubeViewer";
 import { LocalVideoPlayer } from "./LocalVideoPlayerWrapper";
 import { AudiobookViewer } from "./AudiobookViewer";
+import { getAudioEditionByDocument } from "../../api/audioEditions";
 import { ExtractsList } from "../extracts/ExtractsList";
 import { LearningCardsList } from "../learning/LearningCardsList";
 import { EditableContentPalette } from "../common/EditableContentPalette";
@@ -90,7 +112,7 @@ import { lookupDictionary, type DictionaryResult } from "../../utils/dictionaryL
 import { recordReadingSession } from "../../utils/readingSpeed";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { DocumentSearchState } from "../../types/searchHit";
-import { ReaderTTSControls } from "../common/ReaderTTSControls";
+import { ReaderTTSControls, type ReaderTTSHandle } from "../common/ReaderTTSControls";
 import { useIsActiveTab, usePaneId } from "../common/Tabs/TabContent";
 import { useTabReactivation } from "../../hooks/useTabReactivation";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
@@ -326,6 +348,12 @@ interface DocumentViewerProps {
   openedFrom?: string;
   onEnded?: () => void;
   onArchive?: () => void;
+  /**
+   * Open the document directly in the Audio Edition player (AudiobooksTab
+   * "Listen", "Listen from here"). Text documents with a generated edition
+   * render the audio player instead of the reading surface when set.
+   */
+  listenToEdition?: boolean;
 }
 
 type ViewerSearchDirection = "next" | "prev";
@@ -396,6 +424,7 @@ export function DocumentViewer({
   openedFrom,
   onEnded,
   onArchive,
+  listenToEdition,
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
@@ -566,11 +595,32 @@ export function DocumentViewer({
   const [minimapPosition, setMinimapPosition] = useState(0); // 0-1
   const [ocrContextText, setOcrContextText] = useState<string | null>(null);
   const [readerContextText, setReaderContextText] = useState<string>("");
+  // Section-structured speech text for anchored TTS (null while unresolved —
+  // ReaderTTSControls then falls back to indexing the flat text).
+  const [speechSections, setSpeechSections] = useState<SpeechSectionInput[] | null>(null);
+  // Imperative TTS handle: selection "Read from here" and TOC retargeting.
+  const ttsHandleRef = useRef<ReaderTTSHandle | null>(null);
+  // Section-key → iframe body for anchored spoken-word highlighting (EPUB).
+  const [epubSectionContainers, setEpubSectionContainers] = useState<Map<string, HTMLElement>>(
+    () => new Map(),
+  );
 
   const [epubAdvanceSignal, setEpubAdvanceSignal] = useState(0);
 
   // Word highlighting state
-  const [wordHighlightEnabled, setWordHighlightEnabled] = useState(false);
+  // Spoken-word highlighting is a persisted TTS preference (v4, default on) —
+  // never unpersisted component-local state.
+  const ttsHighlightSpokenWord = settings?.tts?.highlightSpokenWord ?? true;
+  const setTtsHighlightSpokenWord = useCallback(
+    (value: boolean) => {
+      const current = useSettingsStore.getState().settings.tts;
+      if (!current) return;
+      useSettingsStore.getState().updateSettings({
+        tts: { ...current, highlightSpokenWord: value },
+      });
+    },
+    []
+  );
   const [epubIframeWindow, setEpubIframeWindow] = useState<Window | null>(null);
   // Mirror epubIframeWindow into a ref so imperative handlers (e.g.
   // clearTextSelection) can always read the latest value without re-subscribing.
@@ -756,6 +806,67 @@ export function DocumentViewer({
   };
 
   const docType = inferFileType(currentDocument);
+
+  // Audio Edition player mode (openspec add-audio-editions-and-hands-free-
+  // study-mode): when a tab opens a document with `listenToEdition`, text
+  // documents (EPUB/PDF/article) with a generated edition render the audio
+  // player instead of the reading surface. For text documents we also probe
+  // for a ready edition so the floating "Listen from here" control (task 4.2)
+  // can appear. Audio documents always keep the player.
+  const [readyEditionInfo, setReadyEditionInfo] = useState<{
+    ready: boolean;
+    totalDurationSec: number;
+  }>({ ready: false, totalDurationSec: 0 });
+  useEffect(() => {
+    if (docType === "audio") {
+      setReadyEditionInfo({ ready: false, totalDurationSec: 0 });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const edition = await getAudioEditionByDocument(documentId);
+        if (!cancelled) {
+          const readySections = (edition?.sections ?? []).filter(
+            (s) => s.generationStatus === "ready"
+          );
+          setReadyEditionInfo({
+            ready: readySections.length > 0,
+            totalDurationSec: readySections.reduce((acc, s) => acc + (s.durationSec || 0), 0),
+          });
+        }
+      } catch {
+        if (!cancelled) setReadyEditionInfo({ ready: false, totalDurationSec: 0 });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [docType, documentId]);
+
+  const hasReadyEdition = readyEditionInfo.ready;
+  const renderEditionPlayer = docType === "audio" || (listenToEdition === true && hasReadyEdition);
+
+  /** Open this document's Audio Edition player (task 4.2 "Listen from here"). */
+  const openEditionPlayer = (fromSeconds: number) => {
+    // Dynamic import: the wrapper imports this module, so a static import
+    // here would create a load-time cycle.
+    void import("./DocumentViewerWrapper").then(({ DocumentViewer: PlayerTab }) => {
+      useTabsStore.getState().addTab({
+        title: currentDocument.title,
+        icon: <Headphones className="w-4 h-4 text-primary" />,
+        type: "document-viewer",
+        content: PlayerTab,
+        closable: true,
+        data: {
+          documentId,
+          listenToEdition: true,
+          autoPlay: true,
+          initialJump: { kind: "audio", timeSeconds: fromSeconds },
+        },
+      });
+    });
+  };
 
   // Set highlight container ref based on doc type
   useEffect(() => {
@@ -4380,15 +4491,211 @@ export function DocumentViewer({
   }, []);
 
   const handlePdfContextTextChange = useCallback(
-    (text: string) => {
+    (text: string, speechPages?: PdfSpeechPage[]) => {
       const preferOcr = settings.documents.ocr.autoOCR || settings.documents.ocr.autoExtractOnLoad;
       const contextForReader = preferOcr && ocrContextText ? ocrContextText : text;
       setReaderContextText(contextForReader);
+      if (speechPages && speechPages.length > 0) {
+        // Canonical path: per-page sections with pdf-word anchors.
+        pdfSpeechPagesRef.current = new Map(speechPages.map((page) => [page.pageNumber, page]));
+        setSpeechSections(speechPages.map((page) => buildPdfSpeechPageInput(page)));
+      } else if (!preferOcr || !ocrContextText) {
+        // Legacy marker path: one marker section; the speech index derives
+        // page anchors from the `<page number/>` markers itself.
+        setSpeechSections([{ key: "pdf-window", text }]);
+      }
       if (!onPdfContextTextChange) return;
       onPdfContextTextChange(contextForReader);
     },
     [onPdfContextTextChange, ocrContextText, settings.documents.ocr.autoOCR, settings.documents.ocr.autoExtractOnLoad]
   );
+
+  // EPUB speech sections: one per mounted spine item, offsets resolving to
+  // {kind:"epub", spineIndex, sectionOffset} anchors.
+  // Raw EPUB speech sections (spineIndex + text) for viewport anchor mapping.
+  const epubSpeechSectionsRawRef = useRef<Array<{ spineIndex: number; href: string; text: string }>>([]);
+  // Last PDF canonical speech pages, keyed by page number.
+  const pdfSpeechPagesRef = useRef<Map<number, PdfSpeechPage>>(new Map());
+
+  const handleEpubSpeechSectionsChange = useCallback(
+    (sections: Array<{ spineIndex: number; href: string; text: string }>) => {
+      epubSpeechSectionsRawRef.current = sections;
+      setSpeechSections(
+        sections.map((section) => ({
+          key: `epub:${section.spineIndex}:${section.href}`,
+          text: section.text,
+          anchorAt: (offset: number): SourceAnchor => ({
+            kind: "epub",
+            spineIndex: section.spineIndex,
+            sectionOffset: offset,
+          }),
+          offsetForAnchor: (anchor: SourceAnchor): number | null =>
+            anchor.kind === "epub" && anchor.spineIndex === section.spineIndex
+              ? anchor.sectionOffset
+              : null,
+        })),
+      );
+    },
+    []
+  );
+
+  /**
+   * Resolve the live visible-viewport start anchor (D6), per reader surface.
+   * Called only when TTS starts/retargets — never per frame. Returns a
+   * SourceAnchor the speech index can locate, or null to fall to the next
+   * priority level.
+   */
+  const resolveReaderViewportAnchor = useCallback((): SourceAnchor | null => {
+    try {
+      if (docType === "pdf" && pdfViewMode !== "ocr-html") {
+        // Fixed-layout PDF: first visible word across rendered text-layer
+        // roots in page order (roots are indexed by pageIndex = page-1).
+        const roots = pdfTextLayerRoots;
+        const scrollRect = pdfScrollContainer?.getBoundingClientRect();
+        const viewport = scrollRect
+          ? { top: scrollRect.top, bottom: scrollRect.bottom, left: scrollRect.left, right: scrollRect.right }
+          : undefined;
+        for (let i = 0; i < roots.length; i++) {
+          const root = roots[i];
+          if (!root) continue;
+          const word = findFirstVisibleWord(root, { viewport });
+          if (!word) continue;
+          const flat = flatOffsetOfWord(root, word);
+          const pageNumber = i + 1;
+          // Prefer the canonical word table: match by text-order index within
+          // the page, verified by folded word text.
+          const page = pdfSpeechPagesRef.current.get(pageNumber);
+          if (page && page.words.length > 0 && page.text) {
+            const before = (root.textContent ?? "").slice(0, flat).split(/\s+/).filter(Boolean).length;
+            const candidate = page.words[Math.min(before, page.words.length - 1)];
+            const visibleWordText = word.node.textContent?.slice(word.start, word.end) ?? "";
+            const candidateText = page.text
+              .slice(candidate.offset, candidate.offset + visibleWordText.length + 2)
+              .split(/\s+/)[0];
+            if (foldForMatch(candidateText) === foldForMatch(visibleWordText)) {
+              return { kind: "pdf-word", wordId: candidate.wordId };
+            }
+          }
+          return { kind: "page", pageNumber, pageOffset: flat };
+        }
+        return null;
+      }
+
+      if (docType === "epub") {
+        // Topmost mounted section with a visible word; multi-iframe continuous
+        // manager safe (document order = spine order; first hit wins).
+        const container: ParentNode | null =
+          document.querySelector("[data-epub-viewer]") ?? highlightContainerRef?.current ?? null;
+        const iframes = container ? Array.from(container.querySelectorAll("iframe")) : [];
+        for (const iframe of iframes) {
+          const body = iframe.contentDocument?.body ?? null;
+          if (!body) continue;
+          const frameRect = iframe.getBoundingClientRect();
+          const word = findFirstVisibleWord(body, {
+            translateRect: (rect) =>
+              new DOMRect(rect.left + frameRect.left, rect.top + frameRect.top, rect.width, rect.height),
+            viewport: { top: 0, bottom: window.innerHeight },
+          });
+          if (!word) continue;
+          const flat = flatOffsetOfWord(body, word);
+          const mapper = buildTextContentOffsetMapper(body);
+          const normOffset = mapper.flatToNorm(flat);
+          // Identify the speech section whose text matches this body.
+          const folded = foldForMatch(mapper.normalized);
+          const section = epubSpeechSectionsRawRef.current.find(
+            (sec) => foldForMatch(sec.text) === folded,
+          );
+          if (section) {
+            return { kind: "epub", spineIndex: section.spineIndex, sectionOffset: normOffset };
+          }
+        }
+        return null;
+      }
+
+      if (docType === "markdown") {
+        const root = document.querySelector("[data-document-scroll-container]");
+        if (!root) return null;
+        const rect = root.getBoundingClientRect();
+        const word = findFirstVisibleWord(root, {
+          viewport: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+        });
+        if (!word) return null;
+        return { kind: "text", surface: "markdown", startOffset: flatOffsetOfWord(root, word) };
+      }
+
+      // html article + OCR-HTML: the iframe body.
+      const body = iframeRef.current?.contentDocument?.body ?? null;
+      const frame = iframeRef.current;
+      if (!body || !frame) return null;
+      const frameRect = frame.getBoundingClientRect();
+      const word = findFirstVisibleWord(body, {
+        translateRect: (rect) =>
+          new DOMRect(rect.left + frameRect.left, rect.top + frameRect.top, rect.width, rect.height),
+        viewport: { top: 0, bottom: window.innerHeight },
+      });
+      if (!word) return null;
+      const surface = docType === "pdf" ? "pdf-ocr-html" : "html";
+      return { kind: "text", surface, startOffset: flatOffsetOfWord(body, word) };
+    } catch {
+      return null;
+    }
+  }, [docType, pdfViewMode, pdfTextLayerRoots, pdfScrollContainer]);
+
+  // Map EPUB speech sections to their iframe bodies so spoken-word
+  // highlighting resolves inside the owning section (duplicate text in other
+  // sections can never match). Refreshed at the speech-section cadence.
+  useEffect(() => {
+    if (docType !== "epub") return;
+    const timer = setTimeout(() => {
+      const container: ParentNode | null =
+        document.querySelector("[data-epub-viewer]") ?? highlightContainerRef?.current ?? null;
+      const iframes = container ? Array.from(container.querySelectorAll("iframe")) : [];
+      const map = new Map<string, HTMLElement>();
+      for (const iframe of iframes) {
+        const body = iframe.contentDocument?.body;
+        if (!body) continue;
+        const folded = foldForMatch(buildTextContentOffsetMapper(body).normalized);
+        for (const sec of epubSpeechSectionsRawRef.current) {
+          if (foldForMatch(sec.text) === folded) {
+            map.set(`epub:${sec.spineIndex}:${sec.href}`, body);
+            break;
+          }
+        }
+      }
+      setEpubSectionContainers(map);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speechSections, docType]);
+
+  /**
+   * TOC navigation settled: resolve the now-visible anchor and synchronize
+   * TTS. Playing → retarget (cancel old audio, auto-resume at the new
+   * location); paused → rebase the resume anchor without playing; stopped →
+   * queue as the next Play's level-1 anchor (never autoplay from stopped).
+   */
+  const handleNavigationSettled = useCallback(() => {
+    const handle = ttsHandleRef.current;
+    if (!handle) return;
+    const anchor = resolveReaderViewportAnchor();
+    if (!anchor) return;
+    const state = handle.playbackState();
+    if (state === "playing") {
+      // Convert the source anchor into the start-anchor chain's strongest form.
+      handle.startFrom(sourceAnchorToTTSStartAnchor(anchor));
+    } else {
+      // Paused or stopped: queue only — no autoplay.
+      handle.queueAnchor(sourceAnchorToTTSStartAnchor(anchor));
+    }
+  }, [resolveReaderViewportAnchor]);
+
+  /** The reader's authoritative current-position anchor (priority level 3). */
+  const resolveReaderPositionAnchor = useCallback((): SourceAnchor | null => {
+    if (docType === "pdf" && pdfViewMode !== "ocr-html" && pageNumber > 0) {
+      return { kind: "page", pageNumber, pageOffset: 0 };
+    }
+    return null;
+  }, [docType, pdfViewMode, pageNumber]);
 
   // Handle TTS completion - advance to next chapter/page if available
   const handleTTSComplete = useCallback(() => {
@@ -4406,49 +4713,54 @@ export function DocumentViewer({
     }
   }, [docType, pageNumber, totalPages]);
 
-  // Handle TTS chunk change - auto-scroll for scroll-based documents
-  const handleTTSChunkChange = useCallback((chunkIndex: number, scrollPercent: number) => {
-    if (docType === "pdf") return;
-
-    if (ttsScrollTimerRef.current) {
-      clearTimeout(ttsScrollTimerRef.current);
-    }
-
-    ttsScrollTimerRef.current = setTimeout(() => {
-      ttsScrollTargetRef.current = scrollPercent;
-
-      const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
-      if (container) {
-        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-        const targetScroll = (scrollPercent / 100) * maxScroll;
-        container.scrollTo({ top: targetScroll, behavior: "smooth" });
-        return;
-      }
-
-      // Fallback for EPUB: try scrolling the main viewer area
-      const epubContainer = document.querySelector("[data-epub-viewer]") as HTMLElement | null;
-      if (epubContainer) {
-        const maxScroll = Math.max(0, epubContainer.scrollHeight - epubContainer.clientHeight);
-        const targetScroll = (scrollPercent / 100) * maxScroll;
-        epubContainer.scrollTo({ top: targetScroll, behavior: "smooth" });
-      }
-    }, 100);
-  }, [docType]);
+  // Handle TTS chunk change. The old percent-scroll heuristic is gone —
+  // viewport following is owned by the spoken-word follow controller inside
+  // ReaderTTSControls (comfort offset + user-scroll pause + Re-center). This
+  // callback remains for hosts that want chunk/position notifications.
+  const handleTTSChunkChange = useCallback((_chunkIndex: number, _scrollPercent: number) => {
+    // Intentionally no scrolling here.
+  }, []);
 
   useEffect(() => {
     if (docType === "pdf" || docType === "epub") return;
     if (docType === "markdown") {
       const content = currentDocument?.content || "";
       setReaderContextText(content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-      return;
+      // Speech text comes from the rendered DOM so selection offsets (flattened
+      // text of the scroll container) and speech offsets share coordinates.
+      const timer = setTimeout(() => {
+        const root = document.querySelector("[data-document-scroll-container]");
+        const domSections = extractSpeechSectionsFromDOM(root as Element | null, { key: "markdown" });
+        if (domSections.length > 0) {
+          setSpeechSections(
+            domSections.map((section: DOMSpeechSection) => buildDOMSectionInput(section, "markdown")),
+          );
+        }
+      }, 350);
+      return () => clearTimeout(timer);
     }
     if (docType === "html") {
       const html = htmlContent || "";
       setReaderContextText(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-      return;
+      const timer = setTimeout(() => {
+        const body = iframeRef.current?.contentDocument?.body ?? null;
+        const domSections = extractSpeechSectionsFromDOM(body, { key: "html" });
+        if (domSections.length > 0) {
+          setSpeechSections(
+            domSections.map((section: DOMSpeechSection) => buildDOMSectionInput(section, "html")),
+          );
+        }
+      }, 350);
+      return () => clearTimeout(timer);
     }
     setReaderContextText("");
+    setSpeechSections(null);
   }, [docType, currentDocument?.content, htmlContent]);
+
+  // Clear stale sections when the surface kind changes.
+  useEffect(() => {
+    setSpeechSections(null);
+  }, [docType, currentDocument?.id]);
 
   useEffect(() => {
     if (docType !== "pdf") return;
@@ -4591,6 +4903,48 @@ export function DocumentViewer({
     [selectionV2, handleExtractFromSnapshot, mobileSelection.text, activeExtractSelection],
   );
 
+  /**
+   * Map a selection snapshot's context to a TTS start anchor using each
+   * reader's strongest anchor: EPUB CFI range start (never a string search),
+   * PDF canonical startWordId → startTokenId → page, and exact text offsets.
+   */
+  const mapSelectionToTTSAnchor = useCallback(
+    (ctx: unknown): TTSStartAnchor | null =>
+      selectionContextToTTSAnchor(ctx, {
+        surface: docType === "pdf" && pdfViewMode === "ocr-html" ? "pdf-ocr-html" : undefined,
+      }),
+    [docType, pdfViewMode],
+  );
+
+  /** Resolve an EPUB CFI to a speech-index source anchor via the vim runtime. */
+  const resolveEpubCfiToAnchor = useCallback(
+    (cfi: string): SourceAnchor | null => {
+      const runtime = epubVimRuntime;
+      if (!runtime) return null;
+      try {
+        const range = runtime.rangeFromCfi(cfi);
+        if (!range) return null;
+        const body = range.startContainer.ownerDocument?.body;
+        if (!body) return null;
+        const doc = range.startContainer.ownerDocument;
+        const probe = doc.createRange();
+        probe.selectNodeContents(body);
+        probe.setEnd(range.startContainer, range.startOffset);
+        const flat = probe.toString().length;
+        const normOffset = buildTextContentOffsetMapper(body).flatToNorm(flat);
+        const folded = foldForMatch(buildTextContentOffsetMapper(body).normalized);
+        const section = epubSpeechSectionsRawRef.current.find(
+          (sec) => foldForMatch(sec.text) === folded,
+        );
+        if (!section) return null;
+        return { kind: "epub", spineIndex: section.spineIndex, sectionOffset: normOffset };
+      } catch {
+        return null;
+      }
+    },
+    [epubVimRuntime],
+  );
+
   // V2: bar chip invocation — the run consumes the immutable snapshot taken
   // at invocation (text/passage/context), never live selection state.
   const handleSelectionBarAction = (action: SelectionBarAction) => {
@@ -4606,6 +4960,18 @@ export function DocumentViewer({
         void handleExtractFromSnapshot(snapshot);
       }
       controller.dismiss({ suppressCurrentText: true });
+      return;
+    }
+    if (action === "readFromHere") {
+      const snapshot = controller.captureForAction();
+      const anchor = snapshot ? mapSelectionToTTSAnchor(snapshot.selectionContext) : null;
+      controller.dismiss({ suppressCurrentText: true });
+      if (anchor) {
+        ttsHandleRef.current?.startFrom(anchor);
+      } else {
+        // Unmappable selection: surface an error, keep playback unchanged.
+        toast.error(`${t("selectionBar.readFromHere")}: ${t("common.failed")}`);
+      }
       return;
     }
     const snapshot = controller.captureForAction();
@@ -6331,7 +6697,7 @@ export function DocumentViewer({
   // AudiobookViewer resolves native/mobile media sources independently. Once
   // the document identity is known, don't let DocumentViewer's hydration gate
   // hide that player behind a permanent "Loading document..." state.
-  const canRenderAudioViewer = docType === "audio";
+  const canRenderAudioViewer = renderEditionPlayer;
 
   return (
     <div
@@ -7188,6 +7554,36 @@ export function DocumentViewer({
           }
         }}
       >
+        {/* Floating "Listen from here" control (task 4.2): visible only when a
+            ready Audio Edition exists for this text document. The audio start
+            position is approximated from the current scroll percent. */}
+        {!renderEditionPlayer && hasReadyEdition && viewMode === "document" && (
+          <div className="absolute bottom-4 right-4 z-30 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                openEditionPlayer(
+                  Math.max(
+                    0,
+                    Math.round(
+                      ((lastScrollStateRef.current?.scrollPercent ??
+                        currentDocument?.currentScrollPercent ??
+                        0) /
+                        100) *
+                        readyEditionInfo.totalDurationSec
+                    )
+                  )
+                )
+              }
+              className="flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground pl-3 pr-4 py-2 text-xs font-semibold shadow-lg hover:opacity-90 transition-opacity"
+              aria-label="Listen from here with the audio edition"
+              title="Listen from here (Audio Edition)"
+            >
+              <Headphones className="w-4 h-4" />
+              Listen from here
+            </button>
+          </div>
+        )}
         {viewMode === "extracts" ? (
           <div {...tourAnchor("readerExtractsPanel")} className="p-6 bg-background h-full overflow-auto">
             <ExtractsList
@@ -7347,6 +7743,7 @@ export function DocumentViewer({
             restoreRequestId={restoreRequestId}
             contextPageWindow={contextPageWindow}
             onTextWindowChange={handlePdfContextTextChange}
+            onNavigationSettled={handleNavigationSettled}
             onSelectionChange={updateSelection}
             onTextSelectionCapabilityChange={setPdfTextSelectionCapability}
             onOcrExtractText={async (text, pageNum) => {
@@ -7400,6 +7797,8 @@ export function DocumentViewer({
             onSelectionChange={updateSelection}
             onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
             onContextTextChange={handlePdfContextTextChange}
+            onSpeechSectionsChange={handleEpubSpeechSectionsChange}
+            onNavigationSettled={handleNavigationSettled}
             highlightQuery={jumpHighlightQuery}
             initialSearchMatchIndex={initialJump?.kind === "epub" ? initialJump.matchIndex : undefined}
             initialSearchTextQuote={initialJump?.kind === "epub" ? initialJump.textQuote : undefined}
@@ -7439,7 +7838,7 @@ export function DocumentViewer({
                 : undefined
             }
           />
-        ) : docType === "audio" ? (
+        ) : renderEditionPlayer ? (
           mediaError && !mediaSource ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center max-w-md px-4">
@@ -8021,7 +8420,13 @@ export function DocumentViewer({
 
         {isTabActive && viewMode === "document" && (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html") && (
           <ReaderTTSControls
+            ref={ttsHandleRef}
             text={readerContextText}
+            sections={speechSections}
+            resolveViewportAnchor={resolveReaderViewportAnchor}
+            resolvePositionAnchor={resolveReaderPositionAnchor}
+            cfiToEpubAnchor={docType === "epub" ? resolveEpubCfiToAnchor : undefined}
+            sectionContainers={docType === "epub" ? epubSectionContainers : null}
             onComplete={handleTTSComplete}
             autoAdvance={true}
             docType={docType === "pdf" ? "pdf" : docType === "epub" ? "epub" : "scroll"}
@@ -8034,8 +8439,8 @@ export function DocumentViewer({
                   : null,
             }}
             onChunkChange={handleTTSChunkChange}
-            highlightEnabled={wordHighlightEnabled}
-            onHighlightToggle={() => setWordHighlightEnabled((v) => !v)}
+            highlightEnabled={ttsHighlightSpokenWord}
+            onHighlightToggle={() => setTtsHighlightSpokenWord(!ttsHighlightSpokenWord)}
             highlightContainerRef={highlightContainerRef}
             iframeWindow={epubIframeWindow}
             className={cn(
@@ -8167,6 +8572,12 @@ export function DocumentViewer({
         onOverflow={handleSelectionBarOverflow}
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
         aiAvailable={aiAvailability.available}
+        canReadAloud={
+          viewMode === "document" &&
+          !!ttsHandleRef.current &&
+          (settings?.tts?.enabled ?? false) &&
+          (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html")
+        }
         onMeasure={selectionController.registerBarSize}
         readerContainerRef={containerRef}
       />

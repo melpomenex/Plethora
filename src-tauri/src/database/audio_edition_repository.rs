@@ -3,7 +3,8 @@
 use crate::error::{PlethoraError, Result};
 use crate::models::audio_edition::{
     AudioEdition, AudioEditionAnchor, AudioEditionSection, AudioEditionWithSections,
-    ListeningSession, ListeningSessionItem, ListeningSessionWithItems,
+    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate,
+    ListeningSessionWithItems,
 };
 use sqlx::{Pool, Sqlite};
 
@@ -525,6 +526,10 @@ impl AudioEditionRepository {
         edition_id: &str,
         source_anchor: &str,
     ) -> Result<Option<AudioEditionAnchor>> {
+        // Source anchors are numeric character offsets on the TS side; stored
+        // as TEXT they would compare lexicographically ("9" > "80"), so cast
+        // both sides to REAL before matching. Non-numeric anchor schemes
+        // (e.g. EPUB CFI) still get the exact equality checks.
         let anchor: Option<AudioEditionAnchor> = sqlx::query_as(
             r#"
             SELECT a.id, a.section_id, a.audio_start_sec, a.audio_end_sec,
@@ -534,8 +539,18 @@ impl AudioEditionRepository {
             WHERE s.edition_id = ?1 AND (
                 a.source_start_anchor = ?2 OR
                 a.source_end_anchor = ?2 OR
-                ?2 BETWEEN a.source_start_anchor AND a.source_end_anchor
+                (
+                    a.source_start_anchor NOT GLOB '*[^0-9.]*'
+                    AND a.source_start_anchor != ''
+                    AND a.source_end_anchor NOT GLOB '*[^0-9.]*'
+                    AND a.source_end_anchor != ''
+                    AND ?2 NOT GLOB '*[^0-9.]*'
+                    AND ?2 != ''
+                    AND CAST(?2 AS REAL) BETWEEN CAST(a.source_start_anchor AS REAL)
+                                             AND CAST(a.source_end_anchor AS REAL)
+                )
             )
+            ORDER BY a.audio_start_sec ASC
             LIMIT 1
             "#,
         )
@@ -736,10 +751,65 @@ impl AudioEditionRepository {
         Ok(result)
     }
 
+    /// List listening sessions, optionally filtered to unreviewed ones with
+    /// captures. `unreviewed_only = false` returns every session (newest
+    /// first) so the Inbox/history can show reviewed sessions too.
+    pub async fn list_listening_sessions(
+        &self,
+        unreviewed_only: bool,
+    ) -> Result<Vec<ListeningSessionWithItems>> {
+        if unreviewed_only {
+            return self.list_unreviewed_listening_sessions().await;
+        }
+
+        let sessions: Vec<ListeningSession> = sqlx::query_as(
+            r#"
+            SELECT id, edition_id, started_at, ended_at, duration_seconds, extract_count, is_reviewed
+            FROM listening_sessions
+            ORDER BY started_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to list listening sessions: {}", e)))?;
+
+        let mut result = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            let items: Vec<ListeningSessionItem> = sqlx::query_as(
+                r#"
+                SELECT id, session_id, extract_id, marker_type, audio_timestamp, source_anchor, snippet_text, note, created_at
+                FROM listening_session_items
+                WHERE session_id = ?1
+                ORDER BY created_at ASC
+                "#,
+            )
+            .bind(&session.id)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+
+            result.push(ListeningSessionWithItems { session, items });
+        }
+
+        Ok(result)
+    }
+
+    /// marker_type values allowed by the schema CHECK — validated at the
+    /// application level so invalid input surfaces as a typed
+    /// `InvalidInput` error instead of a generic SQLite constraint failure.
+    const VALID_MARKER_TYPES: [&str; 4] = ["extract", "bookmark", "interesting", "confusing"];
+
     pub async fn add_listening_session_item(
         &self,
         item: &ListeningSessionItem,
     ) -> Result<ListeningSessionItem> {
+        if !Self::VALID_MARKER_TYPES.contains(&item.marker_type.as_str()) {
+            return Err(PlethoraError::InvalidInput(format!(
+                "Invalid marker_type '{}'; expected one of {:?}",
+                item.marker_type, Self::VALID_MARKER_TYPES
+            )));
+        }
+
         let id = if item.id.trim().is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
@@ -774,13 +844,16 @@ impl AudioEditionRepository {
         .await
         .map_err(|e| PlethoraError::Internal(format!("Failed to insert session item: {}", e)))?;
 
-        // Update extract_count on session
-        let _ = sqlx::query(
-            "UPDATE listening_sessions SET extract_count = extract_count + 1 WHERE id = ?1",
-        )
-        .bind(&item.session_id)
-        .execute(&self.pool)
-        .await;
+        // extract_count counts only actual extracts (design Decision 10) —
+        // bookmarks/markers are itemized but do not inflate the count.
+        if item.marker_type == "extract" {
+            let _ = sqlx::query(
+                "UPDATE listening_sessions SET extract_count = extract_count + 1 WHERE id = ?1",
+            )
+            .bind(&item.session_id)
+            .execute(&self.pool)
+            .await;
+        }
 
         Ok(ListeningSessionItem {
             id,
@@ -815,12 +888,136 @@ impl AudioEditionRepository {
         Ok(items)
     }
 
+    /// Apply a partial update to a session item. Returns the updated item, or
+    /// `NotFound` when the id does not exist. marker_type is validated so the
+    /// schema CHECK never surfaces as a generic SQLite error.
+    pub async fn update_listening_session_item(
+        &self,
+        id: &str,
+        updates: &ListeningSessionItemUpdate,
+    ) -> Result<ListeningSessionItem> {
+        if let Some(marker_type) = &updates.marker_type {
+            if !Self::VALID_MARKER_TYPES.contains(&marker_type.as_str()) {
+                return Err(PlethoraError::InvalidInput(format!(
+                    "Invalid marker_type '{}'; expected one of {:?}",
+                    marker_type, Self::VALID_MARKER_TYPES
+                )));
+            }
+        }
+
+        let existing: Option<ListeningSessionItem> = sqlx::query_as(
+            r#"
+            SELECT id, session_id, extract_id, marker_type, audio_timestamp, source_anchor, snippet_text, note, created_at
+            FROM listening_session_items
+            WHERE id = ?1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch session item: {}", e)))?;
+
+        let Some(existing) = existing else {
+            return Err(PlethoraError::NotFound(format!(
+                "Listening session item '{}' not found",
+                id
+            )));
+        };
+
+        let merged = ListeningSessionItem {
+            id: existing.id.clone(),
+            session_id: existing.session_id.clone(),
+            extract_id: updates
+                .extract_id
+                .clone()
+                .unwrap_or_else(|| existing.extract_id.clone()),
+            marker_type: updates
+                .marker_type
+                .clone()
+                .unwrap_or_else(|| existing.marker_type.clone()),
+            audio_timestamp: updates.audio_timestamp.unwrap_or(existing.audio_timestamp),
+            source_anchor: updates
+                .source_anchor
+                .clone()
+                .unwrap_or_else(|| existing.source_anchor.clone()),
+            snippet_text: updates
+                .snippet_text
+                .clone()
+                .unwrap_or_else(|| existing.snippet_text.clone()),
+            note: updates.note.clone().unwrap_or_else(|| existing.note.clone()),
+            created_at: existing.created_at,
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE listening_session_items
+            SET extract_id = ?2, marker_type = ?3, audio_timestamp = ?4,
+                source_anchor = ?5, snippet_text = ?6, note = ?7
+            WHERE id = ?1
+            "#,
+        )
+        .bind(&merged.id)
+        .bind(&merged.extract_id)
+        .bind(&merged.marker_type)
+        .bind(merged.audio_timestamp)
+        .bind(&merged.source_anchor)
+        .bind(&merged.snippet_text)
+        .bind(&merged.note)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to update session item: {}", e)))?;
+
+        // Keep extract_count consistent when the item's extract-ness changed
+        // (extract ↔ marker transitions during triage).
+        let was_extract = existing.marker_type == "extract";
+        let now_extract = merged.marker_type == "extract";
+        if was_extract && !now_extract {
+            let _ = sqlx::query(
+                "UPDATE listening_sessions SET extract_count = MAX(extract_count - 1, 0) WHERE id = ?1",
+            )
+            .bind(&merged.session_id)
+            .execute(&self.pool)
+            .await;
+        } else if !was_extract && now_extract {
+            let _ = sqlx::query(
+                "UPDATE listening_sessions SET extract_count = extract_count + 1 WHERE id = ?1",
+            )
+            .bind(&merged.session_id)
+            .execute(&self.pool)
+            .await;
+        }
+
+        Ok(merged)
+    }
+
     pub async fn delete_listening_session_item(&self, id: &str) -> Result<()> {
+        // extract_count must stay consistent: decrement only when the deleted
+        // item was an actual extract.
+        let existing: Option<(String, String)> = sqlx::query_as(
+            "SELECT session_id, marker_type FROM listening_session_items WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch session item: {}", e)))?;
+
         sqlx::query("DELETE FROM listening_session_items WHERE id = ?1")
             .bind(id)
             .execute(&self.pool)
             .await
             .map_err(|e| PlethoraError::Internal(format!("Failed to delete session item: {}", e)))?;
+
+        if let Some((session_id, marker_type)) = existing {
+            if marker_type == "extract" {
+                let _ = sqlx::query(
+                    "UPDATE listening_sessions SET extract_count = MAX(extract_count - 1, 0) WHERE id = ?1",
+                )
+                .bind(&session_id)
+                .execute(&self.pool)
+                .await;
+            }
+        }
+
         Ok(())
     }
 }

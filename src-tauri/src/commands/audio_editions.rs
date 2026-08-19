@@ -4,7 +4,8 @@ use crate::database::{AudioEditionRepository, Repository};
 use crate::error::Result;
 use crate::models::audio_edition::{
     AudioEdition, AudioEditionAnchor, AudioEditionSection, AudioEditionWithSections,
-    ListeningSession, ListeningSessionItem, ListeningSessionWithItems,
+    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate,
+    ListeningSessionWithItems,
 };
 use tauri::State;
 
@@ -219,6 +220,16 @@ pub async fn list_unreviewed_listening_sessions(
     repository.list_unreviewed_listening_sessions().await
 }
 
+/// List listening sessions; `unreviewed_only = false` returns every session.
+#[tauri::command]
+pub async fn list_listening_sessions(
+    unreviewed_only: bool,
+    repo: State<'_, Repository>,
+) -> Result<Vec<ListeningSessionWithItems>> {
+    let repository = AudioEditionRepository::new(repo.pool().clone());
+    repository.list_listening_sessions(unreviewed_only).await
+}
+
 #[tauri::command]
 pub async fn add_listening_session_item(
     item: ListeningSessionItem,
@@ -244,4 +255,16 @@ pub async fn delete_listening_session_item(
 ) -> Result<()> {
     let repository = AudioEditionRepository::new(repo.pool().clone());
     repository.delete_listening_session_item(&id).await
+}
+
+/// Apply a partial update to a listening-session item (Inbox triage: notes,
+/// keep/confirm, snippet corrections).
+#[tauri::command]
+pub async fn update_listening_session_item(
+    id: String,
+    updates: ListeningSessionItemUpdate,
+    repo: State<'_, Repository>,
+) -> Result<ListeningSessionItem> {
+    let repository = AudioEditionRepository::new(repo.pool().clone());
+    repository.update_listening_session_item(&id, &updates).await
 }

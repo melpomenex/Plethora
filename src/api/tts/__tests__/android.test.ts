@@ -177,3 +177,27 @@ describe("native android event subscription via window.addEventListener", () => 
     expect(states).toEqual(["playing", "paused"]);
   });
 });
+
+describe("native android word-position event bridge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isNativeMobile).mockReturnValue(false);
+  });
+
+  it("off Android: subscribing is a no-op and the event never reaches the handler", async () => {
+    const { onWordPosition } = await import("../android/bridge");
+    const handler = vi.fn();
+    const unlisten = await onWordPosition(handler);
+    window.dispatchEvent(
+      new CustomEvent("tts://word-position", { detail: { utteranceId: 1, sentenceIndex: 0, charIndex: 3 } })
+    );
+    expect(handler).not.toHaveBeenCalled();
+    unlisten();
+  });
+
+  it("exposes the word-position event key alongside the sentence events", async () => {
+    const { ANDROID_TTS_EVENTS } = await import("../android/bridge");
+    expect(ANDROID_TTS_EVENTS.wordPosition).toBe("tts://word-position");
+    expect(ANDROID_TTS_EVENTS.sentencePosition).toBe("tts://sentence-position");
+  });
+});

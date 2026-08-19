@@ -11,6 +11,7 @@ export const systemAdapter: TTSProviderAdapter = {
     supportsInstructions: false,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: false,
     audioFormats: [],
     maxInputChars: 5000,
   },

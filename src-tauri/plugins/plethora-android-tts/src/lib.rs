@@ -421,9 +421,38 @@ pub fn init() -> TauriPlugin<Wry> {
         .build()
 }
 
+/// Webview event payload for `tts://word-position` — exact spoken-word
+/// positions from the System-TTS fallback engine (`onRangeStart`). The Rust
+/// shim passes Kotlin events through untouched; this type exists so the
+/// Kotlin→webview contract is serde-verified on the Rust side too.
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WordPositionEvent {
+    pub utterance_id: i64,
+    pub sentence_index: i64,
+    pub char_index: i64,
+    pub char_length: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_position_event_round_trips_camel_case() {
+        let event = WordPositionEvent {
+            utterance_id: 7,
+            sentence_index: 2,
+            char_index: 41,
+            char_length: Some(5),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        assert!(json.contains("\"sentenceIndex\""), "camelCase missing: {json}");
+        assert!(json.contains("\"charLength\""), "camelCase missing: {json}");
+        let back: WordPositionEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, event);
+    }
 
     #[test]
     fn error_serializes_as_string() {

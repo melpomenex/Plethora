@@ -61,6 +61,7 @@ class SystemTtsFallback(context: Context) {
         utteranceId: String,
         onDone: (() -> Unit)?,
         onErrorFn: ((String) -> Unit)?,
+        onWordPosition: ((utteranceTag: String, charIndex: Int, charLength: Int) -> Unit)? = null,
     ): Boolean {
         awaitReady()
         val instance = tts ?: run {
@@ -77,6 +78,17 @@ class SystemTtsFallback(context: Context) {
         instance.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) { if (id == utteranceId) onDone?.invoke() }
+            /**
+             * Word-boundary callback (API 26+): the engine reports each spoken
+             * range in char offsets of the submitted text. Surfaced for exact
+             * spoken-word highlighting; ignored by engines that never fire it.
+             */
+            override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                val listener = onWordPosition ?: return
+                if (utteranceId == this@SystemTtsFallback.currentUtteranceId) {
+                    listener(utteranceId ?: "", start, (end - start).coerceAtLeast(0))
+                }
+            }
             @Deprecated("required override on older API levels", ReplaceWith(""))
             override fun onError(id: String?) {
                 if (id == utteranceId) onErrorFn?.invoke("System TTS playback failed")

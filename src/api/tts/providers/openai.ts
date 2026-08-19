@@ -15,6 +15,7 @@ export const openaiAdapter: TTSProviderAdapter = {
     supportsInstructions: true,
     supportsCloning: false,
     supportsCustomVoiceIds: false,
+    supportsWordTimings: false,
     audioFormats: ["mp3", "opus", "aac", "flac", "wav", "pcm"],
     maxInputChars: 5000,
   },

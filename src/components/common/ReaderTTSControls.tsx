@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   CircleNotch,
   Highlighter,
@@ -17,6 +17,7 @@ import {
   onPlaybackState as onNativePlaybackState,
   onSentencePosition as onNativeSentencePosition,
   onUtteranceComplete as onNativeUtteranceComplete,
+  onWordPosition as onNativeWordPosition,
   onTtsError as onNativeTtsError,
   pluginPause as nativePause,
   pluginResume as nativeResume,
@@ -26,7 +27,27 @@ import {
 } from "../../api/tts/android/bridge";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
-import { TextPositionIndex } from "../../utils/ttsTextExtraction";
+import {
+  ReaderSpeechIndex,
+  buildSpeechIndexFromText,
+  CHUNK_MAX,
+  CHUNK_TARGET,
+  resolveStartAnchor,
+  type ResolveStartContext,
+  type SpeechPosition,
+  type SpeechSectionInput,
+  type SourceAnchor,
+  type TTSChunk,
+  type TTSStartAnchor,
+} from "../../utils/readerSpeechIndex";
+import {
+  nextActiveWordIndex,
+  resolveChunkTimings,
+  type WordTiming,
+} from "../../utils/wordTimings";
+import { charIndexToWordIndex } from "../../api/tts/timing";
+import { useSpokenWordFollow } from "../../hooks/useSpokenWordFollow";
+import { usePresentation, useIsEink } from "../../contexts/PresentationContext";
 import { WordHighlightLayer } from "./WordHighlightLayer";
 
 interface TTSStartPosition {
@@ -34,8 +55,29 @@ interface TTSStartPosition {
   scrollPercent: number | null;
 }
 
+/** Imperative start/stop API for hosts (selection "Read from here", TOC retarget). */
+export interface ReaderTTSHandle {
+  /** Stop any current playback and begin at an exact anchor. */
+  startFrom(anchor: TTSStartAnchor): void;
+  /** Stop playback and clear transient state. */
+  stop(): void;
+  /**
+   * Queue an anchor as the next start (TOC navigation while stopped or
+   * paused): never starts playback; consumed by the next Play/resume.
+   */
+  queueAnchor(anchor: TTSStartAnchor): void;
+  /** Current coarse playback state. */
+  playbackState(): "stopped" | "playing" | "paused";
+}
+
 interface ReaderTTSControlsProps {
   text: string;
+  /**
+   * Section-structured speech text for anchored chunking (EPUB spine sections,
+   * DOM-derived markdown/HTML sections, PDF canonical pages). When absent the
+   * plain `text` prop is indexed with anchor-less words (QueueScrollPage).
+   */
+  sections?: SpeechSectionInput[] | null;
   className?: string;
   /** Called when all chunks have finished playing */
   onComplete?: () => void;
@@ -57,157 +99,43 @@ interface ReaderTTSControlsProps {
   autoScrollPaused?: boolean;
   /** Called when user clicks re-center */
   onReCenter?: () => void;
+  /**
+   * Resolve the live visible-viewport start anchor (D6). Called only at
+   * Play/retarget time — never per frame. Returns a SourceAnchor the speech
+   * index can locate, or null when the viewport cannot be resolved.
+   */
+  resolveViewportAnchor?: () => SourceAnchor | null;
+  /** The reader's authoritative current-position anchor (priority level 3). */
+  resolvePositionAnchor?: () => SourceAnchor | null;
+  /** Section-key → container (EPUB iframe bodies) for anchored highlighting. */
+  sectionContainers?: Map<string, HTMLElement> | null;
+  /** Resolve an EPUB CFI to a speech source anchor (selections, TOC targets). */
+  cfiToEpubAnchor?: (cfi: string) => SourceAnchor | null;
   /** Ref for the element to highlight text in */
   highlightContainerRef?: React.RefObject<HTMLElement | null>;
   /** Iframe window for EPUB and HTML document readers */
   iframeWindow?: Window | null;
 }
 
-const CHUNK_TARGET = 420;
-const CHUNK_MAX = 700;
 const BUFFER_TARGET_SEC = 60; // target seconds of audio buffered ahead
 const MAX_CONCURRENT_GEN = 3; // max parallel generation invocations
 const EVICT_BEHIND_COUNT = 3; // keep N already-played chunks in memory
 
-function normalizeText(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getWordOffsetAtTime(currentTime: number, duration: number, text: string): number {
-  if (duration <= 0) return 0;
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= 1) return 0;
-
-  // Calculate total character length (excluding spaces)
-  const totalChars = words.reduce((sum, w) => sum + w.length, 0);
-  if (totalChars === 0) return 0;
-
-  // Cumulative character progress for each word
-  const timeFraction = currentTime / duration;
-  let accumulatedChars = 0;
-
-  for (let i = 0; i < words.length; i++) {
-    accumulatedChars += words[i].length;
-    const progressFraction = accumulatedChars / totalChars;
-    if (timeFraction <= progressFraction) {
-      return i;
-    }
-  }
-
-  return words.length - 1;
-}
-
-interface BuildChunksResult {
-  chunks: string[];
-  pageCharOffsets: Map<number, number>;
-}
-
-function buildChunks(text: string, maxChunkSize = CHUNK_MAX): BuildChunksResult {
-  const targetSize = Math.min(CHUNK_TARGET, Math.max(1, maxChunkSize));
-  const hardSize = Math.max(1, maxChunkSize);
-  const pageCharOffsets = new Map<number, number>();
-  const pageRegex = /<page number="(\d+)"\s*\/?>/g;
-
-  // Clean page markers while keeping track of character offsets in the cleaned text
-  let cleanedText = "";
-  let lastIdx = 0;
-  let match;
-
-  while ((match = pageRegex.exec(text)) !== null) {
-    const pageNum = parseInt(match[1], 10);
-    const fragment = text.slice(lastIdx, match.index);
-    const normalizedFrag = normalizeText(fragment);
-
-    if (normalizedFrag) {
-      cleanedText += (cleanedText ? " " : "") + normalizedFrag;
-    }
-
-    // The offset of the page is the length of cleanedText up to this point
-    pageCharOffsets.set(pageNum, cleanedText.length);
-    lastIdx = pageRegex.lastIndex;
-  }
-
-  const remaining = text.slice(lastIdx);
-  const normalizedRemaining = normalizeText(remaining);
-  if (normalizedRemaining) {
-    cleanedText += (cleanedText ? " " : "") + normalizedRemaining;
-  }
-
-  if (!cleanedText) {
-    return { chunks: [], pageCharOffsets };
-  }
-
-  const sentences = cleanedText
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  if (sentences.length === 0) {
-    return { chunks: [cleanedText], pageCharOffsets };
-  }
-
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const sentence of sentences) {
-    const candidate = current ? `${current} ${sentence}` : sentence;
-
-    if (candidate.length <= targetSize) {
-      current = candidate;
-      continue;
-    }
-
-    if (current) {
-      chunks.push(current);
-      current = sentence;
-      continue;
-    }
-
-    // Sentence itself is long; hard-wrap by words.
-    const words = sentence.split(/\s+/);
-    let fragment = "";
-    for (const word of words) {
-      const next = fragment ? `${fragment} ${word}` : word;
-      if (next.length <= hardSize) {
-        fragment = next;
-      } else {
-        if (fragment) chunks.push(fragment);
-        fragment = word;
-      }
-    }
-    if (fragment) chunks.push(fragment);
-    current = "";
-  }
-
-  if (current) chunks.push(current);
-  return { chunks, pageCharOffsets };
-}
-
 interface BufferedAudio {
   audioUrl: string;
   durationSec?: number;
+  /** The chunk text this audio was generated for (sliced chunks differ). */
+  text?: string;
+  /** Measured provider word timings, present when the adapter returned alignment data. */
+  wordTimings?: WordTiming[];
   /** Set when using System TTS — no audio URL, synthesized via speechSynthesis. */
   system?: boolean;
 }
 
-/**
- * Convert a speechSynthesis boundary charIndex into a word offset (matching the
- * time-based getWordOffsetAtTime contract). The engine fires `onboundary`
- * events with the char position of the word currently being spoken; we count
- * whitespace-separated words that start at or before that position.
- */
-function charIndexToWordOffset(text: string, charIndex: number): number {
-  if (charIndex <= 0) return 0;
-  const upTo = text.slice(0, charIndex);
-  const words = upTo.split(/\s+/).filter(Boolean);
-  return Math.max(0, words.length - 1);
-}
-
-export function ReaderTTSControls({
+export const ReaderTTSControls = forwardRef<ReaderTTSHandle, ReaderTTSControlsProps>(
+function ReaderTTSControls({
   text,
+  sections,
   className,
   onComplete,
   autoAdvance = true,
@@ -219,9 +147,15 @@ export function ReaderTTSControls({
   onHighlightToggle,
   autoScrollPaused = false,
   onReCenter,
+  resolveViewportAnchor,
+  resolvePositionAnchor,
+  sectionContainers,
+  cfiToEpubAnchor,
   highlightContainerRef,
   iframeWindow,
-}: ReaderTTSControlsProps) {
+}: ReaderTTSControlsProps,
+ref: React.ForwardedRef<ReaderTTSHandle>
+) {
   const { t } = useI18n();
   const tts = useSettingsStore((state) => state.settings.tts);
   const settings = useSettingsStore((state) => state.settings);
@@ -272,6 +206,7 @@ export function ReaderTTSControls({
   const nativeUnsubRef = useRef<Array<() => void>>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const playbackStateRef = useRef<"stopped" | "playing" | "paused">("stopped");
 
   // Track previous playing state
   const _wasPlayingRef = useRef(false);
@@ -280,27 +215,82 @@ export function ReaderTTSControls({
 
   // Word highlighting
   const [wordOffset, setWordOffset] = useState(0);
+  const wordOffsetRef = useRef(0);
+  wordOffsetRef.current = wordOffset;
   const rafRef = useRef<number | null>(null);
+  // Whether the active word's timing is synthesized (approximate) — drives the
+  // softer highlight variant.
+  const [activeTimingApproximate, setActiveTimingApproximate] = useState(false);
 
-  const startWordTracking = useCallback((audio: HTMLAudioElement, chunkText: string) => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  // Spoken-word follow (TranscriptSync semantics): comfort offset, debounced
+  // movement, arrival-based user-scroll detection, Re-center resume. Reduced
+  // motion / e-ink positions instantly.
+  const { reducedMotion } = usePresentation();
+  const isEink = useIsEink();
+  const followSpokenWord = tts?.followSpokenWord ?? true;
+  const followContainers = useMemo(() => {
+    const list: Array<HTMLElement | null> = [
+      highlightContainerRef?.current ?? null,
+      iframeWindow?.document?.body ?? null,
+    ];
+    if (sectionContainers) {
+      for (const el of sectionContainers.values()) list.push(el);
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightContainerRef?.current, iframeWindow, sectionContainers]);
+  const { pausedByUser: followPausedByUser, reCenter: followReCenter } = useSpokenWordFollow({
+    enabled: followSpokenWord,
+    active: isPlaying,
+    compact: typeof window !== "undefined" ? window.innerWidth < 640 : false,
+    reducedMotion: reducedMotion || isEink,
+    wordKey: `${chunkIndex}:${wordOffset}`,
+    containers: followContainers,
+  });
 
-    const track = () => {
-      if (!audio || audio.paused || audio.ended) return;
-
-      const duration = audio.duration;
-      const currentTime = audio.currentTime;
-
-      if (duration > 0 && !isNaN(duration) && isFinite(duration)) {
-        const offset = getWordOffsetAtTime(currentTime, duration, chunkText);
-        setWordOffset(offset);
+  /**
+   * Playback clock for generated audio: rAF samples `audio.currentTime` (the
+   * authoritative media clock) and resolves the active word against the chunk's
+   * timings — measured provider timings when they align with the chunk text,
+   * else timings synthesized from the actual audio duration. React state
+   * commits only when the active word index changes (`nextActiveWordIndex`), so
+   * the reader doesn't re-render at animation-frame rates. The loop suspends
+   * itself when paused, ended, or the document is hidden.
+   */
+  const startWordTracking = useCallback(
+    (audio: HTMLAudioElement, chunkText: string, measured?: WordTiming[]) => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      let timings = resolveChunkTimings(chunkText, measured, undefined);
+      if (timings) {
+        setActiveTimingApproximate(timings[0]?.source !== "measured");
       }
+      let lastWordIndex = -1;
+
+      const track = () => {
+        rafRef.current = null;
+        if (!audio || audio.paused || audio.ended || document.hidden) return;
+
+        if (!timings) {
+          timings = resolveChunkTimings(chunkText, undefined, audio.duration);
+          if (timings) {
+            setActiveTimingApproximate(timings[0]?.source !== "measured");
+          }
+        }
+        if (timings) {
+          const next = nextActiveWordIndex(timings, audio.currentTime, lastWordIndex);
+          if (next !== null) {
+            lastWordIndex = next;
+            setWordOffset(next);
+          }
+        }
+
+        rafRef.current = requestAnimationFrame(track);
+      };
 
       rafRef.current = requestAnimationFrame(track);
-    };
-
-    rafRef.current = requestAnimationFrame(track);
-  }, []);
+    },
+    []
+  );
 
   const stopWordTracking = useCallback(() => {
     if (rafRef.current) {
@@ -308,6 +298,7 @@ export function ReaderTTSControls({
       rafRef.current = null;
     }
     setWordOffset(0);
+    setActiveTimingApproximate(false);
   }, []);
 
   // Buffer underrun indicator
@@ -317,23 +308,120 @@ export function ReaderTTSControls({
   const mountedRef = useRef(true);
   const playbackIdRef = useRef(0);
 
-  const { chunks, pageCharOffsets } = useMemo(
-    () => buildChunks(text, ttsChunkLimit),
-    [text, ttsChunkLimit]
+  // Anchored speech index — the source of truth for chunking, word spans, and
+  // source anchors. When the host supplies section-structured text the index
+  // preserves displayed-text → TTS-text → word mapping; otherwise the plain
+  // text prop is indexed with anchor-less words (QueueScrollPage usage).
+  const speechIndex = useMemo(
+    () =>
+      sections && sections.length > 0
+        ? new ReaderSpeechIndex(sections, ttsChunkLimit)
+        : buildSpeechIndexFromText(text, ttsChunkLimit),
+    [sections, ttsChunkLimit, text]
+  );
+  const chunks: TTSChunk[] = speechIndex.chunks;
+  const speechIndexRef = useRef(speechIndex);
+  speechIndexRef.current = speechIndex;
+
+  // Session playlist: the index's chunks with an optional transient sliced
+  // leading chunk from a mid-chunk start (D5). The underlying index is never
+  // mutated, so the original chunk keeps its cache entry.
+  const [sessionLeading, setSessionLeading] = useState<{
+    chunkIndex: number;
+    chunk: TTSChunk;
+  } | null>(null);
+  const sessionLeadingRef = useRef(sessionLeading);
+  const playlist = useMemo(
+    () =>
+      sessionLeading
+        ? chunks.map((c, i) => (i === sessionLeading.chunkIndex ? sessionLeading.chunk : c))
+        : chunks,
+    [chunks, sessionLeading]
+  );
+  const playlistRef = useRef(playlist);
+  playlistRef.current = playlist;
+
+  const applySessionLeading = useCallback(
+    (leading: { chunkIndex: number; chunk: TTSChunk } | null) => {
+      const previousLeading = sessionLeadingRef.current;
+      sessionLeadingRef.current = leading;
+      playlistRef.current = leading
+        ? playlistRef.current.map((c, i) => (i === leading.chunkIndex ? leading.chunk : c))
+        : chunksRef.current;
+      // A sliced leading chunk has different text than the base chunk already
+      // buffered at that index — invalidate the stale in-memory buffer (the
+      // IndexedDB cache stays valid; keys include the text digest).
+      if (leading && previousLeading?.chunkIndex !== leading.chunkIndex) {
+        audioBufferRef.current.delete(leading.chunkIndex);
+        setBufferStatus((prev) => {
+          if (!prev.has(leading.chunkIndex)) return prev;
+          const next = new Map(prev);
+          next.delete(leading.chunkIndex);
+          return next;
+        });
+      }
+      setSessionLeading(leading);
+    },
+    []
+  );
+  const chunksRef = useRef(chunks);
+  chunksRef.current = chunks;
+
+  // Pending explicit start anchor (selection "Read from here", TOC while
+  // stopped/paused) — consumed as priority level 1 by the next Play.
+  const pendingAnchorRef = useRef<TTSStartAnchor | null>(null);
+
+  const resolveViewportAnchorRef = useRef(resolveViewportAnchor);
+  resolveViewportAnchorRef.current = resolveViewportAnchor;
+  const resolvePositionAnchorRef = useRef(resolvePositionAnchor);
+  resolvePositionAnchorRef.current = resolvePositionAnchor;
+  const cfiToEpubAnchorRef = useRef(cfiToEpubAnchor);
+  cfiToEpubAnchorRef.current = cfiToEpubAnchor;
+
+  const resolveVia = useCallback((fn?: () => SourceAnchor | null): SpeechPosition | null => {
+    if (!fn) return null;
+    try {
+      const anchor = fn();
+      return anchor ? speechIndexRef.current.locate(anchor) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /**
+   * The spec's 5-level start priority: explicit anchor → live viewport →
+   * authoritative position → saved position → beginning. A stale saved
+   * percentage can never override a resolvable live viewport.
+   */
+  const resolveStartPosition = useCallback(
+    (explicit?: TTSStartAnchor | null): SpeechPosition => {
+      if (explicit) {
+        const pos = resolveStartAnchor(explicit, speechIndexRef.current, {
+          cfiToEpubAnchor: cfiToEpubAnchorRef.current,
+          resolveViewport: () => {
+            const via = resolveVia(resolveViewportAnchorRef.current);
+            if (!via) return null;
+            const chunk = speechIndexRef.current.chunks[via.chunkIndex];
+            return chunk?.words[via.wordIndex]?.anchor ?? null;
+          },
+        });
+        if (pos) return pos;
+      }
+      const viewport = resolveVia(resolveViewportAnchorRef.current);
+      if (viewport) return viewport;
+      const authoritative = resolveVia(resolvePositionAnchorRef.current);
+      if (authoritative) return authoritative;
+      const initial = getInitialChunkRef.current();
+      if (initial > 0) return { chunkIndex: initial, wordIndex: 0 };
+      return { chunkIndex: 0, wordIndex: 0 };
+    },
+    [resolveVia]
   );
 
-  // TextPositionIndex for position-aware start
-  const positionIndexRef = useRef<TextPositionIndex>(new TextPositionIndex(docType));
+  const getInitialChunkRef = useRef<() => number>(() => 0);
 
-  useEffect(() => {
-    positionIndexRef.current = new TextPositionIndex(docType);
-    if (chunks.length > 0) {
-      positionIndexRef.current.build(chunks);
-      positionIndexRef.current.setPageCharOffsets(pageCharOffsets);
-    }
-  }, [chunks, pageCharOffsets, docType]);
-
-  // Determine initial chunk index from startPosition
+  // Determine initial chunk index from startPosition (legacy fallback only —
+  // anchored starts resolve exactly through the speech index).
   const initialChunkRef = useRef<number | null>(null);
   const startPositionRef = useRef(startPosition);
   startPositionRef.current = startPosition;
@@ -341,114 +429,20 @@ export function ReaderTTSControls({
   const getInitialChunk = useCallback(() => {
     const sp = startPositionRef.current;
     if (!sp) return 0;
-    const pos = positionIndexRef.current.getPosition(sp.pageNumber, sp.scrollPercent);
-    return pos?.chunkIndex ?? 0;
-  }, []);
-
-  const findVisibleChunkIndex = useCallback((): number | null => {
-    try {
-      const parentContainer = highlightContainerRef?.current || document.body;
-      if (!parentContainer) return null;
-
-      const parentRect = parentContainer.getBoundingClientRect();
-      const iframes = Array.from(parentContainer.querySelectorAll("iframe"));
-
-      let visibleElements: HTMLElement[] = [];
-
-      if (iframes.length > 0) {
-        for (const iframe of iframes) {
-          try {
-            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-            if (!iframeDoc) continue;
-            const iframeRect = iframe.getBoundingClientRect();
-
-            const elements = Array.from(
-              iframeDoc.body.querySelectorAll<HTMLElement>(
-                "p, h1, h2, h3, h4, h5, h6, li, [role='paragraph']"
-              )
-            );
-
-            for (const el of elements) {
-              const text = el.textContent?.trim();
-              if (!text || text.length < 3) continue;
-
-              const elRect = el.getBoundingClientRect();
-              const absoluteTop = iframeRect.top + elRect.top;
-              const absoluteBottom = iframeRect.top + elRect.bottom;
-
-              // Check if element is visible within the parent container's vertical bounds
-              if (absoluteBottom > parentRect.top + 10 && absoluteTop < parentRect.bottom - 10) {
-                visibleElements.push(el);
-              }
-            }
-          } catch {
-            // Ignore iframe cross-origin access issues
-          }
-        }
-      } else {
-        const elements = Array.from(
-          parentContainer.querySelectorAll<HTMLElement>(
-            "p, h1, h2, h3, h4, h5, h6, li, [role='paragraph']"
-          )
-        );
-        for (const el of elements) {
-          const text = el.textContent?.trim();
-          if (!text || text.length < 3) continue;
-
-          const elRect = el.getBoundingClientRect();
-          if (elRect.bottom > parentRect.top + 10 && elRect.top < parentRect.bottom - 10) {
-            visibleElements.push(el);
-          }
-        }
-      }
-
-      if (visibleElements.length === 0) return null;
-
-      // Sort visible elements by their distance from the top of parentRect
-      visibleElements.sort((a, b) => {
-        const rectA = a.getBoundingClientRect();
-        const rectB = b.getBoundingClientRect();
-
-        let topA = rectA.top;
-        let topB = rectB.top;
-
-        if (a.ownerDocument !== document) {
-          const iframe = iframes.find((f) => f.contentDocument === a.ownerDocument);
-          if (iframe) topA += iframe.getBoundingClientRect().top;
-        }
-        if (b.ownerDocument !== document) {
-          const iframe = iframes.find((f) => f.contentDocument === b.ownerDocument);
-          if (iframe) topB += iframe.getBoundingClientRect().top;
-        }
-
-        return Math.abs(topA - parentRect.top) - Math.abs(topB - parentRect.top);
-      });
-
-      const cleanForComparison = (str: string) => {
-        return str.toLowerCase().replace(/[^a-z0-9]/g, "");
-      };
-
-      // Check first few visible elements to find the best matching chunk index
-      for (const el of visibleElements.slice(0, 5)) {
-        const text = el.textContent?.trim();
-        if (!text) continue;
-        const normEl = cleanForComparison(text);
-        if (normEl.length < 3) continue;
-
-        for (let i = 0; i < chunks.length; i++) {
-          const normChunk = cleanForComparison(chunks[i]);
-          if (normChunk.length < 3) continue;
-
-          if (normChunk.includes(normEl) || normEl.includes(normChunk)) {
-            return i;
-          }
-        }
-      }
-    } catch (error) {
-      console.warn("TTS: Error finding visible starting chunk index:", error);
+    const index = speechIndexRef.current;
+    if (docType === "pdf" && sp.pageNumber !== null) {
+      const forPage = index.chunksForPage(sp.pageNumber);
+      if (forPage.length > 0) return forPage[0];
     }
-    return null;
-  }, [chunks, highlightContainerRef]);
+    if (sp.scrollPercent !== null && sp.scrollPercent > 0) {
+      return index.chunkIndexForScrollPercent(sp.scrollPercent);
+    }
+    return 0;
+  }, [docType]);
+  getInitialChunkRef.current = getInitialChunk;
+
+  // (findVisibleChunkIndex was removed: starts resolve exactly through the
+  // speech index — see resolveStartPosition.)
 
   // Sync refs for values read in callbacks (avoids stale closures)
   const isAutoPlayingRef = useRef(isAutoPlaying);
@@ -518,6 +512,8 @@ export function ReaderTTSControls({
   // Reset when text changes
   useEffect(() => {
     playbackIdRef.current++;
+    applySessionLeading(null);
+    pendingAnchorRef.current = null;
     const initialChunk = getInitialChunk();
     setChunkIndex(initialChunk);
     initialChunkRef.current = initialChunk;
@@ -538,6 +534,10 @@ export function ReaderTTSControls({
       intentionalStopRef.current = true;
     }
   }, [textFingerprint]);
+
+  useEffect(() => {
+    playbackStateRef.current = isPlaying ? "playing" : isPaused ? "paused" : "stopped";
+  }, [isPlaying, isPaused]);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -576,10 +576,12 @@ export function ReaderTTSControls({
   // Generate audio for a chunk
   const generateChunkAudio = useCallback(
     async (index: number): Promise<BufferedAudio | null> => {
-      if (index < 0 || index >= chunks.length) return null;
+      const list = playlistRef.current;
+      if (index < 0 || index >= list.length) return null;
 
-      const chunk = chunks[index];
+      const chunk = list[index];
       if (!chunk) return null;
+      const chunkText = chunk.text;
 
       // System TTS synthesizes directly at playback time — nothing to fetch/buffer.
       if (isSystemProvider) {
@@ -598,15 +600,36 @@ export function ReaderTTSControls({
 
       try {
         setBufferStatus((prev) => new Map(prev).set(index, "loading"));
+        // Session epoch: a retarget/stop/voice change while this request is in
+        // flight invalidates its result — stale audio must never play. The
+        // IndexedDB cache write (inside generateSpeech) stays valid.
+        const epoch = playbackIdRef.current;
 
         const result = await generateSpeech(settings, {
-          text: chunk,
+          text: chunkText,
           voiceId,
+          includeTimings: true,
         });
+
+        if (!mountedRef.current || playbackIdRef.current !== epoch) {
+          // Stale: drop the buffer entry and revoke the non-cached object URL.
+          if (result.audioUrl.startsWith("blob:")) {
+            try {
+              URL.revokeObjectURL(result.audioUrl);
+            } catch {
+              /* ignore */
+            }
+          }
+          bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
+          bufferMgrRef.current.queuedIndices.delete(index);
+          return null;
+        }
 
         const buffered: BufferedAudio = {
           audioUrl: result.audioUrl,
           durationSec: result.durationSec,
+          text: chunkText,
+          wordTimings: result.wordTimings,
         };
 
         audioBufferRef.current.set(index, buffered);
@@ -624,7 +647,7 @@ export function ReaderTTSControls({
         return null;
       }
     },
-    [chunks, settings, voiceId]
+    [playlist, settings, voiceId]
   );
 
   // Pre-buffer upcoming chunks — unified waterfall for all providers
@@ -633,12 +656,13 @@ export function ReaderTTSControls({
       bufferMgrRef.current.evictPlayedChunks(fromIndex);
 
       const mgr = bufferMgrRef.current;
+      const list = playlistRef.current;
       const secondsAhead = mgr.getBufferedSecondsAhead(fromIndex);
       if (secondsAhead >= BUFFER_TARGET_SEC) return;
 
       let bufferedSec = secondsAhead;
       let idx = fromIndex;
-      while (idx < chunks.length && bufferedSec < BUFFER_TARGET_SEC) {
+      while (idx < list.length && bufferedSec < BUFFER_TARGET_SEC) {
         if (!audioBufferRef.current.has(idx) && !mgr.queuedIndices.has(idx)) {
           const status = bufferStatusRef.current.get(idx);
           if (!status || status === "error") {
@@ -666,23 +690,30 @@ export function ReaderTTSControls({
   // Play a chunk by index
   const playChunkAtIndex = useCallback(
     async (index: number) => {
-      if (index < 0 || index >= chunks.length) return;
+      const list = playlistRef.current;
+      if (index < 0 || index >= list.length) return;
 
       const playId = ++playbackIdRef.current;
 
-      const chunk = chunks[index];
+      const chunk = list[index];
+      const chunkText = chunk.text;
       setChunkIndex(index);
-      onChunkStart?.(index, chunk);
-      onChunkChangeRef.current?.(index, positionIndexRef.current.getScrollPercent(index));
+      onChunkStart?.(index, chunkText);
+      onChunkChangeRef.current?.(index, speechIndexRef.current.getScrollPercent(index));
 
       let buffered = audioBufferRef.current.get(index);
+      // A transient sliced chunk at this index invalidates any buffered audio
+      // generated for different text (distinct cache identity, same index).
+      if (buffered && buffered.text !== undefined && buffered.text !== chunkText) {
+        audioBufferRef.current.delete(index);
+        buffered = undefined;
+      }
 
       if (!buffered) {
         // Buffer underrun — show indicator and generate synchronously
         setIsBuffering(true);
         buffered = await generateChunkAudio(index);
         setIsBuffering(false);
-
         if (!mountedRef.current || playbackIdRef.current !== playId) {
           return;
         }
@@ -705,7 +736,7 @@ export function ReaderTTSControls({
       // (more accurate than the time-fraction heuristic used for cloud audio).
       if (isSystemProvider && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(chunk);
+        const utterance = new SpeechSynthesisUtterance(chunkText);
         utterance.rate = playbackRate;
         const sysVoice = resolveSystemVoice(voiceId, systemSynthVoices);
         if (sysVoice) {
@@ -721,7 +752,7 @@ export function ReaderTTSControls({
         utterance.onboundary = (event) => {
           if (!mountedRef.current || playbackIdRef.current !== playId) return;
           if (typeof event.charIndex === "number") {
-            setWordOffset(charIndexToWordOffset(chunk, event.charIndex));
+            setWordOffset(charIndexToWordIndex(chunkText, event.charIndex));
           }
         };
         utterance.onend = () => {
@@ -747,7 +778,6 @@ export function ReaderTTSControls({
           setWordOffset(0);
         };
         utteranceRef.current = utterance;
-        onChunkStart?.(index, chunk);
         window.speechSynthesis.speak(utterance);
         return;
       }
@@ -758,13 +788,23 @@ export function ReaderTTSControls({
       // and emits sentence-position/playback-state/utterance-complete events;
       // we use those to drive chunk highlight and auto-advance.
       if (isAndroidProvider && isAndroidTtsAvailable()) {
-        const remaining = chunks.slice(index);
+        const remaining = list.slice(index).map((c) => c.text);
         setIsPlaying(true);
         setIsPaused(false);
         setIsBuffering(false);
 
         // Subscribe for the duration of this utterance; unsubscribed on
         // completion/error/unmount via the refs the effect cleanup owns.
+        // Events are filtered by a monotonic utteranceId (the stale-guard
+        // pattern from useNativeAndroidTTS): events for an utterance older
+        // than the newest one seen can never move highlight or playback.
+        const monotonicUtteranceRef = { current: -1 };
+        const acceptUtterance = (utteranceId: number | undefined): boolean => {
+          if (typeof utteranceId !== "number") return true;
+          if (utteranceId < monotonicUtteranceRef.current) return false;
+          monotonicUtteranceRef.current = utteranceId;
+          return true;
+        };
         const nativeUnsub: Array<() => void> = [];
         nativeUnsub.push(
           await onNativePlaybackState(() => {
@@ -774,16 +814,36 @@ export function ReaderTTSControls({
         nativeUnsub.push(
           await onNativeSentencePosition((e) => {
             if (!mountedRef.current || playbackIdRef.current !== playId) return;
+            if (!acceptUtterance((e as { utteranceId?: number }).utteranceId)) return;
             // The plugin's index is relative to the slice we handed it.
             const absolute = index + e.index;
             if (absolute !== chunkIndex) {
               setChunkIndex(absolute);
-              onChunkStart?.(absolute, chunks[absolute] ?? e.sentence);
+              onChunkStart?.(absolute, playlistRef.current[absolute]?.text ?? e.sentence);
               onChunkChangeRef.current?.(
                 absolute,
-                positionIndexRef.current.getScrollPercent(absolute)
+                speechIndexRef.current.getScrollPercent(absolute)
               );
+              // Sherpa engine path (no word events): the sentence anchor is
+              // the best safe fallback — the first word of the chunk,
+              // explicitly marked approximate.
+              setWordOffset(0);
+              setActiveTimingApproximate(true);
             }
+          })
+        );
+        // Fallback-engine word events (onRangeStart): exact active-word
+        // updates, filtered by the monotonic utterance guard.
+        nativeUnsub.push(
+          await onNativeWordPosition((e) => {
+            if (!mountedRef.current || playbackIdRef.current !== playId) return;
+            if (!acceptUtterance((e as { utteranceId?: number }).utteranceId)) return;
+            const absolute = index + e.sentenceIndex;
+            const text = playlistRef.current[absolute]?.text;
+            if (!text) return;
+            setChunkIndex(absolute);
+            setWordOffset(charIndexToWordIndex(text, e.charIndex));
+            setActiveTimingApproximate(false);
           })
         );
         nativeUnsub.push(
@@ -835,7 +895,7 @@ export function ReaderTTSControls({
       audio.onplay = () => {
         setIsPlaying(true);
         setIsPaused(false);
-        startWordTracking(audio, chunk);
+        startWordTracking(audio, chunkText, buffered.wordTimings);
       };
 
       audio.onpause = () => {
@@ -897,6 +957,59 @@ export function ReaderTTSControls({
     ]
   );
   playChunkAtIndexRef.current = playChunkAtIndex;
+
+  /**
+   * Begin playback at an exact speech position. A mid-chunk word start slices
+   * the chunk into a transient leading chunk (its own cache identity); the
+   * normal chunk sequence continues afterward. Seeking into a cached full-chunk
+   * clip without measured timings is never attempted.
+   */
+  const startAtPosition = useCallback(
+    async (pos: SpeechPosition) => {
+      const index = speechIndexRef.current;
+      if (pos.wordIndex > 0) {
+        const sliced = index.sliceChunkAtWord(pos.chunkIndex, pos.wordIndex);
+        applySessionLeading(sliced ? { chunkIndex: pos.chunkIndex, chunk: sliced } : null);
+      } else {
+        applySessionLeading(null);
+      }
+      setIsAutoPlaying(true);
+      intentionalStopRef.current = false;
+      await playChunkAtIndex(pos.chunkIndex);
+    },
+    [applySessionLeading, playChunkAtIndex]
+  );
+
+  /**
+   * Imperative start (selection "Read from here", TOC retarget): resolve the
+   * anchor through the full priority chain and begin playback there.
+   */
+  const startFrom = useCallback(
+    async (anchor: TTSStartAnchor) => {
+      stopAudio();
+      const pos = resolveStartPosition(anchor);
+      await startAtPosition(pos);
+    },
+    [stopAudio, resolveStartPosition, startAtPosition]
+  );
+  const startFromRef = useRef(startFrom);
+  startFromRef.current = startFrom;
+  const handleStopRef = useRef<() => void>(() => {});
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      startFrom: (anchor: TTSStartAnchor) => {
+        void startFromRef.current(anchor);
+      },
+      stop: () => handleStopRef.current(),
+      queueAnchor: (anchor: TTSStartAnchor) => {
+        pendingAnchorRef.current = anchor;
+      },
+      playbackState: () => playbackStateRef.current,
+    }),
+    []
+  );
 
   useEffect(() => {
     if (chunks.length > 0 && ttsEnabled) {
@@ -968,32 +1081,73 @@ export function ReaderTTSControls({
     setIsAutoPlaying(true);
     intentionalStopRef.current = false;
 
-    if (isPaused && audioRef.current) {
-      // If user scrolled to a different chunk/page while paused, start fresh from there!
-      const targetIdx = findVisibleChunkIndex();
-      if (targetIdx !== null && targetIdx !== chunkIndex) {
-        setChunkIndex(targetIdx);
-        await playChunkAtIndex(targetIdx);
-      } else {
+    if (isPaused) {
+      // A queued anchor (TOC navigation while paused) rebases the resume
+      // position; playback does not start until the user resumes.
+      const queued = pendingAnchorRef.current;
+      if (queued) {
+        pendingAnchorRef.current = null;
+        stopAudio();
+        await startAtPosition(resolveStartPosition(queued));
+        return;
+      }
+      // Paused-resume semantics: resume at the exact paused word unless the
+      // user deliberately scrolled while paused — detected as the live
+      // viewport resolving to a different word — in which case re-anchor.
+      const viewport = resolveVia(resolveViewportAnchorRef.current);
+      const moved =
+        viewport !== null &&
+        (viewport.chunkIndex !== chunkIndex || viewport.wordIndex !== wordOffsetRef.current);
+      if (moved) {
+        stopAudio();
+        await startAtPosition(viewport);
+        return;
+      }
+      // Engine-specific exact resume.
+      if (isSystemProvider && "speechSynthesis" in window) {
+        window.speechSynthesis.resume();
+        setIsPaused(false);
+        setIsPlaying(true);
+        return;
+      }
+      if (isAndroidProvider && isAndroidTtsAvailable()) {
+        nativeResume().catch(() => {});
+        setIsPaused(false);
+        setIsPlaying(true);
+        return;
+      }
+      if (audioRef.current) {
         audioRef.current.play();
-        startWordTracking(audioRef.current, chunks[chunkIndex]);
+        startWordTracking(
+          audioRef.current,
+          playlistRef.current[chunkIndex]?.text ?? "",
+          audioBufferRef.current.get(chunkIndex)?.wordTimings
+        );
       }
       return;
     }
 
-    // Otherwise, we are starting fresh (or starting after a stop)
-    // Let's dynamically find starting chunk index based on top-most visible text
-    const targetIdx = findVisibleChunkIndex() ?? chunkIndex;
-    setChunkIndex(targetIdx);
-    await playChunkAtIndex(targetIdx);
+    // Starting fresh (or after a stop): explicit pending anchor (level 1) →
+    // live viewport (2) → authoritative position (3) → saved position (4) →
+    // start (5).
+    const explicit = pendingAnchorRef.current;
+    pendingAnchorRef.current = null;
+    const pos = resolveStartPosition(explicit);
+    if (pos.chunkIndex !== chunkIndex || pos.wordIndex > 0) {
+      stopAudio();
+    }
+    await startAtPosition(pos);
   };
 
   const handleStop = () => {
     playbackIdRef.current++;
     intentionalStopRef.current = true;
     setIsAutoPlaying(false);
+    applySessionLeading(null);
+    pendingAnchorRef.current = null;
     stopAudio();
   };
+  handleStopRef.current = handleStop;
 
   const handlePrev = async () => {
     playbackIdRef.current++;
@@ -1034,20 +1188,23 @@ export function ReaderTTSControls({
   if (!ttsEnabled) return null;
   if (chunks.length === 0) return null;
 
-  const currentChunk = chunks[Math.min(chunkIndex, chunks.length - 1)] || "";
+  const currentChunk = chunks[Math.min(chunkIndex, chunks.length - 1)]?.text ?? "";
   const currentBufferStatus = bufferStatus.get(chunkIndex);
   const isLoading = currentBufferStatus === "loading" || currentBufferStatus === "pending";
 
   return (
     <>
-      {highlightEnabled && currentChunk && (highlightContainerRef?.current || iframeWindow) && (
+      {(isPlaying || isPaused) && highlightEnabled && currentChunk && (highlightContainerRef?.current || iframeWindow) && (
         <WordHighlightLayer
           enabled={highlightEnabled}
+          chunk={playlist[chunkIndex] ?? null}
           chunkText={currentChunk}
           wordOffset={wordOffset}
+          timingApproximate={activeTimingApproximate}
           containerRef={highlightContainerRef}
           useChunkLevel={false}
           iframeWindow={iframeWindow}
+          sectionContainers={sectionContainers}
         />
       )}
       <div
@@ -1156,9 +1313,12 @@ export function ReaderTTSControls({
             <Highlighter className="h-3.5 w-3.5" />
           </button>
 
-          {autoScrollPaused && (
+          {(followPausedByUser || autoScrollPaused) && (
             <button
-              onClick={() => onReCenter?.()}
+              onClick={() => {
+                followReCenter();
+                onReCenter?.();
+              }}
               className="rounded-md border border-amber-500 bg-amber-500/10 px-2 py-1 text-xs text-amber-600 hover:bg-amber-500/20"
               title="Re-center to current TTS position"
             >
@@ -1184,3 +1344,4 @@ export function ReaderTTSControls({
     </>
   );
 }
+);

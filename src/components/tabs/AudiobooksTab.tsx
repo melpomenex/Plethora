@@ -11,7 +11,9 @@ import {
   Archive,
   Star,
   Trash,
-  Play
+  Play,
+  SpeakerHigh,
+  Waveform
 } from "@phosphor-icons/react";
 import { useDocumentStore, useTabsStore } from "../../stores";
 import { Document } from "../../types/document";
@@ -35,6 +37,26 @@ export function AudiobooksTab() {
   const [statusFilter, setStatusFilter] = useState<"all" | "not_started" | "in_progress" | "finished" | "dnf">("all");
   const [sortBy, setSortBy] = useState<"dateAdded" | "title" | "author" | "duration" | "progress">("dateAdded");
   const isActiveTab = useIsActiveTab();
+
+  // Document Audio Editions (task 4.3): editions of non-audio documents with
+  // generation badges + playback controls, plus live generation progress.
+  const [editions, setEditions] = useState<AudioEdition[]>([]);
+  const generationJobs = useAudioEditionGenerationStore((s) => s.jobs);
+
+  useEffect(() => {
+    if (!isActiveTab) return;
+    let cancelled = false;
+    void listAudioEditions()
+      .then((list) => {
+        if (!cancelled) setEditions(list ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setEditions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveTab]);
 
   // Local storage keys for status overrides & listening stats
   const [dnfList, setDnfList] = useState<string[]>([]);
@@ -68,6 +90,25 @@ export function AudiobooksTab() {
   const audiobooks = useMemo(() => {
     return documents.filter(isAudiobookDocument);
   }, [documents]);
+
+  // Audio Editions of NON-audio documents (editions of audiobook files are
+  // played through the book itself; transcript editions are internal anchor
+  // sources and hidden from this shelf).
+  const documentEditions = useMemo(() => {
+    const docMap = new Map(documents.map((d) => [d.id, d]));
+    return editions
+      .filter(
+        (e) =>
+          e.provider !== "transcript" &&
+          docMap.has(e.sourceDocumentId) &&
+          !isAudiobookDocument(docMap.get(e.sourceDocumentId)!)
+      )
+      .map((edition) => ({
+        edition,
+        document: docMap.get(edition.sourceDocumentId),
+        job: generationJobs[edition.id],
+      }));
+  }, [editions, documents, generationJobs]);
 
   // Enrich books with status derived from progress + manual DNF override
   const enrichedBooks = useMemo(() => {
@@ -155,6 +196,28 @@ export function AudiobooksTab() {
       content: DocumentViewer,
       closable: true,
       data: { documentId: book.id },
+    }, paneId);
+  };
+
+  /** Open a document directly in the Audio Edition player (task 4.3). */
+  const handleListenToEdition = (
+    doc: Document | undefined,
+    edition: AudioEdition,
+    fromSeconds = 0
+  ) => {
+    if (!doc) return;
+    addTab({
+      title: doc.title,
+      icon: <Headphones className="w-4 h-4 text-primary" />,
+      type: "document-viewer",
+      content: DocumentViewer,
+      closable: true,
+      data: {
+        documentId: doc.id,
+        listenToEdition: true,
+        autoPlay: true,
+        initialJump: { kind: "audio", timeSeconds: fromSeconds },
+      },
     }, paneId);
   };
 
@@ -301,6 +364,77 @@ export function AudiobooksTab() {
           </div>
         </div>
       </div>
+
+      {/* Document Audio Editions shelf (task 4.3) — editions of text
+          documents (EPUB/PDF/articles) with generation badges and playback
+          controls. The transcript-provider entries are implicit per-book
+          anchor sources, not listenable editions, so they are hidden. */}
+      {documentEditions.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <SpeakerHigh className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Audio Editions ({documentEditions.length})
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              — TTS editions of documents in your library
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {documentEditions.map(({ edition, document: doc, job }) => {
+              const sections = edition.sections ?? [];
+              const readyCount = sections.filter((s) => s.generationStatus === "ready").length;
+              const totalDuration = sections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
+              const badge =
+                edition.status === "ready" || (readyCount > 0 && edition.status !== "generating")
+                  ? { label: `${readyCount}/${sections.length} ready`, cls: "bg-green-500/10 text-green-600" }
+                  : edition.status === "generating" || job?.status === "generating"
+                    ? { label: `Generating ${job?.progressPercent ?? Math.round((readyCount / Math.max(1, sections.length)) * 100)}%`, cls: "bg-blue-500/10 text-blue-600" }
+                    : edition.status === "failed"
+                      ? { label: "Failed", cls: "bg-red-500/10 text-red-600" }
+                      : { label: edition.status, cls: "bg-muted text-muted-foreground" };
+              const canPlay = readyCount > 0;
+
+              return (
+                <div
+                  key={edition.id}
+                  className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors"
+                >
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{doc?.title ?? "Document"}</span>
+                      <span className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded shrink-0", badge.cls)}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {edition.provider}/{edition.model} · {formatDuration(totalDuration)}
+                      {job?.status === "generating" ? ` · ${job.completedSections}/${job.totalSections} sections` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleListenToEdition(doc, edition)}
+                    disabled={!canPlay}
+                    title={canPlay ? "Listen to Audio Edition" : "No sections generated yet"}
+                    aria-label={`Listen to audio edition of ${doc?.title ?? "document"}`}
+                    className={cn(
+                      "p-2.5 rounded-full transition-all shrink-0",
+                      canPlay
+                        ? "bg-primary text-primary-foreground hover:scale-105"
+                        : "bg-muted text-muted-foreground/40 cursor-not-allowed"
+                    )}
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bookshelf Shelf Cover Grid */}
       {filteredBooks.length === 0 ? (

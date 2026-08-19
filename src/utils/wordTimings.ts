@@ -12,10 +12,25 @@
  * `text.split(/\s+/).filter(Boolean).length === wordTimings.length`.
  */
 
+/**
+ * Where a `WordTiming` came from.
+ *
+ * - `"measured"`: real alignment data (provider word timestamps / speech marks,
+ *   Web Speech boundary events, native word events). Ground truth.
+ * - `"synthesized"`: estimated by spreading a span across words. Approximate;
+ *   must be rendered distinctly (softer emphasis) and never persisted or
+ *   reported as measured.
+ *
+ * The field is optional so pre-existing transcript producers keep compiling;
+ * TTS paths always set it.
+ */
+export type WordTimingSource = "measured" | "synthesized";
+
 export interface WordTiming {
   word: string;
   start_ms: number;
   end_ms: number;
+  source?: WordTimingSource;
 }
 
 /**
@@ -102,7 +117,7 @@ export function synthesizeWordTimings(
     cursor += duration;
     // Pin the final word to the segment end so rounding can't leave a gap.
     const end = i === tokens.length - 1 ? endMs : Math.round(cursor);
-    return { word, start_ms: start, end_ms: Math.max(end, start + 1) };
+    return { word, start_ms: start, end_ms: Math.max(end, start + 1), source: "synthesized" as const };
   });
 }
 
@@ -115,4 +130,37 @@ export function synthesizeWordTimings(
 export function wordTimingsAlignWith(text: string, wordTimings: WordTiming[] | undefined): boolean {
   if (!wordTimings || wordTimings.length === 0) return false;
   return text.split(/\s+/).filter((t) => t.length > 0).length === wordTimings.length;
+}
+
+/**
+ * Resolve the timings a playback clock should use for a chunk: measured
+ * provider timings when they align with the chunk text, else timings
+ * synthesized over the actual audio duration (marked approximate). Returns
+ * undefined while neither is available yet (e.g. duration unknown).
+ */
+export function resolveChunkTimings(
+  chunkText: string,
+  measured: WordTiming[] | undefined,
+  durationSec: number | undefined,
+): WordTiming[] | undefined {
+  if (wordTimingsAlignWith(chunkText, measured)) return measured;
+  if (durationSec !== undefined && durationSec > 0 && Number.isFinite(durationSec)) {
+    return synthesizeWordTimings(chunkText, 0, durationSec);
+  }
+  return undefined;
+}
+
+/**
+ * Playback-clock commit gate: returns the newly active word index, or null when
+ * the active word has not changed since `lastIndex`. Lets a per-frame sampling
+ * loop commit React state ~once per spoken word instead of once per frame.
+ */
+export function nextActiveWordIndex(
+  timings: WordTiming[],
+  currentTimeSec: number,
+  lastIndex: number,
+): number | null {
+  const active = findActiveWordIndex(timings, currentTimeSec);
+  if (active < 0 || active === lastIndex) return null;
+  return active;
 }

@@ -85,6 +85,15 @@ export interface SentencePositionEvent {
   sentence: string;
 }
 
+/** Exact spoken-word position from the System-TTS fallback engine
+ * (`onRangeStart`), normalized into the current sentence's char space. */
+export interface WordPositionEvent {
+  utteranceId: number;
+  sentenceIndex: number;
+  charIndex: number;
+  charLength?: number;
+}
+
 export interface UtteranceCompleteEvent {
   utteranceId: number;
 }
@@ -184,6 +193,7 @@ export async function pluginStop(): Promise<void> {
 export const ANDROID_TTS_EVENTS = {
   playbackState: "tts://playback-state",
   sentencePosition: "tts://sentence-position",
+  wordPosition: "tts://word-position",
   utteranceComplete: "tts://utterance-complete",
   error: "tts://error",
   downloadProgress: "tts://download-progress",
@@ -225,6 +235,10 @@ export function onPlaybackState(
 
 export function onSentencePosition(handler: (e: SentencePositionEvent) => void): Promise<Unlisten> {
   return subscribe<SentencePositionEvent>(ANDROID_TTS_EVENTS.sentencePosition, handler);
+}
+
+export function onWordPosition(handler: (e: WordPositionEvent) => void): Promise<Unlisten> {
+  return subscribe<WordPositionEvent>(ANDROID_TTS_EVENTS.wordPosition, handler);
 }
 
 export function onUtteranceComplete(

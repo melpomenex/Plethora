@@ -74,6 +74,12 @@ export interface SelectionAdapterHandlers {
    * controller runs its dismiss gate and revalidation on top of this.
    */
   onContentScroll: (target: EventTarget | null, top: number, left: number) => void;
+  /**
+   * Double-click in reader content (not on controller UI): flags the next
+   * settle's gesture origin as "double-click" — the only desktop gesture that
+   * auto-opens the dictionary peek (design D3).
+   */
+  onDoubleClick?: () => void;
   /** True when the event target belongs to controller-owned UI. */
   isOwnUi?: (target: EventTarget | null) => boolean;
 }
@@ -125,12 +131,18 @@ export function attachTopDocumentAdapter(
     if (e.pointerType === "mouse" || e.pointerType === "pen") handlers.onPointerRelease();
   };
 
+  const handleDblClick = (e: Event) => {
+    if (ownUi(e.target)) return;
+    handlers.onDoubleClick?.();
+  };
+
   document.addEventListener("selectionchange", handleSelectionChange);
   document.addEventListener("touchstart", handleTouchStart, { capture: true, passive: true });
   document.addEventListener("touchend", handleTouchEnd, { capture: true, passive: true });
   document.addEventListener("touchcancel", handleTouchEnd, { capture: true, passive: true });
   document.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
   document.addEventListener("pointerup", handlePointerUp);
+  document.addEventListener("dblclick", handleDblClick);
 
   return () => {
     document.removeEventListener("selectionchange", handleSelectionChange);
@@ -139,6 +151,7 @@ export function attachTopDocumentAdapter(
     document.removeEventListener("touchcancel", handleTouchEnd, { capture: true } as EventListenerOptions);
     document.removeEventListener("scroll", handleScrollCapture, { capture: true } as EventListenerOptions);
     document.removeEventListener("pointerup", handlePointerUp);
+    document.removeEventListener("dblclick", handleDblClick);
   };
 }
 
@@ -171,6 +184,10 @@ export function attachContentDocumentBridge(
   };
   const handleTouchEnd = () => handlers.onContentTouchEnd();
   const handleMouseUp = () => handlers.onPointerRelease();
+  const handleDblClick = (e: Event) => {
+    if (isSelectionInteractionUi(e.target)) return;
+    handlers.onDoubleClick?.();
+  };
   const handleScroll = (e: Event) => {
     const win = entry.win;
     if (win && e.target === win) {
@@ -188,6 +205,7 @@ export function attachContentDocumentBridge(
   doc.addEventListener("touchend", handleTouchEnd, { capture: true, passive: true });
   doc.addEventListener("touchcancel", handleTouchEnd, { capture: true, passive: true });
   doc.addEventListener("mouseup", handleMouseUp);
+  doc.addEventListener("dblclick", handleDblClick);
   if (entry.win) entry.win.addEventListener("scroll", handleScroll, { passive: true });
   doc.addEventListener("scroll", handleScroll, { capture: true, passive: true });
 
@@ -197,6 +215,7 @@ export function attachContentDocumentBridge(
     doc.removeEventListener("touchend", handleTouchEnd, { capture: true } as EventListenerOptions);
     doc.removeEventListener("touchcancel", handleTouchEnd, { capture: true } as EventListenerOptions);
     doc.removeEventListener("mouseup", handleMouseUp);
+    doc.removeEventListener("dblclick", handleDblClick);
     if (entry.win) entry.win.removeEventListener("scroll", handleScroll);
     doc.removeEventListener("scroll", handleScroll, { capture: true } as EventListenerOptions);
   };

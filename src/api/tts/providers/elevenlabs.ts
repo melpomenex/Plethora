@@ -3,6 +3,8 @@ import { resolveProviderKey } from "../auth";
 import { TTSServiceError } from "../errors";
 import type { TTSAdapterContext, TTSModelInfo, TTSProviderAdapter, TTSVoiceInfo } from "../types";
 import { binaryResult, fetchBinary, fetchJson } from "./shared";
+import { normalizeElevenLabsTimestamps } from "../timing";
+import type { WordTiming } from "../../../utils/wordTimings";
 
 const BASE_URL = "https://api.elevenlabs.io";
 
@@ -16,6 +18,7 @@ export const elevenlabsAdapter: TTSProviderAdapter = {
     supportsInstructions: false,
     supportsCloning: false,
     supportsCustomVoiceIds: true,
+    supportsWordTimings: true,
     audioFormats: ["mp3", "wav"],
     maxInputChars: 5000,
   },
@@ -46,6 +49,36 @@ export const elevenlabsAdapter: TTSProviderAdapter = {
     if (!key) throw new TTSServiceError("ElevenLabs API key is required.", "validation");
     if (!request.voice) throw new TTSServiceError("An ElevenLabs voice is required.", "validation");
     const format = request.responseFormat || "mp3";
+
+    // Word timings: the /with-timestamps endpoint returns base64 audio plus a
+    // per-character alignment normalized onto the chunk's word boundaries.
+    if (request.includeTimings) {
+      try {
+        const payload = await fetchJson("elevenlabs", `${BASE_URL}/v1/text-to-speech/${encodeURIComponent(request.voice)}/with-timestamps`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "xi-api-key": key },
+          body: JSON.stringify({ text: request.text, model_id: request.model, output_format: format }),
+        }) as Record<string, unknown>;
+        const audioBase64 = typeof payload.audio_base64 === "string" ? payload.audio_base64 : null;
+        const wordTimings = normalizeElevenLabsTimestamps(request.text, payload);
+        if (audioBase64 && wordTimings) {
+          const binary = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+          const data = binary.buffer as ArrayBuffer;
+          const mimeType = format === "wav" ? "audio/wav" : "audio/mpeg";
+          const result = binaryResult("elevenlabs", request.model, format, data, mimeType);
+          return {
+            ...result,
+            rawOutput: { ...result.rawOutput, withTimestamps: true },
+            wordTimings,
+          };
+        }
+      } catch (error) {
+        if (error instanceof TTSServiceError && !error.recoverable) throw error;
+        // Timed synthesis failed — fall through to the binary endpoint; the
+        // shared synthesized-timing fallback covers word highlighting.
+      }
+    }
+
     const result = await fetchBinary("elevenlabs", `${BASE_URL}/v1/text-to-speech/${encodeURIComponent(request.voice)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "xi-api-key": key },

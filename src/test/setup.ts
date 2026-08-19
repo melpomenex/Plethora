@@ -246,3 +246,81 @@ beforeAll(() => {
 afterAll(() => {
   console.error = originalError;
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Media Session / Web Audio mocks (openspec add-audio-editions-and-hands-
+// free-study-mode, task 11.3). jsdom ships neither; the player-integration
+// and feedback tests rely on them existing.
+// ──────────────────────────────────────────────────────────────────────────
+if (typeof navigator !== "undefined" && !("mediaSession" in navigator)) {
+  const mediaSessionHandlers = new Map<string, ((details?: unknown) => void) | null>();
+  Object.defineProperty(navigator, "mediaSession", {
+    configurable: true,
+    value: {
+      metadata: null,
+      playbackState: "none",
+      setActionHandler(action: string, handler: ((details?: unknown) => void) | null) {
+        if (handler === null) mediaSessionHandlers.delete(action);
+        else mediaSessionHandlers.set(action, handler);
+      },
+      setPositionState(_state: unknown) {
+        /* no-op */
+      },
+      __handlers: mediaSessionHandlers,
+    },
+  });
+}
+
+if (typeof window !== "undefined" && typeof window.MediaMetadata === "undefined") {
+  Object.defineProperty(window, "MediaMetadata", {
+    configurable: true,
+    value: class MediaMetadata {
+      title: string;
+      artist: string;
+      album: string;
+      artwork: Array<{ src: string; sizes: string; type: string }>;
+      constructor(init?: { title?: string; artist?: string; album?: string; artwork?: Array<{ src: string; sizes: string; type: string }> }) {
+        this.title = init?.title ?? "";
+        this.artist = init?.artist ?? "";
+        this.album = init?.album ?? "";
+        this.artwork = init?.artwork ?? [];
+      }
+    },
+  });
+}
+
+if (typeof window !== "undefined" && typeof window.AudioContext === "undefined") {
+  // Minimal AudioContext stub: gain/oscillator graph nodes with recorder-style
+  // setters so chime code paths run without a real audio backend.
+  const makeParam = () => ({
+    value: 0,
+    setValueAtTime: () => {},
+    linearRampToValueAtTime: () => {},
+    exponentialRampToValueAtTime: () => {},
+  });
+  class FakeGainNode {
+    gain = makeParam();
+    connect() {}
+    disconnect() {}
+  }
+  class FakeOscillatorNode {
+    frequency = makeParam();
+    type = "sine";
+    connect() {}
+    start() {}
+    stop() {}
+  }
+  Object.defineProperty(window, "AudioContext", {
+    configurable: true,
+    writable: true,
+    value: class AudioContext {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      createGain() { return new FakeGainNode(); }
+      createOscillator() { return new FakeOscillatorNode(); }
+      resume() { return Promise.resolve(); }
+      close() { return Promise.resolve(); }
+    },
+  });
+}

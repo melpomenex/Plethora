@@ -4097,6 +4097,7 @@ export const fr: Dict = {
   "keyboardShortcutsHelp.proTipBody":
     "Appuyez sur Ctrl/⌘ + K à tout moment pour accéder à la palette de commandes et naviguer rapidement.",
   "keyboardShortcutsHelp.pressEscToClose": "Appuyez sur Échap pour fermer",
+  "selectionBar.readFromHere": "Lire à partir d'ici",
   "readerTts.previousChunk": "Segment précédent",
   "readerTts.resume": "Reprendre",
   "readerTts.pause": "Pause",

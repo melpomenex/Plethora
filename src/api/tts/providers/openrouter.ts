@@ -43,6 +43,7 @@ export const openrouterAdapter: TTSProviderAdapter = {
     supportsInstructions: true,
     supportsCloning: false,
     supportsCustomVoiceIds: true,
+    supportsWordTimings: false,
     audioFormats: ["mp3", "wav", "pcm"],
     maxInputChars: 5000,
   },

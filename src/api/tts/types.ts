@@ -1,5 +1,6 @@
 import type { Settings } from "../../stores/settingsStore";
 import type { TTSProviderSettings, TTSSettings, TTSVoiceProfile } from "../../utils/ttsSettings";
+import type { WordTiming } from "../../utils/wordTimings";
 
 export type TTSProviderId =
   | "fal"
@@ -31,6 +32,8 @@ export interface TTSAdapterCapabilities {
   supportsInstructions: boolean;
   supportsCloning: boolean;
   supportsCustomVoiceIds: boolean;
+  /** Whether the adapter can return measured word timings with its audio. */
+  supportsWordTimings: boolean;
   audioFormats: readonly string[];
   maxInputChars: number;
 }
@@ -83,6 +86,8 @@ export interface TTSSynthesizeRequest {
   instructions?: string;
   preset?: Record<string, unknown>;
   voiceProfile?: TTSVoiceProfile;
+  /** Ask the adapter to return measured word timings when it can. */
+  includeTimings?: boolean;
 }
 
 export interface TTSAudioResult {
@@ -91,6 +96,8 @@ export interface TTSAudioResult {
   mimeType?: string;
   durationSec?: number;
   rawOutput: Record<string, unknown>;
+  /** Measured word timings, present only when the provider returned alignment data. */
+  wordTimings?: WordTiming[];
 }
 
 export interface TTSProviderAdapter {

@@ -44,12 +44,21 @@ repositories {
 dependencies {
     implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.appcompat:appcompat:1.6.0")
+    // Media3 media session (tasks 6.1 + 10.1): real lock-screen / Bluetooth /
+    // headset / car media-button routing with an actionable media
+    // notification. Pinned together; a bump is an explicit change because
+    // SimpleBasePlayer's abstract surface has moved between minors before.
+    implementation("androidx.media3:media3-common:1.8.0")
+    implementation("androidx.media3:media3-session:1.8.0")
     // sherpa-onnx native inference runtime (Apache-2.0). Pinned: a version bump
     // is an explicit change because the model-config API can move between
     // releases. OfflineTts / OfflineTtsKittenModelConfig /
     // OfflineTtsKokoroModelConfig all live in com.k2fsa.sherpa.onnx.
     implementation("com.github.k2-fsa:sherpa-onnx:1.13.4")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     // Tauri Android runtime (Plugin/Invoke/JSObject/annotations).
