@@ -3035,7 +3035,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_listening_session_items_session ON listening_session_items(session_id);
         "#,
     ),
-    // Migration 084: user-installed Hugging Face speech model registry.
+    // Migration 090: user-installed Hugging Face speech model registry.
     // One row per installed HF repo (repo id + revision + runtime). The rows
     // drive the STT model picker, TTS model surface, duplicate-install
     // prevention, and restart re-detection (the frontend calls

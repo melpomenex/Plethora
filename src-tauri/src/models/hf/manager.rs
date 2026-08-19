@@ -450,6 +450,89 @@ pub async fn resolve_install_target(
     })
 }
 
+/// Validate a repo-relative file path for safe joining under the install dir.
+///
+/// Returns the sanitized relative path (with any leading `/` removed) or `None`
+/// when the path could escape the install dir: a `..`/`.`/empty component, a
+/// backslash (Windows separator), or a drive/absolute prefix. Every returned
+/// path is composed only of plain `name[/name...]` components, so
+/// `install_dir.join(rel)` can never climb above `install_dir`.
+pub fn sanitize_install_rel(path: &str) -> Option<String> {
+    let rel = path.trim_start_matches('/');
+    if rel.is_empty() || rel.contains('\\') || rel.contains(':') {
+        return None;
+    }
+    let mut components = Vec::new();
+    for comp in rel.split('/') {
+        if comp.is_empty() || comp == "." || comp == ".." {
+            return None;
+        }
+        components.push(comp);
+    }
+    Some(components.join("/"))
+}
+
+/// One file to fetch as part of an artifact install.
+pub struct DownloadSpec {
+    pub rel: String,
+    pub url: String,
+    pub expected_sha: Option<String>,
+    pub expected_size: Option<u64>,
+}
+
+/// Download a set of files into `install_dir`, verifying each one's integrity.
+///
+/// If any file fails after earlier files were already placed (renamed into
+/// place), the whole per-repo install dir is removed so no orphan files survive
+/// without a corresponding registry row.
+async fn download_artifact_files(
+    client: &Client,
+    install_dir: &Path,
+    files: &[DownloadSpec],
+    app: Option<&AppHandle>,
+    install_id: &str,
+    cancel: &CancellationToken,
+) -> Result<Vec<InstalledModelFile>> {
+    let mut artifact_files: Vec<InstalledModelFile> = Vec::new();
+    for spec in files {
+        let rel = sanitize_install_rel(&spec.rel)
+            .ok_or_else(|| anyhow!("Unsafe file path '{}' in artifact", spec.rel))?;
+        let dest = install_dir.join(&rel);
+        // Defense in depth: the joined path must stay under the install dir.
+        if !dest.starts_with(install_dir) {
+            return Err(anyhow!(
+                "Refusing to install '{}': path escapes the install directory.",
+                spec.rel
+            ));
+        }
+        let result = download_file(
+            client,
+            &spec.url,
+            &dest,
+            spec.expected_sha.as_deref(),
+            spec.expected_size,
+            app,
+            install_id,
+            &rel,
+            Some(cancel),
+        )
+        .await;
+        if let Err(e) = result {
+            // Partial install: remove the whole per-repo dir so no orphan files
+            // linger without a registry row.
+            let _ = super::downloader::remove_dir_if_exists(install_dir);
+            return Err(e);
+        }
+        let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+        artifact_files.push(InstalledModelFile {
+            path: rel,
+            size,
+            sha256: spec.expected_sha.clone(),
+        });
+    }
+    Ok(artifact_files)
+}
+
 /// Download + register a resolved install target.
 pub async fn install(
     app: &AppHandle,
@@ -466,45 +549,32 @@ pub async fn install(
         ));
     }
 
-    // Ensure the model files aren't already on disk (leftover from a crash).
-    let mut artifact_files: Vec<InstalledModelFile> = Vec::new();
     let client = hf_client();
-    let mut installed_size: u64 = 0;
 
-    for file in &target.artifact.files {
-        let rel = file.path.trim_start_matches('/');
-        let dest = target.install_dir.join(rel);
-        let url = resolve_download_url(&target.repo_id, &target.revision, rel);
+    let specs: Vec<DownloadSpec> = target
+        .artifact
+        .files
+        .iter()
+        .map(|file| {
+            let meta = target.file_metadata.get(&file.path);
+            let expected_sha = meta
+                .and_then(|m| m.sha256.clone())
+                .or_else(|| file.sha256.clone());
+            let expected_size = meta.and_then(|m| m.size).or(file.size);
+            DownloadSpec {
+                rel: file.path.clone(),
+                url: resolve_download_url(&target.repo_id, &target.revision, &file.path),
+                expected_sha,
+                expected_size,
+            }
+        })
+        .collect();
 
-        let meta = target.file_metadata.get(&file.path);
-        let expected_sha = meta
-            .and_then(|m| m.sha256.clone())
-            .or_else(|| file.sha256.clone());
-        let expected_size = meta
-            .and_then(|m| m.size)
-            .or(file.size);
-
-        download_file(
-            &client,
-            &url,
-            &dest,
-            expected_sha.as_deref(),
-            expected_size,
-            Some(app),
-            &target.model_id,
-            rel,
-            Some(&cancel),
-        )
-        .await?;
-
-        let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-        installed_size += size;
-        artifact_files.push(InstalledModelFile {
-            path: rel.to_string(),
-            size,
-            sha256: expected_sha,
-        });
-    }
+    // Failure mid-download removes the whole per-repo dir (no orphan files).
+    let artifact_files =
+        download_artifact_files(&client, &target.install_dir, &specs, Some(app), &target.model_id, &cancel)
+            .await?;
+    let installed_size: u64 = artifact_files.iter().map(|f| f.size).sum();
 
     // Verify the installed file set satisfies the run contract.
     if !verify_on_disk(target.install_dir.to_string_lossy().as_ref(), &artifact_files) {
@@ -739,6 +809,93 @@ mod tests {
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-stt"), Some(HfRuntime::SherpaOnnxStt));
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-tts"), Some(HfRuntime::SherpaOnnxTts));
         assert_eq!(HfRuntime::from_tag("bogus"), None);
+    }
+
+    // ── install-path traversal hardening ───────────────────────────────────
+    #[test]
+    fn sanitize_install_rel_blocks_path_traversal() {
+        // `..` sibling escape.
+        assert_eq!(sanitize_install_rel("../evil.onnx"), None);
+        // `..` embedded inside the path.
+        assert_eq!(sanitize_install_rel("a/../../evil.onnx"), None);
+        assert_eq!(sanitize_install_rel("ggml/../evil.onnx"), None);
+        // Absolute path collapses to a contained relative path.
+        assert_eq!(sanitize_install_rel("/etc/passwd"), Some("etc/passwd".to_string()));
+        assert_eq!(sanitize_install_rel("/"), None);
+        // `.` / empty components.
+        assert_eq!(sanitize_install_rel("."), None);
+        assert_eq!(sanitize_install_rel("./model.onnx"), None);
+        assert_eq!(sanitize_install_rel(""), None);
+        assert_eq!(sanitize_install_rel("a//b"), None);
+        // Windows separators / drive prefixes.
+        assert_eq!(sanitize_install_rel("..\\evil.onnx"), None);
+        assert_eq!(sanitize_install_rel("C:/evil.onnx"), None);
+        // Legit subdirectories still allowed.
+        assert_eq!(sanitize_install_rel("ggml/ggml-base.bin"), Some("ggml/ggml-base.bin".to_string()));
+    }
+
+    #[test]
+    fn install_rel_never_escapes_install_dir() {
+        let install_dir = Path::new("/tmp/app/models/whisper/owner_model");
+        for hostile in ["../evil.onnx", "/etc/passwd", "a/../../evil.onnx", "C:/evil.onnx"] {
+            if let Some(rel) = sanitize_install_rel(hostile) {
+                let joined = install_dir.join(&rel);
+                assert!(
+                    joined.starts_with(install_dir),
+                    "{hostile:?} escaped via {rel:?}"
+                );
+            }
+        }
+    }
+
+    // ── partial multi-file install cleanup ─────────────────────────────────
+    #[tokio::test]
+    async fn failed_multi_file_install_removes_orphan_files() {
+        use crate::models::hf::test_support::TestServerBuilder;
+        use sha2::{Digest, Sha256};
+
+        let good_body = b"good model bytes".to_vec();
+        let good_sha = format!("{:x}", Sha256::digest(&good_body));
+        let good_len = good_body.len() as u64;
+        let server = TestServerBuilder::new(move |_| (200, good_body.clone()))
+            .spawn()
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let install_dir = dir.path().join("models/whisper/owner_model");
+        let cancel = CancellationToken::new();
+        let specs = vec![
+            DownloadSpec {
+                rel: "model.bin".to_string(),
+                url: server.url.clone(),
+                expected_sha: Some(good_sha.clone()),
+                expected_size: Some(good_len),
+            },
+            // Second file fails integrity (wrong sha) -> immediate error.
+            DownloadSpec {
+                rel: "tokens.txt".to_string(),
+                url: server.url.clone(),
+                expected_sha: Some("deadbeef".repeat(8)),
+                expected_size: Some(good_len),
+            },
+        ];
+
+        let err = download_artifact_files(
+            &reqwest::Client::new(),
+            &install_dir,
+            &specs,
+            None,
+            "test",
+            &cancel,
+        )
+        .await
+        .expect_err("second file integrity fails");
+        server.stop();
+        assert!(err.to_string().contains("Integrity"), "{}", err);
+        assert!(
+            !install_dir.exists(),
+            "no orphan files after failed multi-file install"
+        );
     }
 
     // ── 5.10: duplicate install prevention ─────────────────────────────────

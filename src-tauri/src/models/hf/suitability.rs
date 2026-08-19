@@ -290,6 +290,23 @@ pub fn tts_runtime_note(artifact: &Artifact) -> String {
     }
 }
 
+/// Hard gate re-checked server-side at install time: an artifact whose
+/// download exceeds the free space on the model drive can never be installed —
+/// even when the UI offered a "Not Recommended" override. Returns the error
+/// message, or `None` when the machine has enough space (or disk could not be
+/// measured).
+pub fn disk_insufficient(system: &SystemInfo, artifact: &Artifact) -> Option<String> {
+    system.disk_free_bytes.and_then(|free| {
+        (artifact.download_size_bytes > free).then(|| {
+            format!(
+                "Not enough free disk space to install this model: it needs ~{} but only ~{} is \
+                 free on the model drive.",
+                gb(artifact.download_size_bytes),
+                gb(free)
+            )
+        })
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,5 +544,30 @@ mod tests {
         let a = artifact(HfRuntime::SherpaOnnxStt, 120 * 1024 * 1024, DetectionConfidence::Exact);
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::ShouldRun, "{}", s.explanation);
+    }
+
+    // ── install-time disk re-check (hard gate) ─────────────────────────────
+    #[test]
+    fn disk_insufficient_blocks_when_download_exceeds_free_space() {
+        let sys = cpu_system(32.0, 2.0); // only 2 GB free
+        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let msg = disk_insufficient(&sys, &a).expect("disk gate trips");
+        assert!(msg.to_lowercase().contains("free disk space"), "{}", msg);
+        assert!(msg.contains("3.0 GB"), "{}", msg);
+    }
+
+    #[test]
+    fn disk_insufficient_passes_when_space_is_enough() {
+        let sys = cpu_system(32.0, 100.0);
+        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        assert!(disk_insufficient(&sys, &a).is_none());
+    }
+
+    #[test]
+    fn disk_insufficient_passes_when_disk_is_unknown() {
+        let mut sys = cpu_system(32.0, 2.0);
+        sys.disk_free_bytes = None;
+        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        assert!(disk_insufficient(&sys, &a).is_none());
     }
 }

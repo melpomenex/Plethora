@@ -1,6 +1,6 @@
 //! Tauri commands for the HF speech-model manager (requirement #19).
 
-use super::adapters::{Artifact, DetectionConfidence, detect_all};
+use super::adapters::{Artifact, DetectionConfidence, HfRuntime, detect_all};
 use super::downloader::PROGRESS_EVENT;
 use super::hf_client::{
     HfFile, RepoInput, build_file_index, clean_revision, fetch_repo_info, hf_client,
@@ -10,7 +10,7 @@ use super::manager::{
     InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, model_id_for,
     registry_list, resolve_install_target, uninstall,
 };
-use super::suitability::{Suitability, classify};
+use super::suitability::{Suitability, classify, disk_insufficient};
 use super::system_info::{SystemInfo, detect_system_info, models_root_dir};
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
@@ -32,20 +32,33 @@ pub struct ActiveHfDownloads {
 
 pub fn active_register(app: &AppHandle, id: &str, token: CancellationToken) {
     if let Some(state) = app.try_state::<ActiveHfDownloads>() {
-        state.map.lock().unwrap().insert(id.to_string(), token);
+        state
+            .map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_string(), token);
     }
 }
 
 pub fn active_unregister(app: &AppHandle, id: &str) {
     if let Some(state) = app.try_state::<ActiveHfDownloads>() {
-        state.map.lock().unwrap().remove(id);
+        state
+            .map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 }
 
 pub fn active_cancel(app: &AppHandle, id: &str) -> bool {
-    let token = app
-        .try_state::<ActiveHfDownloads>()
-        .and_then(|state| state.map.lock().unwrap().get(id).cloned());
+    let token = app.try_state::<ActiveHfDownloads>().and_then(|state| {
+        state
+            .map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
+    });
     if let Some(token) = token {
         token.cancel();
         true
@@ -250,6 +263,14 @@ pub fn get_system_info(app_handle: AppHandle) -> Result<SystemInfo> {
 // Install / cancel / uninstall / list
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Parse the `runtime` argument sent by the frontend. The frontend sends the
+/// serde kebab-case values (`whisper-cpp | sherpa-onnx-stt | sherpa-onnx-tts`),
+/// which `HfRuntime::from_tag` accepts (see `manager.rs`).
+fn parse_runtime_arg(runtime: &str) -> std::result::Result<HfRuntime, PlethoraError> {
+    HfRuntime::from_tag(runtime)
+        .ok_or_else(|| PlethoraError::InvalidInput(format!("Unknown runtime '{}'", runtime)))
+}
+
 #[command]
 pub async fn hf_install_model(
     app_handle: AppHandle,
@@ -259,14 +280,22 @@ pub async fn hf_install_model(
     artifact_kind: String,
 ) -> Result<InstalledHfModel> {
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
-    let runtime = super::adapters::HfRuntime::from_tag(&runtime).ok_or_else(|| {
-        PlethoraError::InvalidInput(format!("Unknown runtime '{}'", runtime))
-    })?;
+    let runtime = parse_runtime_arg(&runtime)?;
 
     let target: InstallTarget =
         resolve_install_target(&app_handle, &parsed, runtime, &artifact_kind)
             .await
             .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+
+    // Server-side hard gate: re-run the disk check so an artifact that no
+    // longer fits (or a Not-Recommended override) can never install a model
+    // when the drive lacks space. Re-checks the live artifact, not stale UI
+    // state.
+    let app_data = app_data_dir(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let system_info = detect_system_info(&models_root_dir(&app_data));
+    if let Some(msg) = disk_insufficient(&system_info, &target.artifact) {
+        return Err(PlethoraError::Validation(msg));
+    }
 
     let cancel = CancellationToken::new();
     active_register(&app_handle, &target.model_id, cancel.clone());
@@ -298,4 +327,26 @@ pub async fn hf_uninstall_model(
 #[command]
 pub async fn get_installed_hf_models(repo: State<'_, Repository>) -> Result<Vec<InstalledHfModel>> {
     registry_list(repo.pool()).await.map_err(|e| PlethoraError::Internal(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The exact kebab-case values the frontend sends to `hf_install_model`
+    /// (`src/api/hfModels.ts` type `HfRuntime`), mapped to the variant they
+    /// must produce. This pins the review-blocker parse path.
+    #[test]
+    fn hf_install_model_parses_exact_frontend_runtime_values() {
+        let cases: &[(&str, HfRuntime)] = &[
+            ("whisper-cpp", HfRuntime::WhisperCpp),
+            ("sherpa-onnx-stt", HfRuntime::SherpaOnnxStt),
+            ("sherpa-onnx-tts", HfRuntime::SherpaOnnxTts),
+        ];
+        for (raw, expected) in cases {
+            let parsed = parse_runtime_arg(raw).unwrap_or_else(|e| panic!("{raw}: {e}"));
+            assert_eq!(parsed, *expected, "frontend value {raw:?}");
+        }
+        assert!(parse_runtime_arg("bogus").is_err());
+    }
 }
