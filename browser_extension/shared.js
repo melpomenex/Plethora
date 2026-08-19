@@ -300,6 +300,25 @@
     return `extract_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Tiny promise-chain mutex that serializes async read-modify-write
+   * operations sharing one resource: each operation runs to completion
+   * (including its awaits) before the next queued operation starts, so
+   * overlapping readers/writers cannot clobber one another's intermediate
+   * state. Returns a function that runs the given operation exclusively.
+   */
+  function createMutex() {
+    let queue = Promise.resolve();
+    return function runExclusive(operation) {
+      const result = queue.then(operation, operation);
+      queue = result.then(
+        () => undefined,
+        () => undefined
+      );
+      return result;
+    };
+  }
+
   return {
     TRANSPORT_LIMITS,
     DEFAULT_REQUEST_BUDGET,
@@ -313,6 +332,7 @@
     describeDegradation,
     isXStatusURL,
     normalizeExtractRecord,
-    mergeExtracts
+    mergeExtracts,
+    createMutex
   };
 });

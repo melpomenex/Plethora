@@ -20,7 +20,8 @@ const { join } = require('node:path');
 require('../shared.js');
 const {
   mergeExtracts,
-  normalizeExtractRecord
+  normalizeExtractRecord,
+  createMutex
 } = globalThis.IncrementumExtensionShared;
 
 const root = join(__dirname, '..', '..');
@@ -180,4 +181,61 @@ test('content script registers background extracts into pageExtracts idempotentl
   assert.ok(content.includes('function registerExtracts(records)'));
   assert.ok(content.includes('if (seen.has(record.id))'));
   assert.ok(content.includes('savePageExtracts();'));
+});
+
+test('the registration mutex serializes read-modify-write so concurrent operations drop nothing', async () => {
+  // Models persistExtractRegistration's read-then-write against a shared
+  // storage list, with an explicit yield so overlapping ops interleave exactly
+  // the way the chrome.storage.local awaits do.
+  async function runPersists(mutexOrNull, items) {
+    let store = [];
+    const persist = async (item) => {
+      const op = async () => {
+        const current = await Promise.resolve(store.slice());
+        current.push(item);
+        await Promise.resolve();
+        store = current;
+      };
+      if (mutexOrNull) {
+        await mutexOrNull(op);
+      } else {
+        await op();
+      }
+    };
+    await Promise.all(items.map(persist));
+    return store;
+  }
+
+  // Sanity: without the mutex, three concurrent persists read the same empty
+  // snapshot and clobber each other (this is the bug being guarded against).
+  const unguarded = await runPersists(null, ['a', 'b', 'c']);
+  assert.ok(unguarded.length < 3, `expected unguarded concurrent persists to drop items, got ${unguarded.length}`);
+
+  // Under the mutex each operation completes before the next starts, so every
+  // item survives — a create landing mid-flush cannot be lost or double-added.
+  const mutex = createMutex();
+  const guarded = await runPersists(mutex, ['a', 'b', 'c']);
+  assert.deepEqual(guarded.sort(), ['a', 'b', 'c']);
+  assert.equal(guarded.length, 3);
+
+  // A rejected operation does not poison the lock for the next operation.
+  const afterRejection = await createMutex();
+  let threw = false;
+  await afterRejection(async () => { throw new Error('boom'); }).catch(() => { threw = true; });
+  assert.equal(threw, true);
+  await afterRejection(async () => { await Promise.resolve(); return 'ok'; });
+});
+
+test('background read-modify-write on pending registrations runs under the mutex', () => {
+  // The fix for the flush-vs-persist clobber: all three list operations
+  // (persist, remove, flush's read-then-write) go through the same lock.
+  assert.ok(background.includes('createMutex'));
+  assert.ok(background.includes('PendingExtractRegistrationsMutex'));
+  assert.ok(background.includes('withPendingExtractRegistrationsLock(async () =>'));
+  const flushIndex = background.indexOf('async function flushPendingExtractRegistrations');
+  const lockIndex = background.indexOf('return withPendingExtractRegistrationsLock(async () => {', flushIndex);
+  assert.ok(lockIndex !== -1 && lockIndex > flushIndex, 'flush must run its body under the mutex');
+  // persist and remove each run their read-modify-write under the lock too.
+  assert.ok(background.indexOf('async function persistExtractRegistration') < background.indexOf('await withPendingExtractRegistrationsLock', background.indexOf('async function persistExtractRegistration')));
+  assert.ok(background.indexOf('async function removeExtractRegistration') < background.indexOf('await withPendingExtractRegistrationsLock', background.indexOf('async function removeExtractRegistration')));
 });

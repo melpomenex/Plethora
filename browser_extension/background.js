@@ -25,6 +25,22 @@ const PENDING_EXTRACTS_KEY = 'pendingExtracts';
 const PENDING_EXTRACT_REGISTRATIONS_KEY = 'pendingExtractRegistrations';
 let flushInProgress = false;
 
+// Serializes read-modify-write on the pending-extract-registrations list.
+// Every operation that reads then writes the list runs under this mutex, so a
+// create persisting mid-flush (keepAlive fires every 20s and can overlap a
+// context-menu create) can never be clobbered by the flush's stale snapshot,
+// and two concurrent creates for different tabs cannot drop one another.
+const PendingExtractRegistrationsMutex = (
+  globalThis.IncrementumExtensionShared?.createMutex
+) ? globalThis.IncrementumExtensionShared.createMutex() : null;
+
+async function withPendingExtractRegistrationsLock(operation) {
+  if (!PendingExtractRegistrationsMutex) {
+    return operation();
+  }
+  return PendingExtractRegistrationsMutex(operation);
+}
+
 function isRuntimeAvailable() {
   return Boolean(globalThis.chrome?.runtime?.id);
 }
@@ -1150,21 +1166,25 @@ function buildExtractRecord(text, tab, result) {
 
 async function persistExtractRegistration(tabId, record) {
   if (!tabId || !record?.id) return;
-  const pending = await getPendingExtractRegistrations();
-  const already = pending.some(
-    (item) => item.tabId === tabId && item.extract?.id === record.id
-  );
-  if (already) return;
-  pending.push({ tabId, extract: record });
-  await setPendingExtractRegistrations(pending);
+  await withPendingExtractRegistrationsLock(async () => {
+    const pending = await getPendingExtractRegistrations();
+    const already = pending.some(
+      (item) => item.tabId === tabId && item.extract?.id === record.id
+    );
+    if (already) return;
+    pending.push({ tabId, extract: record });
+    await setPendingExtractRegistrations(pending);
+  });
 }
 
 async function removeExtractRegistration(tabId, recordId) {
-  const pending = await getPendingExtractRegistrations();
-  const remaining = pending.filter(
-    (item) => !(item.tabId === tabId && item.extract?.id === recordId)
-  );
-  await setPendingExtractRegistrations(remaining);
+  await withPendingExtractRegistrationsLock(async () => {
+    const pending = await getPendingExtractRegistrations();
+    const remaining = pending.filter(
+      (item) => !(item.tabId === tabId && item.extract?.id === recordId)
+    );
+    await setPendingExtractRegistrations(remaining);
+  });
 }
 
 // Tell the tab's content script to register a server-confirmed extract into
@@ -1191,39 +1211,46 @@ async function notifyTabRegisterExtract(tabId, record) {
 // by extract id, so re-sending the same record never double-counts. Records for
 // tabs that no longer exist are dropped (per-tab state cannot be updated once
 // the tab is gone).
+//
+// Runs under the same mutex as persist/remove so the read-then-write of the
+// pending list is atomic with respect to a concurrent create: a registration
+// that lands while a flush is in progress is never clobbered by the flush's
+// stale snapshot, and a flush that observes it re-delivers it exactly once.
 async function flushPendingExtractRegistrations() {
-  const stored = await getPendingExtractRegistrations();
-  if (stored.length === 0) {
-    return { success: true, registered: 0, remaining: 0 };
-  }
-  const seen = new Set();
-  const pending = stored.filter((item) => {
-    if (!item || !item.extract?.id) return false;
-    const key = `${item.tabId}:${item.extract.id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  return withPendingExtractRegistrationsLock(async () => {
+    const stored = await getPendingExtractRegistrations();
+    if (stored.length === 0) {
+      return { success: true, registered: 0, remaining: 0 };
+    }
+    const seen = new Set();
+    const pending = stored.filter((item) => {
+      if (!item || !item.extract?.id) return false;
+      const key = `${item.tabId}:${item.extract.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const remaining = [];
+    let registered = 0;
+    for (const item of pending) {
+      let tabExists = true;
+      try {
+        await chrome.tabs.get(item.tabId);
+      } catch {
+        tabExists = false;
+      }
+      if (!tabExists) {
+        continue;
+      }
+      if (await notifyTabRegisterExtract(item.tabId, item.extract)) {
+        registered += 1;
+      } else {
+        remaining.push(item);
+      }
+    }
+    await setPendingExtractRegistrations(remaining);
+    return { success: true, registered, remaining: remaining.length };
   });
-  const remaining = [];
-  let registered = 0;
-  for (const item of pending) {
-    let tabExists = true;
-    try {
-      await chrome.tabs.get(item.tabId);
-    } catch {
-      tabExists = false;
-    }
-    if (!tabExists) {
-      continue;
-    }
-    if (await notifyTabRegisterExtract(item.tabId, item.extract)) {
-      registered += 1;
-    } else {
-      remaining.push(item);
-    }
-  }
-  await setPendingExtractRegistrations(remaining);
-  return { success: true, registered, remaining: remaining.length };
 }
 
 async function sendInPageToast(tabId, success, message) {
