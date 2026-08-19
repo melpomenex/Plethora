@@ -55,6 +55,7 @@ import type { TTSModelInfo, TTSVoiceInfo, TTSProviderId } from "../../api/tts/ty
 import { getCatalog } from "../../api/tts/catalog";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { NumericInput } from "../common";
+import { Switch } from "../common/Switch";
 import { AndroidTtsModelManager } from "./AndroidTtsModelManager";
 import {
   FAL_LANGUAGES,
@@ -1851,28 +1852,22 @@ export function TTSSettings() {
               headphone controls while listening — without looking at a screen.
             </p>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={handsFree.enabled}
-            aria-label="Enable Hands-Free Study Mode"
-            onClick={() => {
-              const next = !handsFree.enabled;
+          {/* Standard Plethora switch (shared component): 44×24px pill with an
+              opaque white knob, `bg-muted`/`bg-primary` theme tokens, focus
+              ring, and a ≥44px touch target. Replaces the old native
+              `<button role="switch">` whose `bg-background` knob + translucent
+              off-track collapsed into a malformed oversized circle under some
+              themes (and which theme `button`/`[class*="rounded"]` custom CSS
+              rules distorted). */}
+          <Switch
+            checked={handsFree.enabled}
+            onCheckedChange={(next) => {
               updateHandsFree({ enabled: next });
               playChime(next ? "mode_study" : "mode_normal");
             }}
-            className={cn(
-              "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-              handsFree.enabled ? "bg-primary" : "bg-muted-foreground/30"
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-all",
-                handsFree.enabled ? "left-[22px]" : "left-0.5"
-              )}
-            />
-          </button>
+            aria-label="Enable Hands-Free Study Mode"
+            touchTarget
+          />
         </div>
 
         <p className="text-xs text-muted-foreground bg-muted/40 border border-border/50 rounded-lg px-3 py-2">
