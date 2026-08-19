@@ -758,24 +758,11 @@ export const en: Dict = {
   "aiLibrary.indexConfirmTitle": "Start library indexing",
   "aiLibrary.indexConfirmMessage":
     "Indexing {docs} document(s) will embed about {chunks} chunks with {provider} ({model}). This is a paid API operation{estimate}. Start indexing?",
-  "aiLibrary.indexConsentRequiredTitle": "Paid embeddings are disabled",
   "aiLibrary.indexConsentRequiredMessage":
     "{provider} is a paid cloud embedding provider. Enable paid embeddings to index the library with it (an estimate is shown before work starts).",
   "aiLibrary.indexConsentError":
     "Indexing was blocked because paid embeddings are not enabled. Enable them in the embedding settings, then retry.",
   "aiLibrary.indexCostUnknown": " — an exact cost cannot be estimated",
-  "aiLibrary.indexReindexConfirmTitle": "Reindex changed documents",
-  "aiLibrary.indexReindexConfirmMessage":
-    "Reindexing {docs} stale document(s) will embed about {chunks} chunks with {provider} ({model}). This is a paid API operation{estimate}. Reindex?",
-  "aiLibrary.indexChargingNote": "Queue parks itself while not charging (bulk > 50 documents).",
-  "semanticGraph.paidConsentRequired":
-    "Building the semantic graph with embeddings uses {provider}, a paid API. Enable paid embeddings to continue, or the graph will use lexical similarity only.",
-  "semanticGraph.paidConsentDenied":
-    "Paid embeddings are disabled — the semantic graph used lexical similarity instead.",
-  "neural.paidConsentRequired":
-    "Neural review uses embedding similarity from {provider}, a paid API. Enable paid embeddings to use semantic neighbors, or continue with tree-topology relationships only.",
-  "neural.paidConsentDenied":
-    "Paid embeddings are disabled — neural review will use tree-topology relationships only.",
   "paidConsent.enable": "Enable",
   "paidConsent.cancel": "Not now",
   "paidConsent.ttsTitle": "Enable paid TTS?",
@@ -807,8 +794,8 @@ export const en: Dict = {
     "This audio edition uses {label}, a paid cloud voice provider. You must enable paid TTS before generating it.",
   "paid.audioEditionPaidNotice":
     "This edition will be synthesized with {label}, a paid cloud API. You'll be asked to enable paid TTS before generation starts.",
-  "paid.voicePreviewConsentRequired":
-    "Voice previews use {label}, a paid API. Enable paid TTS to audition voices, or choose a free/local provider.",
+  "paid.audioEditionPaidEnabled":
+    "This edition will be synthesized with {label}, a paid cloud API.",
   "paid.voicePreviewBlocked":
     "Preview blocked — paid TTS is disabled for {label}.",
   "paid.auditionConsentRequired":
