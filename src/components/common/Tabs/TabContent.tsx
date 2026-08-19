@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import { useTabsStore, type Tab } from "../../../stores/tabsStore";
 import { useI18n } from "../../../lib/i18n";
+import { firstViewMounted } from "../../../utils/firstViewDiagnostics";
 
 interface TabContentProps {
   tabs: Tab[];
@@ -151,10 +152,22 @@ class TabErrorBoundary extends Component<TabErrorBoundaryProps, { error: Error |
  * Both boundaries are per tab rather than per pane. A single boundary around
  * the whole pane meant any tab whose lazy chunk had not resolved replaced the
  * *pane's* content with the loader, and any tab that threw unmounted the pane.
+ *
+ * First-open diagnostics (#11) are recorded from THIS component (not a child
+ * wrapper): the chunk-fetch latency is already measured inside
+ * `importWithRetry`, and marking the mount here adds no extra node to the tab
+ * tree — important because the tab-workspace render benches price exactly that
+ * tree (mounting/reordering twelve tabs must not pay a per-tab wrapper).
  */
 function MountedTab({ tab, isActive, paneId }: { tab: Tab; isActive: boolean; paneId?: string }) {
   const [retryKey, setRetryKey] = useState(0);
   const retry = useCallback(() => setRetryKey((key) => key + 1), []);
+
+  useEffect(() => {
+    if (isActive) {
+      firstViewMounted(tab.title);
+    }
+  }, [isActive, tab.title]);
 
   return (
     <TabErrorBoundary
