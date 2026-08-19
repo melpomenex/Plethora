@@ -3,12 +3,18 @@ export type TTSServiceErrorCode =
   | "auth"
   | "rate_limit"
   | "network"
-  | "provider";
+  | "provider"
+  | "paid_consent_required";
 
 /** A typed error shared by every TTS adapter and the synthesis pipeline. */
 export class TTSServiceError extends Error {
   code: TTSServiceErrorCode;
   recoverable: boolean;
+  /**
+   * True when the operation was blocked because the paid-TTS consent flag is
+   * off (ai-billing-safety #14). The UI maps this to the opt-in surface.
+   */
+  consentRequired: boolean;
 
   constructor(
     message: string,
@@ -19,6 +25,7 @@ export class TTSServiceError extends Error {
     this.name = "TTSServiceError";
     this.code = code;
     this.recoverable = recoverable;
+    this.consentRequired = code === "paid_consent_required";
   }
 }
 
