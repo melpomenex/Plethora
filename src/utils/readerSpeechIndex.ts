@@ -589,6 +589,45 @@ export class ReaderSpeechIndex {
     return Array.from(this.pageSections.keys()).sort((a, b) => a - b);
   }
 
+  /**
+   * Sentence look-behind for deliberate-scroll resume: the start of the
+   * sentence containing `pos`'s word, so resumed speech has audible context
+   * rather than a jarring word-exact jump. When the sentence began in the
+   * previous chunk, the start of that chunk's final sentence is returned (at
+   * most one chunk of look-behind).
+   */
+  sentenceStartFor(pos: SpeechPosition): SpeechPosition {
+    const chunkIndex = Math.min(Math.max(0, pos.chunkIndex), this.chunks.length - 1);
+    const chunk = this.chunks[chunkIndex];
+    if (!chunk) return { chunkIndex: 0, wordIndex: 0 };
+    const wordIndex = Math.min(pos.wordIndex, Math.max(0, chunk.words.length - 1));
+    const targetChar = chunk.words[wordIndex]?.normStart ?? 0;
+
+    const sentenceStartChar = sentenceStartBoundary(chunk.text, targetChar);
+    if (sentenceStartChar > 0) {
+      const w = chunk.words.findIndex((wd) => wd.normStart >= sentenceStartChar);
+      if (w > 0) return { chunkIndex, wordIndex: w };
+    }
+
+    // The active word is in the chunk's first sentence. Look back into the
+    // previous chunk's final sentence only when that sentence actually
+    // continues into this chunk (the previous chunk ends mid-sentence). When
+    // the previous chunk ends with sentence punctuation, this chunk begins a
+    // fresh sentence — start at its first word.
+    if (chunkIndex > 0) {
+      const prev = this.chunks[chunkIndex - 1];
+      if (prev && prev.words.length > 0 && !SENTENCE_END_RE.test(prev.text.trim())) {
+        const lastBoundary = lastSentenceBoundary(prev.text);
+        if (lastBoundary >= 0) {
+          const w = prev.words.findIndex((wd) => wd.normStart >= lastBoundary);
+          return { chunkIndex: chunkIndex - 1, wordIndex: w > 0 ? w : 0 };
+        }
+        return { chunkIndex: chunkIndex - 1, wordIndex: 0 };
+      }
+    }
+    return { chunkIndex, wordIndex: 0 };
+  }
+
   /** Chunk indices that contain words of `pageNumber` (legacy PDF paging). */
   chunksForPage(pageNumber: number): number[] {
     const sectionIdx = this.pageSections.get(pageNumber);
@@ -731,4 +770,31 @@ export function sourceAnchorToTTSStartAnchor(anchor: SourceAnchor): TTSStartAnch
     case "page":
       return { kind: "page-offset", pageNumber: anchor.pageNumber, pageOffset: anchor.pageOffset };
   }
+}
+
+const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+/g;
+const SENTENCE_END_RE = /[.!?]\s*$/;
+
+/** Char offset of the sentence start containing `charOffset` (0 when the sentence began before the text). */
+function sentenceStartBoundary(text: string, charOffset: number): number {
+  SENTENCE_BOUNDARY_RE.lastIndex = 0;
+  let boundary = -1;
+  let m: RegExpExecArray | null;
+  while ((m = SENTENCE_BOUNDARY_RE.exec(text)) !== null) {
+    const after = m.index + m[0].length;
+    if (after <= charOffset) boundary = after;
+    else break;
+  }
+  return boundary >= 0 ? boundary : 0;
+}
+
+/** Char offset of the last sentence boundary in `text`, or -1 when none. */
+function lastSentenceBoundary(text: string): number {
+  SENTENCE_BOUNDARY_RE.lastIndex = 0;
+  let boundary = -1;
+  let m: RegExpExecArray | null;
+  while ((m = SENTENCE_BOUNDARY_RE.exec(text)) !== null) {
+    boundary = m.index + m[0].length;
+  }
+  return boundary;
 }

@@ -46,6 +46,17 @@ import {
   type WordTiming,
 } from "../../utils/wordTimings";
 import { charIndexToWordIndex } from "../../api/tts/timing";
+import {
+  getProfileId,
+  getTTSListeningPosition,
+  resolveListeningPosition,
+  saveTTSListeningPosition,
+  writeListeningPositionSync,
+  fingerprintDocument,
+  fingerprintSpeechIndex,
+  type TTSListeningPosition,
+} from "../../utils/ttsListeningPosition";
+import { digestText128 } from "../../utils/ttsCache";
 import { useSpokenWordFollow } from "../../hooks/useSpokenWordFollow";
 import { usePresentation, useIsEink } from "../../contexts/PresentationContext";
 import { WordHighlightLayer } from "./WordHighlightLayer";
@@ -115,11 +126,25 @@ interface ReaderTTSControlsProps {
   highlightContainerRef?: React.RefObject<HTMLElement | null>;
   /** Iframe window for EPUB and HTML document readers */
   iframeWindow?: Window | null;
+  /**
+   * Document identity for TTS listening-position persistence (#2): saves are
+   * keyed per document+profile and restored as the level-4 "saved position".
+   * When absent, no listening position is persisted.
+   */
+  documentId?: string | null;
 }
 
 const BUFFER_TARGET_SEC = 60; // target seconds of audio buffered ahead
 const MAX_CONCURRENT_GEN = 3; // max parallel generation invocations
 const EVICT_BEHIND_COUNT = 3; // keep N already-played chunks in memory
+
+/**
+ * Whether speech position `a` precedes `b` in document order. Chunks are
+ * contiguous and ordered, so (chunkIndex, wordIndex) compares correctly.
+ */
+function isPositionEarlier(a: SpeechPosition, b: SpeechPosition): boolean {
+  return a.chunkIndex < b.chunkIndex || (a.chunkIndex === b.chunkIndex && a.wordIndex < b.wordIndex);
+}
 
 interface BufferedAudio {
   audioUrl: string;
@@ -151,6 +176,7 @@ function ReaderTTSControls({
   cfiToEpubAnchor,
   highlightContainerRef,
   iframeWindow,
+  documentId,
 }: ReaderTTSControlsProps,
 ref: React.ForwardedRef<ReaderTTSHandle>
 ) {
@@ -220,6 +246,82 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // softer highlight variant.
   const [activeTimingApproximate, setActiveTimingApproximate] = useState(false);
 
+  // ── Canonical playback position (#1) ──────────────────────────────────────
+  // The single source of truth for where narration is: `{chunkIndex,
+  // wordIndex, intraChunkMs}` with `intraChunkMs` derived from the live audio
+  // clock. Everything derived — active-word highlight (`wordOffset` state),
+  // follow-scroll `wordKey`, resume anchor, persisted listening position — is
+  // computed from this position, never from an independent zeroable variable.
+  interface CanonicalPosition {
+    chunkIndex: number;
+    wordIndex: number;
+    intraChunkMs: number | null;
+  }
+  const canonicalRef = useRef<CanonicalPosition>({ chunkIndex: 0, wordIndex: 0, intraChunkMs: null });
+  // Snapshot of the last committed spoken word (anchor + chunk text span),
+  // taken while the pre-rebuild playlist is still authoritative — used to
+  // reconcile the session position across an incidental re-extraction.
+  const lastSpokenAnchorRef = useRef<SourceAnchor | null>(null);
+  const lastSpokenSpanRef = useRef<{ text: string; normStart: number; normEnd: number }>({
+    text: "",
+    normStart: 0,
+    normEnd: 0,
+  });
+  // React-state mirrors of the canonical position (committed on word/chunk
+  // change, never per frame).
+  const commitChunk = useCallback((index: number) => {
+    canonicalRef.current.chunkIndex = index;
+    setChunkIndex(index);
+    const chunk = playlistRef.current[index];
+    const word = chunk?.words[0];
+    lastSpokenAnchorRef.current = word?.anchor ?? null;
+    lastSpokenSpanRef.current = word
+      ? { text: chunk.text, normStart: word.normStart, normEnd: word.normEnd }
+      : lastSpokenSpanRef.current;
+  }, []);
+  const commitWord = useCallback((index: number, intraMs: number | null) => {
+    canonicalRef.current.wordIndex = index;
+    canonicalRef.current.intraChunkMs = intraMs;
+    setWordOffset(index);
+    const chunk = playlistRef.current[canonicalRef.current.chunkIndex];
+    const word = chunk?.words[index];
+    lastSpokenAnchorRef.current = word?.anchor ?? null;
+    lastSpokenSpanRef.current = word
+      ? { text: chunk.text, normStart: word.normStart, normEnd: word.normEnd }
+      : lastSpokenSpanRef.current;
+  }, []);
+  /** Live canonical position; intraChunkMs refreshed from the audio clock. */
+  const getCanonicalPosition = useCallback((): CanonicalPosition => {
+    const { chunkIndex, wordIndex } = canonicalRef.current;
+    let intraChunkMs = canonicalRef.current.intraChunkMs;
+    const audio = audioRef.current;
+    if (audio && !audio.paused && !audio.ended && Number.isFinite(audio.currentTime)) {
+      intraChunkMs = Math.round(audio.currentTime * 1000);
+    }
+    return { chunkIndex, wordIndex, intraChunkMs };
+  }, []);
+
+  // ── Listening-position persistence (#2) ───────────────────────────────────
+  const documentIdRef = useRef(documentId);
+  documentIdRef.current = documentId;
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  // Resolved "saved position" (level 4) for the start-priority chain.
+  const savedPositionRef = useRef<SpeechPosition | null>(null);
+  // When a genuine text change cancels stale audio while paused, resume must
+  // restart from the reconciled position instead of "resuming" a cancelled
+  // utterance. Set by the fingerprint reset effect; consumed by resume.
+  const pausedRestartPositionRef = useRef<SpeechPosition | null>(null);
+  // Document id of the previous render (used to flush the old document's
+  // position before switching documents / advancing the Queue).
+  const prevDocumentIdRef = useRef<string | null | undefined>(undefined);
+  // True once the user has engaged playback for this session — a listening
+  // position is only ever written after real narration (never for a document
+  // the user merely opened and read).
+  const engagedRef = useRef(false);
+
   // Spoken-word follow (TranscriptSync semantics): comfort offset, debounced
   // movement, arrival-based user-scroll detection, Re-center resume. Reduced
   // motion / e-ink positions instantly.
@@ -239,7 +341,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   }, [highlightContainerRef?.current, iframeWindow, sectionContainers]);
   const { pausedByUser: followPausedByUser, reCenter: followReCenter } = useSpokenWordFollow({
     enabled: followSpokenWord,
-    active: isPlaying,
+    // Active through a pause (the hook's contract is "playing or paused
+    // mid-utterance"): `pausedByUser` must survive a pause so resume can tell
+    // a deliberate user scroll from an auto-follow viewport top.
+    active: isPlaying || isPaused,
     compact: typeof window !== "undefined" ? window.innerWidth < 640 : false,
     reducedMotion: reducedMotion || isEink,
     wordKey: `${chunkIndex}:${wordOffset}`,
@@ -278,7 +383,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           const next = nextActiveWordIndex(timings, audio.currentTime, lastWordIndex);
           if (next !== null) {
             lastWordIndex = next;
-            setWordOffset(next);
+            commitWord(next, Math.round(audio.currentTime * 1000));
           }
         }
 
@@ -287,7 +392,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
       rafRef.current = requestAnimationFrame(track);
     },
-    []
+    [commitWord]
   );
 
   const stopWordTracking = useCallback(() => {
@@ -295,8 +400,9 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    setWordOffset(0);
-    setActiveTimingApproximate(false);
+    // Pause/stop cancels the word clock but NEVER resets the canonical word
+    // index: the highlight stays on the last spoken word and resume continues
+    // from the paused word (pause/resume correctness #5).
   }, []);
 
   // Buffer underrun indicator
@@ -388,8 +494,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
   /**
    * The spec's 5-level start priority: explicit anchor → live viewport →
-   * authoritative position → saved position → beginning. A stale saved
-   * percentage can never override a resolvable live viewport.
+   * authoritative position → saved position → beginning. The saved position
+   * additionally beats a viewport that resolves EARLIER than it (TTS advanced
+   * past the manually viewed page); a stale saved percentage can never
+   * override a resolvable live viewport at/after the saved position.
    */
   const resolveStartPosition = useCallback(
     (explicit?: TTSStartAnchor | null): SpeechPosition => {
@@ -406,9 +514,22 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         if (pos) return pos;
       }
       const viewport = resolveVia(resolveViewportAnchorRef.current);
-      if (viewport) return viewport;
+      // Level 4: saved TTS listening position (reconciled against the current
+      // speech index — nearest-anchor fallback). When a saved position exists
+      // and the live viewport resolves EARLIER in the document, the saved
+      // position wins: the user manually scrolled away after TTS had advanced
+      // past the viewed page, so TTS must resume from where narration actually
+      // stopped. A viewport at/after the saved position wins (the normal
+      // follow-sync case — the reading position has caught up to narration).
+      // An explicit queued anchor (level 1) still beats everything above.
+      const saved = savedPositionRef.current;
+      if (viewport) {
+        if (saved && isPositionEarlier(viewport, saved)) return saved;
+        return viewport;
+      }
       const authoritative = resolveVia(resolvePositionAnchorRef.current);
       if (authoritative) return authoritative;
+      if (saved) return saved;
       const initial = getInitialChunkRef.current();
       if (initial > 0) return { chunkIndex: initial, wordIndex: 0 };
       return { chunkIndex: 0, wordIndex: 0 };
@@ -490,8 +611,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     },
   });
 
-  // Create a text fingerprint to detect when content actually changes
-  const textFingerprint = useMemo(() => `${text.length}:${text.slice(0, 100)}`, [text]);
+  // Create a text fingerprint to detect when content actually changes. Uses the
+  // persistence module's fingerprint (folded head/tail + length) so the reset
+  // effect and the persisted record share one definition of "genuine change".
+  const textFingerprint = useMemo(() => fingerprintDocument(text), [text]);
+  const textFingerprintRef = useRef(textFingerprint);
+  textFingerprintRef.current = textFingerprint;
 
   // Selected voice for generation
   const voiceId = useMemo(() => {
@@ -507,37 +632,260 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     }
   }, [tts, providerVoices, selectedVoiceId]);
 
-  // Reset when text changes
+  // ── Listening-position persistence (#2) ───────────────────────────────────
+  // Build a TTSListeningPosition record from the canonical position. The
+  // record is written FROM canonical state (never from a viewport-top word or
+  // session-start chunk). Returns null when there is no document identity.
+  const buildListeningPosition = useCallback(
+    (docIdOverride?: string | null): TTSListeningPosition | null => {
+      const docId = docIdOverride ?? documentIdRef.current;
+      if (!docId) return null;
+      if (!engagedRef.current) return null;
+      const pos = getCanonicalPosition();
+      const index = speechIndexRef.current;
+      const chunk = playlistRef.current[pos.chunkIndex];
+      if (!chunk) return null;
+      const wordIndex = Math.min(pos.wordIndex, Math.max(0, chunk.words.length - 1));
+      const word = chunk.words[wordIndex];
+      const normStart = word?.normStart ?? 0;
+      const normEnd = word?.normEnd ?? normStart;
+      return {
+        documentId: docId,
+        profileId: getProfileId(),
+        updatedAt: Date.now(),
+        textFingerprint: textFingerprintRef.current,
+        speechFingerprint: fingerprintSpeechIndex(index),
+        provider: tts?.provider ?? "",
+        model:
+          (tts?.providers as Record<string, { modelId?: string }> | undefined)?.[
+            tts?.provider as string
+          ]?.modelId ?? "",
+        voiceId,
+        stableAnchor:
+          word?.anchor ?? { kind: "text", surface: "tts", startOffset: word?.sectionOffset ?? 0 },
+        chunkIndex: pos.chunkIndex,
+        chunkTextHash: digestText128(chunk.text),
+        wordIndex,
+        normalizedCharOffset: word?.sectionOffset ?? 0,
+        intraChunkMs: pos.intraChunkMs,
+        surroundingText: chunk.text.slice(Math.max(0, normStart - 60), Math.min(chunk.text.length, normEnd + 60)),
+        scrollPercentHint: index.getScrollPercent(pos.chunkIndex),
+        cfi: null,
+        pageNumber: chunk.pageNumbers?.[0] ?? null,
+      };
+    },
+    [getCanonicalPosition, tts, voiceId]
+  );
+
+  // Throttled while playing (module's 4 s throttle); `flush` bypasses it.
+  const saveListeningPosition = useCallback(
+    (flush: boolean, docIdOverride?: string | null) => {
+      const docId = docIdOverride ?? documentIdRef.current;
+      if (!docId) return;
+      const pos = buildListeningPosition(docId);
+      if (!pos) return;
+      void saveTTSListeningPosition(pos, { flush });
+    },
+    [buildListeningPosition]
+  );
+
+  // Throttled saves while actively playing.
   useEffect(() => {
-    playbackIdRef.current++;
-    applySessionLeading(null);
-    pendingAnchorRef.current = null;
-    const initialChunk = getInitialChunk();
-    setChunkIndex(initialChunk);
-    initialChunkRef.current = initialChunk;
-    setIsBuffering(false);
-    stopAudio();
+    if (!isPlaying || isPaused) return;
+    const id = setInterval(() => saveListeningPosition(false), 4000);
+    return () => clearInterval(id);
+  }, [isPlaying, isPaused, saveListeningPosition]);
 
-    audioBufferRef.current.clear();
-    setBufferStatus(new Map());
-    bufferMgrRef.current.reset();
+  // Reconcile the current canonical position against a rebuilt speech index
+  // (incidental re-extraction / document regeneration while playing) — exact
+  // anchor when it resolves, otherwise nearest-anchor via the persistence
+  // module's fallback chain. Returns null when nothing resolves.
+  const resolvePreservedPosition = useCallback((): SpeechPosition | null => {
+    const index = speechIndexRef.current;
+    const pos = canonicalRef.current;
+    const span = lastSpokenSpanRef.current;
+    if (!span.text) return null;
+    const fake: TTSListeningPosition = {
+      documentId: "",
+      profileId: "",
+      updatedAt: Date.now(),
+      textFingerprint: "",
+      speechFingerprint: "",
+      provider: "",
+      model: "",
+      voiceId: "",
+      stableAnchor:
+        lastSpokenAnchorRef.current ??
+        { kind: "text", surface: "tts", startOffset: 0 },
+      chunkIndex: pos.chunkIndex,
+      chunkTextHash: digestText128(span.text),
+      wordIndex: pos.wordIndex,
+      normalizedCharOffset: 0,
+      intraChunkMs: pos.intraChunkMs,
+      surroundingText: span.text.slice(
+        Math.max(0, span.normStart - 60),
+        Math.min(span.text.length, span.normEnd + 60),
+      ),
+      scrollPercentHint: index.getScrollPercent(pos.chunkIndex),
+      cfi: null,
+      pageNumber: null,
+    };
+    return resolveListeningPosition(index, fake);
+  }, []);
 
+  // Immediate flush when the user pauses (all engines).
+  useEffect(() => {
+    if (isPaused) saveListeningPosition(true);
+  }, [isPaused, saveListeningPosition]);
+
+  // Flush + unload handling: persist the exact position before the process
+  // exits so a later restart can resume (IndexedDB write + sync localStorage
+  // fallback).
+  useEffect(() => {
+    const onUnload = () => {
+      const docId = documentIdRef.current;
+      if (!docId) return;
+      const pos = buildListeningPosition();
+      if (!pos) return;
+      void saveTTSListeningPosition(pos, { flush: true });
+      writeListeningPositionSync(pos);
+    };
+    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onUnload);
+      onUnload();
+    };
+  }, [buildListeningPosition]);
+
+  // Reset when text changes: only on a genuine fingerprint change; preserves
+  // the session position on incidental re-extraction.
+  useEffect(() => {
     if (advancingRef.current) {
+      // Queue advancement: flush the completed document's listening position
+      // before switching, then auto-continue in the new document. This effect
+      // runs BEFORE the documentId-flush effect (declaration order), so
+      // `prevDocumentIdRef` still names the OLD document here — the flush must
+      // never write a record for the new, not-yet-listened-to document.
+      saveListeningPosition(true, prevDocumentIdRef.current);
+      playbackIdRef.current++;
+      applySessionLeading(null);
+      pendingAnchorRef.current = null;
+      const initialChunk = getInitialChunk();
+      commitChunk(initialChunk);
+      canonicalRef.current.wordIndex = 0;
+      initialChunkRef.current = initialChunk;
+      setIsBuffering(false);
+      stopAudio();
+      audioBufferRef.current.clear();
+      setBufferStatus(new Map());
+      bufferMgrRef.current.reset();
       advancingRef.current = false;
       setIsAutoPlaying(true);
       intentionalStopRef.current = false;
       playChunkAtIndexRef.current(initialChunk);
-    } else {
-      setIsAutoPlaying(false);
-      intentionalStopRef.current = true;
+      return;
     }
+
+    // Genuine text change while paused: cancel the stale audio and rebuild
+    // buffers for the new text, then reconcile the canonical position — WITHOUT
+    // auto-playing and WITHOUT leaving the paused state. Resume restarts from
+    // the reconciled position (`pausedRestartPositionRef`) so it can never
+    // play stale pre-change content. Incidental re-extraction (same
+    // fingerprint) never reaches this branch — it is a no-op.
+    if (isPausedRef.current) {
+      const preserved = resolvePreservedPosition();
+      const pos = preserved ?? { chunkIndex: getInitialChunk(), wordIndex: 0 };
+      pausedRestartPositionRef.current = pos;
+      playbackIdRef.current++;
+      applySessionLeading(null);
+      setIsBuffering(false);
+      cancelAudio();
+      audioBufferRef.current.clear();
+      setBufferStatus(new Map());
+      bufferMgrRef.current.reset();
+      commitChunk(pos.chunkIndex);
+      canonicalRef.current.wordIndex = pos.wordIndex;
+      setWordOffset(pos.wordIndex);
+      initialChunkRef.current = pos.chunkIndex;
+      return;
+    }
+
+    if (isPlayingRef.current) {
+      // Genuine mid-playback text change: reconcile the canonical position
+      // against the rebuilt index and continue from the preserved location.
+      const preserved = resolvePreservedPosition();
+      playbackIdRef.current++;
+      applySessionLeading(null);
+      pendingAnchorRef.current = null;
+      setIsBuffering(false);
+      stopAudio();
+      audioBufferRef.current.clear();
+      setBufferStatus(new Map());
+      bufferMgrRef.current.reset();
+      setIsAutoPlaying(true);
+      intentionalStopRef.current = false;
+      void startAtPosition(preserved ?? { chunkIndex: getInitialChunk(), wordIndex: 0 });
+      return;
+    }
+
+    // Stopped: rebuild buffers for the new text without starting playback.
+    playbackIdRef.current++;
+    applySessionLeading(null);
+    pendingAnchorRef.current = null;
+    const initialChunk = getInitialChunk();
+    commitChunk(initialChunk);
+    canonicalRef.current.wordIndex = 0;
+    initialChunkRef.current = initialChunk;
+    setIsBuffering(false);
+    stopAudio();
+    audioBufferRef.current.clear();
+    setBufferStatus(new Map());
+    bufferMgrRef.current.reset();
+    setIsAutoPlaying(false);
+    intentionalStopRef.current = true;
   }, [textFingerprint]);
+
+  // Flush the previous document's position before switching documents
+  // (navigation away / Queue advancement to a new item). Declared AFTER the
+  // fingerprint reset effect: on Queue advancement the fingerprint effect
+  // flushes the OLD document first (it still sees the previous document id
+  // here), then this effect advances `prevDocumentIdRef` to the new document.
+  useEffect(() => {
+    const prev = prevDocumentIdRef.current;
+    prevDocumentIdRef.current = documentId;
+    if (prev !== undefined && prev !== documentId) {
+      saveListeningPosition(true, prev);
+    }
+  }, [documentId, saveListeningPosition]);
+
+  // Restore the "saved position" (priority level 4) when the document or its
+  // text changes: load the persisted record and reconcile it against the
+  // current speech index (nearest-anchor fallback).
+  useEffect(() => {
+    savedPositionRef.current = null;
+    const docId = documentId;
+    if (!docId) return;
+    let cancelled = false;
+    void getTTSListeningPosition(docId).then((record) => {
+      if (cancelled || !record) return;
+      savedPositionRef.current = resolveListeningPosition(speechIndexRef.current, record);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, textFingerprint]);
 
   useEffect(() => {
     playbackStateRef.current = isPlaying ? "playing" : isPaused ? "paused" : "stopped";
   }, [isPlaying, isPaused]);
 
-  const stopAudio = useCallback(() => {
+  // Cancel the active engine playback without touching React playback state
+  // (used to stop stale audio after a genuine text change while paused, where
+  // the paused UI state must be preserved). `stopAudio` wraps this with the
+  // stopped-state transitions.
+  const cancelAudio = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -566,10 +914,14 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         /* ignore */
       }
     }
+  }, [isSystemProvider, isAndroidProvider]);
+
+  const stopAudio = useCallback(() => {
+    cancelAudio();
     setIsPlaying(false);
     setIsPaused(false);
     stopWordTracking();
-  }, [stopWordTracking, isSystemProvider, isAndroidProvider]);
+  }, [cancelAudio, stopWordTracking]);
 
   // Generate audio for a chunk
   const generateChunkAudio = useCallback(
@@ -695,7 +1047,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
       const chunk = list[index];
       const chunkText = chunk.text;
-      setChunkIndex(index);
+      commitChunk(index);
+      canonicalRef.current.wordIndex = 0;
+      canonicalRef.current.intraChunkMs = 0;
+      setWordOffset(0);
       onChunkStart?.(index, chunkText);
       onChunkChangeRef.current?.(index, speechIndexRef.current.getScrollPercent(index));
 
@@ -745,19 +1100,19 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           if (!mountedRef.current || playbackIdRef.current !== playId) return;
           setIsPlaying(true);
           setIsPaused(false);
-          setWordOffset(0);
+          commitWord(0, null);
         };
         utterance.onboundary = (event) => {
           if (!mountedRef.current || playbackIdRef.current !== playId) return;
           if (typeof event.charIndex === "number") {
-            setWordOffset(charIndexToWordIndex(chunkText, event.charIndex));
+            commitWord(charIndexToWordIndex(chunkText, event.charIndex), null);
           }
         };
         utterance.onend = () => {
           if (!mountedRef.current || playbackIdRef.current !== playId) return;
           setIsPlaying(false);
           setIsPaused(false);
-          setWordOffset(0);
+          commitWord(0, null);
           if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
             const nextIndex = index + 1;
             if (nextIndex < chunksLenRef.current) {
@@ -773,7 +1128,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           if (!mountedRef.current || playbackIdRef.current !== playId) return;
           setIsPlaying(false);
           setIsPaused(false);
-          setWordOffset(0);
+          commitWord(0, null);
         };
         utteranceRef.current = utterance;
         window.speechSynthesis.speak(utterance);
@@ -816,7 +1171,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             // The plugin's index is relative to the slice we handed it.
             const absolute = index + e.index;
             if (absolute !== chunkIndex) {
-              setChunkIndex(absolute);
+              commitChunk(absolute);
               onChunkStart?.(absolute, playlistRef.current[absolute]?.text ?? e.sentence);
               onChunkChangeRef.current?.(
                 absolute,
@@ -825,7 +1180,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               // Sherpa engine path (no word events): the sentence anchor is
               // the best safe fallback — the first word of the chunk,
               // explicitly marked approximate.
-              setWordOffset(0);
+              commitWord(0, null);
               setActiveTimingApproximate(true);
             }
           })
@@ -839,8 +1194,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             const absolute = index + e.sentenceIndex;
             const text = playlistRef.current[absolute]?.text;
             if (!text) return;
-            setChunkIndex(absolute);
-            setWordOffset(charIndexToWordIndex(text, e.charIndex));
+            commitChunk(absolute);
+            commitWord(charIndexToWordIndex(text, e.charIndex), null);
             setActiveTimingApproximate(false);
           })
         );
@@ -952,6 +1307,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       isSystemProvider,
       systemSynthVoices,
       voiceId,
+      commitChunk,
     ]
   );
   playChunkAtIndexRef.current = playChunkAtIndex;
@@ -964,6 +1320,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
    */
   const startAtPosition = useCallback(
     async (pos: SpeechPosition) => {
+      engagedRef.current = true;
       const index = speechIndexRef.current;
       if (pos.wordIndex > 0) {
         const sliced = index.sliceChunkAtWord(pos.chunkIndex, pos.wordIndex);
@@ -984,11 +1341,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
    */
   const startFrom = useCallback(
     async (anchor: TTSStartAnchor) => {
+      saveListeningPosition(true);
       stopAudio();
       const pos = resolveStartPosition(anchor);
       await startAtPosition(pos);
     },
-    [stopAudio, resolveStartPosition, startAtPosition]
+    [saveListeningPosition, stopAudio, resolveStartPosition, startAtPosition]
   );
   const startFromRef = useRef(startFrom);
   startFromRef.current = startFrom;
@@ -1038,41 +1396,18 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
   // Controls
   const handlePlayPause = async () => {
-    // ── System TTS pause/resume via speechSynthesis ──
-    if (isSystemProvider && "speechSynthesis" in window) {
-      if (isPlaying && !isPaused) {
-        window.speechSynthesis.pause();
-        setIsPaused(true);
-        setIsPlaying(false);
-        return;
-      }
-      if (isPaused) {
-        window.speechSynthesis.resume();
-        setIsPaused(false);
-        setIsPlaying(true);
-        return;
-      }
-    }
-
-    // ── Native Android provider pause/resume via the plugin ──
-    if (isAndroidProvider && isAndroidTtsAvailable()) {
-      if (isPlaying && !isPaused) {
-        nativePause().catch(() => {});
-        setIsPaused(true);
-        setIsPlaying(false);
-        return;
-      }
-      if (isPaused) {
-        nativeResume().catch(() => {});
-        setIsPaused(false);
-        setIsPlaying(true);
-        return;
-      }
-    }
-
+    // ── Pause (all engines) ──
     if (isPlaying && !isPaused) {
-      playbackIdRef.current++;
-      audioRef.current?.pause();
+      if (isSystemProvider && "speechSynthesis" in window) {
+        window.speechSynthesis.pause();
+      } else if (isAndroidProvider && isAndroidTtsAvailable()) {
+        nativePause().catch(() => {});
+      } else {
+        playbackIdRef.current++;
+        audioRef.current?.pause();
+      }
+      setIsPaused(true);
+      setIsPlaying(false);
       return;
     }
 
@@ -1085,21 +1420,38 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       const queued = pendingAnchorRef.current;
       if (queued) {
         pendingAnchorRef.current = null;
+        saveListeningPosition(true);
         stopAudio();
         await startAtPosition(resolveStartPosition(queued));
         return;
       }
-      // Paused-resume semantics: resume at the exact paused word unless the
-      // user deliberately scrolled while paused — detected as the live
-      // viewport resolving to a different word — in which case re-anchor.
-      const viewport = resolveVia(resolveViewportAnchorRef.current);
-      const moved =
-        viewport !== null &&
-        (viewport.chunkIndex !== chunkIndex || viewport.wordIndex !== wordOffsetRef.current);
-      if (moved) {
+      // A genuine text change while paused cancelled the stale audio and
+      // reconciled the position; resume must restart there (the old utterance
+      // can no longer be resumed).
+      const restart = pausedRestartPositionRef.current;
+      if (restart) {
+        pausedRestartPositionRef.current = null;
+        saveListeningPosition(true);
         stopAudio();
-        await startAtPosition(viewport);
+        await startAtPosition(restart);
         return;
+      }
+      // Paused-resume semantics (#5): resume at the exact paused word unless
+      // the user deliberately scrolled while paused (follow suspended by a
+      // real user scroll — `useSpokenWordFollow`'s pausedByUser, or the host's
+      // `autoScrollPaused`), in which case re-anchor to the viewport with a
+      // sentence look-behind for audible context. The auto-follow viewport
+      // top sitting in an earlier chunk is NEVER treated as a move. Runs for
+      // every engine before the engine-specific exact resume.
+      const userScrolled = followPausedByUser || autoScrollPaused;
+      if (userScrolled) {
+        const viewport = resolveVia(resolveViewportAnchorRef.current);
+        if (viewport) {
+          saveListeningPosition(true);
+          stopAudio();
+          await startAtPosition(speechIndexRef.current.sentenceStartFor(viewport));
+          return;
+        }
       }
       // Engine-specific exact resume.
       if (isSystemProvider && "speechSynthesis" in window) {
@@ -1140,6 +1492,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const handleStop = () => {
     playbackIdRef.current++;
     intentionalStopRef.current = true;
+    saveListeningPosition(true);
     setIsAutoPlaying(false);
     applySessionLeading(null);
     pendingAnchorRef.current = null;
@@ -1150,6 +1503,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const handlePrev = async () => {
     playbackIdRef.current++;
     intentionalStopRef.current = true;
+    saveListeningPosition(true);
     stopAudio();
     setIsAutoPlaying(true);
     intentionalStopRef.current = false;
@@ -1159,6 +1513,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const handleNext = async () => {
     playbackIdRef.current++;
     intentionalStopRef.current = true;
+    saveListeningPosition(true);
     stopAudio();
     setIsAutoPlaying(true);
     intentionalStopRef.current = false;
