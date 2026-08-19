@@ -118,8 +118,8 @@ export function TranscriptionKeyDialog({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-orange-500 to-amber-500 rounded-xl">
-              <Key className="w-5 h-5 text-white" />
+            <div className="p-2 bg-primary/10 rounded-xl">
+              <Key className="w-5 h-5 text-primary" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">
@@ -149,21 +149,22 @@ export function TranscriptionKeyDialog({
             </div>
           )}
 
-          {/* Groq Info Card */}
-          <div className="bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-200 rounded-xl p-4 space-y-3">
-            <div className="flex items-center gap-2 text-orange-600">
+          {/* Groq Info Card — themed with Plethora tokens so it matches
+              neighboring cards in every theme (no fixed orange palette). */}
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
               <Lightning className="w-4 h-4" />
-              <h3 className="font-semibold">Fast Cloud Transcription</h3>
+              <h3 className="font-semibold text-foreground">Fast Cloud Transcription</h3>
             </div>
             <p className="text-sm text-muted-foreground">
               Groq provides ultra-fast AI transcription. Your API key is stored 
               locally and never shared.
             </p>
             <div className="flex flex-wrap gap-2">
-              <span className="px-2 py-1 bg-orange-500/20 text-orange-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
                 ⚡ 200x faster than real-time
               </span>
-              <span className="px-2 py-1 bg-green-500/20 text-green-700 text-xs rounded-full font-medium">
+              <span className="px-2 py-1 bg-secondary/10 text-secondary-foreground text-xs rounded-full font-medium">
                 🎁 Generous free tier
               </span>
             </div>
@@ -228,9 +229,9 @@ export function TranscriptionKeyDialog({
           </div>
 
           {/* Privacy Note */}
-          <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <Shield className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-green-800/90">
+          <div className="flex items-start gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+            <Shield className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-muted-foreground">
               Your API key is stored only on your device. Audio is sent to Groq 
               temporarily for processing and is not retained.
             </p>
