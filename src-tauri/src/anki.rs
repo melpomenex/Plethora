@@ -1142,7 +1142,7 @@ pub async fn export_deck_as_apkg(
         let models_json = serde_json::json!({
             basic_model_id.to_string(): {
                 "id": basic_model_id,
-                "name": "Incrementum Basic",
+                "name": "Plethora Basic",
                 "type": 0,
                 "mod": now_ts,
                 "usn": -1,
@@ -1169,7 +1169,7 @@ pub async fn export_deck_as_apkg(
             },
             cloze_model_id.to_string(): {
                 "id": cloze_model_id,
-                "name": "Incrementum Cloze",
+                "name": "Plethora Cloze",
                 "type": 1,
                 "mod": now_ts,
                 "usn": -1,
@@ -1673,7 +1673,7 @@ pub async fn export_all_decks_as_apkg(
 
         let models_json = serde_json::json!({
             basic_model_id.to_string(): {
-                "id": basic_model_id, "name": "Incrementum Basic", "type": 0,
+                "id": basic_model_id, "name": "Plethora Basic", "type": 0,
                 "mod": now_ts, "usn": -1, "sortf": 0, "did": 1,
                 "tmpls": [{"name": "Card 1", "ord": 0, "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=answer>{{Back}}", "bqfmt": "", "bafmt": "", "bfont": "Arial", "bsize": 20}],
                 "flds": [
@@ -1686,7 +1686,7 @@ pub async fn export_all_decks_as_apkg(
                 "req": [[0, "any", [0, 1]]],
             },
             cloze_model_id.to_string(): {
-                "id": cloze_model_id, "name": "Incrementum Cloze", "type": 1,
+                "id": cloze_model_id, "name": "Plethora Cloze", "type": 1,
                 "mod": now_ts, "usn": -1, "sortf": 0, "did": 1,
                 "tmpls": [{"name": "Cloze", "ord": 0, "qfmt": "{{cloze:Text}}", "afmt": "{{cloze:Text}}<br>\n{{Back}}", "bqfmt": "", "bafmt": "", "bfont": "Arial", "bsize": 20}],
                 "flds": [

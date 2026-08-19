@@ -131,7 +131,7 @@ export async function buildAnkiApkg(
   const models = {
     [modelId]: {
       id: modelId,
-      name: "Incrementum Basic",
+      name: "Plethora Basic",
       type: 0,
       mod: nowSeconds,
       usn: -1,
@@ -237,8 +237,8 @@ export async function buildAnkiApkg(
 
     const tags = [
       ...item.tags,
-      "incrementum-export",
-      `incrementum-id::${item.id}`,
+      "plethora-export",
+      `plethora-id::${item.id}`,
     ];
 
     const fields = buildFields(front, back);

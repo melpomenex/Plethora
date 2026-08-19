@@ -1,6 +1,7 @@
 /**
  * Default Settings
- * Based on Incrementum-CPP SettingsDialog.cpp default values
+ * Based on the legacy Incrementum-CPP SettingsDialog.cpp default values,
+ * rebranded for Plethora.
  */
 
 import { Settings } from '../types/settings';
@@ -164,7 +165,7 @@ export const defaultSettings: Settings = {
       vaultPath: '',
       template: `---
 title: {{title}}
-tags: [incrementum]
+tags: [plethora]
 ---
 
 {{content}}`,
@@ -173,7 +174,7 @@ tags: [incrementum]
     },
     anki: {
       enabled: false,
-      deckName: 'Incrementum',
+      deckName: 'Plethora',
       bidirectionalSync: false,
       syncEnabled: false,
       serverUrl: 'http://localhost:8765',
