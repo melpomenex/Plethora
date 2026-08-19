@@ -422,6 +422,21 @@ describe("AssistantPanel # section index", () => {
     expect(localStorage.getItem("assistant-panel-width")).toBe("424");
   });
 
+  it("clamps the assistant to its minimum usable width when dragged very narrow", async () => {
+    localStorage.setItem("assistant-panel-width", "400");
+    render(<AssistantPanel />);
+    await waitFor(() => expect(mcpMocks.getTools).toHaveBeenCalled());
+
+    const separator = screen.getByRole("separator", { name: "Resize Assistant panel" });
+    // ArrowRight on a right-positioned panel narrows it by 24px per press.
+    for (let i = 0; i < 10; i++) {
+      fireEvent.keyDown(separator, { key: "ArrowRight" });
+    }
+    // Never collapses below the configured minimum (300).
+    expect(separator).toHaveAttribute("aria-valuenow", "300");
+    expect(localStorage.getItem("assistant-panel-width")).toBe("300");
+  });
+
   it("fills a mobile host without exposing a desktop resize handle", async () => {
     const { container } = render(<AssistantPanel fillContainer />);
     await waitFor(() => expect(mcpMocks.getTools).toHaveBeenCalled());
