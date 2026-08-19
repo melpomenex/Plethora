@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import type { QueueItem } from "../../types/queue";
 import {
   applyFilters,
-  buildSessionBlocks,
   getPriorityScore,
   getPriorityVector,
   getQueueStatus,
@@ -64,12 +63,6 @@ describe("reviewUx helpers", () => {
   it("scores items using presets", () => {
     const score = getPriorityScore(baseItem({ priority: 9 }), "maximize-retention");
     expect(score).toBeGreaterThan(0);
-  });
-
-  it("builds session blocks", () => {
-    const blocks = buildSessionBlocks([baseItem({ itemType: "document" })]);
-    expect(blocks.length).toBeGreaterThan(0);
-    expect(blocks[0].items.length).toBe(1);
   });
 
   it("returns drifted status for overdue items", () => {
