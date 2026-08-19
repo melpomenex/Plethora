@@ -138,6 +138,14 @@ const BUFFER_TARGET_SEC = 60; // target seconds of audio buffered ahead
 const MAX_CONCURRENT_GEN = 3; // max parallel generation invocations
 const EVICT_BEHIND_COUNT = 3; // keep N already-played chunks in memory
 
+/**
+ * Whether speech position `a` precedes `b` in document order. Chunks are
+ * contiguous and ordered, so (chunkIndex, wordIndex) compares correctly.
+ */
+function isPositionEarlier(a: SpeechPosition, b: SpeechPosition): boolean {
+  return a.chunkIndex < b.chunkIndex || (a.chunkIndex === b.chunkIndex && a.wordIndex < b.wordIndex);
+}
+
 interface BufferedAudio {
   audioUrl: string;
   durationSec?: number;
@@ -302,6 +310,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   isPlayingRef.current = isPlaying;
   // Resolved "saved position" (level 4) for the start-priority chain.
   const savedPositionRef = useRef<SpeechPosition | null>(null);
+  // When a genuine text change cancels stale audio while paused, resume must
+  // restart from the reconciled position instead of "resuming" a cancelled
+  // utterance. Set by the fingerprint reset effect; consumed by resume.
+  const pausedRestartPositionRef = useRef<SpeechPosition | null>(null);
   // Document id of the previous render (used to flush the old document's
   // position before switching documents / advancing the Queue).
   const prevDocumentIdRef = useRef<string | null | undefined>(undefined);
@@ -482,8 +494,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
   /**
    * The spec's 5-level start priority: explicit anchor → live viewport →
-   * authoritative position → saved position → beginning. A stale saved
-   * percentage can never override a resolvable live viewport.
+   * authoritative position → saved position → beginning. The saved position
+   * additionally beats a viewport that resolves EARLIER than it (TTS advanced
+   * past the manually viewed page); a stale saved percentage can never
+   * override a resolvable live viewport at/after the saved position.
    */
   const resolveStartPosition = useCallback(
     (explicit?: TTSStartAnchor | null): SpeechPosition => {
@@ -500,13 +514,21 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         if (pos) return pos;
       }
       const viewport = resolveVia(resolveViewportAnchorRef.current);
-      if (viewport) return viewport;
+      // Level 4: saved TTS listening position (reconciled against the current
+      // speech index — nearest-anchor fallback). When a saved position exists
+      // and the live viewport resolves EARLIER in the document, the saved
+      // position wins: the user manually scrolled away after TTS had advanced
+      // past the viewed page, so TTS must resume from where narration actually
+      // stopped. A viewport at/after the saved position wins (the normal
+      // follow-sync case — the reading position has caught up to narration).
+      // An explicit queued anchor (level 1) still beats everything above.
+      const saved = savedPositionRef.current;
+      if (viewport) {
+        if (saved && isPositionEarlier(viewport, saved)) return saved;
+        return viewport;
+      }
       const authoritative = resolveVia(resolvePositionAnchorRef.current);
       if (authoritative) return authoritative;
-      // Level 4: saved TTS listening position (reconciled against the current
-      // speech index — nearest-anchor fallback). Level 5 remains the legacy
-      // initial-chunk resolver.
-      const saved = savedPositionRef.current;
       if (saved) return saved;
       const initial = getInitialChunkRef.current();
       if (initial > 0) return { chunkIndex: initial, wordIndex: 0 };
@@ -737,39 +759,15 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     };
   }, [buildListeningPosition]);
 
-  // Flush the previous document's position before switching documents
-  // (navigation away / Queue advancement to a new item).
-  useEffect(() => {
-    const prev = prevDocumentIdRef.current;
-    prevDocumentIdRef.current = documentId;
-    if (prev !== undefined && prev !== documentId) {
-      saveListeningPosition(true, prev);
-    }
-  }, [documentId, saveListeningPosition]);
-
-  // Restore the "saved position" (priority level 4) when the document or its
-  // text changes: load the persisted record and reconcile it against the
-  // current speech index (nearest-anchor fallback).
-  useEffect(() => {
-    savedPositionRef.current = null;
-    const docId = documentId;
-    if (!docId) return;
-    let cancelled = false;
-    void getTTSListeningPosition(docId).then((record) => {
-      if (cancelled || !record) return;
-      savedPositionRef.current = resolveListeningPosition(speechIndexRef.current, record);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [documentId, textFingerprint]);
-
-  // Reset when text changes: only on a genuine fingerprint change; never while
-  // paused; preserves the session position on incidental re-extraction.
+  // Reset when text changes: only on a genuine fingerprint change; preserves
+  // the session position on incidental re-extraction.
   useEffect(() => {
     if (advancingRef.current) {
       // Queue advancement: flush the completed document's listening position
-      // before switching, then auto-continue in the new document.
+      // before switching, then auto-continue in the new document. This effect
+      // runs BEFORE the documentId-flush effect (declaration order), so
+      // `prevDocumentIdRef` still names the OLD document here — the flush must
+      // never write a record for the new, not-yet-listened-to document.
       saveListeningPosition(true, prevDocumentIdRef.current);
       playbackIdRef.current++;
       applySessionLeading(null);
@@ -790,9 +788,27 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       return;
     }
 
-    // Never reset while paused: the session stays frozen at the current
-    // position; the next Play re-resolves through the priority chain.
+    // Genuine text change while paused: cancel the stale audio and rebuild
+    // buffers for the new text, then reconcile the canonical position — WITHOUT
+    // auto-playing and WITHOUT leaving the paused state. Resume restarts from
+    // the reconciled position (`pausedRestartPositionRef`) so it can never
+    // play stale pre-change content. Incidental re-extraction (same
+    // fingerprint) never reaches this branch — it is a no-op.
     if (isPausedRef.current) {
+      const preserved = resolvePreservedPosition();
+      const pos = preserved ?? { chunkIndex: getInitialChunk(), wordIndex: 0 };
+      pausedRestartPositionRef.current = pos;
+      playbackIdRef.current++;
+      applySessionLeading(null);
+      setIsBuffering(false);
+      cancelAudio();
+      audioBufferRef.current.clear();
+      setBufferStatus(new Map());
+      bufferMgrRef.current.reset();
+      commitChunk(pos.chunkIndex);
+      canonicalRef.current.wordIndex = pos.wordIndex;
+      setWordOffset(pos.wordIndex);
+      initialChunkRef.current = pos.chunkIndex;
       return;
     }
 
@@ -831,11 +847,45 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     intentionalStopRef.current = true;
   }, [textFingerprint]);
 
+  // Flush the previous document's position before switching documents
+  // (navigation away / Queue advancement to a new item). Declared AFTER the
+  // fingerprint reset effect: on Queue advancement the fingerprint effect
+  // flushes the OLD document first (it still sees the previous document id
+  // here), then this effect advances `prevDocumentIdRef` to the new document.
+  useEffect(() => {
+    const prev = prevDocumentIdRef.current;
+    prevDocumentIdRef.current = documentId;
+    if (prev !== undefined && prev !== documentId) {
+      saveListeningPosition(true, prev);
+    }
+  }, [documentId, saveListeningPosition]);
+
+  // Restore the "saved position" (priority level 4) when the document or its
+  // text changes: load the persisted record and reconcile it against the
+  // current speech index (nearest-anchor fallback).
+  useEffect(() => {
+    savedPositionRef.current = null;
+    const docId = documentId;
+    if (!docId) return;
+    let cancelled = false;
+    void getTTSListeningPosition(docId).then((record) => {
+      if (cancelled || !record) return;
+      savedPositionRef.current = resolveListeningPosition(speechIndexRef.current, record);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, textFingerprint]);
+
   useEffect(() => {
     playbackStateRef.current = isPlaying ? "playing" : isPaused ? "paused" : "stopped";
   }, [isPlaying, isPaused]);
 
-  const stopAudio = useCallback(() => {
+  // Cancel the active engine playback without touching React playback state
+  // (used to stop stale audio after a genuine text change while paused, where
+  // the paused UI state must be preserved). `stopAudio` wraps this with the
+  // stopped-state transitions.
+  const cancelAudio = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -864,10 +914,14 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         /* ignore */
       }
     }
+  }, [isSystemProvider, isAndroidProvider]);
+
+  const stopAudio = useCallback(() => {
+    cancelAudio();
     setIsPlaying(false);
     setIsPaused(false);
     stopWordTracking();
-  }, [stopWordTracking, isSystemProvider, isAndroidProvider]);
+  }, [cancelAudio, stopWordTracking]);
 
   // Generate audio for a chunk
   const generateChunkAudio = useCallback(
@@ -1369,6 +1423,17 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         saveListeningPosition(true);
         stopAudio();
         await startAtPosition(resolveStartPosition(queued));
+        return;
+      }
+      // A genuine text change while paused cancelled the stale audio and
+      // reconciled the position; resume must restart there (the old utterance
+      // can no longer be resumed).
+      const restart = pausedRestartPositionRef.current;
+      if (restart) {
+        pausedRestartPositionRef.current = null;
+        saveListeningPosition(true);
+        stopAudio();
+        await startAtPosition(restart);
         return;
       }
       // Paused-resume semantics (#5): resume at the exact paused word unless
