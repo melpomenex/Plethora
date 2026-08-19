@@ -35,7 +35,6 @@ import type { QueueItem } from "../../types/queue";
 import { ItemDetailsPopover, type ItemDetailsTarget } from "../common/ItemDetailsPopover";
 import {
   PriorityPreset,
-  buildSessionBlocks,
   applyFilters,
   formatMinutesRange,
   getFsrsMetrics,
@@ -192,7 +191,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     const localDefault: SessionCustomization = {
       sessionDurationMinutes: 60,
       maxItems: 50,
-      blockTimeBudgets: { overdue: 10, maintenance: 15, explore: 20, empty: 15 },
       filters: { tags: [], categories: [], priorityRange: { min: 0, max: 100 }, excludeSuspended: true },
       itemTypes: { documents: true, extracts: true, learningItems: true },
       semanticStudy: { enabled: false, relatednessThreshold: 30, focalTopic: "" }
@@ -202,7 +200,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     const finalDefault: SessionCustomization = {
       ...localDefault,
       ...baseDefault,
-      blockTimeBudgets: { ...localDefault.blockTimeBudgets, ...baseDefault?.blockTimeBudgets },
       filters: { ...localDefault.filters, ...baseDefault?.filters },
       itemTypes: { ...localDefault.itemTypes, ...baseDefault?.itemTypes },
       semanticStudy: { ...localDefault.semanticStudy, ...baseDefault?.semanticStudy }
@@ -596,13 +593,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
   const allSelected = selectableItems.length > 0 && selectableItems.every((item) => selectedIds.has(item.id));
 
-  const sessionBlocks = useMemo(() => {
-    const options: SessionCustomizationOptions = {
-      maxItems: sessionCustomization.maxItems,
-      blockTimeBudgets: sessionCustomization.blockTimeBudgets,
-    };
-    return buildSessionBlocks(visibleItems, options);
-  }, [visibleItems, sessionCustomization.maxItems, sessionCustomization.blockTimeBudgets]);
   const selectedItem = useMemo(
     () => visibleItems.find((item) => item.id === selectedId) ?? null,
     [visibleItems, selectedId]
@@ -987,8 +977,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     captureQueueScrollAnchor();
     if (queueMode === "review") {
       const seen = new Set<string>();
-      const reviewQueueIds = sessionBlocks
-        .flatMap((block) => block.items)
+      const reviewQueueIds = visibleItems
         .filter((item) => item.itemType === "learning-item")
         .map((item) => item.learningItemId ?? item.id)
         .filter((itemId) => {
@@ -1436,35 +1425,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             )
           ) : (
             <>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {sessionBlocks?.map((block) => (
-                  <div key={block.id} className="bg-card border border-border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-sm font-semibold text-foreground">{block.title}</h2>
-                      <span className="text-xs text-muted-foreground">
-                        {block.timeBudgetMinutes} min
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mb-3">
-                      {t("queue.safeStopAfterItem", { count: block.safeStopCount })}
-                    </div>
-                    <div className="space-y-2">
-                      {block.items?.slice(0, 3).map((item) => (
-                        <div key={item.id} className="text-xs text-muted-foreground flex items-center gap-2">
-                          <span className="text-foreground">•</span>
-                          <span className="line-clamp-1">{item.documentTitle}</span>
-                        </div>
-                      ))}
-                      {(block.items?.length ?? 0) > 3 && (
-                        <div className="text-xs text-muted-foreground">
-                          {t("queue.moreCount", { count: (block.items?.length ?? 0) - 3 })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span>
