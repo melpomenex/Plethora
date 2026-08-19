@@ -5,8 +5,11 @@ import { createDefaultTTSSettings } from "../../utils/ttsSettings";
 
 vi.mock("../../utils/ttsCache", () => ({
   makeCacheKey: vi.fn(() => "test:cache:key"),
+  makeTTSCacheKeyV2: vi.fn(() => "test:v2:key"),
+  digestJson128: vi.fn(() => "d1"),
+  digestText128: vi.fn(() => "d2"),
   getCachedAudio: vi.fn(() => Promise.resolve(null)),
-  setCachedAudio: vi.fn(() => Promise.resolve()),
+  setCachedAudioDurable: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../../lib/tauri", () => ({
@@ -19,6 +22,9 @@ function makeSettings() {
     tts: {
       ...createDefaultTTSSettings(),
       enabled: true,
+      // These tests exercise the synthesis pipeline (not the consent gate),
+      // so paid TTS is explicitly enabled (ai-billing-safety #14).
+      paidTtsEnabled: true,
       apiKey: "test-key",
       voiceProfiles: createDefaultTTSSettings().voiceProfiles,
       presets: createDefaultTTSSettings().presets,
