@@ -57,6 +57,11 @@ which code runs or with what privileges.
    managed `<app_data>/models` tree, so a tampered registry row cannot be used
    to delete arbitrary user files. Install directories are sanitized
    (`safe_dir_name`) so a repo id can never escape the models tree via `..`.
+   Individual artifact file paths are validated by `sanitize_install_rel`
+   (rejects `..`/`.`/empty components, backslashes, and drive prefixes) and the
+   joined destination is asserted to stay under the install dir before any byte
+   is written. Download URLs percent-encode the revision and file path so
+   hostile values can't alter the request URL.
 
 8. **Only public repos.** Inspection rejects private repositories; no auth
    tokens are ever sent or stored by this feature.

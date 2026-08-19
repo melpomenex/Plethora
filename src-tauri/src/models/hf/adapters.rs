@@ -153,6 +153,17 @@ fn repo_tags_contain(info: &HfRepoInfo, needle: &str) -> bool {
     info.tags.iter().any(|t| t.to_lowercase().contains(needle))
 }
 
+/// True when a repo *name* clearly indicates a TTS-family model (vits, kokoro,
+/// melotts, …). Used to (a) positively detect sherpa-onnx TTS and (b) exclude
+/// TTS repos from the generic sherpa-onnx STT heuristic so a
+/// `sherpa-onnx-vits-*` repo is never offered as STT.
+fn is_tts_repo_name(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["vits", "kokoro", "melotts", "melo-tts", "matcha", "kitten", "tts"]
+        .iter()
+        .any(|t| name.contains(t))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // whisper.cpp adapter
 // ─────────────────────────────────────────────────────────────────────────────
@@ -390,6 +401,7 @@ impl RuntimeAdapter for SherpaOnnxSttAdapter {
                 ));
             }
             if tokens.is_some()
+                && !is_tts_repo_name(&name)
                 && (name.contains("zipformer")
                     || name.contains("transducer")
                     || repo_tags_contain(info, "sherpa")
@@ -439,13 +451,7 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
     }
     fn detect_artifact(&self, info: &HfRepoInfo, index: &FileIndex) -> Option<Artifact> {
         let name = repo_name_lower(info);
-        let is_tts_repo = name.contains("vits")
-            || name.contains("kokoro")
-            || name.contains("melotts")
-            || name.contains("melo-tts")
-            || name.contains("matcha")
-            || name.contains("kitten")
-            || name.contains("tts")
+        let is_tts_repo = is_tts_repo_name(&name)
             || repo_tags_contain(info, "text-to-speech")
             || repo_tags_contain(info, "tts");
 
@@ -694,6 +700,41 @@ mod tests {
             }
             other => panic!("expected sherpa-tts contract, got {:?}", other),
         }
+    }
+
+    // ── TTS-family repos are never offered as STT ──────────────────────────
+    #[test]
+    fn sherpa_vits_repo_is_not_detected_as_stt() {
+        // A `sherpa-onnx-vits-*` repo has model.onnx + tokens.txt and its name
+        // contains "sherpa" — it must NOT be claimed as a zipformer STT model.
+        let info = repo("csukuangfj/sherpa-onnx-vits-zh-ll", &["text-to-speech"]);
+        let idx = index(&[file("model.onnx", 90_000_000), file("tokens.txt", 10_000)]);
+        assert!(
+            SherpaOnnxSttAdapter.detect_artifact(&info, &idx).is_none(),
+            "vits repo must not be detected as STT"
+        );
+        // …but IS detected as TTS, so detect_all yields only the TTS artifact.
+        let detected = detect_all(&info, &idx);
+        assert_eq!(detected.len(), 1, "only the TTS artifact is detected");
+        assert_eq!(detected[0].runtime, HfRuntime::SherpaOnnxTts);
+        assert_eq!(detected[0].kind, "vits");
+    }
+
+    #[test]
+    fn melotts_repo_is_not_detected_as_stt() {
+        let info = repo("csukuangfj/sherpa-onnx-melotts-zh_en", &["text-to-speech"]);
+        let idx = index(&[file("model.onnx", 90_000_000), file("tokens.txt", 10_000)]);
+        assert!(SherpaOnnxSttAdapter.detect_artifact(&info, &idx).is_none());
+        assert_eq!(detect_all(&info, &idx)[0].runtime, HfRuntime::SherpaOnnxTts);
+    }
+
+    #[test]
+    fn generic_sherpa_stt_repo_still_detected_as_stt() {
+        // Non-TTS sherpa repo names must still hit the generic heuristic.
+        let info = repo("csukuangfj/sherpa-onnx-zipformer-small-en", &["automatic-speech-recognition"]);
+        let idx = index(&[file("model.onnx", 300_000_000), file("tokens.txt", 50_000)]);
+        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        assert_eq!(artifact.kind, "zipformer");
     }
 
     // ── 5.2: incompatible repo → None (unsupported runtime) ────────────────

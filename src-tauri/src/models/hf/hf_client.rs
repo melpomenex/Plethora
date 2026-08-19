@@ -218,7 +218,7 @@ pub async fn fetch_repo_info(
 ) -> Result<HfRepoInfo> {
     let mut url = format!("{}/{}", HF_API_BASE, repo_id);
     if let Some(rev) = revision.filter(|r| !r.is_empty() && *r != "main") {
-        url.push_str(&format!("?revision={}", urlencoding::encode(rev)));
+        url.push_str(&format!("?revision={}", url_encode(rev)));
     }
     let response = client.get(&url).send().await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -241,6 +241,22 @@ pub async fn fetch_repo_info(
     Ok(info)
 }
 
+/// Percent-encode `value` for use as a single URL path/query segment
+/// (mirrors `fetch_repo_info`, which encodes the `revision` query param).
+fn url_encode(value: &str) -> String {
+    urlencoding::encode(value).into_owned()
+}
+
+/// Percent-encode each `/`-separated path segment independently, preserving
+/// `/` as the URL path separator.
+fn url_encode_segments(value: &str) -> String {
+    value
+        .split('/')
+        .map(url_encode)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Fetch LFS/file metadata for one file path at a revision.
 ///
 /// Mirrors the legacy `fetch_lfs_metadata` probe: request the `/raw/{revision}/
@@ -257,8 +273,8 @@ pub async fn fetch_file_metadata(
         "{}/{}/raw/{}/{}",
         HF_RESOLVE_BASE,
         repo_id,
-        revision,
-        path.trim_start_matches('/')
+        url_encode(revision),
+        url_encode_segments(path.trim_start_matches('/'))
     );
     let response = client.get(&raw_url).send().await?;
     if !response.status().is_success() {
@@ -279,13 +295,17 @@ pub async fn fetch_file_metadata(
 }
 
 /// Resolve a raw download URL for a file at a revision.
+///
+/// Both `revision` and `path` are percent-encoded (revision as a whole, path
+/// per segment) so hostile values like `#../..` can never flow raw into the
+/// URL and change its meaning.
 pub fn resolve_download_url(repo_id: &str, revision: &str, path: &str) -> String {
     format!(
         "{}/{}/resolve/{}/{}",
         HF_RESOLVE_BASE,
         repo_id,
-        revision,
-        path.trim_start_matches('/')
+        url_encode(revision),
+        url_encode_segments(path.trim_start_matches('/'))
     )
 }
 
@@ -535,5 +555,25 @@ mod tests {
     fn file_name_extracts_last_segment() {
         assert_eq!(file_name("ggml/ggml-base.bin"), "ggml-base.bin");
         assert_eq!(file_name("tokens.txt"), "tokens.txt");
+    }
+
+    #[test]
+    fn resolve_download_url_encodes_revision_and_path() {
+        // A hostile `#../..`-style revision must be encoded, never raw.
+        let url = resolve_download_url("owner/model", "../..", "model.onnx");
+        assert!(!url.contains("resolve/../.."), "raw traversal leaked: {url}");
+        assert!(url.contains("resolve/%2E%2E%2F%2E%2E/") || url.contains("resolve/..%2F../"), "{url}");
+
+        // Legit subdirectory paths keep `/` as separators after encoding.
+        let url = resolve_download_url("owner/model", "main", "ggml/ggml-base.bin");
+        assert!(url.ends_with("/resolve/main/ggml/ggml-base.bin"), "{url}");
+
+        // A revision with a slash (branch names) is encoded as a whole.
+        let url = resolve_download_url("owner/model", "feature/x", "model.onnx");
+        assert!(url.contains("feature%2Fx"), "{url}");
+
+        // Leading slashes are trimmed before joining.
+        let url = resolve_download_url("owner/model", "main", "/etc/passwd");
+        assert!(url.ends_with("/resolve/main/etc/passwd"), "{url}");
     }
 }
