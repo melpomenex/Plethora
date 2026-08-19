@@ -737,6 +737,7 @@ export function LLMProviderSettings({
             <button
               onClick={handleSubmit}
               disabled={!newProviderName || (newProviderNeedsApiKey && !newProviderApiKey.trim())}
+              data-testid="provider-form-submit"
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isEditing ? "Save Changes" : "Add Provider"}

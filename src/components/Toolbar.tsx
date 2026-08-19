@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
 import { captureAndSaveScreenshot } from "../utils/screenshotCaptureFlow";
 import { useI18n } from "../lib/i18n";
@@ -164,6 +164,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const isVertical = position === "left" || position === "right";
   const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+  // User-configurable expanded rail width (Settings → Appearance → Display).
+  // Only the expanded width is user-controlled; the collapsed rail stays at the
+  // CSS default `--toolbar-rail-w` (3rem) so icons never shrink. Mobile shells
+  // don't render this component at all, so the setting is ignored there.
+  const sidebarWidth = useSettingsStore((state) => state.settings.interface.sidebarWidth);
+  const railWidthStyle = isVertical
+    ? { "--toolbar-expanded-w": `${sidebarWidth}px` } as CSSProperties
+    : undefined;
 
   // ---------------------------------------------------------------------------
   // Hover/focus expansion: the rail reveals each button's text label when the
@@ -866,6 +874,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       data-toolbar-position={position}
       data-expanded={expanded || undefined}
       {...railHandlers}
+      style={railWidthStyle}
       className={cn("toolbar-rail relative", isVertical && "h-full")}
     >
       <div className={cn("toolbar-surface", isVertical && "h-full")}>

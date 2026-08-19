@@ -193,7 +193,7 @@
   :root[data-theme-id="windows-95"] textarea,
   :root[data-theme-id="windows-95"] [role="button"],
   :root[data-theme-id="windows-95"] .card,
-  :root[data-theme-id="windows-95"] [class*="rounded"] {
+  :root[data-theme-id="windows-95"] [class*="rounded"]:not(.switch-track) {
     background: #c0c0c0 !important;
     border-top: 2px solid #ffffff !important;
     border-left: 2px solid #ffffff !important;
@@ -201,6 +201,17 @@
     border-bottom: 2px solid #808080 !important;
     box-shadow: none !important;
     color: #000000 !important;
+  }
+
+  /* The shared Switch pill (.switch-track) is exempted from the generic
+     rounded-control rule above so its theme-token track colors and box-shadow
+     focus ring aren't clobbered; restore the win95 raised bevel explicitly so
+     it still reads as a classic control while keeping the focus ring. */
+  :root[data-theme-id="windows-95"] .switch-track {
+    border-top: 2px solid #ffffff !important;
+    border-left: 2px solid #ffffff !important;
+    border-right: 2px solid #808080 !important;
+    border-bottom: 2px solid #808080 !important;
   }
 
   :root[data-theme-id="windows-95"] button:active,

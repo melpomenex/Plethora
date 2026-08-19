@@ -16,6 +16,21 @@ export type { ActiveRecallMode };
 /** Valid `ai.activeRecallMode` values (unknown persisted values reset to off). */
 const ACTIVE_RECALL_MODES: readonly ActiveRecallMode[] = ["off", "low", "adaptive", "intensive"];
 
+/**
+ * Sidebar (toolbar rail) expanded-width bounds, in px. Default 184 matches the
+ * historical `--toolbar-expanded-w: 11.5rem`; the collapsed rail (3rem) is
+ * never resized by this setting.
+ */
+export const SIDEBAR_WIDTH_MIN = 128; // 8rem — enough to fit labels/icons
+export const SIDEBAR_WIDTH_MAX = 320; // 20rem — cap so content never overflows
+export const SIDEBAR_WIDTH_DEFAULT = 184; // 11.5rem — current Plethora behavior
+
+/** Clamp any persisted/typed value into the sidebar-width range. */
+export function clampSidebarWidth(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)));
+}
+
 function normalizeActiveRecallMode(value: unknown): ActiveRecallMode {
   return typeof value === "string" && (ACTIVE_RECALL_MODES as readonly string[]).includes(value)
     ? (value as ActiveRecallMode)
@@ -324,6 +339,14 @@ interface InterfaceSettings {
     modifier: "none" | "ctrl" | "alt" | "shift" | "meta";
   };
   volumeRockerScroll?: VolumeRockerMode;
+  /**
+   * User-configurable expanded sidebar (toolbar rail) width in px. The
+   * collapsed rail stays fixed at `--toolbar-rail-w` (3rem) so icons always
+   * fit; this value feeds `--toolbar-expanded-w`. Mobile shells render no
+   * desktop toolbar rail, so the value is ignored there. Bounds are enforced
+   * by `SIDEBAR_WIDTH_MIN`/`SIDEBAR_WIDTH_MAX` on merge and in the Settings UI.
+   */
+  sidebarWidth: number;
   /** Optional ambient mascot companion (see src/lib/companion). */
   companion?: CompanionSettings;
 }
@@ -895,6 +918,7 @@ export const defaultSettings: Settings = {
     reviewZenMode: false,
     conversationalReviewEnabled: true,
     toolbarPosition: "left",
+    sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     splitViewSpawn: { button: 1, modifier: "none" },
     volumeRockerScroll: "none",
     companion: DEFAULT_COMPANION_SETTINGS,
@@ -1221,7 +1245,16 @@ export const useSettingsStore = create<SettingsState>()(
         set((state) => ({
           settings: {
             ...state.settings,
-            [category]: { ...state.settings[category], ...updates },
+            [category]: {
+              ...state.settings[category],
+              ...updates,
+              // The sidebar width is user-facing only within its min/max range;
+              // clamp here (single source of truth) so the toolbar CSS variable
+              // and any other consumer never see an out-of-range value.
+              ...(category === "interface" && "sidebarWidth" in updates
+                ? { sidebarWidth: clampSidebarWidth(updates.sidebarWidth) }
+                : {}),
+            },
           },
         })),
 
@@ -1321,6 +1354,7 @@ export const useSettingsStore = create<SettingsState>()(
           interface: {
             ...defaultSettings.interface,
             ...persisted.interface,
+            sidebarWidth: clampSidebarWidth(persisted.interface?.sidebarWidth),
             companion: {
               ...DEFAULT_COMPANION_SETTINGS,
               ...(persisted.interface?.companion ?? {}),

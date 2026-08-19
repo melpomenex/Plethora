@@ -24,6 +24,7 @@ export const defaultSettings: Settings = {
     showStatistics: true,
     hintMode: false,
     hintModePersistent: false,
+    sidebarWidth: 184,
   },
 
   documents: {
