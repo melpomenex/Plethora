@@ -47,6 +47,7 @@ import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../commo
 import { PDFViewer } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
 import { ImageViewer } from "./ImageViewer";
+import { XThreadViewer, isXThreadDocument } from "./XThreadViewer";
 import { StructuredDocumentViewer } from "../notebooklm/artifacts/StructuredDocumentViewer";
 import { EPUBViewer } from "./EPUBViewer";
 import { YouTubeViewer } from "./YouTubeViewer";
@@ -5056,19 +5057,6 @@ export function DocumentViewer({
   const htmlSource = currentDocument?.metadata?.articleHtml || currentDocument?.content || htmlContent || "";
   const htmlForDisplay = useMemo(() => {
     if (!htmlSource) {
-      if (currentDocument?.filePath?.includes("x.com") || currentDocument?.filePath?.includes("twitter.com")) {
-        const sourceUrl = currentDocument.filePath;
-        return `<!DOCTYPE html><html><head></head><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--color-foreground, #333); text-align: center; padding: 2rem; background: var(--color-background, #fff);">
-          <div style="max-width: 400px; padding: 2rem; border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; background: var(--color-card, #fff);">
-            <h3 style="margin-bottom: 0.5rem; font-size: 1.1rem; font-weight: 600; color: var(--color-foreground, #0f172a);">Unable to Load Thread</h3>
-            <p style="font-size: 0.875rem; color: var(--color-muted-foreground, #64748b); margin-bottom: 1.25rem;">This post or thread may be private, deleted, or rate-limited by X.</p>
-            <div style="display: flex; gap: 0.75rem; justify-content: center;">
-              <button onclick="window.parent.location.reload()" style="padding: 0.5rem 1rem; border-radius: 6px; background: #0284c7; color: #fff; border: none; font-size: 0.875rem; cursor: pointer; font-weight: 500;">Retry</button>
-              <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="padding: 0.5rem 1rem; border-radius: 6px; background: var(--color-muted, #f1f5f9); color: var(--color-foreground, #0f172a); border: 1px solid var(--color-border, #cbd5e1); font-size: 0.875rem; text-decoration: none; display: inline-flex; align-items: center;">Open on X →</a>
-            </div>
-          </div>
-        </body></html>`;
-      }
       if (isEditableBrowserArticleDocument(currentDocument)) {
         const sourceUrl = currentDocument?.filePath || "";
         return `<!DOCTYPE html><html><head></head><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; color: #666; text-align: center; padding: 2rem;">
@@ -5296,13 +5284,13 @@ export function DocumentViewer({
         if (!text || !text.trim()) return;
         try {
           const extract = await createExtract({
-            documentId: currentDocument.id,
+            document_id: currentDocument.id,
             content: text.trim(),
-            pageTitle: `Post ${postIndex} (${postId})`,
-            pageNumber: postIndex,
+            note: `Post ${postIndex} (${postId})`,
+            page_number: postIndex,
+            source_url: currentDocument.metadata?.source ?? currentDocument.filePath,
             tags: ["x", "twitter", "post"],
           });
-          useExtractStore.getState().addExtract(extract);
           toast.success("Post Extracted", `Saved Post ${postIndex} to extracts`);
         } catch (err) {
           console.error("Failed to extract post:", err);
@@ -7634,6 +7622,21 @@ export function DocumentViewer({
             />
           </div>
           )
+        ) : docType === "html" && isXThreadDocument(currentDocument) ? (
+          <XThreadViewer
+            document={currentDocument}
+            onCreateFlashcard={(excerpt, provenance) =>
+              setFlashcardStudioSeed({
+                key: `x-${currentDocument.id}-${Date.now()}`,
+                documentId: currentDocument.id,
+                excerpt,
+                draftCardType: "qa",
+                resetDraftCards: true,
+                autoEditDraft: true,
+              })
+            }
+            onExtractCreated={() => loadExtracts(currentDocument.id)}
+          />
         ) : docType === "html" ? (
           <div ref={htmlViewerContainerRef} data-html-viewer="true" className="h-full w-full overflow-hidden bg-background relative">
             {!isHtmlFrameReady && (

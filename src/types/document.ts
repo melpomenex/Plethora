@@ -156,6 +156,10 @@ export interface DocumentMetadata {
   hasBundleImages?: boolean;
   // X / Twitter Thread metadata
   xThread?: TwitterThread;
+  /** True while the X thread payload is being fetched (skeleton state). */
+  xThreadLoading?: boolean;
+  /** Typed retrieval error ({ type, message }) for the native error state. */
+  xThreadError?: { type?: string; message?: string };
 
   // Virtual & Physical Chunking fields
   parentDocumentId?: string;
@@ -210,6 +214,9 @@ export interface TwitterPost {
   bookmarkCount?: number | null;
   isNoteTweet: boolean;
   url: string;
+  /** Status ids referenced by this post (quoted/embedded posts), from the
+   *  ThreadReaderApp page; enrichment resolves them into `quotedPost`. */
+  refIds?: string[];
 }
 
 export interface TwitterThread {
@@ -223,6 +230,8 @@ export interface TwitterThread {
   htmlContent: string;
   structuredText: string;
   createdAt?: string | null;
+  /** Retrieval source: "threadreader" | "graphql" | "syndication" | "single". */
+  sourceKind?: string;
 }
 
 export interface Extract {

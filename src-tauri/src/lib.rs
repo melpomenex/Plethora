@@ -41,6 +41,7 @@ mod study_json_import;
 mod supermemo_import;
 mod sync;
 mod tas;
+mod threadreader;
 mod transcription;
 mod twitter;
 mod utils;
@@ -1730,6 +1731,7 @@ pub fn run() {
             twitter::get_twitter_video_info,
             twitter::get_twitter_thread,
             twitter::import_twitter_thread,
+            twitter::enrich_twitter_thread,
             youtube::get_youtube_chapters,
             commands::import_video_file,
             commands::get_video_storage_path,
