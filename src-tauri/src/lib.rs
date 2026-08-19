@@ -55,6 +55,11 @@ mod youtube;
     not(any(target_os = "android", target_os = "ios"))
 ))]
 mod screenshot;
+// Native tray / menu-bar / status-area icon (requirement #20). Desktop-only:
+// tauri-build emits the `desktop` cfg alias for every non-mobile target, so
+// Android/iOS never compile the tray code.
+#[cfg(desktop)]
+mod tray;
 
 mod epub_server;
 mod media_server;
@@ -1037,6 +1042,17 @@ pub fn run() {
             // mascot as their window icon instead of the generic cog.
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             apply_window_icons(&app.handle());
+
+            // Native tray / menu-bar / status-area icon (requirement #20).
+            // Desktop-only; see src/tray.rs for platform conventions. Failure
+            // to create the tray must not abort startup (e.g. Linux
+            // environments without a status-notifier host) — warn and continue.
+            #[cfg(desktop)]
+            {
+                if let Err(err) = crate::tray::setup_tray(app) {
+                    tracing::warn!("[tray] failed to create tray icon: {err}");
+                }
+            }
 
 
             // Verify window state file is valid JSON, delete if corrupted or empty
