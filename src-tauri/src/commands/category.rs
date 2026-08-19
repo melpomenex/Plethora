@@ -169,6 +169,14 @@ async fn category_create(pool: &sqlx::SqlitePool, name: &str) -> Result<Category
     Ok(category)
 }
 
+/// Rename a category. Propagates the new name to every document and extract
+/// carrying the old name (no orphaned items) and keeps the registry row in
+/// sync. Matching is case-sensitive (category strings are identity everywhere:
+/// filters, `get_category_stats` grouping and the library dropdown all compare
+/// exact strings), with surrounding whitespace trimmed. Renaming into an
+/// already-existing registry name merges the rows so the registry never holds
+/// duplicate names. Runs in one transaction so a mid-sequence failure cannot
+/// leave documents/extracts and the registry out of sync (rollback on error).
 async fn category_rename(
     pool: &sqlx::SqlitePool,
     name: &str,
@@ -188,15 +196,16 @@ async fn category_rename(
         ));
     }
 
+    let mut tx = pool.begin().await?;
+
     let documents = sqlx::query(
         r#"UPDATE documents SET category = ?1, date_modified = ?2 WHERE TRIM(category) = ?3"#,
     )
     .bind(&new_name)
     .bind(chrono::Utc::now())
     .bind(&old_name)
-    .execute(pool)
-    .await
-    .map_err(PlethoraError::Database)?;
+    .execute(&mut *tx)
+    .await?;
 
     let extracts = sqlx::query(
         r#"UPDATE extracts SET category = ?1, date_modified = ?2 WHERE TRIM(category) = ?3"#,
@@ -204,17 +213,44 @@ async fn category_rename(
     .bind(&new_name)
     .bind(chrono::Utc::now())
     .bind(&old_name)
-    .execute(pool)
-    .await
-    .map_err(PlethoraError::Database)?;
+    .execute(&mut *tx)
+    .await?;
 
-    sqlx::query(r#"UPDATE categories SET name = ?1, date_modified = ?2 WHERE TRIM(name) = ?3"#)
-        .bind(&new_name)
-        .bind(chrono::Utc::now())
-        .bind(&old_name)
-        .execute(pool)
-        .await
-        .map_err(PlethoraError::Database)?;
+    // Keep the registry free of duplicate names: when the old name has a
+    // registry row, either rename it to the new name or, if a registry row
+    // for the new name already exists, drop the old row (the new-name row
+    // already represents the merged target).
+    let old_registry_exists: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM categories WHERE TRIM(name) = ?1"#)
+            .bind(&old_name)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    if old_registry_exists > 0 {
+        let new_registry_exists: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM categories WHERE TRIM(name) = ?1"#)
+                .bind(&new_name)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if new_registry_exists > 0 {
+            sqlx::query(r#"DELETE FROM categories WHERE TRIM(name) = ?1"#)
+                .bind(&old_name)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query(
+                r#"UPDATE categories SET name = ?1, date_modified = ?2 WHERE TRIM(name) = ?3"#,
+            )
+            .bind(&new_name)
+            .bind(chrono::Utc::now())
+            .bind(&old_name)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
 
     Ok(CategoryRenameResult {
         documents_updated: documents.rows_affected() as i64,
@@ -222,6 +258,11 @@ async fn category_rename(
     })
 }
 
+/// Delete a category. Clears the name from every document and extract
+/// (leaving them uncategorized — no item is deleted or left referencing a
+/// non-existent category) and removes the registry row. Runs in one
+/// transaction so a mid-sequence failure cannot leave items and the registry
+/// out of sync (rollback on error).
 async fn category_delete(
     pool: &sqlx::SqlitePool,
     name: &str,
@@ -233,29 +274,30 @@ async fn category_delete(
         ));
     }
 
+    let mut tx = pool.begin().await?;
+
     let documents = sqlx::query(
         r#"UPDATE documents SET category = NULL, date_modified = ?1 WHERE TRIM(category) = ?2"#,
     )
     .bind(chrono::Utc::now())
     .bind(&name)
-    .execute(pool)
-    .await
-    .map_err(PlethoraError::Database)?;
+    .execute(&mut *tx)
+    .await?;
 
     let extracts = sqlx::query(
         r#"UPDATE extracts SET category = NULL, date_modified = ?1 WHERE TRIM(category) = ?2"#,
     )
     .bind(chrono::Utc::now())
     .bind(&name)
-    .execute(pool)
-    .await
-    .map_err(PlethoraError::Database)?;
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query(r#"DELETE FROM categories WHERE TRIM(name) = ?1"#)
         .bind(&name)
-        .execute(pool)
-        .await
-        .map_err(PlethoraError::Database)?;
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
 
     Ok(CategoryDeleteResult {
         documents_cleared: documents.rows_affected() as i64,
@@ -375,6 +417,72 @@ mod tests {
         let names = category_list(&pool).await.expect("list");
         assert!(names.iter().all(|c| c.name != "Work"));
         assert!(names.iter().any(|c| c.name == "Career" && c.item_count == 3));
+    }
+
+    #[tokio::test]
+    async fn rename_into_existing_name_merges_registry_without_duplicates() {
+        let pool = setup_pool().await;
+        // Both names exist as registry rows AND on items.
+        insert_document(&pool, "d1", "Work").await;
+        insert_document(&pool, "d2", "Career").await;
+        let _work_row = category_create(&pool, "Work").await.expect("create Work");
+        let career_row = category_create(&pool, "Career").await.expect("create Career");
+
+        let result = category_rename(&pool, "Work", "Career").await.expect("rename");
+        assert_eq!(result.documents_updated, 1);
+        assert_eq!(result.extracts_updated, 0);
+
+        // Every item carries the merged name.
+        let docs: Vec<String> = sqlx::query_scalar("SELECT category FROM documents ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .expect("read categories");
+        assert_eq!(docs, vec!["Career".to_string(), "Career".to_string()]);
+
+        // Exactly one registry row remains, and it is the pre-existing
+        // "Career" row (its id survives; the old "Work" row was merged away).
+        let registry_names: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM categories ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .expect("read registry names");
+        assert_eq!(registry_names, vec!["Career".to_string()]);
+        let remaining_id: Option<String> =
+            sqlx::query_scalar("SELECT id FROM categories WHERE name = 'Career'")
+                .fetch_optional(&pool)
+                .await
+                .expect("read surviving row");
+        assert_eq!(remaining_id, Some(career_row.id));
+
+        // The merged category lists once with the combined item count.
+        let names = category_list(&pool).await.expect("list");
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].name, "Career");
+        assert_eq!(names[0].item_count, 2);
+    }
+
+    #[tokio::test]
+    async fn rename_keeps_registry_consistent_when_only_items_exist() {
+        let pool = setup_pool().await;
+        // "Work" is in use on items but was never registered; "Career" has no
+        // registry row either. Renaming must propagate to items and leave the
+        // registry empty (no synthetic row, no duplicates).
+        insert_document(&pool, "d1", "Work").await;
+
+        let result = category_rename(&pool, "Work", "Career").await.expect("rename");
+        assert_eq!(result.documents_updated, 1);
+
+        let docs: Vec<String> = sqlx::query_scalar("SELECT category FROM documents")
+            .fetch_all(&pool)
+            .await
+            .expect("read categories");
+        assert_eq!(docs, vec!["Career".to_string()]);
+
+        let registry_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM categories")
+            .fetch_one(&pool)
+            .await
+            .expect("count registry");
+        assert_eq!(registry_count, 0);
     }
 
     #[tokio::test]
