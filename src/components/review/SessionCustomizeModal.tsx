@@ -3,7 +3,6 @@ import {
   Sliders,
   Stack,
   Tag,
-  Target,
   X,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
@@ -11,12 +10,6 @@ import { useI18n } from "../../lib/i18n";
 export interface SessionCustomization {
   sessionDurationMinutes: number;
   maxItems: number;
-  blockTimeBudgets: {
-    overdue: number;
-    maintenance: number;
-    explore: number;
-    empty: number;
-  };
   filters: {
     tags: string[];
     categories: string[];
@@ -38,12 +31,6 @@ export interface SessionCustomization {
 export const DEFAULT_CUSTOMIZATION: SessionCustomization = {
   sessionDurationMinutes: 60,
   maxItems: 50,
-  blockTimeBudgets: {
-    overdue: 10,
-    maintenance: 15,
-    explore: 20,
-    empty: 15,
-  },
   filters: {
     tags: [],
     categories: [],
@@ -92,13 +79,6 @@ export function SessionCustomizeModal({
     onChange({
       ...customization,
       filters: { ...customization.filters, ...updates },
-    });
-  };
-
-  const updateBlockTimeBudgets = (updates: Partial<SessionCustomization["blockTimeBudgets"]>) => {
-    onChange({
-      ...customization,
-      blockTimeBudgets: { ...customization.blockTimeBudgets, ...updates },
     });
   };
 
@@ -195,68 +175,6 @@ export function SessionCustomizeModal({
               />
               <div className="min-w-[80px] text-sm text-foreground/80 text-right">
                 {t("sessionCustomize.itemsCount", { count: customization.maxItems })}
-              </div>
-            </div>
-          </section>
-
-          {/* Block Time Budgets */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.blockTimeBudgets")}</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.overdueRescue")}</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="60"
-                  value={customization.blockTimeBudgets.overdue}
-                  onChange={(e) =>
-                    updateBlockTimeBudgets({ overdue: Number(e.target.value) })
-                  }
-                  className="w-full mt-1 px-3 py-2 bg-background border border-border rounded text-sm text-foreground"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.maintenanceBlock")}</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="60"
-                  value={customization.blockTimeBudgets.maintenance}
-                  onChange={(e) =>
-                    updateBlockTimeBudgets({ maintenance: Number(e.target.value) })
-                  }
-                  className="w-full mt-1 px-3 py-2 bg-background border border-border rounded text-sm text-foreground"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.explorationBlock")}</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="60"
-                  value={customization.blockTimeBudgets.explore}
-                  onChange={(e) =>
-                    updateBlockTimeBudgets({ explore: Number(e.target.value) })
-                  }
-                  className="w-full mt-1 px-3 py-2 bg-background border border-border rounded text-sm text-foreground"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.focusBlock")}</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="60"
-                  value={customization.blockTimeBudgets.empty}
-                  onChange={(e) =>
-                    updateBlockTimeBudgets({ empty: Number(e.target.value) })
-                  }
-                  className="w-full mt-1 px-3 py-2 bg-background border border-border rounded text-sm text-foreground"
-                />
               </div>
             </div>
           </section>

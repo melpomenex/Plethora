@@ -2406,6 +2406,78 @@ const commandHandlers: Record<string, CommandHandler> = {
         });
     },
 
+    get_categories: async () => {
+        const docs = await db.getDocuments();
+        const extracts = await db.getAllExtracts();
+        const counts = new Map<string, number>();
+        const add = (name?: string | null) => {
+            const trimmed = (name ?? "").trim();
+            if (!trimmed) return;
+            counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
+        };
+        for (const doc of docs) add(doc.category);
+        for (const ext of extracts) add(ext.category);
+        return Array.from(counts.entries())
+            .map(([name, itemCount]) => ({ name, itemCount }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    },
+
+    create_category: async (args) => {
+        const name = String(args.name ?? "").trim();
+        if (!name) {
+            throw new Error("Category name must not be empty");
+        }
+        return { id: uuidv4(), name, collectionId: "00000000-0000-0000-0000-000000000001" };
+    },
+
+    rename_category: async (args) => {
+        const oldName = String(args.name ?? "").trim();
+        const newName = String(args.newName ?? "").trim();
+        if (!oldName || !newName) {
+            throw new Error("Category names must not be empty");
+        }
+        if (oldName === newName) {
+            throw new Error("New category name must differ from the old one");
+        }
+        let documentsUpdated = 0;
+        let extractsUpdated = 0;
+        for (const doc of await db.getDocuments()) {
+            if ((doc.category ?? "").trim() === oldName) {
+                await db.updateDocument(doc.id, { category: newName });
+                documentsUpdated += 1;
+            }
+        }
+        for (const ext of await db.getAllExtracts()) {
+            if ((ext.category ?? "").trim() === oldName) {
+                await db.updateExtract(ext.id, { category: newName });
+                extractsUpdated += 1;
+            }
+        }
+        return { documentsUpdated, extractsUpdated };
+    },
+
+    delete_category: async (args) => {
+        const name = String(args.name ?? "").trim();
+        if (!name) {
+            throw new Error("Category name must not be empty");
+        }
+        let documentsCleared = 0;
+        let extractsCleared = 0;
+        for (const doc of await db.getDocuments()) {
+            if ((doc.category ?? "").trim() === name) {
+                await db.updateDocument(doc.id, { category: undefined });
+                documentsCleared += 1;
+            }
+        }
+        for (const ext of await db.getAllExtracts()) {
+            if ((ext.category ?? "").trim() === name) {
+                await db.updateExtract(ext.id, { category: undefined });
+                extractsCleared += 1;
+            }
+        }
+        return { documentsCleared, extractsCleared };
+    },
+
     get_category_stats: async () => {
         return [];
     },

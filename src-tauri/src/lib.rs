@@ -1623,6 +1623,8 @@ pub fn run() {
             commands::rename_image_asset,
             commands::get_categories,
             commands::create_category,
+            commands::rename_category,
+            commands::delete_category,
             commands::get_queue,
             commands::get_next_queue_item,
             commands::get_priority_standing,
