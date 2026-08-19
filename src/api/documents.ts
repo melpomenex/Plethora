@@ -21,11 +21,37 @@ function isWebMode(): boolean {
   return !isTauri();
 }
 
+/**
+ * Type guard for the persisted normalized X thread model (`structuredContent`
+ * on X thread documents). The Rust side stores the full `TwitterThread` JSON
+ * in `structured_content`; `mapDocument` restores it into `metadata.xThread`
+ * so the native viewer and post-boundary AI context survive restarts.
+ */
+export function isTwitterThreadShape(value: unknown): value is import("../types/document").TwitterThread {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.rootId === "string" &&
+    typeof v.rootUrl === "string" &&
+    Array.isArray(v.posts) &&
+    typeof v.author === "object" &&
+    v.author !== null &&
+    typeof (v.author as Record<string, unknown>).screenName === "string"
+  );
+}
+
 export function mapDocument(doc: Document | null): Document | null {
   if (!doc) return null;
+  const metadata = doc.metadata ? { ...doc.metadata } : undefined;
+  // Restore the normalized thread model from persisted structured content so
+  // `metadata.xThread` (viewer + AI context) survives app restarts.
+  if (metadata && !metadata.xThread && isTwitterThreadShape(metadata.structuredContent)) {
+    metadata.xThread = metadata.structuredContent;
+  }
   return {
     ...doc,
     fileId: doc.metadata?.fileId || doc.fileId,
+    metadata,
   };
 }
 
@@ -730,6 +756,17 @@ export async function fetchTwitterThread(url: string): Promise<import("../types/
 }
 
 /**
+ * Enrich a normalized X thread in the background: per-post GraphQL/syndication
+ * merge (timestamps, engagement, video URLs, avatars, quoted posts). Tauri-only.
+ * Per-post failures are skipped server-side — the thread is never lost.
+ */
+export async function enrichTwitterThread(
+  thread: import("../types/document").TwitterThread
+): Promise<import("../types/document").TwitterThread> {
+  return await invokeCommand<import("../types/document").TwitterThread>("enrich_twitter_thread", { thread });
+}
+
+/**
  * Import a Twitter/X video: downloads the best MP4 and creates a Video document.
  * Tauri-only — throws when invoked outside the desktop app.
  */
@@ -740,10 +777,20 @@ export async function importTwitterVideo(url: string, collectionId?: string): Pr
 
 /**
  * Import an X/Twitter post or thread as an HTML document.
- * Tauri-only.
+ * Tauri-only. When `thread` is provided (already fetched by the caller), the
+ * backend reuses it instead of re-running the ThreadReaderApp pipeline, so a
+ * single open performs one ping + one page fetch.
  */
-export async function importTwitterThread(url: string, collectionId?: string): Promise<Document> {
-  const doc = await invokeCommand<Document>("import_twitter_thread", { url, collectionId: collectionId ?? null });
+export async function importTwitterThread(
+  url: string,
+  collectionId?: string,
+  thread?: import("../types/document").TwitterThread | null
+): Promise<Document> {
+  const doc = await invokeCommand<Document>("import_twitter_thread", {
+    url,
+    collectionId: collectionId ?? null,
+    thread: thread ?? null,
+  });
   return mapDocument(doc) as Document;
 }
 

@@ -20,6 +20,7 @@ import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
+import { parseThreadError } from "../lib/xthreadError";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Web Article Import Pipeline support (overhaul-web-article-import)
@@ -31,6 +32,54 @@ const inflightUrlImports = new Map<string, Promise<Document>>();
 
 /** One snapshot-retention sweep per session (180-day cap). */
 let snapshotRetentionSwept = false;
+
+/**
+ * In-memory `root_id → TwitterThread` cache (30 min TTL) for X threads, so
+ * revisits of the same thread (or its mid-thread URLs) never re-hit
+ * ThreadReaderApp/X. Enrichment is fired once per fresh open per session.
+ */
+const threadCache = new Map<string, { thread: import("../types/document").TwitterThread; fetchedAt: number }>();
+const THREAD_CACHE_TTL_MS = 30 * 60 * 1000;
+
+function cachedThread(rootId: string): import("../types/document").TwitterThread | null {
+  const entry = threadCache.get(rootId);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > THREAD_CACHE_TTL_MS) {
+    threadCache.delete(rootId);
+    return null;
+  }
+  return entry.thread;
+}
+
+function cacheThread(thread: import("../types/document").TwitterThread): void {
+  if (thread?.rootId) {
+    threadCache.set(thread.rootId, { thread, fetchedAt: Date.now() });
+  }
+}
+
+/** Test-only: clear the X thread cache between tests. */
+export function __clearThreadCacheForTests(): void {
+  threadCache.clear();
+}
+
+/**
+ * Merge an enriched thread into the stored document's `metadata.xThread`
+ * (zustand set; no refetch — enrichment is a background upgrade).
+ */
+function mergeEnrichedThread(targetId: string, enriched: import("../types/document").TwitterThread): void {
+  const { currentDocument } = useDocumentStore.getState();
+  useDocumentStore.setState((state) => ({
+    documents: state.documents.map((d) =>
+      d.id === targetId && d.metadata
+        ? { ...d, metadata: { ...d.metadata, xThread: enriched } }
+        : d
+    ),
+    currentDocument:
+      currentDocument?.id === targetId && currentDocument.metadata
+        ? { ...currentDocument, metadata: { ...currentDocument.metadata, xThread: enriched } }
+        : currentDocument,
+  }));
+}
 
 function hostnameOf(url: string): string {
   try {
@@ -1130,38 +1179,109 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   openTwitterThread: async (url: string) => {
     set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Fetching X thread...` } });
     try {
-      // 1. Check if document is already in store
+      // 1. Check if document is already in store (skip stale placeholders so
+      //    a failed load can be retried)
       const statusIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/);
       const statusId = statusIdMatch ? statusIdMatch[1] : null;
+      const isStalePlaceholder = (d: Document) =>
+        d.id.startsWith("x-thread-") && Boolean(d.metadata?.xThreadLoading || d.metadata?.xThreadError);
 
       const existing = get().documents.find(
         (d) =>
-          d.filePath === url ||
-          d.metadata?.source === url ||
-          (statusId && (d.filePath.includes(statusId) || (d.metadata?.source && d.metadata.source.includes(statusId))))
+          !isStalePlaceholder(d) &&
+          (d.filePath === url ||
+            d.metadata?.source === url ||
+            (statusId && (d.filePath.includes(statusId) || (d.metadata?.source && d.metadata.source.includes(statusId)))))
       );
       if (existing) {
         set({ isImporting: false, currentDocument: existing });
         return existing;
       }
 
-      // 2. Fetch thread structure
-      const thread = await documentsApi.fetchTwitterThread(url);
+      // 2. Placeholder document so the reader shows a native skeleton while
+      //    the unrolled thread payload is being fetched (progressive open).
+      const placeholderId = `x-thread-${statusId ?? "pending"}`;
+      const placeholder: Document = {
+        id: placeholderId,
+        title: "X Thread",
+        filePath: url,
+        fileType: "html",
+        content: "",
+        tags: ["x", "twitter", "thread"],
+        category: "X Threads",
+        totalPages: 0,
+        currentPage: 0,
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString(),
+        extractCount: 0,
+        learningItemCount: 0,
+        priorityRating: 0,
+        prioritySlider: 0,
+        priorityScore: 6.0,
+        isArchived: false,
+        isFavorite: false,
+        metadata: { source: url, siteName: "X", xThreadLoading: true },
+      };
+      set((state) => ({
+        documents: [placeholder, ...state.documents.filter((d) => d.id !== placeholderId)],
+        currentDocument: placeholder,
+      }));
 
-      // Check again against canonical rootUrl
+      // 3. Fetch thread structure — reuse the in-memory cache when this
+      //    status id is itself a cached thread root (mid-thread URLs resolve
+      //    their root via ping on the server and are deduped by the
+      //    canonical-root document check below — the cache itself is keyed
+      //    by root id, so mid-thread URLs naturally miss it).
+      let thread: import("../types/document").TwitterThread;
+      try {
+        thread =
+          (statusId ? cachedThread(statusId) : null) ?? (await documentsApi.fetchTwitterThread(url));
+      } catch (fetchError) {
+        // Native error state: keep the placeholder so the reader can show the
+        // typed error (private/deleted, TRA down, rate limit, network) with
+        // Retry / Open on X — no blank page, no white iframe fallback.
+        const typed = parseThreadError(fetchError);
+        set({
+          isImporting: false,
+          importProgress: { current: 0, total: 0 },
+        });
+        set((state) => ({
+          documents: state.documents.map((d) =>
+            d.id === placeholderId && d.metadata
+              ? {
+                  ...d,
+                  metadata: { ...d.metadata, xThreadLoading: false, xThreadError: typed },
+                }
+              : d
+          ),
+          currentDocument: state.documents.find((d) => d.id === placeholderId) ?? null,
+        }));
+        return get().documents.find((d) => d.id === placeholderId) ?? placeholder;
+      }
+
+      // Check again against canonical rootUrl (dedupe across mid-thread URLs).
+      // The in-flight placeholder itself is excluded — it matched only because
+      // a root URL's filePath equals the canonical rootUrl.
       const existingRoot = get().documents.find(
-        (d) => d.filePath === thread.rootUrl || d.metadata?.source === thread.rootUrl
+        (d) => d.id !== placeholderId && (d.filePath === thread.rootUrl || d.metadata?.source === thread.rootUrl)
       );
       if (existingRoot) {
-        set({ isImporting: false, currentDocument: existingRoot });
+        set((state) => ({
+          documents: state.documents.filter((d) => d.id !== placeholderId),
+          currentDocument: existingRoot,
+          isImporting: false,
+          importProgress: { current: 1, total: 1, fileName: existingRoot.title },
+        }));
         return existingRoot;
       }
+
+      cacheThread(thread);
 
       let doc: Document;
       if (isTauri()) {
         try {
           const collectionId = useCollectionStore.getState().activeCollectionId;
-          doc = await documentsApi.importTwitterThread(url, collectionId);
+          doc = await documentsApi.importTwitterThread(url, collectionId, thread);
         } catch (err) {
           console.warn("[DocumentStore] Failed to persist thread to DB, fallback to ephemeral doc:", err);
           doc = {
@@ -1190,6 +1310,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
               source: thread.rootUrl,
               siteName: "X",
               articleHtml: thread.htmlContent,
+              structuredContent: thread,
               xThread: thread,
             },
           };
@@ -1221,6 +1342,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             source: thread.rootUrl,
             siteName: "X",
             articleHtml: thread.htmlContent,
+            structuredContent: thread,
             xThread: thread,
           },
         };
@@ -1231,11 +1353,27 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
 
       set((state) => ({
-        documents: [doc, ...state.documents.filter((d) => d.id !== doc.id)],
+        documents: [doc, ...state.documents.filter((d) => d.id !== doc.id && d.id !== placeholderId)],
         currentDocument: doc,
         isImporting: false,
         importProgress: { current: 1, total: 1, fileName: doc.title },
       }));
+
+      // 3. Background enrichment: merge per-post X metadata (timestamps,
+      //    engagement, video URLs, avatars, quotes) into the stored doc's
+      //    `metadata.xThread` when it resolves. Non-blocking, non-fatal —
+      //    the reader renders the unrolled data immediately.
+      if (isTauri() && thread.posts.length > 0) {
+        documentsApi
+          .enrichTwitterThread(thread)
+          .then((enriched) => {
+            if (!enriched || !enriched.posts || enriched.posts.length === 0) return;
+            mergeEnrichedThread(doc.id, enriched);
+          })
+          .catch((err) => {
+            console.warn("[DocumentStore] Thread enrichment failed (non-fatal):", err);
+          });
+      }
 
       return doc;
     } catch (error) {

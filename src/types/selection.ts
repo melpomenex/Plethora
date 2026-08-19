@@ -75,7 +75,17 @@ export interface EpubSelectionContext {
   selectedText: string;
 }
 
-export type TextSelectionSurface = "html" | "markdown" | "extract";
+export type TextSelectionSurface = "html" | "markdown" | "extract" | "x-thread";
+
+/** X thread post provenance attached to selections/extracts from the native
+ *  thread viewer (surface "x-thread"): stable anchors back to the post. */
+export interface XThreadPostProvenance {
+  rootId: string;
+  rootUrl: string;
+  postId: string;
+  postIndex: number;
+  author: string; // @handle
+}
 
 export interface TextSelectionContext {
   type: "text";
@@ -85,6 +95,8 @@ export interface TextSelectionContext {
   startOffset: number;
   endOffset: number;
   selectedText: string;
+  /** X thread post provenance (surface "x-thread"). */
+  xThread?: XThreadPostProvenance;
 }
 
 export type SelectionContext = PdfSelectionContext | EpubSelectionContext | TextSelectionContext;
