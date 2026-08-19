@@ -707,11 +707,26 @@ export interface TwitterVideoInfo {
   mp4Url: string;
 }
 
+export type {
+  TwitterAuthor,
+  TwitterMedia,
+  TwitterQuotedPost,
+  TwitterPost,
+  TwitterThread,
+} from "../types/document";
+
 /**
  * Resolve a Twitter/X video URL to its metadata (no download). Tauri-only.
  */
 export async function fetchTwitterVideoInfo(url: string): Promise<TwitterVideoInfo> {
   return await invokeCommand<TwitterVideoInfo>("get_twitter_video_info", { url });
+}
+
+/**
+ * Resolve an X/Twitter post or thread URL to its parsed thread structure. Tauri-only.
+ */
+export async function fetchTwitterThread(url: string): Promise<import("../types/document").TwitterThread> {
+  return await invokeCommand<import("../types/document").TwitterThread>("get_twitter_thread", { url });
 }
 
 /**
@@ -721,6 +736,15 @@ export async function fetchTwitterVideoInfo(url: string): Promise<TwitterVideoIn
 export async function importTwitterVideo(url: string, collectionId?: string): Promise<Document> {
   const doc = await invokeCommand<Document>("import_twitter_video", { url, collectionId: collectionId ?? null });
   return doc;
+}
+
+/**
+ * Import an X/Twitter post or thread as an HTML document.
+ * Tauri-only.
+ */
+export async function importTwitterThread(url: string, collectionId?: string): Promise<Document> {
+  const doc = await invokeCommand<Document>("import_twitter_thread", { url, collectionId: collectionId ?? null });
+  return mapDocument(doc) as Document;
 }
 
 /**

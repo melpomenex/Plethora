@@ -10,6 +10,7 @@ import { getDocuments as fetchDocuments } from "../../api/documents";
 import { isTauri } from "../../lib/tauri";
 
 import { Command, CommandCategory, getDefaultCommands } from "../common/CommandPalette";
+import { urlDetectorUtils } from "../../hooks/useURLDetector";
 import { useI18n } from "../../lib/i18n";
 import {
   Books,
@@ -778,6 +779,29 @@ export function CommandCenter() {
         shortcut: undefined,
       } as Command,
     ];
+
+    if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
+      const targetUrl = query.query.trim();
+      const statusId = urlDetectorUtils.extractTwitterStatusID(targetUrl);
+      const username = urlDetectorUtils.extractTwitterUsername(targetUrl);
+      return [
+        {
+          id: `x-thread-${statusId || "action"}`,
+          type: SearchResultType.Command,
+          title: "X Thread: Open and analyze this thread",
+          excerpt: username ? `Open thread by @${username} with summary and learning tools` : `Open and analyze thread in reader`,
+          score: 10.0,
+          metadata: {
+            resultKind: "contextual-action",
+            action: async () => {
+              useUIStore.getState().setCommandPaletteOpen(false);
+              const doc = await useDocumentStore.getState().openTwitterThread(targetUrl);
+              openDocumentInTab(doc.id);
+            },
+          },
+        },
+      ];
+    }
 
     if (isRssView) {
       try {

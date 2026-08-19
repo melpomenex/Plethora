@@ -112,7 +112,7 @@ export function CompactTagEditor({
         <div
           role="dialog"
           aria-label={t("tagEditor.editTagsTitle")}
-          className="absolute z-50 mt-1.5 right-0 top-full w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+          className="absolute z-50 mt-1.5 right-0 top-full w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-xl"
         >
           <div className="flex items-center justify-between gap-2 mb-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">

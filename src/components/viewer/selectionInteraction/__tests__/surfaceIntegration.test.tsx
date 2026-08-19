@@ -419,4 +419,42 @@ describe("SelectionActionBar (task 3.1)", () => {
       expect(button.className).toContain("h-11");
     }
   });
+
+  describe("Extract snapshot capture on collapsed selection (Task 1.1)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      document.body.innerHTML = "";
+    });
+    afterEach(() => {
+      cleanup();
+      window.getSelection()?.removeAllRanges();
+      vi.useRealTimers();
+    });
+
+    it("extracts from captured snapshot when DOM selection collapses", () => {
+      const { root, block1 } = makeReflowContent();
+      const { result } = renderHook(() =>
+        useSelectionInteraction({ surface: "pdf-reflow", documentId: "doc-ext", enabled: true }),
+      );
+      touchStart(root);
+      selectRange(block1.firstChild!, 0, block1.firstChild!, 9);
+      touchEnd(root);
+      settle();
+      expect(result.current.phase).toBe("ready");
+
+      // Capture snapshot for action
+      const snapshot = result.current.captureForAction();
+      expect(snapshot).not.toBeNull();
+      expect(snapshot?.text).toBe("canonical");
+      expect(snapshot?.documentId).toBe("doc-ext");
+
+      // DOM selection collapses (e.g. user touches outside or native selection clears)
+      window.getSelection()?.removeAllRanges();
+      expect(window.getSelection()?.toString()).toBe("");
+
+      // Snapshot retains its immutable text and documentId
+      expect(snapshot?.text).toBe("canonical");
+      expect(snapshot?.documentId).toBe("doc-ext");
+    });
+  });
 });

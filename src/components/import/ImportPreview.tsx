@@ -21,7 +21,7 @@ import {
 import { isTauri } from "../../lib/tauri";
 import { URLType } from "../../hooks/useURLDetector";
 import type { YouTubeVideo } from "../../api/youtube";
-import type { TwitterVideoInfo } from "../../api/documents";
+import type { TwitterVideoInfo, TwitterThread } from "../../api/documents";
 import type { Feed } from "../../api/rss";
 import type { WebPageMetadata, DuplicateCheckResult } from "../../hooks/useURLMetadata";
 import { getCollections, createCollection } from "../../api/collections";
@@ -30,12 +30,13 @@ import type { Collection } from "../../types/collection";
 export interface ImportOptions {
   tags: string[];
   collectionId?: string;
+  twitterMode?: "thread" | "video";
 }
 
 interface ImportPreviewProps {
   urlType: URLType;
   url: string;
-  data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | null;
+  data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null;
   isLoading: boolean;
   error: string | null;
   onImport: (options: ImportOptions) => void;
@@ -234,7 +235,7 @@ export function ImportPreview({
     case URLType.Twitter:
       return (
         <TwitterImportPreview
-          data={data as TwitterVideoInfo}
+          data={data as TwitterVideoInfo | TwitterThread}
           options={options}
           tagInput={tagInput}
           setTagInput={setTagInput}
@@ -251,7 +252,7 @@ export function ImportPreview({
           newCollectionName={newCollectionName}
           setNewCollectionName={setNewCollectionName}
           onCreateCollection={handleCreateCollection}
-          onImport={handleImportClick}
+          onImport={(mode?: "thread" | "video") => onImport({ ...options, twitterMode: mode ?? "thread" })}
           isImporting={isImporting}
           isDuplicate={isDuplicate}
           existingItem={duplicateCheck.existingItem}
@@ -613,8 +614,8 @@ function YouTubeImportPreview({
 }
 
 interface TwitterImportPreviewProps extends ImportOptionsUIProps {
-  data: TwitterVideoInfo;
-  onImport: () => void;
+  data: TwitterVideoInfo | TwitterThread;
+  onImport: (mode?: "thread" | "video") => void;
   isImporting: boolean;
   isDuplicate: boolean;
   existingItem?: { id: string; title: string; type: "document" | "feed" };
@@ -630,6 +631,15 @@ function TwitterImportPreview({
   onOpenExisting,
   ...optionsProps
 }: TwitterImportPreviewProps) {
+  const isThread = "posts" in data && Array.isArray(data.posts);
+  const thread = isThread ? (data as TwitterThread) : null;
+  const videoInfo = !isThread ? (data as TwitterVideoInfo) : null;
+
+  const firstPost = thread?.posts[0];
+  const allMedia = thread ? thread.posts.flatMap((p) => p.media) : [];
+  const photos = allMedia.filter((m) => m.kind === "photo");
+  const hasVideo = !isThread || allMedia.some((m) => m.kind === "video" || m.kind === "animated_gif");
+
   return (
     <div className="px-4 py-3">
       {/* Duplicate warning */}
@@ -656,64 +666,145 @@ function TwitterImportPreview({
         </div>
       )}
 
-      <div className="flex gap-4">
-        {/* Thumbnail */}
-        <div className="flex-shrink-0 w-32 h-20 rounded overflow-hidden bg-muted">
-          {data.thumbnailUrl ? (
-            <img
-              src={data.thumbnailUrl}
-              alt={data.title}
-              className="w-full h-full object-cover"
-            />
-          ) : null}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <XLogo className="w-4 h-4" />
-            <span className="text-xs font-medium text-muted-foreground uppercase">
-              X / Twitter Video
-            </span>
+      {isThread && thread ? (
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            {thread.author.avatarUrl ? (
+              <img
+                src={thread.author.avatarUrl}
+                alt={thread.author.name}
+                className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-border/50"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                <XLogo className="w-5 h-5 text-muted-foreground" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-semibold text-foreground truncate">{thread.author.name}</span>
+                {thread.author.verified && (
+                  <span className="text-sky-500 text-xs font-bold" title="Verified">✓</span>
+                )}
+                <span className="text-xs text-muted-foreground">@{thread.author.screenName}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium ml-auto">
+                  {thread.totalPosts > 1 ? `${thread.totalPosts} posts` : "1 post"}
+                </span>
+              </div>
+              <p className="text-xs text-foreground/90 mt-1.5 line-clamp-3 leading-relaxed">
+                {firstPost ? firstPost.fullText || firstPost.text : thread.title}
+              </p>
+            </div>
           </div>
 
-          <h3 className="text-sm font-medium text-foreground line-clamp-2">
-            {data.title}
-          </h3>
+          {/* Photo thumbnails if any */}
+          {photos.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto py-1">
+              {photos.slice(0, 4).map((photo, i) => (
+                <div key={i} className="relative w-20 h-14 rounded-md overflow-hidden bg-muted flex-shrink-0 border border-border/40">
+                  <img
+                    src={photo.thumbnailUrl || photo.mediaUrl}
+                    alt={photo.altText || "Attachment"}
+                    className="w-full h-full object-cover"
+                  />
+                  {i === 3 && photos.length > 4 && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white text-xs font-medium">
+                      +{photos.length - 4}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-            <span>@{data.author}</span>
-            {data.durationSecs ? (
-              <>
-                <span>•</span>
-                <span>{formatDuration(data.durationSecs)}</span>
-              </>
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={() => onImport("thread")}
+              disabled={isImporting}
+              className="flex-1 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isImporting ? (
+                <>
+                  <CircleNotch className="w-4 h-4 animate-spin" />
+                  <span>Opening Thread...</span>
+                </>
+              ) : isDuplicate ? (
+                <span>Re-open Thread</span>
+              ) : (
+                <span>Open & Analyze Thread</span>
+              )}
+            </button>
+
+            {hasVideo && (
+              <button
+                onClick={() => onImport("video")}
+                disabled={isImporting}
+                className="px-3 py-2 bg-muted hover:bg-muted/80 text-foreground text-xs font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Download video file with transcription"
+              >
+                Download Video
+              </button>
+            )}
+          </div>
+        </div>
+      ) : videoInfo ? (
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 w-32 h-20 rounded overflow-hidden bg-muted">
+            {videoInfo.thumbnailUrl ? (
+              <img
+                src={videoInfo.thumbnailUrl}
+                alt={videoInfo.title}
+                className="w-full h-full object-cover"
+              />
             ) : null}
           </div>
 
-          <p className="text-xs text-muted-foreground line-clamp-2 mt-2">
-            The video will be downloaded and transcribed automatically.
-          </p>
-        </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <XLogo className="w-4 h-4" />
+              <span className="text-xs font-medium text-muted-foreground uppercase">
+                X / Twitter Video
+              </span>
+            </div>
 
-        {/* Import button */}
-        <button
-          onClick={onImport}
-          disabled={isImporting}
-          className="flex-shrink-0 self-start px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isImporting ? (
-            <span className="flex items-center gap-2">
-              <CircleNotch className="w-4 h-4 animate-spin" />
-              Importing...
-            </span>
-          ) : isDuplicate ? (
-            "Re-import"
-          ) : (
-            "Import Video"
-          )}
-        </button>
-      </div>
+            <h3 className="text-sm font-medium text-foreground line-clamp-2">
+              {videoInfo.title}
+            </h3>
+
+            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+              <span>@{videoInfo.author}</span>
+              {videoInfo.durationSecs ? (
+                <>
+                  <span>•</span>
+                  <span>{formatDuration(videoInfo.durationSecs)}</span>
+                </>
+              ) : null}
+            </div>
+
+            <p className="text-xs text-muted-foreground line-clamp-2 mt-2">
+              The video will be downloaded and transcribed automatically.
+            </p>
+          </div>
+
+          <button
+            onClick={() => onImport("video")}
+            disabled={isImporting}
+            className="flex-shrink-0 self-start px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isImporting ? (
+              <span className="flex items-center gap-2">
+                <CircleNotch className="w-4 h-4 animate-spin" />
+                Importing...
+              </span>
+            ) : isDuplicate ? (
+              "Re-import"
+            ) : (
+              "Import Video"
+            )}
+          </button>
+        </div>
+      ) : null}
 
       {/* Import Options */}
       <ImportOptionsUI {...optionsProps} />

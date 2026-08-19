@@ -89,4 +89,15 @@ describe("CompactTagEditor", () => {
     fireEvent.click(chips[chips.length - 1]);
     expect(mocks.persistItemTags).not.toHaveBeenCalled();
   });
+
+  it("renders popover container with opaque background, high shadow, and elevated z-index", () => {
+    render(<CompactTagEditor target={target()} />);
+    fireEvent.click(screen.getByLabelText("tagEditor.editTags"));
+
+    const dialog = screen.getByRole("dialog", { name: "tagEditor.editTagsTitle" });
+    expect(dialog.className).toContain("bg-popover");
+    expect(dialog.className).toContain("border-border");
+    expect(dialog.className).toContain("shadow-xl");
+    expect(dialog.className).toContain("z-50");
+  });
 });

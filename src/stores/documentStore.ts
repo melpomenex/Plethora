@@ -323,6 +323,10 @@ interface DocumentState {
     url: string,
     options?: { signal?: AbortSignal; extraTags?: string[] }
   ) => Promise<Document>;
+  /** Open and parse an X/Twitter post or thread directly into reader. */
+  openTwitterThread: (url: string) => Promise<Document>;
+  /** Permanently import an X/Twitter post or thread to database. */
+  importTwitterThread: (url: string, collectionId?: string) => Promise<Document>;
   /** Delete every stored raw-source snapshot (retention setting off). */
   deleteAllSourceSnapshots: () => Promise<number>;
   importFromArxiv: (arxivIdOrUrl: string, format?: 'pdf' | 'html') => Promise<Document>;
@@ -1118,6 +1122,149 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to import page',
         isImporting: false,
         importProgress: { current: 0, total: 0 }
+      });
+      throw error;
+    }
+  },
+
+  openTwitterThread: async (url: string) => {
+    set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Fetching X thread...` } });
+    try {
+      // 1. Check if document is already in store
+      const statusIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/);
+      const statusId = statusIdMatch ? statusIdMatch[1] : null;
+
+      const existing = get().documents.find(
+        (d) =>
+          d.filePath === url ||
+          d.metadata?.source === url ||
+          (statusId && (d.filePath.includes(statusId) || (d.metadata?.source && d.metadata.source.includes(statusId))))
+      );
+      if (existing) {
+        set({ isImporting: false, currentDocument: existing });
+        return existing;
+      }
+
+      // 2. Fetch thread structure
+      const thread = await documentsApi.fetchTwitterThread(url);
+
+      // Check again against canonical rootUrl
+      const existingRoot = get().documents.find(
+        (d) => d.filePath === thread.rootUrl || d.metadata?.source === thread.rootUrl
+      );
+      if (existingRoot) {
+        set({ isImporting: false, currentDocument: existingRoot });
+        return existingRoot;
+      }
+
+      let doc: Document;
+      if (isTauri()) {
+        try {
+          const collectionId = useCollectionStore.getState().activeCollectionId;
+          doc = await documentsApi.importTwitterThread(url, collectionId);
+        } catch (err) {
+          console.warn("[DocumentStore] Failed to persist thread to DB, fallback to ephemeral doc:", err);
+          doc = {
+            id: `x-thread-${thread.rootId}`,
+            title: thread.title,
+            filePath: thread.rootUrl,
+            fileType: "html",
+            content: thread.structuredText,
+            tags: ["x", "twitter", "thread"],
+            category: "X Threads",
+            totalPages: thread.totalPosts,
+            currentPage: 0,
+            dateAdded: new Date().toISOString(),
+            dateModified: new Date().toISOString(),
+            extractCount: 0,
+            learningItemCount: 0,
+            priorityRating: 0,
+            prioritySlider: 0,
+            priorityScore: 6.0,
+            isArchived: false,
+            isFavorite: false,
+            coverImageUrl: thread.posts.flatMap(p => p.media).find(m => m.kind === "photo")?.mediaUrl || thread.author.avatarUrl || undefined,
+            coverImageSource: "twitter",
+            metadata: {
+              author: thread.author.name,
+              source: thread.rootUrl,
+              siteName: "X",
+              articleHtml: thread.htmlContent,
+              xThread: thread,
+            },
+          };
+        }
+      } else {
+        doc = {
+          id: `x-thread-${thread.rootId}`,
+          title: thread.title,
+          filePath: thread.rootUrl,
+          fileType: "html",
+          content: thread.structuredText,
+          tags: ["x", "twitter", "thread"],
+          category: "X Threads",
+          totalPages: thread.totalPosts,
+          currentPage: 0,
+          dateAdded: new Date().toISOString(),
+          dateModified: new Date().toISOString(),
+          extractCount: 0,
+          learningItemCount: 0,
+          priorityRating: 0,
+          prioritySlider: 0,
+          priorityScore: 6.0,
+          isArchived: false,
+          isFavorite: false,
+          coverImageUrl: thread.posts.flatMap(p => p.media).find(m => m.kind === "photo")?.mediaUrl || thread.author.avatarUrl || undefined,
+          coverImageSource: "twitter",
+          metadata: {
+            author: thread.author.name,
+            source: thread.rootUrl,
+            siteName: "X",
+            articleHtml: thread.htmlContent,
+            xThread: thread,
+          },
+        };
+      }
+
+      if (doc.metadata && !doc.metadata.xThread) {
+        doc.metadata.xThread = thread;
+      }
+
+      set((state) => ({
+        documents: [doc, ...state.documents.filter((d) => d.id !== doc.id)],
+        currentDocument: doc,
+        isImporting: false,
+        importProgress: { current: 1, total: 1, fileName: doc.title },
+      }));
+
+      return doc;
+    } catch (error) {
+      console.error("[DocumentStore] Failed to open X thread:", error);
+      set({
+        error: error instanceof Error ? error.message : "Failed to open X thread",
+        isImporting: false,
+        importProgress: { current: 0, total: 0 },
+      });
+      throw error;
+    }
+  },
+
+  importTwitterThread: async (url: string, collectionId?: string) => {
+    set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Importing X thread...` } });
+    try {
+      const doc = await documentsApi.importTwitterThread(url, collectionId);
+      set((state) => ({
+        documents: [doc, ...state.documents.filter((d) => d.id !== doc.id)],
+        isImporting: false,
+        importProgress: { current: 1, total: 1, fileName: doc.title },
+      }));
+      return doc;
+    } catch (error) {
+      console.error("[DocumentStore] Failed to import X thread:", error);
+      set({
+        error: error instanceof Error ? error.message : "Failed to import X thread",
+        isImporting: false,
+        importProgress: { current: 0, total: 0 },
       });
       throw error;
     }

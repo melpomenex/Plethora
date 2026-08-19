@@ -1728,6 +1728,8 @@ pub fn run() {
             youtube::import_youtube_video,
             twitter::import_twitter_video,
             twitter::get_twitter_video_info,
+            twitter::get_twitter_thread,
+            twitter::import_twitter_thread,
             youtube::get_youtube_chapters,
             commands::import_video_file,
             commands::get_video_storage_path,

@@ -31,9 +31,10 @@ export function useToastExtract(options?: UseToastExtractOptions) {
     }): Promise<Extract | null> => {
       const { documentId, text, color, pageNumber, selectionContext, note } = params;
 
-      if (!text.trim() || text.trim().length < 3) return null;
+      const trimmedText = text.trim();
+      if (!trimmedText || trimmedText.length < 3) return null;
 
-      const dedupeKey = `${documentId}-${text.slice(0, 20)}`;
+      const dedupeKey = `${documentId}::${pageNumber ?? ""}::${trimmedText}`;
       if (pendingRef.current.has(dedupeKey)) return null;
       pendingRef.current.add(dedupeKey);
 
@@ -42,7 +43,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
       try {
         const input: CreateExtractInput = {
           document_id: documentId,
-          content: text.trim(),
+          content: trimmedText,
           color: extractColor,
           page_number: pageNumber,
           selection_context: selectionContext as CreateExtractInput["selection_context"],
@@ -51,7 +52,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
 
         const extract = await createExtract(input);
         setLastHighlightColor(extractColor);
-        loadExtracts(documentId);
+        await loadExtracts(documentId);
 
         handleAutoGeneration(extract.id, extract.content).catch((err) =>
           console.error("Auto-generation failed:", err)

@@ -26,6 +26,7 @@ export interface URLDetectionResult {
   youtubeId?: string;
   playlistId?: string;
   twitterStatusId?: string;
+  twitterUsername?: string;
 }
 
 /**
@@ -39,10 +40,11 @@ const YOUTUBE_PATTERNS = [
 ];
 
 /**
- * Twitter / X status URL patterns — captures the numeric tweet id.
+ * Twitter / X status URL patterns — captures username and numeric tweet id with support
+ * for www/mobile subdomains, optional https, and query parameters.
  */
 const TWITTER_PATTERNS = [
-  /(?:twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/,
+  /(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)\/status\/(\d+)/i,
 ];
 
 /**
@@ -86,7 +88,18 @@ function extractPlaylistID(url: string): string | null {
 function extractTwitterStatusID(url: string): string | null {
   for (const pattern of TWITTER_PATTERNS) {
     const match = url.match(pattern);
-    if (match) return match[1];
+    if (match && match[2]) return match[2];
+  }
+  return null;
+}
+
+/**
+ * Extract the username/handle from a Twitter/X URL
+ */
+function extractTwitterUsername(url: string): string | null {
+  for (const pattern of TWITTER_PATTERNS) {
+    const match = url.match(pattern);
+    if (match && match[1]) return match[1];
   }
   return null;
 }
@@ -141,11 +154,13 @@ function detectURL(input: string): URLDetectionResult {
 
   if (isTwitterURL(trimmed)) {
     const statusId = extractTwitterStatusID(trimmed);
+    const username = extractTwitterUsername(trimmed);
     return {
       isURL: true,
       type: URLType.Twitter,
       url: trimmed,
       twitterStatusId: statusId || undefined,
+      twitterUsername: username || undefined,
     };
   }
 
@@ -183,4 +198,5 @@ export const urlDetectorUtils = {
   isRSSFeedURL,
   isTwitterURL,
   extractTwitterStatusID,
+  extractTwitterUsername,
 };

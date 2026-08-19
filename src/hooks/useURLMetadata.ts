@@ -16,7 +16,15 @@ import {
   type Feed,
 } from "../api/rss";
 import { useDocumentStore } from "../stores/documentStore";
-import { importYouTubeVideo, importTwitterVideo, fetchTwitterVideoInfo, type TwitterVideoInfo } from "../api/documents";
+import {
+  importYouTubeVideo,
+  importTwitterVideo,
+  importTwitterThread,
+  fetchTwitterVideoInfo,
+  fetchTwitterThread,
+  type TwitterVideoInfo,
+  type TwitterThread,
+} from "../api/documents";
 import { enqueueVideoTranscription } from "../lib/videoTranscriptionQueue";
 import type { Document } from "../types/document";
 
@@ -38,7 +46,7 @@ export interface DuplicateCheckResult {
 export function checkForDuplicate(
   urlType: URLType,
   url: string,
-  documents: Array<{ id: string; title: string; filePath: string; fileType: string }>
+  documents: Array<{ id: string; title: string; filePath: string; fileType: string; metadata?: any }>
 ): DuplicateCheckResult {
   if (urlType === URLType.YouTube) {
     const videoIdMatch = url.match(
@@ -62,13 +70,14 @@ export function checkForDuplicate(
       }
     }
   } else if (urlType === URLType.Twitter) {
-    // Twitter videos are stored as downloaded MP4s whose filename ends with
-    // `{tweet_id}.mp4`. Dedupe by tweet id across video documents.
     const statusIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^/]+\/status\/(\d+)/);
     if (statusIdMatch) {
       const statusId = statusIdMatch[1];
       const existing = documents.find(
-        (doc) => doc.fileType === "video" && doc.filePath.endsWith(`${statusId}.mp4`)
+        (doc) =>
+          (doc.fileType === "video" && doc.filePath.endsWith(`${statusId}.mp4`)) ||
+          doc.filePath.includes(statusId) ||
+          (doc.metadata?.source && doc.metadata.source.includes(statusId))
       );
       if (existing) {
         return {
@@ -124,7 +133,7 @@ export function checkForDuplicate(
  * Metadata fetch state
  */
 export interface MetadataFetchState {
-  data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | null;
+  data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -184,7 +193,7 @@ export function useURLMetadata(
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      let data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | null = null;
+      let data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null = null;
 
         switch (urlType) {
         case URLType.YouTube: {
@@ -202,9 +211,13 @@ export function useURLMetadata(
 
         case URLType.Twitter: {
           if (!isTauri()) {
-            throw new Error("Twitter video import requires the desktop app");
+            throw new Error("Twitter / X analysis requires the desktop app");
           }
-          data = await fetchTwitterVideoInfo(url);
+          try {
+            data = await fetchTwitterThread(url);
+          } catch {
+            data = await fetchTwitterVideoInfo(url);
+          }
           break;
         }
 
@@ -299,6 +312,7 @@ export function useURLImport() {
     options: {
       tags?: string[];
       collectionId?: string;
+      twitterMode?: "thread" | "video";
     } = {}
   ) => {
     setIsImporting(true);
@@ -315,18 +329,23 @@ export function useURLImport() {
         }
 
         case URLType.Twitter: {
-          const doc = await importTwitterVideo(url, options.collectionId);
-          await useDocumentStore.getState().loadDocuments();
-          // Auto-queue transcription (local Whisper or Groq per user settings)
-          // so the transcript + chat-with-video are ready automatically.
-          if (doc.filePath) {
-            enqueueVideoTranscription({
-              documentId: doc.id,
-              filePath: doc.filePath,
-              documentTitle: doc.title,
-            });
+          if (options.twitterMode === "video") {
+            const doc = await importTwitterVideo(url, options.collectionId);
+            await useDocumentStore.getState().loadDocuments();
+            // Auto-queue transcription (local Whisper or Groq per user settings)
+            // so the transcript + chat-with-video are ready automatically.
+            if (doc.filePath) {
+              enqueueVideoTranscription({
+                documentId: doc.id,
+                filePath: doc.filePath,
+                documentTitle: doc.title,
+              });
+            }
+            result = doc;
+          } else {
+            const doc = await useDocumentStore.getState().openTwitterThread(url);
+            result = doc;
           }
-          result = doc;
           break;
         }
 

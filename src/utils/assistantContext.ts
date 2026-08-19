@@ -172,3 +172,60 @@ export function resolveGenericAssistantContext(content?: string, source: Assista
     content: normalized,
   };
 }
+
+export function resolveTwitterThreadAssistantContext(
+  document?: Document | null,
+  selection?: string
+): ResolvedAssistantContext {
+  const xThread = document?.metadata?.xThread;
+  const selectionNormalized = normalizeWhitespace(selection);
+
+  let structuredText = "";
+  if (xThread) {
+    if (xThread.structuredText) {
+      structuredText = xThread.structuredText;
+    } else {
+      const author = xThread.author;
+      const posts = xThread.posts || [];
+      const lines: string[] = [];
+      lines.push(`X Thread by ${author.name} (@${author.screenName}):\n`);
+      for (const post of posts) {
+        lines.push(`[Post ${post.postIndex} by @${author.screenName}]`);
+        lines.push(post.fullText || post.text);
+        if (post.quotedPost) {
+          lines.push(`[Quoting @${post.quotedPost.author.screenName}]: "${post.quotedPost.text}"`);
+        }
+        lines.push("");
+      }
+      structuredText = lines.join("\n");
+    }
+  } else if (document?.content) {
+    structuredText = document.content;
+  }
+
+  if (!structuredText && !selectionNormalized) {
+    return {
+      status: "unavailable",
+      source: "none",
+      message: getAssistantContextErrorMessage("unavailable"),
+    };
+  }
+
+  const lines: string[] = [];
+  lines.push(`Document: ${document?.title || "X Thread"}`);
+  lines.push(`Source: ${document?.filePath || "X / Twitter"}`);
+  if (selectionNormalized) {
+    lines.push("");
+    lines.push("Selected text:");
+    lines.push(selectionNormalized);
+  }
+  lines.push("");
+  lines.push("Thread Content:");
+  lines.push(structuredText || selectionNormalized);
+
+  return {
+    status: "ready",
+    source: selectionNormalized && !structuredText ? "selection" : "document-content",
+    content: lines.join("\n"),
+  };
+}

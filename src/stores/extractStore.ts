@@ -41,6 +41,8 @@ interface ExtractState {
   extracts: any[];
   extractsInitialized: boolean;
   isLoading: boolean;
+  /** Monotonic revision number incremented on every successful reload or mutation. */
+  revision: number;
   /** Last load failure message, or null when the last load succeeded (or none
    * has run yet). `loadExtracts` swallows errors (existing callers fire it and
    * forget), so surfaces like the Extracts tab read this to render an error
@@ -51,6 +53,7 @@ interface ExtractState {
    * refresh knows which document to reload). Null when no doc loaded. */
   loadedDocumentId: string | null;
   loadExtracts: (documentId?: string) => Promise<void>;
+  invalidateExtracts: (documentId?: string) => Promise<void>;
   createExtract: (data: LegacyExtractData) => Promise<void>;
   updateExtract: (id: string, data: LegacyExtractData) => Promise<void>;
   deleteExtract: (id: string) => Promise<void>;
@@ -63,6 +66,7 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
   extracts: [],
   extractsInitialized: false,
   isLoading: false,
+  revision: 0,
   error: null,
   lastHighlightColor: "#fef08a",
   loadedDocumentId: null,
@@ -73,13 +77,14 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
       // Dynamic import keeps this store from eagerly pulling the full extracts
       // API (and its sync-entity re-exports) at module load on the web shell.
       const { getExtracts } = await import("../api/extracts");
-      const extracts: any[] = await getExtracts(documentId ?? null) || [];
-      set({
+      const extracts: any[] = (await getExtracts(documentId ?? null)) || [];
+      set((state) => ({
         extracts,
         isLoading: false,
         extractsInitialized: true,
         loadedDocumentId: documentId ?? null,
-      });
+        revision: state.revision + 1,
+      }));
     } catch (error) {
       console.error("Failed to load extracts:", error);
       set({
@@ -87,6 +92,11 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
         error: error instanceof Error ? error.message : "Failed to load extracts",
       });
     }
+  },
+
+  invalidateExtracts: async (documentId) => {
+    const targetDocId = documentId !== undefined ? documentId : get().loadedDocumentId ?? undefined;
+    await get().loadExtracts(targetDocId);
   },
 
   createExtract: async (data) => {
@@ -109,6 +119,8 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
     };
     try {
       await createExtract(input);
+      const docId = input.document_id || get().loadedDocumentId || undefined;
+      await get().loadExtracts(docId);
     } catch (error) {
       console.error("Failed to create extract:", error);
       throw error;
@@ -129,6 +141,7 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
     };
     try {
       await updateExtract(input);
+      await get().loadExtracts(get().loadedDocumentId ?? undefined);
     } catch (error) {
       console.error("Failed to update extract:", error);
       throw error;
@@ -138,6 +151,7 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
   deleteExtract: async (id) => {
     try {
       await deleteExtract(id);
+      await get().loadExtracts(get().loadedDocumentId ?? undefined);
     } catch (error) {
       console.error("Failed to delete extract:", error);
       throw error;

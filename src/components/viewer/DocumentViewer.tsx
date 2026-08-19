@@ -130,7 +130,7 @@ import {
 } from "./pdfTextSelection";
 import { createScrollDismissGate, isSuppressedSelection } from "./touchSelectionDismissal";
 import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
-import type { SelectionSurface } from "./selectionInteraction/machine";
+import type { CapturedSelection, SelectionSurface } from "./selectionInteraction/machine";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
@@ -991,6 +991,7 @@ export function DocumentViewer({
   const suppressSelectionUntilRef = useRef(0);
   const lastDocumentIdRef = useRef<string | null>(null);
   const lastLoadedDocumentIdRef = useRef<string | null>(null); // Track successfully loaded documents
+  const loadGenerationRef = useRef<number>(0);
 
   // Mobile PWA text selection state
   const [mobileSelection, setMobileSelection] = useState<{
@@ -2177,6 +2178,25 @@ export function DocumentViewer({
       label: t("viewer.createExtract"),
       icon: <Lightbulb className="w-4 h-4" />,
       onClick: () => {
+        const controller = selectionControllerRef.current;
+        const snapshot = selectionV2 ? controller.captureForAction() : null;
+        if (snapshot) {
+          void createInstantExtract({
+            documentId: snapshot.documentId || documentId,
+            text: snapshot.text,
+            pageNumber: computeExtractPageNumber({
+              selectionContext: snapshot.selectionContext ?? effectiveContext,
+              viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
+              scrollPercent: lastScrollStateRef.current?.scrollPercent,
+              totalPages: currentDocument?.totalPages ?? 0,
+              isEpubDoc: docType === "epub",
+            }),
+            selectionContext: snapshot.selectionContext ?? effectiveContext ?? undefined,
+          });
+          controller.dismiss({ suppressCurrentText: true });
+          dismissSelectionAfterExtract();
+          return;
+        }
         createInstantExtract({
           documentId,
           text: selectedText,
@@ -2213,6 +2233,26 @@ export function DocumentViewer({
         id: `highlight-${color}`,
         label: t(`viewer.${color}Highlight`),
         onClick: () => {
+          const controller = selectionControllerRef.current;
+          const snapshot = selectionV2 ? controller.captureForAction() : null;
+          if (snapshot) {
+            void createInstantExtract({
+              documentId: snapshot.documentId || documentId,
+              text: snapshot.text,
+              color,
+              pageNumber: computeExtractPageNumber({
+                selectionContext: snapshot.selectionContext ?? effectiveContext,
+                viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
+                scrollPercent: lastScrollStateRef.current?.scrollPercent,
+                totalPages: currentDocument?.totalPages ?? 0,
+                isEpubDoc: docType === "epub",
+              }),
+              selectionContext: snapshot.selectionContext ?? effectiveContext ?? undefined,
+            });
+            controller.dismiss({ suppressCurrentText: true });
+            dismissSelectionAfterExtract();
+            return;
+          }
           createInstantExtract({
             documentId,
             text: selectedText,
@@ -2332,6 +2372,7 @@ export function DocumentViewer({
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
 
+    const currentGen = ++loadGenerationRef.current;
     setIsLoading(true);
     setHtmlContent(null);
 
@@ -2359,7 +2400,9 @@ export function DocumentViewer({
       // fileData null so the viewer renders the "needs download / not synced"
       // fallback below instead of throwing a confusing load error.
       if (!doc.filePath) {
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+        }
         return;
       }
       try {
@@ -2372,8 +2415,10 @@ export function DocumentViewer({
         // platform has no native commands (web/PWA).
         if (inferredType === "pdf" && isTauri()) {
           if (shouldUseNativePdfRangeSource({ isTauriRuntime: true, fileType: inferredType })) {
+            if (currentGen !== loadGenerationRef.current) return;
             setUseNativePdfRange(true);
             setIsLoading(false);
+            lastLoadedDocumentIdRef.current = doc.id;
             return;
           }
         }
@@ -2385,8 +2430,10 @@ export function DocumentViewer({
         // session-restored as active).
         if (isNativeMobile() && inferredType === "pdf") {
           const url = await convertFileSrc(doc.filePath);
+          if (currentGen !== loadGenerationRef.current) return;
           setPdfUrl(url);
           setIsLoading(false);
+          lastLoadedDocumentIdRef.current = doc.id;
           return;
         }
 
@@ -2403,18 +2450,25 @@ export function DocumentViewer({
         if (inferredType === "epub") {
           try {
             const url = await documentsApi.getEpubStreamUrl(doc.filePath);
+            if (currentGen !== loadGenerationRef.current) return;
             if (!url) {
               throw new Error("EPUB stream URL was empty.");
             }
             setEpubUrl(url);
+            lastLoadedDocumentIdRef.current = doc.id;
           } catch (error) {
+            if (currentGen !== loadGenerationRef.current) return;
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("[DocumentViewer] Failed to resolve EPUB stream URL:", error);
             setMediaError(
               `Unable to open this EPUB${doc.title ? ` (${doc.title})` : ""}. ${errorMessage}`,
             );
+            lastLoadedDocumentIdRef.current = null;
+          } finally {
+            if (currentGen === loadGenerationRef.current) {
+              setIsLoading(false);
+            }
           }
-          setIsLoading(false);
           return;
         }
 
@@ -2422,6 +2476,7 @@ export function DocumentViewer({
         // The convertFileSrc URL approach causes WebKit/CORS errors on Linux (WebKitGTK)
         // because pdfjs uses XMLHttpRequest internally, which is blocked on asset://.
         const rawBytes = await documentsApi.readDocumentFile(doc.filePath);
+        if (currentGen !== loadGenerationRef.current) return;
         if (rawBytes.length === 0) {
           throw new Error(`${inferredType.toUpperCase()} file is empty.`);
         }
@@ -2430,31 +2485,43 @@ export function DocumentViewer({
         // structuredClone failures when pdfjs-dist passes data to its worker.
         const bytes = new Uint8Array(rawBytes);
         setFileData(bytes);
+        lastLoadedDocumentIdRef.current = doc.id;
       } catch (error) {
+        if (currentGen !== loadGenerationRef.current) return;
         console.error(`Failed to load ${inferredType}:`, error);
+        setMediaError(error instanceof Error ? error.message : String(error));
+        lastLoadedDocumentIdRef.current = null;
       } finally {
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+        }
       }
     } else if (inferredType === "audio") {
       setMediaError(null);
       if (!doc.filePath) {
+        if (currentGen !== loadGenerationRef.current) return;
         setMediaError("Audio document is missing a file path.");
         setIsLoading(false);
+        lastLoadedDocumentIdRef.current = null;
       } else if (isTauri()) {
         // AudiobookViewer owns the native Tauri source lifecycle, including
         // m4b preparation, mobile range streaming, and playback fallbacks.
         // Let it mount immediately instead of waiting for a second native
         // source request here.
+        if (currentGen !== loadGenerationRef.current) return;
         setIsLoading(false);
+        lastLoadedDocumentIdRef.current = doc.id;
       } else {
         // The browser player cannot resolve browser-file:// paths itself, so
         // retain the browser object-URL resolution as a non-blocking setup step.
         const sourceRequest = mediaSourceRequestRef.current;
         void resolveLocalMediaSource(doc.filePath, "audio")
           .then((resolvedSource) => {
+            if (currentGen !== loadGenerationRef.current) return;
             if (sourceRequest !== mediaSourceRequestRef.current) return;
             mediaSourceRef.current = resolvedSource;
             setMediaSource(resolvedSource);
+            lastLoadedDocumentIdRef.current = doc.id;
             logAudiobookDiagnostic("source_resolution", {
               documentId: doc.id,
               filePath: doc.filePath,
@@ -2463,6 +2530,7 @@ export function DocumentViewer({
             });
           })
           .catch((error) => {
+            if (currentGen !== loadGenerationRef.current) return;
             if (sourceRequest !== mediaSourceRequestRef.current) return;
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("[DocumentViewer] Failed to resolve audio source:", error);
@@ -2473,8 +2541,11 @@ export function DocumentViewer({
               message: errorMessage,
             }, "error");
             setMediaError(errorMessage);
+            lastLoadedDocumentIdRef.current = null;
           });
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+        }
       }
     } else if (inferredType === "video") {
       try {
@@ -2483,25 +2554,36 @@ export function DocumentViewer({
           throw new Error("Video document is missing a file path.");
         }
         const resolvedSource = await resolveLocalMediaSource(doc.filePath, inferredType);
+        if (currentGen !== loadGenerationRef.current) return;
         mediaSourceRef.current = resolvedSource;
         setMediaSource(resolvedSource);
+        lastLoadedDocumentIdRef.current = doc.id;
       } catch (error) {
+        if (currentGen !== loadGenerationRef.current) return;
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("[DocumentViewer] Failed to load video file:", error);
         setMediaError(errorMessage);
+        lastLoadedDocumentIdRef.current = null;
       } finally {
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+        }
       }
     } else if (inferredType === "html") {
       if (isEditableBrowserArticleDocument(doc)) {
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+          lastLoadedDocumentIdRef.current = doc.id;
+        }
       } else if (!doc.content && doc.filePath) {
         try {
           const bytes = await documentsApi.readDocumentFile(doc.filePath);
+          if (currentGen !== loadGenerationRef.current) return;
           const text = new TextDecoder("utf-8").decode(bytes);
           const baseUrl = doc.metadata?.source || doc.filePath;
           const processed = processHtmlContent(text, baseUrl, doc.title, true);
           setHtmlContent(processed);
+          lastLoadedDocumentIdRef.current = doc.id;
           try {
             const updated = await documentsApi.updateDocumentContent(doc.id, processed);
             updateDocument(doc.id, { content: updated.content ?? processed });
@@ -2510,15 +2592,26 @@ export function DocumentViewer({
             updateDocument(doc.id, { content: processed });
           }
         } catch (error) {
+          if (currentGen !== loadGenerationRef.current) return;
           console.error(`[DocumentViewer] Failed to load html file:`, error);
+          setMediaError(error instanceof Error ? error.message : String(error));
+          lastLoadedDocumentIdRef.current = null;
         } finally {
-          setIsLoading(false);
+          if (currentGen === loadGenerationRef.current) {
+            setIsLoading(false);
+          }
         }
       } else {
-        setIsLoading(false);
+        if (currentGen === loadGenerationRef.current) {
+          setIsLoading(false);
+          lastLoadedDocumentIdRef.current = doc.id;
+        }
       }
     } else {
-      setIsLoading(false);
+      if (currentGen === loadGenerationRef.current) {
+        setIsLoading(false);
+        lastLoadedDocumentIdRef.current = doc.id;
+      }
     }
 
     // Auto-extract should never block document open. Keep PDF opens lightweight and
@@ -2532,9 +2625,8 @@ export function DocumentViewer({
             inferredType
           );
 
+          if (currentGen !== loadGenerationRef.current) return;
           // Store extraction result for use in the UI
-          if (extractionResult.text || extractionResult.keyPhrases.length > 0) {
-          }
           if (extractionResult.ocrUsed && extractionResult.text) {
             setOcrContextText(extractionResult.text);
           }
@@ -2599,17 +2691,18 @@ export function DocumentViewer({
               }
               setIsLoading(false);
               setMediaError("Document not found in database.");
+              lastLoadedDocumentIdRef.current = null;
               return;
             }
             setCurrentDocument(fetched);
             loadDocumentData(fetched);
-            lastLoadedDocumentIdRef.current = documentId;
           })
           .catch((error) => {
             if (!cancelled) {
               console.error("Failed to hydrate document by id:", error);
               setIsLoading(false);
               setMediaError(error instanceof Error ? error.message : String(error));
+              lastLoadedDocumentIdRef.current = null;
             }
           });
       };
@@ -4432,28 +4525,70 @@ export function DocumentViewer({
     dismissSelectionAfterExtract();
   }, [documentId, createInstantExtract, dismissSelectionAfterExtract, toast, t]);
 
+  const handleExtractFromSnapshot = useCallback(
+    async (
+      snapshot:
+        | CapturedSelection
+        | {
+            text: string;
+            selectionContext?: unknown;
+            documentId?: string | null;
+            pageNumber?: number;
+            color?: string;
+            note?: string;
+          },
+    ): Promise<Extract | null> => {
+      const docId = ("documentId" in snapshot && snapshot.documentId) || documentId;
+      const text = snapshot.text?.trim();
+      if (!text || !docId) return null;
+
+      const effectiveContext = snapshot.selectionContext ?? selectionContext;
+      const computedPage =
+        "pageNumber" in snapshot && snapshot.pageNumber !== undefined
+          ? snapshot.pageNumber
+          : computeExtractPageNumber({
+              selectionContext: effectiveContext,
+              viewerPageNumber: pageNumber,
+              scrollPercent: lastScrollStateRef.current?.scrollPercent,
+              totalPages,
+              isEpubDoc: docType === "epub",
+            });
+
+      setMobileSelection((prev) => ({ ...prev, showButton: false }));
+
+      const extract = await createInstantExtract({
+        documentId: docId,
+        text,
+        color: "color" in snapshot ? snapshot.color : undefined,
+        note: "note" in snapshot ? snapshot.note : undefined,
+        pageNumber: computedPage,
+        selectionContext: effectiveContext ?? undefined,
+      });
+
+      dismissSelectionAfterExtract();
+      return extract;
+    },
+    [documentId, selectionContext, pageNumber, totalPages, docType, createInstantExtract, dismissSelectionAfterExtract],
+  );
+
   // Mobile: create an extract (instant, no dialog) from the selection, or from
   // an AI result produced for it — both land on the same document/page/context.
-  const handleMobileExtract = (overrideText?: string) => {
-    const text = overrideText || mobileSelection.text || activeExtractSelection;
-    if (!text) return;
+  const handleMobileExtract = useCallback(
+    async (overrideText?: string): Promise<Extract | null> => {
+      if (selectionV2) {
+        const controller = selectionControllerRef.current;
+        const snapshot = controller.captureForAction(overrideText ? { text: overrideText } : undefined);
+        if (snapshot) {
+          return handleExtractFromSnapshot(snapshot);
+        }
+      }
+      const text = (overrideText || mobileSelection.text || activeExtractSelection).trim();
+      if (!text) return null;
 
-    setMobileSelection(prev => ({ ...prev, showButton: false }));
-
-    createInstantExtract({
-      documentId,
-      text,
-      pageNumber: computeExtractPageNumber({
-        selectionContext,
-        viewerPageNumber: pageNumber,
-        scrollPercent: lastScrollStateRef.current?.scrollPercent,
-        totalPages,
-        isEpubDoc: docType === "epub",
-      }),
-      selectionContext: selectionContext ?? undefined,
-    });
-    dismissSelectionAfterExtract();
-  };
+      return handleExtractFromSnapshot({ text });
+    },
+    [selectionV2, handleExtractFromSnapshot, mobileSelection.text, activeExtractSelection],
+  );
 
   // V2: bar chip invocation — the run consumes the immutable snapshot taken
   // at invocation (text/passage/context), never live selection state.
@@ -4465,8 +4600,11 @@ export function DocumentViewer({
       return;
     }
     if (action === "extract") {
-      handleMobileExtract();
-      controller.dismiss();
+      const snapshot = controller.captureForAction();
+      if (snapshot) {
+        void handleExtractFromSnapshot(snapshot);
+      }
+      controller.dismiss({ suppressCurrentText: true });
       return;
     }
     const snapshot = controller.captureForAction();
@@ -4918,6 +5056,19 @@ export function DocumentViewer({
   const htmlSource = currentDocument?.metadata?.articleHtml || currentDocument?.content || htmlContent || "";
   const htmlForDisplay = useMemo(() => {
     if (!htmlSource) {
+      if (currentDocument?.filePath?.includes("x.com") || currentDocument?.filePath?.includes("twitter.com")) {
+        const sourceUrl = currentDocument.filePath;
+        return `<!DOCTYPE html><html><head></head><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--color-foreground, #333); text-align: center; padding: 2rem; background: var(--color-background, #fff);">
+          <div style="max-width: 400px; padding: 2rem; border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; background: var(--color-card, #fff);">
+            <h3 style="margin-bottom: 0.5rem; font-size: 1.1rem; font-weight: 600; color: var(--color-foreground, #0f172a);">Unable to Load Thread</h3>
+            <p style="font-size: 0.875rem; color: var(--color-muted-foreground, #64748b); margin-bottom: 1.25rem;">This post or thread may be private, deleted, or rate-limited by X.</p>
+            <div style="display: flex; gap: 0.75rem; justify-content: center;">
+              <button onclick="window.parent.location.reload()" style="padding: 0.5rem 1rem; border-radius: 6px; background: #0284c7; color: #fff; border: none; font-size: 0.875rem; cursor: pointer; font-weight: 500;">Retry</button>
+              <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="padding: 0.5rem 1rem; border-radius: 6px; background: var(--color-muted, #f1f5f9); color: var(--color-foreground, #0f172a); border: 1px solid var(--color-border, #cbd5e1); font-size: 0.875rem; text-decoration: none; display: inline-flex; align-items: center;">Open on X →</a>
+            </div>
+          </div>
+        </body></html>`;
+      }
       if (isEditableBrowserArticleDocument(currentDocument)) {
         const sourceUrl = currentDocument?.filePath || "";
         return `<!DOCTYPE html><html><head></head><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; color: #666; text-align: center; padding: 2rem;">
@@ -5136,6 +5287,32 @@ export function DocumentViewer({
     persistedDocumentHighlights.htmlHighlights,
     updateSelection,
   ]);
+
+  // Handle post extraction messages from within thread iframe
+  useEffect(() => {
+    const handlePostMessage = async (e: MessageEvent) => {
+      if (e.data?.type === "PLETHORA_EXTRACT_POST" && currentDocument?.id) {
+        const { postId, postIndex, text } = e.data;
+        if (!text || !text.trim()) return;
+        try {
+          const extract = await createExtract({
+            documentId: currentDocument.id,
+            content: text.trim(),
+            pageTitle: `Post ${postIndex} (${postId})`,
+            pageNumber: postIndex,
+            tags: ["x", "twitter", "post"],
+          });
+          useExtractStore.getState().addExtract(extract);
+          toast.success("Post Extracted", `Saved Post ${postIndex} to extracts`);
+        } catch (err) {
+          console.error("Failed to extract post:", err);
+          toast.error("Extraction failed", err instanceof Error ? err.message : "Unknown error");
+        }
+      }
+    };
+    window.addEventListener("message", handlePostMessage);
+    return () => window.removeEventListener("message", handlePostMessage);
+  }, [currentDocument?.id, toast]);
 
   // Track current page number based on scroll position in OCR HTML iframe
   useEffect(() => {
@@ -5731,6 +5908,38 @@ export function DocumentViewer({
         background: ${primary}33 !important;
         border-radius: 2px !important;
         padding: 0 2px !important;
+      }
+      /* X / Twitter Thread styles */
+      .x-thread-container {
+        max-width: 48rem !important;
+        margin: 0 auto !important;
+        padding: 1.5rem 1rem !important;
+      }
+      .x-thread-header {
+        border-color: ${border} !important;
+      }
+      .x-post {
+        background: ${card} !important;
+        border-color: ${border} !important;
+        transition: border-color 0.2s;
+      }
+      .x-post:hover {
+        border-color: ${primary}60 !important;
+      }
+      .x-quoted-post {
+        background: ${resolvedMuted} !important;
+        border-color: ${border} !important;
+      }
+      .x-extract-post-btn {
+        background: ${resolvedMuted} !important;
+        border: 1px solid ${border} !important;
+        color: ${fg} !important;
+        transition: all 0.15s ease;
+      }
+      .x-extract-post-btn:hover {
+        background: ${primary}20 !important;
+        border-color: ${primary} !important;
+        color: ${primary} !important;
       }
       /* Smooth scrolling inside the converted document */
       html { scroll-behavior: smooth !important; }
@@ -6518,6 +6727,25 @@ export function DocumentViewer({
           <span className="hidden sm:inline text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
             {docType.toUpperCase()}
           </span>
+          {/* Ephemeral Thread Save Action */}
+          {currentDocument.metadata?.xThread && currentDocument.id.startsWith("x-thread-") && (
+            <button
+              onClick={async () => {
+                try {
+                  const saved = await documentsApi.importTwitterThread(currentDocument.filePath);
+                  useDocumentStore.getState().updateDocumentOptimistic(currentDocument.id, { id: saved.id });
+                  toast.success("Saved to Documents", "Thread saved to your library");
+                } catch (err) {
+                  toast.error("Save failed", err instanceof Error ? err.message : "Unknown error");
+                }
+              }}
+              className="px-2 py-1 text-xs font-medium bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors flex items-center gap-1"
+              title="Save this thread to your permanent documents"
+            >
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span>Save to Library</span>
+            </button>
+          )}
           {/* Compact progress indicator */}
           {currentDocument.progressPercent !== undefined && currentDocument.progressPercent > 0 && (
             <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-blue-500/10 text-blue-600 px-2 py-1 rounded">
@@ -6972,11 +7200,7 @@ export function DocumentViewer({
           }
         }}
       >
-        {isLoading && !canRenderAudioViewer ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">{t("viewer.loadingDocument")}</div>
-          </div>
-        ) : viewMode === "extracts" ? (
+        {viewMode === "extracts" ? (
           <div {...tourAnchor("readerExtractsPanel")} className="p-6 bg-background h-full overflow-auto">
             <ExtractsList
               documentId={currentDocument.id}
@@ -7004,6 +7228,10 @@ export function DocumentViewer({
             onSave={({ content }) => saveEditableDocumentContent(content)}
             onSelectionChange={(text) => updateSelection(text, undefined)}
           />
+        ) : isLoading && !canRenderAudioViewer ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-muted-foreground">{t("viewer.loadingDocument")}</div>
+          </div>
         ) : docType === "pdf" && (fileData || pdfUrl || useNativePdfRange) ? (
           pdfViewMode === "ocr-html" && ocrResult ? (
             ocrResult.format === "html" ? (
@@ -7296,6 +7524,18 @@ export function DocumentViewer({
                 <p className="text-muted-foreground mb-4">
                   {mediaError}
                 </p>
+                <button
+                  onClick={() => {
+                    if (currentDocument) {
+                      lastLoadedDocumentIdRef.current = null;
+                      void loadDocumentData(currentDocument);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 mb-4"
+                >
+                  <ArrowClockwise className="w-3.5 h-3.5" />
+                  {t("selectionSheet.retry") || "Retry"}
+                </button>
                 <p className="text-sm text-muted-foreground">
                   {t("viewer.fileRemovedOrReimport")}
                 </p>
@@ -7639,9 +7879,23 @@ export function DocumentViewer({
                     {t("viewer.epubDetectedButNotLoaded")}
                   </p>
                   {mediaError && (
-                    <p className="text-sm text-muted-foreground mb-4">
-                      {mediaError}
-                    </p>
+                    <div className="mb-4 space-y-2">
+                      <p className="text-sm text-destructive">
+                        {mediaError}
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (currentDocument) {
+                            lastLoadedDocumentIdRef.current = null;
+                            void loadDocumentData(currentDocument);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <ArrowClockwise className="w-3.5 h-3.5" />
+                        {t("selectionSheet.retry") || "Retry"}
+                      </button>
+                    </div>
                   )}
                 </>
               )}

@@ -28,6 +28,8 @@ import {
   ChatCircleText,
   ArrowsClockwise,
   Waves,
+  Brain,
+  Lightbulb,
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
@@ -434,6 +436,16 @@ export function AssistantPanel({
       mounted = false;
     };
   }, [context?.documentId, context?.sections?.length, sectionsArmed]);
+
+  const isThreadContext = useMemo(() => {
+    if (!context) return false;
+    if (context.content?.includes("[Post 1 by @") || context.content?.includes("X Thread by")) return true;
+    if (context.documentId) {
+      const doc = useDocumentStore.getState().documents.find((d) => d.id === context.documentId);
+      if (doc?.metadata?.xThread || doc?.tags?.includes("thread") || doc?.category === "X Threads") return true;
+    }
+    return false;
+  }, [context]);
 
   // Clean, human-friendly model name formatter
   const getFriendlyModelName = (providerId: string, rawModelName?: string) => {
@@ -2900,11 +2912,15 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             {context.type === "document" && <TextT className="w-3 h-3" />}
             {context.type === "web" && <Code className="w-3 h-3" />}
             <span>{getContextMessage(context)}</span>
-            {context.type === "video" && context.content && (
+            {isThreadContext ? (
+              <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium text-[10px]">
+                Scope: This X thread
+              </span>
+            ) : context.type === "video" && context.content ? (
               <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground/80">
                 Transcript attached
               </span>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -2914,11 +2930,89 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         ref={messagesContainerRef}
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4"
       >
-        {messages.length === 0 ? (
-          <div className="text-center text-muted-foreground text-sm py-8">
-            <Sparkle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>Ask me anything about your documents</p>
-            <p className="text-xs mt-1">I have context of what you're viewing</p>
+        {messages.filter((m) => m.role !== "system").length === 0 ? (
+          <div className="text-center text-muted-foreground text-sm py-6 space-y-4">
+            <Sparkle className="w-8 h-8 mx-auto mb-2 opacity-50 text-primary" />
+            <div>
+              <p className="font-medium text-foreground">
+                {isThreadContext ? "Analyze X Thread" : "Ask me anything about your documents"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isThreadContext ? "Instant summary, key insights, and flashcards" : "I have context of what you're viewing"}
+              </p>
+            </div>
+
+            {isThreadContext && (
+              <div className="flex flex-col gap-2 pt-2 px-2 max-w-xs mx-auto">
+                <button
+                  onClick={() => {
+                    const prompt = "Please provide a comprehensive summary of this X/Twitter thread. Structure your response with a High-Level Overview, Key Points post-by-post, and the Main Conclusion. Cite specific posts (e.g. [Post 1], [Post 2]) when referencing claims.";
+                    setInput(prompt);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 0);
+                  }}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background hover:bg-muted/60 text-left text-xs transition-colors group"
+                >
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    <span>Summary</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Overview & Key Points →</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const prompt = "Please analyze this X/Twitter thread and extract key insights structured into the following sections:\n1. Core Claims: The fundamental arguments or theses.\n2. Key Supporting Arguments: Evidence and logical backing.\n3. Actionable Takeaways: Practical lessons or insights.\n4. Counterarguments / Tensions: Any nuances, potential counterarguments, or open questions raised.";
+                    setInput(prompt);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 0);
+                  }}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background hover:bg-muted/60 text-left text-xs transition-colors group"
+                >
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                    <Lightbulb className="w-4 h-4 text-amber-500" />
+                    <span>Insights</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Claims & Takeaways →</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const prompt = "/20rules Formulate atomic flashcards from this X thread following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
+                    setInput(prompt);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 0);
+                  }}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background hover:bg-muted/60 text-left text-xs transition-colors group"
+                >
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                    <Brain className="w-4 h-4 text-purple-500" />
+                    <span>Flashcards (/20rules)</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Atomic Cards →</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const prompt = "What are the most important takeaways from this thread?";
+                    setInput(prompt);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 0);
+                  }}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background hover:bg-muted/60 text-left text-xs transition-colors group"
+                >
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                    <ChatCircleText className="w-4 h-4 text-emerald-500" />
+                    <span>Ask Questions</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Q&A Mode →</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           messages.map((message) => (

@@ -312,4 +312,80 @@ describe("SelectionActionsSheet", () => {
     expect(screen.getByText("Biology")).toBeTruthy();
     expect(screen.getByText("aiLibrary.cloud")).toBeTruthy();
   });
+
+  it("handles onCreateExtractFromResult with single-submit disabling and success settlement", async () => {
+    let resolveExtract: ((value: unknown) => void) | undefined;
+    const onCreateExtractFromResult = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveExtract = resolve;
+        })
+    );
+    const onClose = vi.fn();
+    const onSettled = vi.fn();
+
+    renderSheet({
+      initialAction: "explain",
+      onCreateExtractFromResult: onCreateExtractFromResult as never,
+      onClose,
+      onSettled,
+      operationId: "op-123",
+    });
+
+    await waitFor(() => expect(screen.getByText("An explanation.")).toBeTruthy());
+
+    const extractBtn = screen.getByText("selectionSheet.createExtractFromResult");
+    expect(extractBtn).toBeInTheDocument();
+    expect(extractBtn).not.toBeDisabled();
+
+    fireEvent.click(extractBtn);
+
+    // Button transitions into saving state and is disabled to prevent duplicate submissions
+    expect(onCreateExtractFromResult).toHaveBeenCalledWith("An explanation.");
+    expect(extractBtn).toBeDisabled();
+
+    // Resolving with a created extract settles the operation and closes the sheet
+    resolveExtract?.({ id: "ext-1", content: "An explanation." });
+
+    await waitFor(() => {
+      expect(onSettled).toHaveBeenCalledWith("op-123", "success");
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("handles onCreateExtractFromResult failure by keeping output and allowing retry", async () => {
+    const onCreateExtractFromResult = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Network failure"))
+      .mockResolvedValueOnce({ id: "ext-2", content: "An explanation." });
+    const onClose = vi.fn();
+    const onSettled = vi.fn();
+
+    renderSheet({
+      initialAction: "explain",
+      onCreateExtractFromResult: onCreateExtractFromResult as never,
+      onClose,
+      onSettled,
+      operationId: "op-456",
+    });
+
+    await waitFor(() => expect(screen.getByText("An explanation.")).toBeTruthy());
+
+    const extractBtn = screen.getByText("selectionSheet.createExtractFromResult");
+    fireEvent.click(extractBtn);
+
+    // Fails on first attempt: output is preserved and retry button is shown
+    await waitFor(() => {
+      expect(screen.getByText("selectionSheet.retryCreateExtract")).toBeInTheDocument();
+    });
+    expect(screen.getByText("An explanation.")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Retry succeeds
+    fireEvent.click(screen.getByText("selectionSheet.retryCreateExtract"));
+    await waitFor(() => {
+      expect(onSettled).toHaveBeenCalledWith("op-456", "success");
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
 });
