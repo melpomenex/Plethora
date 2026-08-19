@@ -60,10 +60,18 @@ function setPreferOnDevice(preferOnDevice: boolean) {
   });
 }
 
+function setAllowCloudFallback(allow: boolean) {
+  const state = useSettingsStore.getState();
+  useSettingsStore.setState({
+    settings: { ...state.settings, ai: { ...state.settings.ai, allowCloudFallback: allow } },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   setProviders([]);
   setPreferOnDevice(true);
+  setAllowCloudFallback(false);
   useToastStore.setState({ toasts: [] });
   vi.mocked(isOnDeviceAiSupportedPlatform).mockReturnValue(true);
   vi.mocked(isOnDeviceAiAvailable).mockResolvedValue({ status: "available" });
@@ -151,8 +159,9 @@ describe("runAiAction", () => {
     expect(onDevice).not.toHaveBeenCalled();
   });
 
-  it("falls back to cloud and toasts when the on-device call fails mid-run", async () => {
+  it("falls back to cloud and toasts when explicitly allowed", async () => {
     setProviders([provider()]);
+    setAllowCloudFallback(true);
 
     const result = await runAiAction(
       {
@@ -169,6 +178,26 @@ describe("runAiAction", () => {
     expect(toasts).toHaveLength(1);
     expect(toasts[0].title).toContain("Summarization");
     expect(toasts[0].message).toContain("inference_failed");
+  });
+
+  it("does not fall back to the cloud provider by default (ai-billing-safety #14)", async () => {
+    // allowCloudFallback defaults OFF: an on-device failure must not silently
+    // retry on a paid cloud provider.
+    setProviders([provider()]);
+
+    const cloud = vi.fn(async () => "cloud result");
+    await expect(
+      runAiAction(
+        {
+          onDevice: async () => {
+            throw new OnDeviceAiError("inference_failed", "nano gave up");
+          },
+          cloud,
+        },
+        "Summarization"
+      )
+    ).rejects.toMatchObject({ code: "inference_failed" });
+    expect(cloud).not.toHaveBeenCalled();
   });
 
   it("rethrows when on-device fails and no cloud provider is configured", async () => {
