@@ -8574,8 +8574,6 @@ export function DocumentViewer({
         aiAvailable={aiAvailability.available}
         canReadAloud={
           viewMode === "document" &&
-          !!ttsHandleRef.current &&
-          (settings?.tts?.enabled ?? false) &&
           (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html")
         }
         onMeasure={selectionController.registerBarSize}

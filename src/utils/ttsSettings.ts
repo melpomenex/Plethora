@@ -491,19 +491,15 @@ function normalizeProviderSettings(
 export function migrateTTSSettings(input: unknown): Record<string, unknown> {
   if (!isObject(input)) return createDefaultTTSSettings() as unknown as Record<string, unknown>;
   const defaults = createDefaultTTSSettings();
-  // v3 → v4: fill the spoken-word preferences with their defaults.
-  if (input.schemaVersion === 3 && isObject(input.providers)) {
+  const needsV4Fill = typeof (input as { schemaVersion?: unknown }).schemaVersion === "number" && (input as { schemaVersion: number }).schemaVersion < 4;
+  if (needsV4Fill || (input as { schemaVersion?: unknown }).schemaVersion === 3) {
+    const hw = (input as { highlightSpokenWord?: unknown }).highlightSpokenWord;
+    const fw = (input as { followSpokenWord?: unknown }).followSpokenWord;
     return {
       ...input,
       schemaVersion: TTS_SETTINGS_SCHEMA_VERSION,
-      highlightSpokenWord:
-        typeof (input as { highlightSpokenWord?: unknown }).highlightSpokenWord === "boolean"
-          ? (input as { highlightSpokenWord: boolean }).highlightSpokenWord
-          : defaults.highlightSpokenWord,
-      followSpokenWord:
-        typeof (input as { followSpokenWord?: unknown }).followSpokenWord === "boolean"
-          ? (input as { followSpokenWord: boolean }).followSpokenWord
-          : defaults.followSpokenWord,
+      highlightSpokenWord: typeof hw === "boolean" ? hw : true,
+      followSpokenWord: typeof fw === "boolean" ? fw : true,
     };
   }
 
