@@ -1005,9 +1005,53 @@ fn build_thread(author: &TwitterAuthor, mut posts: Vec<TwitterPost>, source_kind
 
 /// Single-post thread from a direct tweet payload (NOT an error state — an
 /// ordinary non-thread post renders as a one-post thread).
-fn build_single_post_thread(val: &serde_json::Value, tweet_id: &str, source_kind: &str) -> TwitterThread {
+/// Extract the screen name from an x.com/twitter.com status URL
+/// (`https://x.com/{handle}/status/{id}`). The handle is present in the URL
+/// even when the tweet payload is restricted and carries no parseable user —
+/// so the single-post fallback can always show a real @handle.
+pub fn extract_screen_name_from_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let no_query = trimmed.split('?').next().unwrap_or(trimmed);
+    let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
+    let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("status"))?;
+    let handle = parts.get(idx.wrapping_sub(1))?;
+    // Reject path segments that are not real handles: the bare host
+    // (`x.com/status/…`) and the generic `/i/status/…` redirect format.
+    if handle.eq_ignore_ascii_case("i")
+        || handle.eq_ignore_ascii_case("x.com")
+        || handle.eq_ignore_ascii_case("twitter.com")
+        || handle.is_empty()
+        || handle.len() > 64
+        || !handle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    Some((*handle).to_string())
+}
+
+/// Single-post thread from a direct tweet payload (NOT an error state — an
+/// ordinary non-thread post renders as a one-post thread). When the payload
+/// carries no parseable author, the @handle from the status URL is used so
+/// the reader never shows the "Unknown" fallback.
+fn build_single_post_thread(
+    val: &serde_json::Value,
+    tweet_id: &str,
+    source_kind: &str,
+    url_handle: Option<&str>,
+) -> TwitterThread {
     let mut post = parse_post(val, tweet_id);
     post.post_index = 1;
+    if post.author.screen_name == "unknown" && post.author.name == "Unknown" {
+        if let Some(handle) = url_handle {
+            post.author = TwitterAuthor {
+                name: handle.to_string(),
+                screen_name: handle.to_string(),
+                avatar_url: None,
+                verified: false,
+                profile_url: build_profile_url(handle),
+            };
+        }
+    }
     let author = post.author.clone();
     build_thread(&author, vec![post], source_kind)
 }
@@ -1019,11 +1063,14 @@ fn build_tra_thread(
     root_id: &str,
     tra_posts: Vec<TraPost>,
     header: &crate::threadreader::TraHeader,
+    url_handle: Option<&str>,
 ) -> TwitterThread {
     let screen_name = header
         .screen_name
         .clone()
         .or_else(|| tra_posts.first().map(|p| p.screen_name.clone()))
+        .filter(|s| !s.is_empty() && s != "unknown")
+        .or_else(|| url_handle.map(str::to_string))
         .unwrap_or_else(|| "unknown".to_string());
     let profile_url = build_profile_url(&screen_name);
     let author = TwitterAuthor {
@@ -1126,6 +1173,9 @@ pub async fn resolve_twitter_thread_with(
     url: &str,
 ) -> Result<TwitterThread, ThreadError> {
     let tweet_id = extract_tweet_id(url).map_err(|e| ThreadError::InvalidUrl(e))?;
+    // The URL handle is the last-resort author identity for the single-post
+    // fallback (payloads without a parseable user).
+    let url_handle = extract_screen_name_from_url(url);
 
     // 1. Ping → canonical root id (or the id itself when TRA has no thread).
     let root_id = match ping_thread(http, &tweet_id).await {
@@ -1141,7 +1191,9 @@ pub async fn resolve_twitter_thread_with(
 
     // 2. Unroll (JSON compat probe first, then the HTML page).
     match fetch_unrolled_thread_with_header(http, &root_id).await {
-        Ok((posts, header)) if !posts.is_empty() => Ok(build_tra_thread(&root_id, posts, &header)),
+        Ok((posts, header)) if !posts.is_empty() => {
+            Ok(build_tra_thread(&root_id, posts, &header, url_handle.as_deref()))
+        }
         Ok(_) => {
             // No unrolled thread → direct single-post path (common for
             // ordinary non-thread posts; must not look like an error).
@@ -1150,7 +1202,7 @@ pub async fn resolve_twitter_thread_with(
                 root_id
             );
             match source.fetch(&tweet_id).await {
-                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single")),
+                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single", url_handle.as_deref())),
                 Err(e) => Err(classify_single_fetch_error(&e)),
             }
         }
@@ -1162,7 +1214,7 @@ pub async fn resolve_twitter_thread_with(
                 tra_err
             );
             match source.fetch(&tweet_id).await {
-                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single")),
+                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single", url_handle.as_deref())),
                 Err(single_err) => Err(combine_failures(tra_err, single_err)),
             }
         }
@@ -1217,8 +1269,13 @@ pub async fn enrich_twitter_thread_with(
                         if np.media.is_empty() {
                             np.media = p.media.clone();
                         }
-                        // Keep the TRA avatar when enrichment has none.
-                        if np.author.avatar_url.is_none() {
+                        // Keep the TRA identity when the payload's author
+                        // cannot be parsed (restricted/unavailable users,
+                        // unexpected shapes) — never replace a known @handle
+                        // with the "Unknown" fallback.
+                        if np.author.screen_name == "unknown" && np.author.name == "Unknown" {
+                            np.author = p.author.clone();
+                        } else if np.author.avatar_url.is_none() {
                             np.author.avatar_url = p.author.avatar_url.clone();
                         }
                         (i, Some(np))
@@ -1305,15 +1362,12 @@ pub async fn enrich_twitter_thread_with(
 
     // Rebuild derived fields from the enriched posts.
     if let Some(first) = enriched.first() {
-        // Upgrade the thread author with enriched identity (avatar/verified).
-        if first.author.avatar_url.is_some() || first.author.verified {
+        // Upgrade the thread author only when the payload actually carried a
+        // parseable identity — a restricted/unavailable first post must not
+        // clobber the TRA/URL-derived @handle with the "Unknown" fallback.
+        if first.author.screen_name != "unknown" || first.author.name != "Unknown" {
             thread.author = first.author.clone();
-        } else {
-            thread.author.avatar_url = first.author.avatar_url.clone();
-            thread.author.verified = first.author.verified;
         }
-        thread.author.name = first.author.name.clone();
-        thread.author.screen_name = first.author.screen_name.clone();
     }
     thread.posts = enriched;
     thread.total_posts = thread.posts.len();
@@ -2338,6 +2392,79 @@ Third post text.
             enriched.posts[0].media[0].media_url,
             "https://pbs.twimg.com/media/tra_img.jpg"
         );
+    }
+
+    /// A restricted/unavailable tweet payload: no `core` → `parse_author`
+    /// would yield the "Unknown"/"unknown" fallback. Enrichment must keep the
+    /// TRA-derived @handle instead of clobbering it (regression: reader
+    /// showed "@unknown Unknown").
+    #[tokio::test]
+    async fn enrichment_keeps_tra_author_when_payload_has_no_user() {
+        let restricted = serde_json::json!({
+            "__typename": "TweetUnavailable",
+            "reason": "This Tweet is unavailable."
+        });
+        let source = MockTweetSource::new(vec![
+            ("1001", restricted.clone()),
+            ("1002", restricted),
+        ]);
+        let thread = tra_thread_fixture();
+        let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
+        // Thread author (header) keeps the TRA handle.
+        assert_eq!(enriched.author.screen_name, "janeresearch");
+        assert_ne!(enriched.author.name, "Unknown");
+        // Per-post authors keep the TRA handle too.
+        assert_eq!(enriched.posts[0].author.screen_name, "janeresearch");
+        assert_eq!(enriched.posts[1].author.screen_name, "janeresearch");
+        assert_eq!(enriched.posts[0].full_text, "First paragraph.");
+    }
+
+    #[test]
+    fn extracts_screen_name_from_status_url() {
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/janeresearch/status/1001?s=20").as_deref(),
+            Some("janeresearch")
+        );
+        assert_eq!(
+            extract_screen_name_from_url("https://twitter.com/Some_User/status/42").as_deref(),
+            Some("Some_User")
+        );
+        assert_eq!(extract_screen_name_from_url("https://x.com/status/42"), None);
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/i/status/42"),
+            None
+        );
+        assert_eq!(extract_screen_name_from_url("https://x.com/u/status/42/"), Some("u".to_string()));
+        assert_eq!(extract_screen_name_from_url("not a url"), None);
+    }
+
+    /// Single-post fallback with a payload that has no parseable user: the
+    /// @handle from the status URL must be used (regression: "@unknown
+    /// Unknown").
+    #[tokio::test]
+    async fn single_post_fallback_uses_url_handle_when_payload_has_no_user() {
+        let http = MockTraHttp::new(vec![(
+            "https://threadreaderapp.com/api/v0/ping/5000.json",
+            200,
+            r#"{"code":404,"message":"Thread not found"}"#,
+        )]);
+        let no_user = serde_json::json!({
+            "__typename": "TweetUnavailable",
+            "rest_id": "5000",
+            "reason": "This Tweet is unavailable."
+        });
+        let source = MockTweetSource::new(vec![("5000", no_user)]);
+        let thread = resolve_twitter_thread_with(
+            &http,
+            &source,
+            "https://x.com/realscholar/status/5000",
+        )
+        .await
+        .unwrap();
+        assert_eq!(thread.author.screen_name, "realscholar");
+        assert_eq!(thread.author.name, "realscholar");
+        assert_eq!(thread.root_url, "https://x.com/realscholar/status/5000");
+        assert_eq!(thread.posts[0].author.screen_name, "realscholar");
     }
 }
 
