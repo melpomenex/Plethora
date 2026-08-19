@@ -244,6 +244,62 @@
     return /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?!i\/)([A-Za-z0-9_]{1,64})\/status\/\d+(?:[\/?#].*)?$/i.test(url.trim());
   }
 
+  /**
+   * Guarantees a context-menu extract record carries the same fields the
+   * content script's `pageExtracts` entries do (id, url, title, text,
+   * timestamp) so a background-registered record is a first-class member and
+   * counts/renders identically to one created in the content script. The
+   * `id` (and any other missing field) falls back to `defaults` — the
+   * background passes the server-confirmed `extract_id` there when the
+   * desktop app returns one, and to a freshly generated id otherwise.
+   */
+  function normalizeExtractRecord(record, defaults = {}) {
+    const source = record && typeof record === 'object' ? record : {};
+    return {
+      id: source.id || defaults.id || generateExtractId(),
+      url: source.url || defaults.url || '',
+      title: source.title || defaults.title || '',
+      text: source.text || defaults.text || '',
+      timestamp: source.timestamp || defaults.timestamp || new Date().toISOString(),
+      ...source
+    };
+  }
+
+  /**
+   * Idempotent merge of `incoming` extract records into `existing`, deduped
+   * by extract id. This is the accounting core behind "exactly once": the
+   * content script uses the same rule when registering background-created
+   * extracts, so re-delivery after a service-worker restart can never
+   * double-count. Mirrors `registerExtracts` in browser_extension/content.js
+   * — the two run in different contexts and cannot literally share code, so
+   * keep them in sync by hand (same protocol as TRANSPORT_LIMITS above).
+   */
+  function mergeExtracts(existing, incoming) {
+    const existingList = Array.isArray(existing) ? existing : [];
+    const incomingList = Array.isArray(incoming) ? incoming : [];
+    const seen = new Set(existingList.map((item) => item && item.id).filter(Boolean));
+    const merged = existingList.slice();
+    const added = [];
+    const duplicates = [];
+    for (const record of incomingList) {
+      if (!record || typeof record !== 'object' || !record.id) {
+        continue;
+      }
+      if (seen.has(record.id)) {
+        duplicates.push(record);
+        continue;
+      }
+      seen.add(record.id);
+      merged.push(record);
+      added.push(record);
+    }
+    return { merged, added, duplicates };
+  }
+
+  function generateExtractId() {
+    return `extract_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
   return {
     TRANSPORT_LIMITS,
     DEFAULT_REQUEST_BUDGET,
@@ -255,6 +311,8 @@
     checkRequestBudget,
     withoutRichContent,
     describeDegradation,
-    isXStatusURL
+    isXStatusURL,
+    normalizeExtractRecord,
+    mergeExtracts
   };
 });

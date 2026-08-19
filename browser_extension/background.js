@@ -18,6 +18,11 @@ let FLASHCARD_TYPES = ['qa', 'cloze'];
 let FLASHCARD_COUNT = 5;
 let keepAliveCount = 0;
 const PENDING_EXTRACTS_KEY = 'pendingExtracts';
+// Registrations of successfully created extracts that the background still
+// owes to a tab's content script (context-menu / quick-extract flow). Kept in
+// chrome.storage.local so a service-worker restart between the server create
+// and the content-script registration cannot lose or double the increment.
+const PENDING_EXTRACT_REGISTRATIONS_KEY = 'pendingExtractRegistrations';
 let flushInProgress = false;
 
 function isRuntimeAvailable() {
@@ -74,6 +79,17 @@ async function getPendingExtracts() {
 
 async function setPendingExtracts(items) {
   await chrome.storage.local.set({ [PENDING_EXTRACTS_KEY]: items });
+}
+
+async function getPendingExtractRegistrations() {
+  const stored = await chrome.storage.local.get(PENDING_EXTRACT_REGISTRATIONS_KEY);
+  return Array.isArray(stored[PENDING_EXTRACT_REGISTRATIONS_KEY])
+    ? stored[PENDING_EXTRACT_REGISTRATIONS_KEY]
+    : [];
+}
+
+async function setPendingExtractRegistrations(items) {
+  await chrome.storage.local.set({ [PENDING_EXTRACT_REGISTRATIONS_KEY]: items });
 }
 
 function createQueuedExtractPayload(data) {
@@ -243,6 +259,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
+  await flushPendingExtractRegistrations();
 });
 
 // Service worker startup event
@@ -250,6 +267,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await loadSettings();
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
+  await flushPendingExtractRegistrations();
 });
 
 chrome.runtime.onSuspend.addListener(() => {
@@ -505,6 +523,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'keepAlive':
           keepAliveCount += 1;
           await flushQueuedExtractsIfPossible();
+          // Content scripts ping every 20s; piggyback the registration retry
+          // so an extract created in a tab whose content script was briefly
+          // unavailable is still registered as soon as it comes back.
+          await flushPendingExtractRegistrations();
           sendResponse({ success: true, keepAliveCount, timestamp: new Date().toISOString() });
           break;
 
@@ -844,7 +866,23 @@ async function sendToIncrementum(data, options = {}) {
     }
 
     if (response.ok) {
-      // The BrowserSyncServer returns 200 OK without JSON body
+      // The desktop BrowserSyncServer answers 200 with a small JSON body
+      // carrying the persisted ids ({ success, document_id, extract_id });
+      // tolerate an empty/non-JSON body (older deployments) and just skip the
+      // ids in that case.
+      let serverMeta = {};
+      try {
+        const body = await response.text();
+        if (body) {
+          const parsed = JSON.parse(body);
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.document_id) serverMeta.document_id = parsed.document_id;
+            if (parsed.extract_id) serverMeta.extract_id = parsed.extract_id;
+          }
+        }
+      } catch {
+        // Not JSON / empty body — fine, we simply have no server-provided id.
+      }
       if (options.allowFlush !== false) {
         await flushQueuedExtractsIfPossible();
       }
@@ -852,7 +890,8 @@ async function sendToIncrementum(data, options = {}) {
       return {
         success: true,
         message: degradedMessage || 'Data sent successfully',
-        degraded: Boolean(degradedMessage)
+        degraded: Boolean(degradedMessage),
+        ...serverMeta
       };
     } else {
       const errorText = await readErrorMessage(response);
@@ -1081,7 +1120,110 @@ async function createExtractFromSelection(selectedText, tab) {
     result.success,
     result.success && result.degraded ? result.message : 'Extract sent to Plethora!'
   );
+
+  // Join the shared success path: only a server-confirmed create registers in
+  // the tab's pageExtracts (never the queued/offline branch, never a failure),
+  // so the derived counter increments exactly once and not optimistically.
+  const shouldRegister = Boolean(result.success && !result.queued && tab?.id);
+  if (shouldRegister) {
+    const record = buildExtractRecord(text, tab, result);
+    await persistExtractRegistration(tab.id, record);
+    const registered = await notifyTabRegisterExtract(tab.id, record);
+    if (registered) {
+      await removeExtractRegistration(tab.id, record.id);
+    }
+  }
+
   return result;
+}
+
+// Build the first-class pageExtracts record for a background-created extract,
+// using the server-confirmed extract id when available so re-delivery after a
+// service-worker restart dedupes to the same record.
+function buildExtractRecord(text, tab, result) {
+  const shared = globalThis.IncrementumExtensionShared;
+  return shared.normalizeExtractRecord(
+    { text, url: tab.url, title: tab.title },
+    { id: result?.extract_id }
+  );
+}
+
+async function persistExtractRegistration(tabId, record) {
+  if (!tabId || !record?.id) return;
+  const pending = await getPendingExtractRegistrations();
+  const already = pending.some(
+    (item) => item.tabId === tabId && item.extract?.id === record.id
+  );
+  if (already) return;
+  pending.push({ tabId, extract: record });
+  await setPendingExtractRegistrations(pending);
+}
+
+async function removeExtractRegistration(tabId, recordId) {
+  const pending = await getPendingExtractRegistrations();
+  const remaining = pending.filter(
+    (item) => !(item.tabId === tabId && item.extract?.id === recordId)
+  );
+  await setPendingExtractRegistrations(remaining);
+}
+
+// Tell the tab's content script to register a server-confirmed extract into
+// pageExtracts. Returns true only when the content script confirmed it. Any
+// failure (tab gone, content script not injected, service worker mid-restart)
+// leaves the registration pending so flushPendingExtractRegistrations() can
+// re-deliver it idempotently.
+async function notifyTabRegisterExtract(tabId, record) {
+  if (!tabId || !record?.id) return false;
+  try {
+    const response = await safeSendTabMessage(tabId, {
+      action: 'registerExtracts',
+      extracts: [record]
+    });
+    return Boolean(response && response.success);
+  } catch (error) {
+    console.warn('[DEBUG] Could not register extract in tab:', error.message);
+    return false;
+  }
+}
+
+// Re-deliver registrations the background owed to tabs when a service-worker
+// restart interrupted them. Idempotent end to end: the content script dedupes
+// by extract id, so re-sending the same record never double-counts. Records for
+// tabs that no longer exist are dropped (per-tab state cannot be updated once
+// the tab is gone).
+async function flushPendingExtractRegistrations() {
+  const stored = await getPendingExtractRegistrations();
+  if (stored.length === 0) {
+    return { success: true, registered: 0, remaining: 0 };
+  }
+  const seen = new Set();
+  const pending = stored.filter((item) => {
+    if (!item || !item.extract?.id) return false;
+    const key = `${item.tabId}:${item.extract.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const remaining = [];
+  let registered = 0;
+  for (const item of pending) {
+    let tabExists = true;
+    try {
+      await chrome.tabs.get(item.tabId);
+    } catch {
+      tabExists = false;
+    }
+    if (!tabExists) {
+      continue;
+    }
+    if (await notifyTabRegisterExtract(item.tabId, item.extract)) {
+      registered += 1;
+    } else {
+      remaining.push(item);
+    }
+  }
+  await setPendingExtractRegistrations(remaining);
+  return { success: true, registered, remaining: remaining.length };
 }
 
 async function sendInPageToast(tabId, success, message) {
