@@ -3,6 +3,8 @@ import { buildSemanticGraph as lexicalBuildSemanticGraph } from "./semanticRelat
 import { GraphNodeType, type GraphNode, type GraphEdge } from "../components/graph/KnowledgeGraph";
 import type { QueueItem } from "../types/queue";
 import { type FeedItem, getSubscribedFeeds } from "../api/rss";
+import { requestPaidConsent } from "./aiBillingConsent";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export interface EmbeddingConfigInput {
   provider: "OpenAI" | "Cohere" | "OpenRouter" | "Ollama";
@@ -183,6 +185,27 @@ export async function buildSemanticGraph(
 ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
   // Try embedding-based graph if config is provided
   if (embeddingConfig) {
+    // ai-billing-safety #14: a cloud embedding provider requires explicit
+    // consent. If consent is off, prompt once; a denial falls through to the
+    // lexical graph and no embedding request is sent.
+    const isCloud = embeddingConfig.provider !== "Ollama";
+    if (isCloud) {
+      const granted = await requestPaidConsent({
+        kind: "embeddings",
+        provider: embeddingConfig.provider,
+        model:
+          embeddingConfig.openaiModel ??
+          embeddingConfig.cohereModel ??
+          embeddingConfig.openrouterModel ??
+          embeddingConfig.ollamaModel,
+        label: embeddingConfig.provider,
+        detail: `About ${items.length + (rssItems?.length ?? 0)} item(s) will be embedded.`,
+      });
+      if (!granted) {
+        onEmbeddingStatus?.("error");
+        return lexicalBuildSemanticGraph(items, thresholdPercent, focalTopic, rssItems);
+      }
+    }
     try {
       const summaries = items.map(queueItemToSummary);
       const rssSummaries = rssItems ? rssItems.map(rssItemToSummary) : [];
@@ -204,6 +227,9 @@ export async function buildSemanticGraph(
       const embeddedCount = await invoke<number>("embed_queue_items", {
         items: summaries,
         config: embeddingConfig,
+        paidEmbeddingsEnabled: useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
+        paid_embeddings_enabled:
+          useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
       });
 
       let embeddedRssCount = 0;
@@ -211,6 +237,9 @@ export async function buildSemanticGraph(
         embeddedRssCount = await invoke<number>("embed_active_rss_articles", {
           items: rssSummaries,
           config: embeddingConfig,
+          paidEmbeddingsEnabled: useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
+          paid_embeddings_enabled:
+            useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
         });
       }
 
