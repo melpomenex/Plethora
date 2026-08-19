@@ -10,6 +10,8 @@ import { audioMime } from "./tts/providers/shared";
 import { chunkTextForTTS } from "../utils/ttsTextExtraction";
 import type { WordTiming } from "../utils/wordTimings";
 import { foldForMatch } from "../utils/readerSpeechIndex";
+import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { t } from "../lib/i18n";
 
 export { TTSServiceError } from "./tts/errors";
 
@@ -103,6 +105,35 @@ function buildV2Key(tts: TTSSettings, providerId: string, model: string, actualV
   return makeTTSCacheKeyV2({ provider: providerId, model, voice: actualVoice, speed, format, text, language: config.language, instructions: config.instructions, presetDigest, pronunciationDigest: pronDict, clonedVoiceDigest: clonedDigest, baseUrl, supportsInstructions, supportsLanguage });
 }
 
+/**
+ * Gate a billable TTS operation (ai-billing-safety #14): when the provider is
+ * a paid/cloud adapter and `paidTtsEnabled` is off, ask for explicit consent.
+ * The opt-in surface is registered by the app shell; enabling persists the
+ * flag so this runs once, not per chunk. Denied requests throw a typed
+ * `paid_consent_required` error the UI maps to the opt-in prompt.
+ */
+async function ensurePaidTtsConsent(
+  settings: Settings,
+  providerId: string,
+  model: string,
+  adapterLabel: string
+): Promise<void> {
+  if (!isPaidTtsProvider(providerId)) return;
+  if (!cloudTtsRequiresConsent(providerId, settings)) return;
+  const granted = await requestPaidConsent({
+    kind: "tts",
+    provider: providerId,
+    model,
+    label: adapterLabel,
+  });
+  if (!granted) {
+    throw new TTSServiceError(
+      t("paid.ttsGenerationBlocked", { label: adapterLabel }),
+      "paid_consent_required"
+    );
+  }
+}
+
 async function cacheAudioResultDurable(
   cacheKey: string,
   audioUrl: string,
@@ -136,6 +167,7 @@ export async function cloneVoice(settings: Settings, request: CloneVoiceRequest)
     reader.readAsDataURL(request.sampleFile);
   });
   const config = getProviderSettings(tts, "fal");
+  await ensurePaidTtsConsent(settings, "fal", config.cloneModelId, "Fal");
   const output = await invokeFalModel(settings, tts, config.cloneModelId, {
     audio_url: audioUrl,
     text: request.sampleText?.trim() || "This is a voice cloning sample.",
@@ -190,6 +222,9 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
 
   const awaitCache = request.awaitCache ?? PAID_PROVIDERS.has(providerId);
   const factory = async (): Promise<GenerateSpeechResult> => {
+    // Paid/cloud gate runs only when we actually synthesize (cache miss) —
+    // cached audio is never a billable request (ai-billing-safety #14).
+    await ensurePaidTtsConsent(settings, providerId, model, adapter.label);
     const resolvedKey = resolveProviderKey(adapter, settings);
     const result = await adapter.synthesize({
       settings,

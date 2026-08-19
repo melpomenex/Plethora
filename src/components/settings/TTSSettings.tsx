@@ -33,6 +33,7 @@ import {
   CaretDown,
   Check,
   CircleNotch,
+  Coins,
   Copy,
   Download,
   FloppyDisk,
@@ -69,6 +70,7 @@ import { cn } from "../../utils";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
 import { playChime } from "../../utils/audioFeedback";
 import type { StudyAction } from "../../types/audioEdition";
+import { isPaidTtsProvider } from "../../utils/aiBillingConsent";
 
 /** User-facing labels for every implemented StudyAction (task 4.5). */
 const STUDY_ACTION_OPTIONS: Array<{ value: StudyAction; label: string }> = [
@@ -917,6 +919,15 @@ export function TTSSettings() {
                             ? "Configured"
                             : "Needs an API key"}
                       </span>
+                      {isPaidTtsProvider(adapter.id) && (
+                        <span
+                          title="This provider is an external paid API. Billable speech generation is only sent after you enable paid TTS."
+                          className="mt-1 inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                        >
+                          <Coins className="w-3 h-3" />
+                          Paid API
+                        </span>
+                      )}
                       {resolved.source && (
                         <span className="block truncate text-[11px] text-muted-foreground">
                           Using {describeBorrowedSource(resolved.source)}
@@ -1116,6 +1127,40 @@ export function TTSSettings() {
         {!ttsConfigValidation.valid && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {ttsConfigValidation.error}
+          </div>
+        )}
+
+        {/* Paid/cloud indicator + explicit consent (ai-billing-safety #14) */}
+        {isPaidTtsProvider(String(tts.provider)) && (
+          <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+            <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <Coins className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+              <span>
+                {activeAdapter.label} is a paid cloud voice provider. Speech
+                generation is blocked until you enable paid TTS below.
+              </span>
+            </p>
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={tts.paidTtsEnabled === true}
+                onChange={(e) => updateTTS({ paidTtsEnabled: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium text-foreground">
+                  {t("paid.ttsEnabledLabel")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("paid.ttsEnabledDesc")}
+                </span>
+              </span>
+            </label>
+            {tts.paidTtsEnabled !== true && (
+              <p className="text-xs text-muted-foreground">
+                {t("paid.ttsDisabledHint", { label: activeAdapter.label })}
+              </p>
+            )}
           </div>
         )}
 

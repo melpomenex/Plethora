@@ -19,6 +19,7 @@ import { resolveProviderKey } from "../api/tts/auth";
 import { useSettingsStore } from "./settingsStore";
 import { computeSentenceAnchors } from "../utils/audioEditionAnchors";
 import type { AudioEditionSettings } from "../types/audioEdition";
+import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
 
 export interface GenerationJob {
   editionId: string;
@@ -100,6 +101,23 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
 
         const edition = await getAudioEdition(editionId);
         if (!edition) return;
+
+        const providerId = edition.provider || "pocket";
+        const adapter = getAdapter(providerId);
+
+        // Paid/cloud gate (ai-billing-safety #14): never start a billable
+        // audio-edition synthesis without consent. A denial leaves the job
+        // untouched (no request is sent); the dialog surfaces the opt-in.
+        const settings = useSettingsStore.getState().settings;
+        if (isPaidTtsProvider(providerId) && cloudTtsRequiresConsent(providerId, settings)) {
+          const granted = await requestPaidConsent({
+            kind: "tts",
+            provider: providerId,
+            model: edition.model,
+            label: adapter.label,
+          });
+          if (!granted) return;
+        }
 
         const sections = await getAudioEditionSections(editionId);
         if (sections.length === 0) return;

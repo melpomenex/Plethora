@@ -29,6 +29,8 @@ import {
   estimateAudioEditionCost,
   formatAudioDuration,
 } from "../../utils/audioEditionEstimation";
+import { getAdapter } from "../../api/tts/registry";
+import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
 
 interface CreateAudioEditionDialogProps {
   isOpen: boolean;
@@ -175,6 +177,23 @@ export function CreateAudioEditionDialog({
     setErrorMsg(null);
 
     try {
+      const activeAdapter = getAdapter(provider);
+      // Paid/cloud gate (ai-billing-safety #14): never start a billable
+      // audio-edition synthesis without explicit consent. The pre-flight
+      // summary already discloses the provider/cost; this enforces the flag.
+      if (isPaidTtsProvider(provider)) {
+        const granted = await requestPaidConsent({
+          kind: "tts",
+          provider,
+          model,
+          label: activeAdapter.label,
+        });
+        if (!granted) {
+          setErrorMsg(`Paid TTS is disabled for ${activeAdapter.label}. Enable it in Settings → Voice & TTS to generate this edition.`);
+          return;
+        }
+      }
+
       const editionId = typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `ed-${Date.now()}`;
@@ -453,8 +472,7 @@ export function CreateAudioEditionDialog({
           <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Pre-Flight Summary
-            </span>
-            <div className="grid grid-cols-3 gap-3 pt-1">
+            </span>            <div className="grid grid-cols-3 gap-3 pt-1">
               <div className="flex items-center gap-2">
                 <BookOpen size={16} className="text-muted-foreground shrink-0" />
                 <div>
@@ -483,6 +501,18 @@ export function CreateAudioEditionDialog({
                 </div>
               </div>
             </div>
+            {isPaidTtsProvider(provider) && (
+              <p className="flex items-start gap-1.5 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                <WarningCircle size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  This edition will be synthesized with {getAdapter(provider).label}, a paid
+                  cloud API
+                  {settings.tts?.paidTtsEnabled !== true
+                    ? " — paid TTS is currently off, so you'll be asked to enable it before generation."
+                    : "."}
+                </span>
+              </p>
+            )}
           </div>
 
           {errorMsg && (

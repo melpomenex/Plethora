@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TTSProviderId, TTSVoiceInfo } from "../../api/tts/types";
-import { useModal } from "../common/Modal";
+import { requestPaidConsent } from "../../utils/aiBillingConsent";
 
 export interface ParsedVoiceMetadata {
   language?: string;
@@ -56,7 +56,6 @@ export function VoiceBrowser({
   onPreview,
   onToggleFavorite,
 }: VoiceBrowserProps) {
-  const { confirm } = useModal();
   const [query, setQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
@@ -66,7 +65,6 @@ export function VoiceBrowser({
   const [visibleCount, setVisibleCount] = useState(80);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<Record<string, string>>({});
-  const [costDisclosed, setCostDisclosed] = useState(false);
   const currentRef = useRef<HTMLButtonElement | null>(null);
 
   const decorated = useMemo(() => voices.map((voice) => ({ voice, meta: parseVoiceMetadata(voice) })), [voices]);
@@ -110,14 +108,23 @@ export function VoiceBrowser({
 
   const preview = async (voice: TTSVoiceInfo) => {
     if (!onPreview) return;
-    if (isBilled && !costDisclosed) {
-      const confirmed = await confirm(
-        "Voice previews may consume provider API credits. Continue?",
-        "Voice preview",
-        { confirmText: "Continue", cancelText: "Cancel", variant: "warning" },
-      );
-      if (!confirmed) return;
-      setCostDisclosed(true);
+    // Paid/cloud gate (ai-billing-safety #14): an audition is a billable
+    // synthesis for paid providers. Consent persists via the flag — this
+    // prompts at most once, never on every preview click.
+    if (isBilled) {
+      const consent = await requestPaidConsent({
+        kind: "tts",
+        provider: String(voice.provider || currentProvider || ""),
+        model: voice.modelId,
+        label: voice.vendor || String(voice.provider) || "TTS provider",
+      });
+      if (!consent) {
+        setPreviewError((previous) => ({
+          ...previous,
+          [voice.id]: "Preview blocked — paid TTS is disabled for this provider.",
+        }));
+        return;
+      }
     }
     setPreviewingId(voice.id);
     setPreviewError((previous) => ({ ...previous, [voice.id]: "" }));
@@ -166,7 +173,7 @@ export function VoiceBrowser({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Voice browser">
       <div className="flex max-h-[min(90vh,52rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl">
         <div className="shrink-0 space-y-3 border-b border-border p-4">
-          <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Choose a voice</h2><p className="text-xs text-muted-foreground">Search by voice, model, or vendor.</p></div><button type="button" onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm">Close</button></div>
+          <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><div><h2 className="text-lg font-semibold">Choose a voice</h2><p className="text-xs text-muted-foreground">Search by voice, model, or vendor.</p></div>{isBilled && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400" title="This voice belongs to a paid cloud provider.">Paid API</span>}</div><button type="button" onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm">Close</button></div>
           <div className="flex flex-wrap gap-2"><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search voices" className="min-w-[14rem] flex-1 rounded border border-border bg-background px-3 py-2 text-sm" />
             {([["Provider", providerFilter, setProviderFilter, options.providers], ["Vendor", vendorFilter, setVendorFilter, options.vendors], ["Language", languageFilter, setLanguageFilter, options.languages], ["Gender", genderFilter, setGenderFilter, options.genders], ["Style", styleFilter, setStyleFilter, options.styles]] as const).map(([label, value, setter, values]) => <select key={label} value={value} onChange={(event) => setter(event.target.value)} className="rounded border border-border bg-background px-2 py-2 text-sm"><option value="">{label}</option>{values.map((item) => <option key={item} value={item}>{item}</option>)}</select>)}
             {activeFilters.length > 0 && <button type="button" onClick={clearFilters} className="rounded border border-border px-2 py-2 text-sm">Clear filters</button>}

@@ -14,6 +14,8 @@ import { getAdapter } from "../api/tts/registry";
 import { getProviderSettings } from "../utils/ttsSettings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useNativeAndroidTTS } from "./useNativeAndroidTTS";
+import { cloudTtsRequiresConsent, requestPaidConsent } from "../utils/aiBillingConsent";
+import { t } from "../lib/i18n";
 
 interface UseTTSOptions {
   rate?: number;
@@ -284,6 +286,22 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         if (isSystemProvider && hasSpeechSynthesis) {
           await speakWithWebSpeech(normalizedText);
         } else if (providerConfigured) {
+          // Paid/cloud consent gate runs once BEFORE the chunk loop so
+          // read-aloud prompts at most once, never once per chunk
+          // (ai-billing-safety #14). A denial stops the read rather than
+          // throwing a per-chunk consent error.
+          if (
+            cloudTtsRequiresConsent(String(ttsSettings?.provider), settings) &&
+            !(await requestPaidConsent({
+              kind: "tts",
+              provider: String(ttsSettings?.provider),
+              model: activeConfig?.modelId,
+              label: activeAdapter.label,
+            }))
+          ) {
+            setLastError(t("paid.ttsReadAloudBlocked"));
+            return;
+          }
           const maxChunkSize = await resolveTTSMaxChunkSize(settings);
           for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
             await speakWithProvider(chunk, overrides);
@@ -311,6 +329,9 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       speakWithProvider,
       speakWithWebSpeech,
       settings,
+      ttsSettings,
+      activeConfig,
+      activeAdapter,
     ]
   );
 
