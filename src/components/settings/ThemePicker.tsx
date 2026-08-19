@@ -422,7 +422,12 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
                   const isSelected = theme.id === th.id;
                   const isCustom = !builtinThemeIds.has(th.id);
                   return (
-                    <li key={th.id} role="option" aria-selected={isSelected}>
+                    <li
+                      key={th.id}
+                      role="option"
+                      aria-selected={isSelected}
+                      className="flex w-full items-stretch"
+                    >
                       <button
                         ref={(el) => {
                           rowRefs.current[index] = el;
@@ -438,7 +443,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
                           if (previewThemeId === th.id) previewTheme(null);
                         }}
                         className={cn(
-                          "flex w-full min-h-[44px] items-center gap-3 px-3 py-2 text-left transition-colors",
+                          "flex min-h-[44px] flex-1 items-center gap-3 px-3 py-2 text-left transition-colors",
                           "focus:outline-none focus-visible:bg-muted",
                           isSelected ? "bg-primary/10" : "hover:bg-muted"
                         )}
@@ -457,21 +462,18 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
                         {isSelected && (
                           <Check className="ml-auto h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                         )}
-                        {isCustom && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteCustomTheme(th.id);
-                            }}
-                            title="Delete custom theme"
-                            aria-label={`Delete custom theme ${th.name}`}
-                            className="ml-auto shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-                          >
-                            <Trash className="h-3.5 w-3.5" />
-                          </button>
-                        )}
                       </button>
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomTheme(th.id)}
+                          title="Delete custom theme"
+                          aria-label={`Delete custom theme ${th.name}`}
+                          className="ml-auto shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                        >
+                          <Trash className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </li>
                   );
                 })
