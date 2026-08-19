@@ -1467,6 +1467,36 @@
     return { success: true };
   }
 
+  // Register extracts created in the background (context-menu / quick-extract
+  // command) into the authoritative pageExtracts source of truth so the
+  // derived counter and per-host storage stay consistent with the popup flow.
+  // The background only sends after the server confirmed the create, and this
+  // is idempotent (dedupe by extract id), so re-delivery after a service-worker
+  // restart never double-counts. Mirrors mergeExtracts in shared.js — keep the
+  // two in sync by hand.
+  function registerExtracts(records) {
+    const incoming = Array.isArray(records) ? records : [];
+    const seen = new Set(pageExtracts.map((item) => item && item.id).filter(Boolean));
+    const added = [];
+    const duplicates = [];
+    for (const record of incoming) {
+      if (!record || typeof record !== 'object' || !record.id) {
+        continue;
+      }
+      if (seen.has(record.id)) {
+        duplicates.push(record);
+        continue;
+      }
+      seen.add(record.id);
+      pageExtracts.push(record);
+      added.push(record);
+    }
+    if (added.length > 0) {
+      savePageExtracts();
+    }
+    return { success: true, added: added.length, duplicates: duplicates.length };
+  }
+
   function highlightText(range, extractId, color = null) {
     try {
       const span = document.createElement('span');
@@ -2328,6 +2358,10 @@
       case 'getPageStats':
         const stats = getPageStats();
         sendResponse(stats);
+        break;
+
+      case 'registerExtracts':
+        sendResponse(registerExtracts(message.extracts || (message.extract ? [message.extract] : [])));
         break;
 
       case 'highlightExtract':
