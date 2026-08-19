@@ -814,7 +814,7 @@ export const en: Dict = {
   "paid.auditionConsentRequired":
     "Auditioning this voice uses {label}, a paid API. Enable paid TTS to continue.",
   "paid.fallbackBlocked":
-    "On-device AI failed and cloud fallback is disabled. Enable “Allow cloud fallback” in Settings → AI to retry on the cloud provider.",
+    "On-device AI could not finish and the cloud retry was declined — nothing was sent to the cloud provider. Re-run the action to retry on the cloud provider.",
   "confirm.itemsSelected": "{count} items selected",
   "confirm.itemsAffected": "{count} items to be affected:",
   "confirm.andMore": "...and {count} more",
