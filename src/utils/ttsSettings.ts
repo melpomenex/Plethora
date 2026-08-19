@@ -153,6 +153,13 @@ export interface TTSSettings {
   highlightSpokenWord: boolean;
   /** v4: auto-follow the spoken word in the viewport (default on). */
   followSpokenWord: boolean;
+  /**
+   * Explicit consent to billable (cloud) TTS/voice (ai-billing-safety): an API
+   * key authorizes, it does not consent. Default false; gates read-aloud,
+   * voice previews, audio-edition generation and audition previews for fal /
+   * groq / openrouter / elevenlabs / openai / plethora.
+   */
+  paidTtsEnabled: boolean;
 
   // Deprecated v2 mirrors. They remain readable for older integrations, but
   // new code reads the selected entry in `providers`.
@@ -347,6 +354,7 @@ export function createDefaultTTSSettings(): TTSSettings {
     providers,
     highlightSpokenWord: true,
     followSpokenWord: true,
+    paidTtsEnabled: false,
     defaultVoiceId: "fal-builtin-Vivian",
     defaultPresetId: DEFAULT_TTS_PRESETS[0].id,
     voiceProfiles: makeDefaultTTSVoiceProfiles(),
@@ -609,6 +617,12 @@ export function sanitizeTTSSettings(input: unknown): TTSSettings {
       typeof migrated.followSpokenWord === "boolean"
         ? migrated.followSpokenWord
         : defaults.followSpokenWord,
+    // Paid-TTS consent is explicitly opted-in (default off). Missing / invalid
+    // persisted values always fall back to the safe default.
+    paidTtsEnabled:
+      typeof migrated.paidTtsEnabled === "boolean"
+        ? migrated.paidTtsEnabled
+        : defaults.paidTtsEnabled,
     ...legacyMirrors(provider, providers),
   };
   return result;

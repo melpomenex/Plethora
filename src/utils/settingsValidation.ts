@@ -195,6 +195,7 @@ export const TTSSettingsSchema = z.object({
   schemaVersion: z.number().int().default(3),
   enabled: z.boolean().default(false),
   provider: z.string().default('fal'),
+  paidTtsEnabled: z.boolean().default(false),
   providers: z.record(z.string(), TTSProviderSettingsSchema).default({}),
   requestMode: z.enum(['direct', 'proxy']).default('direct'),
   apiKey: z.string().default(''),
@@ -352,6 +353,7 @@ export const EmbeddingSettingsSchema = z.object({
   chunkOverlap: z.number().min(0).max(500).default(20),
   topK: z.number().min(1).max(50).default(8),
   minSimilarity: z.number().min(0).max(1).default(0.25),
+  paidEmbeddingsEnabled: z.boolean().default(false),
 });
 
 // Complete Settings Schema
