@@ -61,17 +61,26 @@ pub struct InstalledHfModel {
 }
 
 impl HfRuntime {
-    /// Compact id prefix used in the model id (`hf:{tag}:{repo}@{rev}`).
+    /// Stable string used everywhere the runtime is named outside Rust:
+    /// the model id prefix (`hf:{tag}:{repo}@{rev}`), the registry `runtime`
+    /// column, and the serde kebab-case serialized value the frontend sends
+    /// back to `hf_install_model`. `tag()` and serde MUST stay in sync — see
+    /// the `serde_roundtrip_from_tag_matches_for_every_variant` test.
     pub fn tag(self) -> &'static str {
         match self {
-            HfRuntime::WhisperCpp => "whisper",
-            HfRuntime::SherpaOnnxStt => "sherpa-stt",
-            HfRuntime::SherpaOnnxTts => "sherpa-tts",
+            HfRuntime::WhisperCpp => "whisper-cpp",
+            HfRuntime::SherpaOnnxStt => "sherpa-onnx-stt",
+            HfRuntime::SherpaOnnxTts => "sherpa-onnx-tts",
         }
     }
 
     pub fn from_tag(tag: &str) -> Option<HfRuntime> {
         match tag {
+            // Canonical (== serde kebab-case == what the frontend sends).
+            "whisper-cpp" => Some(HfRuntime::WhisperCpp),
+            "sherpa-onnx-stt" => Some(HfRuntime::SherpaOnnxStt),
+            "sherpa-onnx-tts" => Some(HfRuntime::SherpaOnnxTts),
+            // Legacy compact aliases (pre-alignment registry rows / model ids).
             "whisper" => Some(HfRuntime::WhisperCpp),
             "sherpa-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-tts" => Some(HfRuntime::SherpaOnnxTts),
@@ -682,6 +691,54 @@ mod tests {
         assert_eq!(runtime, HfRuntime::SherpaOnnxStt);
         assert_eq!(repo, "someone/asr");
         assert_eq!(rev, "feature/x");
+    }
+
+    // ── runtime tag <-> serde agreement (review blocker) ───────────────────
+    #[test]
+    fn tag_matches_serde_kebab_case_for_every_variant() {
+        for runtime in [
+            HfRuntime::WhisperCpp,
+            HfRuntime::SherpaOnnxStt,
+            HfRuntime::SherpaOnnxTts,
+        ] {
+            let serialized = serde_json::to_value(runtime).unwrap();
+            let as_str = serialized.as_str().expect("runtime serializes to a string");
+            assert_eq!(
+                runtime.tag(),
+                as_str,
+                "tag() must equal the serde value for {runtime:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn serde_roundtrip_from_tag_matches_for_every_variant() {
+        for runtime in [
+            HfRuntime::WhisperCpp,
+            HfRuntime::SherpaOnnxStt,
+            HfRuntime::SherpaOnnxTts,
+        ] {
+            let serialized = serde_json::to_string(&runtime).unwrap();
+            // serde_json::to_string produces a quoted JSON string; extract the
+            // raw value so from_tag receives exactly what the frontend sends.
+            let value = serde_json::to_value(runtime).unwrap();
+            let raw = value.as_str().unwrap();
+            assert_eq!(raw, serialized.trim_matches('"'));
+            assert_eq!(
+                HfRuntime::from_tag(raw),
+                Some(runtime),
+                "from_tag round-trip failed for {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_tag_accepts_exact_frontend_values() {
+        // The frontend sends these serde kebab-case values to hf_install_model.
+        assert_eq!(HfRuntime::from_tag("whisper-cpp"), Some(HfRuntime::WhisperCpp));
+        assert_eq!(HfRuntime::from_tag("sherpa-onnx-stt"), Some(HfRuntime::SherpaOnnxStt));
+        assert_eq!(HfRuntime::from_tag("sherpa-onnx-tts"), Some(HfRuntime::SherpaOnnxTts));
+        assert_eq!(HfRuntime::from_tag("bogus"), None);
     }
 
     // ── 5.10: duplicate install prevention ─────────────────────────────────

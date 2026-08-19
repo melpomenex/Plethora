@@ -43,7 +43,7 @@ import { HuggingFaceModelManager } from "../HuggingFaceModelManager";
 import { useHfModelStore } from "../../../stores/useHfModelStore";
 
 const installedWhisper = {
-  id: "hf:whisper:someone/whisper-tiny",
+  id: "hf:whisper-cpp:someone/whisper-tiny",
   repo_id: "someone/whisper-tiny",
   revision: "main",
   runtime: "whisper-cpp",
@@ -59,7 +59,7 @@ const installedWhisper = {
 
 const installedTts = {
   ...installedWhisper,
-  id: "hf:sherpa-tts:someone/vits-ljs",
+  id: "hf:sherpa-onnx-tts:someone/vits-ljs",
   repo_id: "someone/vits-ljs",
   runtime: "sherpa-onnx-tts",
   artifact_kind: "vits",
