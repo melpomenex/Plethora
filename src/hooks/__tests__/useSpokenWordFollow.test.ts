@@ -206,4 +206,83 @@ describe("useSpokenWordFollow", () => {
     });
     expect(container.scrollTo).not.toHaveBeenCalled();
   });
+
+  it("compact (mobile) mode pins the spoken word at the compact comfort offset", async () => {
+    makeSpan(container);
+    renderHook(() =>
+      useSpokenWordFollow({
+        enabled: true,
+        active: true,
+        compact: true,
+        wordKey: "0:1",
+        containers: [container],
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    const call = (container.scrollTo as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.behavior).toBe("smooth");
+    // relativeTop 500 − clientHeight 600 × 0.18 + spanHeight 20 / 2 = 402.
+    expect(call.top).toBeCloseTo(500 - 600 * 0.18 + 10);
+  });
+
+  it("follows inside an EPUB viewer container (data-epub-viewer)", async () => {
+    const epub = document.createElement("div");
+    epub.setAttribute("data-epub-viewer", "true");
+    epub.scrollTo = vi.fn();
+    Object.defineProperty(epub, "scrollTop", { value: 0, writable: true, configurable: true });
+    Object.defineProperty(epub, "scrollHeight", { value: 3000, writable: true, configurable: true });
+    Object.defineProperty(epub, "clientHeight", { value: 600, writable: true, configurable: true });
+    epub.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 600, left: 0, right: 800, height: 600, width: 800 } as DOMRect);
+    document.body.appendChild(epub);
+    // The active span may live nested deep inside the EPUB body.
+    const body = document.createElement("div");
+    const span = document.createElement("span");
+    span.className = "tts-word-highlight";
+    body.appendChild(span);
+    epub.appendChild(body);
+
+    renderHook(() =>
+      useSpokenWordFollow({
+        enabled: true,
+        active: true,
+        wordKey: "0:1",
+        containers: [epub],
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(epub.scrollTo).toHaveBeenCalled();
+    const call = (epub.scrollTo as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.top).toBeGreaterThan(0);
+    epub.remove();
+  });
+
+  it("follows in a PDF/markdown document scroll container when the span is nested", async () => {
+    const wrapper = document.createElement("div");
+    const span = document.createElement("span");
+    span.className = "tts-word-highlight";
+    wrapper.appendChild(span);
+    container.appendChild(wrapper);
+
+    renderHook(() =>
+      useSpokenWordFollow({
+        enabled: true,
+        active: true,
+        wordKey: "0:1",
+        containers: [container],
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    // The ancestor traversal finds the data-document-scroll-container and
+    // scrolls it (never a throw, never a stray element).
+    expect(container.scrollTo).toHaveBeenCalled();
+    const call = (container.scrollTo as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.top).toBeGreaterThan(0);
+  });
 });
