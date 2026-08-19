@@ -17,6 +17,7 @@
 
 import { invokeCommand } from "../lib/tauri";
 import type { EmbeddingSettings } from "../types/settings";
+import { useSettingsStore } from "../stores/settingsStore";
 
 /** Maps to `EmbeddingConfigInput` on the backend. */
 export interface EmbeddingConfig {
@@ -152,6 +153,15 @@ export interface IndexStatusResponse {
 export const DEFAULT_RETRIEVAL_K = 8;
 
 /**
+ * The persisted paid-embeddings consent flag (ai-billing-safety #14), passed
+ * to every billable embedding command so the backend can defensively reject a
+ * cloud provider when the user has not explicitly enabled paid embeddings.
+ */
+export function paidEmbeddingsConsentFlag(): boolean {
+  return useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled === true;
+}
+
+/**
  * Enqueue one document for (re)indexing. Call on import and on content
  * update; unchanged content is a no-op thanks to content-hash diffing.
  */
@@ -163,6 +173,8 @@ export function enqueueAIDocument(
     documentId,
     document_id: documentId,
     config: config ?? null,
+    paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
+    paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });
 }
 
@@ -178,6 +190,8 @@ export function enqueueAllAIDocuments(
     requireCharging,
     require_charging: requireCharging,
     config: config ?? null,
+    paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
+    paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });
 }
 
@@ -229,6 +243,8 @@ export function retrieveFromLibrary(
     k: options.k ?? null,
     filters: options.filters ?? null,
     config: options.config ?? null,
+    paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
+    paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });
 }
 

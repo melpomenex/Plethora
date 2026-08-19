@@ -15,6 +15,7 @@
 import { buildEmbeddingConfig, type EmbeddingConfig } from "../../api/ai-learning";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
+import { cloudEmbeddingRequiresConsent } from "../../utils/aiBillingConsent";
 
 /** Find the first enabled provider of a given type with a non-empty API key. */
 function keyForProviderType(
@@ -30,12 +31,27 @@ function keyForProviderType(
   return match?.apiKey;
 }
 
-export async function resolveEmbeddingConfigForRag(): Promise<EmbeddingConfig> {
+/**
+ * Resolve the embedding config for retrieval-side / query-side embeds.
+ *
+ * ai-billing-safety #14: when the configured embedding provider is a paid
+ * cloud API but `paidEmbeddingsEnabled` is off, the config is NOT returned —
+ * the caller then degrades to the non-billable on-device/lexical path, so a
+ * query-side `embed_text` is never silently sent to a paid provider. The
+ * opt-in lives in Settings → Embeddings (and the visible paid indicator).
+ */
+export async function resolveEmbeddingConfigForRag(): Promise<EmbeddingConfig | undefined> {
   const settings = useSettingsStore.getState().settings.embedding;
 
-  // Local Ollama: no key lookup needed.
+  // Local Ollama: no key lookup needed, never billable.
   if (settings.provider === "ollama") {
     return buildEmbeddingConfig(settings, {});
+  }
+
+  // Paid cloud provider without explicit consent: refuse to return a config
+  // that would trigger a billable query embed.
+  if (cloudEmbeddingRequiresConsent(settings.provider, { embedding: settings })) {
+    return undefined;
   }
 
   // Cloud providers: resolve keys from the LLM providers store (where the

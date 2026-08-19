@@ -45,6 +45,10 @@ import {
 } from "../api/neural-queue";
 import { resolveEmbeddingConfigForRag } from "../components/assistant/ragConfig";
 import {
+  isPaidEmbeddingProvider,
+  requestPaidConsent,
+} from "../utils/aiBillingConsent";
+import {
   buildNeuralScrollItems as neuralBuildNeuralScrollItems,
   neuralSeedFromItem,
   NEURAL_FETCH_BATCH,
@@ -3850,6 +3854,22 @@ export function QueueScrollPage() {
       let embeddingConfig: import("../api/ai-learning").EmbeddingConfig | null = null;
       try {
         embeddingConfig = await resolveEmbeddingConfigForRag();
+        // ai-billing-safety #14: a paid cloud embedding provider with consent
+        // off silently yields no config — surface the opt-in so the user can
+        // choose to enable semantic neighbors. Denial keeps tree-topology-only.
+        if (!embeddingConfig && isPaidEmbeddingProvider(settings.embedding.provider)) {
+          const granted = await requestPaidConsent({
+            kind: "embeddings",
+            provider: settings.embedding.provider,
+            model:
+              settings.embedding.openaiModel ??
+              settings.embedding.cohereModel ??
+              settings.embedding.openrouterModel ??
+              settings.embedding.ollamaModel,
+            label: settings.embedding.provider,
+          });
+          if (granted) embeddingConfig = await resolveEmbeddingConfigForRag();
+        }
       } catch {
         // No embedding provider configured — semantic neighbors will be a no-op.
       }
@@ -3884,7 +3904,7 @@ export function QueueScrollPage() {
     } finally {
       setIsNeuralLoading(false);
     }
-  }, [currentItem, documentsMap, scrollItems, currentIndex, toast, t]);
+  }, [currentItem, documentsMap, scrollItems, currentIndex, toast, t, settings]);
 
   /**
    * Exit neural review: restore the exact reading session (items + position)
