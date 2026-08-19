@@ -153,6 +153,14 @@ interface AssistantPanelProps {
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 const ASSISTANT_WIDTH_KEY = "assistant-panel-width";
 const ASSISTANT_CONVERSATIONS_KEY = "assistant-panel-conversations-v1";
+
+/**
+ * Split-pane layout constants, shared with the reader hosts so the assistant
+ * and the reader each retain a minimum usable width during resize (#17).
+ */
+export const ASSISTANT_MIN_WIDTH = 300;
+export const ASSISTANT_MAX_WIDTH = 800;
+export const READER_MIN_WIDTH = 320;
 const MAX_STORED_MESSAGES = 200;
 const MAX_ATTACHED_IMAGES = 4;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB raw file limit
@@ -2236,7 +2244,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     e.preventDefault();
     const direction = e.key === "ArrowLeft" ? -1 : 1;
     const delta = position === "right" ? -direction * 24 : direction * 24;
-    const newWidth = Math.max(300, Math.min(800, width + delta));
+    const newWidth = Math.max(ASSISTANT_MIN_WIDTH, Math.min(ASSISTANT_MAX_WIDTH, width + delta));
     setWidth(newWidth);
     localStorage.setItem(ASSISTANT_WIDTH_KEY, newWidth.toString());
     onWidthChange?.(newWidth);
@@ -2596,7 +2604,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           // Panel on left: width = mouse X
           newWidth = e.clientX;
         }
-        if (newWidth >= 300 && newWidth <= 800) {
+        if (newWidth >= ASSISTANT_MIN_WIDTH && newWidth <= ASSISTANT_MAX_WIDTH) {
           setWidth(newWidth);
           localStorage.setItem(ASSISTANT_WIDTH_KEY, newWidth.toString());
           onWidthChange?.(newWidth);
@@ -3363,8 +3371,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           role="separator"
           aria-label="Resize Assistant panel"
           aria-orientation="vertical"
-          aria-valuemin={300}
-          aria-valuemax={800}
+          aria-valuemin={ASSISTANT_MIN_WIDTH}
+          aria-valuemax={ASSISTANT_MAX_WIDTH}
           aria-valuenow={width}
           tabIndex={0}
           className={`absolute top-0 bottom-0 z-10 w-1 cursor-ew-resize hover:bg-primary/20 focus-visible:bg-primary/30 focus-visible:outline-none transition-colors group ${position === "right" ? "left-0" : "right-0"
