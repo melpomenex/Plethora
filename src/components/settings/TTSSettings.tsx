@@ -92,6 +92,7 @@ import {
 import { useI18n } from "../../lib/i18n";
 import VoiceBrowser from "./VoiceBrowser";
 import ModelBrowser from "./ModelBrowser";
+import { HuggingFaceModelManager } from "./HuggingFaceModelManager";
 
 const MAX_SAMPLE_FILE_SIZE_MB = 12;
 const MAX_SAMPLE_DURATION_SECONDS = 45;
@@ -1958,6 +1959,26 @@ export function TTSSettings() {
           </label>
         </div>
       </section>
+
+      {/* Local TTS models from Hugging Face (requirement #19). Desktop-only:
+          the sherpa-onnx TTS runtime surface lives in the desktop build. */}
+      {showPocketOption && (
+        <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-muted-foreground" />
+            <h4 className="text-base font-semibold text-foreground">
+              Local TTS models (Hugging Face)
+            </h4>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Install sherpa-onnx ONNX TTS models from Hugging Face. Plethora checks hardware
+            suitability and only offers models the sherpa runtime can load. The desktop sherpa
+            sidecar in this build is speech-to-text only, so installed TTS models are registered
+            and ready for a TTS-capable runtime; on Android the native sherpa TTS plugin is used.
+          </p>
+          <HuggingFaceModelManager mode="tts" />
+        </section>
+      )}
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
         <h4 className="text-base font-semibold">Downloaded speech</h4>
