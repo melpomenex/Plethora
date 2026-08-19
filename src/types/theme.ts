@@ -121,6 +121,15 @@ export interface ThemeContextValue {
   removeCustomTheme: (themeId: ThemeId) => void;
   exportTheme: (themeId: ThemeId) => string;
   importTheme: (themeJson: string) => Theme;
+  /**
+   * Id of the theme currently being previewed (applied without committing).
+   * `null` when no preview is active.
+   */
+  previewThemeId: ThemeId | null;
+  /** Live-apply a theme as a preview; pass `null` to revert to the committed theme. */
+  previewTheme: (themeId: ThemeId | null) => void;
+  /** Commit the previewed theme (if any) as the active theme. */
+  commitPreview: () => void;
 }
 
 /**
