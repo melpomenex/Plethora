@@ -90,8 +90,27 @@ export function clearPaidConsentDenials(): void {
   deniedThisSession.clear();
 }
 
+/** Clear the session-denial memo for one consent kind (flag now enabled). */
+export function clearPaidConsentDenialsFor(kind: PaidConsentKind): void {
+  for (const key of deniedThisSession) {
+    if (key.startsWith(`${kind}:`)) deniedThisSession.delete(key);
+  }
+}
+
 function requestKey(kind: PaidConsentKind, provider: string): string {
   return `${kind}:${provider}`;
+}
+
+/**
+ * True when the persisted consent flag for `kind` is enabled in the settings
+ * store. `ai-fallback` is governed by `settings.ai.allowCloudFallback` (the
+ * explicit opt-in); the others by their dedicated paid flags.
+ */
+function kindFlagEnabled(kind: PaidConsentKind): boolean {
+  const settings = useSettingsStore.getState().settings;
+  if (kind === "tts") return settings.tts?.paidTtsEnabled === true;
+  if (kind === "embeddings") return settings.embedding?.paidEmbeddingsEnabled === true;
+  return settings.ai?.allowCloudFallback === true;
 }
 
 /**
@@ -99,9 +118,18 @@ function requestKey(kind: PaidConsentKind, provider: string): string {
  * granted and persisted. Returns false when denied or no handler is registered.
  * A denial is remembered for the session so a user who cancels is not
  * re-prompted on every queued chunk / repeated call.
+ *
+ * The persisted flag is checked BEFORE the session-denial memo: enabling the
+ * flag (in Settings or via the opt-in handler) takes effect immediately, so a
+ * denial from earlier in the session never deadlocks the operation until a
+ * restart (ai-billing-safety #14).
  */
 export async function requestPaidConsent(request: PaidConsentRequest): Promise<boolean> {
   const key = requestKey(request.kind, request.provider);
+  if (kindFlagEnabled(request.kind)) {
+    deniedThisSession.delete(key);
+    return true;
+  }
   if (deniedThisSession.has(key)) return false;
   const handler = paidConsentHandler;
   if (!handler) return false;
