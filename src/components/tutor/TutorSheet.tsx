@@ -29,6 +29,7 @@ import {
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorTurnBubble } from "./TutorTurnBubble";
 import { TutorComposer } from "./TutorComposer";
+import type { LearnerContextPacket, TutorMode } from "../../lib/languageTutor";
 
 export interface TutorSheetProps {
   open: boolean;
@@ -41,6 +42,9 @@ export interface TutorSheetProps {
   extractId?: string;
   /** Selection context payload recorded with card provenance. */
   selectionContext?: unknown;
+  /** Optional bounded language context from LanguageTutorHost. */
+  languageContext?: LearnerContextPacket;
+  languageMode?: TutorMode;
   onClose: () => void;
 }
 
@@ -52,6 +56,8 @@ export function TutorSheet({
   documentId,
   extractId,
   selectionContext,
+  languageContext,
+  languageMode,
   onClose,
 }: TutorSheetProps) {
   const { t } = useI18n();
@@ -71,6 +77,11 @@ export function TutorSheet({
   const [showPromotion, setShowPromotion] = useState(false);
 
   const resolvedTopic = topic?.trim() || deriveTopicFromMaterial(material);
+  const languageContextText = languageContext && languageContext.items.length > 0
+    ? `\n\nLearner language context (bounded, background only): ${languageContext.items.map((item) => `${item.surface} (${item.state})`).join(", ")}`
+    : "";
+  const sessionMaterial = `${material}${languageContextText}`;
+  const sessionTopic = languageMode ? `${resolvedTopic} · ${languageMode}` : resolvedTopic;
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -100,7 +111,7 @@ export function TutorSheet({
     setError(null);
 
     TutorSession.start(
-      { topic: resolvedTopic, material },
+      { topic: sessionTopic, material: sessionMaterial },
       {},
       {
         signal: controller.signal,
@@ -121,7 +132,7 @@ export function TutorSheet({
       .finally(() => {
         if (!controller.signal.aborted) setStarting(false);
       });
-  }, [open, reset, resolvedTopic, material]);
+  }, [open, reset, sessionMaterial, sessionTopic]);
 
   // Abort whatever is in flight when the sheet unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -244,7 +255,7 @@ export function TutorSheet({
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-foreground" data-tutor-topic="true">
-              {resolvedTopic}
+              {sessionTopic}
             </p>
             {session && policy && (
               <p className="text-[11px] text-muted-foreground">

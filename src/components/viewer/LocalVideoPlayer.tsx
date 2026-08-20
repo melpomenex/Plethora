@@ -47,6 +47,7 @@ import {
 } from "../../lib/videoTranscriptionQueue";
 import { isTauri } from "../../lib/tauri";
 import { TranscriptionButton } from "../transcription";
+import { LanguageVideoHost } from "../language/LanguageVideoHost";
 import {
   classifyLocalMediaError,
   getFiniteMediaDuration,
@@ -1704,6 +1705,17 @@ export function LocalVideoPlayer({
           )}
         </div>
       </div>
+
+      {transcriptSegments.length > 0 && (
+        <LanguageVideoHost
+          videoId={documentId ?? sourceKey}
+          documentId={documentId}
+          sourceFingerprint={`${sourceKey}:${transcriptSegments.length}:${duration}`}
+          segments={transcriptSegments}
+          currentTime={currentTime}
+          onSeek={handleSeek}
+        />
+      )}
 
       {/* Video Features Slide-over Panel */}
       {showVideoFeatures && documentId && (

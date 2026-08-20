@@ -38,6 +38,7 @@ import {
   BookOpen,
   Copy,
   DotsThree,
+  GraduationCap,
   Lightbulb,
   NotePencil,
   SpeakerHigh,
@@ -109,6 +110,8 @@ export interface DictionaryPeekProps {
    * against `documentId`; extract hides when neither is possible.
    */
   onCreateExtract?: (text: string) => void | Promise<void>;
+  /** Opens the shared practice shell without creating a learning item. */
+  onPractice?: (text: string) => void;
   aiAvailable?: boolean;
   /** TTS readiness; Pronounce hidden when false. */
   canPronounce?: boolean;
@@ -131,6 +134,7 @@ export function DictionaryPeek({
   onMore,
   onReplayOriginalAudio,
   onCreateExtract,
+  onPractice,
   aiAvailable = false,
   canPronounce = true,
   readerContainerRef,
@@ -638,6 +642,12 @@ export function DictionaryPeek({
             t("viewer.dictionaryPeek.extract"),
             <Lightbulb className="h-4 w-4" weight="fill" />,
             handleExtract,
+          )}
+        {onPractice &&
+          actionButton(
+            "Practice",
+            <GraduationCap className="h-4 w-4" />,
+            () => onPractice(displayWord),
           )}
         {actionButton(
           t("viewer.dictionaryPeek.flashcard"),
