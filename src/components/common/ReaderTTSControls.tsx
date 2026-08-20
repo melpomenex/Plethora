@@ -617,6 +617,13 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const textFingerprint = useMemo(() => fingerprintDocument(text), [text]);
   const textFingerprintRef = useRef(textFingerprint);
   textFingerprintRef.current = textFingerprint;
+  // Previous text fingerprint, used when flushing an OLD document's listening
+  // position from an effect that runs after this render has already updated
+  // `textFingerprintRef` to the NEW document's fingerprint. Tracked with the
+  // standard "previous value" pattern: a trailing effect (declared AFTER the
+  // flush effects) updates it once per commit, so the flush effects always see
+  // the fingerprint that was current BEFORE this render.
+  const prevTextFingerprintRef = useRef(textFingerprint);
 
   // Selected voice for generation
   const voiceId = useMemo(() => {
@@ -637,7 +644,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // record is written FROM canonical state (never from a viewport-top word or
   // session-start chunk). Returns null when there is no document identity.
   const buildListeningPosition = useCallback(
-    (docIdOverride?: string | null): TTSListeningPosition | null => {
+    (docIdOverride?: string | null, fingerprintOverride?: string): TTSListeningPosition | null => {
       const docId = docIdOverride ?? documentIdRef.current;
       if (!docId) return null;
       if (!engagedRef.current) return null;
@@ -653,7 +660,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         documentId: docId,
         profileId: getProfileId(),
         updatedAt: Date.now(),
-        textFingerprint: textFingerprintRef.current,
+        textFingerprint: fingerprintOverride ?? textFingerprintRef.current,
         speechFingerprint: fingerprintSpeechIndex(index),
         provider: tts?.provider ?? "",
         model:
@@ -679,10 +686,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
   // Throttled while playing (module's 4 s throttle); `flush` bypasses it.
   const saveListeningPosition = useCallback(
-    (flush: boolean, docIdOverride?: string | null) => {
+    (flush: boolean, docIdOverride?: string | null, fingerprintOverride?: string) => {
       const docId = docIdOverride ?? documentIdRef.current;
       if (!docId) return;
-      const pos = buildListeningPosition(docId);
+      const pos = buildListeningPosition(docId, fingerprintOverride);
       if (!pos) return;
       void saveTTSListeningPosition(pos, { flush });
     },
@@ -767,8 +774,17 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       // before switching, then auto-continue in the new document. This effect
       // runs BEFORE the documentId-flush effect (declaration order), so
       // `prevDocumentIdRef` still names the OLD document here — the flush must
-      // never write a record for the new, not-yet-listened-to document.
-      saveListeningPosition(true, prevDocumentIdRef.current);
+      // never write a record for the new, not-yet-listened-to document. The
+      // record must also carry the OLD text's fingerprint (`prevTextFingerprintRef`),
+      // because this render has already reset `textFingerprintRef` to the new
+      // document's fingerprint.
+      saveListeningPosition(true, prevDocumentIdRef.current, prevTextFingerprintRef.current);
+      // Advance the previous-document marker NOW so the documentId-flush effect
+      // (which runs next in this same commit) sees `prev === documentId` and
+      // skips its redundant flush. Without this, it would flush the OLD key a
+      // second time AFTER the refs below have been reset to the new document,
+      // overwriting the old record with new-document content identity.
+      prevDocumentIdRef.current = documentIdRef.current;
       playbackIdRef.current++;
       applySessionLeading(null);
       pendingAnchorRef.current = null;
@@ -852,13 +868,22 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // fingerprint reset effect: on Queue advancement the fingerprint effect
   // flushes the OLD document first (it still sees the previous document id
   // here), then this effect advances `prevDocumentIdRef` to the new document.
+  // The old key must carry the fingerprint that was current BEFORE this render
+  // (`prevTextFingerprintRef`), since `textFingerprintRef` already reflects the
+  // new document's text.
   useEffect(() => {
     const prev = prevDocumentIdRef.current;
     prevDocumentIdRef.current = documentId;
     if (prev !== undefined && prev !== documentId) {
-      saveListeningPosition(true, prev);
+      saveListeningPosition(true, prev, prevTextFingerprintRef.current);
     }
   }, [documentId, saveListeningPosition]);
+
+  // Track the previous text fingerprint for the flush effects above (standard
+  // "previous value" pattern — declared LAST so it runs after them each commit).
+  useEffect(() => {
+    prevTextFingerprintRef.current = textFingerprint;
+  }, [textFingerprint]);
 
   // Restore the "saved position" (priority level 4) when the document or its
   // text changes: load the persisted record and reconcile it against the
