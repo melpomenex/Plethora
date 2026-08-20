@@ -3183,6 +3183,216 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_processing_results(updated_at);
         "#,
     ),
+    // Migration 093: profile-scoped lexicon, analyses, lookup evidence, and
+    // bounded source occurrences. Raw occurrences are optional sync data and
+    // can be rebuilt from versioned processing results.
+    Migration::new(
+        "093_language_lexicon_and_occurrences",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_lexical_entries (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            language_tag TEXT NOT NULL,
+            object_kind TEXT NOT NULL DEFAULT 'token'
+                CHECK(object_kind IN ('token', 'phrase')),
+            lexical_key TEXT NOT NULL,
+            normalized_form TEXT NOT NULL,
+            canonical_form TEXT NOT NULL,
+            lemma TEXT,
+            meanings_json TEXT NOT NULL DEFAULT '[]',
+            translations_json TEXT NOT NULL DEFAULT '[]',
+            part_of_speech TEXT,
+            pronunciation TEXT,
+            frequency REAL,
+            cefr_level TEXT,
+            provider_id TEXT,
+            provider_version TEXT,
+            processor_id TEXT,
+            processor_version TEXT,
+            identity_confidence REAL,
+            first_encountered_at INTEGER,
+            last_encountered_at INTEGER,
+            encounter_count INTEGER NOT NULL DEFAULT 0,
+            document_count INTEGER NOT NULL DEFAULT 0,
+            lookup_count INTEGER NOT NULL DEFAULT 0,
+            active_evidence_count INTEGER NOT NULL DEFAULT 0,
+            passive_evidence_count INTEGER NOT NULL DEFAULT 0,
+            knowledge_state TEXT,
+            review_relationships_json TEXT NOT NULL DEFAULT '{}',
+            user_notes TEXT,
+            ignored INTEGER NOT NULL DEFAULT 0,
+            proper_noun INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, language_tag, object_kind, lexical_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_lexical_entries_profile_language
+            ON language_lexical_entries(profile_id, language_tag, object_kind, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_lexical_entries_profile_recent
+            ON language_lexical_entries(profile_id, last_encountered_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_lexical_entries_profile_lookup
+            ON language_lexical_entries(profile_id, lookup_count DESC, last_encountered_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_lexical_entries_lemma
+            ON language_lexical_entries(profile_id, language_tag, lemma);
+
+        CREATE TABLE IF NOT EXISTS language_surface_forms (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            language_tag TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            normalized TEXT NOT NULL,
+            first_seen_at INTEGER,
+            last_seen_at INTEGER,
+            occurrence_count INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, language_tag, normalized)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_surface_forms_entry
+            ON language_surface_forms(lexical_entry_id, last_seen_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_surface_forms_profile_norm
+            ON language_surface_forms(profile_id, language_tag, normalized);
+
+        CREATE TABLE IF NOT EXISTS language_lexical_analyses (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            surface_form_id TEXT,
+            token_id TEXT,
+            sentence_id TEXT,
+            processing_key TEXT NOT NULL,
+            processor_id TEXT,
+            processor_version TEXT,
+            lemma TEXT,
+            part_of_speech TEXT,
+            morphology_json TEXT NOT NULL DEFAULT '{}',
+            confidence REAL,
+            authoritative INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY(surface_form_id) REFERENCES language_surface_forms(id) ON DELETE SET NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_language_lexical_analyses_token_version
+            ON language_lexical_analyses(profile_id, processing_key, token_id)
+            WHERE token_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_language_lexical_analyses_entry
+            ON language_lexical_analyses(lexical_entry_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_analysis_versions (
+            processing_key TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            language_tag TEXT NOT NULL,
+            content_fingerprint TEXT NOT NULL,
+            version_json TEXT NOT NULL,
+            stale INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_analysis_versions_profile
+            ON language_analysis_versions(profile_id, language_tag, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_occurrences (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            surface_form_id TEXT,
+            language_tag TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            normalized TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            document_id TEXT,
+            media_id TEXT,
+            source_id TEXT,
+            sentence_id TEXT,
+            token_id TEXT,
+            content_fingerprint TEXT,
+            source_anchor_json TEXT,
+            context_reference TEXT,
+            context_hash TEXT,
+            context_text TEXT,
+            encountered_at INTEGER NOT NULL,
+            last_encountered_at INTEGER NOT NULL,
+            repeat_count INTEGER NOT NULL DEFAULT 1,
+            audio_start_ms INTEGER,
+            audio_end_ms INTEGER,
+            was_lookup INTEGER NOT NULL DEFAULT 0,
+            was_interacted INTEGER NOT NULL DEFAULT 0,
+            processing_key TEXT,
+            confidence REAL,
+            orphan_state TEXT NOT NULL DEFAULT 'live'
+                CHECK(orphan_state IN ('live', 'orphaned', 'retained')),
+            orphaned_at INTEGER,
+            retention_expires_at INTEGER,
+            occurrence_key TEXT NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY(surface_form_id) REFERENCES language_surface_forms(id) ON DELETE SET NULL,
+            UNIQUE(profile_id, occurrence_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_profile_time
+            ON language_occurrences(profile_id, encountered_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_profile_document_time
+            ON language_occurrences(profile_id, document_id, encountered_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_profile_media_time
+            ON language_occurrences(profile_id, media_id, encountered_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_entry_time
+            ON language_occurrences(profile_id, lexical_entry_id, encountered_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_source
+            ON language_occurrences(profile_id, source_type, source_id, sentence_id, token_id);
+        CREATE INDEX IF NOT EXISTS idx_language_occurrences_retention
+            ON language_occurrences(profile_id, orphan_state, retention_expires_at);
+
+        CREATE TABLE IF NOT EXISTS language_lookup_events (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT,
+            lexical_entry_id TEXT,
+            surface TEXT NOT NULL,
+            normalized TEXT NOT NULL,
+            document_id TEXT,
+            media_id TEXT,
+            source_anchor_json TEXT,
+            looked_up_at INTEGER NOT NULL,
+            provider_id TEXT,
+            provider_version TEXT,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_lookup_events_profile_time
+            ON language_lookup_events(profile_id, looked_up_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_language_lookup_events_profile_norm
+            ON language_lookup_events(profile_id, normalized, looked_up_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_legacy_lookup_history (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL DEFAULT 'local',
+            workspace_id TEXT NOT NULL DEFAULT 'default',
+            profile_id TEXT,
+            word TEXT NOT NULL,
+            normalized TEXT NOT NULL,
+            lookup_count INTEGER NOT NULL DEFAULT 0,
+            first_seen_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL,
+            last_document_id TEXT,
+            migrated_at INTEGER,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE SET NULL,
+            UNIQUE(account_id, workspace_id, profile_id, normalized)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_legacy_lookup_scope
+            ON language_legacy_lookup_history(account_id, workspace_id, profile_id, last_seen_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

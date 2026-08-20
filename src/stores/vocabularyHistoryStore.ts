@@ -12,6 +12,8 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { migrateLanguageLookupHistory } from "../api/languageLexicon";
+import type { LegacyLookupRecord } from "../types/languageLexicon";
 
 export const VOCABULARY_HISTORY_LIMIT = 2000;
 
@@ -82,4 +84,16 @@ export function vocabularyHistoryList(
   return Object.values(state.entries).sort((a, b) =>
     sort === "count" ? b.lookupCount - a.lookupCount : b.lastSeenAt - a.lastSeenAt,
   );
+}
+
+/** Explicit migration action used when a learner selects a language profile. */
+export async function migrateLegacyVocabularyHistory(profileId: string): Promise<number> {
+  const records: LegacyLookupRecord[] = Object.values(useVocabularyHistoryStore.getState().entries).map((entry) => ({
+    word: entry.word,
+    lookupCount: entry.lookupCount,
+    firstSeenAt: Math.floor(entry.firstSeenAt / 1000),
+    lastSeenAt: Math.floor(entry.lastSeenAt / 1000),
+    lastDocumentId: entry.lastDocumentId,
+  }));
+  return migrateLanguageLookupHistory(profileId, records);
 }

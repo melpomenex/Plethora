@@ -47,6 +47,18 @@ import {
     type LanguageProfileExport,
     type LanguageProfileSyncEnvelope,
 } from '../types/languageProfile';
+import type {
+    EncounterBatchResult,
+    EncounterInput,
+    LanguageLexicalEntry,
+    LanguageLookupEvent,
+    LanguageOccurrence,
+    LanguageLexiconExport,
+    LegacyLookupRecord,
+    LexicalEntryOverride,
+    LexiconPage,
+    LookupInput,
+} from '../types/languageLexicon';
 import { getPositionProgress, type DocumentPosition } from '../types/position';
 import {
     fetchYouTubeTranscript,
@@ -821,6 +833,56 @@ function browserEvidence(value: unknown): DetectionEvidence | undefined {
     return typeof evidence.language === 'string' ? evidence : undefined;
 }
 
+const LANGUAGE_LEXICON_STORAGE_KEY = 'plethora-language-lexicon-v1';
+type BrowserLexiconData = {
+    entries: LanguageLexicalEntry[];
+    occurrences: LanguageOccurrence[];
+    lookups: LanguageLookupEvent[];
+};
+
+function readBrowserLexiconData(): BrowserLexiconData {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LANGUAGE_LEXICON_STORAGE_KEY) || '{}') as Partial<BrowserLexiconData>;
+        return {
+            entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+            occurrences: Array.isArray(parsed.occurrences) ? parsed.occurrences : [],
+            lookups: Array.isArray(parsed.lookups) ? parsed.lookups : [],
+        };
+    } catch {
+        return { entries: [], occurrences: [], lookups: [] };
+    }
+}
+
+function writeBrowserLexiconData(data: BrowserLexiconData): void {
+    try { localStorage.setItem(LANGUAGE_LEXICON_STORAGE_KEY, JSON.stringify(data)); } catch { /* private/offline mode */ }
+}
+
+function browserLexiconPage<T>(items: T[], offset: number, limit: number): LexiconPage<T> {
+    const boundedOffset = Math.max(0, offset || 0);
+    const boundedLimit = Math.min(100, Math.max(1, limit || 50));
+    return { items: items.slice(boundedOffset, boundedOffset + boundedLimit), offset: boundedOffset, limit: boundedLimit, total: items.length, hasMore: boundedOffset + boundedLimit < items.length };
+}
+
+function browserLexicalEntry(data: BrowserLexiconData, input: EncounterInput | LookupInput, now: number): LanguageLexicalEntry {
+    const profileId = 'profileId' in input && typeof input.profileId === 'string' ? input.profileId : '';
+    const languageTag = input.languageTag || 'und';
+    const normalized = input.surface.trim().toLowerCase();
+    let entry = data.entries.find((value) => value.profileId === profileId && value.languageTag === languageTag && value.normalizedForm === normalized);
+    if (!entry) {
+        entry = {
+            id: uuidv4(), profileId, languageTag, objectKind: 'token', lexicalKey: normalized,
+            normalizedForm: normalized, canonicalForm: input.surface.trim(), meanings: [], translations: [],
+            reviewRelationships: {}, encounterCount: 0, documentCount: 0, lookupCount: 0,
+            activeEvidenceCount: 0, passiveEvidenceCount: 0, ignored: false, properNoun: false,
+            createdAt: now, updatedAt: now, version: 1,
+        };
+        data.entries.push(entry);
+    }
+    entry.updatedAt = now;
+    entry.version += 1;
+    return entry;
+}
+
 /**
  * Command handlers mapping - mirrors Tauri commands
  */
@@ -830,6 +892,144 @@ function toUnixSeconds(value: unknown): number | null {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+    // Browser lexicon storage is a bounded compatibility implementation. It
+    // uses a separate namespace from the legacy lookup store and never writes
+    // Queue or learning-item data.
+    get_language_lexical_entry: async (args) => {
+        const data = readBrowserLexiconData();
+        return data.entries.find((entry) => entry.profileId === args.profileId && entry.id === args.entryId) || null;
+    },
+    list_language_lexical_entries: async (args) => {
+        const data = readBrowserLexiconData();
+        const entries = data.entries
+            .filter((entry) => entry.profileId === args.profileId && (!args.languageTag || entry.languageTag === args.languageTag))
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+        return browserLexiconPage(entries, Number(args.offset) || 0, Number(args.limit) || 50);
+    },
+    upsert_language_lexical_entry: async (args) => {
+        const data = readBrowserLexiconData();
+        const input = (args.input || {}) as Record<string, any>;
+        const now = Math.floor(Date.now() / 1000);
+        let entry = data.entries.find((value) => value.profileId === input.profileId && value.languageTag === input.languageTag && value.normalizedForm === String(input.normalizedForm || '').trim().toLowerCase());
+        if (!entry) {
+            entry = {
+                id: String(input.id || uuidv4()), profileId: String(input.profileId), languageTag: String(input.languageTag || 'und'),
+                objectKind: input.objectKind || 'token', lexicalKey: String(input.lemma || input.normalizedForm || '').trim().toLowerCase(),
+                normalizedForm: String(input.normalizedForm || '').trim().toLowerCase(), canonicalForm: String(input.canonicalForm || input.lemma || input.normalizedForm || ''),
+                lemma: input.lemma, meanings: input.meanings || [], translations: input.translations || [], partOfSpeech: input.partOfSpeech,
+                pronunciation: input.pronunciation, providerId: input.providerId, providerVersion: input.providerVersion,
+                processorId: input.processorId, processorVersion: input.processorVersion, identityConfidence: input.identityConfidence,
+                reviewRelationships: {}, encounterCount: 0, documentCount: 0, lookupCount: 0, activeEvidenceCount: 0, passiveEvidenceCount: 0,
+                ignored: false, properNoun: false, createdAt: now, updatedAt: now, version: 1,
+            } satisfies LanguageLexicalEntry;
+            data.entries.push(entry);
+        } else {
+            Object.assign(entry, input, { updatedAt: now, version: entry.version + 1 });
+        }
+        writeBrowserLexiconData(data);
+        return entry;
+    },
+    record_language_encounter: async (args) => {
+        const result = await commandHandlers.record_language_encounter_batch({ inputs: [args.input] });
+        return (result as EncounterBatchResult).entries[0] || null;
+    },
+    record_language_encounter_batch: async (args) => {
+        const data = readBrowserLexiconData();
+        const inputs = (Array.isArray(args.inputs) ? args.inputs : []) as EncounterInput[];
+        const entries: LanguageLexicalEntry[] = [];
+        let accepted = 0;
+        let coalesced = 0;
+        const now = Math.floor(Date.now() / 1000);
+        for (const input of inputs) {
+            const entry = browserLexicalEntry(data, input, now);
+            const normalized = String(input.normalized || input.surface).trim().toLowerCase();
+            const occurrenceKey = input.id || [input.profileId, input.documentId || input.mediaId || '', input.sentenceId || '', input.tokenId || '', normalized, input.contextReference || ''].join('|');
+            const previous = data.occurrences.find((occurrence) => occurrence.profileId === input.profileId && occurrence.occurrenceKey === occurrenceKey);
+            if (previous) {
+                previous.repeatCount += 1;
+                previous.lastEncounteredAt = input.encounteredAt || now;
+                previous.wasLookup ||= Boolean(input.wasLookup);
+                previous.wasInteracted ||= Boolean(input.wasInteracted);
+                coalesced += 1;
+            } else {
+                data.occurrences.push({
+                    id: input.id || uuidv4(), profileId: input.profileId, lexicalEntryId: entry.id, languageTag: input.languageTag,
+                    surface: input.surface, normalized, sourceType: input.sourceType || input.sourceAnchor?.sourceType || 'text',
+                    documentId: input.documentId || input.sourceAnchor?.documentId, mediaId: input.mediaId || input.sourceAnchor?.mediaId,
+                    sourceId: input.sourceId || input.sourceAnchor?.sourceId, sentenceId: input.sentenceId, tokenId: input.tokenId,
+                    contentFingerprint: input.contentFingerprint, sourceAnchor: input.sourceAnchor, contextReference: input.contextReference,
+                    contextHash: input.contextHash, contextText: input.contextText?.slice(0, 512), encounteredAt: input.encounteredAt || now,
+                    lastEncounteredAt: input.encounteredAt || now, repeatCount: 1, audioStartMs: input.audioStartMs, audioEndMs: input.audioEndMs,
+                    wasLookup: Boolean(input.wasLookup), wasInteracted: Boolean(input.wasInteracted), processingKey: input.processingKey,
+                    confidence: input.confidence, orphanState: 'live', retentionExpiresAt: input.retentionExpiresAt, occurrenceKey,
+                });
+                accepted += 1;
+            }
+            entry.encounterCount += 1;
+            entry.lastEncounteredAt = input.encounteredAt || now;
+            entry.firstEncounteredAt ||= input.encounteredAt || now;
+            if (input.documentId || input.mediaId) entry.documentCount = new Set(data.occurrences.filter((occurrence) => occurrence.lexicalEntryId === entry.id).map((occurrence) => occurrence.documentId || occurrence.mediaId)).size;
+            if (input.wasInteracted) entry.activeEvidenceCount += 1; else entry.passiveEvidenceCount += 1;
+            if (!entries.some((value) => value.id === entry.id)) entries.push(entry);
+        }
+        data.occurrences = data.occurrences.slice(-10_000);
+        writeBrowserLexiconData(data);
+        return { accepted, coalesced, entries } satisfies EncounterBatchResult;
+    },
+    list_language_occurrences: async (args) => {
+        const data = readBrowserLexiconData();
+        const occurrences = data.occurrences.filter((occurrence) => occurrence.profileId === args.profileId &&
+            (!args.entryId || occurrence.lexicalEntryId === args.entryId) &&
+            (!args.documentId || occurrence.documentId === args.documentId) &&
+            (!args.mediaId || occurrence.mediaId === args.mediaId) &&
+            (!args.languageTag || occurrence.languageTag === args.languageTag)).sort((a, b) => b.encounteredAt - a.encounteredAt);
+        return browserLexiconPage(occurrences, Number(args.offset) || 0, Number(args.limit) || 50);
+    },
+    record_language_lookup: async (args) => {
+        const data = readBrowserLexiconData();
+        const input = (args.input || {}) as LookupInput;
+        const now = input.lookedUpAt || Math.floor(Date.now() / 1000);
+        const entry = input.profileId ? browserLexicalEntry(data, input, now) : undefined;
+        if (entry) {
+            entry.lookupCount += 1;
+            entry.updatedAt = now;
+        }
+        const event: LanguageLookupEvent = {
+            id: uuidv4(), profileId: input.profileId, lexicalEntryId: entry?.id, surface: input.surface,
+            normalized: input.surface.trim().toLowerCase(), documentId: input.documentId, mediaId: input.mediaId,
+            sourceAnchor: input.sourceAnchor, lookedUpAt: now, providerId: input.providerId, providerVersion: input.providerVersion,
+        };
+        data.lookups = [event, ...data.lookups].slice(0, 2_000);
+        writeBrowserLexiconData(data);
+        return event;
+    },
+    migrate_language_lookup_history: async (args) => {
+        const records = (Array.isArray(args.records) ? args.records : []) as LegacyLookupRecord[];
+        for (const record of records) await commandHandlers.record_language_lookup({ input: { profileId: args.profileId, surface: record.word, lookedUpAt: record.lastSeenAt } });
+        return records.length;
+    },
+    apply_language_lexical_override: async (args) => {
+        const data = readBrowserLexiconData();
+        const input = (args.input || {}) as LexicalEntryOverride;
+        const entry = data.entries.find((value) => value.profileId === input.profileId && value.id === input.entryId);
+        if (!entry) throw new Error(`Lexical entry ${input.entryId}`);
+        Object.assign(entry, { ...input, updatedAt: Math.floor(Date.now() / 1000), version: entry.version + 1 });
+        writeBrowserLexiconData(data);
+        return entry;
+    },
+    export_language_lexicon: async (args) => {
+        const data = readBrowserLexiconData();
+        const profileId = String(args.profileId || '');
+        const occurrences = data.occurrences.filter((occurrence) => occurrence.profileId === profileId);
+        return {
+            schemaVersion: 1, profileId, exportedAt: Math.floor(Date.now() / 1000),
+            entries: data.entries.filter((entry) => entry.profileId === profileId), surfaces: [], analyses: [],
+            occurrences: args.includeOccurrences ? occurrences.slice(Number(args.occurrenceOffset) || 0, (Number(args.occurrenceOffset) || 0) + Math.min(100, Number(args.occurrenceLimit) || 50)) : [],
+            lookupEvents: data.lookups.filter((lookup) => lookup.profileId === profileId), occurrencesIncluded: Boolean(args.includeOccurrences),
+            occurrenceOffset: Number(args.occurrenceOffset) || 0, occurrenceLimit: Math.min(100, Number(args.occurrenceLimit) || 50), occurrenceTotal: occurrences.length,
+        } satisfies LanguageLexiconExport;
+    },
+    serialize_language_lexicon_for_sync: async (args) => commandHandlers.export_language_lexicon({ ...args, includeOccurrences: false }),
     // Browser/PWA profile persistence mirrors the native contract using a
     // scoped localStorage record. No network or provider is required for any
     // profile/association action.
