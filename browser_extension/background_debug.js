@@ -18,7 +18,7 @@ function testChromeAPIs() {
   try {
     if (chrome && chrome.tabs) {
     } else {
-      console.error('❌ chrome.tabs not available';
+      console.error('❌ chrome.tabs not available');
     }
   } catch (error) {
     console.error('❌ Error testing chrome.tabs:', error);
@@ -27,7 +27,7 @@ function testChromeAPIs() {
   try {
     if (chrome && chrome.contextMenus) {
     } else {
-      console.error('❌ chrome.contextMenus not available';
+      console.error('❌ chrome.contextMenus not available');
     }
   } catch (error) {
     console.error('❌ Error testing chrome.contextMenus:', error);
@@ -36,7 +36,7 @@ function testChromeAPIs() {
   try {
     if (chrome && chrome.commands) {
     } else {
-      console.error('❌ chrome.commands not available';
+      console.error('❌ chrome.commands not available');
     }
   } catch (error) {
     console.error('❌ Error testing chrome.commands:', error);
@@ -45,7 +45,7 @@ function testChromeAPIs() {
   try {
     if (chrome && chrome.storage) {
     } else {
-      console.error('❌ chrome.storage not available';
+      console.error('❌ chrome.storage not available');
     }
   } catch (error) {
     console.error('❌ Error testing chrome.storage:', error);
@@ -54,7 +54,7 @@ function testChromeAPIs() {
   try {
     if (chrome && chrome.notifications) {
     } else {
-      console.error('❌ chrome.notifications not available';
+      console.error('❌ chrome.notifications not available');
     }
   } catch (error) {
     console.error('❌ Error testing chrome.notifications:', error);

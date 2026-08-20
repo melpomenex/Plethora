@@ -970,6 +970,123 @@ fn select_extension_document_text(payload: &ExtensionRequest) -> String {
     }
 }
 
+/// Detect the navigation/index dump produced when a whole page shell is
+/// converted to text instead of an article. Real prose can contain brackets,
+/// but a dense run of numbered/link markers plus navigation copy is a strong
+/// signal that the payload should go through the readable extractor.
+fn looks_like_navigation_heavy_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.len() < 500 {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let bracket_markers = trimmed.matches('[').count();
+    let word_count = trimmed.split_whitespace().count().max(1);
+    let marker_density = bracket_markers * 8 >= word_count;
+    let navigation_copy = lower.contains("skip to")
+        || lower.contains("sign in")
+        || lower.contains("search input")
+        || lower.contains("show more")
+        || lower.contains("view all");
+
+    bracket_markers >= 12 && (marker_density || navigation_copy)
+}
+
+#[derive(Debug)]
+struct BrowserImportContent {
+    text: String,
+    article_html: Option<String>,
+    images: Option<Vec<DocumentImageAsset>>,
+    mode: &'static str,
+}
+
+fn extension_image_assets(payload: &ExtensionRequest) -> Option<Vec<DocumentImageAsset>> {
+    payload.extracted_images.as_ref().map(|images| {
+        images
+            .iter()
+            .map(|image| DocumentImageAsset {
+                src: image.src.clone(),
+                alt: image.alt.clone(),
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+/// Resolve the document body before persistence. Explicit extension text is
+/// trusted when it looks like an article; empty or navigation-heavy captures
+/// use Readability first so a large page shell cannot masquerade as a good
+/// import. The generic extractor remains the final, explicitly marked fallback.
+async fn resolve_browser_import_content(payload: &ExtensionRequest) -> BrowserImportContent {
+    let supplied_text = select_extension_document_text(payload);
+    let supplied_text_was_explicit = !payload.text.trim().is_empty();
+    let supplied_html = payload
+        .html_content
+        .as_ref()
+        .filter(|html| !html.trim().is_empty())
+        .cloned();
+    let supplied_images = extension_image_assets(payload);
+    let supplied_is_navigation_heavy = looks_like_navigation_heavy_text(&supplied_text);
+    let needs_readability = !supplied_text_was_explicit || supplied_is_navigation_heavy;
+
+    if needs_readability {
+        match fetch_readable_content(&payload.url).await {
+            Ok(readable) if !readable.text.trim().is_empty() => {
+                return BrowserImportContent {
+                    text: readable.text,
+                    article_html: Some(readable.html),
+                    images: if readable.images.is_empty() {
+                        supplied_images
+                    } else {
+                        Some(readable.images)
+                    },
+                    mode: "rich-preview",
+                };
+            }
+            Ok(_) => {}
+            Err(error) => {
+                warn!(
+                    "Readable browser import failed for {}: {}",
+                    payload.url, error
+                );
+            }
+        }
+    }
+
+    if !supplied_text.trim().is_empty() {
+        return BrowserImportContent {
+            text: supplied_text,
+            article_html: supplied_html,
+            images: supplied_images,
+            mode: if supplied_is_navigation_heavy {
+                "low-confidence"
+            } else if payload.html_content.as_ref().is_some_and(|html| !html.trim().is_empty()) {
+                "rich-preview"
+            } else {
+                "text-editor"
+            },
+        };
+    }
+
+    match fetch_page_content(&payload.url).await {
+        Ok(text) => BrowserImportContent {
+            text,
+            article_html: None,
+            images: supplied_images,
+            mode: "raw-fallback",
+        },
+        Err(error) => {
+            warn!("Failed to fetch browser import {}: {}", payload.url, error);
+            BrowserImportContent {
+                text: String::new(),
+                article_html: None,
+                images: supplied_images,
+                mode: "raw-fallback",
+            }
+        }
+    }
+}
+
 fn build_browser_import_metadata(payload: &ExtensionRequest) -> crate::models::DocumentMetadata {
     let browser_import_mode = if payload
         .html_content
@@ -1033,6 +1150,18 @@ fn build_browser_import_metadata_with_article(
             "text-editor".to_string()
         },
     );
+    metadata
+}
+
+fn build_browser_extract_parent_metadata(
+    payload: &ExtensionRequest,
+) -> crate::models::DocumentMetadata {
+    let mut metadata = build_browser_import_metadata(payload);
+    // Selection markup belongs to the extract, never to the parent page. In
+    // particular, do not let legacy recovery promote it into document text.
+    metadata.article_html = None;
+    metadata.extracted_images = None;
+    metadata.browser_import_mode = None;
     metadata
 }
 
@@ -1160,21 +1289,36 @@ async fn handle_import_request(
     file_type: FileType,
 ) -> Result<ExtensionResponse, AppError> {
     let collection_id = resolve_browser_import_collection_id(&state.repo).await;
-    let payload_has_article_html = payload
+    let initial_payload_content = select_extension_document_text(payload);
+    let mut payload_content = initial_payload_content.clone();
+    let mut import_article_html = payload
         .html_content
         .as_ref()
-        .map(|html| !html.trim().is_empty())
-        .unwrap_or(false);
-    let payload_content = select_extension_document_text(payload);
-    let payload_images = payload.extracted_images.as_ref().map(|images| {
-        images
-            .iter()
-            .map(|image| DocumentImageAsset {
-                src: image.src.clone(),
-                alt: image.alt.clone(),
-            })
-            .collect::<Vec<_>>()
-    });
+        .filter(|html| !html.trim().is_empty())
+        .cloned();
+    let mut payload_images = extension_image_assets(payload);
+    let mut import_mode = if import_article_html.is_some() {
+        "rich-preview"
+    } else if initial_payload_content.trim().is_empty() {
+        "raw-fallback"
+    } else if looks_like_navigation_heavy_text(&initial_payload_content) {
+        "low-confidence"
+    } else {
+        "text-editor"
+    };
+
+    if matches!(file_type, FileType::Html)
+        && (payload.text.trim().is_empty()
+            || looks_like_navigation_heavy_text(&initial_payload_content))
+    {
+        let resolved = resolve_browser_import_content(payload).await;
+        payload_content = resolved.text;
+        import_article_html = resolved.article_html;
+        payload_images = resolved.images;
+        import_mode = resolved.mode;
+    }
+
+    let payload_has_article_html = import_article_html.is_some();
 
     let normalized_url = normalize_browser_source_url(&payload.url);
     let existing = match state.repo.find_document_by_url(&normalized_url).await {
@@ -1205,11 +1349,12 @@ async fn handle_import_request(
             && ((!payload_content.is_empty() && existing_missing_text)
                 || (payload_has_article_html && existing_missing_html))
         {
-            let metadata = build_browser_import_metadata_with_article(
+            let mut metadata = build_browser_import_metadata_with_article(
                 payload,
-                payload.html_content.clone(),
+                import_article_html.clone(),
                 payload_images.clone(),
             );
+            metadata.browser_import_mode = Some(import_mode.to_string());
             let next_content = if payload_content.is_empty() {
                 doc.content.unwrap_or_default()
             } else {
@@ -1373,15 +1518,10 @@ async fn handle_import_request(
         if matches!(file_type, FileType::Youtube) {
             String::new()
         } else {
-            info!("No content provided, fetching from URL: {}", payload.url);
-            match fetch_page_content(&payload.url).await {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!("Failed to fetch content from {}: {}", payload.url, e);
-                    // Continue without content - will create document with URL and title only
-                    String::new()
-                }
-            }
+            // HTML imports are resolved above. This branch remains for
+            // non-HTML import types and intentionally leaves them empty when
+            // no content was supplied.
+            String::new()
         }
     } else {
         payload_content.clone()
@@ -1395,11 +1535,13 @@ async fn handle_import_request(
     let is_html = matches!(file_type, FileType::Html);
     let content_len = content.len();
     let mut metadata = if is_html {
-        Some(build_browser_import_metadata_with_article(
+        let mut metadata = build_browser_import_metadata_with_article(
             payload,
-            payload.html_content.clone(),
+            import_article_html.clone(),
             payload_images.clone(),
-        ))
+        );
+        metadata.browser_import_mode = Some(import_mode.to_string());
+        Some(metadata)
     } else if matches!(file_type, FileType::Youtube) {
         Some(crate::models::DocumentMetadata {
             author: author.clone(),
@@ -1484,7 +1626,7 @@ async fn handle_import_request(
     // Refetching it can produce a longer but much noisier Readability result
     // (notably Wikipedia navigation/link dumps), so only enrich genuinely
     // sparse imports such as bare link saves.
-    if is_html && content_len < 500 {
+    if is_html && content_len < 500 && import_mode == "raw-fallback" {
         spawn_browser_document_enrichment(
             state.repo.clone(),
             created.id.clone(),
@@ -1684,32 +1826,22 @@ async fn handle_extract_request(
             .map(str::is_empty)
             .unwrap_or(true);
         if missing_content && matches!(doc.file_type, FileType::Html) {
-            let fallback_content = select_extension_document_text(payload);
-            if !fallback_content.is_empty() {
-                let metadata = build_browser_import_metadata(payload);
-                if let Err(error) = state
-                    .repo
-                    .update_document_content(
-                        &document_id,
-                        &fallback_content,
-                        None,
-                        None,
-                        Some(metadata),
-                    )
-                    .await
-                {
-                    warn!(
-                        "Failed to repair empty parent document {} for extract: {}",
-                        document_id, error
-                    );
-                }
-            }
+            // An extract is a selection, not a page capture. Leave the parent
+            // body untouched and let the safe page-level enrichment path
+            // obtain document content from the source URL.
+            spawn_browser_document_enrichment(
+                state.repo.clone(),
+                document_id.clone(),
+                doc.date_modified,
+                payload.url.clone(),
+                0,
+            );
         }
         document_id
     } else {
         let inferred_file_type = infer_extension_file_type(payload);
         let metadata = if matches!(inferred_file_type, FileType::Html) {
-            Some(build_browser_import_metadata(payload))
+            Some(build_browser_extract_parent_metadata(payload))
         } else {
             None
         };
@@ -1719,9 +1851,10 @@ async fn handle_extract_request(
             title: payload.title.clone(),
             file_path: normalized_url,
             file_type: inferred_file_type,
-            // The selection is immediately readable even if the background
-            // full-page fetch is blocked by the source site.
-            content: Some(select_extension_document_text(payload)),
+            // The selection is persisted below as an extract. Never promote
+            // it into the parent page body; background enrichment may fill
+            // the parent with a page-level readable capture.
+            content: Some(String::new()),
             content_hash: None,
             total_pages: None,
             current_page: None,
@@ -5263,6 +5396,39 @@ mod browser_import_persistence_tests {
         let selected = select_extension_document_text(&html_only);
         assert!(selected.contains("Heading"));
         assert!(selected.contains("Recovered body."));
+    }
+
+    #[test]
+    fn explicit_extract_parent_metadata_does_not_keep_selection_markup() {
+        let selection = payload(
+            "extract",
+            "Selected sentence only",
+            Some("<p>Selected sentence only</p>"),
+            "https://example.com/article",
+        );
+        let metadata = build_browser_extract_parent_metadata(&selection);
+        assert_eq!(metadata.source.as_deref(), Some("browser_extension"));
+        assert!(metadata.article_html.is_none());
+        assert!(metadata.extracted_images.is_none());
+        assert!(metadata.browser_import_mode.is_none());
+    }
+
+    #[test]
+    fn navigation_shell_text_is_detected_but_normal_prose_is_not() {
+        let shell = format!(
+            "[Skip to main content][1] [Skip to navigation][2] {}",
+            (0..80)
+                .map(|index| format!("[Link {index}]"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        assert!(looks_like_navigation_heavy_text(&shell));
+
+        let prose = (0..80)
+            .map(|index| format!("Paragraph {index} contains a complete sentence about the article topic."))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        assert!(!looks_like_navigation_heavy_text(&prose));
     }
 
     #[test]

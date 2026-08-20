@@ -180,6 +180,35 @@
   }
 
   /**
+   * Passive capture is opt-in. Keep this normalization in the shared module
+   * so the worker and tests use the same fail-closed interpretation of
+   * missing, malformed, and explicit settings.
+   */
+  function normalizeCaptureSettings(settings = {}) {
+    const source = settings && typeof settings === 'object' ? settings : {};
+    return {
+      autoSave: source.autoSave === true,
+      saveHistory: source.saveHistory === true,
+      saveBookmarks: source.saveBookmarks === true
+    };
+  }
+
+  function shouldCapturePassiveEvent(event, settingsReady, settings = {}) {
+    if (settingsReady !== true) return false;
+    const normalized = normalizeCaptureSettings(settings);
+    switch (event) {
+      case 'navigation':
+        return normalized.autoSave;
+      case 'history':
+        return normalized.saveHistory;
+      case 'bookmark':
+        return normalized.saveBookmarks;
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Fit an AI-processing request (`{content, operation, ...}`) to budget.
    * Distinct from fitPayloadToBudget because that function's shape is fixed
    * to the page/extract payload (buildExtensionPayload) and would silently
@@ -330,6 +359,8 @@
     checkRequestBudget,
     withoutRichContent,
     describeDegradation,
+    normalizeCaptureSettings,
+    shouldCapturePassiveEvent,
     isXStatusURL,
     normalizeExtractRecord,
     mergeExtracts,

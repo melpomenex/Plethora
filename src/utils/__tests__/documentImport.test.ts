@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { processHtmlContent } from "../documentImport";
+import { processHtmlContent, processPlainTextContent } from "../documentImport";
 
 vi.mock("../../lib/tauri", () => ({ isTauri: () => true }));
 
@@ -107,5 +107,20 @@ describe("processHtmlContent", () => {
     expect(parsed.body.textContent).toContain("The real article.");
     expect(parsed.body.textContent).not.toContain("Jump to content");
     expect(parsed.body.textContent).not.toContain("Related navigation");
+  });
+});
+
+describe("processPlainTextContent", () => {
+  it("preserves paragraphs and line breaks while escaping markup", () => {
+    const html = processPlainTextContent(
+      "First paragraph.\nStill first paragraph.\n\nSecond paragraph with <angle brackets>.",
+      "Captured page",
+    );
+
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    expect(parsed.querySelectorAll("article > p")).toHaveLength(2);
+    expect(parsed.querySelector("article > p")?.innerHTML).toContain("First paragraph.<br>Still first paragraph.");
+    expect(parsed.body.textContent).toContain("Second paragraph with <angle brackets>.");
+    expect(parsed.body.querySelector("script")).toBeNull();
   });
 });

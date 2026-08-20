@@ -2044,7 +2044,7 @@ mod browser_import_recovery_tests {
         // A fresh load (simulating `extract_document_text`'s second read) must
         // now see the healed full body, not the original empty content — the
         // parity guarantee between the two commands.
-        let reloaded = repo
+        let mut reloaded = repo
             .get_document(&doc.id)
             .await
             .expect("reload")
@@ -2057,6 +2057,17 @@ mod browser_import_recovery_tests {
                 .unwrap_or(false),
             "healed content must be persisted for the next command to read"
         );
+
+        let changed_again = recover_document_content(&mut reloaded, &repo)
+            .await
+            .expect("repeat recovery");
+        assert!(!changed_again, "a healed browser import should be idempotent");
+    }
+
+    #[test]
+    fn does_not_recover_browser_import_without_article_html() {
+        let doc = html_document(Some("browser_extension"), None);
+        assert!(recover_browser_import_text(&doc).is_none());
     }
 
     #[test]

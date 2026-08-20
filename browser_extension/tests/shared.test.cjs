@@ -10,9 +10,37 @@ const {
   fitAiRequestToBudget,
   fitPayloadToBudget,
   isXStatusURL,
+  normalizeCaptureSettings,
   serializedByteLength,
+  shouldCapturePassiveEvent,
   withoutRichContent
 } = globalThis.IncrementumExtensionShared;
+
+test('passive capture settings default to disabled and require explicit true', () => {
+  assert.deepEqual(normalizeCaptureSettings({}), {
+    autoSave: false,
+    saveHistory: false,
+    saveBookmarks: false
+  });
+  assert.deepEqual(normalizeCaptureSettings({
+    autoSave: 1,
+    saveHistory: 'true',
+    saveBookmarks: true
+  }), {
+    autoSave: false,
+    saveHistory: false,
+    saveBookmarks: true
+  });
+});
+
+test('passive capture is blocked before settings load and scoped by event', () => {
+  const settings = { autoSave: true, saveHistory: false, saveBookmarks: true };
+  assert.equal(shouldCapturePassiveEvent('navigation', false, settings), false);
+  assert.equal(shouldCapturePassiveEvent('history', true, settings), false);
+  assert.equal(shouldCapturePassiveEvent('bookmark', true, settings), true);
+  assert.equal(shouldCapturePassiveEvent('navigation', true, settings), true);
+  assert.equal(shouldCapturePassiveEvent('unknown', true, settings), false);
+});
 
 test('whole-page payloads default to page and do not duplicate text', () => {
   const payload = buildExtensionPayload({
