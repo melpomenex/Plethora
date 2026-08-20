@@ -863,16 +863,12 @@ export function TTSSettings() {
               <p className="text-sm text-muted-foreground">{t("settings.ttsDescription")}</p>
             </div>
           </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              type="checkbox"
-              className="peer sr-only"
-              checked={tts.enabled}
-              onChange={(e) => updateTTS({ enabled: e.target.checked })}
-            />
-            <div className="h-6 w-11 rounded-full bg-muted peer-checked:bg-primary peer-focus:ring-2 peer-focus:ring-primary/30" />
-            <div className="absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
-          </label>
+          <Switch
+            checked={tts.enabled}
+            onCheckedChange={(checked) => updateTTS({ enabled: checked })}
+            aria-label="Enable Text-to-Speech"
+            touchTarget
+          />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -923,7 +919,7 @@ export function TTSSettings() {
                       {isPaidTtsProvider(adapter.id) && (
                         <span
                           title="This provider is an external paid API. Billable speech generation is only sent after you enable paid TTS."
-                          className="mt-1 inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                          className="mt-1 inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning"
                         >
                           <Coins className="w-3 h-3" />
                           Paid API
@@ -1133,8 +1129,8 @@ export function TTSSettings() {
 
         {/* Paid/cloud indicator + explicit consent (ai-billing-safety #14) */}
         {isPaidTtsProvider(String(tts.provider)) && (
-          <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-            <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
+            <p className="flex items-start gap-1.5 text-xs text-warning">
               <Coins className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
               <span>
                 {activeAdapter.label} is a paid cloud voice provider. Speech

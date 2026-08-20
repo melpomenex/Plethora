@@ -5,12 +5,14 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { AudioTranscriptionSettings } from "../AudioTranscriptionSettings";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
+const presentation = vi.hoisted(() => ({ desktop: false }));
+
 vi.mock("../../../lib/tauri", () => ({
-  isTauri: () => false,
+  isTauri: () => presentation.desktop,
   isNativeMobile: () => false,
   isPWA: () => false,
   invokeCommand: vi.fn().mockResolvedValue(undefined),
@@ -27,7 +29,15 @@ vi.mock("../../stores/useTranscriptionStore", () => ({
 
 vi.mock("../../stores/transcriptionQueueStore", () => ({
   useTranscriptionQueueStore: () => ({
+    entries: [],
     fetchQueue: vi.fn().mockResolvedValue(undefined),
+    cancel: vi.fn(),
+    retry: vi.fn(),
+    prioritize: vi.fn(),
+    removeEntry: vi.fn(),
+    clearByStatus: vi.fn(),
+    activePhase: null,
+    activeProgress: 0,
   }),
 }));
 
@@ -45,6 +55,7 @@ vi.mock("./HuggingFaceModelManager", () => ({
 }));
 
 beforeEach(() => {
+  presentation.desktop = false;
   localStorage.clear();
   useSettingsStore.setState({
     settings: JSON.parse(JSON.stringify(useSettingsStore.getState().settings)),
@@ -95,5 +106,19 @@ describe("AudioTranscriptionSettings Fast Cloud card theming", () => {
     expect(infoCard.className).toContain("border-border");
     expect(infoCard.innerHTML).not.toContain("from-orange-500");
     expect(infoCard.innerHTML).not.toContain("border-orange-200");
+  });
+
+  it("renders the auto-transcribe toggle as the shared Switch and updates the store on toggle", () => {
+    presentation.desktop = true;
+    render(<AudioTranscriptionSettings />);
+
+    const sw = screen.getByRole("switch", { name: "Auto-transcribe local videos" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(sw).toBeChecked();
+    expect(sw.closest("label")?.className).toContain("min-h-[44px]");
+
+    fireEvent.click(sw);
+    expect(useSettingsStore.getState().settings.audioTranscription.autoTranscribeLocalVideos).toBe(false);
+    expect(sw).toHaveAttribute("aria-checked", "false");
   });
 });
