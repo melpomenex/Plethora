@@ -80,20 +80,40 @@ fn try_output(cmd: &mut Command) -> Option<String> {
     }
 }
 
-fn run_with_path(cmd: &str, args: &[&str]) -> Option<String> {
-    try_output(Command::new(cmd).args(args))
+/// Run a tool by absolute path, trying known install locations in order.
+/// A hostile `PATH` can substitute an arbitrary binary when tools are looked
+/// up by name, so system probes only ever invoke absolute paths.
+fn run_absolute(candidates: &[&str], args: &[&str]) -> Option<String> {
+    candidates.iter().find_map(|candidate| {
+        let path = std::path::Path::new(candidate);
+        if !path.is_file() {
+            return None;
+        }
+        try_output(Command::new(path).args(args))
+    })
 }
 
 fn nvidia_smi() -> Option<GpuInfo> {
-    let name = run_with_path("nvidia-smi", &[
-        "--query-gpu=name",
-        "--format=csv,noheader,nounits",
-    ])?;
+    let name = run_absolute(
+        &[
+            "/usr/bin/nvidia-smi",
+            "/usr/local/bin/nvidia-smi",
+            "/usr/bin/nvidia-smi.bin",
+        ],
+        &["--query-gpu=name", "--format=csv,noheader,nounits"],
+    )?;
     let name = name.lines().next().map(|l| l.trim().to_string())?;
-    let vram = run_with_path("nvidia-smi", &[
-        "--query-gpu=memory.total",
-        "--format=csv,noheader,nounits",
-    ])
+    let vram = run_absolute(
+        &[
+            "/usr/bin/nvidia-smi",
+            "/usr/local/bin/nvidia-smi",
+            "/usr/bin/nvidia-smi.bin",
+        ],
+        &[
+            "--query-gpu=memory.total",
+            "--format=csv,noheader,nounits",
+        ],
+    )
     .and_then(|v| {
         v.lines()
             .next()
@@ -134,7 +154,7 @@ fn linux_gpu_probe() -> Option<GpuInfo> {
         }
     }
     // Generic lspci fallback (may require pciutils).
-    if let Some(out) = run_with_path("lspci", &[]) {
+    if let Some(out) = run_absolute(&["/usr/bin/lspci", "/usr/sbin/lspci"], &[]) {
         let line = out
             .lines()
             .find(|l| {
@@ -208,7 +228,8 @@ fn windows_gpu_probe() -> Option<GpuInfo> {
 
 #[cfg(target_os = "macos")]
 fn os_version() -> Option<String> {
-    let mut cmd = Command::new("sw_vers");
+    // Absolute path: never resolve `sw_vers` through a (potentially hostile) PATH.
+    let mut cmd = Command::new("/usr/bin/sw_vers");
     cmd.arg("-productVersion");
     try_output(&mut cmd)
 }

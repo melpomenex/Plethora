@@ -216,7 +216,7 @@ pub async fn fetch_repo_info(
     repo_id: &str,
     revision: Option<&str>,
 ) -> Result<HfRepoInfo> {
-    let mut url = format!("{}/{}", HF_API_BASE, repo_id);
+    let mut url = format!("{}/{}", HF_API_BASE, url_encode_segments(repo_id));
     if let Some(rev) = revision.filter(|r| !r.is_empty() && *r != "main") {
         url.push_str(&format!("?revision={}", url_encode(rev)));
     }
@@ -248,11 +248,18 @@ fn url_encode(value: &str) -> String {
 }
 
 /// Percent-encode each `/`-separated path segment independently, preserving
-/// `/` as the URL path separator.
+/// `/` as the URL path separator. Dot segments (`.`, `..`) are neutralized by
+/// encoding their dots, because the `urlencoding` crate leaves `.` unencoded —
+/// without this, a repo id or path of `../..` would keep its literal dots and
+/// escape the URL path.
 fn url_encode_segments(value: &str) -> String {
     value
         .split('/')
-        .map(url_encode)
+        .map(|segment| match segment {
+            ".." => "%2E%2E".to_string(),
+            "." => "%2E".to_string(),
+            other => url_encode(other),
+        })
         .collect::<Vec<_>>()
         .join("/")
 }
@@ -296,14 +303,14 @@ pub async fn fetch_file_metadata(
 
 /// Resolve a raw download URL for a file at a revision.
 ///
-/// Both `revision` and `path` are percent-encoded (revision as a whole, path
-/// per segment) so hostile values like `#../..` can never flow raw into the
-/// URL and change its meaning.
+/// `repo_id` (per segment), `revision` (as a whole) and `path` (per segment)
+/// are all percent-encoded so hostile values like `#../..` can never flow raw
+/// into the URL and change its meaning.
 pub fn resolve_download_url(repo_id: &str, revision: &str, path: &str) -> String {
     format!(
         "{}/{}/resolve/{}/{}",
         HF_RESOLVE_BASE,
-        repo_id,
+        url_encode_segments(repo_id),
         url_encode(revision),
         url_encode_segments(path.trim_start_matches('/'))
     )
@@ -575,5 +582,11 @@ mod tests {
         // Leading slashes are trimmed before joining.
         let url = resolve_download_url("owner/model", "main", "/etc/passwd");
         assert!(url.ends_with("/resolve/main/etc/passwd"), "{url}");
+
+        // Repo id segments are percent-encoded so a hostile `../..` in the id
+        // can never escape the URL path (defense in depth).
+        let url = resolve_download_url("../evil/model", "main", "model.onnx");
+        assert!(!url.contains("/../"), "raw traversal leaked via repo id: {url}");
+        assert!(url.contains("/%2E%2E/evil/model/"), "{url}");
     }
 }

@@ -34,7 +34,12 @@ which code runs or with what privileges.
    SHA-256 when the repo exposes one (via LFS metadata). A mismatch deletes the
    partial download and does **not** register the model. Downloads without a
    known hash are still written atomically (`.part` → rename) so a partial or
-   interrupted file can never masquerade as an installed model.
+   interrupted file can never masquerade as an installed model. **Sherpa-onnx
+   (ONNX) installs are refused entirely when any artifact lacks a published
+   SHA-256** — ONNX files are fed to the bundled onnxruntime sidecar as
+   untrusted input, so a hash-less install fails closed rather than running an
+   unverified model. (Whisper ggml models, which are not parsed by onnxruntime,
+   are not hard-gated on a hash.)
 
 4. **Atomic installs + partial cleanup.** Files stream to a `.part` sibling
    and are renamed into place only after verification. Cancellation or failure
