@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, Camera, FilmStrip, Play, Translate } from "@phosphor-icons/react";
 import { DictionaryPeek, type DictionaryPeekTarget } from "../viewer/selectionInteraction/DictionaryPeek";
 import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
@@ -11,6 +11,7 @@ import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 import type { SourceAnchor } from "../../types/languageLexicon";
 import type { TranscriptSegment } from "../media/TranscriptSync";
 import { createVideoLanguageSession, currentVideoSentence, selectVideoSentence } from "../../lib/languageVideo";
+import { createTranslationService } from "../../lib/languageTranslation";
 
 interface LanguageVideoHostProps {
   videoId: string;
@@ -40,7 +41,13 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
   const { snapshot } = useLanguageLearningHost();
   const [peekOpen, setPeekOpen] = useState(false);
   const [states, setStates] = useState<ReadonlyMap<string, LanguageKnowledgeState>>(new Map());
+  const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [analysisRetry, setAnalysisRetry] = useState(0);
   const [subtitleMode, setSubtitleMode] = useState<"target" | "base" | "dual">("target");
+  const [translation, setTranslation] = useState("");
+  const [translationState, setTranslationState] = useState<"idle" | "pending" | "ready" | "offline">("idle");
+  const translationAbortRef = useRef<AbortController | null>(null);
+  const translationService = useMemo(() => createTranslationService(), []);
 
   const session = useMemo(() => createVideoLanguageSession({
     sessionId: `${snapshot.hostId}:video-language`,
@@ -80,8 +87,10 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
     let disposed = false;
     if (snapshot.status !== "ready" || !snapshot.profile || adapter.getTokenAnchors().length === 0) {
       setStates(new Map());
+      setAnalysisStatus("idle");
       return () => { disposed = true; };
     }
+    setAnalysisStatus("loading");
     void listLanguageLexicalEntries(snapshot.profile.id, { languageTag: snapshot.profile.targetLanguage, offset: 0, limit: 500 })
       .then((page) => {
         if (disposed) return;
@@ -92,10 +101,33 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
           }
         }
         setStates(next);
+        setAnalysisStatus("ready");
       })
-      .catch(() => { if (!disposed) setStates(new Map()); });
+      .catch(() => { if (!disposed) { setStates(new Map()); setAnalysisStatus("failed"); } });
     return () => { disposed = true; adapter.dispose(); };
-  }, [adapter, snapshot.profile, snapshot.status]);
+  }, [adapter, analysisRetry, snapshot.profile, snapshot.status]);
+
+  useEffect(() => {
+    translationAbortRef.current?.abort();
+    if (subtitleMode === "target" || !active || !snapshot.profile) {
+      setTranslation("");
+      setTranslationState("idle");
+      return;
+    }
+    const controller = new AbortController();
+    translationAbortRef.current = controller;
+    setTranslationState("pending");
+    void translationService.translate({
+      text: active.text,
+      sourceLanguage: snapshot.profile.targetLanguage,
+      targetLanguage: snapshot.profile.baseLanguage,
+      profileId: snapshot.profile.id,
+      sourceFingerprint,
+    }, { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) { setTranslation(result.translatedText); setTranslationState("ready"); } })
+      .catch(() => { if (!controller.signal.aborted) { setTranslation(""); setTranslationState("offline"); } });
+    return () => controller.abort();
+  }, [active, snapshot.profile, sourceFingerprint, subtitleMode, translationService]);
 
   if (!active || snapshot.status !== "ready" || !snapshot.profile) return null;
 
@@ -169,6 +201,8 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
           return word.trim() && state ? <span key={`${word}-${index}`} className={`mr-1 ${languageVocabularyStateClass(state)}`} title={state}>{word}</span> : <span key={`${word}-${index}`}>{word}</span>;
         })}
       </div>
+      {analysisStatus === "failed" && <div className="mt-1 flex items-center gap-2 text-[11px] text-destructive" role="status"><span>Lexical analysis unavailable.</span><button type="button" className="rounded border border-border px-1.5 py-0.5 hover:bg-muted" onClick={() => setAnalysisRetry((value) => value + 1)}>Retry</button></div>}
+      {subtitleMode !== "target" && <p className="mt-1 text-[11px] text-muted-foreground" role="status">{translationState === "pending" ? "Translation loading…" : translationState === "ready" ? translation : "Base translation unavailable offline."}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => onSeek(active.startMs / 1000, active.endMs / 1000)}>
           <Play className="h-3.5 w-3.5" aria-hidden="true" /> Replay
