@@ -23,7 +23,7 @@
 - [x] 3.2 Mount language sentence/token annotations, translations, Language Peek, Sentence Mode, replay, and profile state into YouTube and local video transcript surfaces.
 - [x] 3.3 Preserve normal karaoke auto-follow and word timing while layering language state and approximate/unavailable timing labels.
 - [x] 3.4 Add explicit sentence mining with bounded transcript context, timestamp provenance, media fingerprint, and optional capability-gated frame capture.
-- [ ] 3.5 Add stale transcript/media/analysis invalidation, provider failure/retry, offline, unavailable audio, and Language Mode exit behavior.
+- [x] 3.5 Add stale transcript/media/analysis invalidation, provider failure/retry, offline, unavailable audio, and Language Mode exit behavior.
 - [ ] 3.6 Add video/transcript component and integration tests for playback drift, cleanup, mobile controls, keyboard access, karaoke coexistence, mining provenance, and ordinary playback.
 
 ## 4. Tutor and writing host integration
