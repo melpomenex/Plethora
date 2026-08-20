@@ -3063,6 +3063,126 @@ pub const MIGRATIONS: &[Migration] = &[
             ON hf_installed_models(repo_id, revision, runtime);
         "#,
     ),
+    // Migration 091: durable language-learning profiles and content associations.
+    // These tables are additive.  Existing document language metadata remains
+    // untouched and all foreign keys point only at the new profile projection.
+    Migration::new(
+        "091_language_learning_profiles",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_profiles (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL DEFAULT 'local',
+            workspace_id TEXT NOT NULL DEFAULT 'default',
+            name TEXT NOT NULL,
+            target_language TEXT NOT NULL,
+            base_language TEXT NOT NULL,
+            proficiency TEXT,
+            preferences_json TEXT NOT NULL DEFAULT '{}',
+            processing_config_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            lifecycle TEXT NOT NULL DEFAULT 'active'
+                CHECK(lifecycle IN ('active', 'archived', 'deleted')),
+            version INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_profiles_scope
+            ON language_profiles(account_id, workspace_id, lifecycle, updated_at);
+
+        CREATE TABLE IF NOT EXISTS language_profile_associations (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL DEFAULT 'local',
+            workspace_id TEXT NOT NULL DEFAULT 'default',
+            profile_id TEXT NOT NULL,
+            content_type TEXT NOT NULL CHECK(content_type IN ('document', 'media')),
+            content_id TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'auto'
+                CHECK(mode IN ('auto', 'enabled', 'disabled')),
+            detection_evidence_json TEXT,
+            suggestion_dismissed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(account_id, workspace_id, profile_id, content_type, content_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_profile_associations_content
+            ON language_profile_associations(account_id, workspace_id, content_type, content_id, mode);
+        CREATE INDEX IF NOT EXISTS idx_language_profile_associations_profile
+            ON language_profile_associations(profile_id, mode, updated_at);
+
+        CREATE TABLE IF NOT EXISTS language_profile_active_scopes (
+            account_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            profile_id TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(account_id, workspace_id),
+            FOREIGN KEY (profile_id) REFERENCES language_profiles(id) ON DELETE SET NULL
+        );
+        "#,
+    ),
+    // Migration 092: durable language-processing jobs, chunked results, and
+    // paged token storage. The frontend IndexedDB implementation mirrors
+    // these logical tables for browser/PWA mode; neither path stores full
+    // token streams in localStorage or reactive state.
+    Migration::new(
+        "092_language_processing_results",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_processing_jobs (
+            job_id TEXT PRIMARY KEY,
+            processing_key TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')),
+            next_chunk_index INTEGER NOT NULL DEFAULT 0,
+            total_chunks INTEGER NOT NULL DEFAULT 0,
+            completed_chunks INTEGER NOT NULL DEFAULT 0,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            error_code TEXT,
+            error_message TEXT,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS language_processing_results (
+            processing_key TEXT PRIMARY KEY,
+            version_json TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            chunk_count INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS language_processing_chunks (
+            processing_key TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            source_start INTEGER NOT NULL,
+            source_end INTEGER NOT NULL,
+            chunk_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (processing_key, chunk_index)
+        );
+
+        CREATE TABLE IF NOT EXISTS language_processing_tokens (
+            processing_key TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            token_index INTEGER NOT NULL,
+            token_id TEXT NOT NULL,
+            start_offset INTEGER NOT NULL,
+            end_offset INTEGER NOT NULL,
+            token_json TEXT NOT NULL,
+            PRIMARY KEY (processing_key, chunk_index, token_index)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_processing_jobs_key
+            ON language_processing_jobs(processing_key);
+        CREATE INDEX IF NOT EXISTS idx_language_processing_jobs_updated
+            ON language_processing_jobs(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_language_processing_chunks_key
+            ON language_processing_chunks(processing_key, chunk_index);
+        CREATE INDEX IF NOT EXISTS idx_language_processing_tokens_page
+            ON language_processing_tokens(processing_key, chunk_index, token_index);
+        CREATE INDEX IF NOT EXISTS idx_language_processing_results_updated
+            ON language_processing_results(updated_at);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -120,6 +120,7 @@ const CompanionHost = lazy(() => import("./components/companion/CompanionHost"))
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
+import { LanguageProfileProvider } from "./contexts/LanguageProfileContext";
 import {
   usePaywallStore,
   useSyncStore,
@@ -427,6 +428,7 @@ reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <PresentationProvider>
+        <LanguageProfileProvider>
         <ThemeProvider>
           <BatteryProvider>
           <HashRouter>
@@ -465,6 +467,7 @@ reactRoot.render(
           </HashRouter>
           </BatteryProvider>
         </ThemeProvider>
+        </LanguageProfileProvider>
       </PresentationProvider>
     </QueryClientProvider>
   </ErrorBoundary>

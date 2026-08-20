@@ -34,6 +34,6 @@ export { useCardOptimizerStore } from "./cardOptimizerStore";
 export { useLearningPathsStore } from "./learningPathsStore";
 export { useKnowledgeHealthStore } from "./knowledgeHealthStore";
 export { usePaywallStore } from "./paywallStore";
-
+export { useLanguageProfileStore } from "./languageProfileStore";
 
 

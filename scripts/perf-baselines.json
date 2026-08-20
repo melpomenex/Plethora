@@ -128,6 +128,14 @@
     "visible-text/first-visible-scan": {
       "cost": 0.05649,
       "reason": "improve-reader-tts: initial baseline for first-visible-word scan (400 synthetic paragraphs, visible-word short-circuit on first word)."
+    },
+    "language-processing/tokenize-4000-words": {
+      "cost": 1.901,
+      "reason": "add-language-processing-adapter-layer: initial deterministic baseline for the local exact-form/Intl.Segmenter tokenizer over 4,000 seeded words."
+    },
+    "language-processing/index-lookup-4000-tokens": {
+      "cost": 0.03598,
+      "reason": "add-language-processing-adapter-layer: initial deterministic baseline for normalized token index lookup over 4,000 tokens."
     }
   }
 }

@@ -7,6 +7,7 @@ pub mod connection;
 pub mod element_tree_repository;
 pub mod item_activity_repository;
 pub mod item_stats_repository;
+pub mod language_profile_repository;
 pub mod migrations;
 pub mod neural_queue_repository;
 pub mod priority_rank;

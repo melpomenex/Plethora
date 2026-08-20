@@ -122,6 +122,9 @@ const AiIndexPanel = lazySection("AiIndexPanel", () =>
 const UserProfilePanel = lazySection("UserProfilePanel", () =>
   import("./UserProfilePanel").then((m) => ({ default: m.UserProfilePanel }))
 );
+const LanguageLearningSettings = lazySection("LanguageLearningSettings", () =>
+  import("./LanguageLearningSettings").then((m) => ({ default: m.LanguageLearningSettings }))
+);
 
 /**
  * Settings tab
@@ -129,6 +132,7 @@ const UserProfilePanel = lazySection("UserProfilePanel", () =>
 export enum SettingsTab {
   Account = "account",
   General = "general",
+  LanguageLearning = "language-learning",
   Appearance = "appearance",
   Learning = "learning",
   Documents = "documents",
@@ -173,6 +177,13 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     icon: Sliders,
     keywords: ["language", "startup", "default", "view", "auto-save", "backup", "data", "storage"],
     description: "Basic application settings, language, and data management",
+  },
+  {
+    id: SettingsTab.LanguageLearning,
+    label: "Language learning",
+    icon: GraduationCap,
+    keywords: ["language", "learning", "profile", "target", "spanish", "japanese", "proficiency"],
+    description: "Target-language profiles and explicit reader associations",
   },
   {
     id: SettingsTab.Appearance,
@@ -673,6 +684,7 @@ export function SettingsPage() {
           {activeTab === SettingsTab.General && (
             <GeneralSettings onChange={() => setHasChanges(true)} />
           )}
+          {activeTab === SettingsTab.LanguageLearning && <LanguageLearningSettings />}
           {activeTab === SettingsTab.Appearance && (
             <AppearanceSettings onChange={() => setHasChanges(true)} />
           )}
@@ -1712,4 +1724,3 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
     </div>
   );
 }
-
