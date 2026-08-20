@@ -199,7 +199,10 @@ export function enqueueAllAIDocuments(
 export function getAIIndexStatus(
   config?: EmbeddingConfig
 ): Promise<IndexStatusResponse> {
-  return invokeCommand("ai_learning_index_status", { config: config ?? null });
+  return invokeCommand("ai_learning_index_status", {
+    config: config ?? null,
+    paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
+  });
 }
 
 /** Pause the background indexer (safe mid-document). */
