@@ -854,6 +854,17 @@ export interface PlethoraSettings {
   overrides: Record<string, boolean>;
 }
 
+/** Device/UI preferences for the language-learning surface.
+ *
+ * The active profile itself is durable native data scoped by account/workspace;
+ * it intentionally does not live beside `general.language`, which is the app
+ * UI locale. These flags only control presentation and suggestion behavior.
+ */
+export interface LanguageLearningSettings {
+  suggestionsEnabled: boolean;
+  showUnavailableProviders: boolean;
+}
+
 /**
  * Main Settings Interface
  */
@@ -879,6 +890,7 @@ export interface Settings {
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
   handsFreeStudy: HandsFreeStudySettings;
+  languageLearning?: LanguageLearningSettings;
   plethora?: PlethoraSettings;
 }
 
@@ -1209,6 +1221,10 @@ export const defaultSettings: Settings = {
     paidEmbeddingsEnabled: false,
   },
   handsFreeStudy: DEFAULT_HANDS_FREE_STUDY_SETTINGS,
+  languageLearning: {
+    suggestionsEnabled: true,
+    showUnavailableProviders: true,
+  },
   plethora: {
     overrides: {},
   },
@@ -1433,6 +1449,10 @@ export const useSettingsStore = create<SettingsState>()(
           audioReviewMode: { ...defaultSettings.audioReviewMode, ...persisted.audioReviewMode },
           embedding: { ...defaultSettings.embedding, ...persisted.embedding },
           handsFreeStudy: mergeHandsFreeStudySettings(persisted.handsFreeStudy),
+          languageLearning: {
+            ...defaultSettings.languageLearning,
+            ...persisted.languageLearning,
+          },
           plethora: {
             ...defaultSettings.plethora,
             ...persisted.plethora,

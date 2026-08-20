@@ -9,6 +9,7 @@ pub mod hf;
 pub mod image_asset;
 pub mod item_activity;
 pub mod item_stats;
+pub mod language_profile;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;
@@ -33,6 +34,14 @@ pub use item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
 pub use item_stats::{
     ItemContentStats, ItemHistoryStats, ItemScheduleStats, ItemStatsDetail, ItemStatsEvent,
     ItemStatsSummary, ItemTimeStats, Metric, StatsItemType,
+};
+pub use language_profile::{
+    validate_bcp47, AssociationMode, ContentType, DetectionEvidence, LanguageProfile,
+    LanguageProfileAssociation, LanguageProfileAssociationInput, LanguageProfileCreate,
+    LanguageProfileExport, LanguageProfileScope, LanguageProfileSuggestion,
+    LanguageProfileSyncEnvelope, LanguageProfileUpdate, ProcessingConfig, ProfileDeleteReport,
+    ProfileLifecycle, ProfilePreferences, ResolvedLanguageProfileContext,
+    DEFAULT_ACCOUNT_SCOPE, DEFAULT_WORKSPACE_SCOPE, LANGUAGE_PROFILE_SCHEMA_VERSION,
 };
 pub use learning_item::{ItemState, ItemType, LearningItem, MemoryState, ReviewRating};
 pub use playlist::{PlaylistSettings, PlaylistSubscription, PlaylistVideo};

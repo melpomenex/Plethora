@@ -35,6 +35,18 @@ import {
     type SM20ArenaPreviewSet,
 } from '../api/review';
 import { v4 as uuidv4 } from 'uuid';
+import {
+    canonicalizeLanguageTag,
+    DEFAULT_LANGUAGE_PROFILE_SCOPE,
+    DEFAULT_PROFILE_PREFERENCES,
+    DEFAULT_PROFILE_PROCESSING_CONFIG,
+    isValidBcp47,
+    type DetectionEvidence,
+    type LanguageProfile,
+    type LanguageProfileAssociation,
+    type LanguageProfileExport,
+    type LanguageProfileSyncEnvelope,
+} from '../types/languageProfile';
 import { getPositionProgress, type DocumentPosition } from '../types/position';
 import {
     fetchYouTubeTranscript,
@@ -746,6 +758,69 @@ function readBrowserSyncConfig(): { host: string; port: number; autoStart: boole
     }
 }
 
+const LANGUAGE_PROFILES_STORAGE_KEY = 'plethora-language-profiles-v1';
+type BrowserLanguageProfileData = {
+    profiles: LanguageProfile[];
+    associations: LanguageProfileAssociation[];
+    activeProfileIds: Record<string, string | null>;
+};
+
+function emptyBrowserLanguageProfileData(): BrowserLanguageProfileData {
+    return { profiles: [], associations: [], activeProfileIds: {} };
+}
+
+function readBrowserLanguageProfileData(): BrowserLanguageProfileData {
+    try {
+        const raw = localStorage.getItem(LANGUAGE_PROFILES_STORAGE_KEY);
+        if (!raw) return emptyBrowserLanguageProfileData();
+        const parsed = JSON.parse(raw) as Partial<BrowserLanguageProfileData>;
+        const legacyActiveProfileId = typeof (parsed as { activeProfileId?: unknown }).activeProfileId === 'string'
+            ? (parsed as { activeProfileId: string }).activeProfileId
+            : null;
+        const activeProfileIds = parsed.activeProfileIds && typeof parsed.activeProfileIds === 'object'
+            ? Object.fromEntries(Object.entries(parsed.activeProfileIds).filter(([, value]) => value === null || typeof value === 'string'))
+            : {};
+        if (legacyActiveProfileId && !activeProfileIds['local\u0000default']) activeProfileIds['local\u0000default'] = legacyActiveProfileId;
+        return {
+            profiles: Array.isArray(parsed.profiles) ? parsed.profiles : [],
+            associations: Array.isArray(parsed.associations) ? parsed.associations : [],
+            activeProfileIds,
+        };
+    } catch {
+        return emptyBrowserLanguageProfileData();
+    }
+}
+
+function writeBrowserLanguageProfileData(data: BrowserLanguageProfileData): void {
+    try { localStorage.setItem(LANGUAGE_PROFILES_STORAGE_KEY, JSON.stringify(data)); } catch { /* offline/private mode */ }
+}
+
+function browserScope(args: Record<string, unknown>) {
+    return {
+        accountId: typeof args.accountId === 'string' && args.accountId ? args.accountId : DEFAULT_LANGUAGE_PROFILE_SCOPE.accountId,
+        workspaceId: typeof args.workspaceId === 'string' && args.workspaceId ? args.workspaceId : DEFAULT_LANGUAGE_PROFILE_SCOPE.workspaceId,
+    };
+}
+
+function browserScopeKey(scope: { accountId: string; workspaceId: string }): string {
+    return `${scope.accountId}\u0000${scope.workspaceId}`;
+}
+
+function scopedBrowserProfiles(data: BrowserLanguageProfileData, args: Record<string, unknown>) {
+    const scope = browserScope(args);
+    return {
+        scope,
+        profiles: data.profiles.filter((p) => p.accountId === scope.accountId && p.workspaceId === scope.workspaceId && p.lifecycle !== 'deleted'),
+        associations: data.associations.filter((a) => a.accountId === scope.accountId && a.workspaceId === scope.workspaceId),
+    };
+}
+
+function browserEvidence(value: unknown): DetectionEvidence | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const evidence = value as DetectionEvidence;
+    return typeof evidence.language === 'string' ? evidence : undefined;
+}
+
 /**
  * Command handlers mapping - mirrors Tauri commands
  */
@@ -755,6 +830,231 @@ function toUnixSeconds(value: unknown): number | null {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+    // Browser/PWA profile persistence mirrors the native contract using a
+    // scoped localStorage record. No network or provider is required for any
+    // profile/association action.
+    get_language_profiles: async (args) => scopedBrowserProfiles(readBrowserLanguageProfileData(), args).profiles,
+    get_language_profile: async (args) => {
+        const { profiles } = scopedBrowserProfiles(readBrowserLanguageProfileData(), args);
+        return profiles.find((profile) => profile.id === args.id) ?? null;
+    },
+    create_language_profile: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const input = (args.input ?? {}) as Record<string, any>;
+        const scope = browserScope(args);
+        if (!String(input.name || '').trim()) throw new Error('Profile name cannot be empty');
+        if (!isValidBcp47(String(input.targetLanguage || '')) || !isValidBcp47(String(input.baseLanguage || ''))) {
+            throw new Error('Target and base languages must be valid BCP-47 tags');
+        }
+        const now = new Date().toISOString();
+        const profile: LanguageProfile = {
+            id: String(input.id || uuidv4()),
+            accountId: scope.accountId,
+            workspaceId: scope.workspaceId,
+            name: String(input.name).trim(),
+            targetLanguage: canonicalizeLanguageTag(String(input.targetLanguage)),
+            baseLanguage: canonicalizeLanguageTag(String(input.baseLanguage)),
+            proficiency: typeof input.proficiency === 'string' ? input.proficiency : undefined,
+            preferences: { ...DEFAULT_PROFILE_PREFERENCES, ...(input.preferences || {}) },
+            processingConfig: { ...DEFAULT_PROFILE_PROCESSING_CONFIG, ...(input.processingConfig || {}) },
+            createdAt: now,
+            updatedAt: now,
+            lifecycle: 'active',
+            version: 1,
+        };
+        if (data.profiles.some((value) => value.id === profile.id)) throw new Error(`Language profile ${profile.id} already exists`);
+        data.profiles.push(profile);
+        writeBrowserLanguageProfileData(data);
+        return profile;
+    },
+    update_language_profile: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { scope } = scopedBrowserProfiles(data, args);
+        const profile = data.profiles.find((value) => value.id === args.id && value.accountId === scope.accountId && value.workspaceId === scope.workspaceId && value.lifecycle !== 'deleted');
+        if (!profile) throw new Error(`Language profile ${String(args.id)}`);
+        const input = (args.input ?? {}) as Record<string, any>;
+        if (input.name !== undefined && !String(input.name).trim()) throw new Error('Profile name cannot be empty');
+        if (input.targetLanguage !== undefined && !isValidBcp47(String(input.targetLanguage))) throw new Error('Invalid target language');
+        if (input.baseLanguage !== undefined && !isValidBcp47(String(input.baseLanguage))) throw new Error('Invalid base language');
+        Object.assign(profile, {
+            ...(input.name !== undefined ? { name: String(input.name).trim() } : {}),
+            ...(input.targetLanguage !== undefined ? { targetLanguage: canonicalizeLanguageTag(String(input.targetLanguage)) } : {}),
+            ...(input.baseLanguage !== undefined ? { baseLanguage: canonicalizeLanguageTag(String(input.baseLanguage)) } : {}),
+            ...(input.proficiency !== undefined ? { proficiency: input.proficiency } : {}),
+            ...(input.preferences ? { preferences: { ...profile.preferences, ...input.preferences } } : {}),
+            ...(input.processingConfig ? { processingConfig: { ...profile.processingConfig, ...input.processingConfig } } : {}),
+            ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+            updatedAt: new Date().toISOString(),
+            version: profile.version + 1,
+        });
+        writeBrowserLanguageProfileData(data);
+        return profile;
+    },
+    archive_language_profile: async (args) => commandHandlers.update_language_profile({ ...args, input: { lifecycle: 'archived' } }),
+    delete_language_profile: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { scope, associations } = scopedBrowserProfiles(data, args);
+        const profile = data.profiles.find((value) => value.id === args.id && value.accountId === scope.accountId && value.workspaceId === scope.workspaceId && value.lifecycle !== 'deleted');
+        if (!profile) throw new Error(`Language profile ${String(args.id)}`);
+        const owned = associations.filter((association) => association.profileId === profile.id);
+        const documentIds = new Set(owned.filter((association) => association.contentType === 'document').map((association) => association.contentId));
+        profile.lifecycle = 'deleted';
+        profile.updatedAt = new Date().toISOString();
+        profile.version += 1;
+        data.associations = data.associations.filter((association) => association.profileId !== profile.id);
+        const scopeKey = browserScopeKey(scope);
+        if (data.activeProfileIds[scopeKey] === profile.id) data.activeProfileIds[scopeKey] = null;
+        writeBrowserLanguageProfileData(data);
+        return {
+            profileId: profile.id,
+            removedAssociations: owned.length,
+            removedProfileDerivedData: 0,
+            retainedDocuments: documentIds.size,
+            retainedLearningItems: 0,
+        };
+    },
+    get_active_language_profile: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { profiles, scope } = scopedBrowserProfiles(data, args);
+        const activeProfileId = data.activeProfileIds[browserScopeKey(scope)] ?? null;
+        return profiles.find((profile) => profile.id === activeProfileId && profile.lifecycle === 'active') ?? null;
+    },
+    set_active_language_profile: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { profiles, scope } = scopedBrowserProfiles(data, args);
+        if (args.profileId !== null && args.profileId !== undefined && !profiles.some((profile) => profile.id === args.profileId && profile.lifecycle === 'active')) throw new Error('Only an active language profile can be selected');
+        data.activeProfileIds[browserScopeKey(scope)] = typeof args.profileId === 'string' ? args.profileId : null;
+        writeBrowserLanguageProfileData(data);
+        return profiles.find((profile) => profile.id === data.activeProfileIds[browserScopeKey(scope)]) ?? null;
+    },
+    get_language_profile_associations: async (args) => {
+        const { associations } = scopedBrowserProfiles(readBrowserLanguageProfileData(), args);
+        return associations.filter((association) =>
+            (args.contentType === undefined || association.contentType === args.contentType) &&
+            (args.contentId === undefined || association.contentId === args.contentId) &&
+            (args.profileId === undefined || association.profileId === args.profileId),
+        );
+    },
+    associate_language_profile_content: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const input = (args.input ?? {}) as Record<string, any>;
+        const { scope, profiles } = scopedBrowserProfiles(data, args);
+        const profile = profiles.find((value) => value.id === input.profileId);
+        if (!profile) throw new Error(`Language profile ${String(input.profileId)}`);
+        const current = data.associations.find((association) => association.profileId === input.profileId && association.contentType === input.contentType && association.contentId === input.contentId && association.accountId === scope.accountId && association.workspaceId === scope.workspaceId);
+        const mode = current && current.mode !== 'auto' && input.mode === 'auto' ? current.mode : input.mode;
+        const association: LanguageProfileAssociation = current || {
+            id: String(input.id || uuidv4()),
+            accountId: scope.accountId,
+            workspaceId: scope.workspaceId,
+            profileId: String(input.profileId),
+            contentType: input.contentType,
+            contentId: String(input.contentId),
+            mode,
+            detectionEvidence: browserEvidence(input.detectionEvidence),
+            suggestionDismissed: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            version: 1,
+        };
+        Object.assign(association, {
+            mode,
+            detectionEvidence: browserEvidence(input.detectionEvidence),
+            suggestionDismissed: Boolean(input.suggestionDismissed || mode === 'disabled'),
+            updatedAt: new Date().toISOString(),
+            version: association.version + (current ? 1 : 0),
+        });
+        if (!current) data.associations.push(association);
+        writeBrowserLanguageProfileData(data);
+        return association;
+    },
+    resolve_language_profile_context: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { profiles, associations } = scopedBrowserProfiles(data, args);
+        const explicit = typeof args.explicitProfileId === 'string' ? args.explicitProfileId : undefined;
+        const profile = profiles.find((value) => value.id === explicit && value.lifecycle === 'active');
+        const association = associations.find((value) => value.contentType === args.contentType && value.contentId === args.contentId && value.mode === 'enabled' && (!explicit || value.profileId === explicit));
+        if (!profile && !association) return null;
+        const resolvedProfile = profile || profiles.find((value) => value.id === association?.profileId && value.lifecycle === 'active');
+        if (!resolvedProfile) return null;
+        return {
+            profile: resolvedProfile,
+            association: association || {
+                id: `explicit-${resolvedProfile.id}-${String(args.contentId)}`,
+                accountId: resolvedProfile.accountId,
+                workspaceId: resolvedProfile.workspaceId,
+                profileId: resolvedProfile.id,
+                contentType: args.contentType,
+                contentId: String(args.contentId),
+                mode: 'enabled',
+                suggestionDismissed: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                version: resolvedProfile.version,
+            },
+            source: explicit ? 'explicit_override' : 'confirmed_association',
+            contextVersion: Math.max(resolvedProfile.version, association?.version || 0),
+        };
+    },
+    get_language_profile_suggestion: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { profiles, associations } = scopedBrowserProfiles(data, args);
+        const evidence = browserEvidence(args.evidence);
+        if (!evidence || !isValidBcp47(evidence.language)) return null;
+        const primary = evidence.language.split('-')[0].toLowerCase();
+        const profile = profiles.find((value) => value.lifecycle === 'active' && value.targetLanguage.split('-')[0].toLowerCase() === primary && !associations.some((association) => association.profileId === value.id && association.contentType === args.contentType && association.contentId === args.contentId && (association.mode !== 'auto' || association.suggestionDismissed)));
+        return profile ? { profile, contentType: args.contentType, contentId: String(args.contentId), evidence } : null;
+    },
+    dismiss_language_profile_suggestion: async (args) => commandHandlers.associate_language_profile_content({
+        ...args,
+        input: {
+            profileId: args.profileId,
+            contentType: args.contentType,
+            contentId: args.contentId,
+            mode: 'auto',
+            detectionEvidence: args.evidence,
+            suggestionDismissed: true,
+        },
+    }),
+    export_language_profiles: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const { scope, profiles, associations } = scopedBrowserProfiles(data, args);
+        return { schemaVersion: 1, scope, exportedAt: new Date().toISOString(), activeProfileId: data.activeProfileIds[browserScopeKey(scope)] || undefined, profiles, associations } satisfies LanguageProfileExport;
+    },
+    import_language_profiles: async (args) => {
+        const data = readBrowserLanguageProfileData();
+        const payload = args.payload as LanguageProfileExport;
+        const { scope } = scopedBrowserProfiles(data, args);
+        if (payload.scope.accountId !== scope.accountId || payload.scope.workspaceId !== scope.workspaceId) throw new Error('Language profile import scope does not match the current account/workspace');
+        if (args.conflict === 'replace') {
+            data.profiles = data.profiles.filter((profile) => profile.accountId !== scope.accountId || profile.workspaceId !== scope.workspaceId);
+            data.associations = data.associations.filter((association) => association.accountId !== scope.accountId || association.workspaceId !== scope.workspaceId);
+        }
+        for (const profile of payload.profiles || []) {
+            const index = data.profiles.findIndex((value) => value.id === profile.id);
+            if (index < 0) data.profiles.push(profile); else if (new Date(profile.updatedAt).getTime() >= new Date(data.profiles[index].updatedAt).getTime()) data.profiles[index] = profile;
+        }
+        for (const association of payload.associations || []) {
+            const index = data.associations.findIndex((value) => value.profileId === association.profileId && value.contentType === association.contentType && value.contentId === association.contentId && value.accountId === scope.accountId && value.workspaceId === scope.workspaceId);
+            if (index < 0) data.associations.push(association); else if (new Date(association.updatedAt).getTime() >= new Date(data.associations[index].updatedAt).getTime() || data.associations[index].mode === 'auto') data.associations[index] = association;
+        }
+        const scopeKey = browserScopeKey(scope);
+        data.activeProfileIds[scopeKey] = payload.activeProfileId || (args.conflict === 'replace' ? null : data.activeProfileIds[scopeKey] || null);
+        writeBrowserLanguageProfileData(data);
+        return commandHandlers.export_language_profiles(args);
+    },
+    serialize_language_profiles_for_sync: async (args) => {
+        const payload = await commandHandlers.export_language_profiles(args) as LanguageProfileExport;
+        return { schemaVersion: payload.schemaVersion, scope: payload.scope, changedAt: new Date().toISOString(), activeProfileId: payload.activeProfileId, profiles: payload.profiles, associations: payload.associations } satisfies LanguageProfileSyncEnvelope;
+    },
+    apply_language_profiles_sync: async (args) => commandHandlers.import_language_profiles({ ...args, payload: {
+        schemaVersion: (args.payload as LanguageProfileSyncEnvelope).schemaVersion,
+        scope: (args.payload as LanguageProfileSyncEnvelope).scope,
+        exportedAt: (args.payload as LanguageProfileSyncEnvelope).changedAt,
+        activeProfileId: (args.payload as LanguageProfileSyncEnvelope).activeProfileId,
+        profiles: (args.payload as LanguageProfileSyncEnvelope).profiles,
+        associations: (args.payload as LanguageProfileSyncEnvelope).associations,
+    }, conflict: 'merge' }),
     // Bounded equivalent of the native startup snapshot. Browser mode has no
     // collection table, so it exposes the same stable default collection and
     // applies the projection locally without returning content or covers.
