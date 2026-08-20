@@ -7,6 +7,8 @@ import type { PracticeAttempt, PracticeMode } from "../../lib/languagePractice";
 import { createShadowingSession } from "../../lib/languageShadowing";
 import { canProvidePronunciation } from "../../lib/languagePronunciation";
 import type { PracticeSource } from "../../lib/languagePractice";
+import { deleteLanguagePracticeAttempt, upsertLanguagePracticeAttempt } from "../../api/languagePractice";
+import { isTauri } from "../../lib/tauri";
 
 const STORAGE_PREFIX = "plethora.language-practice.session.";
 
@@ -104,9 +106,11 @@ export function LanguagePracticeOverlay() {
   const save = () => {
     if (!storageKey) return;
     window.localStorage.setItem(storageKey, JSON.stringify(attempt));
+    if (isTauri()) void upsertLanguagePracticeAttempt(attempt).catch(() => setError("The local practice copy was saved, but durable sync is unavailable."));
   };
   const remove = () => {
     if (storageKey) window.localStorage.removeItem(storageKey);
+    if (isTauri()) void deleteLanguagePracticeAttempt(attempt.profileId, attempt.id).catch(() => undefined);
     setAttempt(newAttempt(request, mode));
     setAnswer("");
     setRevealed(false);
