@@ -59,6 +59,18 @@ import type {
     LexiconPage,
     LookupInput,
 } from '../types/languageLexicon';
+import type {
+    KnownWordImportPreview,
+    KnownWordImportRecord,
+    LanguageKnowledgeEvidenceEvent,
+    LanguageKnowledgeEvidenceInput,
+    LanguageKnowledgeExport,
+    LanguageKnowledgeStateChange,
+    LanguageKnowledgeStateHistory,
+    LanguageKnowledgeStateSnapshot,
+    LanguageMemorizationLink,
+    LanguageMemorizationLinkInput,
+} from '../types/languageKnowledge';
 import { getPositionProgress, type DocumentPosition } from '../types/position';
 import {
     fetchYouTubeTranscript,
@@ -883,6 +895,34 @@ function browserLexicalEntry(data: BrowserLexiconData, input: EncounterInput | L
     return entry;
 }
 
+const LANGUAGE_KNOWLEDGE_STORAGE_KEY = 'plethora-language-knowledge-v1';
+type BrowserKnowledgeData = {
+    snapshots: LanguageKnowledgeStateSnapshot[];
+    history: LanguageKnowledgeStateHistory[];
+    evidence: LanguageKnowledgeEvidenceEvent[];
+    links: LanguageMemorizationLink[];
+};
+
+function readBrowserKnowledgeData(): BrowserKnowledgeData {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LANGUAGE_KNOWLEDGE_STORAGE_KEY) || '{}') as Partial<BrowserKnowledgeData>;
+        return { snapshots: Array.isArray(parsed.snapshots) ? parsed.snapshots : [], history: Array.isArray(parsed.history) ? parsed.history : [], evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [], links: Array.isArray(parsed.links) ? parsed.links : [] };
+    } catch { return { snapshots: [], history: [], evidence: [], links: [] }; }
+}
+
+function writeBrowserKnowledgeData(data: BrowserKnowledgeData): void {
+    try { localStorage.setItem(LANGUAGE_KNOWLEDGE_STORAGE_KEY, JSON.stringify(data)); } catch { /* private/offline mode */ }
+}
+
+function browserKnowledgeSnapshot(data: BrowserKnowledgeData, profileId: string, entryId: string, now = Math.floor(Date.now() / 1000)): LanguageKnowledgeStateSnapshot {
+    let snapshot = data.snapshots.find((value) => value.profileId === profileId && value.lexicalEntryId === entryId);
+    if (!snapshot) {
+        snapshot = { profileId, lexicalEntryId: entryId, state: 'new', manualOverride: false, passiveEvidence: 0, activeEvidence: 0, updatedAt: now, version: 0 };
+        data.snapshots.push(snapshot);
+    }
+    return snapshot;
+}
+
 /**
  * Command handlers mapping - mirrors Tauri commands
  */
@@ -892,6 +932,111 @@ function toUnixSeconds(value: unknown): number | null {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+    get_language_knowledge_state: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const snapshot = browserKnowledgeSnapshot(data, String(args.profileId || ''), String(args.entryId || ''));
+        writeBrowserKnowledgeData(data);
+        return snapshot;
+    },
+    resolve_language_knowledge_state: async (args) => {
+        const lexicon = readBrowserLexiconData();
+        const knowledge = readBrowserKnowledgeData();
+        const profileId = String(args.profileId || '');
+        const normalized = String(args.surface || '').trim().toLowerCase();
+        const exact = lexicon.entries.find((entry) => entry.profileId === profileId && entry.normalizedForm === normalized);
+        const exactOverride = exact && knowledge.snapshots.find((snapshot) => snapshot.profileId === profileId && snapshot.lexicalEntryId === exact.id && snapshot.manualOverride);
+        const occurrence = lexicon.occurrences.find((item) => item.profileId === profileId && item.normalized === normalized);
+        const entryId = exactOverride?.lexicalEntryId || occurrence?.lexicalEntryId || exact?.id;
+        return entryId ? browserKnowledgeSnapshot(knowledge, profileId, entryId) : null;
+    },
+    set_language_knowledge_state: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const change = (args.change || {}) as LanguageKnowledgeStateChange;
+        const now = Math.floor(Date.now() / 1000);
+        const snapshot = browserKnowledgeSnapshot(data, change.profileId, change.entryId, now);
+        if (snapshot.manualOverride && change.source === 'encounter') return snapshot;
+        const previous = snapshot.state;
+        snapshot.state = change.state;
+        snapshot.manualOverride = change.source === 'manual' || change.source === 'import' || change.source === 'undo';
+        snapshot.overrideActor = change.actorId;
+        snapshot.overrideSource = change.source;
+        snapshot.updatedAt = now;
+        snapshot.version += 1;
+        if (previous !== snapshot.state) data.history.unshift({ id: uuidv4(), profileId: change.profileId, lexicalEntryId: change.entryId, previousState: previous, newState: snapshot.state, source: change.source || 'manual', actorId: change.actorId, operationId: change.operationId || uuidv4(), changedAt: now });
+        writeBrowserKnowledgeData(data);
+        return snapshot;
+    },
+    set_language_knowledge_states_batch: async (args) => {
+        const changes = (Array.isArray(args.changes) ? args.changes : []) as LanguageKnowledgeStateChange[];
+        const snapshots: LanguageKnowledgeStateSnapshot[] = [];
+        for (const change of changes) snapshots.push(await commandHandlers.set_language_knowledge_state({ change: { source: 'manual', ...change } }) as LanguageKnowledgeStateSnapshot);
+        return snapshots;
+    },
+    record_language_knowledge_evidence: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const input = (args.input || {}) as LanguageKnowledgeEvidenceInput;
+        const occurredAt = input.occurredAt || Math.floor(Date.now() / 1000);
+        const snapshot = browserKnowledgeSnapshot(data, input.profileId, input.entryId, occurredAt);
+        if (input.kind === 'production') snapshot.activeEvidence += 1; else snapshot.passiveEvidence += 1;
+        snapshot.lastEvidenceAt = occurredAt;
+        snapshot.updatedAt = occurredAt;
+        const event: LanguageKnowledgeEvidenceEvent = { id: uuidv4(), profileId: input.profileId, lexicalEntryId: input.entryId, kind: input.kind, confidence: input.confidence, sourceId: input.sourceId, metadata: input.metadata || {}, occurredAt };
+        data.evidence.unshift(event);
+        writeBrowserKnowledgeData(data);
+        return event;
+    },
+    list_language_knowledge_history: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const values = data.history.filter((item) => item.profileId === args.profileId && (!args.entryId || item.lexicalEntryId === args.entryId));
+        return browserLexiconPage(values, Number(args.offset) || 0, Number(args.limit) || 50);
+    },
+    undo_language_knowledge_change: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const history = data.history.find((item) => item.profileId === args.profileId && item.id === args.historyId && !item.revertedAt);
+        if (!history) throw new Error(`State history ${String(args.historyId)}`);
+        const snapshot = await commandHandlers.set_language_knowledge_state({ change: { profileId: history.profileId, entryId: history.lexicalEntryId, state: history.previousState, source: 'undo' } }) as LanguageKnowledgeStateSnapshot;
+        history.revertedAt = Math.floor(Date.now() / 1000);
+        writeBrowserKnowledgeData(data);
+        return snapshot;
+    },
+    create_language_memorization_link: async (args) => {
+        const data = readBrowserKnowledgeData();
+        const input = (args.input || {}) as LanguageMemorizationLinkInput;
+        const link: LanguageMemorizationLink = { id: uuidv4(), profileId: input.profileId, lexicalEntryId: input.entryId, learningItemId: input.learningItemId, relation: input.relation || 'explicit', actorId: input.actorId, createdAt: Math.floor(Date.now() / 1000) };
+        data.links = [link, ...data.links.filter((value) => !(value.profileId === link.profileId && value.lexicalEntryId === link.lexicalEntryId && value.learningItemId === link.learningItemId))];
+        writeBrowserKnowledgeData(data);
+        return link;
+    },
+    preview_language_known_word_import: async (args) => {
+        const data = readBrowserLexiconData();
+        const records = (Array.isArray(args.records) ? args.records : []) as KnownWordImportRecord[];
+        const seen = new Set<string>();
+        const matchedEntryIds: string[] = []; const newWords: string[] = []; const duplicates: string[] = [];
+        for (const record of records) {
+            const normalized = record.word.trim().toLowerCase();
+            if (!seen.add(normalized)) { duplicates.push(record.word); continue; }
+            const found = data.entries.find((entry) => entry.profileId === args.profileId && entry.normalizedForm === normalized && (!record.languageTag || entry.languageTag === record.languageTag));
+            if (found) matchedEntryIds.push(found.id); else newWords.push(record.word);
+        }
+        return { matchedEntryIds, newWords, duplicates } satisfies KnownWordImportPreview;
+    },
+    import_language_known_words: async (args) => {
+        const records = (Array.isArray(args.records) ? args.records : []) as KnownWordImportRecord[];
+        const lexicon = readBrowserLexiconData();
+        const knowledge = readBrowserKnowledgeData();
+        for (const record of records) {
+            const normalized = record.word.trim().toLowerCase();
+            const entry = lexicon.entries.find((value) => value.profileId === args.profileId && value.normalizedForm === normalized && (!record.languageTag || value.languageTag === record.languageTag)) || browserLexicalEntry(lexicon, { profileId: String(args.profileId), languageTag: record.languageTag || 'und', surface: record.word }, Math.floor(Date.now() / 1000));
+            const snapshot = browserKnowledgeSnapshot(knowledge, String(args.profileId), entry.id);
+            snapshot.state = record.state; snapshot.manualOverride = true; snapshot.overrideSource = 'import'; snapshot.updatedAt = Math.floor(Date.now() / 1000); snapshot.version += 1;
+        }
+        writeBrowserLexiconData(lexicon); writeBrowserKnowledgeData(knowledge);
+        return commandHandlers.export_language_knowledge(args);
+    },
+    export_language_knowledge: async (args) => {
+        const data = readBrowserKnowledgeData();
+        return { schemaVersion: 1, profileId: String(args.profileId || ''), exportedAt: Math.floor(Date.now() / 1000), states: data.snapshots.filter((value) => value.profileId === args.profileId), history: data.history.filter((value) => value.profileId === args.profileId), evidence: data.evidence.filter((value) => value.profileId === args.profileId), memorizationLinks: data.links.filter((value) => value.profileId === args.profileId) } satisfies LanguageKnowledgeExport;
+    },
     // Browser lexicon storage is a bounded compatibility implementation. It
     // uses a separate namespace from the legacy lookup store and never writes
     // Queue or learning-item data.

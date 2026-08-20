@@ -3393,6 +3393,92 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_legacy_lookup_history(account_id, workspace_id, profile_id, last_seen_at DESC);
         "#,
     ),
+    // Migration 094: profile-scoped knowledge state, evidence history, and
+    // explicit memorization links. State is independent from the scheduler.
+    Migration::new(
+        "094_language_knowledge_states",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_knowledge_states (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'new'
+                CHECK(state IN ('new', 'encountered', 'learning', 'familiar', 'known', 'ignored')),
+            manual_override INTEGER NOT NULL DEFAULT 0,
+            override_actor TEXT,
+            override_source TEXT,
+            passive_evidence INTEGER NOT NULL DEFAULT 0,
+            active_evidence INTEGER NOT NULL DEFAULT 0,
+            last_evidence_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, lexical_entry_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_states_profile_state
+            ON language_knowledge_states(profile_id, state, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_states_entry
+            ON language_knowledge_states(profile_id, lexical_entry_id);
+
+        CREATE TABLE IF NOT EXISTS language_knowledge_state_history (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            previous_state TEXT NOT NULL,
+            new_state TEXT NOT NULL,
+            source TEXT NOT NULL,
+            actor_id TEXT,
+            operation_id TEXT NOT NULL,
+            changed_at INTEGER NOT NULL,
+            reverted_at INTEGER,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_history_profile_time
+            ON language_knowledge_state_history(profile_id, changed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_history_operation
+            ON language_knowledge_state_history(profile_id, operation_id);
+
+        CREATE TABLE IF NOT EXISTS language_knowledge_evidence_events (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('encounter', 'lookup', 'recognition', 'production', 'manual')),
+            confidence REAL,
+            source_id TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_evidence_profile_time
+            ON language_knowledge_evidence_events(profile_id, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_knowledge_evidence_entry_kind
+            ON language_knowledge_evidence_events(profile_id, lexical_entry_id, kind, occurred_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_memorization_links (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            learning_item_id TEXT NOT NULL,
+            relation TEXT NOT NULL DEFAULT 'explicit',
+            actor_id TEXT,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY(learning_item_id) REFERENCES learning_items(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, lexical_entry_id, learning_item_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_memorization_links_profile
+            ON language_memorization_links(profile_id, lexical_entry_id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
