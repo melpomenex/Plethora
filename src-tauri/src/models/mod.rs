@@ -12,6 +12,7 @@ pub mod item_stats;
 pub mod language_profile;
 pub mod language_lexicon;
 pub mod language_knowledge;
+pub mod language_practice;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;

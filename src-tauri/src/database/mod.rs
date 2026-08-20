@@ -10,6 +10,7 @@ pub mod item_stats_repository;
 pub mod language_profile_repository;
 pub mod language_lexicon_repository;
 pub mod language_knowledge_repository;
+pub mod language_practice_repository;
 pub mod migrations;
 pub mod neural_queue_repository;
 pub mod priority_rank;
