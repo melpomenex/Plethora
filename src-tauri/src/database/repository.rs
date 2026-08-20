@@ -1721,6 +1721,17 @@ impl Repository {
         {
             unlink_node_in_tx(&mut tx, node_id).await?;
         }
+        // Keep the profile-scoped lexical aggregate usable after source
+        // deletion. Occurrences retain their compact identity for sync and
+        // retention cleanup, but no longer claim that the source is live.
+        sqlx::query(
+            "UPDATE language_occurrences SET orphan_state = 'orphaned', orphaned_at = ?1
+             WHERE document_id = ?2 AND orphan_state = 'live'",
+        )
+        .bind(Utc::now().timestamp())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM documents WHERE id = ?1")
             .bind(id)
             .execute(&mut *tx)

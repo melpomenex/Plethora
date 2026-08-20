@@ -321,6 +321,30 @@ impl Repository {
             count
         };
         let retained_documents = document_ids.len() as i64;
+        let removed_profile_derived_data = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM language_lexical_entries WHERE profile_id = ?1",
+        )
+        .bind(id)
+        .fetch_one(self.pool())
+        .await?
+            + sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1",
+            )
+            .bind(id)
+            .fetch_one(self.pool())
+            .await?;
+        sqlx::query("DELETE FROM language_lookup_events WHERE profile_id = ?1")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        sqlx::query("DELETE FROM language_legacy_lookup_history WHERE profile_id = ?1")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        sqlx::query("DELETE FROM language_lexical_entries WHERE profile_id = ?1")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
         let removed_associations = sqlx::query(
             "DELETE FROM language_profile_associations
              WHERE profile_id = ?1 AND account_id = ?2 AND workspace_id = ?3",
@@ -354,7 +378,7 @@ impl Repository {
         Ok(ProfileDeleteReport {
             profile_id: id.to_string(),
             removed_associations,
-            removed_profile_derived_data: 0,
+            removed_profile_derived_data,
             retained_documents,
             retained_learning_items,
         })

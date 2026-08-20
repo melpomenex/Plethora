@@ -16,6 +16,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { dictionaryQueryForText } from "../components/viewer/selectionInteraction/intent";
 import { useVocabularyHistoryStore } from "../stores/vocabularyHistoryStore";
+import { useLanguageProfileStore } from "../stores/languageProfileStore";
+import { recordLanguageLookup } from "../api/languageLexicon";
 import { lookupDictionaryEntry, type DictionaryEntryResult } from "../utils/dictionaryLookup";
 
 const dictionaryQueryKey = (word: string) => ["dictionary", word] as const;
@@ -33,7 +35,20 @@ export function useDictionaryEntry(
     queryKey: dictionaryQueryKey(query),
     queryFn: async () => {
       const result = await lookupDictionaryEntry(query);
-      if (result.ok) recordLookup(result.entry.word, documentId);
+      if (result.ok) {
+        const profileState = useLanguageProfileStore.getState();
+        // Keep the legacy store as a compatibility projection while sending
+        // new lookup evidence to the durable profile-scoped model. A failed
+        // native/browser persistence call must never make Dictionary Peek
+        // unavailable.
+        void recordLanguageLookup({
+          profileId: profileState.activeProfileId || undefined,
+          languageTag: profileState.profiles.find((profile) => profile.id === profileState.activeProfileId)?.targetLanguage,
+          surface: result.entry.word,
+          documentId,
+        }).catch(() => undefined);
+        recordLookup(result.entry.word, documentId);
+      }
       return result;
     },
     enabled: query.length > 0,
