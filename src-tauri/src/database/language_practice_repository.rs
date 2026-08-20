@@ -11,6 +11,7 @@ fn from_row(row: &SqliteRow) -> Result<LanguagePracticeAttempt> {
         id: row.try_get("id")?,
         profile_id: row.try_get("profile_id")?,
         mode: row.try_get("mode")?,
+        status: row.try_get("status")?,
         source_type: row.try_get("source_type")?,
         source_id: row.try_get("source_id")?,
         source_anchor: row.try_get::<Option<String>, _>("source_anchor_json")?.and_then(|value| serde_json::from_str(&value).ok()),
@@ -40,17 +41,18 @@ impl Repository {
         attempt.updated_at = now;
         sqlx::query(
             "INSERT INTO language_practice_attempts
-             (id, profile_id, mode, source_type, source_id, source_anchor_json, source_fingerprint,
+             (id, profile_id, mode, status, source_type, source_id, source_anchor_json, source_fingerprint,
               prompt_text, raw_response, normalized_response, comparison_json, provider_id, provider_version,
               privacy_mode, retention_expires_at, active_evidence_accepted, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
              ON CONFLICT(id) DO UPDATE SET raw_response = excluded.raw_response,
+               status = excluded.status,
                normalized_response = excluded.normalized_response, comparison_json = excluded.comparison_json,
                provider_id = excluded.provider_id, provider_version = excluded.provider_version,
                privacy_mode = excluded.privacy_mode, retention_expires_at = excluded.retention_expires_at,
                active_evidence_accepted = excluded.active_evidence_accepted, updated_at = excluded.updated_at",
         )
-        .bind(&attempt.id).bind(&attempt.profile_id).bind(&attempt.mode).bind(&attempt.source_type).bind(&attempt.source_id)
+        .bind(&attempt.id).bind(&attempt.profile_id).bind(&attempt.mode).bind(&attempt.status).bind(&attempt.source_type).bind(&attempt.source_id)
         .bind(json(&attempt.source_anchor)?).bind(&attempt.source_fingerprint).bind(&attempt.prompt_text)
         .bind(&attempt.raw_response).bind(&attempt.normalized_response).bind(json(&attempt.comparison)?)
         .bind(&attempt.provider_id).bind(&attempt.provider_version).bind(&attempt.privacy_mode)

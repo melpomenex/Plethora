@@ -10,6 +10,7 @@ pub struct LanguagePracticeAttempt {
     pub id: String,
     pub profile_id: String,
     pub mode: String,
+    pub status: String,
     pub source_type: Option<String>,
     pub source_id: Option<String>,
     pub source_anchor: Option<Value>,
@@ -30,7 +31,7 @@ pub struct LanguagePracticeAttempt {
 impl Default for LanguagePracticeAttempt {
     fn default() -> Self {
         Self {
-            id: String::new(), profile_id: String::new(), mode: "dictation".into(),
+            id: String::new(), profile_id: String::new(), mode: "dictation".into(), status: "prompted".into(),
             source_type: None, source_id: None, source_anchor: None, source_fingerprint: None,
             prompt_text: String::new(), raw_response: None, normalized_response: None,
             comparison: None, provider_id: None, provider_version: None,

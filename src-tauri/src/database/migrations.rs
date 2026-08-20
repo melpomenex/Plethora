@@ -3737,6 +3737,17 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_recommendation_candidates(profile_id, coverage_status, updated_at DESC);
         "#,
     ),
+    // Migration 099: add lifecycle/source-version fields needed to resume a
+    // compact practice session without confusing stale source results.
+    Migration::new(
+        "099_language_practice_attempt_status_and_fingerprint",
+        r#"
+        ALTER TABLE language_practice_attempts ADD COLUMN status TEXT NOT NULL DEFAULT 'prompted';
+        ALTER TABLE language_practice_attempts ADD COLUMN source_fingerprint TEXT;
+        CREATE INDEX IF NOT EXISTS idx_language_practice_attempts_fingerprint
+            ON language_practice_attempts(profile_id, source_fingerprint, updated_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
