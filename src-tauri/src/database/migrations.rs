@@ -3627,6 +3627,58 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_srs_evidence(learning_item_id, occurred_at DESC);
         "#,
     ),
+    // Migration 097: normalized sentence/media alignment ranges used by
+    // original-audio-first replay. Stale fingerprints never resolve silently.
+    Migration::new(
+        "097_language_sentence_audio_alignment",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_audio_alignments (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            sentence_id TEXT NOT NULL,
+            media_id TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL,
+            media_fingerprint TEXT NOT NULL,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            confidence REAL NOT NULL,
+            method TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ready'
+                CHECK(status IN ('ready', 'stale', 'ambiguous', 'failed')),
+            provider_id TEXT,
+            provider_version TEXT,
+            error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, source_id, sentence_id, media_id, source_fingerprint, media_fingerprint)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_audio_alignments_source_sentence
+            ON language_audio_alignments(profile_id, source_id, sentence_id, status);
+        CREATE INDEX IF NOT EXISTS idx_language_audio_alignments_media_range
+            ON language_audio_alignments(media_id, start_ms, end_ms);
+
+        CREATE TABLE IF NOT EXISTS language_audio_alignment_candidates (
+            id TEXT PRIMARY KEY,
+            alignment_id TEXT NOT NULL,
+            transcript_text TEXT,
+            media_text TEXT,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            confidence REAL NOT NULL,
+            method TEXT NOT NULL,
+            accepted INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(alignment_id) REFERENCES language_audio_alignments(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_audio_alignment_candidates_alignment
+            ON language_audio_alignment_candidates(alignment_id, confidence DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
