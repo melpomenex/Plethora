@@ -10,8 +10,10 @@ let PLETHORA_BASE_URL = 'http://127.0.0.1:8766';
 let ENABLE_CONTEXT_MENU = true;
 let ENABLE_NOTIFICATIONS = true;
 let AUTO_SAVE = false;
-let SAVE_BOOKMARKS = true;
-let SAVE_HISTORY = true;
+let SAVE_BOOKMARKS = false;
+let SAVE_HISTORY = false;
+let SETTINGS_READY = false;
+let SETTINGS_LOAD_PROMISE = null;
 let ENABLE_AUTO_SYNC = false;
 let SYNC_FREQUENCY = 'manual';
 let FLASHCARD_TYPES = ['qa', 'cloze'];
@@ -266,12 +268,38 @@ async function loadSettings() {
     SYNC_FREQUENCY = 'manual';
     FLASHCARD_TYPES = ['qa', 'cloze'];
     FLASHCARD_COUNT = 5;
+  } finally {
+    // A failed load is considered resolved but remains fully fail-closed:
+    // passive capture flags are false and explicit actions can still report
+    // their connection errors normally.
+    SETTINGS_READY = true;
   }
+}
+
+function ensureSettingsLoaded() {
+  if (!SETTINGS_LOAD_PROMISE) {
+    SETTINGS_LOAD_PROMISE = loadSettings();
+  }
+  return SETTINGS_LOAD_PROMISE;
+}
+
+function reloadSettings() {
+  SETTINGS_READY = false;
+  SETTINGS_LOAD_PROMISE = loadSettings();
+  return SETTINGS_LOAD_PROMISE;
+}
+
+function canCapturePassiveEvent(event) {
+  return globalThis.IncrementumExtensionShared?.shouldCapturePassiveEvent(
+    event,
+    SETTINGS_READY,
+    { autoSave: AUTO_SAVE, saveHistory: SAVE_HISTORY, saveBookmarks: SAVE_BOOKMARKS }
+  ) === true;
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
 
-  await loadSettings();
+  await ensureSettingsLoaded();
 
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
@@ -280,7 +308,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 // Service worker startup event
 chrome.runtime.onStartup.addListener(async () => {
-  await loadSettings();
+  await ensureSettingsLoaded();
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
   await flushPendingExtractRegistrations();
@@ -574,7 +602,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'settingsChanged':
           // Reload settings when they change
-          await loadSettings();
+          await reloadSettings();
 
           if (message.settings && message.settings.enableContextMenu !== undefined) {
             ENABLE_CONTEXT_MENU = message.settings.enableContextMenu !== false;
@@ -816,7 +844,7 @@ async function readErrorMessage(response) {
 
 async function sendToIncrementum(data, options = {}) {
   try {
-    await loadSettings();
+    await ensureSettingsLoaded();
 
     // Use the root endpoint as expected by BrowserSyncServer
     const endpoint = browserSyncEndpoint();
@@ -1618,7 +1646,7 @@ if (chrome.alarms) {
 // Bookmarks sync listener
 if (chrome.bookmarks) {
   chrome.bookmarks.onCreated.addListener(async (id, bookmark) => {
-    if (SAVE_BOOKMARKS && bookmark.url) {
+    if (canCapturePassiveEvent('bookmark') && bookmark.url) {
       await savePage(bookmark.url, bookmark.title);
     }
   });
@@ -1627,7 +1655,7 @@ if (chrome.bookmarks) {
 // History sync listener
 if (chrome.history) {
   chrome.history.onVisited.addListener(async (historyItem) => {
-    if (SAVE_HISTORY && historyItem.url && !isInternalUrl(historyItem.url)) {
+    if (canCapturePassiveEvent('history') && historyItem.url && !isInternalUrl(historyItem.url)) {
       await sendToIncrementum({
         url: historyItem.url,
         title: historyItem.title || 'Visited Page',
@@ -1641,9 +1669,12 @@ if (chrome.history) {
 
 // Auto-save pages navigation listener
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && !isInternalUrl(tab.url)) {
-    if (AUTO_SAVE) {
-      await savePage(tab.url, tab.title);
-    }
+  if (changeInfo.status === 'complete' && tab.url && !isInternalUrl(tab.url) && canCapturePassiveEvent('navigation')) {
+    await savePage(tab.url, tab.title);
   }
 });
+
+// Start loading settings immediately. Events that arrive before this promise
+// settles are ignored by the passive listeners above instead of using module
+// defaults as implicit consent to capture browsing activity.
+void ensureSettingsLoaded();

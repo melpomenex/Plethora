@@ -107,7 +107,7 @@ import type { ReviewRating } from "../../api/review";
 import { autoExtractWithCache, ensureGLMOllamaRuntime, ensureOCRConfig, isAutoExtractEnabled } from "../../utils/documentAutoExtract";
 import { ocrPdfFile } from "../../api/ocrCommands";
 import { renderMarkdown } from "../../utils/markdown";
-import { processHtmlContent } from "../../utils/documentImport";
+import { processHtmlContent, processPlainTextContent } from "../../utils/documentImport";
 import { lookupDictionary, type DictionaryResult } from "../../utils/dictionaryLookup";
 import { recordReadingSession } from "../../utils/readingSpeed";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
@@ -5458,13 +5458,18 @@ export function DocumentViewer({
       return "";
     }
 
-    // Browser extension documents store plain text (captured via innerText).
-    // Route through processHtmlContent to add proper styling for iframe display.
+    // Browser extension documents normally store plain text (captured via
+    // innerText). Render that through a text-specific boundary so paragraph
+    // and line breaks survive iframe parsing; rich captures still use the
+    // sanitized HTML path below.
     if (isEditableBrowserArticleDocument(currentDocument)) {
       const preserveImages = settings.documents.webImportPreserveImages;
       const baseUrl = currentDocument?.filePath?.startsWith("http")
         ? currentDocument.filePath
         : window.location.origin;
+      if (!currentDocument?.metadata?.articleHtml?.trim()) {
+        return processPlainTextContent(htmlSource, currentDocument?.title || "");
+      }
       return processHtmlContent(htmlSource, baseUrl, currentDocument?.title || "", preserveImages);
     }
 

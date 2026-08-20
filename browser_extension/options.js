@@ -85,14 +85,14 @@ class OptionsController {
 
             document.getElementById('server-url').value = serverUrl;
             document.getElementById('port').value = settings.browserSyncPort || this.defaultSettings.browserSyncPort;
-            document.getElementById('auto-save').checked = settings.autoSave || this.defaultSettings.autoSave;
-            document.getElementById('auto-extract').checked = settings.autoExtract || this.defaultSettings.autoExtract;
+            document.getElementById('auto-save').checked = settings.autoSave === true;
+            document.getElementById('auto-extract').checked = settings.autoExtract === true;
             document.getElementById('enable-context-menu').checked = settings.enableContextMenu !== false;
             document.getElementById('enable-notifications').checked = settings.enableNotifications !== false;
             document.getElementById('enable-highlights').checked = settings.enableHighlights !== false;
-            document.getElementById('enable-auto-sync').checked = settings.enableAutoSync || this.defaultSettings.enableAutoSync;
-            document.getElementById('save-history').checked = settings.saveHistory !== false;
-            document.getElementById('save-bookmarks').checked = settings.saveBookmarks !== false;
+            document.getElementById('enable-auto-sync').checked = settings.enableAutoSync === true;
+            document.getElementById('save-history').checked = settings.saveHistory === true;
+            document.getElementById('save-bookmarks').checked = settings.saveBookmarks === true;
             document.getElementById('sync-frequency').value = settings.syncFrequency || this.defaultSettings.syncFrequency;
             const flashcardTypes = Array.isArray(settings.flashcardTypes)
                 ? settings.flashcardTypes

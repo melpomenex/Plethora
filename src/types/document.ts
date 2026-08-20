@@ -133,7 +133,7 @@ export interface DocumentMetadata {
   favicon?: string;
   fetchMethod?: 'direct' | 'proxy';
   readingTime?: number;
-  browserImportMode?: 'text-editor' | 'rich-preview';
+  browserImportMode?: 'text-editor' | 'rich-preview' | 'low-confidence' | 'raw-fallback';
   articleHtml?: string;
   extractedImages?: Array<{
     src: string;

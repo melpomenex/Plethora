@@ -71,6 +71,53 @@ async function fetchArticleWithProxy(url: string): Promise<{
 /**
  * Process HTML content for safe display
  */
+const HTML_TEXT_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+const escapeHtmlText = (text: string): string =>
+  text.replace(/[&<>"']/g, (character) => HTML_TEXT_ESCAPES[character] || character);
+
+/**
+ * Render text captured by the browser extension without asking the HTML
+ * parser to reinterpret it. Extension captures are usually innerText, so
+ * parsing them as HTML collapses paragraphs and line breaks into a single
+ * unreadable block.
+ */
+export function processPlainTextContent(rawText: string, title: string): string {
+  const normalized = rawText.replace(/\r\n?/g, '\n').trim();
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => escapeHtmlText(paragraph).replace(/\n/g, '<br>'));
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtmlText(title)}</title><style>
+    :root { color-scheme: light dark; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      color: inherit;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+    }
+    article {
+      box-sizing: border-box;
+      max-width: 78ch;
+      margin: 0 auto;
+      padding: 2rem clamp(1rem, 5vw, 4rem);
+    }
+    p { margin: 0 0 1.1rem; }
+    p:last-child { margin-bottom: 0; }
+  </style></head><body><article class="inc-plain-text">${paragraphs
+    .map((paragraph) => `<p>${paragraph}</p>`)
+    .join('')}</article></body></html>`;
+}
+
 export function processHtmlContent(rawHtml: string, baseUrl: string, title: string, preserveImages: boolean): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
