@@ -3479,6 +3479,154 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_memorization_links(profile_id, lexical_entry_id);
         "#,
     ),
+    // Migration 095: profile-scoped phrase/collocation candidates and
+    // overlap-aware occurrences. Phrase objects remain separate from cards.
+    Migration::new(
+        "095_language_phrase_learning",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_phrases (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            language_tag TEXT NOT NULL,
+            phrase_key TEXT NOT NULL,
+            normalized_form TEXT NOT NULL,
+            canonical_form TEXT NOT NULL,
+            meaning TEXT,
+            translation TEXT,
+            confidence REAL,
+            state TEXT NOT NULL DEFAULT 'new'
+                CHECK(state IN ('new', 'encountered', 'learning', 'familiar', 'known', 'ignored')),
+            first_encountered_at INTEGER,
+            last_encountered_at INTEGER,
+            occurrence_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, phrase_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_phrases_profile_state
+            ON language_phrases(profile_id, state, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_phrases_profile_normalized
+            ON language_phrases(profile_id, normalized_form);
+
+        CREATE TABLE IF NOT EXISTS language_phrase_constituents (
+            phrase_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            lexical_entry_id TEXT,
+            surface TEXT NOT NULL,
+            normalized TEXT NOT NULL,
+            FOREIGN KEY(phrase_id) REFERENCES language_phrases(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE SET NULL,
+            PRIMARY KEY(phrase_id, position)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_phrase_constituents_entry
+            ON language_phrase_constituents(lexical_entry_id, phrase_id);
+
+        CREATE TABLE IF NOT EXISTS language_phrase_occurrences (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            phrase_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            document_id TEXT,
+            media_id TEXT,
+            source_anchor_json TEXT,
+            context_text TEXT,
+            confidence REAL,
+            first_seen_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL,
+            repeat_count INTEGER NOT NULL DEFAULT 1,
+            occurrence_key TEXT NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(phrase_id) REFERENCES language_phrases(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, occurrence_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_phrase_occurrences_profile_time
+            ON language_phrase_occurrences(profile_id, last_seen_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_phrase_occurrences_phrase
+            ON language_phrase_occurrences(profile_id, phrase_id, last_seen_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_phrase_candidates (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            normalized_form TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            constituent_entry_ids_json TEXT NOT NULL DEFAULT '[]',
+            source_anchor_json TEXT,
+            confidence REAL NOT NULL,
+            provider_id TEXT,
+            provider_version TEXT,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'accepted', 'dismissed')),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, normalized_form, source_anchor_json)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_phrase_candidates_profile_status
+            ON language_phrase_candidates(profile_id, status, confidence DESC, created_at DESC);
+        "#,
+    ),
+    // Migration 096: explicit language draft/provenance and review evidence.
+    // Drafts are idempotency records; learning_items are still created only
+    // by the explicit Memorize action through the existing scheduler path.
+    Migration::new(
+        "096_language_srs_drafts",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_srs_drafts (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT,
+            phrase_id TEXT,
+            sentence_id TEXT,
+            draft_key TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT,
+            source_anchor_json TEXT,
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            provider_id TEXT,
+            provider_version TEXT,
+            status TEXT NOT NULL DEFAULT 'draft'
+                CHECK(status IN ('draft', 'accepted', 'dismissed', 'expired')),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE SET NULL,
+            FOREIGN KEY(phrase_id) REFERENCES language_phrases(id) ON DELETE SET NULL,
+            UNIQUE(profile_id, draft_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_srs_drafts_profile_status
+            ON language_srs_drafts(profile_id, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_srs_evidence (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            lexical_entry_id TEXT,
+            phrase_id TEXT,
+            learning_item_id TEXT,
+            evidence_kind TEXT NOT NULL
+                CHECK(evidence_kind IN ('suggested', 'accepted', 'reviewed', 'dismissed')),
+            confidence REAL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY(lexical_entry_id) REFERENCES language_lexical_entries(id) ON DELETE SET NULL,
+            FOREIGN KEY(phrase_id) REFERENCES language_phrases(id) ON DELETE SET NULL,
+            FOREIGN KEY(learning_item_id) REFERENCES learning_items(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_srs_evidence_profile_time
+            ON language_srs_evidence(profile_id, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_srs_evidence_item
+            ON language_srs_evidence(learning_item_id, occurred_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

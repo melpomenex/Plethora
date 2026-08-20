@@ -38,4 +38,13 @@ export interface LearningItemInteractionMetadata {
   imageOcclusionAssetId?: string;
   imageOcclusionRegions?: ImageOcclusionRegion[];
   imageOcclusionPrompt?: string;
+  /** Language-learning provenance fields used by explicit vocabulary/phrase drafts. */
+  languageDraftKey?: string;
+  languageProfileId?: string;
+  lexicalEntryId?: string;
+  phraseId?: string;
+  sentenceId?: string;
+  sourceAnchor?: unknown;
+  providerId?: string;
+  providerVersion?: string;
 }

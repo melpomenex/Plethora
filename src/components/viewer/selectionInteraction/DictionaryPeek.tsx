@@ -53,7 +53,7 @@ import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
 import { useLanguageKnowledgeStore } from "../../../stores/languageKnowledgeStore";
 import { LanguageKnowledgeStateSelector } from "../../common/LanguageKnowledgeStateSelector";
 import type { LanguageKnowledgeStateSnapshot } from "../../../types/languageKnowledge";
-import { createLearningItem } from "../../../api/learning-items";
+import { memorizeLanguageDraft } from "../../../api/languageSrs";
 import { createExtract } from "../../../api/extracts";
 import { useUndoableOperations } from "../../../api/undoable";
 import { useToast } from "../../common/Toast";
@@ -336,6 +336,7 @@ export function DictionaryPeek({
     if (!target || flashcardSaving) return;
     setFlashcardSaving(true);
     try {
+      const memorizeText = target.phrase?.normalizedForm ?? displayWord;
       const answer =
         entry?.senses
           .map((sense) =>
@@ -343,17 +344,24 @@ export function DictionaryPeek({
           )
           .filter(Boolean)
           .join("\n") || entry?.synonyms.join(", ") || "";
-      const item = await createLearningItem({
-        item_type: "flashcard",
-        question: `Define: ${displayWord}`,
+      const result = await memorizeLanguageDraft({
+        itemType: "flashcard",
+        question: `Define: ${memorizeText}`,
         ...(answer ? { answer } : {}),
-        ...(documentId ? { document_id: documentId } : {}),
-        allow_duplicate: true,
-        interaction_metadata: {
-          origin: "dictionary-peek",
+        documentId: documentId ?? undefined,
+        provenance: {
+          origin: target.phrase ? "phrase" : "dictionary-peek",
+          profileId: activeProfileId ?? target.profileId ?? "local",
+          lexicalEntryId: knowledgeState?.lexicalEntryId,
+          sourceAnchor: target.sourceAnchor,
+          createdAt: Date.now(),
+        },
+        interactionMetadata: {
           sentence: (target.passage ?? target.text).slice(0, 500),
+          documentId,
         },
       });
+      const item = result.item;
       toast.success(t("viewer.dictionaryPeek.flashcardCreated"), undefined, {
         duration: 8000,
         action: {
@@ -371,7 +379,7 @@ export function DictionaryPeek({
     } finally {
       setFlashcardSaving(false);
     }
-  }, [target, entry, displayWord, documentId, flashcardSaving, toast, t, deleteLearningItem]);
+  }, [target, entry, displayWord, documentId, flashcardSaving, toast, t, deleteLearningItem, activeProfileId, knowledgeState]);
 
   if (!open || !target) return null;
 
