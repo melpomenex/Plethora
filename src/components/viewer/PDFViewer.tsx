@@ -464,6 +464,7 @@ interface PDFViewerProps {
   ttsQuery?: string;
   ttsHighlightEnabled?: boolean;
   onTextLayerRootsChange?: (roots: (HTMLDivElement | null)[], scrollContainer: HTMLElement | null) => void;
+  onCanonicalPagesChange?: (pages: ReadonlyMap<number, PdfCanonicalPage>) => void;
   onVimRuntimeChange?: (runtime: PdfVimRuntime | null) => void;
   /** Right-click on a committed selection asks the host to open its shared
    *  text-selection context menu. Mirrors EPUBViewer's contract; coords are
@@ -538,6 +539,7 @@ export function PDFViewer({
   ttsQuery,
   ttsHighlightEnabled,
   onTextLayerRootsChange,
+  onCanonicalPagesChange,
   onVimRuntimeChange,
   onContextMenu,
   selectionPopupSuppressed = false,
@@ -592,6 +594,10 @@ export function PDFViewer({
   const reflowOcrRef = useRef(new PdfReflowOcrController());
   const [pageOcrUpdate, setPageOcrUpdate] = useState<PdfPageOcrUpdate | null>(null);
   const [reflowSearchBlockId, setReflowSearchBlockId] = useState<string | null>(null);
+
+  useEffect(() => {
+    onCanonicalPagesChange?.(canonicalPages);
+  }, [canonicalPages, onCanonicalPagesChange]);
 
   useEffect(() => {
     setMobilePreferences(loadPdfMobilePreferences(documentId, pdfMobilePreferencesFromSettings(pdfSettings)));

@@ -6,3 +6,4 @@ export * from "./cssTokens";
 export * from "./annotations";
 export * from "./visibleRangeIndex";
 export * from "./adapters";
+export * from "./domDecoration";

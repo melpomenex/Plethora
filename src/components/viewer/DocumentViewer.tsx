@@ -162,6 +162,8 @@ import type { StoredHighlight } from "./HighlightLayer";
 import { normalizePdfHighlightColor } from "../../utils/highlightColors";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
+import { LanguageReaderDomBridge } from "../language/LanguageReaderDomBridge";
+import type { PdfCanonicalPage } from "../../types/pdfCanonical";
 import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localMediaSource";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
@@ -628,6 +630,7 @@ export function DocumentViewer({
   epubIframeWindowRef.current = epubIframeWindow;
   const [pdfTextLayerRoots, setPdfTextLayerRoots] = useState<(HTMLDivElement | null)[]>([]);
   const [pdfScrollContainer, setPdfScrollContainer] = useState<HTMLElement | null>(null);
+  const [pdfCanonicalPages, setPdfCanonicalPages] = useState<ReadonlyMap<number, PdfCanonicalPage>>(() => new Map());
   const [epubVimRuntime, setEpubVimRuntime] = useState<EpubVimRuntime | null>(null);
   const [pdfVimRuntime, setPdfVimRuntime] = useState<PdfVimRuntime | null>(null);
   const highlightContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1082,6 +1085,25 @@ export function DocumentViewer({
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
   const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null } | null>(null);
+
+  useEffect(() => {
+    const onLanguageMiningDraft = (event: Event) => {
+      const payload = (event as CustomEvent<{ sourceId?: string; documentId?: string; text?: string; context?: string; sourceFingerprint?: string }>).detail;
+      if (!payload?.text?.trim()) return;
+      if (payload.documentId && payload.documentId !== documentId) return;
+      setFlashcardStudioSeed({
+        key: `language-mining-${payload.sourceId ?? documentId}-${payload.sourceFingerprint ?? Date.now()}`,
+        documentId: payload.documentId ?? documentId,
+        excerpt: payload.context?.trim() || payload.text.trim(),
+        draftCardType: "qa",
+        resetDraftCards: true,
+        autoEditDraft: true,
+        deckTag: "language",
+      });
+    };
+    window.addEventListener("plethora-language-mining-draft", onLanguageMiningDraft);
+    return () => window.removeEventListener("plethora-language-mining-draft", onLanguageMiningDraft);
+  }, [documentId]);
   const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
   const [isDictionaryLoading, setIsDictionaryLoading] = useState(false);
   const [contextMenuState, setContextMenuState] = useState<{
@@ -7709,6 +7731,7 @@ export function DocumentViewer({
               setPdfTextLayerRoots(roots);
               setPdfScrollContainer(container);
             }}
+            onCanonicalPagesChange={setPdfCanonicalPages}
             onVimRuntimeChange={setPdfVimRuntime}
             onSelectionContextInvalidated={
               selectionV2
@@ -8783,6 +8806,46 @@ export function DocumentViewer({
 
       {/* Vim reading mode indicator */}
       <VimModeIndicator />
+
+      {docType === "markdown" && (
+        <LanguageReaderDomBridge
+          root={containerRef.current}
+          contentSelector="[data-language-content-root]"
+          surface="markdown"
+          sourceId={currentDocument.id}
+        />
+      )}
+      {docType === "html" && iframeElement?.contentDocument && (
+        <LanguageReaderDomBridge
+          root={iframeElement.contentDocument}
+          surface="html"
+          sourceId={currentDocument.id}
+        />
+      )}
+      {docType === "epub" && epubIframeWindow?.document && (
+        <LanguageReaderDomBridge
+          root={epubIframeWindow.document}
+          surface="epub"
+          sourceId={currentDocument.id}
+        />
+      )}
+      {docType === "pdf" && pdfViewMode === "pdf" && (
+        <LanguageReaderDomBridge
+          root={document}
+          surface="pdf-fixed"
+          sourceId={currentDocument.id}
+          pdfTextLayerRoots={pdfTextLayerRoots}
+          pdfCanonicalPages={pdfCanonicalPages}
+        />
+      )}
+      {docType === "pdf" && pdfViewMode === "pdf" && document.querySelector(".pdf-reflow-content") && (
+        <LanguageReaderDomBridge
+          root={document}
+          contentSelector=".pdf-reflow-content"
+          surface="pdf-reflow"
+          sourceId={currentDocument.id}
+        />
+      )}
     </div>
   );
 }

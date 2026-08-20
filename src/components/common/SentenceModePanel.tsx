@@ -12,6 +12,7 @@ export interface SentenceModePanelProps {
   onRevealTranslation: () => void;
   onInspectVocabulary: (text: string) => void;
   onGrammar: (text: string) => void;
+  onPractice: (text: string) => void;
   onExit: () => void;
   reducedMotion?: boolean;
   eInk?: boolean;
@@ -30,6 +31,7 @@ export function SentenceModePanel({
   onRevealTranslation,
   onInspectVocabulary,
   onGrammar,
+  onPractice,
   onExit,
   reducedMotion = false,
   eInk = false,
@@ -67,6 +69,7 @@ export function SentenceModePanel({
         <button type="button" className="min-h-10 rounded border border-border px-3 text-sm" onClick={onPlay}>Play</button>
         <button type="button" className="min-h-10 rounded border border-border px-3 text-sm" onClick={onReplay}>Replay</button>
         <button type="button" className="min-h-10 rounded border border-border px-3 text-sm" onClick={() => sentence && onGrammar(sentence.text)} disabled={!sentence}>Grammar</button>
+        <button type="button" className="min-h-10 rounded border border-border px-3 text-sm" onClick={() => sentence && onPractice(sentence.text)} disabled={!sentence}>Practice</button>
       </div>
 
       <div className="border-t border-border pt-4">

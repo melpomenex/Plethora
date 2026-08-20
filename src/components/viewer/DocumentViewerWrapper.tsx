@@ -23,6 +23,12 @@ import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extr
 import type { SectionNode } from "../../utils/sectionIndex";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { consumeAskPlethora } from "../../utils/audioCaptureNavigation";
+import { LanguageLearningHostProvider } from "../../contexts/LanguageLearningHostContext";
+import { LanguageReaderHostPanel } from "../language/LanguageReaderHostPanel";
+import { LanguageReaderActionOverlay } from "../language/LanguageReaderActionOverlay";
+import { LanguageTutorHost } from "../language/LanguageTutorHost";
+import { LanguagePracticeOverlay } from "../language/LanguagePracticeOverlay";
+import type { SourceAnchor } from "../../types/languageLexicon";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 
@@ -63,6 +69,10 @@ export function DocumentViewer({
   useReadingSessionTracker({ documentId, isActive: isActiveTab });
 
   const [selection, setSelection] = useState("");
+  const [languageModeEnabled, setLanguageModeEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(`plethora.language-mode.${documentId}`) === "on";
+  });
   const [scrollState, setScrollState] = useState<{ pageNumber?: number; scrollPercent?: number }>({});
   const [debouncedScrollPercent, setDebouncedScrollPercent] = useState<number | undefined>(undefined);
 
@@ -111,6 +121,42 @@ export function DocumentViewer({
   const documentContentRef = useRef<string | undefined>(documentContent);
   const assistantContentRef = useRef<string | undefined>(assistantContent);
   const currentDocRef = useRef(currentDoc);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`plethora.language-mode.${documentId}`, languageModeEnabled ? "on" : "off");
+    }
+  }, [documentId, languageModeEnabled]);
+
+  const languageSource = useMemo(() => {
+    const type = currentDoc?.fileType || "text";
+    const isMedia = type === "youtube" || type === "video" || type === "audio";
+    const sourceType: SourceAnchor["sourceType"] = type === "epub"
+      ? "epub"
+      : type === "pdf"
+        ? "pdf"
+        : type === "html"
+          ? "html"
+          : type === "markdown"
+            ? "markdown"
+            : isMedia
+              ? "media"
+              : "text";
+    return {
+      contentType: isMedia ? "media" as const : "document" as const,
+      contentId: documentId,
+      contentFingerprint: `${documentId}:${currentDoc?.content?.length ?? 0}`,
+      text: currentDoc?.content,
+      source: {
+        sourceType,
+        documentId: isMedia ? undefined : documentId,
+        mediaId: isMedia ? documentId : undefined,
+        contentFingerprint: `${documentId}:${currentDoc?.content?.length ?? 0}`,
+      },
+    };
+  }, [currentDoc?.content, currentDoc?.fileType, documentId]);
+
+  const languageSourceAnchor = languageSource.source;
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -420,11 +466,17 @@ export function DocumentViewer({
   );
 
   const documentViewer = (
-    <div
-      className="flex-1 h-full min-h-0 overflow-hidden"
-      style={{ minWidth: READER_MIN_WIDTH }}
+    <LanguageLearningHostProvider
+      hostId={`document-reader:${documentId}`}
+      surface={languageSource.contentType === "media" ? "video" : openedFrom === "queue" ? "queue" : "reader"}
+      source={languageSource}
+      languageModeEnabled={languageModeEnabled}
     >
-      <BaseDocumentViewer
+      <div
+        className="relative flex-1 h-full min-h-0 overflow-hidden"
+        style={{ minWidth: READER_MIN_WIDTH }}
+      >
+        <BaseDocumentViewer
         documentId={documentId}
         onSelectionChange={setSelection}
         onScrollPositionChange={setScrollState}
@@ -442,8 +494,19 @@ export function DocumentViewer({
         onMediaSectionsChange={handleMediaSectionsChange}
         openedFrom={openedFrom}
         hideRatingOrbs={hideRatingOrbs}
-      />
-    </div>
+        />
+        <LanguageReaderHostPanel
+          documentId={documentId}
+          selectedText={selection}
+          sourceAnchor={languageSourceAnchor}
+          languageModeEnabled={languageModeEnabled}
+          onLanguageModeChange={setLanguageModeEnabled}
+        />
+        <LanguageReaderActionOverlay />
+        <LanguageTutorHost />
+        <LanguagePracticeOverlay />
+      </div>
+    </LanguageLearningHostProvider>
   );
 
   return (

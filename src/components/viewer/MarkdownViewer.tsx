@@ -314,7 +314,7 @@ export function MarkdownViewer({
     >
       <h1 className="reading-title">{document.title}</h1>
       {content ? (
-        <div ref={contentRef} dangerouslySetInnerHTML={{ __html: html }} />
+        <div ref={contentRef} data-language-content-root="true" dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
         <div className="text-muted-foreground italic">{t("viewer.noContentAvailable")}</div>
       )}

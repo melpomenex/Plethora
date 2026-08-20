@@ -45,6 +45,7 @@ import {
 import { extractYouTubeVideoId, resolveEmbedHost, type YouTubeEmbedHost } from "../../utils/youtubeEmbed";
 import { isNetworkDebugEnabled } from "../../debug/networkDebug";
 import type { WordTiming } from "../../utils/wordTimings";
+import { LanguageVideoHost } from "../language/LanguageVideoHost";
 
 /** Wire shape of a caption cue, from either the Tauri backend or the web API. */
 interface RawTranscriptSegment {
@@ -1209,7 +1210,7 @@ export function YouTubeViewer({
   };
 
   return (
-    <div className={`flex h-full min-h-0 overflow-hidden bg-background ${transcriptLayout === 'side' && showTranscript ? 'flex-row' : 'flex-col'}`}>
+    <div className={`relative flex h-full min-h-0 overflow-hidden bg-background ${transcriptLayout === 'side' && showTranscript ? 'flex-row' : 'flex-col'}`}>
       {!normalizedVideoId && (
         <div className="p-3 text-sm bg-destructive/10 border-b border-destructive/30 text-destructive">
           {t("viewer.invalidYouTubeUrl", { videoId })} <code>{videoId}</code>
@@ -1483,6 +1484,17 @@ export function YouTubeViewer({
           </div>
         )}
       </div>
+
+      {transcript.length > 0 && (
+        <LanguageVideoHost
+          videoId={normalizedVideoId}
+          documentId={documentId}
+          sourceFingerprint={`${normalizedVideoId}:${transcript.length}:${duration}`}
+          segments={transcript}
+          currentTime={currentTime}
+          onSeek={handleSeek}
+        />
+      )}
 
       {/* Mobile vertical split handle — drag up to grow the transcript,
           down to grow the video. Only in compact (queue) mobile mode. */}

@@ -69,6 +69,10 @@ export interface PdfCanonicalWordAnchor extends BaseAnchor {
   wordId: string;
   source: "native-pdf-text" | "ocr" | "graphical";
   bboxExact: boolean;
+  /** Optional DOM coordinates used only by the fixed-PDF decoration bridge. */
+  node?: Text;
+  startOffset?: number;
+  endOffset?: number;
 }
 
 export interface QueueItemAnchor extends BaseAnchor {

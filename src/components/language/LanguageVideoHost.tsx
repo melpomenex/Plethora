@@ -1,0 +1,201 @@
+import { useEffect, useMemo, useState } from "react";
+import { BookOpenText, Camera, FilmStrip, Play, Translate } from "@phosphor-icons/react";
+import { DictionaryPeek, type DictionaryPeekTarget } from "../viewer/selectionInteraction/DictionaryPeek";
+import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
+import { dispatchLanguageHostAction, type LanguageHostActionDetail } from "../../lib/languageHost";
+import { createLanguageMiningPayload } from "../../lib/languageMining";
+import { TranscriptLanguageHighlightAdapter } from "../../lib/languageHighlighting/adapters";
+import { languageVocabularyStateClass } from "../../lib/languageHighlighting";
+import { listLanguageLexicalEntries } from "../../api/languageLexicon";
+import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
+import type { SourceAnchor } from "../../types/languageLexicon";
+import type { TranscriptSegment } from "../media/TranscriptSync";
+import { createVideoLanguageSession, currentVideoSentence, selectVideoSentence } from "../../lib/languageVideo";
+
+interface LanguageVideoHostProps {
+  videoId: string;
+  documentId?: string;
+  sourceFingerprint: string;
+  segments: readonly TranscriptSegment[];
+  currentTime: number;
+  onSeek: (time: number, endTime?: number) => void;
+}
+
+function transcriptAnchor(videoId: string, segment: TranscriptSegment, sourceFingerprint: string): SourceAnchor {
+  return {
+    sourceType: "transcript",
+    mediaId: videoId,
+    sourceId: `${videoId}:${segment.id}`,
+    contentFingerprint: sourceFingerprint,
+    locator: { segmentId: segment.id, startMs: Math.round(segment.start * 1000), endMs: Math.round(segment.end * 1000) },
+  };
+}
+
+/**
+ * Video-specific language controls. It is deliberately a sibling of the
+ * player/transcript controls: the YouTube player remains the only clock,
+ * seek owner, and progress persistence path.
+ */
+export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segments, currentTime, onSeek }: LanguageVideoHostProps) {
+  const { snapshot } = useLanguageLearningHost();
+  const [peekOpen, setPeekOpen] = useState(false);
+  const [states, setStates] = useState<ReadonlyMap<string, LanguageKnowledgeState>>(new Map());
+  const [subtitleMode, setSubtitleMode] = useState<"target" | "base" | "dual">("target");
+
+  const session = useMemo(() => createVideoLanguageSession({
+    sessionId: `${snapshot.hostId}:video-language`,
+    videoId,
+    profileId: snapshot.profile?.id,
+    sourceFingerprint,
+    sentences: segments.map((segment) => ({
+      id: segment.id,
+      text: segment.text,
+      startMs: segment.start * 1000,
+      endMs: segment.end * 1000,
+      sourceAnchor: transcriptAnchor(videoId, segment, sourceFingerprint),
+      tokens: [],
+    })),
+    subtitleMode,
+    layout: "desktop",
+    normalMode: snapshot.status !== "ready",
+    autoPause: true,
+    loopCurrent: false,
+  }), [segments, snapshot.hostId, snapshot.profile?.id, snapshot.status, sourceFingerprint, subtitleMode, videoId]);
+
+  const active = useMemo(() => {
+    const candidate = session.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)
+      ?? session.sentences.at(-1)
+      ?? null;
+    return candidate ? currentVideoSentence(selectVideoSentence(session, candidate.id)) : null;
+  }, [currentTime, session]);
+
+  const adapter = useMemo(() => new TranscriptLanguageHighlightAdapter(videoId, session.sentences.map((sentence) => ({
+    id: sentence.id,
+    text: sentence.text,
+    startMs: sentence.startMs,
+    endMs: sentence.endMs,
+  }))), [session.sentences, videoId]);
+
+  useEffect(() => {
+    let disposed = false;
+    if (snapshot.status !== "ready" || !snapshot.profile || adapter.getTokenAnchors().length === 0) {
+      setStates(new Map());
+      return () => { disposed = true; };
+    }
+    void listLanguageLexicalEntries(snapshot.profile.id, { languageTag: snapshot.profile.targetLanguage, offset: 0, limit: 500 })
+      .then((page) => {
+        if (disposed) return;
+        const next = new Map<string, LanguageKnowledgeState>();
+        for (const entry of page.items) {
+          if (entry.knowledgeState === "new" || entry.knowledgeState === "encountered" || entry.knowledgeState === "learning" || entry.knowledgeState === "familiar" || entry.knowledgeState === "known" || entry.knowledgeState === "ignored") {
+            next.set(entry.normalizedForm, entry.knowledgeState);
+          }
+        }
+        setStates(next);
+      })
+      .catch(() => { if (!disposed) setStates(new Map()); });
+    return () => { disposed = true; adapter.dispose(); };
+  }, [adapter, snapshot.profile, snapshot.status]);
+
+  if (!active || snapshot.status !== "ready" || !snapshot.profile) return null;
+
+  const sourceAnchor = active.sourceAnchor ?? transcriptAnchor(videoId, {
+    id: active.id,
+    text: active.text,
+    start: active.startMs / 1000,
+    end: active.endMs / 1000,
+  }, sourceFingerprint);
+  const source = {
+    ...snapshot.source,
+    contentFingerprint: sourceFingerprint,
+    text: active.text,
+    source: sourceAnchor,
+  };
+  const words = active.text.split(/(\s+)/);
+  const peekTarget: DictionaryPeekTarget | null = peekOpen ? {
+    text: active.text,
+    profileId: snapshot.profile.id,
+    languageTag: snapshot.profile.targetLanguage,
+    sourceAnchor,
+    geometry: null,
+  } : null;
+  const send = (action: LanguageHostActionDetail["action"], selectedText = active.text) => {
+    dispatchLanguageHostAction({
+      action,
+      hostId: snapshot.hostId,
+      source,
+      sourceAnchor,
+      selectedText,
+      profileId: snapshot.profile?.id,
+      languageTag: snapshot.profile?.targetLanguage,
+      origin: "video",
+    });
+  };
+
+  const handleMine = () => {
+    const payload = createLanguageMiningPayload({
+      profileId: snapshot.profile?.id,
+      sourceType: "video",
+      sourceId: videoId,
+      documentId,
+      text: active.text,
+      sentenceText: active.text,
+      selectedText: active.text,
+      sourceAnchor,
+      sourceFingerprint,
+      mediaId: videoId,
+      mediaStartMs: active.startMs,
+      mediaEndMs: active.endMs,
+      originalAudioAvailability: "available",
+      translationAvailability: "missing",
+      analysisAvailability: "available",
+      origin: "mining",
+    });
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("plethora-language-mining-draft", { detail: payload }));
+    send("mine");
+  };
+
+  return (
+    <div className="pointer-events-auto absolute left-3 top-3 z-30 w-[min(92vw,520px)] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-language-video-host="true">
+      <div className="flex items-center gap-2">
+        <FilmStrip className="h-4 w-4 text-primary" aria-hidden="true" />
+        <span className="font-medium">Language video</span>
+        <span className="text-muted-foreground">{snapshot.profile.targetLanguage}</span>
+        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-primary">{active.id}</span>
+      </div>
+      <div className="mt-2 rounded-lg bg-muted/50 p-2 leading-relaxed" aria-live="polite">
+        {words.map((word, index) => {
+          const state = states.get(word.normalize("NFKC").toLocaleLowerCase());
+          return word.trim() && state ? <span key={`${word}-${index}`} className={`mr-1 ${languageVocabularyStateClass(state)}`} title={state}>{word}</span> : <span key={`${word}-${index}`}>{word}</span>;
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => onSeek(active.startMs / 1000, active.endMs / 1000)}>
+          <Play className="h-3.5 w-3.5" aria-hidden="true" /> Replay
+        </button>
+        <button type="button" className="rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => setPeekOpen(true)}>
+          <BookOpenText className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Peek
+        </button>
+        <button type="button" className="rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => send("sentence-mode")}>
+          Sentence
+        </button>
+        <button type="button" className="rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={handleMine}>
+          Mine
+        </button>
+        <label className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
+          <Translate className="h-3.5 w-3.5" aria-hidden="true" />
+          <select aria-label="Language video subtitle mode" className="rounded border border-border bg-card px-1 py-0.5 text-foreground" value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}>
+            <option value="target">Target</option>
+            <option value="dual">Target + base</option>
+            <option value="base">Base</option>
+          </select>
+        </label>
+        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-muted" disabled aria-label="Frame capture unavailable">
+          <Camera className="h-3.5 w-3.5" aria-hidden="true" /> Frame unavailable
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">Sentence timing follows the player clock; word timing is approximate when captions do not provide it.</p>
+      {peekTarget && <DictionaryPeek target={peekTarget} documentId={documentId ?? videoId} onDismiss={() => setPeekOpen(false)} onReplayOriginalAudio={() => onSeek(active.startMs / 1000, active.endMs / 1000)} onPractice={() => send("practice")} />}
+    </div>
+  );
+}
