@@ -91,7 +91,11 @@ pub async fn ai_learning_enqueue_document(
     paid_embeddings_enabled: Option<bool>,
     state: State<'_, AiLearningState>,
 ) -> Result<()> {
-    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
+    // Gate the EFFECTIVE config (the one just passed or the stored one): the
+    // worker embeds with whatever ends up stored in `state.config`, so a
+    // stored cloud backend must not re-embed while consent is off
+    // (ai-billing-safety #14).
+    gated_effective_config(&state, config.as_ref(), paid_embeddings_enabled)?;
     state.update_config(config);
     state.queue.enqueue_document(document_id)
 }
@@ -107,7 +111,10 @@ pub async fn ai_learning_enqueue_all(
     state: State<'_, AiLearningState>,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
+    // Same effective-config gate as enqueue_document: the bulk pass embeds
+    // with the stored backend, so a stored cloud backend must not be used
+    // while consent is off (ai-billing-safety #14).
+    gated_effective_config(&state, config.as_ref(), paid_embeddings_enabled)?;
     state.update_config(config);
     mark_stale_on_backend_change(&state, repo.inner()).await;
     state.queue.enqueue_all(require_charging.unwrap_or(true))
@@ -147,11 +154,16 @@ async fn mark_stale_on_backend_change(state: &AiLearningState, repo: &Repository
 #[tauri::command]
 pub async fn ai_learning_index_status(
     config: Option<EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
     state: State<'_, AiLearningState>,
     repo: State<'_, Repository>,
 ) -> Result<IndexStatusResponse> {
-    if config.is_some() {
-        state.update_config(config);
+    // The passed config is persisted for the worker, so a billable cloud
+    // backend without explicit consent must never be stored
+    // (ai-billing-safety #14) — drop the update instead of letting the
+    // indexer silently bill.
+    if let Some(cfg) = storable_config(config, paid_embeddings_enabled) {
+        state.update_config(Some(cfg));
     }
     let runtime: IndexerRuntimeStatus = state.queue.runtime_status();
     let aggregate = aggregate_status(repo.inner(), &runtime).await?;
@@ -202,6 +214,45 @@ pub async fn ai_learning_reset_index(
     reset_index(repo.inner()).await
 }
 
+/// Resolve the effective embedding config — the one just passed by the
+/// frontend, falling back to the STORED one (the backend the library was
+/// indexed with) — and reject a billable cloud backend behind explicit
+/// consent (ai-billing-safety #14). Local/on-device backends never gate.
+///
+/// The frontend may pass `config: None` when it has nothing new to send; the
+/// stored cloud backend still performs billable embedding work, so it must be
+/// gated exactly like an explicitly passed config: consent off must never let
+/// a stored cloud backend bill.
+fn gated_effective_config(
+    state: &AiLearningState,
+    config: Option<&EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
+) -> Result<()> {
+    let effective = config.cloned().or_else(|| {
+        state
+            .config
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    });
+    ensure_embedding_consent(effective.as_ref(), paid_embeddings_enabled)
+}
+
+/// A config may only be persisted for the worker when it passes the consent
+/// gate; an unconsented billable cloud config is dropped rather than stored
+/// (ai-billing-safety #14) so the background indexer cannot silently bill.
+fn storable_config(
+    config: Option<EmbeddingConfigInput>,
+    paid_embeddings_enabled: Option<bool>,
+) -> Option<EmbeddingConfigInput> {
+    match config {
+        Some(cfg) if ensure_embedding_consent(Some(&cfg), paid_embeddings_enabled).is_ok() => {
+            Some(cfg)
+        }
+        _ => None,
+    }
+}
+
 /// Resolve the backend for a query-side retrieve, gating any billable cloud
 /// backend behind explicit consent (ai-billing-safety #14).
 ///
@@ -216,14 +267,7 @@ fn gated_retrieve_backend(
     config: Option<&EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
 ) -> Result<EmbeddingBackend> {
-    let effective = config.cloned().or_else(|| {
-        state
-            .config
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
-    });
-    ensure_embedding_consent(effective.as_ref(), paid_embeddings_enabled)?;
+    gated_effective_config(state, config, paid_embeddings_enabled)?;
     Ok(state.backend())
 }
 
@@ -375,6 +419,72 @@ mod tests {
         ));
         let backend = gated_retrieve_backend(&empty, None, None).expect("no backend ⇒ ok");
         assert_eq!(backend.kind(), EmbeddingBackendKind::OnDevice);
+    }
+
+    #[tokio::test]
+    async fn stored_cloud_backend_requires_consent_on_enqueue_with_config_none() {
+        let repo = Repository::new(crate::ai_learning::test_support::test_pool().await);
+        let state = AiLearningState::new(repo);
+        // The library was indexed with a paid cloud backend (stored config).
+        state.update_config(Some(cloud_config()));
+
+        // config: None + consent off ⇒ the STORED cloud backend must be
+        // rejected: the worker embeds with the stored backend, so it must not
+        // re-embed without consent (ai-billing-safety #14).
+        let err = gated_effective_config(&state, None, None)
+            .expect_err("stored cloud backend without consent must be rejected on enqueue");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+
+        // config: None + explicit consent ⇒ the stored cloud backend is allowed.
+        assert!(
+            gated_effective_config(&state, None, Some(true)).is_ok(),
+            "explicit consent allows the stored cloud backend on enqueue"
+        );
+
+        // An explicitly passed cloud config is gated the same way as the stored one.
+        let err = gated_effective_config(&state, Some(&cloud_config()), None)
+            .expect_err("passed cloud config without consent must be rejected on enqueue");
+        assert!(matches!(err, PlethoraError::PaidOperationNotConsented(_)));
+
+        // No stored config + no passed config ⇒ no gate (offline/lexical default).
+        let empty = AiLearningState::new(Repository::new(
+            crate::ai_learning::test_support::test_pool().await,
+        ));
+        assert!(
+            gated_effective_config(&empty, None, None).is_ok(),
+            "no backend ⇒ enqueue gate passes"
+        );
+    }
+
+    #[test]
+    fn index_status_drops_unconsented_passed_cloud_config() {
+        // A passed cloud config without consent must never be persisted for
+        // the worker (ai-billing-safety #14).
+        assert!(
+            storable_config(Some(cloud_config()), None).is_none(),
+            "cloud config without consent must not be stored"
+        );
+        assert!(
+            storable_config(Some(cloud_config()), Some(false)).is_none(),
+            "explicit false must not be stored"
+        );
+
+        // Explicit consent allows persisting the cloud config.
+        let stored = storable_config(Some(cloud_config()), Some(true));
+        assert_eq!(
+            stored.map(|c| c.provider),
+            Some(EmbeddingProviderType::OpenAI),
+            "consent allows the cloud config to be stored"
+        );
+
+        // Local Ollama is never gated.
+        assert!(
+            storable_config(Some(ollama_config()), None).is_some(),
+            "local Ollama config is always storable"
+        );
+
+        // None stays None (nothing to store).
+        assert!(storable_config(None, None).is_none());
     }
 
     #[test]
