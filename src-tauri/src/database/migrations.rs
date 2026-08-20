@@ -3679,6 +3679,64 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_audio_alignment_candidates(alignment_id, confidence DESC);
         "#,
     ),
+    // Migration 098: shared practice attempt retention and recommendation
+    // candidate lifecycle. Derived feedback is optional and never a scheduler.
+    Migration::new(
+        "098_language_practice_and_recommendations",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_practice_attempts (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('shadowing', 'dictation', 'writing', 'pronunciation')),
+            source_type TEXT,
+            source_id TEXT,
+            source_anchor_json TEXT,
+            prompt_text TEXT NOT NULL,
+            raw_response TEXT,
+            normalized_response TEXT,
+            comparison_json TEXT,
+            provider_id TEXT,
+            provider_version TEXT,
+            privacy_mode TEXT NOT NULL DEFAULT 'local-only',
+            retention_expires_at INTEGER,
+            active_evidence_accepted INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_practice_attempts_profile_time
+            ON language_practice_attempts(profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_practice_attempts_source
+            ON language_practice_attempts(source_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_recommendation_candidates (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT,
+            explanation_json TEXT NOT NULL DEFAULT '{}',
+            ranking_json TEXT NOT NULL DEFAULT '{}',
+            coverage_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(coverage_status IN ('pending', 'fresh', 'stale', 'unavailable')),
+            lifecycle TEXT NOT NULL DEFAULT 'candidate'
+                CHECK(lifecycle IN ('candidate', 'accepted', 'dismissed', 'snoozed', 'expired')),
+            snoozed_until INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY(profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            UNIQUE(profile_id, source_type, source_id, source_fingerprint)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_recommendations_profile_lifecycle
+            ON language_recommendation_candidates(profile_id, lifecycle, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_language_recommendations_coverage
+            ON language_recommendation_candidates(profile_id, coverage_status, updated_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
