@@ -45,6 +45,7 @@ export interface TutorSheetProps {
   /** Optional bounded language context from LanguageTutorHost. */
   languageContext?: LearnerContextPacket;
   languageMode?: TutorMode;
+  onLanguageModeChange?: (mode: TutorMode) => void;
   onClose: () => void;
 }
 
@@ -58,6 +59,7 @@ export function TutorSheet({
   selectionContext,
   languageContext,
   languageMode,
+  onLanguageModeChange,
   onClose,
 }: TutorSheetProps) {
   const { t } = useI18n();
@@ -281,6 +283,19 @@ export function TutorSheet({
                 ? t("aiLibrary.cloud")
                 : t("aiLibrary.noProvider")}
           </span>
+          {languageMode && onLanguageModeChange && (
+            <select
+              aria-label="Language tutor mode"
+              className="rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
+              value={languageMode}
+              onChange={(event) => onLanguageModeChange(event.target.value as TutorMode)}
+            >
+              <option value="explain">Explain</option>
+              <option value="conversation">Conversation</option>
+              <option value="practice">Vocabulary practice</option>
+              <option value="correction">Correction</option>
+            </select>
+          )}
         </div>
 
         {/* Conversation */}

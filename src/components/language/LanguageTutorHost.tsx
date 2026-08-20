@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { TutorSheet } from "../tutor/TutorSheet";
 import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import { LANGUAGE_HOST_ACTION_EVENT, type LanguageHostActionDetail } from "../../lib/languageHost";
-import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageTutor";
+import { buildLearnerContext, type ContextLexiconRow, type TutorMode } from "../../lib/languageTutor";
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
 import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 
@@ -11,11 +11,15 @@ export function LanguageTutorHost() {
   const { snapshot } = useLanguageLearningHost();
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [context, setContext] = useState<ReturnType<typeof buildLearnerContext> | null>(null);
+  const [mode, setMode] = useState<TutorMode>("explain");
 
   useEffect(() => {
     const onAction = (event: Event) => {
       const detail = (event as CustomEvent<LanguageHostActionDetail>).detail;
-      if (detail?.hostId === snapshot.hostId && detail.action === "tutor") setRequest(detail);
+      if (detail?.hostId === snapshot.hostId && detail.action === "tutor") {
+        setRequest(detail);
+        setMode("explain");
+      }
     };
     window.addEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
     return () => window.removeEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
@@ -53,7 +57,8 @@ export function LanguageTutorHost() {
       material={request.selectedText ?? request.source.text ?? ""}
       documentId={request.source.contentId}
       languageContext={context ?? undefined}
-      languageMode="explain"
+      languageMode={mode}
+      onLanguageModeChange={setMode}
       selectionContext={request.sourceAnchor}
       onClose={() => setRequest(null)}
     />
