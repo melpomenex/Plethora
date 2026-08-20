@@ -228,8 +228,6 @@ export async function buildSemanticGraph(
         items: summaries,
         config: embeddingConfig,
         paidEmbeddingsEnabled: useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
-        paid_embeddings_enabled:
-          useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
       });
 
       let embeddedRssCount = 0;
@@ -238,8 +236,6 @@ export async function buildSemanticGraph(
           items: rssSummaries,
           config: embeddingConfig,
           paidEmbeddingsEnabled: useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
-          paid_embeddings_enabled:
-            useSettingsStore.getState().settings.embedding.paidEmbeddingsEnabled,
         });
       }
 
