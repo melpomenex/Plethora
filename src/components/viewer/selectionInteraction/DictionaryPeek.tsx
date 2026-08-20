@@ -69,6 +69,12 @@ import {
   type SelectionGeometry,
 } from "./geometry";
 import { resolveSelectionIntent } from "./intent";
+import type {
+  PeekAnalysisContext,
+  PeekPhraseContext,
+  PeekSentenceContext,
+} from "../../../lib/languagePeek";
+import type { SourceAnchor } from "../../../types/languageLexicon";
 
 /** What the peek looks up — derived from a READY selection or a menu row. */
 export interface DictionaryPeekTarget {
@@ -76,6 +82,13 @@ export interface DictionaryPeekTarget {
   text: string;
   /** Selection + surrounding block text for the AI passage explanation. */
   passage?: string;
+  /** Optional active language context supplied by a profile-aware reader. */
+  profileId?: string;
+  languageTag?: string;
+  analysis?: PeekAnalysisContext;
+  phrase?: PeekPhraseContext;
+  sentence?: PeekSentenceContext;
+  sourceAnchor?: SourceAnchor;
   /** Surface anchor (EPUB CFI / PDF canonical / text offsets / null). */
   selectionContext?: unknown;
   /** Viewport-space geometry for anchoring; null → bottom-anchored card. */
@@ -88,6 +101,8 @@ export interface DictionaryPeekProps {
   onDismiss: () => void;
   /** More → the host's standard overflow surface (context menu / sheet). */
   onMore?: () => void;
+  /** Original-audio-first replay resolver supplied by audio-aware readers. */
+  onReplayOriginalAudio?: (anchor: SourceAnchor) => void | Promise<void>;
   /**
    * Host-owned extract flow (RSS lazy document creation, viewer toast-with-
    * Edit wiring). When omitted, the built-in `createInstantExtract` runs
@@ -114,6 +129,7 @@ export function DictionaryPeek({
   documentId,
   onDismiss,
   onMore,
+  onReplayOriginalAudio,
   onCreateExtract,
   aiAvailable = false,
   canPronounce = true,
@@ -137,7 +153,14 @@ export function DictionaryPeek({
   const [flashcardSaving, setFlashcardSaving] = useState(false);
 
   const open = Boolean(target);
-  const lookup = useDictionaryEntry(target?.text, documentId);
+  const lookup = useDictionaryEntry(target?.text, documentId, target ? {
+    profileId: activeProfileId ?? target.profileId,
+    languageTag: target.languageTag,
+    analysis: target.analysis,
+    phrase: target.phrase,
+    sentence: target.sentence,
+    sourceAnchor: target.sourceAnchor,
+  } : undefined);
 
   // Resolve the display word through the shared resolver (never a local
   // split heuristic).
@@ -145,7 +168,7 @@ export function DictionaryPeek({
   const displayWord = resolved?.kind === "word" ? resolved.word : target?.text.trim() ?? "";
   const [knowledgeState, setKnowledgeState] = useState<LanguageKnowledgeStateSnapshot | null>(null);
   const entry = lookup.data?.ok ? lookup.data.entry : null;
-  const failure = lookup.data && !lookup.data.ok ? lookup.data.failure : null;
+  const failure = lookup.data?.ok === false ? lookup.data.failure : null;
   const loading = lookup.isPending;
 
   useEffect(() => {
@@ -269,12 +292,20 @@ export function DictionaryPeek({
       });
   }, [target, displayWord, t]);
 
-  const handlePronounce = useCallback(() => {
+  const handlePronounce = useCallback(async () => {
     if (!displayWord) return;
+    if (target?.sourceAnchor && onReplayOriginalAudio) {
+      try {
+        await onReplayOriginalAudio(target.sourceAnchor);
+        return;
+      } catch {
+        // Fall through to TTS when original audio cannot be resolved.
+      }
+    }
     void tts.speak(displayWord).catch(() => {
       /* TTS unavailable — silent; the button is gated by canPronounce anyway */
     });
-  }, [tts, displayWord]);
+  }, [tts, displayWord, target?.sourceAnchor, onReplayOriginalAudio]);
 
   const handleCopyWord = useCallback(() => {
     void copySelectionTextToClipboard(displayWord);
@@ -289,7 +320,11 @@ export function DictionaryPeek({
       return;
     }
     if (documentId) {
-      void createExtract(documentId, text, target.selectionContext)
+      void createExtract({
+        document_id: documentId,
+        content: text,
+        selection_context: target.selectionContext as Record<string, unknown> | undefined,
+      })
         .then(() => onDismiss())
         .catch(() => {
           /* extract failed — peek stays open for a retry */
@@ -435,6 +470,43 @@ export function DictionaryPeek({
     </div>
   );
 
+  const renderLanguageContext = () => {
+    if (!target.analysis && !target.phrase && !target.sentence) return null;
+    return (
+      <div className="space-y-1.5 border-t border-border/70 pt-2" data-testid="language-peek-context">
+        {target.analysis && (
+          <details open={Boolean(target.analysis.morphology)} className="text-[12px] text-muted-foreground">
+            <summary className="cursor-pointer select-none">
+              {target.analysis.lemma ? `Lemma: ${target.analysis.lemma}` : "Language analysis"}
+            </summary>
+            <div className="mt-1 space-y-0.5">
+              {target.analysis.partOfSpeech && <p>Part of speech: {target.analysis.partOfSpeech}</p>}
+              {target.analysis.confidence !== undefined && (
+                <p>Analysis confidence: {Math.round(target.analysis.confidence * 100)}%</p>
+              )}
+              {target.analysis.morphology && (
+                <p className="whitespace-pre-wrap">{JSON.stringify(target.analysis.morphology)}</p>
+              )}
+            </div>
+          </details>
+        )}
+        {target.phrase && (
+          <div>
+            <span className="font-medium text-foreground">Phrase: </span>
+            {target.phrase.translation || target.phrase.meaning || target.phrase.normalizedForm}
+          </div>
+        )}
+        {target.sentence && (
+          <div>
+            <span className="font-medium text-foreground">Context: </span>
+            <span className="italic">{target.sentence.text}</span>
+            {target.sentence.translation && <span> — {target.sentence.translation}</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return createPortal(
     <div
       {...{ [SELECTION_INTERACTION_UI_ATTR]: "true" }}
@@ -532,6 +604,8 @@ export function DictionaryPeek({
                 {entry.synonyms.slice(0, 5).join(", ")}
               </p>
             )}
+
+            {renderLanguageContext()}
 
             {aiAvailable && explain.state !== "idle" && renderExplain()}
           </>

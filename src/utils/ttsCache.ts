@@ -26,12 +26,12 @@ interface CacheMeta {
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
         store.createIndex("lastAccessed", "lastAccessed", { unique: false });
-      } else if (request.oldVersion < 2) {
+      } else if (event.oldVersion < 2) {
         const tx = request.transaction;
         const store = tx?.objectStore(STORE_NAME);
         if (store && !store.indexNames.contains("lastAccessed")) {

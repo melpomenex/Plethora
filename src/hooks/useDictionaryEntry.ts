@@ -19,12 +19,40 @@ import { useVocabularyHistoryStore } from "../stores/vocabularyHistoryStore";
 import { useLanguageProfileStore } from "../stores/languageProfileStore";
 import { recordLanguageLookup } from "../api/languageLexicon";
 import { lookupDictionaryEntry, type DictionaryEntryResult } from "../utils/dictionaryLookup";
+import { languagePeekService } from "../lib/languagePeek";
+import type { LanguagePeekTargetContext } from "../lib/languagePeek";
 
-const dictionaryQueryKey = (word: string) => ["dictionary", word] as const;
+const dictionaryQueryKey = (word: string, context?: LanguagePeekTargetContext) => [
+  "dictionary",
+  word,
+  context?.profileId ?? null,
+  context?.languageTag ?? null,
+  context?.analysis?.processingKey ?? null,
+  context?.phrase?.phraseId ?? null,
+] as const;
+
+function dictionaryResultFromPeek(
+  peekResult: Awaited<ReturnType<typeof languagePeekService.lookup>>,
+): DictionaryEntryResult {
+  if (peekResult.ok === true && peekResult.result.dictionary) {
+    return { ok: true, entry: peekResult.result.dictionary };
+  }
+  if (peekResult.ok === true) {
+    return { ok: false, failure: { kind: "unavailable", message: "The selected provider returned no dictionary entry." } };
+  }
+  const failure = peekResult.failure;
+  return {
+    ok: false,
+    failure: failure.kind === "not-found" || failure.kind === "unavailable" || failure.kind === "offline-uncached"
+      ? failure
+      : { kind: "unavailable", message: failure.kind },
+  };
+}
 
 export function useDictionaryEntry(
   text: string | null | undefined,
   documentId?: string | null,
+  languageContext?: LanguagePeekTargetContext,
 ) {
   const recordLookup = useVocabularyHistoryStore((s) => s.recordLookup);
   // Normalize through the shared resolver so punctuated selections
@@ -32,9 +60,14 @@ export function useDictionaryEntry(
   const query = text ? dictionaryQueryForText(text) : "";
 
   return useQuery<DictionaryEntryResult>({
-    queryKey: dictionaryQueryKey(query),
+    queryKey: dictionaryQueryKey(query, languageContext),
     queryFn: async () => {
-      const result = await lookupDictionaryEntry(query);
+      const peekResult = languageContext
+        ? await languagePeekService.lookup(query, languageContext)
+        : null;
+      const result: DictionaryEntryResult = peekResult
+        ? dictionaryResultFromPeek(peekResult)
+        : await lookupDictionaryEntry(query);
       if (result.ok) {
         const profileState = useLanguageProfileStore.getState();
         // Keep the legacy store as a compatibility projection while sending

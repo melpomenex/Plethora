@@ -1882,7 +1882,7 @@ export function QueueScrollPage() {
       selectionController.dismiss();
       return;
     }
-    if (action === "readFromHere" || action === "copy") {
+    if (action === "readFromHere") {
       // Document readers own TTS starts; copy is handled above.
       selectionController.dismiss();
       return;
