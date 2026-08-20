@@ -55,6 +55,8 @@
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
 
+  --color-warning: #f59e0b;
+
   /* Glass Theme - Glassmorphism Design System */
   --color-glass-50: rgba(255, 255, 255, 0.05);
   --color-glass-100: rgba(255, 255, 255, 0.10);
