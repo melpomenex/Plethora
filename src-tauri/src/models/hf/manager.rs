@@ -284,7 +284,17 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
     let root = PathBuf::from(&model.install_dir);
     match runtime {
         HfRuntime::WhisperCpp => match model.run_contract {
-            RunContract::Whisper { model_file } => Some(root.join(model_file)),
+            RunContract::Whisper { model_file } => {
+                let path = root.join(&model_file);
+                // Defense in depth: a registry row's run-contract path must stay
+                // inside the install dir (never resolve to an absolute/escaped
+                // path, even if a malicious or stale registry row references
+                // something like `/model.int8.onnx` or `../evil.bin`).
+                if !path.starts_with(&root) {
+                    return None;
+                }
+                Some(path)
+            }
             _ => None,
         },
         // sherpa engines take the model *directory*.
@@ -473,6 +483,7 @@ pub fn sanitize_install_rel(path: &str) -> Option<String> {
 }
 
 /// One file to fetch as part of an artifact install.
+#[derive(Clone)]
 pub struct DownloadSpec {
     pub rel: String,
     pub url: String,
@@ -533,6 +544,23 @@ async fn download_artifact_files(
     Ok(artifact_files)
 }
 
+/// A sherpa-onnx (ONNX) install must be integrity-pinned: refuse when any
+/// artifact lacks a published SHA-256 (fail closed — the ONNX files are fed to
+/// the bundled onnxruntime sidecar as untrusted input). Whisper ggml models are
+/// not gated this hard (they are not parsed by onnxruntime).
+fn ensure_sherpa_hash_pinned(runtime: HfRuntime, specs: &[DownloadSpec]) -> Result<()> {
+    if matches!(runtime, HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts)
+        && specs.iter().any(|s| s.expected_sha.is_none())
+    {
+        return Err(anyhow!(
+            "Refusing to install: the repository does not publish a SHA-256 for \
+             every sherpa-onnx (ONNX) artifact, so the download cannot be \
+             integrity-verified. Only hash-pinned ONNX models are installable."
+        ));
+    }
+    Ok(())
+}
+
 /// Download + register a resolved install target.
 pub async fn install(
     app: &AppHandle,
@@ -570,12 +598,20 @@ pub async fn install(
         })
         .collect();
 
+    // Security: sherpa (ONNX) models are parsed by the bundled onnxruntime
+    // sidecar — untrusted input-to-execution. Only install ONNX artifacts whose
+    // integrity is pinned by a published SHA-256; refuse hash-less sherpa
+    // installs (fail closed) instead of feeding an unverified model to the
+    // runtime. Whisper ggml models are binary-loaded by whisper.cpp; we still
+    // prefer a hash when one is exposed, but a missing hash there is not a
+    // hard block (the format is not fed to onnxruntime).
+    ensure_sherpa_hash_pinned(target.runtime, &specs)?;
+
     // Failure mid-download removes the whole per-repo dir (no orphan files).
     let artifact_files =
         download_artifact_files(&client, &target.install_dir, &specs, Some(app), &target.model_id, &cancel)
             .await?;
     let installed_size: u64 = artifact_files.iter().map(|f| f.size).sum();
-
     // Verify the installed file set satisfies the run contract.
     if !verify_on_disk(target.install_dir.to_string_lossy().as_ref(), &artifact_files) {
         let _ = super::downloader::remove_dir_if_exists(&target.install_dir);
@@ -845,6 +881,50 @@ mod tests {
                     "{hostile:?} escaped via {rel:?}"
                 );
             }
+        }
+    }
+
+    // ── hash-less sherpa (ONNX) installs are refused (fail closed) ─────────
+    #[test]
+    fn sherpa_hashless_install_is_refused() {
+        let sha = Some("abc123".to_string());
+        let with_sha = DownloadSpec {
+            rel: "model.onnx".to_string(),
+            url: "https://hf.co/x/resolve/main/model.onnx".to_string(),
+            expected_sha: sha,
+            expected_size: Some(100),
+        };
+        let without_sha = DownloadSpec {
+            expected_sha: None,
+            ..with_sha.clone()
+        };
+
+        // sherpa STT/TTS with any hash-less artifact → refused.
+        for runtime in [HfRuntime::SherpaOnnxStt, HfRuntime::SherpaOnnxTts] {
+            let err = ensure_sherpa_hash_pinned(runtime, &[with_sha.clone(), without_sha.clone()])
+                .expect_err("sherpa hash-less artifact must be refused");
+            assert!(err.to_string().contains("SHA-256"), "{err}");
+        }
+        // All artifacts hash-pinned → allowed.
+        assert!(ensure_sherpa_hash_pinned(HfRuntime::SherpaOnnxStt, &[with_sha.clone()]).is_ok());
+        // Whisper ggml is not hard-gated on a hash.
+        assert!(ensure_sherpa_hash_pinned(HfRuntime::WhisperCpp, &[without_sha.clone()]).is_ok());
+    }
+
+    // ── resolve_installed_path run-contract containment ────────────────────
+    #[tokio::test]
+    async fn resolve_installed_path_rejects_escaping_run_contract() {
+        let pool = test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+
+        for hostile in ["../evil.bin", "/etc/passwd"] {
+            let mut model = whisper_model(dir.path().to_str().unwrap());
+            model.run_contract = RunContract::Whisper {
+                model_file: hostile.to_string(),
+            };
+            registry_insert(&pool, &model).await.unwrap();
+            let resolved = resolve_installed_path(&pool, &model.id).await;
+            assert!(resolved.is_none(), "{hostile:?} must not resolve outside install dir");
         }
     }
 
