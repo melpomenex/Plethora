@@ -12,7 +12,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { ReaderTTSControls, type ReaderTTSHandle } from "../ReaderTTSControls";
-import { getTTSListeningPosition } from "../../../utils/ttsListeningPosition";
+import { getTTSListeningPosition, fingerprintDocument } from "../../../utils/ttsListeningPosition";
 import type { SpeechSectionInput, SourceAnchor } from "../../../utils/readerSpeechIndex";
 
 const generateSpeechMock = vi.hoisted(() => vi.fn());
@@ -591,8 +591,19 @@ describe("ReaderTTSControls cross-feature sequence + audio parity", () => {
 
     // The completed document's position is flushed; the new document must NOT
     // have a record (it has not been listened to).
-    expect(await getTTSListeningPosition("doc-queue-a")).not.toBeNull();
-    expect(await getTTSListeningPosition("doc-queue-b")).toBeNull();
+    const recordA = await getTTSListeningPosition("doc-queue-a");
+    const recordB = await getTTSListeningPosition("doc-queue-b");
+    expect(recordA).not.toBeNull();
+    expect(recordB).toBeNull();
+
+    // Content identity: the old record must still carry the OLD document's
+    // text fingerprint. On a queue-advance double-write bug the documentId-flush
+    // effect would overwrite key "doc-queue-a" AFTER the refs were reset to the
+    // new document, leaving record A with document B's fingerprint (and B's
+    // chunk/surrounding text, resolved later via the scrollPercentHint fallback
+    // to a wrong position on reopen). Asserting the fingerprint guards that.
+    expect(recordA!.textFingerprint).toBe(fingerprintDocument(docAText));
+    expect(recordA!.textFingerprint).not.toBe(fingerprintDocument(docBText));
   });
 
   it("reopen after TTS advanced past the viewed page resumes from the saved position, not the earlier viewport", async () => {

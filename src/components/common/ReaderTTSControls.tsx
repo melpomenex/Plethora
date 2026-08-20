@@ -769,6 +769,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       // `prevDocumentIdRef` still names the OLD document here — the flush must
       // never write a record for the new, not-yet-listened-to document.
       saveListeningPosition(true, prevDocumentIdRef.current);
+      // Advance the previous-document marker NOW so the documentId-flush effect
+      // (which runs next in this same commit) sees `prev === documentId` and
+      // skips its redundant flush. Without this, it would flush the OLD key a
+      // second time AFTER the refs below have been reset to the new document,
+      // overwriting the old record with new-document content identity.
+      prevDocumentIdRef.current = documentIdRef.current;
       playbackIdRef.current++;
       applySessionLeading(null);
       pendingAnchorRef.current = null;
