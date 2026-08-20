@@ -88,12 +88,39 @@ describe("CategoryManagementView", () => {
     render(<CategoryManagementView open onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText("Work")).toBeInTheDocument());
 
-    // Clicking delete reveals a confirm button; the delete is not fired yet.
+    // Clicking delete reveals inline Confirm/Cancel buttons in the row; the
+    // delete is not fired yet and no bottom-footer confirm bar is shown.
+    fireEvent.click(screen.getByLabelText("categoryManagement.deleteAction:Work"));
+    expect(mocks.deleteCategory).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("button", { name: "categoryManagement.confirm" });
+    expect(screen.getByRole("button", { name: "categoryManagement.cancel" })).toBeInTheDocument();
+    // The footer's explanatory text ("Delete "Work"?"…) no longer exists.
+    expect(screen.queryByText("categoryManagement.deleteConfirm:Work")).not.toBeInTheDocument();
+
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.deleteCategory).toHaveBeenCalledWith("Work"));
+  });
+
+  it("cancels delete confirmation without calling the API", async () => {
+    render(<CategoryManagementView open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Work")).toBeInTheDocument());
+
     fireEvent.click(screen.getByLabelText("categoryManagement.deleteAction:Work"));
     expect(mocks.deleteCategory).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "categoryManagement.confirm" }));
-    await waitFor(() => expect(mocks.deleteCategory).toHaveBeenCalledWith("Work"));
+    fireEvent.click(screen.getByRole("button", { name: "categoryManagement.cancel" }));
+    expect(mocks.deleteCategory).not.toHaveBeenCalled();
+    // Row returns to its normal state (delete action available again).
+    expect(screen.getByLabelText("categoryManagement.deleteAction:Work")).toBeInTheDocument();
+  });
+
+  it("always shows rename/delete actions on each row (touch-accessible)", async () => {
+    render(<CategoryManagementView open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Work")).toBeInTheDocument());
+
+    // Actions are rendered visibly without any hover/focus prerequisite.
+    expect(screen.getByLabelText("categoryManagement.renameAction:Work")).toBeInTheDocument();
+    expect(screen.getByLabelText("categoryManagement.deleteAction:Work")).toBeInTheDocument();
   });
 
   it("filters the list by search query", async () => {
