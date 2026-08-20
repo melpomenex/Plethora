@@ -39,7 +39,7 @@
 
 - [x] 5.1 Implement the responsive language practice shell with source/session state, prompt/reveal state, replay, retry, save/delete, exit, and mode routing.
 - [ ] 5.2 Add reader, Sentence Mode, video/transcript, tutor, Language Peek, and recommendation entry points that preserve source anchor and originating surface.
-- [ ] 5.3 Add compact practice-session/attempt persistence and API support for profile/source/provider/model fingerprints, comparison summaries, retention, export, delete, and recovery.
+- [x] 5.3 Add compact practice-session/attempt persistence and API support for profile/source/provider/model fingerprints, comparison summaries, retention, export, delete, and recovery.
 - [ ] 5.4 Add explicit evidence acceptance and shared SRS draft handoff while ensuring attempts cannot rate, reschedule, complete, or silently create learning items.
 - [ ] 5.5 Add shared practice shell tests for resume, discard confirmation, source-position restoration, duplicate submission protection, stale results, and Queue/review isolation.
 
