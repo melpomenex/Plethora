@@ -49,6 +49,10 @@ import { useOverlayDismissal } from "../../../hooks/useOverlayDismissal";
 import { useHapticFeedback } from "../../../hooks/useHapticFeedback";
 import { useTTS } from "../../../hooks/useTTS";
 import { useDictionaryEntry } from "../../../hooks/useDictionaryEntry";
+import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
+import { useLanguageKnowledgeStore } from "../../../stores/languageKnowledgeStore";
+import { LanguageKnowledgeStateSelector } from "../../common/LanguageKnowledgeStateSelector";
+import type { LanguageKnowledgeStateSnapshot } from "../../../types/languageKnowledge";
 import { createLearningItem } from "../../../api/learning-items";
 import { createExtract } from "../../../api/extracts";
 import { useUndoableOperations } from "../../../api/undoable";
@@ -124,6 +128,7 @@ export function DictionaryPeek({
   const toast = useToast();
   const haptics = useHapticFeedback();
   const { deleteLearningItem } = useUndoableOperations();
+  const activeProfileId = useLanguageProfileStore((state) => state.activeProfileId);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(DEFAULT_PEEK_SIZE);
@@ -138,9 +143,29 @@ export function DictionaryPeek({
   // split heuristic).
   const resolved = useMemo(() => (target ? resolveSelectionIntent(target.text) : null), [target]);
   const displayWord = resolved?.kind === "word" ? resolved.word : target?.text.trim() ?? "";
+  const [knowledgeState, setKnowledgeState] = useState<LanguageKnowledgeStateSnapshot | null>(null);
   const entry = lookup.data?.ok ? lookup.data.entry : null;
   const failure = lookup.data && !lookup.data.ok ? lookup.data.failure : null;
   const loading = lookup.isPending;
+
+  useEffect(() => {
+    let cancelled = false;
+    setKnowledgeState(null);
+    if (activeProfileId && displayWord) {
+      void useLanguageKnowledgeStore.getState().resolveSurface(activeProfileId, displayWord).then((snapshot) => {
+        if (!cancelled) setKnowledgeState(snapshot);
+      }).catch(() => {
+        if (!cancelled) setKnowledgeState(null);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [activeProfileId, displayWord]);
+
+  const handleKnowledgeStateChange = useCallback(async (state: LanguageKnowledgeStateSnapshot["state"]) => {
+    if (!activeProfileId || !knowledgeState) return;
+    const next = await useLanguageKnowledgeStore.getState().setState({ profileId: activeProfileId, entryId: knowledgeState.lexicalEntryId, state });
+    setKnowledgeState(next);
+  }, [activeProfileId, knowledgeState]);
 
   // Reset per-target transient state (explanation stream, saving flag).
   useEffect(() => {
@@ -463,6 +488,12 @@ export function DictionaryPeek({
 
         {!loading && entry && (
           <>
+            {knowledgeState && (
+              <LanguageKnowledgeStateSelector
+                value={knowledgeState.state}
+                onChange={handleKnowledgeStateChange}
+              />
+            )}
             <div>
               {entry.senses[0]?.partOfSpeech && (
                 <span className="mr-2 text-[11px] font-medium italic text-muted-foreground">

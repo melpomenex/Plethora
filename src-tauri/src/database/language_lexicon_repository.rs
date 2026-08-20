@@ -534,6 +534,31 @@ impl Repository {
             .bind(if input.was_interacted { 1i64 } else { 0 })
             .bind(if input.was_interacted { 0i64 } else { 1i64 })
             .bind(&input.profile_id).bind(&entry_id).execute(&mut *tx).await?;
+            // Safe automatic transition: exposure is recorded as evidence and
+            // only a new entry moves to Encountered. Manual states are never
+            // overwritten by an encounter.
+            sqlx::query(
+                "INSERT INTO language_knowledge_states
+                 (id, profile_id, lexical_entry_id, state, manual_override, passive_evidence,
+                  active_evidence, last_evidence_at, created_at, updated_at, version)
+                 VALUES (?1, ?2, ?3, 'encountered', 0, ?4, 0, ?5, ?5, ?5, 1)
+                 ON CONFLICT(profile_id, lexical_entry_id) DO UPDATE SET
+                   passive_evidence = language_knowledge_states.passive_evidence + ?4,
+                   last_evidence_at = ?5, updated_at = ?5,
+                   version = language_knowledge_states.version + 1
+                 WHERE language_knowledge_states.manual_override = 0",
+            )
+            .bind(uuid::Uuid::new_v4().to_string()).bind(&input.profile_id).bind(&entry_id)
+            .bind(if input.was_interacted { 0i64 } else { 1i64 }).bind(first_seen)
+            .execute(&mut *tx).await?;
+            sqlx::query(
+                "INSERT INTO language_knowledge_evidence_events
+                 (id, profile_id, lexical_entry_id, kind, confidence, source_id, occurred_at)
+                 VALUES (?1, ?2, ?3, 'encounter', ?4, ?5, ?6)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string()).bind(&input.profile_id).bind(&entry_id)
+            .bind(input.confidence).bind(&source_id).bind(first_seen)
+            .execute(&mut *tx).await?;
         }
         tx.commit().await?;
         let mut entries = Vec::new();
@@ -614,6 +639,13 @@ impl Repository {
              .bind(&input.provider_id).bind(&input.provider_version).execute(self.pool()).await?;
             sqlx::query("UPDATE language_lexical_entries SET lookup_count = lookup_count + 1, updated_at = ?1, version = version + 1 WHERE id = ?2 AND profile_id = ?3")
                 .bind(now).bind(&entry.id).bind(profile_id).execute(self.pool()).await?;
+            sqlx::query(
+                "INSERT INTO language_knowledge_evidence_events
+                 (id, profile_id, lexical_entry_id, kind, source_id, occurred_at)
+                 VALUES (?1, ?2, ?3, 'lookup', ?4, ?5)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string()).bind(profile_id).bind(&entry.id)
+            .bind(&input.document_id).bind(now).execute(self.pool()).await?;
             let row = sqlx::query("SELECT * FROM language_lookup_events WHERE id = ?1").bind(&event_id).fetch_one(self.pool()).await?;
             return lookup_from_row(&row);
         }
@@ -653,6 +685,22 @@ impl Repository {
                    last_encountered_at = MAX(COALESCE(last_encountered_at, 0), ?3),
                    updated_at = ?3, version = version + 1 WHERE id = ?4 AND profile_id = ?5",
             ).bind(record.lookup_count).bind(record.first_seen_at).bind(record.last_seen_at).bind(&entry.id).bind(profile_id).execute(self.pool()).await?;
+            sqlx::query(
+                "INSERT INTO language_knowledge_states
+                 (id, profile_id, lexical_entry_id, state, passive_evidence, created_at, updated_at, version)
+                 VALUES (?1, ?2, ?3, 'new', ?4, ?5, ?5, 1)
+                 ON CONFLICT(profile_id, lexical_entry_id) DO UPDATE SET
+                   passive_evidence = language_knowledge_states.passive_evidence + ?4,
+                   updated_at = ?5, version = language_knowledge_states.version + 1",
+            ).bind(uuid::Uuid::new_v4().to_string()).bind(profile_id).bind(&entry.id)
+             .bind(record.lookup_count).bind(record.last_seen_at).execute(self.pool()).await?;
+            sqlx::query(
+                "INSERT INTO language_knowledge_evidence_events
+                 (id, profile_id, lexical_entry_id, kind, metadata_json, occurred_at)
+                 VALUES (?1, ?2, ?3, 'lookup', ?4, ?5)",
+            ).bind(uuid::Uuid::new_v4().to_string()).bind(profile_id).bind(&entry.id)
+             .bind(json(&serde_json::json!({ "migratedLookupCount": record.lookup_count }))?)
+             .bind(record.last_seen_at).execute(self.pool()).await?;
             let normalized = normalize_lexical_form(&record.word);
             sqlx::query("UPDATE language_legacy_lookup_history SET profile_id = ?1, migrated_at = ?2 WHERE normalized = ?3 AND account_id = 'local' AND workspace_id = 'default'")
                 .bind(profile_id).bind(Utc::now().timestamp()).bind(&normalized).execute(self.pool()).await?;

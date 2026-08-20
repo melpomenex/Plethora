@@ -11,6 +11,7 @@ pub mod item_activity;
 pub mod item_stats;
 pub mod language_profile;
 pub mod language_lexicon;
+pub mod language_knowledge;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;
@@ -45,6 +46,7 @@ pub use language_profile::{
     DEFAULT_ACCOUNT_SCOPE, DEFAULT_WORKSPACE_SCOPE, LANGUAGE_PROFILE_SCHEMA_VERSION,
 };
 pub use language_lexicon::*;
+pub use language_knowledge::*;
 pub use learning_item::{ItemState, ItemType, LearningItem, MemoryState, ReviewRating};
 pub use playlist::{PlaylistSettings, PlaylistSubscription, PlaylistVideo};
 pub use position::{Bookmark, DailyReadingStats, DocumentPosition, ReadingSession};
