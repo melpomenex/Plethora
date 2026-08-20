@@ -528,6 +528,24 @@ export function DocumentViewer({
   }, [documentId]);
 
   useEffect(() => {
+    const onLanguageSrsDraft = (event: Event) => {
+      const draft = (event as CustomEvent<{ question?: string; answer?: string; documentId?: string; draftKey?: string }>).detail;
+      if (!draft?.question?.trim() || (draft.documentId && draft.documentId !== documentId)) return;
+      setFlashcardStudioSeed({
+        key: `language-practice-draft-${draft.draftKey ?? Date.now()}`,
+        documentId: draft.documentId ?? documentId,
+        excerpt: `${draft.question.trim()}\n${draft.answer?.trim() ?? ""}`,
+        draftCardType: "qa",
+        resetDraftCards: true,
+        autoEditDraft: true,
+        deckTag: "language",
+      });
+    };
+    window.addEventListener("plethora-language-srs-draft", onLanguageSrsDraft);
+    return () => window.removeEventListener("plethora-language-srs-draft", onLanguageSrsDraft);
+  }, [documentId]);
+
+  useEffect(() => {
     return () => {
       if (!currentDocument) return;
       const minutesSpent = (Date.now() - readingSessionStartRef.current) / 60000;
