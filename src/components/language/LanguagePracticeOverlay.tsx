@@ -9,6 +9,7 @@ import { canProvidePronunciation } from "../../lib/languagePronunciation";
 import type { PracticeSource } from "../../lib/languagePractice";
 import { deleteLanguagePracticeAttempt, upsertLanguagePracticeAttempt } from "../../api/languagePractice";
 import { isTauri } from "../../lib/tauri";
+import { createLanguageLearningDraft } from "../../lib/languageSrs";
 
 const STORAGE_PREFIX = "plethora.language-practice.session.";
 
@@ -115,7 +116,22 @@ export function LanguagePracticeOverlay() {
     setAnswer("");
     setRevealed(false);
   };
-  const acceptEvidence = () => setAttempt((current) => current ? acceptPracticeEvidence(current) : current);
+  const acceptEvidence = () => {
+    const accepted = acceptPracticeEvidence(attempt);
+    setAttempt(accepted);
+    if (accepted.activeEvidenceAccepted && typeof window !== "undefined") {
+      const draft = createLanguageLearningDraft({
+        itemType: "qa",
+        question: accepted.promptText,
+        answer: accepted.rawResponse || accepted.promptText,
+        documentId: request.source.contentId,
+        tags: ["language-practice"],
+        interactionMetadata: { sourceAnchor: accepted.source.sourceAnchor, sourceFingerprint: accepted.source.sourceFingerprint, mode: accepted.mode },
+        provenance: { origin: "sentence", profileId: accepted.profileId, sourceAnchor: accepted.source.sourceAnchor, createdAt: Date.now() },
+      });
+      window.dispatchEvent(new CustomEvent("plethora-language-srs-draft", { detail: draft }));
+    }
+  };
 
   const startMicrophone = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
