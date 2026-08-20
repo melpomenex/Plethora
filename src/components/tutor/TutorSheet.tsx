@@ -99,6 +99,17 @@ export function TutorSheet({
     setShowPromotion(false);
   }, []);
 
+  const sessionKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      sessionKeyRef.current = null;
+      return;
+    }
+    const key = `${sessionTopic}\u001f${sessionMaterial}`;
+    if (sessionKeyRef.current && sessionKeyRef.current !== key) reset();
+    sessionKeyRef.current = key;
+  }, [open, reset, sessionMaterial, sessionTopic]);
+
   useEffect(() => {
     if (!open) {
       reset();
