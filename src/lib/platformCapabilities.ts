@@ -122,10 +122,6 @@ const DESKTOP_ONLY: Partial<Record<AppPlatform, PlatformAvailability>> = {
   web: unavailable("unsupported_platform"),
 };
 
-const IOS_ONLY_HIDDEN: Partial<Record<AppPlatform, PlatformAvailability>> = {
-  ios: unavailable("unsupported_platform"),
-};
-
 export const PLATFORM_CAPABILITY_REGISTRY: Record<
   PlatformCapabilityId,
   PlatformCapabilityDefinition

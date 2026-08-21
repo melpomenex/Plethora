@@ -97,6 +97,7 @@ import {
 } from "../../utils/ttsSettings";
 import { cn } from "../../utils";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
+import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 import { playChime } from "../../utils/audioFeedback";
 import type { StudyAction } from "../../types/audioEdition";
 import { isPaidTtsProvider } from "../../utils/aiBillingConsent";
@@ -320,6 +321,10 @@ export function TTSSettings() {
   const { t } = useI18n();
   const { settings, updateSettings } = useSettingsStore();
   const tts = settings.tts ?? createDefaultTTSSettings();
+  // Android on-device TTS adapter availability comes from the platform
+  // capability registry (§2.1): Android only — never iOS, where the native
+  // bridge cannot exist. Cloud providers stay available on iOS.
+  const androidAdapterAvailable = usePlatformCapability("tts_android_adapter").available;
 
   const activeProviderConfig = getProviderSettings(tts, String(tts.provider));
   const [apiKeyInput, setApiKeyInput] = useState(activeProviderConfig.apiKey);
@@ -927,9 +932,10 @@ export function TTSSettings() {
               {listAdapters()
                 .filter((adapter) => {
                   // Pocket is desktop-only (shell sidecar); the native android
-                  // provider is Android-only. Hide each where it can't run.
+                  // provider is Android-only via the platform capability
+                  // registry (never iOS). Hide each where it can't run.
                   if (adapter.id === "pocket") return showPocketOption;
-                  if (adapter.id === "android") return isNativeMobile();
+                  if (adapter.id === "android") return androidAdapterAvailable;
                   return true;
                 })
                 .map((adapter) => {

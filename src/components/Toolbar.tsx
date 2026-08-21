@@ -55,6 +55,7 @@ import { CollectionSwitcher } from "./collections/CollectionSwitcher";
 import { actionVariants } from "./common/UI";
 import { cn } from "../utils/cn";
 import { handleWindowDragRequest } from "../lib/windowDrag";
+import { usePlatformCapability } from "../hooks/usePlatformCapability";
 
 export type ToolbarPosition = "top" | "left" | "right";
 
@@ -685,6 +686,9 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     console.warn("Unsupported queue item type for toolbar open:", item.itemType, item);
   };
 
+  // §2.5: NotebookLM depends on the external `notebooklm-py` CLI — the
+  // toolbar button is desktop-only via the platform capability registry.
+  const notebooklmAvailable = usePlatformCapability("tab_notebooklm").available;
   const buttons: ToolbarButton[] = [
     // Group 1: File Operations
     {
@@ -806,15 +810,19 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       backgroundAction: handleDocQABackground,
       group: 3,
     },
-    {
-      id: "notebooklm",
-      icon: Sparkle,
-      label: t("toolbar.notebooklm"),
-      shortcut: "",
-      action: handleNotebookLM,
-      backgroundAction: handleNotebookLMBackground,
-      group: 3,
-    },
+    ...(notebooklmAvailable
+      ? [
+          {
+            id: "notebooklm",
+            icon: Sparkle,
+            label: t("toolbar.notebooklm"),
+            shortcut: "",
+            action: handleNotebookLM,
+            backgroundAction: handleNotebookLMBackground,
+            group: 3,
+          },
+        ]
+      : []),
     {
       id: "extracts",
       icon: Scissors,
