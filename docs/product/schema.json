@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PlethoraProductDocFrontmatter",
+  "description": "Schema definition for canonical Plethora product documentation markdown frontmatter",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "domain",
+    "status",
+    "platforms",
+    "summary",
+    "how_to",
+    "why",
+    "aliases",
+    "settings",
+    "actions",
+    "related"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+      "description": "Stable hierarchical feature identifier (e.g. tts.word_highlighting, queue.sm20.postpone)"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Human-readable title of the feature"
+    },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "reading",
+        "imports",
+        "queue",
+        "scheduling",
+        "review",
+        "language",
+        "tts",
+        "ai",
+        "media",
+        "platform",
+        "search",
+        "settings",
+        "concepts",
+        "troubleshooting"
+      ],
+      "description": "Primary architectural product domain"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["implemented", "partial", "experimental", "deprecated", "planned"],
+      "description": "Implementation status of the feature"
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "desktop-macos",
+          "desktop-windows",
+          "desktop-linux",
+          "mobile-android",
+          "mobile-ios",
+          "eink",
+          "pwa",
+          "all"
+        ]
+      },
+      "minItems": 1,
+      "description": "Supported target platforms and display modes"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Concise 1-2 sentence description of what the feature does"
+    },
+    "how_to": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Actionable step-by-step instructions on how to use the feature"
+    },
+    "why": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Algorithmic, cognitive, or design rationale explaining why the feature behaves as it does"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Common synonyms, colloquial terms, and alternative keywords for retrieval"
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Associated store setting keys or config parameters"
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Allowlisted action identifier (e.g. settings.appearance.eink)"
+          },
+          "label": {
+            "type": "string",
+            "description": "User-facing button label (e.g. Open E-ink Settings)"
+          },
+          "shortcut": {
+            "type": "string",
+            "description": "Optional keyboard shortcut combo (e.g. Alt+,)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Safe allowlisted interactive UI actions attached to this feature"
+    },
+    "related": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Related feature IDs or concept document references"
+    },
+    "version_added": {
+      "type": "string",
+      "description": "Plethora release version where feature was introduced"
+    },
+    "last_verified_commit": {
+      "type": "string",
+      "description": "Git commit or HEAD reference where behavior was last code-verified"
+    }
+  },
+  "additionalProperties": false
+}

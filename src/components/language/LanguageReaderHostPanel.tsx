@@ -33,14 +33,14 @@ export function LanguageReaderHostPanel({
   const trimmedSelection = selectedText.trim();
   const canAct = snapshot.status === "ready" && trimmedSelection.length > 0;
   const profile = snapshot.profile;
-  const dispatchAction = (action: "translate" | "sentence-mode" | "tutor" | "practice" | "replay" | "reading-assist") => {
+  const dispatchAction = (action: "translate" | "sentence-mode" | "tutor" | "practice" | "replay" | "reading-assist", text = trimmedSelection) => {
     if (!canAct) return;
     dispatchLanguageHostAction({
       action,
       hostId: snapshot.hostId,
       source: snapshot.source,
       sourceAnchor,
-      selectedText: trimmedSelection,
+      selectedText: text,
       profileId: profile?.id,
       languageTag: profile?.targetLanguage,
       origin: "reader",
@@ -169,6 +169,20 @@ export function LanguageReaderHostPanel({
           target={peekTarget}
           documentId={documentId}
           onDismiss={() => setPeekOpen(false)}
+          onReplayOriginalAudio={() => {
+            dispatchLanguageHostAction({
+              action: "replay",
+              hostId: snapshot.hostId,
+              source: snapshot.source,
+              sourceAnchor,
+              selectedText: trimmedSelection,
+              profileId: profile?.id,
+              languageTag: profile?.targetLanguage,
+              origin: "reader",
+            });
+          }}
+          aiAvailable={snapshot.capabilities.tutor.available}
+          onExplain={(text) => dispatchAction("tutor", text)}
           onPractice={(text) => {
             dispatchLanguageHostAction({
               action: "practice",

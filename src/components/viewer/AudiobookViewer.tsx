@@ -100,6 +100,7 @@ import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
 import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
 import type { AudioEdition, AudioEditionAnchor } from "../../types/audioEdition";
 import { createLearningItem } from "../../api/learning-items";
+import { LanguageVideoHost } from "../language/LanguageVideoHost";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
 
@@ -1421,6 +1422,25 @@ export function AudiobookViewer({
     }
   }, [seek]);
 
+  useEffect(() => {
+    const onLanguageReplay = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; mediaId?: string; startMs?: number; endMs?: number }>).detail;
+      if (!detail || detail.documentId !== document.id || typeof detail.startMs !== "number" || typeof detail.endMs !== "number") return;
+      const targetGlobalSeconds = Math.max(0, detail.startMs / 1000);
+      const { partIndex, timeInPart } = fromGlobalSeconds(targetGlobalSeconds);
+      if (multiPartInfo && partIndex !== currentPartIndex) {
+        setCurrentPartIndex(partIndex);
+        pendingSeekTimeRef.current = timeInPart;
+        setIsWaitingForSeek(true);
+        return;
+      }
+      seek(timeInPart);
+      void audioRef.current?.play().catch(() => undefined);
+    };
+    window.addEventListener("plethora-language-original-audio-range", onLanguageReplay);
+    return () => window.removeEventListener("plethora-language-original-audio-range", onLanguageReplay);
+  }, [audioRef, currentPartIndex, document.id, fromGlobalSeconds, multiPartInfo, seek]);
+
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
@@ -2501,6 +2521,17 @@ export function AudiobookViewer({
         }))
     : [];
   const hasPodcastTranscript = isPodcast && (podcastDisplaySegments.length > 0);
+  const languageTranscriptSegments = useMemo(() => {
+    const sourceSegments = hasPodcastTranscript ? podcastDisplaySegments : (transcript?.segments || documentTranscriptSegments);
+    return sourceSegments.flatMap((segment, index) => {
+      const candidate = segment as typeof segment & { id?: string; start?: number; end?: number; startTime?: number; endTime?: number; start_ms?: number; end_ms?: number };
+      const start = candidate.startTime ?? candidate.start ?? (candidate.start_ms !== undefined ? candidate.start_ms / 1000 : 0);
+      const end = candidate.endTime ?? candidate.end ?? (candidate.end_ms !== undefined ? candidate.end_ms / 1000 : 0);
+      return Number.isFinite(start) && Number.isFinite(end) && end > start
+        ? [{ id: candidate.id ?? `language-audio-${index}`, start, end, text: candidate.text }]
+        : [];
+    });
+  }, [documentTranscriptSegments, hasPodcastTranscript, podcastDisplaySegments, transcript?.segments]);
 
   // Load podcast transcript when the panel is opened (podcasts are stored in
   // podcast_episodes.transcript_text, a separate system from the document
@@ -2791,6 +2822,16 @@ export function AudiobookViewer({
       "flex flex-col bg-background h-full relative",
       isFullscreen && "fixed inset-0 z-50"
     )}>
+      {languageTranscriptSegments.length > 0 && (
+        <LanguageVideoHost
+          videoId={document.id}
+          documentId={document.id}
+          sourceFingerprint={`${document.id}:${languageTranscriptSegments.length}:${duration}`}
+          segments={languageTranscriptSegments}
+          currentTime={currentTime}
+          onSeek={(time) => seek(time)}
+        />
+      )}
       {/* Mobile top bar: back chevron + title + details. Rendered only on mobile
           (PodcastManager supplies its own external bar on desktop-style mounts). */}
       {isMobile && !hideTitleHeader && (

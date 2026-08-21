@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { GlobalSearch, SearchResult, SearchQuery, SearchResultType } from "./GlobalSearch";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useTabsStore, type TabsState } from "../../stores/tabsStore";
@@ -8,6 +8,17 @@ import { useExtractStore } from "../../stores/extractStore";
 import { calculateRelevanceScore, extractSearchTerms, fuzzyMatch, highlightSearchTerms } from "./SearchUtils";
 import { getDocuments as fetchDocuments } from "../../api/documents";
 import { isTauri } from "../../lib/tauri";
+import { classifyPaletteInput } from "../../features/help/helpIntent";
+import { defaultHelpRetrieval } from "../../features/help/helpRetrieval";
+import { dispatchRegisteredHelpAction } from "../../features/help/registeredHelpActions";
+import type { HelpAppContext } from "../../features/help/helpTypes";
+
+const HelpDocViewer = lazy(() =>
+  import("../../features/help/HelpDocViewer").then((m) => ({ default: m.HelpDocViewer }))
+);
+const AskPlethoraModal = lazy(() =>
+  import("../../features/help/AskPlethoraModal").then((m) => ({ default: m.AskPlethoraModal }))
+);
 
 import { Command, CommandCategory, getDefaultCommands } from "../common/CommandPalette";
 import { urlDetectorUtils } from "../../hooks/useURLDetector";
@@ -252,6 +263,9 @@ export function CommandCenter() {
 
   const rssArticlesCacheRef = useRef<Array<{ item: FeedItem; feedId: string; feedTitle: string }>>([]);
   const isRssCacheLoadingRef = useRef(false);
+  const [helpViewerDocId, setHelpViewerDocId] = useState<string | null>(null);
+  const [askPlethoraModalOpen, setAskPlethoraModalOpen] = useState(false);
+  const [askPlethoraInitialQuery, setAskPlethoraInitialQuery] = useState("");
 
   useEffect(() => {
     if (!documentsLoading && documents.length === 0) {
@@ -803,6 +817,60 @@ export function CommandCenter() {
       ];
     }
 
+    const liveCtx = contextualView ? getLiveContext(contextualView) : {};
+    const helpAppContext: Partial<HelpAppContext> = {
+      activeView: contextualView || "dashboard",
+      documentFormat: (liveCtx.viewerKind as any) || undefined,
+      ttsActive: false,
+      activeAlgorithm: "fsrs",
+      platform: isTauri() ? "desktop-macos" : "desktop-macos",
+    };
+
+    const rawQuery = query.query.trim();
+    const intent = classifyPaletteInput(rawQuery, helpAppContext);
+
+    if (intent.kind === "product_help" && intent.forcedPrefix) {
+      const cleanQ = intent.query;
+      const helpResults = defaultHelpRetrieval.search(cleanQ, { context: helpAppContext, limit: 6 });
+      const matches: SearchResult[] = [];
+
+      matches.push({
+        id: "ask-plethora-action",
+        type: SearchResultType.Command,
+        title: `✨ Ask Plethora: "${cleanQ}"`,
+        excerpt: "Launch intelligent grounded assistant across all 75 product docs",
+        score: 10.0,
+        metadata: {
+          groupLabel: "Ask Plethora Assistant",
+          resultKind: "ask-plethora",
+          action: () => {
+            setAskPlethoraInitialQuery(cleanQ);
+            setAskPlethoraModalOpen(true);
+          },
+        },
+      });
+
+      helpResults.forEach((hr) => {
+        matches.push({
+          id: `help-doc-${hr.chunk.id}`,
+          type: SearchResultType.Command,
+          title: `📖 ${hr.chunk.title}`,
+          excerpt: hr.chunk.content.slice(0, 220) + "...",
+          score: 8.0 * (hr.score / 10),
+          metadata: {
+            groupLabel: "Product Documentation",
+            resultKind: "help-article",
+            category: hr.chunk.domain.toUpperCase(),
+            action: () => {
+              setHelpViewerDocId(hr.chunk.docId);
+            },
+          },
+        });
+      });
+
+      return matches;
+    }
+
     if (isRssView) {
       try {
         const lowerQuery = query.query.toLowerCase().trim();
@@ -1077,6 +1145,84 @@ export function CommandCenter() {
         },
       });
     });
+
+    // Handle Direct Canonical Lookup and Natural Language Help
+    if (intent.kind === "direct_lookup") {
+      const direct = intent.directResult;
+      results.unshift({
+        id: `direct-help-${direct.featureId}`,
+        type: SearchResultType.Command,
+        title: `💡 ${direct.title}`,
+        excerpt: `${direct.summary}\n• How to: ${direct.how_to}`,
+        score: 1.0,
+        metadata: {
+          groupLabel: "Canonical Guide",
+          resultKind: "help-article",
+          category: "Guide",
+          shortcut: direct.primaryAction?.shortcut,
+          action: () => {
+            if (direct.primaryAction) {
+              dispatchRegisteredHelpAction(direct.primaryAction.id);
+            } else {
+              setHelpViewerDocId(direct.featureId);
+            }
+          },
+        },
+      });
+    } else if (intent.kind === "product_help") {
+      results.unshift({
+        id: "ask-plethora-prompt",
+        type: SearchResultType.Command,
+        title: `✨ Ask Plethora: "${intent.query}"`,
+        excerpt: "Get instant grounded answer with source citations",
+        score: 0.99,
+        metadata: {
+          groupLabel: "Ask Plethora Assistant",
+          resultKind: "ask-plethora",
+          action: () => {
+            setAskPlethoraInitialQuery(intent.query);
+            setAskPlethoraModalOpen(true);
+          },
+        },
+      });
+
+      const helpMatches = defaultHelpRetrieval.search(intent.query, { context: helpAppContext, limit: 3 });
+      helpMatches.forEach((hm) => {
+        results.push({
+          id: `help-${hm.chunk.id}`,
+          type: SearchResultType.Command,
+          title: `📖 ${hm.chunk.title}`,
+          excerpt: hm.chunk.content.slice(0, 200) + "...",
+          score: 0.85,
+          metadata: {
+            groupLabel: "Product Documentation",
+            resultKind: "help-article",
+            category: hm.chunk.domain.toUpperCase(),
+            action: () => setHelpViewerDocId(hm.chunk.docId),
+          },
+        });
+      });
+    } else if (rawQuery.length >= 3) {
+      // General search: include top matching canonical doc if high score
+      const generalHelp = defaultHelpRetrieval.search(rawQuery, { context: helpAppContext, limit: 2 });
+      generalHelp.forEach((gh) => {
+        if (gh.score > 2.0) {
+          results.push({
+            id: `help-gen-${gh.chunk.id}`,
+            type: SearchResultType.Command,
+            title: `📖 ${gh.chunk.title}`,
+            excerpt: gh.chunk.content.slice(0, 180) + "...",
+            score: 0.75,
+            metadata: {
+              groupLabel: "Product Documentation",
+              resultKind: "help-article",
+              category: gh.chunk.domain.toUpperCase(),
+              action: () => setHelpViewerDocId(gh.chunk.docId),
+            },
+          });
+        }
+      });
+    }
 
     matchedCommands.forEach((cmd) => {
       results.push({
@@ -1453,6 +1599,26 @@ export function CommandCenter() {
       return;
     }
 
+    if (result.metadata?.resultKind === "help-article") {
+      useUIStore.getState().setCommandPaletteOpen(false);
+      const action = result.metadata.action;
+      if (typeof action === "function") {
+        action();
+      } else if (result.metadata.sectionId) {
+        setHelpViewerDocId(result.metadata.sectionId);
+      }
+      return;
+    }
+
+    if (result.metadata?.resultKind === "ask-plethora") {
+      useUIStore.getState().setCommandPaletteOpen(false);
+      const action = result.metadata.action;
+      if (typeof action === "function") {
+        action();
+      }
+      return;
+    }
+
     if (result.type === SearchResultType.Command) {
       const action = result.metadata?.action;
       if (typeof action === 'function') {
@@ -1481,13 +1647,36 @@ export function CommandCenter() {
   }, [setCommandPaletteOpen]);
 
   return (
-    <GlobalSearch
-      onSearch={handleSearch}
-      onResultClick={handleResultClick}
-      onNavigateToDocument={openDocumentInTab}
-      hideTrigger={true}
-      isOpen={commandPaletteOpen}
-      onOpenChange={setCommandPaletteOpen}
-    />
+    <>
+      <GlobalSearch
+        onSearch={handleSearch}
+        onResultClick={handleResultClick}
+        onNavigateToDocument={openDocumentInTab}
+        hideTrigger={true}
+        isOpen={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      />
+      {helpViewerDocId && (
+        <Suspense fallback={null}>
+          <HelpDocViewer
+            initialDocId={helpViewerDocId}
+            isOpen={!!helpViewerDocId}
+            onClose={() => setHelpViewerDocId(null)}
+          />
+        </Suspense>
+      )}
+      {askPlethoraModalOpen && (
+        <Suspense fallback={null}>
+          <AskPlethoraModal
+            isOpen={askPlethoraModalOpen}
+            onClose={() => setAskPlethoraModalOpen(false)}
+            initialQuery={askPlethoraInitialQuery}
+            context={{
+              activeView: "dashboard",
+            }}
+          />
+        </Suspense>
+      )}
+    </>
   );
 }

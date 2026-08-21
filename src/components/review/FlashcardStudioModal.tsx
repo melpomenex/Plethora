@@ -230,6 +230,7 @@ interface FlashcardStudioSeed {
   linkedExtractId?: string;
   /** Tag applied to the next created flashcard (e.g. from `:deck <name>`). */
   deckTag?: string;
+  languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string };
 }
 
 interface QuickTemplate {
@@ -2209,6 +2210,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [selectedImageAssetIds, setSelectedImageAssetIds] = useState<string[]>([]);
   const [isImageImporting, setIsImageImporting] = useState(false);
   const [isImageRegistryOpen, setIsImageRegistryOpen] = useState(false);
+  const [languageSourceConfirmed, setLanguageSourceConfirmed] = useState(false);
   const appliedSeedKeyRef = useRef<string | null>(null);
   const seededDocumentIdRef = useRef<string | null>(null);
   const seededExtractIdRef = useRef<string | null>(null);
@@ -3045,6 +3047,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (!isOpen) {
       appliedSeedKeyRef.current = null;
       seededExtractIdRef.current = null;
+      setLanguageSourceConfirmed(false);
       return;
     }
     if (!seed?.key || appliedSeedKeyRef.current === seed.key) {
@@ -3052,6 +3055,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
 
     appliedSeedKeyRef.current = seed.key;
+    setLanguageSourceConfirmed(false);
     seededExtractIdRef.current = seed.linkedExtractId ?? null;
 
     // If a seed arrives while the active session already has chat/drafts, start
@@ -3502,6 +3506,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const handleSaveSelected = async () => {
     const selected = draftCards.filter((c) => c.selected);
     if (selected.length === 0 || isSaving || saveInFlightRef.current) return;
+    if (seed?.languageProvenance && !languageSourceConfirmed) {
+      toast.info("Confirm the language source before saving", "The source fingerprint and origin will be stored with these cards.");
+      return;
+    }
     saveInFlightRef.current = true;
 
     // Separate already-persisted cards (from extract generation) from new drafts
@@ -3559,6 +3567,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                     }
                   : undefined,
             };
+
+            if (seed?.languageProvenance) {
+              baseInput.interaction_metadata = {
+                ...(baseInput.interaction_metadata ?? {}),
+                languageProvenance: seed.languageProvenance,
+              };
+            }
 
             if (card.type === "qa" && (!baseInput.question || !baseInput.answer)) {
               throw new Error("Q&A cards require both a question and an answer.");
@@ -3976,6 +3991,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         className="flex h-[100dvh] w-full max-w-7xl flex-col overflow-hidden rounded-none border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200 sm:h-[90vh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {seed?.languageProvenance && (
+          <div className="flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-foreground" role="status">
+            <span className="min-w-0 flex-1">Language source attached. Confirm it is still current before saving.</span>
+            <button type="button" className="shrink-0 rounded border border-amber-500/50 px-2 py-1 font-medium hover:bg-amber-500/10" onClick={() => setLanguageSourceConfirmed(true)} aria-pressed={languageSourceConfirmed}>
+              {languageSourceConfirmed ? "Source confirmed" : "Confirm source"}
+            </button>
+          </div>
+        )}
         {/* Header — mobile collapses to a compact title row plus a full-width
             Chat/Drafts segmented control, replacing both the wrapped desktop
             control row and the separate panel-toggle band below. */}

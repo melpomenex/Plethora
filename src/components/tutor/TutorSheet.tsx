@@ -46,6 +46,7 @@ export interface TutorSheetProps {
   languageContext?: LearnerContextPacket;
   languageMode?: TutorMode;
   onLanguageModeChange?: (mode: TutorMode) => void;
+  onWritingPractice?: (prompt: string) => void;
   onClose: () => void;
 }
 
@@ -60,6 +61,7 @@ export function TutorSheet({
   languageContext,
   languageMode,
   onLanguageModeChange,
+  onWritingPractice,
   onClose,
 }: TutorSheetProps) {
   const { t } = useI18n();
@@ -77,13 +79,23 @@ export function TutorSheet({
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [showPromotion, setShowPromotion] = useState(false);
+  const [cloudConsent, setCloudConsent] = useState<boolean | null>(null);
 
   const resolvedTopic = topic?.trim() || deriveTopicFromMaterial(material);
   const languageContextText = languageContext && languageContext.items.length > 0
-    ? `\n\nLearner language context (bounded, background only): ${languageContext.items.map((item) => `${item.surface} (${item.state})`).join(", ")}`
+    ? `\n\nLanguage tutor instructions: respond in ${languageContext.targetLanguage} when practical and explain in ${languageContext.baseLanguage}; use this bounded learner context only as background: ${languageContext.items.map((item) => `${item.surface} (${item.state})`).join(", ")}`
     : "";
-  const sessionMaterial = `${material}${languageContextText}`;
+  const modeInstruction = languageMode === "conversation"
+    ? "Practice a short conversation in the target language and correct only material errors."
+    : languageMode === "practice"
+      ? "Target the learner's bounded vocabulary context with short production prompts."
+      : languageMode === "correction"
+        ? "Focus on correction categories, explain the reason, and preserve the learner's original wording."
+        : "Explain the selected source in a source-grounded way, separating quoted facts from general guidance.";
+  const sourceCitation = documentId ? `\n\nSource reference: document ${documentId}; selected material must remain the grounding boundary.` : "";
+  const sessionMaterial = `${modeInstruction}${sourceCitation}\n\n${material}${languageContextText}`;
   const sessionTopic = languageMode ? `${resolvedTopic} · ${languageMode}` : resolvedTopic;
+  const cloudBlocked = ai.path === "cloud" && Boolean(languageMode) && cloudConsent !== true;
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -97,6 +109,7 @@ export function TutorSheet({
     setError(null);
     setAnswer("");
     setShowPromotion(false);
+    setCloudConsent(null);
   }, []);
 
   const sessionKeyRef = useRef<string | null>(null);
@@ -115,7 +128,7 @@ export function TutorSheet({
       reset();
       return;
     }
-    if (sessionRef.current || startAttemptedRef.current) return;
+    if (sessionRef.current || startAttemptedRef.current || cloudBlocked) return;
 
     startAttemptedRef.current = true;
     const controller = new AbortController();
@@ -145,7 +158,7 @@ export function TutorSheet({
       .finally(() => {
         if (!controller.signal.aborted) setStarting(false);
       });
-  }, [open, reset, sessionMaterial, sessionTopic]);
+  }, [cloudBlocked, open, reset, sessionMaterial, sessionTopic]);
 
   // Abort whatever is in flight when the sheet unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -210,6 +223,11 @@ export function TutorSheet({
       session.requestExplain(t("aiTutor.justExplainMessage"), options)
     );
   }, [answer, runCall, t]);
+
+  const retryOpening = useCallback(() => {
+    startAttemptedRef.current = false;
+    setError(null);
+  }, []);
 
   if (!open) return null;
 
@@ -278,6 +296,7 @@ export function TutorSheet({
                 })}
               </p>
             )}
+            {languageContext && <p className="text-[11px] text-muted-foreground" data-tutor-context-freshness="true">Language context: {languageContext.freshness}</p>}
           </div>
           <span
             className={`text-[11px] px-2 py-0.5 rounded ${
@@ -294,7 +313,7 @@ export function TutorSheet({
                 ? t("aiLibrary.cloud")
                 : t("aiLibrary.noProvider")}
           </span>
-          {languageMode && onLanguageModeChange && (
+            {languageMode && onLanguageModeChange && (
             <select
               aria-label="Language tutor mode"
               className="rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
@@ -306,8 +325,21 @@ export function TutorSheet({
               <option value="practice">Vocabulary practice</option>
               <option value="correction">Correction</option>
             </select>
-          )}
-        </div>
+            )}
+          </div>
+
+        {cloudBlocked && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs" role="alert">
+            <p className="font-medium">Cloud tutor consent required</p>
+            <p className="mt-1 text-muted-foreground">Selected text and bounded learner context will stay local until you choose a provider policy.</p>
+            {cloudConsent === null ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="button" className="rounded bg-primary px-2 py-1 text-primary-foreground" onClick={() => setCloudConsent(true)}>Allow cloud for this session</button>
+                <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" onClick={() => setCloudConsent(false)}>Keep local</button>
+              </div>
+            ) : <p className="mt-2 text-muted-foreground">Cloud use is blocked for this session. Configure a local provider or allow cloud to continue.</p>}
+          </div>
+        )}
 
         {/* Conversation */}
         <div
@@ -330,9 +362,10 @@ export function TutorSheet({
           )}
 
           {error && (
-            <p className="text-[13px] text-destructive" data-tutor-error="true">
-              {t("aiTutor.error", { message: error })}
-            </p>
+            <div className="space-y-1">
+              <p className="text-[13px] text-destructive" data-tutor-error="true">{t("aiTutor.error", { message: error })}</p>
+              {!session && <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" onClick={retryOpening}>Retry tutor</button>}
+            </div>
           )}
         </div>
 
@@ -357,14 +390,25 @@ export function TutorSheet({
             </button>
           </div>
         ) : (
-          !starting && (
-            <TutorComposer
-              value={answer}
-              onChange={setAnswer}
-              onSubmit={submitAnswer}
-              onExplain={justExplain}
-              disabled={running}
-            />
+          !starting && !cloudBlocked && (
+            <div className="space-y-2">
+              <TutorComposer
+                value={answer}
+                onChange={setAnswer}
+                onSubmit={submitAnswer}
+                onExplain={justExplain}
+                disabled={running}
+              />
+              {languageMode && onWritingPractice && (
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-primary/40 px-3 py-2 text-xs text-primary hover:bg-primary/10"
+                  onClick={() => onWritingPractice(material)}
+                >
+                  Start writing practice
+                </button>
+              )}
+            </div>
           )
         )}
       </div>

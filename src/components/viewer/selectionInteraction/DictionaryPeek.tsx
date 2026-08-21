@@ -112,6 +112,8 @@ export interface DictionaryPeekProps {
   onCreateExtract?: (text: string) => void | Promise<void>;
   /** Opens the shared practice shell without creating a learning item. */
   onPractice?: (text: string) => void;
+  /** Optional language-host explain handoff; generic readers keep their own AI path. */
+  onExplain?: (text: string, anchor?: SourceAnchor) => void;
   aiAvailable?: boolean;
   /** TTS readiness; Pronounce hidden when false. */
   canPronounce?: boolean;
@@ -135,6 +137,7 @@ export function DictionaryPeek({
   onReplayOriginalAudio,
   onCreateExtract,
   onPractice,
+  onExplain,
   aiAvailable = false,
   canPronounce = true,
   readerContainerRef,
@@ -272,6 +275,11 @@ export function DictionaryPeek({
 
   const runExplain = useCallback(() => {
     if (!target) return;
+    if (onExplain) {
+      onExplain(target.text, target.sourceAnchor);
+      onDismiss();
+      return;
+    }
     explainAbortRef.current?.abort();
     const controller = new AbortController();
     explainAbortRef.current = controller;
@@ -294,7 +302,7 @@ export function DictionaryPeek({
         if (controller.signal.aborted) return;
         setExplain({ state: "error" });
       });
-  }, [target, displayWord, t]);
+  }, [onDismiss, onExplain, target, displayWord, t]);
 
   const handlePronounce = useCallback(async () => {
     if (!displayWord) return;

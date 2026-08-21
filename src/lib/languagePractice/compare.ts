@@ -30,6 +30,11 @@ export function comparePracticeResponse(expected: string, actual: string, policy
     }
   }
   operations.reverse();
+  const sortedLeft = [...left].sort().join("\u001f");
+  const sortedRight = [...right].sort().join("\u001f");
+  if (normalizedExpected !== normalizedActual && sortedLeft === sortedRight && operations.every((operation) => operation.kind === "substitution")) {
+    operations.splice(0, operations.length, { kind: "order", index: 0 });
+  }
   const denominator = Math.max(left.length, right.length, 1);
   return {
     exact: normalizedExpected === normalizedActual,

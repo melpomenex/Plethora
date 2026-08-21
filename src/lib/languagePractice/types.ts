@@ -39,6 +39,7 @@ export interface PracticeComparison {
   normalizedActual: string;
   errors: readonly ComparisonError[];
   uncertain: boolean;
+  assisted?: boolean;
 }
 
 export interface PracticeAttempt {
@@ -55,6 +56,17 @@ export interface PracticeAttempt {
   providerId?: string;
   providerVersion?: string;
   activeEvidenceAccepted: boolean;
+  revealed?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface PracticeRecommendationPreview {
+  candidateId: string;
+  title: string;
+  sourceType: string;
+  sourceId: string;
+  sourceFingerprint: string;
+  explanation: readonly string[];
+  score: number;
 }

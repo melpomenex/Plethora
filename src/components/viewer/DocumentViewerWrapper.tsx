@@ -28,6 +28,7 @@ import { LanguageReaderHostPanel } from "../language/LanguageReaderHostPanel";
 import { LanguageReaderActionOverlay } from "../language/LanguageReaderActionOverlay";
 import { LanguageTutorHost } from "../language/LanguageTutorHost";
 import { LanguagePracticeOverlay } from "../language/LanguagePracticeOverlay";
+import { LanguageReadingAssistOverlay } from "../language/LanguageReadingAssistOverlay";
 import type { SourceAnchor } from "../../types/languageLexicon";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
@@ -505,6 +506,7 @@ export function DocumentViewer({
         <LanguageReaderActionOverlay />
         <LanguageTutorHost />
         <LanguagePracticeOverlay />
+        <LanguageReadingAssistOverlay />
       </div>
     </LanguageLearningHostProvider>
   );

@@ -16,4 +16,8 @@ describe("language practice comparison", () => {
     const attempts = [{ id: "old", profileId: "p", mode: "dictation" as const, source: {}, promptText: "x", status: "submitted" as const, recordingPolicy: { allowMicrophone: false, persistRecording: false, retentionExpiresAt: 10, privacy: "local-only" as const }, activeEvidenceAccepted: false, createdAt: 0, updatedAt: 0 }];
     expect(deleteExpiredPracticeAttempts(attempts, 11)).toHaveLength(0);
   });
+
+  it("labels token reordering separately from substitution", () => {
+    expect(comparePracticeResponse("yo quiero café", "café quiero yo").errors.map((error) => error.kind)).toContain("order");
+  });
 });

@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run.",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally.",
   "benchmarks": {
     "kp-timeline/build": {
       "cost": 0.0103,
@@ -13,14 +13,14 @@
     },
     "kp-timeline/sample-sweep-desktop": {
       "cost": 0.1521,
-      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) \u2014 the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
       "reason": "knowledge-peck-startup-animation: initial baseline for the phone (2-fragment) sampleTimeline sweep; ~half the desktop cost, matching the smaller element count."
     },
     "article-import-static-small-40p": {
-      "cost": 131.2,
+      "cost": 243.5,
       "reason": "overhaul-web-article-import: initial baseline for the article static pipeline (parse + metadata + Defuddle + Readability on clones + scoring + normalization + sanitization) on a seeded 40-paragraph synthetic page; fetch and rendered fallback excluded by design (D14)."
     },
     "article-import-static-large-260p": {
@@ -32,7 +32,7 @@
       "tolerance": 1.5
     },
     "sm20/review-sequence": {
-      "cost": 8.477,
+      "cost": 12.87,
       "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path. Re-recorded as the median of three calibrated runs (13.00, 13.87, 14.46) because this long allocation-heavy path scales differently from the gate's median mixed-workload runner calibration; the longer 2s/100-iteration sample supports tightening tolerance from 1.6x to the 1.25x default."
     },
     "queue/build-500-items": {
@@ -62,20 +62,20 @@
       "tolerance": 1.4
     },
     "tabs/activate-in-20-tab-workspace": {
-      "cost": 0.01334,
+      "cost": 0.01794,
       "tolerance": 1.4
     },
     "tabs/serialize-20-tab-workspace": {
-      "cost": 0.01099,
+      "cost": 0.02344,
       "tolerance": 1.4
     },
     "tabs/normalize-pane-tree-depth-4": {
-      "cost": 0.0004704,
+      "cost": 0.0005028,
       "tolerance": 2.0,
       "reason": "Sub-microsecond tree normalization is timer- and GC-sensitive, so it uses the same wider tolerance as other microbenchmarks."
     },
     "tabs/find-reusable-tab-20-tabs": {
-      "cost": 0.02246,
+      "cost": 0.0442,
       "tolerance": 1.4
     },
     "tabs-dom/mount-12-tab-workspace": {
@@ -94,19 +94,19 @@
       "reason": "jsdom rerender cost includes React scheduling and garbage collection variance."
     },
     "point round trip (rotation 0)": {
-      "cost": 0.07121,
+      "cost": 0.1009,
       "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
     },
     "rect round trip": {
-      "cost": 0.04742,
+      "cost": 0.0485,
       "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
     },
     "anchor round trip via wordId (400 words)": {
-      "cost": 0.1549,
+      "cost": 0.2444,
       "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
     },
     "anchor resolution via textQuote fallback": {
-      "cost": 0.09592,
+      "cost": 0.09949,
       "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
     },
     "audioEdition/anchor-resolve-10k-sentences": {
@@ -119,7 +119,7 @@
     },
     "reader-speech-index/build": {
       "cost": 3.759,
-      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections \u00d7 30 paragraphs, CHUNK_MAX packing with page markers)."
+      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections × 30 paragraphs, CHUNK_MAX packing with page markers)."
     },
     "reader-speech-index/locate": {
       "cost": 4.128,
@@ -136,6 +136,18 @@
     "language-processing/index-lookup-4000-tokens": {
       "cost": 0.03598,
       "reason": "add-language-processing-adapter-layer: initial deterministic baseline for normalized token index lookup over 4,000 tokens."
+    },
+    "help/intent-classification-50-queries": {
+      "cost": 0.09599,
+      "reason": "canonical-product-documentation-and-ask-plethora: intent classification across 50 query fixtures"
+    },
+    "help/bm25-search-10-queries": {
+      "cost": 37.4,
+      "reason": "canonical-product-documentation-and-ask-plethora: local BM25 search and scoring across 226 chunks"
+    },
+    "help/direct-canonical-lookup": {
+      "cost": 0.01851,
+      "reason": "canonical-product-documentation-and-ask-plethora: 0ms direct lookup resolution"
     }
   }
 }
