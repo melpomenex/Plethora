@@ -323,6 +323,14 @@ export function isPlatformCapabilityAvailable(
   return getPlatformCapability(id, options).available;
 }
 
+/** Type guard for the unavailable branch (strict mode is off repo-wide, so
+ * discriminant narrowing on `available` doesn't apply — use this instead). */
+export function isPlatformCapabilityUnavailable(
+  availability: PlatformAvailability
+): availability is Extract<PlatformAvailability, { available: false }> {
+  return !availability.available;
+}
+
 /** Full availability matrix for every id × platform (doc generation / tests). */
 export function buildCapabilityMatrix(
   options: Omit<CapabilityQueryOptions, "platform"> = {}

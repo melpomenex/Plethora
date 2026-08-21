@@ -1,6 +1,10 @@
 import { lazy, type ComponentType } from "react";
 import type { TabType } from "../../stores/tabsStore";
 import { importWithRetry } from "../../utils/importWithRetry";
+import {
+  isPlatformCapabilityAvailable,
+  type PlatformCapabilityId,
+} from "../../lib/platformCapabilities";
 
 // Central registry of all lazy-loaded tab components
 // Components use named exports, so we need to convert them to default exports
@@ -119,15 +123,78 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
 };
 
 /**
+ * §3.2: platform capability governing each tab type. Tabs whose capability
+ * is unavailable on the current platform cannot be deep-linked into broken
+ * states — `resolveNearestAvailableTabType` reroutes them to the nearest
+ * available surface.
+ */
+export const TAB_TYPE_TO_CAPABILITY: Partial<Record<TabType, PlatformCapabilityId>> = {
+  dashboard: "tab_dashboard",
+  "continue-reading": "core_read",
+  queue: "tab_queue",
+  "queue-scroll": "core_read",
+  review: "tab_review",
+  documents: "tab_documents",
+  analytics: "tab_analytics",
+  settings: "tab_settings",
+  extracts: "tab_extracts",
+  "image-registry": "tab_image_registry",
+  "doc-qa": "tab_doc_qa",
+  rss: "tab_rss",
+  newsletter: "tab_newsletter",
+  podcast: "tab_podcast",
+  audiobook: "tab_audiobook",
+  "knowledge-sphere": "tab_knowledge_sphere",
+  notebooklm: "tab_notebooklm",
+};
+
+/**
+ * Nearest-surface fallback chains per hidden tab type. The chain ends at a
+ * universally available surface, so resolution always terminates.
+ */
+const TAB_FALLBACK_CHAINS: Partial<Record<TabType, TabType[]>> = {
+  // NotebookLM (desktop-only CLI integration) → Document Q&A (closest
+  // research/chat surface) → Documents → Dashboard.
+  notebooklm: ["doc-qa", "documents", "dashboard"],
+};
+
+/**
+ * Resolve the nearest available surface for a requested tab type. Returns
+ * the input unchanged when it is ungated or its capability is available on
+ * the current platform — desktop/Android/web behavior is untouched.
+ */
+export function resolveNearestAvailableTabType(type: TabType): TabType {
+  const capabilityId = TAB_TYPE_TO_CAPABILITY[type];
+  if (!capabilityId || isPlatformCapabilityAvailable(capabilityId)) {
+    return type;
+  }
+  const fallbacks = TAB_FALLBACK_CHAINS[type] ?? ["dashboard"];
+  for (const candidate of fallbacks) {
+    const candidateCapability = TAB_TYPE_TO_CAPABILITY[candidate];
+    if (
+      !candidateCapability ||
+      isPlatformCapabilityAvailable(candidateCapability)
+    ) {
+      return candidate;
+    }
+  }
+  return "dashboard";
+}
+
+/**
  * Reconstruct a full Tab from serialized data (localStorage).
  */
 export function rehydrateTab(serialized: { id: string; title: string; icon: string; type: TabType; closable: boolean; data?: Record<string, unknown> }) {
-  const registry = tabContentRegistry[serialized.type];
+  // Deep-link / session-restore guard: a persisted tab whose surface is not
+  // available on this platform rehydrates as its nearest available surface
+  // instead of a broken destination (§3.2).
+  const resolvedType = resolveNearestAvailableTabType(serialized.type);
+  const registry = tabContentRegistry[resolvedType];
   return {
     id: serialized.id,
     title: serialized.title,
     icon: registry?.icon ?? serialized.icon,
-    type: serialized.type,
+    type: resolvedType,
     content: registry?.content ?? DashboardTab,
     closable: serialized.closable,
     data: serialized.data,

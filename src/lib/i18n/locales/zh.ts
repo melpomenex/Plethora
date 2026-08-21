@@ -1,6 +1,13 @@
 import { Dict, en } from "./en";
 
 export const zh: Dict = {
+  "platform.unavailable.generic": "此设备上不可用",
+  "platform.unavailable.unsupported_platform": "此设备上不可用",
+  "platform.unavailable.requires_network": "需要联网",
+  "platform.unavailable.launch_deferred": "将在后续更新中提供",
+  "platform.unavailable.experimental": "尚未在此设备上启用",
+  "platform.unavailable.notebooklm": "需要 NotebookLM 桌面端集成",
+  "platform.unavailable.storeBuild": "此版本的 Plethora 中不可用",
 
   // Web Article Import dialog pipeline states (overhaul-web-article-import)
   "webImport.stageFetching": "正在获取页面…",

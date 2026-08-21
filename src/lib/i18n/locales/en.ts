@@ -1,6 +1,14 @@
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+  // Platform capability unavailability reasons (Change D — ios-feature-availability)
+  "platform.unavailable.generic": "Not available on this device",
+  "platform.unavailable.unsupported_platform": "Not available on this device",
+  "platform.unavailable.requires_network": "Requires an internet connection",
+  "platform.unavailable.launch_deferred": "Coming in a future update",
+  "platform.unavailable.experimental": "Not yet enabled on this device",
+  "platform.unavailable.notebooklm": "Requires the NotebookLM desktop integration",
+  "platform.unavailable.storeBuild": "Not available in this build of Plethora",
 
   // Web Article Import dialog pipeline states (overhaul-web-article-import)
   "webImport.stageFetching": "Fetching page…",

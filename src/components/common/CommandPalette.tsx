@@ -21,6 +21,10 @@ import {
   TextT,
 } from "@phosphor-icons/react";
 import { useI18n, t } from "../../lib/i18n";
+import {
+  isPlatformCapabilityAvailable,
+  type PlatformCapabilityId,
+} from "../../lib/platformCapabilities";
 
 /**
  * Command definition
@@ -34,6 +38,25 @@ export interface Command {
   action: () => void | Promise<void>;
   keywords?: string[];
   shortcut?: string;
+  /**
+   * §3.3: platform capability governing this command. Commands whose
+   * capability is unavailable on the current platform are filtered out of
+   * the palette. Undefined ⇒ ungated (available everywhere).
+   */
+  capabilityId?: PlatformCapabilityId;
+}
+
+/**
+ * §3.3: drop commands whose platform capability is unavailable on the
+ * current platform. Ungated commands pass through unchanged.
+ */
+export function filterCommandsByPlatformAvailability<T extends Command>(
+  commands: T[]
+): T[] {
+  return commands.filter(
+    (cmd) =>
+      !cmd.capabilityId || isPlatformCapabilityAvailable(cmd.capabilityId)
+  );
 }
 
 /**
@@ -356,6 +379,7 @@ export function createCommand(config: {
   action: () => void | Promise<void>;
   keywords?: string[];
   shortcut?: string;
+  capabilityId?: PlatformCapabilityId;
 }): Command {
   return {
     id: config.id,
@@ -366,6 +390,7 @@ export function createCommand(config: {
     action: config.action,
     keywords: config.keywords,
     shortcut: config.shortcut,
+    capabilityId: config.capabilityId,
   };
 }
 
@@ -376,6 +401,7 @@ export function getDefaultCommands(): Command[] {
   return [
     createCommand({
       id: "new-document",
+      capabilityId: "core_import",
       label: t("commandPalette.importDocument"),
       description: t("commandPalette.importDocumentDesc"),
       icon: <Plus className="w-4 h-4" />,
@@ -493,6 +519,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "new-flashcard",
+      capabilityId: "core_remember",
       label: t("commandPalette.createFlashcard"),
       description: t("commandPalette.createFlashcardDesc"),
       icon: <Plus className="w-4 h-4" />,
@@ -508,6 +535,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "go-documents",
+      capabilityId: "tab_documents",
       label: t("toolbar.goToDocuments"),
       description: t("commandPalette.viewAllDocuments"),
       icon: <TextT className="w-4 h-4" />,
@@ -518,6 +546,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "go-image-registry",
+      capabilityId: "tab_image_registry",
       label: t("imageRegistry.pageTitle"),
       description: t("imageRegistry.pageSubtitle"),
       icon: <Images className="w-4 h-4" />,
@@ -527,6 +556,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "go-queue",
+      capabilityId: "tab_queue",
       label: t("toolbar.goToQueue"),
       description: t("commandPalette.viewReviewQueue"),
       icon: <List className="w-4 h-4" />,
@@ -537,6 +567,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "start-review",
+      capabilityId: "core_review",
       label: t("toolbar.startReviewCmd"),
       description: t("commandPalette.beginReviewSession"),
       icon: <Lightning className="w-4 h-4" />,
@@ -556,6 +587,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "start-optimal-session",
+      capabilityId: "core_read",
       label: t("commandPalette.startOptimalSession"),
       description: t("commandPalette.startOptimalSessionDesc"),
       icon: <Play className="w-4 h-4" />,
@@ -565,6 +597,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "go-analytics",
+      capabilityId: "tab_analytics",
       label: t("commandPalette.goToAnalytics"),
       description: t("commandPalette.viewStatsAndProgress"),
       icon: <ChartBar className="w-4 h-4" />,
@@ -575,6 +608,7 @@ export function getDefaultCommands(): Command[] {
     }),
     createCommand({
       id: "open-settings",
+      capabilityId: "tab_settings",
       label: t("toolbar.openSettings"),
       description: t("commandPalette.openAppSettings"),
       icon: <Gear className="w-4 h-4" />,
@@ -602,5 +636,7 @@ export function getDefaultCommands(): Command[] {
       keywords: ["keyboard", "shortcuts", "hotkeys", "help"],
       shortcut: "?",
     }),
-  ];
+  ].filter(
+    (cmd) => !cmd.capabilityId || isPlatformCapabilityAvailable(cmd.capabilityId)
+  );
 }
