@@ -20,12 +20,13 @@ vi.mock("../../components/common/Toast", () => ({
   }),
 }));
 
-// useShareTarget imports createDocument directly from the api module.
+// useShareTarget imports createDocument/updateDocument directly from the api module.
 vi.mock("../../api/documents", () => ({
-  createDocument: vi.fn().mockResolvedValue({ id: "doc-note", title: "note" }),
+  createDocument: vi.fn().mockResolvedValue({ id: "doc-note", title: "note", metadata: {} }),
+  updateDocument: vi.fn().mockImplementation((_id, doc) => Promise.resolve(doc)),
 }));
 
-import { createDocument } from "../../api/documents";
+import { createDocument, updateDocument } from "../../api/documents";
 
 describe("useShareTarget", () => {
   beforeEach(() => {

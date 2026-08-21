@@ -6,12 +6,12 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { fetchPendingShares, registerShareListener } from "../lib/shareTarget";
+import { fetchPendingShares, mapManifestToProvenance, registerShareListener } from "../lib/shareTarget";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
-import { createDocument } from "../api/documents";
+import { createDocument, updateDocument } from "../api/documents";
 import { DocumentViewer } from "../components/viewer/DocumentViewer";
 import { TextT } from "@phosphor-icons/react";
 import type { SharedBatch, SharedItem } from "../types/share";
@@ -116,6 +116,26 @@ export function useShareTarget() {
               `note://${Date.now()}`,
               "markdown"
             );
+            // Attach share provenance (additive metadata merge) when the
+            // batch carries a staged-manifest id.
+            if (batch.id) {
+              try {
+                const provenance = mapManifestToProvenance(
+                  {
+                    id: batch.id,
+                    receivedAt: batch.timestamp,
+                    items: [{ kind: "text", text: item.text, title }],
+                  },
+                  "share_extension"
+                );
+                await updateDocument(doc.id, {
+                  ...doc,
+                  metadata: { ...doc.metadata, ...provenance },
+                } as any);
+              } catch (metaErr) {
+                console.warn("[Share Target] Failed to persist share provenance:", metaErr);
+              }
+            }
             importedDocs.push(doc);
           } catch (e) {
             console.error("[Share Target] Failed to create document from shared text:", e);

@@ -1,5 +1,6 @@
 import type { ViewState } from "./readerPosition";
 import type { SelectionContext } from "./selection";
+import type { ShareCaptureProvenance } from "./share";
 import type {
   BrowserCaptureContext,
   BrowserCaptureProvenance,
@@ -183,6 +184,10 @@ export interface DocumentMetadata {
   browserCaptureContext?: BrowserCaptureContext;
   /** Structured source/item provenance for browser-created records. */
   captureProvenance?: BrowserCaptureProvenance;
+  /** Structured provenance for native share-target captures (iOS Share
+   *  Extension / Android share intents). Additive; see
+   *  `ShareCaptureProvenance` in src/types/share.ts. */
+  shareProvenance?: ShareCaptureProvenance;
   /** Async organization status and review metadata. */
   organization?: BrowserOrganizationMetadata;
 }

@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { normalizeSharedBatch, registerShareListener, fetchPendingShares } from "../shareTarget";
+import {
+  normalizeSharedBatch,
+  registerShareListener,
+  fetchPendingShares,
+  stagedManifestToBatch,
+  mapManifestToProvenance,
+} from "../shareTarget";
+import type { StagedShareManifest } from "../../types/share";
 import * as tauriLib from "../tauri";
 
 vi.mock("../tauri", () => ({
@@ -165,6 +172,87 @@ describe("shareTarget utilities", () => {
 
       expect(onBatch).not.toHaveBeenCalled();
       unsubscribe();
+    });
+  });
+
+  describe("stagedManifestToBatch (staged-manifest → SharedBatch contract)", () => {
+    const manifest: StagedShareManifest = {
+      id: "staged-uuid-1",
+      receivedAt: 1724200000000,
+      sourceApp: "com.apple.Safari",
+      attempts: 0,
+      items: [
+        { kind: "url", urlString: "https://example.com/article" },
+        { kind: "text", text: "quote from chapter 4", title: "Note" },
+        { kind: "file", filename: "paper.pdf", mimeType: "application/pdf" },
+      ],
+    };
+
+    it("maps all three item kinds into the normalized batch", () => {
+      const batch = stagedManifestToBatch(manifest);
+      expect(batch).not.toBeNull();
+      expect(batch!.id).toBe("staged-uuid-1");
+      expect(batch!.timestamp).toBe(1724200000000);
+      expect(batch!.items).toEqual([
+        { type: "url", url: "https://example.com/article", title: undefined },
+        { type: "text", text: "quote from chapter 4", title: "Note" },
+        { type: "file", fileName: "paper.pdf", mimeType: "application/pdf", filePath: undefined },
+      ]);
+    });
+
+    it("returns null for empty or malformed manifests", () => {
+      expect(stagedManifestToBatch(null as any)).toBeNull();
+      expect(stagedManifestToBatch({ ...manifest, items: [] })).toBeNull();
+      expect(
+        stagedManifestToBatch({ ...manifest, items: [{ kind: "file", filename: "" }] } as any)
+      ).toBeNull();
+    });
+
+    it("output re-normalizes through normalizeSharedBatch unchanged", () => {
+      const batch = stagedManifestToBatch(manifest)!;
+      const again = normalizeSharedBatch(batch)!;
+      expect(again.id).toBe("staged-uuid-1");
+      expect(again.items).toEqual(batch.items);
+    });
+  });
+
+  describe("mapManifestToProvenance (DocumentMetadata mapping)", () => {
+    it("maps url/siteName/fetchedAt and the structured shareProvenance record", () => {
+      const provenance = mapManifestToProvenance({
+        id: "staged-uuid-1",
+        receivedAt: 1724200000000,
+        sourceApp: "com.apple.Safari",
+        items: [{ kind: "url", urlString: "https://www.example.com/deep/page" }],
+      });
+      expect(provenance.url).toBe("https://www.example.com/deep/page");
+      expect(provenance.siteName).toBe("example.com");
+      expect(provenance.fetchedAt).toBe(new Date(1724200000000).toISOString());
+      expect(provenance.shareProvenance).toEqual({
+        source: "share_extension",
+        sourceApp: "com.apple.Safari",
+        receivedAt: 1724200000000,
+        batchId: "staged-uuid-1",
+        schemaVersion: 1,
+      });
+    });
+
+    it("omits url/siteName for text-only shares and tolerates bad URLs", () => {
+      const provenance = mapManifestToProvenance({
+        id: "x",
+        receivedAt: 1000,
+        items: [{ kind: "text", text: "just a note" }],
+      });
+      expect(provenance.url).toBeUndefined();
+      expect(provenance.siteName).toBeUndefined();
+      expect(provenance.shareProvenance?.batchId).toBe("x");
+
+      const badUrl = mapManifestToProvenance({
+        id: "y",
+        receivedAt: 1000,
+        items: [{ kind: "url", urlString: "not a url" }],
+      });
+      expect(badUrl.url).toBe("not a url");
+      expect(badUrl.siteName).toBeUndefined();
     });
   });
 
