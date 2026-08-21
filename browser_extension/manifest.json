@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Plethora Capture",
-  "version": "1.9.0",
+  "version": "1.11.0",
   "browser_specific_settings": {
     "gecko": {
-      "id": "incrementum-browser-sync@melpomenex.dev",
+      "id": "{bb3443c2-dfb8-42a3-8df7-3737a3f80185}",
       "data_collection_permissions": {
         "required": [
           "browsingActivity",

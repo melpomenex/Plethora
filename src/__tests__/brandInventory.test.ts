@@ -8,7 +8,7 @@
  *
  * Deliberate exemptions (see BRANDING.md "retained-legacy"):
  *   - historical CHANGELOG entries / git tags (not bundled surfaces; not scanned)
- *   - the AMO gecko id `incrementum-browser-sync@melpomenex.dev`
+ *   - the AMO gecko id `{bb3443c2-dfb8-42a3-8df7-3737a3f80185}`
  *   - the `data-incrementum-app` attribute in index.html (Phase B protocol token)
  *   - service-worker cache/IDB namespace `incrementum-*` (Phase B storage migration)
  *   - `.incrementum` backup-import compatibility strings in src/utils (not scanned)
@@ -205,7 +205,7 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
 
     it("retains the AMO gecko id (renaming it would orphan the AMO listing)", () => {
       expect(manifest.browser_specific_settings?.gecko?.id).toBe(
-        "incrementum-browser-sync@melpomenex.dev"
+        "{bb3443c2-dfb8-42a3-8df7-3737a3f80185}"
       );
     });
 
