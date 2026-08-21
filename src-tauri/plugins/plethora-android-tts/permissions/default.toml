@@ -17,5 +17,11 @@ permissions = [
   "allow-pause",
   "allow-resume",
   "allow-stop",
-  "allow-delete-model"
+  "allow-delete-model",
+  "allow-start-media-session",
+  "allow-stop-media-session",
+  "allow-update-media-metadata",
+  "allow-ack-media-commands",
+  "allow-discard-media-commands",
+  "allow-drain-pending-media-commands"
 ]

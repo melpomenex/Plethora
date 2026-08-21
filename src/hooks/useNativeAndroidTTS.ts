@@ -26,6 +26,9 @@ import {
   pluginResume,
   pluginSpeak,
   pluginStop,
+  pluginStartMediaSession,
+  pluginStopMediaSession,
+  pluginUpdateMediaMetadata,
   type AndroidTtsPlaybackState,
 } from "../api/tts/android/bridge";
 import type { Settings } from "../stores/settingsStore";
@@ -165,6 +168,28 @@ export function useNativeAndroidTTS(
     };
   }, [available]);
 
+  useEffect(() => {
+    if (!available) return;
+    const state = isGenerating ? "loading" : isSpeaking ? "playing" : isPaused ? "paused" : "idle";
+    void pluginUpdateMediaMetadata({
+      sourceId: "native-tts",
+      sessionId: "native_android_tts:native-tts",
+      sourceKind: "native_android_tts",
+      title: "Read aloud",
+      artist: "Plethora",
+      album: "Reader",
+      positionSec: 0,
+      state,
+      isPlaying: isSpeaking,
+      canSeekRelative: false,
+      canSeekAbsolute: false,
+      canNext: false,
+      canPrevious: false,
+      precisePosition: false,
+      updatedAt: Date.now(),
+    }).catch(() => {});
+  }, [available, isGenerating, isPaused, isSpeaking]);
+
   const speak = useCallback(
     async (text: string, overrides?: { voiceId?: string; presetId?: string }) => {
       if (!available) return;
@@ -173,6 +198,7 @@ export function useNativeAndroidTTS(
 
       // Stop any in-flight utterance first (single-engine ownership is also
       // enforced natively, but this keeps highlight state tidy).
+      await pluginStartMediaSession().catch(() => {});
       await pluginStop().catch(() => {});
       setActiveSentenceIndex(-1);
       setActiveSentence(null);
@@ -233,6 +259,7 @@ export function useNativeAndroidTTS(
   const stop = useCallback(() => {
     if (!available) return;
     void pluginStop().catch(() => {});
+    void pluginStopMediaSession().catch(() => {});
     setActiveSentenceIndex(-1);
     setActiveSentence(null);
     setIsSpeaking(false);
@@ -243,7 +270,10 @@ export function useNativeAndroidTTS(
   // Cleanup on unmount: stop native playback.
   useEffect(() => {
     return () => {
-      if (available) void pluginStop().catch(() => {});
+      if (available) {
+        void pluginStop().catch(() => {});
+        void pluginStopMediaSession().catch(() => {});
+      }
     };
   }, [available]);
 

@@ -58,6 +58,9 @@ import {
 } from "../../utils/ttsListeningPosition";
 import { digestText128 } from "../../utils/ttsCache";
 import { useSpokenWordFollow } from "../../hooks/useSpokenWordFollow";
+import { useRemoteMediaBridge } from "../../hooks/useRemoteMediaBridge";
+import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
+import { createLongFormSessionId } from "../../utils/longFormPlaybackSession";
 import { usePresentation, useIsEink } from "../../contexts/PresentationContext";
 import { WordHighlightLayer } from "./WordHighlightLayer";
 
@@ -1544,6 +1547,83 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     intentionalStopRef.current = false;
     await playChunkAtIndex(chunkIndex + 1);
   };
+
+  // Reader speech is a first-class playback host. Its OS-facing controls are
+  // registered through the same bridge as Audio Editions; sentence-based
+  // engines intentionally omit precise seek capabilities.
+  const readerSourceKind = isAndroidProvider
+    ? ("native_android_tts" as const)
+    : isSystemProvider
+      ? ("web_speech" as const)
+      : ("generated_audio" as const);
+  const readerSourceId = `reader:${documentId ?? "active"}`;
+  const readerSessionId = createLongFormSessionId(readerSourceKind, readerSourceId);
+  const readerMediaContextRef = useRef<RemoteMediaContext>({
+    documentId: documentId ?? "reader",
+    documentTitle: "Read aloud",
+    playbackSessionId: readerSessionId,
+    sourceId: readerSourceId,
+    audioElement: null,
+    currentTimestampSec: 0,
+    anchors: [],
+  });
+  const preciseReaderAudio = !isSystemProvider && !isAndroidProvider;
+  readerMediaContextRef.current = {
+    documentId: documentId ?? "reader",
+    documentTitle: "Read aloud",
+    playbackSessionId: readerSessionId,
+    sourceId: readerSourceId,
+    audioElement: audioRef.current,
+    currentTimestampSec: audioRef.current?.currentTime ?? chunkIndex,
+    anchors: [],
+    onPlayPause: () => {
+      void handlePlayPause();
+    },
+    onNextChapter: () => {
+      void handleNext();
+    },
+    onPrevChapter: () => {
+      void handlePrev();
+    },
+    onSeekRelative: preciseReaderAudio
+      ? (deltaSec) => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          audio.currentTime = Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + deltaSec));
+        }
+      : undefined,
+    onSeekAbsolute: preciseReaderAudio
+      ? (positionSec) => {
+          const audio = audioRef.current;
+          if (audio) audio.currentTime = Math.max(0, Math.min(audio.duration || Infinity, positionSec));
+        }
+      : undefined,
+  };
+  useRemoteMediaBridge({
+    getContext: () => readerMediaContextRef.current,
+    title: "Read aloud",
+    artist: "Plethora",
+    album: "Reader",
+    sourceId: readerSourceId,
+    sessionId: readerSessionId,
+    sourceKind: readerSourceKind,
+    section: { index: chunkIndex, title: `Section ${chunkIndex + 1}`, anchor: String(chunkIndex) },
+    isPlaying,
+    enabled: isPlaying || isPaused || isAutoPlaying,
+    duration: preciseReaderAudio ? audioRef.current?.duration : undefined,
+    currentTime: audioRef.current?.currentTime ?? chunkIndex,
+    playbackRate,
+    capabilities: {
+      canPlay: true,
+      canPause: true,
+      canResume: true,
+      canSeekRelative: preciseReaderAudio,
+      canSeekAbsolute: preciseReaderAudio,
+      precisePosition: preciseReaderAudio,
+      canNext: true,
+      canPrevious: true,
+    },
+  });
 
   const handleVoiceChange = (voiceId: string) => {
     playbackIdRef.current++;

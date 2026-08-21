@@ -2,16 +2,16 @@
 id: audio.media_controls
 title: OS Media Key / Headphone Sync
 domain: tts
-status: implemented
+status: partial
 platforms:
   - desktop-macos
   - desktop-windows
   - desktop-linux
   - mobile-android
   - mobile-ios
-summary: Native OS integration via Souvlaki (macOS Now Playing, Windows SMTC, Linux MPRIS, Android Media3) for system media keys and lock screen controls.
+summary: Shared native-media integration for macOS/Linux desktop controls and Android Media3 lock-screen controls, with Windows and iOS capability limits documented explicitly.
 how_to: Use physical keyboard media keys (Play/Pause, Prev, Next) or Bluetooth headphone buttons to control playback from anywhere in the OS.
-why: Learners listen in the background while coding, writing, or walking; native media control integration allows instant playback control without focusing Plethora.
+why: Learners listen in the background while coding, writing, or walking; a single source-aware media contract keeps OS commands, reading position, and playback metadata synchronized without allowing stale sources to take control.
 aliases:
   - media keys
   - now playing
@@ -44,9 +44,10 @@ Integrates Plethora audio playback with native operating system media controller
 - Physical Play/Pause, Next Track, Previous Track, and Seek buttons control Plethora directly.
 
 ## Exact Behavioral Rules
-1. Uses Rust `souvlaki` crate on desktop and Android `Media3 MediaSessionService` on mobile.
-2. Updates OS metadata (playback state, position, duration, speed) continuously during speech.
-3. Automatically pauses on system audio interruptions (incoming phone calls, Siri/Assistant activation).
+1. Uses the Rust `souvlaki` bridge on desktop and one Android `Media3 MediaSessionService` foreground owner on mobile.
+2. Routes play/pause, next/previous, relative seek, and absolute seek through the shared source/session-aware dispatcher.
+3. Publishes metadata, artwork, section identity, duration, playback rate, and truthful seek capabilities; stale source snapshots and queued commands are ignored or discarded.
+4. Audio focus pauses, ducks, or restores playback according to interruption type, but never auto-resumes playback that the user had already paused.
 
 ## Rationale
 Enables first-class desktop and mobile OS integration, making Plethora feel like a native system media player.
@@ -57,7 +58,8 @@ Enables first-class desktop and mobile OS integration, making Plethora feel like
 | `media.enableOsMediaControls` | `true` | Register system media transport controls |
 
 ## Platform Behavior
-- **macOS**: Full MPNowPlayingInfoCenter integration.
-- **Windows**: Windows.Media.Playback SMTC bridge.
-- **Linux**: org.mpris.MediaPlayer2 D-Bus service.
-- **Android**: Foreground service with ongoing media notification.
+- **macOS**: Souvlaki Now Playing metadata and hardware-control bridge; manual device regression remains pending.
+- **Linux**: Souvlaki/MPRIS metadata and hardware-control bridge; manual desktop regression remains pending.
+- **Windows**: In-app and shared-dispatcher behavior is supported, but the current Tauri platform configuration does not provide the native window handle required to claim full SMTC wiring. In-app playback remains the fallback until HWND plumbing is added.
+- **Android**: Media3 session, ongoing notification, lock-screen/headset command queue, focus handling, and background lifecycle are implemented; physical lock-screen, car, watch, and Bluetooth verification remains pending.
+- **iOS**: Conditional only. The shared contract includes an iOS source kind, but this target has no verified native adapter in the current build and therefore makes no native-control support claim.

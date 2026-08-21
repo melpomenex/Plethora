@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useRemoteMediaBridge } from "../useRemoteMediaBridge";
+import { normalizePendingMediaCommands, useRemoteMediaBridge } from "../useRemoteMediaBridge";
 import {
   dispatchRemoteMediaCommand,
   resetDispatcherState,
@@ -129,6 +129,14 @@ describe("useRemoteMediaBridge (web adapter)", () => {
     expect(handlers.has("nexttrack")).toBe(false);
   });
 
+  it("normalizes both current and legacy native queue responses", () => {
+    const command = { command: "Play", eventId: "queued-1", source: "android" as const };
+    expect(normalizePendingMediaCommands({ commands: [command] })).toEqual([command]);
+    expect(normalizePendingMediaCommands([command])).toEqual([command]);
+    expect(normalizePendingMediaCommands(null)).toEqual([]);
+    expect(normalizePendingMediaCommands({ commands: "invalid" })).toEqual([]);
+  });
+
   it("Study Mode routes a Next press into Save Recent Extract with full context", async () => {
     useSettingsStore.setState({
       settings: {
@@ -198,7 +206,7 @@ describe("single authoritative path", () => {
     expect(source).toMatch(/useRemoteMediaBridge\(\{/);
   });
 
-  it("dispatcher-level dedupe keeps one physical press to one action (same eventId replay / same pair)", () => {
+  it("dispatcher-level dedupe keeps one physical press to one action without suppressing rapid seeks", () => {
     const ctx = makeContext();
     const onNextChapter = vi.fn();
     ctx.onNextChapter = onNextChapter;
@@ -209,13 +217,13 @@ describe("single authoritative path", () => {
     dispatchRemoteMediaCommand(envelope, ctx);
     expect(onNextChapter).toHaveBeenCalledTimes(1);
 
-    // A Bluetooth double-delivery (same source+command pair within the
-    // window, different eventId) is ALSO suppressed — one press, one action.
+    // Two distinct physical presses remain distinct even within the old
+    // source+command time window.
     dispatchRemoteMediaCommand(
       { command: "Next", eventId: "press-2", source: "android", occurredAt: Date.now() },
       ctx
     );
-    expect(onNextChapter).toHaveBeenCalledTimes(1);
+    expect(onNextChapter).toHaveBeenCalledTimes(2);
   });
 });
 

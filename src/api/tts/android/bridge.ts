@@ -185,6 +185,47 @@ export async function pluginStop(): Promise<void> {
   await invokeCommand<void>(`${PLUGIN}|stop`);
 }
 
+/** Native media-session lifecycle and snapshot commands. */
+export async function pluginStartMediaSession(): Promise<void> {
+  if (!isAndroidTtsAvailable()) return;
+  await invokeCommand<void>(`${PLUGIN}|start_media_session`);
+}
+
+export async function pluginStopMediaSession(): Promise<void> {
+  if (!isAndroidTtsAvailable()) return;
+  await invokeCommand<void>(`${PLUGIN}|stop_media_session`);
+}
+
+export interface AndroidMediaSessionSnapshot {
+  sourceId: string;
+  sessionId: string;
+  sourceKind: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  positionSec: number;
+  durationSec?: number;
+  playbackRate?: number;
+  state: string;
+  isPlaying: boolean;
+  canSeekRelative: boolean;
+  canSeekAbsolute: boolean;
+  canNext: boolean;
+  canPrevious: boolean;
+  precisePosition: boolean;
+  artworkUrl?: string;
+  sectionId?: string;
+  sectionTitle?: string;
+  sectionIndex?: number;
+  sectionAnchor?: string;
+  updatedAt: number;
+}
+
+export async function pluginUpdateMediaMetadata(snapshot: AndroidMediaSessionSnapshot): Promise<void> {
+  if (!isAndroidTtsAvailable()) return;
+  await invokeCommand<void>(`${PLUGIN}|update_media_metadata`, { payload: snapshot });
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Event subscriptions. Returns an unsubscribe function.
 // ──────────────────────────────────────────────────────────────────────────
