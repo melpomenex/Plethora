@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Plethora does not track users across apps/websites. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<!-- No tracking domains. -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<!--
+		Data collection is disclosed via App Store Connect privacy nutrition
+		labels generated from src/lib/privacy/disclosureRegistry.ts (see
+		docs/release/ios-privacy-labels.md). No out-of-app collected-data
+		declarations are required here: nothing in the native iOS build
+		collects data for tracking, and all egress flows are user-directed
+		app functionality already covered by the ASC labels.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<!--
+		Required Reason API declarations. Only evidenced categories are
+		declared (over-declaring is itself a review risk). Evidence per
+		category is recorded in docs/release/ios-privacy-manifest-audit.md;
+		the final set MUST be re-verified against the production archive
+		(Change A §4 pipeline) before submission.
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- UserDefaults: Tauri/WKWebView runtime + plugin preference storage,
+			     confined to this app's own defaults. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- File timestamps: Rust std / Tauri asset + fs layers stat files
+			     inside the app container (imported documents, caches, exports);
+			     user-provided files keep their original timestamps on import. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
