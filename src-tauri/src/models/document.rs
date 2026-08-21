@@ -182,6 +182,21 @@ pub struct DocumentMetadata {
     pub chunk_start_pos: Option<usize>,
     pub chunk_end_pos: Option<usize>,
     pub estimated_reading_time_mins: Option<i32>,
+    /// Smart Tagging provenance and explainability details
+    #[serde(default)]
+    pub smart_tag_details: Option<Vec<SmartTagDetail>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartTagDetail {
+    pub tag: String,
+    pub provenance: String, // "manual" | "smart-local" | "smart-llm"
+    pub confidence: f64,
+    pub reason: String,
+    pub assigned_at: String,
+    #[serde(default)]
+    pub dismissed: Option<bool>,
 }
 
 impl Document {

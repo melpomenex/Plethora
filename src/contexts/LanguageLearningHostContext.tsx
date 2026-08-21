@@ -10,6 +10,9 @@ import type {
   LanguageHostSource,
   LanguageHostSurface,
 } from "../lib/languageHost";
+import type { ShadowingRecognitionProvider } from "../lib/languageShadowing";
+import type { WritingProvider } from "../lib/languageWriting";
+import type { PronunciationProviderManifest } from "../lib/languagePronunciation";
 
 export interface LanguageLearningHostProviderProps {
   hostId: string;
@@ -18,6 +21,9 @@ export interface LanguageLearningHostProviderProps {
   languageModeEnabled: boolean;
   explicitProfileId?: string | null;
   capabilities?: Partial<Record<LanguageHostCapabilityName, LanguageHostCapability>>;
+  shadowingProviders?: readonly ShadowingRecognitionProvider[];
+  writingProvider?: WritingProvider;
+  pronunciationManifest?: PronunciationProviderManifest;
   children: ReactNode;
 }
 
@@ -25,6 +31,9 @@ export interface LanguageLearningHostContextValue {
   snapshot: LanguageHostSnapshot;
   refresh: () => void;
   controller: LanguageLearningHostController;
+  shadowingProviders: readonly ShadowingRecognitionProvider[];
+  writingProvider?: WritingProvider;
+  pronunciationManifest?: PronunciationProviderManifest;
 }
 
 const LanguageLearningHostContext = createContext<LanguageLearningHostContextValue | null>(null);
@@ -95,7 +104,14 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
   ]);
 
   return (
-    <LanguageLearningHostContext.Provider value={{ snapshot, refresh, controller }}>
+    <LanguageLearningHostContext.Provider value={{
+      snapshot,
+      refresh,
+      controller,
+      shadowingProviders: props.shadowingProviders ?? [],
+      writingProvider: props.writingProvider,
+      pronunciationManifest: props.pronunciationManifest,
+    }}>
       {props.children}
     </LanguageLearningHostContext.Provider>
   );
@@ -105,4 +121,9 @@ export function useLanguageLearningHost(): LanguageLearningHostContextValue {
   const context = useContext(LanguageLearningHostContext);
   if (!context) throw new Error("useLanguageLearningHost must be used within LanguageLearningHostProvider");
   return context;
+}
+
+/** Optional boundary for reusable media/readers that may be mounted without Language Mode. */
+export function useOptionalLanguageLearningHost(): LanguageLearningHostContextValue | null {
+  return useContext(LanguageLearningHostContext);
 }

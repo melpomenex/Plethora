@@ -5,9 +5,9 @@ import { LANGUAGE_HOST_ACTION_EVENT, dispatchLanguageHostAction, type LanguageHo
 import { acceptPracticeEvidence, createPracticeAttempt, recommendationPreview, resumePracticeAttempt, revealPracticeAttempt, shouldConfirmPracticeDiscard, submitPracticeAttempt } from "../../lib/languagePractice";
 import { LANGUAGE_PRACTICE_RECOMMENDATION_EVENT, type LanguagePracticeRecommendationDetail } from "../../lib/languagePractice";
 import type { PracticeAttempt, PracticeMode } from "../../lib/languagePractice";
-import { canStartCapture, createShadowingSession } from "../../lib/languageShadowing";
-import { advertisedPronunciationDimensions, canProvidePronunciation } from "../../lib/languagePronunciation";
-import type { ShadowingFlow } from "../../lib/languageShadowing";
+import { canStartCapture, createConfiguredShadowingProviders, createShadowingSession, ShadowingRecognitionService } from "../../lib/languageShadowing";
+import { advertisedPronunciationDimensions, canProvidePronunciation, evaluatePronunciationFeedback, type PronunciationFeedbackResult } from "../../lib/languagePronunciation";
+import type { ShadowingFlow, ShadowingSttRoute } from "../../lib/languageShadowing";
 import type { PracticeSource } from "../../lib/languagePractice";
 import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageTutor";
 import { WritingPracticeService, type WritingPromptMode, type WritingResult } from "../../lib/languageWriting";
@@ -47,10 +47,13 @@ function newAttempt(request: LanguageHostActionDetail, mode: PracticeMode): Prac
 
 /** Shared, source-preserving practice shell. It never calls review rating or creates a card. */
 export function LanguagePracticeOverlay() {
-  const { snapshot } = useLanguageLearningHost();
+  const { snapshot, shadowingProviders, writingProvider, pronunciationManifest } = useLanguageLearningHost();
+  const configuredShadowingProviders = shadowingProviders ?? [];
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [mode, setMode] = useState<PracticeMode>("dictation");
   const [shadowingFlow, setShadowingFlow] = useState<ShadowingFlow>("listen-first");
+  const [shadowingSttRoute, setShadowingSttRoute] = useState<ShadowingSttRoute>("local");
+  const [recognitionStatus, setRecognitionStatus] = useState<"idle" | "processing" | "ready" | "unavailable" | "failed">("idle");
   const [writingPromptMode, setWritingPromptMode] = useState<WritingPromptMode>("current-document");
   const [writingLexicon, setWritingLexicon] = useState<ContextLexiconRow[]>([]);
   const [acceptedWritingCorrections, setAcceptedWritingCorrections] = useState<ReadonlySet<string>>(new Set());
@@ -61,17 +64,27 @@ export function LanguagePracticeOverlay() {
   const [captureActive, setCaptureActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [writingResult, setWritingResult] = useState<WritingResult | null>(null);
+  const [writingStreamText, setWritingStreamText] = useState("");
+  const [cloudConsent, setCloudConsent] = useState(false);
+  const [pronunciationFeedback, setPronunciationFeedback] = useState<PronunciationFeedbackResult | null>(null);
   const [discardRequested, setDiscardRequested] = useState(false);
   const [recommendation, setRecommendation] = useState<ReturnType<typeof recommendationPreview> | null>(null);
   const [recommendationDetail, setRecommendationDetail] = useState<LanguagePracticeRecommendationDetail | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const writingAbortRef = useRef<AbortController | null>(null);
+  const captureChunksRef = useRef<Blob[]>([]);
+  const recognitionService = useMemo(
+    () => new ShadowingRecognitionService(configuredShadowingProviders.length ? configuredShadowingProviders : createConfiguredShadowingProviders()),
+    [configuredShadowingProviders],
+  );
 
   useEffect(() => () => {
     recorderRef.current?.stop();
     recorderRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    writingAbortRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -81,6 +94,8 @@ export function LanguagePracticeOverlay() {
       setRequest(detail);
       setMode(detail.practiceMode ?? "dictation");
       setShadowingFlow("listen-first");
+      setShadowingSttRoute("local");
+      setRecognitionStatus("idle");
       setWritingPromptMode("current-document");
       setAcceptedWritingCorrections(new Set());
       setAttempt(newAttempt(detail, detail.practiceMode ?? "dictation"));
@@ -88,6 +103,9 @@ export function LanguagePracticeOverlay() {
       setRevealed(false);
       setError(null);
       setWritingResult(null);
+      setWritingStreamText("");
+      setCloudConsent(false);
+      setPronunciationFeedback(null);
       setRecommendation(null);
       setRecommendationDetail(null);
     };
@@ -131,10 +149,25 @@ export function LanguagePracticeOverlay() {
     setRevealed(false);
     setError(null);
     setWritingResult(null);
+    setWritingStreamText("");
+    setPronunciationFeedback(null);
     setShadowingFlow("listen-first");
+    setShadowingSttRoute("local");
+    setRecognitionStatus("idle");
     setWritingPromptMode("current-document");
     setAcceptedWritingCorrections(new Set());
   }, [attempt?.mode, mode, request]);
+
+  useEffect(() => {
+    if (mode !== "writing" || !storageKey || !attempt || !answer.trim() || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify({ ...attempt, rawResponse: answer, updatedAt: Date.now() }));
+    } catch {
+      // The live draft remains available when browser storage is disabled.
+    }
+  }, [answer, attempt, mode, storageKey]);
+
+  useEffect(() => () => writingAbortRef.current?.abort(), []);
 
   useEffect(() => {
     let disposed = false;
@@ -227,7 +260,20 @@ export function LanguagePracticeOverlay() {
         dialogue: `Write the next short turn in a target-language dialogue based on this source: ${prompt}`,
       };
       const writingPrompt = { id: `${attempt.id}:writing`, profileId: attempt.profileId, mode: writingPromptMode, prompt: promptByMode[writingPromptMode], targetLanguage: profile.targetLanguage, source: attempt.source, context };
-      void new WritingPracticeService().correct(writingPrompt, raw).then(setWritingResult).catch((reason) => setWritingResult({ draft: { id: writingPrompt.id, promptId: writingPrompt.id, profileId: attempt.profileId, rawText: raw, corrections: [], privacy: "local-only", createdAt: now, updatedAt: now }, status: "failed", error: reason instanceof Error ? reason.message : "writing-provider-failed" }));
+      writingAbortRef.current?.abort();
+      const controller = new AbortController();
+      writingAbortRef.current = controller;
+      setWritingResult(null);
+      setWritingStreamText("");
+      void new WritingPracticeService(writingProvider).correct(writingPrompt, raw, controller.signal, (chunk) => {
+        if (controller.signal.aborted) return;
+        setWritingStreamText((current) => `${current}${chunk.corrections.map((correction) => correction.correctedText).join(" ")}`.trim());
+      }).then((result) => {
+        if (!controller.signal.aborted) setWritingResult(result);
+      }).catch((reason) => {
+        if (controller.signal.aborted) return;
+        setWritingResult({ draft: { id: writingPrompt.id, promptId: writingPrompt.id, profileId: attempt.profileId, rawText: raw, corrections: [], privacy: "local-only", createdAt: now, updatedAt: now }, status: "failed", error: reason instanceof Error ? reason.message : "writing-provider-failed" });
+      });
       return;
     }
     const next = submitPracticeAttempt(attempt, raw);
@@ -241,6 +287,11 @@ export function LanguagePracticeOverlay() {
     if (isTauri()) void upsertLanguagePracticeAttempt(attempt).catch(() => setError("The local practice copy was saved, but durable sync is unavailable."));
   };
   const remove = () => {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    captureChunksRef.current = [];
     if (storageKey) window.localStorage.removeItem(storageKey);
     if (isTauri()) void deleteLanguagePracticeAttempt(attempt.profileId, attempt.id).catch(() => undefined);
     setAttempt(newAttempt(request, mode));
@@ -303,9 +354,17 @@ export function LanguagePracticeOverlay() {
       streamRef.current = stream;
       if (typeof MediaRecorder !== "undefined") {
         const recorder = new MediaRecorder(stream);
+        captureChunksRef.current = [];
+        recorder.ondataavailable = (event) => { if (event.data.size > 0) captureChunksRef.current.push(event.data); };
         recorderRef.current = recorder;
         recorder.start();
         setCaptureActive(true);
+      } else {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        setMicStatus("unavailable");
+        setError("Audio recording is unavailable; use original-audio replay or text comparison.");
+        return;
       }
       if (!canStartCapture({ ...attempt.recordingPolicy, allowMicrophone: true }, true)) {
         stream.getTracks().forEach((track) => track.stop());
@@ -323,13 +382,48 @@ export function LanguagePracticeOverlay() {
   };
 
   const stopMicrophone = () => {
+    const currentAttempt = attempt;
+    if (!currentAttempt || !snapshot.profile) return;
     recorderRef.current?.stop();
     recorderRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setCaptureActive(false);
-    setAttempt((current) => current ? { ...current, status: "failed", updatedAt: Date.now() } : current);
-    setError("Speech recognition is unavailable for this session. The capture was discarded; use text comparison or retry.");
+    setRecognitionStatus("processing");
+    const audio = new Blob(captureChunksRef.current, { type: "audio/webm" });
+    captureChunksRef.current = [];
+    void recognitionService.recognize({ attemptId: currentAttempt.id, profileId: currentAttempt.profileId, languageTag: snapshot.profile.targetLanguage, sourceFingerprint: currentAttempt.source.sourceFingerprint, audio, privacy: cloudConsent ? "allow-cloud" : "local-only" }, shadowingSttRoute)
+      .then((result) => {
+        setRecognitionStatus(result.status === "ready" ? "ready" : result.status === "unavailable" ? "unavailable" : "failed");
+        if (result.status === "ready" && result.text) {
+          const submitted = submitPracticeAttempt({ ...currentAttempt, providerId: result.providerId, providerVersion: result.providerVersion }, result.text);
+          setAttempt(submitted);
+          setAnswer(result.text);
+          if (mode === "pronunciation") {
+            setPronunciationFeedback(evaluatePronunciationFeedback({
+              attemptId: currentAttempt.id,
+              languageTag: snapshot.profile.targetLanguage,
+              expectedText: currentAttempt.promptText,
+              recognizedText: result.text,
+              confidence: result.confidence,
+              provider: pronunciationManifest ?? {
+                providerId: result.providerId ?? "unknown",
+                providerVersion: result.providerVersion ?? "unknown",
+                capabilities: ["transcription"],
+                languages: [snapshot.profile.targetLanguage],
+                sendsAudioOffDevice: shadowingSttRoute === "cloud",
+                maxAudioMs: 30_000,
+                configured: true,
+              },
+            }));
+          }
+          setError(result.uncertain ? "Recognition is uncertain; review the transcript before retrying. It cannot become active evidence automatically." : null);
+          return;
+        }
+        setAttempt((current) => current ? { ...current, status: result.status === "failed" ? "failed" : "cancelled", updatedAt: Date.now() } : current);
+        setError(result.status === "unavailable" ? `${shadowingSttRoute === "local" ? "Local" : "Cloud"} speech recognition is unavailable. The capture was discarded; use text comparison or retry.` : "Speech recognition failed. The capture was discarded; retry or use text comparison.");
+      })
+      .catch(() => { setRecognitionStatus("failed"); setError("Speech recognition failed. The capture was discarded; retry or use text comparison."); });
   };
 
   const exit = () => {
@@ -341,9 +435,9 @@ export function LanguagePracticeOverlay() {
   };
 
   const shadowing = createShadowingSession({ id: attempt.id, profileId: attempt.profileId, flow: shadowingFlow, source: attempt.source, promptText: prompt, recordingPolicy: attempt.recordingPolicy });
-  const pronunciationManifest = { providerId: "none", providerVersion: "none", capabilities: [], languages: [], sendsAudioOffDevice: false, maxAudioMs: 0, configured: false } as const;
-  const pronunciationDimensions = snapshot.profile ? advertisedPronunciationDimensions(pronunciationManifest, snapshot.profile.targetLanguage) : [];
-  const pronunciationAvailable = Boolean(snapshot.profile && canProvidePronunciation(pronunciationManifest, "transcription", snapshot.profile.targetLanguage));
+  const effectivePronunciationManifest = pronunciationManifest ?? { providerId: "none", providerVersion: "none", capabilities: [], languages: [], sendsAudioOffDevice: false, maxAudioMs: 0, configured: false } as const;
+  const pronunciationDimensions = snapshot.profile ? advertisedPronunciationDimensions(effectivePronunciationManifest, snapshot.profile.targetLanguage) : [];
+  const pronunciationAvailable = Boolean(snapshot.profile && canProvidePronunciation(effectivePronunciationManifest, "transcription", snapshot.profile.targetLanguage));
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" data-language-practice-overlay="true">
@@ -361,16 +455,17 @@ export function LanguagePracticeOverlay() {
         <div className="mt-4 rounded-xl bg-muted/50 p-4 text-center text-lg leading-relaxed" aria-live="polite">
           {mode === "dictation" && !revealed ? "Listen, then type what you heard." : prompt}
         </div>
-        {mode === "shadowing" && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><label htmlFor="shadowing-flow">Flow</label><select id="shadowing-flow" value={shadowing.flow} onChange={(event) => setShadowingFlow(event.target.value as ShadowingFlow)} className="rounded border border-border bg-background px-2 py-1"><option value="listen-first">Listen first</option><option value="immediate">Immediate</option><option value="continuous">Continuous</option></select><span>{shadowing.flow === "listen-first" ? "Replay before capture." : shadowing.flow === "immediate" ? "Capture starts without replay." : "Keep capture active across attempts."}</span></div>}
-        {mode === "pronunciation" && <p className="mt-2 text-xs text-muted-foreground">{pronunciationAvailable ? `Available: ${pronunciationDimensions.join(", ")}.` : "Pronunciation scoring is unavailable; no score is fabricated."}</p>}
+        {mode === "shadowing" && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><label htmlFor="shadowing-flow">Flow</label><select id="shadowing-flow" value={shadowing.flow} onChange={(event) => setShadowingFlow(event.target.value as ShadowingFlow)} className="rounded border border-border bg-background px-2 py-1"><option value="listen-first">Listen first</option><option value="immediate">Immediate</option><option value="continuous">Continuous</option></select><label htmlFor="shadowing-stt-route">STT</label><select id="shadowing-stt-route" value={shadowingSttRoute} onChange={(event) => setShadowingSttRoute(event.target.value as ShadowingSttRoute)} className="rounded border border-border bg-background px-2 py-1"><option value="local">Local</option><option value="cloud">Cloud</option></select>{shadowingSttRoute === "cloud" && <label className="inline-flex items-center gap-1"><input type="checkbox" checked={cloudConsent} onChange={(event) => setCloudConsent(event.target.checked)} /> Allow cloud STT</label>}<span>{shadowing.flow === "listen-first" ? "Replay before capture." : shadowing.flow === "immediate" ? "Capture starts without replay." : "Keep capture active across attempts."}</span>{recognitionStatus === "processing" && <span role="status">Recognizing…</span>}</div>}
+        {mode === "pronunciation" && <div className="mt-2 text-xs text-muted-foreground"><p>{pronunciationAvailable ? `Available: ${pronunciationDimensions.join(", ")}.` : "Pronunciation scoring is unavailable; no score is fabricated."}</p>{pronunciationFeedback && <p className="mt-1" role="status">{pronunciationFeedback.status === "ready" ? `Transcript match ${Math.round((pronunciationFeedback.score ?? 0) * 100)}%.` : pronunciationFeedback.status === "uncertain" ? "Recognition is uncertain; retry before accepting evidence." : "No pronunciation dimensions are available."}</p>}</div>}
         {mode === "writing" && <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">Prompt type<select aria-label="Writing prompt type" value={writingPromptMode} onChange={(event) => setWritingPromptMode(event.target.value as WritingPromptMode)} className="rounded border border-border bg-background px-2 py-1 text-foreground"><option value="current-document">Source response</option><option value="target-vocabulary">Target vocabulary</option><option value="interest">Interest</option><option value="summary">Summary</option><option value="answer">Answer</option><option value="rewrite">Rewrite</option><option value="dialogue">Dialogue</option><option value="target-grammar">Target grammar</option><option value="translation">Translation</option></select></label>}
-        {mode === "writing" && writingResult && <div className="mt-2 rounded-lg border border-border p-3 text-sm" role="status"><p>{writingResult.status === "ready" ? "Correction ready." : writingResult.status === "unavailable" ? "No writing provider is configured; your draft remains recoverable." : "Correction unavailable; retry or self-assess."}</p>{writingResult.draft.corrections.map((correction) => <div key={correction.id} className="mt-2 border-t border-border pt-2"><p className="text-xs text-muted-foreground">{correction.category}</p><p>{correction.correctedText}</p><p className="text-xs text-muted-foreground">{correction.explanation}</p>{acceptedWritingCorrections.has(correction.id) ? <span className="text-[11px] text-success">Accepted for review</span> : <button type="button" className="mt-1 rounded border border-border px-2 py-1 text-[11px] hover:bg-muted" onClick={() => { setAcceptedWritingCorrections((current) => new Set(current).add(correction.id)); setWritingResult((current) => current ? { ...current, draft: { ...current.draft, corrections: current.draft.corrections.map((item) => item.id === correction.id ? { ...item, accepted: true } : item) } } : current); }}>Accept correction</button>}</div>)}</div>}
+        {mode === "writing" && (writingResult || writingStreamText) && <div className="mt-2 rounded-lg border border-border p-3 text-sm" role="status"><p>{writingResult?.status === "ready" ? "Correction ready." : writingResult?.status === "unavailable" ? "No writing provider is configured; your draft remains recoverable." : writingResult?.status === "failed" ? "Correction unavailable; retry or self-assess." : "Correction streaming…"}</p>{writingStreamText && !writingResult && <p className="mt-1 text-xs text-muted-foreground">{writingStreamText}</p>}{writingResult?.draft.corrections.map((correction) => <div key={correction.id} className="mt-2 border-t border-border pt-2"><p className="text-xs text-muted-foreground">{correction.category}</p><p>{correction.correctedText}</p><p className="text-xs text-muted-foreground">{correction.explanation}</p>{acceptedWritingCorrections.has(correction.id) ? <span className="text-[11px] text-success">Accepted for review</span> : <button type="button" className="mt-1 rounded border border-border px-2 py-1 text-[11px] hover:bg-muted" onClick={() => { setAcceptedWritingCorrections((current) => new Set(current).add(correction.id)); setWritingResult((current) => current ? { ...current, draft: { ...current.draft, corrections: current.draft.corrections.map((item) => item.id === correction.id ? { ...item, accepted: true } : item) } } : current); }}>Accept correction</button>}</div>)}</div>}
         <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={isProductionMode ? "Write or describe your response…" : "Type the transcript…"} className="mt-3 min-h-24 w-full rounded-lg border border-border bg-background p-3 text-sm" aria-label="Practice response" />
         {comparison && <div className="mt-2 rounded-lg border border-border p-3 text-sm" data-practice-comparison="true"><p className={comparison.exact ? "text-success" : "text-foreground"}>{comparison.exact ? "Exact match" : `Comparison ${Math.round(comparison.score * 100)}%`}</p>{comparison.errors.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{comparison.errors.map((item) => item.kind).join(" · ")}</p>}</div>}
         {error && <p className="mt-2 text-xs text-destructive" role="alert">{error}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={replay}><Play className="h-3.5 w-3.5" /> Replay</button>
-          {mode === "shadowing" && <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={captureActive ? stopMicrophone : startMicrophone} disabled={micStatus === "requesting"}><>{captureActive ? <Stop className="h-3.5 w-3.5" /> : <Microphone className="h-3.5 w-3.5" />}</> {captureActive ? "Stop capture" : micStatus === "ready" ? "Mic ready" : "Enable mic"}</button>}
+          {(mode === "shadowing" || mode === "pronunciation") && <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={captureActive ? stopMicrophone : startMicrophone} disabled={micStatus === "requesting"}><>{captureActive ? <Stop className="h-3.5 w-3.5" /> : <Microphone className="h-3.5 w-3.5" />}</> {captureActive ? "Stop capture" : micStatus === "ready" ? "Mic ready" : "Enable mic"}</button>}
+          {mode === "writing" && writingStreamText && <button type="button" className="rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={() => writingAbortRef.current?.abort()}>Cancel correction</button>}
           <button type="button" className="rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50" onClick={submit} disabled={!answer.trim()}>Check</button>
           {mode === "dictation" && <button type="button" className="rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={() => { setRevealed(true); setAttempt((current) => current ? revealPracticeAttempt(current) : current); }}>Reveal</button>}
           <button type="button" className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs hover:bg-muted" onClick={save}><Check className="h-3.5 w-3.5" /> Save</button>
@@ -380,7 +475,7 @@ export function LanguagePracticeOverlay() {
         {(comparison || (mode === "writing" && attempt.rawResponse?.trim())) && !attempt.activeEvidenceAccepted && <button type="button" className="mt-3 w-full rounded-md border border-primary/40 px-3 py-2 text-xs text-primary hover:bg-primary/10" onClick={acceptEvidence}>Accept as active evidence (does not rate or schedule)</button>}
         {attempt.activeEvidenceAccepted && <p className="mt-3 text-center text-xs text-success">Active evidence accepted; review scheduling remains separate.</p>}
         <p className="mt-3 text-[11px] text-muted-foreground">Source position is preserved from {shadowing.source.sourceType ?? "this surface"}. Raw responses remain local and are deleted with this session.</p>
-        {discardRequested && <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs" role="alertdialog" aria-label="Discard practice attempt"><p>Discard this unsaved practice attempt?</p><div className="mt-2 flex justify-end gap-2"><button type="button" className="rounded border border-border px-2 py-1" onClick={() => setDiscardRequested(false)}>Keep editing</button><button type="button" className="rounded bg-destructive px-2 py-1 text-destructive-foreground" onClick={() => { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setDiscardRequested(false); setRequest(null); }}>Discard</button></div></div>}
+        {discardRequested && <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs" role="alertdialog" aria-label="Discard practice attempt"><p>Discard this unsaved practice attempt?</p><div className="mt-2 flex justify-end gap-2"><button type="button" className="rounded border border-border px-2 py-1" onClick={() => setDiscardRequested(false)}>Keep editing</button><button type="button" className="rounded bg-destructive px-2 py-1 text-destructive-foreground" onClick={() => { recorderRef.current?.stop(); recorderRef.current = null; streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; captureChunksRef.current = []; setDiscardRequested(false); setRequest(null); }}>Discard</button></div></div>}
       </div>
     </div>
   );

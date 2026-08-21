@@ -3,7 +3,7 @@ export type PronunciationStatus = "ready" | "unsupported" | "uncertain" | "stale
 
 export interface PronunciationProviderManifest { providerId: string; providerVersion: string; capabilities: readonly PronunciationCapability[]; languages: readonly string[]; sendsAudioOffDevice: boolean; maxAudioMs: number; configured: boolean; }
 export interface PronunciationIssue { kind: "word" | "timing" | "phoneme"; expected?: string; actual?: string; startMs?: number; endMs?: number; confidence?: number; }
-export interface PronunciationFeedbackResult { attemptId: string; providerId: string; providerVersion: string; status: PronunciationStatus; score?: number; confidence?: number; issues: readonly PronunciationIssue[]; createdAt: number; }
+export interface PronunciationFeedbackResult { attemptId: string; providerId: string; providerVersion: string; status: PronunciationStatus; score?: number; confidence?: number; availableDimensions?: readonly PronunciationCapability[]; issues: readonly PronunciationIssue[]; createdAt: number; }
 
 export const PRONUNCIATION_DIMENSIONS: readonly { capability: PronunciationCapability; label: string }[] = [
   { capability: "transcription", label: "Transcription match" },

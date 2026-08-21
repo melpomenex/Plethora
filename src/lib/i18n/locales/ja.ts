@@ -164,6 +164,7 @@ export const ja: Dict = {
   "settings.discardChangesConfirm": "未保存の変更があります。破棄して戻りますか？",
   "settings.resetAllConfirm": "すべての設定を初期値に戻しますか？",
   "settings.general": "一般",
+  "settings.languageLearning": "語学学習",
   "settings.appearance": "外観",
   "settings.learning": "学習",
   "settings.documents": "ドキュメント",

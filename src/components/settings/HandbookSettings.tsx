@@ -233,6 +233,29 @@ export function HandbookSettings() {
             </button>
           )}
         </div>
+
+        {/* Ask Plethora Interactive Banner */}
+        <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-base font-bold flex-shrink-0">
+              ✨
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">Ask Plethora AI & Canonical Product Documentation</h4>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Press <kbd className="px-1.5 py-0.5 rounded bg-background text-[11px] font-mono border border-border">Cmd+K</kbd> and type <kbd className="px-1.5 py-0.5 rounded bg-background text-[11px] font-mono text-primary-400 font-bold border border-border">?</kbd> to ask questions with grounded citations, or search 75 canonical product docs with 0ms direct lookups.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("open-command-center"));
+            }}
+            className="px-3.5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors whitespace-nowrap shadow-sm self-stretch sm:self-auto text-center"
+          >
+            Open Command Center (Cmd+K)
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-6 md:flex-row md:items-start">

@@ -194,6 +194,7 @@ export const zh: Dict = {
   "settings.discardChangesConfirm": "有未保存的更改。要放弃更改并返回吗？",
   "settings.resetAllConfirm": "确定要将所有设置恢复为默认值吗？",
   "settings.general": "常规",
+  "settings.languageLearning": "语言学习",
   "settings.appearance": "外观",
   "settings.learning": "学习",
   "settings.documents": "文档",

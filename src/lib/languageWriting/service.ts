@@ -1,10 +1,24 @@
 import type { WritingCorrection, WritingDraft, WritingPrompt, WritingResult } from "./types";
 
-export interface WritingProvider { id: string; version: string; correct(prompt: WritingPrompt, rawText: string, signal?: AbortSignal): Promise<readonly WritingCorrection[]>; }
+export interface WritingCorrectionChunk {
+  corrections: readonly WritingCorrection[];
+  done?: boolean;
+}
+
+export interface WritingProvider {
+  id: string;
+  version: string;
+  correct(prompt: WritingPrompt, rawText: string, signal?: AbortSignal): Promise<readonly WritingCorrection[]>;
+  streamCorrect?: (
+    prompt: WritingPrompt,
+    rawText: string,
+    options: { signal?: AbortSignal; onChunk: (chunk: WritingCorrectionChunk) => void },
+  ) => Promise<readonly WritingCorrection[]>;
+}
 
 export class WritingPracticeService {
   constructor(private readonly provider?: WritingProvider) {}
-  async correct(prompt: WritingPrompt, rawText: string, signal?: AbortSignal): Promise<WritingResult> {
+  async correct(prompt: WritingPrompt, rawText: string, signal?: AbortSignal, onChunk?: (chunk: WritingCorrectionChunk) => void): Promise<WritingResult> {
     if (signal?.aborted) throw new Error("cancelled");
     if (!rawText.trim() || prompt.context.profileId !== prompt.profileId) throw new Error("invalid-writing-input");
     const now = Date.now();
@@ -15,7 +29,9 @@ export class WritingPracticeService {
         error: "no-writing-provider",
       };
     }
-    const corrections = await this.provider.correct(prompt, rawText, signal);
+    const corrections = this.provider.streamCorrect && onChunk
+      ? await this.provider.streamCorrect(prompt, rawText, { signal, onChunk })
+      : await this.provider.correct(prompt, rawText, signal);
     return {
       draft: { id: `writing:${prompt.id}:${now}`, promptId: prompt.id, profileId: prompt.profileId, rawText, corrections, privacy: "local-only", createdAt: now, updatedAt: now },
       status: "ready",

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../contexts/LanguageLearningHostContext", () => ({
   useLanguageLearningHost: () => ({ snapshot: mocks.snapshot, refresh: vi.fn(), controller: {} }),
+  useOptionalLanguageLearningHost: () => ({ snapshot: mocks.snapshot, refresh: vi.fn(), controller: {} }),
 }));
 vi.mock("../../viewer/selectionInteraction/DictionaryPeek", () => ({ DictionaryPeek: () => null }));
 vi.mock("../../../api/languageLexicon", () => ({ listLanguageLexicalEntries: vi.fn(async () => ({ items: [], offset: 0, limit: 500, total: 0, hasMore: false })) }));

@@ -5,6 +5,7 @@ import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostCont
 import type { SourceAnchor } from "../../types/languageLexicon";
 import { dispatchLanguageHostAction } from "../../lib/languageHost";
 import { languageAnnotationStyleText } from "../../lib/languageHighlighting";
+import { dispatchTopLanguagePracticeRecommendation } from "../../lib/languagePractice";
 
 export interface LanguageReaderHostPanelProps {
   documentId: string;
@@ -103,6 +104,18 @@ export function LanguageReaderHostPanel({
             >
               <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
               Practice
+            </button>
+            <button
+              type="button"
+              className="hidden rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex"
+              disabled={!canAct}
+              onClick={() => dispatchTopLanguagePracticeRecommendation({
+                candidates: [{ id: `${snapshot.source.contentId}:${trimmedSelection}`, profileId: profile?.id ?? "", sourceType: snapshot.source.contentType, sourceId: snapshot.source.contentId, sourceFingerprint: snapshot.source.contentFingerprint ?? "", title: trimmedSelection, topics: [], coverageStatus: "pending", qualityScore: 0.5, freshnessScore: 1, lifecycle: "candidate" }],
+                interests: [],
+                detail: { hostId: snapshot.hostId, source: snapshot.source, sourceAnchor, profileId: profile?.id ?? "", languageTag: profile?.targetLanguage ?? "", origin: "reader" },
+              })}
+            >
+              Recommend
             </button>
             <button
               type="button"
