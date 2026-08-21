@@ -5132,6 +5132,7 @@ export const en: Dict = {
   "imageRegistry.type": "Type",
   "imageRegistry.added": "Added",
   "imageRegistry.selection": "Selection",
+  "imageRegistry.tags": "Tags",
   "imageRegistry.noSelection": "No images selected yet.",
   "imageRegistry.previewEmpty": "Select an image to preview it here.",
   "imageRegistry.selectionHelp":

@@ -28,6 +28,7 @@ import {
 } from "../../api/image-registry";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
+import { ItemTagEditor } from "../common/ItemTagEditor";
 import { useToast } from "../common/Toast";
 
 type SortMode = "newest" | "oldest" | "name" | "size";
@@ -76,6 +77,12 @@ export function ImageRegistryLibrary({
   const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+
+  const assetTags = useCallback((asset: { metadata?: Record<string, unknown> }): string[] => {
+    const tags = asset.metadata?.tags;
+    if (!Array.isArray(tags)) return [];
+    return tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0);
+  }, []);
 
   useEffect(() => {
     setSelectedIds(initialSelectedIds);
@@ -694,6 +701,23 @@ export function ImageRegistryLibrary({
                         <span>{formatBytes(asset.byte_size)}</span>
                         {asset.width && asset.height ? <span>{asset.width}×{asset.height}</span> : null}
                       </div>
+                      {assetTags(asset).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {assetTags(asset).slice(0, 4).map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                          {assetTags(asset).length > 4 && (
+                            <span className="self-center text-[10px] text-muted-foreground">
+                              +{assetTags(asset).length - 4}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </button>
                 );
@@ -825,6 +849,29 @@ export function ImageRegistryLibrary({
                     )}
                   </div>
                 </div>
+
+                {previewAsset && (
+                  <div className="rounded-2xl border border-border bg-background p-3">
+                    <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      {t("imageRegistry.tags")}
+                    </div>
+                    <ItemTagEditor
+                      target={{
+                        type: "image-asset",
+                        id: previewAsset.id,
+                        tags: assetTags(previewAsset),
+                        smartTagDetails: Array.isArray(previewAsset.metadata?.smartTagDetails)
+                          ? (previewAsset.metadata.smartTagDetails as import("../../types/document").SmartTagDetail[])
+                          : undefined,
+                      }}
+                      onTagsPersisted={() => {
+                        void listImageAssets().then((assets) => {
+                          setAssets(Array.isArray(assets) ? assets : []);
+                        });
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             </>
           ) : (
