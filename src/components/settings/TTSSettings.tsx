@@ -899,6 +899,27 @@ export function TTSSettings() {
           />
         </div>
 
+        {/* At-a-glance summary of what will actually speak: provider, model,
+            and resolved voice display name. Sits above the configuration grid
+            so the active selection is visible without hunting through
+            sub-sections. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/50 border border-border px-3 py-2 text-sm">
+          <span className="text-muted-foreground">{t("settings.ttsActiveVoice")}:</span>
+          <span className="font-medium text-foreground">
+            {listAdapters().find((adapter) => adapter.id === tts.provider)?.label ?? String(tts.provider)}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span className="font-medium text-foreground">
+            {getProviderSettings(tts, String(tts.provider)).modelId || "—"}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span data-testid="tts-active-voice" className="font-medium text-primary">
+            {defaultVoice?.name ||
+              getProviderSettings(tts, String(tts.provider)).voiceId ||
+              t("settings.ttsNoVoiceSelected")}
+          </span>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 text-sm">
             <span className="font-medium text-foreground">{t("settings.ttsProvider")}</span>
