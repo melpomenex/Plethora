@@ -172,4 +172,7 @@ src-tauri/gen/android/app/*.keystore
 src-tauri/gen/apple/build/
 src-tauri/gen/apple/Externals/
 src-tauri/gen/apple/Pods/
-src-tauri/gen/apple/secrets/
+src-tauri/gen/apple/secrets/*
+# The committed exportOptions template lives inside the otherwise-ignored
+# secrets dir (mirrors gen/android/app/keystore.properties.example).
+!src-tauri/gen/apple/secrets/*.example
