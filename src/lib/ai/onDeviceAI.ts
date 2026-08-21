@@ -603,136 +603,138 @@ export async function generateStreamingPrompt(
 
   const unlistenFns: UnlistenFn[] = [];
 
-  return new Promise<NativePromptResponse>(async (resolve, reject) => {
-    let settled = false;
-    const timeoutId = setTimeout(async () => {
-      if (settled) return;
-      console.warn(`[generateStreamingPrompt] Stream timed out for ${request.requestId}, falling back to non-streaming native prompt.`);
-      cleanup();
-      try {
-        const fallbackRes = await generateNativePrompt(request);
-        options.onChunk?.(fallbackRes.text);
-        resolve(fallbackRes);
-      } catch (err) {
-        reject(toOnDeviceAiError(err));
-      }
-    }, 45000);
-
-    const cleanup = () => {
-      settled = true;
-      clearTimeout(timeoutId);
-      while (unlistenFns.length > 0) {
-        const fn = unlistenFns.pop();
+  return new Promise<NativePromptResponse>((resolve, reject) => {
+    void (async () => {
+      let settled = false;
+      const timeoutId = setTimeout(async () => {
+        if (settled) return;
+        console.warn(`[generateStreamingPrompt] Stream timed out for ${request.requestId}, falling back to non-streaming native prompt.`);
+        cleanup();
         try {
-          fn?.();
+          const fallbackRes = await generateNativePrompt(request);
+          options.onChunk?.(fallbackRes.text);
+          resolve(fallbackRes);
+        } catch (err) {
+          reject(toOnDeviceAiError(err));
+        }
+      }, 45000);
+
+      const cleanup = () => {
+        settled = true;
+        clearTimeout(timeoutId);
+        while (unlistenFns.length > 0) {
+          const fn = unlistenFns.pop();
+          try {
+            fn?.();
+          } catch {
+            // ignore
+          }
+        }
+      };
+
+      const handleAbort = async () => {
+        if (settled) return;
+        try {
+          await cancelNativePromptRequest(request.requestId);
         } catch {
-          // ignore
+          // ignore cancel failure
         }
-      }
-    };
+        cleanup();
+        reject(new OnDeviceAiError("cancelled", "Streaming prompt request was cancelled."));
+      };
 
-    const handleAbort = async () => {
-      if (settled) return;
+      if (options.signal) {
+        options.signal.addEventListener("abort", handleAbort, { once: true });
+      }
+
+      let channel: unknown;
       try {
-        await cancelNativePromptRequest(request.requestId);
-      } catch {
-        // ignore cancel failure
+        if (isTauri() && typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+          const { Channel } = await import("@tauri-apps/api/core");
+          channel = new Channel<any>((payload: any) => {
+            if (settled) return;
+            if (payload.event === "text" && typeof payload.text === "string") {
+              options.onChunk?.(payload.text);
+            } else if (payload.event === "complete" && payload.data) {
+              cleanup();
+              resolve(payload.data);
+            } else if (payload.event === "error") {
+              cleanup();
+              reject(
+                new OnDeviceAiError(
+                  (payload.code as OnDeviceAiErrorCode) || "inference_failed",
+                  payload.message || "Streaming inference failed"
+                )
+              );
+            } else if (payload.event === "retry") {
+              options.onRetry?.(payload.attempt, payload.delayMs);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("[generateStreamingPrompt] Failed to initialize channel, falling back to event listeners", e);
       }
-      cleanup();
-      reject(new OnDeviceAiError("cancelled", "Streaming prompt request was cancelled."));
-    };
 
-    if (options.signal) {
-      options.signal.addEventListener("abort", handleAbort, { once: true });
-    }
-
-    let channel: unknown;
-    try {
-      if (isTauri() && typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
-        const { Channel } = await import("@tauri-apps/api/core");
-        channel = new Channel<any>((payload: any) => {
-          if (settled) return;
-          if (payload.event === "text" && typeof payload.text === "string") {
-            options.onChunk?.(payload.text);
-          } else if (payload.event === "complete" && payload.data) {
-            cleanup();
-            resolve(payload.data);
-          } else if (payload.event === "error") {
-            cleanup();
-            reject(
-              new OnDeviceAiError(
-                (payload.code as OnDeviceAiErrorCode) || "inference_failed",
-                payload.message || "Streaming inference failed"
-              )
-            );
-          } else if (payload.event === "retry") {
-            options.onRetry?.(payload.attempt, payload.delayMs);
+      try {
+        const unlistenText = await listen<{ requestId: string; text: string }>(
+          "ondevice-genai://text",
+          (event) => {
+            if (!settled && event.payload.requestId === request.requestId) {
+              options.onChunk?.(event.payload.text);
+            }
           }
-        });
+        );
+        unlistenFns.push(unlistenText);
+
+        const unlistenComplete = await listen<NativePromptResponse>(
+          "ondevice-genai://complete",
+          (event) => {
+            if (!settled && event.payload.requestId === request.requestId) {
+              cleanup();
+              resolve(event.payload);
+            }
+          }
+        );
+        unlistenFns.push(unlistenComplete);
+
+        const unlistenError = await listen<{ requestId: string; code: string; message: string }>(
+          "ondevice-genai://error",
+          (event) => {
+            if (!settled && event.payload.requestId === request.requestId) {
+              cleanup();
+              reject(
+                new OnDeviceAiError(
+                  (event.payload.code as OnDeviceAiErrorCode) || "inference_failed",
+                  event.payload.message
+                )
+              );
+            }
+          }
+        );
+        unlistenFns.push(unlistenError);
+
+        const unlistenRetry = await listen<{ requestId: string; attempt: number; delayMs: number }>(
+          "ondevice-genai://retry",
+          (event) => {
+            if (!settled && event.payload.requestId === request.requestId) {
+              options.onRetry?.(event.payload.attempt, event.payload.delayMs);
+            }
+          }
+        );
+        unlistenFns.push(unlistenRetry);
+
+        await invokeCommand<NativePromptStartReceipt>(
+          `${PLUGIN}|ondevice_ai_start_prompt_stream`,
+          {
+            request: { ...request, outputMode: request.outputMode ?? "text", stream: true },
+            onEvent: channel,
+          }
+        );
+      } catch (error) {
+        cleanup();
+        reject(toOnDeviceAiError(error));
       }
-    } catch (e) {
-      console.warn("[generateStreamingPrompt] Failed to initialize channel, falling back to event listeners", e);
-    }
-
-    try {
-      const unlistenText = await listen<{ requestId: string; text: string }>(
-        "ondevice-genai://text",
-        (event) => {
-          if (!settled && event.payload.requestId === request.requestId) {
-            options.onChunk?.(event.payload.text);
-          }
-        }
-      );
-      unlistenFns.push(unlistenText);
-
-      const unlistenComplete = await listen<NativePromptResponse>(
-        "ondevice-genai://complete",
-        (event) => {
-          if (!settled && event.payload.requestId === request.requestId) {
-            cleanup();
-            resolve(event.payload);
-          }
-        }
-      );
-      unlistenFns.push(unlistenComplete);
-
-      const unlistenError = await listen<{ requestId: string; code: string; message: string }>(
-        "ondevice-genai://error",
-        (event) => {
-          if (!settled && event.payload.requestId === request.requestId) {
-            cleanup();
-            reject(
-              new OnDeviceAiError(
-                (event.payload.code as OnDeviceAiErrorCode) || "inference_failed",
-                event.payload.message
-              )
-            );
-          }
-        }
-      );
-      unlistenFns.push(unlistenError);
-
-      const unlistenRetry = await listen<{ requestId: string; attempt: number; delayMs: number }>(
-        "ondevice-genai://retry",
-        (event) => {
-          if (!settled && event.payload.requestId === request.requestId) {
-            options.onRetry?.(event.payload.attempt, event.payload.delayMs);
-          }
-        }
-      );
-      unlistenFns.push(unlistenRetry);
-
-      await invokeCommand<NativePromptStartReceipt>(
-        `${PLUGIN}|ondevice_ai_start_prompt_stream`,
-        {
-          request: { ...request, outputMode: request.outputMode ?? "text", stream: true },
-          onEvent: channel,
-        }
-      );
-    } catch (error) {
-      cleanup();
-      reject(toOnDeviceAiError(error));
-    }
+    })();
   });
 }
 

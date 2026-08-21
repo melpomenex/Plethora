@@ -247,8 +247,8 @@ export function packWordStream(
 export function foldForMatch(value: string): string {
   return value
     .normalize("NFC")
-    .replace(/[\u2018\u2019\u201A\u201B\u2032\u0301]/g, "'")
-    .replace(/[\u201C\u201D\u201E\u201F\u2033\u0303]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]|\u0301/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]|\u0303/g, '"')
     .replace(/[\u2013\u2014\u2015\u2212]/g, "-")
     .replace(/\u2026/g, "...")
     .replace(/\uFB00/g, "ff")

@@ -11,6 +11,7 @@ export interface ApiTokenPayload {
   scopes: string[];
 }
 
+/* eslint-disable @typescript-eslint/no-namespace -- required for Express Request augmentation */
 declare global {
   namespace Express {
     interface Request {

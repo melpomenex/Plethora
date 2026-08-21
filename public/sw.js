@@ -121,7 +121,7 @@ self.addEventListener('activate', (event) => {
       self.clients.claim(),
     ])
   );
-}
+});
 
 /**
  * One-shot copy of the legacy `incrementum-sw` preferences store into
@@ -193,7 +193,7 @@ async function migrateLegacySwDatabase() {
   } catch (err) {
     console.warn('[SW] Legacy SW database migration skipped:', err);
   }
-});
+}
 
 // Fetch event - intelligent caching strategy
 self.addEventListener('fetch', (event) => {
@@ -438,7 +438,7 @@ async function handleStaticRequest(request) {
         cache.put(request, response.clone());
       }
       return response;
-    } catch (error) {
+    } catch {
       const cachedResponse = await cache.match(request);
       if (cachedResponse) return cachedResponse;
       return new Response('Resource not available offline', { status: 404 });
