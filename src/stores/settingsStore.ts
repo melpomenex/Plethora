@@ -1467,7 +1467,25 @@ export const useSettingsStore = create<SettingsState>()(
             },
           },
           smartQueue: { ...defaultSettings.smartQueue, ...persisted.smartQueue },
-          tts: sanitizeTTSSettings(persisted.tts),
+          tts: (() => {
+            const sanitized = sanitizeTTSSettings(persisted.tts);
+            // Field diagnostic (rides the Android consoleLogcatBridge): TTS
+            // provider settings were reported resetting across restarts. This
+            // one line distinguishes "storage lost the value" from
+            // "hydration dropped it" — compare against what the settings UI
+            // showed before the restart.
+            const persistedOpenrouter = (persisted.tts as { providers?: Record<string, { modelId?: string; voiceId?: string }> } | undefined)
+              ?.providers?.openrouter;
+            console.info(
+              "[settings] tts hydration:",
+              `provider=${sanitized.provider}`,
+              `openrouter.persisted=${JSON.stringify(persistedOpenrouter ?? null)}`,
+              `openrouter.hydrated=${JSON.stringify(
+                { modelId: sanitized.providers.openrouter?.modelId, voiceId: sanitized.providers.openrouter?.voiceId }
+              )}`
+            );
+            return sanitized;
+          })(),
           scrollQueue: mergeScrollQueueSettings(persisted.scrollQueue),
           rssQueue: { ...defaultSettings.rssQueue, ...persisted.rssQueue },
           podcastQueue: { ...defaultSettings.podcastQueue, ...persisted.podcastQueue },

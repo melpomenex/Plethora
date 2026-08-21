@@ -1602,7 +1602,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   useRemoteMediaBridge({
     getContext: () => readerMediaContextRef.current,
     title: "Read aloud",
-    artist: "Plethora",
+    // Surface the selected voice on OS media surfaces (lock screen /
+    // notification) so the user can see what will speak at a glance.
+    artist: (() => {
+      const voice = providerVoices.find((v) => v.id === voiceId);
+      return voice?.name || "Plethora";
+    })(),
     album: "Reader",
     sourceId: readerSourceId,
     sessionId: readerSessionId,
