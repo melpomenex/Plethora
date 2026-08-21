@@ -54,6 +54,7 @@ import {
 import { CollectionSwitcher } from "./collections/CollectionSwitcher";
 import { actionVariants } from "./common/UI";
 import { cn } from "../utils/cn";
+import { handleWindowDragRequest } from "../lib/windowDrag";
 
 export type ToolbarPosition = "top" | "left" | "right";
 
@@ -900,7 +901,10 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
           </div>
         ) : (
           <div className="bg-card border-b border-border">
-            <div className="flex items-center px-2 py-1 gap-1">
+            <div
+              onMouseDown={handleWindowDragRequest}
+              className="flex items-center px-2 py-1 gap-1"
+            >
               <CollectionSwitcher />
               {groups.map((group, groupIndex) => (
                 <div key={group} className="flex items-center gap-1">

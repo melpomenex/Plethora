@@ -4,6 +4,8 @@ import { TabContextMenu } from "./TabContextMenu";
 import { CaretLeft, CaretRight, X } from "@phosphor-icons/react";
 import { getTabIcon } from "../../tabs/TabIcons";
 import { useI18n } from "../../../lib/i18n";
+import { LinuxWindowControls } from "./LinuxWindowControls";
+import { handleWindowDragRequest } from "../../../lib/windowDrag";
 
 interface TabBarProps {
   tabs: Tab[];
@@ -349,7 +351,11 @@ function TabBarImpl({
 
   return (
     <>
-      <div ref={containerRef} className="flex items-center bg-card border-b border-border">
+      <div
+        ref={containerRef}
+        onMouseDown={handleWindowDragRequest}
+        className="flex items-center bg-card border-b border-border"
+      >
         {/* Left scroll button - compact in narrow mode */}
         <button
           onClick={scrollLeft}
@@ -477,6 +483,7 @@ function TabBarImpl({
           {/* Empty drop zone at the end */}
           <div
             className="flex-1 min-w-[30px] h-full"
+            onMouseDown={handleWindowDragRequest}
             onDragOver={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -526,6 +533,11 @@ function TabBarImpl({
         >
           <CaretRight className={isNarrow ? "w-3 h-3" : "w-4 h-4"} />
         </button>
+
+        <LinuxWindowControls
+          paneId={paneId}
+          compact={isNarrow}
+        />
       </div>
 
       {/* Context Menu */}
