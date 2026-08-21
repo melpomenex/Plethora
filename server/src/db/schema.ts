@@ -333,6 +333,41 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_id UUID;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS sync_version BIGINT DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_files_sync ON files(user_id, sync_version);
+
+-- Store transactions (openspec change implement-native-ios-storekit2-billing §6.3).
+-- Authoritative, VERIFIED Apple transaction records keyed by the durable
+-- original_transaction_id. Rows are only ever written after the signed JWS
+-- verified against Apple's certificate chain (server/src/billing/jws.ts).
+CREATE TABLE IF NOT EXISTS store_transactions (
+  id UUID PRIMARY KEY,
+  original_transaction_id VARCHAR(64) UNIQUE NOT NULL,
+  transaction_id VARCHAR(64) NOT NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  product_id VARCHAR(100) NOT NULL,
+  environment VARCHAR(20) NOT NULL,
+  status VARCHAR(30) NOT NULL,
+  app_account_token UUID,
+  expires_at TIMESTAMPTZ,
+  revocation_at TIMESTAMPTZ,
+  revocation_reason BIGINT,
+  signed_payload TEXT NOT NULL,
+  signed_date TIMESTAMPTZ,
+  verified_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_store_transactions_user ON store_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_store_transactions_token ON store_transactions(app_account_token);
+
+-- Legacy-row policy for the pre-existing unverified "purchases" table:
+-- every row written before this change was created WITHOUT any verification
+-- (the old /v1/billing/validate ignored receipt data entirely) and therefore
+-- CANNOT be trusted. They are marked verified=FALSE and are invisible to all
+-- verified-data reads (/v1/billing/subscriptions, /v1/billing/restore). Each
+-- row is re-derived from Apple's verified data on first reconciliation
+-- (client JWS post or ASNS notification); nothing is deleted automatically.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+
 `;
 
 export async function migrate(): Promise<void> {
