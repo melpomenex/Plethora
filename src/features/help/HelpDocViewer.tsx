@@ -16,6 +16,7 @@ import {
   Tag,
   X,
 } from "@phosphor-icons/react";
+import { renderMarkdown } from "../../utils/markdown";
 
 export interface HelpDocViewerProps {
   initialDocId: string;
@@ -113,9 +114,10 @@ export const HelpDocViewer: React.FC<HelpDocViewerProps> = ({
                       <CheckCircle className="w-4 h-4 text-primary-400" />
                       <span>{secTitle}</span>
                     </h3>
-                    <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-6 font-sans">
-                      {secContent}
-                    </div>
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none text-xs text-muted-foreground leading-relaxed pl-6 font-sans [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_pre]:my-2 [&_code]:text-[11px]"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(secContent) }}
+                    />
                   </div>
                 );
               })}

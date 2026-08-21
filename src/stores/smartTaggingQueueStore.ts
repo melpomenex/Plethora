@@ -266,7 +266,8 @@ async function executeTaggingJob(job: TaggingJob): Promise<void> {
 
     // Publish reactive update event
     publishItemTagsUpdated({
-      target: { type: "document", id: doc.id },
+      itemType: "document",
+      id: doc.id,
       tags: nextTags,
     });
   } catch (err) {

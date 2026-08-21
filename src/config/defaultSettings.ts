@@ -46,6 +46,12 @@ export const defaultSettings: Settings = {
       modelDir: '',
       modelUrl: '',
     },
+    smartTagging: {
+      enabled: true,
+      mode: 'automatic',
+      maxTagsPerDocument: 8,
+      preferExistingTags: true,
+    },
   },
 
   learning: {

@@ -11,7 +11,7 @@
  * to the Tier 1 baseline classifier.
  */
 
-import type { SmartTagDetail } from "../../../types/document";
+import type { SmartTagDetail } from "../../../../types/document";
 import { classifyDocumentBaseline } from "../../../smartTagging/baseline";
 import { canonicalizeTag, normalizeForComparison } from "../../../smartTagging/normalization";
 import {
