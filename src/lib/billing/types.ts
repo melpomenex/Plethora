@@ -1,5 +1,7 @@
 export type BillingProviderType = 'appstore' | 'playstore' | 'stripe' | 'mock';
 
+import { BUILD_PROFILE } from '../buildProfile';
+
 export type SubscriptionStatus =
   | 'free'
   | 'active'
@@ -7,6 +9,10 @@ export type SubscriptionStatus =
   | 'expired'
   | 'refunded'
   | 'cancelled';
+
+/** Error thrown when mock billing is activated under the store build profile. */
+export const MOCK_BILLING_FORBIDDEN_MESSAGE =
+  'MOCK_BILLING_FORBIDDEN: MockBillingProvider cannot be active under the "store" build profile (openspec change implement-native-ios-storekit2-billing §5)';
 
 export interface ProductInfo {
   id: string;
@@ -41,6 +47,14 @@ export class MockBillingProvider implements BillingProvider {
     status: 'free',
     provider: 'mock',
   };
+
+  constructor() {
+    // Mock firewall invariant (tasks §5.1): a production (store profile)
+    // build must never be able to activate mock billing.
+    if (BUILD_PROFILE === 'store') {
+      throw new Error(MOCK_BILLING_FORBIDDEN_MESSAGE);
+    }
+  }
 
   async getProducts(): Promise<ProductInfo[]> {
     return [
