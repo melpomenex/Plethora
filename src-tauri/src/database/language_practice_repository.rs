@@ -25,6 +25,10 @@ fn from_row(row: &SqliteRow) -> Result<LanguagePracticeAttempt> {
         privacy_mode: row.try_get("privacy_mode")?,
         retention_expires_at: row.try_get("retention_expires_at")?,
         active_evidence_accepted: row.try_get::<i64, _>("active_evidence_accepted")? != 0,
+        revealed: row.try_get::<i64, _>("revealed")? != 0,
+        media_id: row.try_get("media_id")?,
+        start_ms: row.try_get("start_ms")?,
+        end_ms: row.try_get("end_ms")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -43,20 +47,23 @@ impl Repository {
             "INSERT INTO language_practice_attempts
              (id, profile_id, mode, status, source_type, source_id, source_anchor_json, source_fingerprint,
               prompt_text, raw_response, normalized_response, comparison_json, provider_id, provider_version,
-              privacy_mode, retention_expires_at, active_evidence_accepted, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+              privacy_mode, retention_expires_at, active_evidence_accepted, revealed, media_id, start_ms, end_ms, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
              ON CONFLICT(id) DO UPDATE SET raw_response = excluded.raw_response,
                status = excluded.status,
                normalized_response = excluded.normalized_response, comparison_json = excluded.comparison_json,
                provider_id = excluded.provider_id, provider_version = excluded.provider_version,
                privacy_mode = excluded.privacy_mode, retention_expires_at = excluded.retention_expires_at,
-               active_evidence_accepted = excluded.active_evidence_accepted, updated_at = excluded.updated_at",
+               active_evidence_accepted = excluded.active_evidence_accepted, revealed = excluded.revealed,
+               media_id = excluded.media_id, start_ms = excluded.start_ms, end_ms = excluded.end_ms,
+               updated_at = excluded.updated_at",
         )
         .bind(&attempt.id).bind(&attempt.profile_id).bind(&attempt.mode).bind(&attempt.status).bind(&attempt.source_type).bind(&attempt.source_id)
         .bind(json(&attempt.source_anchor)?).bind(&attempt.source_fingerprint).bind(&attempt.prompt_text)
         .bind(&attempt.raw_response).bind(&attempt.normalized_response).bind(json(&attempt.comparison)?)
         .bind(&attempt.provider_id).bind(&attempt.provider_version).bind(&attempt.privacy_mode)
         .bind(attempt.retention_expires_at).bind(if attempt.active_evidence_accepted { 1i64 } else { 0 })
+        .bind(if attempt.revealed { 1i64 } else { 0 }).bind(&attempt.media_id).bind(attempt.start_ms).bind(attempt.end_ms)
         .bind(attempt.created_at).bind(attempt.updated_at).execute(self.pool()).await?;
         self.get_language_practice_attempt(&attempt.profile_id, &attempt.id).await
     }
@@ -82,5 +89,17 @@ impl Repository {
         let result = sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2")
             .bind(profile_id).bind(id).execute(self.pool()).await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn purge_expired_language_practice_attempts(&self, profile_id: &str, now: i64) -> Result<i64> {
+        let result = sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND retention_expires_at IS NOT NULL AND retention_expires_at <= ?2")
+            .bind(profile_id).bind(now).execute(self.pool()).await?;
+        Ok(result.rows_affected() as i64)
+    }
+
+    pub async fn export_language_practice_attempts(&self, profile_id: &str) -> Result<Vec<LanguagePracticeAttempt>> {
+        let rows = sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 ORDER BY created_at ASC")
+            .bind(profile_id).fetch_all(self.pool()).await?;
+        rows.iter().map(from_row).collect()
     }
 }

@@ -47,4 +47,5 @@ export interface LearningItemInteractionMetadata {
   sourceAnchor?: unknown;
   providerId?: string;
   providerVersion?: string;
+  languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string };
 }

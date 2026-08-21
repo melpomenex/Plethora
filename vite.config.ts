@@ -170,6 +170,9 @@ export default defineConfig(async ({ mode }) => {
             if (id.includes("node_modules/@dqbd/tiktoken")) {
               return "tiktoken-vendor";
             }
+            if (id.includes("features/help")) {
+              return "help-bundle";
+            }
             return undefined;
           },
         },

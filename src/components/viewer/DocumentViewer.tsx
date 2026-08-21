@@ -529,7 +529,7 @@ export function DocumentViewer({
 
   useEffect(() => {
     const onLanguageSrsDraft = (event: Event) => {
-      const draft = (event as CustomEvent<{ question?: string; answer?: string; documentId?: string; draftKey?: string }>).detail;
+      const draft = (event as CustomEvent<{ question?: string; answer?: string; documentId?: string; draftKey?: string; provenance?: { profileId?: string; sourceAnchor?: unknown; origin?: string }; interactionMetadata?: { sourceFingerprint?: string } }>).detail;
       if (!draft?.question?.trim() || (draft.documentId && draft.documentId !== documentId)) return;
       setFlashcardStudioSeed({
         key: `language-practice-draft-${draft.draftKey ?? Date.now()}`,
@@ -539,6 +539,7 @@ export function DocumentViewer({
         resetDraftCards: true,
         autoEditDraft: true,
         deckTag: "language",
+        languageProvenance: { ...draft.provenance, sourceFingerprint: draft.interactionMetadata?.sourceFingerprint, origin: draft.provenance?.origin ?? "sentence" },
       });
     };
     window.addEventListener("plethora-language-srs-draft", onLanguageSrsDraft);
@@ -1102,11 +1103,11 @@ export function DocumentViewer({
   const [initialHighlightColor, setInitialHighlightColor] = useState<string | undefined>(undefined);
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
-  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null } | null>(null);
+  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null; languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string } } | null>(null);
 
   useEffect(() => {
     const onLanguageMiningDraft = (event: Event) => {
-      const payload = (event as CustomEvent<{ sourceId?: string; documentId?: string; text?: string; context?: string; sourceFingerprint?: string }>).detail;
+      const payload = (event as CustomEvent<{ sourceId?: string; documentId?: string; text?: string; context?: string; sourceFingerprint?: string; sourceAnchor?: unknown }>).detail;
       if (!payload?.text?.trim()) return;
       if (payload.documentId && payload.documentId !== documentId) return;
       setFlashcardStudioSeed({
@@ -1117,6 +1118,7 @@ export function DocumentViewer({
         resetDraftCards: true,
         autoEditDraft: true,
         deckTag: "language",
+        languageProvenance: { sourceAnchor: payload.sourceAnchor, sourceFingerprint: payload.sourceFingerprint, origin: "mining" },
       });
     };
     window.addEventListener("plethora-language-mining-draft", onLanguageMiningDraft);

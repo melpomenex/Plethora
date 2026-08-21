@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TutorSheet } from "../tutor/TutorSheet";
 import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
-import { LANGUAGE_HOST_ACTION_EVENT, type LanguageHostActionDetail } from "../../lib/languageHost";
+import { dispatchLanguageHostAction, LANGUAGE_HOST_ACTION_EVENT, type LanguageHostActionDetail } from "../../lib/languageHost";
 import { buildLearnerContext, type ContextLexiconRow, type TutorMode } from "../../lib/languageTutor";
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
 import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
@@ -12,6 +12,7 @@ export function LanguageTutorHost() {
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [context, setContext] = useState<ReturnType<typeof buildLearnerContext> | null>(null);
   const [mode, setMode] = useState<TutorMode>("explain");
+  const [contextStatus, setContextStatus] = useState<"idle" | "loading" | "ready" | "stale" | "failed">("idle");
 
   useEffect(() => {
     const onAction = (event: Event) => {
@@ -29,8 +30,15 @@ export function LanguageTutorHost() {
     let disposed = false;
     if (!request || snapshot.status !== "ready" || !snapshot.profile) {
       setContext(null);
+      setContextStatus("idle");
       return () => { disposed = true; };
     }
+    if (request.source.contentId !== snapshot.source.contentId || (request.source.contentFingerprint && snapshot.source.contentFingerprint && request.source.contentFingerprint !== snapshot.source.contentFingerprint)) {
+      setContext(null);
+      setContextStatus("stale");
+      return () => { disposed = true; };
+    }
+    setContextStatus("loading");
     void listLanguageLexicalEntries(snapshot.profile.id, { languageTag: snapshot.profile.targetLanguage, offset: 0, limit: 500 })
       .then((page) => {
         if (disposed) return;
@@ -45,12 +53,25 @@ export function LanguageTutorHost() {
           currentSource: request.source.text ? { documentId: request.source.contentId, text: request.source.text } : undefined,
           budget: { maxItems: 24, maxTextCodeUnits: 1200, includeSourceText: false },
         }));
+        setContextStatus("ready");
       })
-      .catch(() => { if (!disposed) setContext(null); });
+      .catch(() => { if (!disposed) { setContext(null); setContextStatus("failed"); } });
     return () => { disposed = true; };
   }, [request, snapshot.profile, snapshot.status]);
 
   if (!request || snapshot.status !== "ready" || !snapshot.profile) return null;
+  if (contextStatus === "stale") {
+    return (
+      <div className="fixed inset-x-4 bottom-20 z-[75] mx-auto max-w-lg rounded-xl border border-amber-500/40 bg-card p-3 text-sm shadow-xl" role="alert">
+        <p className="font-medium">Tutor source changed</p>
+        <p className="mt-1 text-xs text-muted-foreground">This explanation was selected from an older source fingerprint. Refresh it before asking a source-grounded question.</p>
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" className="rounded border border-border px-2 py-1 text-xs hover:bg-muted" onClick={() => setRequest(null)}>Close</button>
+          <button type="button" className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground" onClick={() => setRequest((previous) => previous ? { ...previous, source: snapshot.source, sourceAnchor: snapshot.source.source } : previous)}>Refresh source</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <TutorSheet
       open
@@ -59,6 +80,7 @@ export function LanguageTutorHost() {
       languageContext={context ?? undefined}
       languageMode={mode}
       onLanguageModeChange={setMode}
+      onWritingPractice={(text) => dispatchLanguageHostAction({ action: "practice", hostId: snapshot.hostId, source: request.source, sourceAnchor: request.sourceAnchor, selectedText: text, profileId: snapshot.profile.id, languageTag: snapshot.profile.targetLanguage, practiceMode: "writing", origin: "tutor" })}
       selectionContext={request.sourceAnchor}
       onClose={() => setRequest(null)}
     />

@@ -3748,6 +3748,26 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_practice_attempts(profile_id, source_fingerprint, updated_at DESC);
         "#,
     ),
+    // Migration 100: preserve the dictation reveal decision across durable
+    // resume so a revealed answer cannot later be treated as unassisted.
+    Migration::new(
+        "100_language_practice_attempt_revealed",
+        r#"
+        ALTER TABLE language_practice_attempts ADD COLUMN revealed INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
+    // Migration 101: retain exact media provenance for audio-backed practice
+    // without storing the recording itself in the compact attempt row.
+    Migration::new(
+        "101_language_practice_media_range",
+        r#"
+        ALTER TABLE language_practice_attempts ADD COLUMN media_id TEXT;
+        ALTER TABLE language_practice_attempts ADD COLUMN start_ms INTEGER;
+        ALTER TABLE language_practice_attempts ADD COLUMN end_ms INTEGER;
+        CREATE INDEX IF NOT EXISTS idx_language_practice_attempts_media_range
+            ON language_practice_attempts(profile_id, media_id, start_ms, end_ms);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -3997,6 +4017,7 @@ pub async fn needs_migration(pool: &Pool<Sqlite>) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::Row;
 
     /// Name of the migration that adds per-item activity history. The
     /// upgrade test stops just short of it so it can seed a realistic
@@ -4155,6 +4176,51 @@ mod tests {
                 .await
                 .expect("count applied migration");
         assert_eq!(applied, 1);
+    }
+
+    #[tokio::test]
+    async fn practice_reveal_migration_upgrades_existing_and_fresh_databases() {
+        let pool = pool_migrated_up_to("100_language_practice_attempt_revealed").await;
+        run_migrations(&pool).await.expect("apply practice reveal migration");
+        run_migrations(&pool).await.expect("repeat practice reveal migration");
+
+        let columns = sqlx::query("PRAGMA table_info(language_practice_attempts)")
+            .fetch_all(&pool)
+            .await
+            .expect("inspect practice attempts");
+        let revealed = columns.iter().find(|row| row.get::<String, _>("name") == "revealed");
+        assert!(revealed.is_some(), "existing databases gain the revealed column");
+        assert_eq!(revealed.unwrap().get::<String, _>("dflt_value"), "0");
+        for name in ["media_id", "start_ms", "end_ms"] {
+            assert!(columns.iter().any(|row| row.get::<String, _>("name") == name), "existing databases gain {name}");
+        }
+        let (index_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_language_practice_attempts_media_range'")
+            .fetch_one(&pool)
+            .await
+            .expect("inspect practice media range index");
+        assert_eq!(index_count, 1);
+    }
+
+    #[tokio::test]
+    async fn migration_failure_rolls_back_schema_and_tracking_record() {
+        let pool = pool_migrated_up_to("100_language_practice_attempt_revealed").await;
+        let migration = Migration::new(
+            "test_language_practice_atomic_failure",
+            "ALTER TABLE language_practice_attempts ADD COLUMN temporary_failure_marker TEXT;\nALTER TABLE table_that_does_not_exist ADD COLUMN impossible TEXT;",
+        );
+
+        assert!(apply_migration(&pool, &migration).await.is_err());
+        let columns = sqlx::query("PRAGMA table_info(language_practice_attempts)")
+            .fetch_all(&pool)
+            .await
+            .expect("inspect practice attempts after rollback");
+        assert!(!columns.iter().any(|row| row.get::<String, _>("name") == "temporary_failure_marker"));
+        let (tracked,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _schema_migrations WHERE name = ?1")
+            .bind(migration.name)
+            .fetch_one(&pool)
+            .await
+            .expect("inspect migration tracking after rollback");
+        assert_eq!(tracked, 0);
     }
 
     #[test]

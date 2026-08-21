@@ -24,6 +24,10 @@ pub struct LanguagePracticeAttempt {
     pub privacy_mode: String,
     pub retention_expires_at: Option<i64>,
     pub active_evidence_accepted: bool,
+    pub revealed: bool,
+    pub media_id: Option<String>,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -36,7 +40,7 @@ impl Default for LanguagePracticeAttempt {
             prompt_text: String::new(), raw_response: None, normalized_response: None,
             comparison: None, provider_id: None, provider_version: None,
             privacy_mode: "local-only".into(), retention_expires_at: None,
-            active_evidence_accepted: false, created_at: 0, updated_at: 0,
+            active_evidence_accepted: false, revealed: false, media_id: None, start_ms: None, end_ms: None, created_at: 0, updated_at: 0,
         }
     }
 }

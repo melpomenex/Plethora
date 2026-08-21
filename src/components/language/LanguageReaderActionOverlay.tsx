@@ -4,9 +4,24 @@ import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostCont
 import { LANGUAGE_HOST_ACTION_EVENT, dispatchLanguageHostAction, type LanguageHostActionDetail } from "../../lib/languageHost";
 import { createSentenceIndexAdapter, createSentenceModeSession, moveSentence, type SentenceModeSession, type SentenceSegment } from "../../lib/languageSentenceMode";
 import { createTranslationService } from "../../lib/languageTranslation";
+import { replayOriginalFirst, type SentenceAudioAlignment } from "../../lib/languageAudioAlignment";
+import { useTTS } from "../../hooks/useTTS";
+
+function audioRangeFromAnchor(anchor: LanguageHostActionDetail["sourceAnchor"]): { mediaId: string; startMs: number; endMs: number; mediaFingerprint: string } | null {
+  if (!anchor || (anchor.sourceType !== "audio" && anchor.sourceType !== "media" && anchor.sourceType !== "transcript")) return null;
+  const locator = anchor.locator;
+  if (!locator || typeof locator !== "object") return null;
+  const value = locator as Record<string, unknown>;
+  const mediaId = typeof value.mediaId === "string" ? value.mediaId : anchor.mediaId;
+  const startMs = typeof value.startMs === "number" ? value.startMs : null;
+  const endMs = typeof value.endMs === "number" ? value.endMs : null;
+  if (!mediaId || startMs === null || endMs === null || endMs <= startMs) return null;
+  return { mediaId, startMs, endMs, mediaFingerprint: typeof value.mediaFingerprint === "string" ? value.mediaFingerprint : anchor.contentFingerprint ?? "-" };
+}
 
 export function LanguageReaderActionOverlay() {
   const { snapshot } = useLanguageLearningHost();
+  const tts = useTTS({ lang: snapshot.profile?.targetLanguage ?? "en-US" });
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [session, setSession] = useState<SentenceModeSession | null>(null);
   const [segments, setSegments] = useState<readonly SentenceSegment[]>([]);
@@ -19,11 +34,36 @@ export function LanguageReaderActionOverlay() {
     const onAction = (event: Event) => {
       const detail = (event as CustomEvent<LanguageHostActionDetail>).detail;
       if (!detail || detail.hostId !== snapshot.hostId) return;
+      if (detail.action === "replay") {
+        const text = detail.selectedText ?? detail.source.text ?? "";
+        const range = audioRangeFromAnchor(detail.sourceAnchor);
+        const alignment: SentenceAudioAlignment | undefined = range ? {
+          id: `${detail.source.contentId}:${detail.sourceAnchor.sourceId ?? "sentence"}`,
+          profileId: snapshot.profile?.id,
+          sourceType: "audio",
+          sourceId: detail.source.contentId,
+          sentenceId: detail.sourceAnchor.sourceId ?? "sentence",
+          sourceAnchor: detail.sourceAnchor,
+          sourceFingerprint: detail.source.contentFingerprint ?? detail.sourceAnchor.contentFingerprint ?? "-",
+          range,
+          confidence: 1,
+          method: "manual",
+          status: "ready",
+          updatedAt: Date.now(),
+        } : undefined;
+        void replayOriginalFirst({
+          text,
+          resolution: alignment ? { kind: "original", tier: "exact", alignment } : { kind: "fallback", reason: "missing" },
+          playOriginal: (resolved) => { window.dispatchEvent(new CustomEvent("plethora-language-original-audio-range", { detail: { documentId: detail.source.contentId, ...resolved.range } })); },
+          speakTts: (value) => tts.speak(value),
+        }).catch(() => undefined);
+        return;
+      }
       if (detail.action === "sentence-mode" || detail.action === "translate") setRequest(detail);
     };
     window.addEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
     return () => window.removeEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
-  }, [snapshot.hostId]);
+  }, [snapshot.hostId, tts]);
 
   const adapter = useMemo(() => {
     if (!request) return null;

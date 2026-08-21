@@ -12,6 +12,8 @@ import type { SourceAnchor } from "../../types/languageLexicon";
 import type { TranscriptSegment } from "../media/TranscriptSync";
 import { createVideoLanguageSession, currentVideoSentence, selectVideoSentence } from "../../lib/languageVideo";
 import { createTranslationService } from "../../lib/languageTranslation";
+import { replayOriginalFirst } from "../../lib/languageAudioAlignment";
+import { useTTS } from "../../hooks/useTTS";
 
 interface LanguageVideoHostProps {
   videoId: string;
@@ -39,6 +41,7 @@ function transcriptAnchor(videoId: string, segment: TranscriptSegment, sourceFin
  */
 export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segments, currentTime, onSeek }: LanguageVideoHostProps) {
   const { snapshot } = useLanguageLearningHost();
+  const tts = useTTS({ lang: snapshot.profile?.targetLanguage ?? "en-US" });
   const [peekOpen, setPeekOpen] = useState(false);
   const [states, setStates] = useState<ReadonlyMap<string, LanguageKnowledgeState>>(new Map());
   const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
@@ -186,6 +189,31 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
     if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("plethora-language-mining-draft", { detail: payload }));
     send("mine");
   };
+  const replayCurrent = () => {
+    void replayOriginalFirst({
+      text: active.text,
+      resolution: {
+        kind: "original",
+        tier: "exact",
+        alignment: {
+          id: `${videoId}:${active.id}`,
+          profileId: snapshot.profile.id,
+          sourceType: "transcript",
+          sourceId: videoId,
+          sentenceId: active.id,
+          sourceAnchor,
+          sourceFingerprint,
+          range: { mediaId: videoId, startMs: active.startMs, endMs: active.endMs, mediaFingerprint: sourceFingerprint },
+          confidence: 1,
+          method: "caption",
+          status: "ready",
+          updatedAt: Date.now(),
+        },
+      },
+      playOriginal: () => onSeek(active.startMs / 1000, active.endMs / 1000),
+      speakTts: (text) => tts.speak(text),
+    });
+  };
 
   return (
     <div className="pointer-events-auto absolute left-3 top-3 z-30 w-[min(92vw,520px)] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-language-video-host="true">
@@ -204,7 +232,7 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
       {analysisStatus === "failed" && <div className="mt-1 flex items-center gap-2 text-[11px] text-destructive" role="status"><span>Lexical analysis unavailable.</span><button type="button" className="rounded border border-border px-1.5 py-0.5 hover:bg-muted" onClick={() => setAnalysisRetry((value) => value + 1)}>Retry</button></div>}
       {subtitleMode !== "target" && <p className="mt-1 text-[11px] text-muted-foreground" role="status">{translationState === "pending" ? "Translation loading…" : translationState === "ready" ? translation : "Base translation unavailable offline."}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => onSeek(active.startMs / 1000, active.endMs / 1000)}>
+        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={replayCurrent}>
           <Play className="h-3.5 w-3.5" aria-hidden="true" /> Replay
         </button>
         <button type="button" className="rounded-md border border-border px-2 py-1 hover:bg-muted" onClick={() => setPeekOpen(true)}>
@@ -229,7 +257,7 @@ export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segm
         </button>
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">Sentence timing follows the player clock; word timing is approximate when captions do not provide it.</p>
-      {peekTarget && <DictionaryPeek target={peekTarget} documentId={documentId ?? videoId} onDismiss={() => setPeekOpen(false)} onReplayOriginalAudio={() => onSeek(active.startMs / 1000, active.endMs / 1000)} onPractice={() => send("practice")} />}
+      {peekTarget && <DictionaryPeek target={peekTarget} documentId={documentId ?? videoId} onDismiss={() => setPeekOpen(false)} onReplayOriginalAudio={replayCurrent} aiAvailable={snapshot.capabilities.tutor.available} onExplain={(text) => send("tutor", text)} onPractice={() => send("practice")} />}
     </div>
   );
 }

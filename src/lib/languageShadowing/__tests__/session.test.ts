@@ -8,4 +8,11 @@ describe("shadowing session", () => {
     expect(canStartCapture(session.recordingPolicy, true)).toBe(true);
     expect(cancelShadowingCapture({ status: "recording", microphoneAvailable: true }).status).toBe("cancelled");
   });
+
+  it("keeps all capture flows explicit instead of hiding a default in the session", () => {
+    for (const flow of ["listen-first", "immediate", "continuous"] as const) {
+      expect(createShadowingSession({ id: flow, profileId: "p", flow, source: { sourceId: "doc" }, promptText: "Hola", recordingPolicy: { allowMicrophone: true, persistRecording: false, privacy: "local-only" } }).flow).toBe(flow);
+    }
+    expect(canStartCapture({ allowMicrophone: false, persistRecording: false, privacy: "local-only" }, true)).toBe(false);
+  });
 });

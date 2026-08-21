@@ -66,6 +66,15 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
+      - name: Validate Canonical Product Documentation
+        run: npm run docs:validate && npm run docs:coverage
+
+      - name: Run Script Unit Tests
+        run: npm run test:scripts
+
+      - name: Run Help System Unit Tests
+        run: npx vitest run src/features/help/ src/lib/ai/tasks/__tests__/askPlethoraTask.test.ts
+
       - name: Run Rust unit tests
         working-directory: src-tauri
         run: cargo test --lib -- --test-threads=1
