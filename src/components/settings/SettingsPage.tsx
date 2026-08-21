@@ -127,6 +127,60 @@ const LanguageLearningSettings = lazySection("LanguageLearningSettings", () =>
 );
 
 /**
+ * Second-stage prefetch: the section chunks are a SECOND lazy layer beneath
+ * the SettingsPage chunk. Warming the page chunk alone still left the first
+ * visit to any section (e.g. Text To Speech) spinning on the same WebView
+ * cold-start fetch stall that importWithRetry mitigates (see
+ * fix-mobile-layout-and-android-media-controls follow-ups). Raw module
+ * imports share the ESM cache with the lazySection thunks above, so a warmed
+ * module makes the corresponding React.lazy resolve instantly.
+ */
+const SETTINGS_SECTION_LOADERS: Array<() => Promise<unknown>> = [
+  () => import("./KeyboardShortcutsSettings"),
+  () => import("./AIProviderSettings"),
+  () => import("./ImportExportSettings"),
+  () => import("./LearningSettings"),
+  () => import("./DocumentsSettings"),
+  () => import("./RSSSettings"),
+  () => import("./CloudStorageSettings"),
+  () => import("./ThemePicker"),
+  () => import("./EinkSettingsPanel"),
+  () => import("./IntegrationSettings"),
+  () => import("./HandbookSettings"),
+  () => import("./HelpSettings"),
+  () => import("./NotificationSettings"),
+  () => import("./AudioTranscriptionSettings"),
+  () => import("./TTSSettings"),
+  () => import("./EmbeddingSettings"),
+  () => import("./AiIndexPanel"),
+  () => import("./UserProfilePanel"),
+  () => import("./LanguageLearningSettings"),
+];
+
+let sectionsPrefetched = false;
+
+function prefetchSettingsSections(): void {
+  if (sectionsPrefetched) return;
+  sectionsPrefetched = true;
+  const kick = () => {
+    for (const load of SETTINGS_SECTION_LOADERS) {
+      // Non-fatal by design: a failed warm-up surfaces through the section's
+      // own lazy boundary (which retries via importWithRetry).
+      void load().catch(() => {});
+    }
+  };
+  // Let the settings shell paint first; section fetches are background work.
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => kick());
+  } else {
+    setTimeout(kick, 200);
+  }
+}
+
+// Module scope == the SettingsPage chunk just arrived == Settings was opened.
+prefetchSettingsSections();
+
+/**
  * Settings tab
  */
 export enum SettingsTab {
