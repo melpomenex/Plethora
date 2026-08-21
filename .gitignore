@@ -163,3 +163,13 @@ src-tauri/keys/
 # (keystore.properties.example is the committed template)
 src-tauri/gen/android/app/keystore.properties
 src-tauri/gen/android/app/*.keystore
+
+# iOS generated Xcode project (src-tauri/gen/apple) — sources are COMMITTED
+# (mirrors the gen/android precedent); build outputs and local signing secrets
+# are not. Regenerate with `npm run tauri:ios:init`, then re-apply overrides
+# with `node scripts/apply-ios-project-overrides.js`. See
+# docs/release/ios-generated-project.md.
+src-tauri/gen/apple/build/
+src-tauri/gen/apple/Externals/
+src-tauri/gen/apple/Pods/
+src-tauri/gen/apple/secrets/
