@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // Android Tauri plugin for on-device generative AI via ML Kit GenAI
@@ -710,7 +710,7 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
      * concurrency and real risk of overlapping native runs.
      */
     private val embeddingExecutor: ExecutorService = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "incrementum-genai-embedding").apply { isDaemon = true }
+        Thread(r, "plethora-genai-embedding").apply { isDaemon = true }
     }
 
     /**
@@ -719,7 +719,7 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
      */
     private val embeddingDownloadExecutor: ExecutorService =
         Executors.newSingleThreadExecutor { r ->
-            Thread(r, "incrementum-genai-embedding-download").apply { isDaemon = true }
+            Thread(r, "plethora-genai-embedding-download").apply { isDaemon = true }
         }
 
     /** App-private directory holding the downloaded embedding artifacts. */

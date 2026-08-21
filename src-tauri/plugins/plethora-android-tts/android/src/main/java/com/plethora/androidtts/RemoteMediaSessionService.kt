@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // Remote Media Session Service (design Decision 6/8; tasks 6.1 + 10.1).

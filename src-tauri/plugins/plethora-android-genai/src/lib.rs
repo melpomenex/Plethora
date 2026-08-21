@@ -26,8 +26,8 @@
 //! compile and behave exactly as before.
 //!
 //! The plugin targets the concrete `tauri::Wry` runtime (the only runtime the
-//! Incrementum app uses), matching `incrementum-android-tts` and
-//! `incrementum-folder-import`.
+//! Plethora app uses), matching `plethora-android-tts` and
+//! `plethora-folder-import`.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(target_os = "android")]
@@ -973,7 +973,7 @@ pub use commands::{
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<Wry> {
-    // NOTE: the builder name MUST match the crate name (`incrementum-android-genai`),
+    // NOTE: the builder name MUST match the crate name (`plethora-android-genai`),
     // because tauri-plugin's ACL manifest codegen keys the plugin's permissions
     // under the crate name. A mismatch makes every command fail with
     // "not allowed by ACL" even when the capability grants it.

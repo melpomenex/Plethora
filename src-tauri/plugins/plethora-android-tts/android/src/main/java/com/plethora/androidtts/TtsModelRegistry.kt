@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // Static catalog of on-device TTS models offered by the plugin. Each entry maps

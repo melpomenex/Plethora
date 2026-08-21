@@ -16,9 +16,9 @@
 //!     TTS remains the desktop local option and is entirely unaffected.
 //!
 //! The plugin targets the concrete `tauri::Wry` runtime (the only runtime the
-//! Incrementum app uses), keeping `generate_handler!` monomorphization simple
+//! Plethora app uses), keeping `generate_handler!` monomorphization simple
 //! and avoiding `Runtime` trait thread-safety issues with a generic `R` — the
-//! same approach `incrementum-folder-import` uses.
+//! same approach `plethora-folder-import` uses.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -520,7 +520,7 @@ pub use commands::update_media_metadata;
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<Wry> {
-    // NOTE: the builder name MUST match the crate name (`incrementum-android-tts`),
+    // NOTE: the builder name MUST match the crate name (`plethora-android-tts`),
     // because tauri-plugin's ACL manifest codegen keys the plugin's permissions
     // under the crate name. The runtime ACL lookup on `plugin:<name>|<cmd>` uses
     // this builder name, so a mismatch makes every command fail with
