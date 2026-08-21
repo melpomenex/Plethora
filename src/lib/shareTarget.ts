@@ -6,7 +6,13 @@
  */
 
 import { invokeCommand, isTauri } from "./tauri";
-import type { SharedBatch, SharedItem, ShareTargetResult } from "../types/share";
+import type {
+  SharedBatch,
+  SharedItem,
+  ShareTargetResult,
+  StagedShareManifest,
+} from "../types/share";
+import type { DocumentMetadata } from "../types/document";
 
 /**
  * Normalizes an untyped share event or payload into a structured SharedBatch.
@@ -104,6 +110,97 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
   }
 
   return null;
+}
+
+/**
+ * Map a staged share-extension manifest into the normalized `SharedBatch`
+ * contract. This mirrors the Rust mapping in
+ * `src-tauri/plugins/plethora-folder-import/src/staged_shares.rs` — keep both
+ * in sync with the schema documented in `src/types/share.ts`.
+ */
+export function stagedManifestToBatch(
+  manifest: StagedShareManifest
+): SharedBatch | null {
+  if (!manifest || !Array.isArray(manifest.items) || manifest.items.length === 0) {
+    return null;
+  }
+  const items: SharedItem[] = [];
+  for (const item of manifest.items) {
+    if (!item || typeof item !== "object") continue;
+    switch (item.kind) {
+      case "url":
+        if (typeof item.urlString === "string" && item.urlString.length > 0) {
+          items.push({
+            type: "url",
+            url: item.urlString,
+            title: item.title ?? undefined,
+          });
+        }
+        break;
+      case "text":
+        if (typeof item.text === "string" && item.text.length > 0) {
+          items.push({
+            type: "text",
+            text: item.text,
+            title: item.title ?? undefined,
+          });
+        }
+        break;
+      case "file":
+        if (typeof item.filename === "string" && item.filename.length > 0) {
+          // The Rust reader rewrites `filePath` to the app-staged copy before
+          // handing the batch over; here it is filled in when available.
+          items.push({
+            type: "file",
+            fileName: item.filename,
+            mimeType: item.mimeType ?? undefined,
+            filePath: undefined,
+          });
+        }
+        break;
+    }
+  }
+  if (items.length === 0) return null;
+  return {
+    id: manifest.id,
+    timestamp:
+      typeof manifest.receivedAt === "number" ? manifest.receivedAt : Date.now(),
+    items,
+  };
+}
+
+/**
+ * Map staged-manifest provenance into additive `DocumentMetadata` fields:
+ * `url` / `siteName` / `fetchedAt` plus the structured `shareProvenance`
+ * capture-provenance record. Purely additive — existing metadata is merged,
+ * never replaced, by callers.
+ */
+export function mapManifestToProvenance(
+  manifest: Pick<StagedShareManifest, "id" | "receivedAt" | "sourceApp" | "items">,
+  platform: "share_extension" | "android_share" = "share_extension"
+): Partial<DocumentMetadata> {
+  const urlItem = manifest.items.find((i) => i?.kind === "url");
+  const url = urlItem && urlItem.kind === "url" ? urlItem.urlString : undefined;
+  let siteName: string | undefined;
+  if (url) {
+    try {
+      siteName = new URL(url).hostname.replace(/^www\./, "") || undefined;
+    } catch {
+      siteName = undefined;
+    }
+  }
+  return {
+    ...(url ? { url } : {}),
+    ...(siteName ? { siteName } : {}),
+    fetchedAt: new Date(manifest.receivedAt).toISOString(),
+    shareProvenance: {
+      source: platform,
+      sourceApp: manifest.sourceApp,
+      receivedAt: manifest.receivedAt,
+      batchId: manifest.id,
+      schemaVersion: 1,
+    },
+  };
 }
 
 /**
