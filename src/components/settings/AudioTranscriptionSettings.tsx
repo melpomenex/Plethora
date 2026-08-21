@@ -230,17 +230,19 @@ export function AudioTranscriptionSettings() {
         </div>
       </div>
 
-      {/* Web/PWA Notice - Only show in browser */}
+      {/* Web/PWA Notice - Only show in browser. Uses opacity-modified base
+          colors rather than -50/-950 palette steps, which are light-theme-only
+          and render as unreadable gray-on-gray under dark themes. */}
       {!isDesktop && (
         <div className={cn(
           "rounded-xl border p-4 flex items-start gap-3 transition-all duration-300",
           isPWA() 
-            ? "border-green-200 bg-green-50/50 text-green-950" 
-            : "border-blue-200 bg-blue-50/50 text-blue-950"
+            ? "border-emerald-500/30 bg-emerald-500/10" 
+            : "border-primary/30 bg-primary/10"
         )}>
           <div className={cn(
             "p-2 rounded-lg",
-            isPWA() ? "bg-green-500/10 text-green-600" : "bg-blue-500/10 text-blue-600"
+            isPWA() ? "bg-emerald-500/15 text-emerald-500" : "bg-primary/15 text-primary"
           )}>
             <Desktop className="w-5 h-5" />
           </div>
@@ -251,7 +253,7 @@ export function AudioTranscriptionSettings() {
               </span>
               <span className={cn(
                 "px-2 py-0.5 text-[10px] font-medium rounded-full",
-                isPWA() ? "bg-green-500/20 text-green-700" : "bg-blue-500/20 text-blue-700"
+                isPWA() ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/20 text-primary"
               )}>
                 {isPWA() ? "Standalone App" : "Browser Tab"}
               </span>
