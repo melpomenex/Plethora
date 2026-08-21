@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-restore"
+description = "Enables the storekit_restore command without any pre-configured scope."
+commands.allow = ["storekit_restore"]
+
+[[permission]]
+identifier = "deny-storekit-restore"
+description = "Denies the storekit_restore command without any pre-configured scope."
+commands.deny = ["storekit_restore"]

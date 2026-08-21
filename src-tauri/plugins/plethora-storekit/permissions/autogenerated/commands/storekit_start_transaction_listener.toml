@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-start-transaction-listener"
+description = "Enables the storekit_start_transaction_listener command without any pre-configured scope."
+commands.allow = ["storekit_start_transaction_listener"]
+
+[[permission]]
+identifier = "deny-storekit-start-transaction-listener"
+description = "Denies the storekit_start_transaction_listener command without any pre-configured scope."
+commands.deny = ["storekit_start_transaction_listener"]

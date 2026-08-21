@@ -1,0 +1,16 @@
+[package]
+name = "plethora-storekit"
+version = "0.1.0"
+description = "Tauri plugin for native iOS StoreKit 2 billing (products, purchase, entitlements, restore, transaction updates)"
+authors = ["Plethora Team"]
+edition = "2021"
+links = "plethora-storekit"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.0", features = ["unstable"] }
+serde = "1"
+serde_json = "1"
+thiserror = "1"

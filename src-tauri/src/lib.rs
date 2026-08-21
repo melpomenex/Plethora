@@ -864,7 +864,13 @@ pub fn run() {
         // prompting. Off Android the status command reports
         // `platform_unsupported` and inference returns a typed error, so the
         // frontend falls back to the configured cloud provider unchanged.
-        .plugin(plethora_android_genai::init());
+        .plugin(plethora_android_genai::init())
+        // StoreKit 2 billing (iOS): native product query, purchase with
+        // appAccountToken, verified entitlements, restore, and the
+        // Transaction.updates listener. On non-iOS targets every command
+        // returns a typed UNSUPPORTED error (the crate compiles everywhere so
+        // the command surface exists; the Swift side loads on iOS only).
+        .plugin(plethora_storekit::init());
 
     // Updater + process (relaunch after install) are desktop-only.
     // The plugin reads its config from the `plugins.updater` block in

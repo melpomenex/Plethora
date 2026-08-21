@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-set-app-account-token"
+description = "Enables the storekit_set_app_account_token command without any pre-configured scope."
+commands.allow = ["storekit_set_app_account_token"]
+
+[[permission]]
+identifier = "deny-storekit-set-app-account-token"
+description = "Denies the storekit_set_app_account_token command without any pre-configured scope."
+commands.deny = ["storekit_set_app_account_token"]

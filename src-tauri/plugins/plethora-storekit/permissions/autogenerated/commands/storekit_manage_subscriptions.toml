@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-manage-subscriptions"
+description = "Enables the storekit_manage_subscriptions command without any pre-configured scope."
+commands.allow = ["storekit_manage_subscriptions"]
+
+[[permission]]
+identifier = "deny-storekit-manage-subscriptions"
+description = "Denies the storekit_manage_subscriptions command without any pre-configured scope."
+commands.deny = ["storekit_manage_subscriptions"]
