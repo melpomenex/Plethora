@@ -331,6 +331,16 @@ runAfterFirstPaint(() => {
   startReminderScheduler();
 });
 
+// Billing provider selection at startup (openspec change
+// implement-native-ios-storekit2-billing §3.4): iOS → AppStoreBillingProvider
+// (native StoreKit 2); other platforms → dev-only mock. Also performs relaunch
+// reconciliation of any pending transaction JWS payloads.
+runAfterFirstPaint(() => {
+  void useBillingStore.getState().init().catch((error) => {
+    console.error('[billing] startup init failed:', error);
+  });
+});
+
 // One-time removal of real-time-sync residue (y-indexeddb databases, stale
 // localStorage keys) on installs that predate the sync removal.
 runAfterFirstPaint(() => {
