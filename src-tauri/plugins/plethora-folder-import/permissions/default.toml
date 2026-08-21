@@ -12,5 +12,7 @@ permissions = [
   "allow-backup-db-to-downloads",
   "allow-register-share-listener",
   "allow-get-pending-shares",
+  "allow-complete-pending-shares",
+  "allow-retry-pending-shares",
   "allow-capture-rendered-dom"
 ]

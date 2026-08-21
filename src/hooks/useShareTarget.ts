@@ -6,7 +6,13 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { fetchPendingShares, mapManifestToProvenance, registerShareListener } from "../lib/shareTarget";
+import {
+  completePendingShares,
+  fetchPendingShares,
+  mapManifestToProvenance,
+  registerShareListener,
+  retryPendingShares,
+} from "../lib/shareTarget";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
@@ -24,9 +30,16 @@ export function useShareTarget() {
   const isProcessingRef = useRef(false);
 
   useEffect(() => {
-    const handleBatch = async (batch: SharedBatch) => {
-      if (!batch.items || batch.items.length === 0) return;
-      if (isProcessingRef.current) return;
+    /**
+     * Route one normalized batch through the import pipeline. Resolves with
+     * `{ imported, failed }` so claimed staged batches (which carry an `id`)
+     * can be acknowledged or released for retry exactly once.
+     */
+    const handleBatch = async (
+      batch: SharedBatch
+    ): Promise<{ imported: number; failed: number }> => {
+      if (!batch.items || batch.items.length === 0) return { imported: 0, failed: 0 };
+      if (isProcessingRef.current) return { imported: 0, failed: 0 };
       isProcessingRef.current = true;
 
       const { importFromUrl, openTwitterThread, importFromFiles, loadDocuments } =
@@ -41,10 +54,11 @@ export function useShareTarget() {
         { duration: 0 }
       );
 
-      try {
-        const importedDocs: any[] = [];
-        let typedUrlFailures = 0;
+      const importedDocs: any[] = [];
+      let typedUrlFailures = 0;
+      let failedCount = 0;
 
+      try {
         // 1. Process URLs
         const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
         for (const item of urlItems) {
@@ -58,6 +72,7 @@ export function useShareTarget() {
               importedDocs.push(doc);
             }
           } catch (e) {
+            failedCount += 1;
             console.error("[Share Target] Failed to import shared URL:", item.url, e);
             // Typed failure: show the reason with a retry action (or "Open
             // original" for non-retriable extraction failures). No document
@@ -99,6 +114,7 @@ export function useShareTarget() {
             const docs = await importFromFiles(paths);
             importedDocs.push(...docs);
           } catch (e) {
+            failedCount += fileItems.length;
             console.error("[Share Target] Failed to import shared files:", paths, e);
           }
         }
@@ -138,6 +154,7 @@ export function useShareTarget() {
             }
             importedDocs.push(doc);
           } catch (e) {
+            failedCount += 1;
             console.error("[Share Target] Failed to create document from shared text:", e);
           }
         }
@@ -177,6 +194,7 @@ export function useShareTarget() {
           );
         }
       } catch (err) {
+        failedCount += batch.items.length;
         toast.dismiss(toastId);
         console.error("[Share Target] Failed to process shared batch:", err);
         toast.error(
@@ -186,6 +204,8 @@ export function useShareTarget() {
       } finally {
         isProcessingRef.current = false;
       }
+
+      return { imported: importedDocs.length, failed: failedCount };
     };
 
     // Check PWA query parameter in hash route: #/?shared_url=... or #/?shared_text=...
@@ -222,10 +242,24 @@ export function useShareTarget() {
     // Cold-start drain: consume batches queued before the listener was
     // registered (Android pending queue / iOS App Group staged manifests).
     // The native side returns-and-clears, so this never double-delivers with
-    // registerShareListener's own pending-batch return.
-    void fetchPendingShares().then((batches) => {
+    // registerShareListener's own pending-batch return. Claimed staged
+    // batches (id present) are completed on success or released for a
+    // bounded retry with a visible notice when items failed (e.g. offline
+    // URL fetch); the Rust reader enforces the retry bound.
+    void fetchPendingShares().then(async (batches) => {
       for (const batch of batches) {
-        void handleBatch(batch);
+        const result = await handleBatch(batch);
+        if (!batch.id) continue;
+        if (result.failed === 0) {
+          void completePendingShares([batch.id]);
+        } else {
+          void retryPendingShares([batch.id]);
+          toast.warning(
+            t("shareTarget.pendingSharesTitle"),
+            t("shareTarget.pendingSharesMessage"),
+            { duration: 8000 }
+          );
+        }
       }
     });
 

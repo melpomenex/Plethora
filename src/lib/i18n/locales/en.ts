@@ -23,6 +23,8 @@ export const en: Dict = {
   "shareImport.error.rendered_failed": "The page could not be rendered for extraction.",
   "shareImport.error.sanitization_degenerate": "Almost all content was removed by security filtering — the page was not imported.",
   "shareImport.error.canceled": "Import canceled.",
+  "shareTarget.pendingSharesTitle": "Some shares are still pending",
+  "shareTarget.pendingSharesMessage": "Shared links saved offline will retry automatically next time Plethora launches.",
   "nav.continue": "Continue Reading",
   "nav.dashboard": "Dashboard",
   "nav.documents": "Documents",

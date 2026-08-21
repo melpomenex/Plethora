@@ -12,6 +12,9 @@ const COMMANDS: &[&str] = &[
     "install_apk",
     "backup_db_to_downloads",
     "register_share_listener",
+    "get_pending_shares",
+    "complete_pending_shares",
+    "retry_pending_shares",
 ];
 
 fn main() {

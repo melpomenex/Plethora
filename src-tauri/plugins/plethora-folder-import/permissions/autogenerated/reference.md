@@ -11,6 +11,8 @@ from the frontend.
 - `allow-backup-db-to-downloads`
 - `allow-register-share-listener`
 - `allow-get-pending-shares`
+- `allow-complete-pending-shares`
+- `allow-retry-pending-shares`
 - `allow-capture-rendered-dom`
 
 ## Permission Table
@@ -70,6 +72,32 @@ Enables the capture_rendered_dom command without any pre-configured scope.
 <td>
 
 Denies the capture_rendered_dom command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-folder-import:allow-complete-pending-shares`
+
+</td>
+<td>
+
+Enables the complete_pending_shares command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-folder-import:deny-complete-pending-shares`
+
+</td>
+<td>
+
+Denies the complete_pending_shares command without any pre-configured scope.
 
 </td>
 </tr>
@@ -200,6 +228,32 @@ Enables the register_share_listener command without any pre-configured scope.
 <td>
 
 Denies the register_share_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-folder-import:allow-retry-pending-shares`
+
+</td>
+<td>
+
+Enables the retry_pending_shares command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-folder-import:deny-retry-pending-shares`
+
+</td>
+<td>
+
+Denies the retry_pending_shares command without any pre-configured scope.
 
 </td>
 </tr>

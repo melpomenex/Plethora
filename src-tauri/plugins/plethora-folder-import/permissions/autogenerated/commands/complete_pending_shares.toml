@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-complete-pending-shares"
+description = "Enables the complete_pending_shares command without any pre-configured scope."
+commands.allow = ["complete_pending_shares"]
+
+[[permission]]
+identifier = "deny-complete-pending-shares"
+description = "Denies the complete_pending_shares command without any pre-configured scope."
+commands.deny = ["complete_pending_shares"]

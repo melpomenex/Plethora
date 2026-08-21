@@ -6360,6 +6360,7 @@ dependencies = [
 name = "plethora-folder-import"
 version = "0.1.0"
 dependencies = [
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",
@@ -6396,6 +6397,7 @@ dependencies = [
  "image 0.24.9",
  "keyring",
  "lazy_static",
+ "libloading 0.8.9",
  "libsqlite3-sys",
  "lofty",
  "log",
