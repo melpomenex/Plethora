@@ -25,6 +25,7 @@ function targetLabel(target: BrowserOrganizationTarget): string {
     case "page": return "Browser page";
     case "extract": return "Browser extract";
     case "image-occlusion": return "Image occlusion card";
+    case "image": return "Registry image";
     case "cloze": return "Cloze card";
     default: return "Q&A card";
   }
