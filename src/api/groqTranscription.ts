@@ -19,6 +19,7 @@
 
 import { invokeCommand, isTauri } from "../lib/tauri";
 import { useSettingsStore } from '../stores/settingsStore';
+import { ensureCloudAiDisclosure } from "../lib/privacy/cloudAiDisclosure";
 
 const GROQ_API_BASE = 'https://api.groq.com/openai/v1';
 
@@ -366,6 +367,19 @@ async function transcribeChunk(
 export async function transcribeWithGroq(
   options: GroqTranscriptionOptions
 ): Promise<GroqTranscriptionResponse> {
+  // Change C §4.3: one-time cloud-AI disclosure before audio leaves the
+  // device for Groq. A denial cancels the transcription (fail closed).
+  if (
+    !(await ensureCloudAiDisclosure({
+      featureClass: "transcription",
+      provider: "groq",
+    }))
+  ) {
+    throw new GroqTranscriptionError(
+      "Cloud transcription disclosure declined — audio was not sent.",
+      "DISCLOSURE_DECLINED"
+    );
+  }
   const rateLimitStatus = getRateLimitStatus();
   if (rateLimitStatus.isLimited) {
     throw new GroqTranscriptionError(

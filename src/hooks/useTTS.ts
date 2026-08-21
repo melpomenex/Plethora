@@ -17,7 +17,8 @@ import { useNativeAndroidTTS } from "./useNativeAndroidTTS";
 import { useRemoteMediaBridge } from "./useRemoteMediaBridge";
 import type { RemoteMediaContext } from "../utils/remoteMediaDispatcher";
 import { createLongFormSessionId } from "../utils/longFormPlaybackSession";
-import { cloudTtsRequiresConsent, requestPaidConsent } from "../utils/aiBillingConsent";
+import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { ensureCloudAiDisclosure } from "../lib/privacy/cloudAiDisclosure";
 import { t } from "../lib/i18n";
 
 interface UseTTSOptions {
@@ -296,6 +297,20 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         if (isSystemProvider && hasSpeechSynthesis) {
           await speakWithWebSpeech(normalizedText);
         } else if (providerConfigured) {
+          // Change C §4.3: one-time cloud-AI disclosure before sentence text
+          // is sent to a cloud TTS provider. Local providers (pocket, system,
+          // android, localhost endpoints) are exempt via the paid-provider
+          // check; an acknowledged provider class proceeds silently.
+          if (
+            isPaidTtsProvider(String(ttsSettings?.provider)) &&
+            !(await ensureCloudAiDisclosure({
+              featureClass: "tts",
+              provider: String(ttsSettings?.provider),
+            }))
+          ) {
+            setLastError("Cloud TTS disclosure declined — read-aloud stopped.");
+            return;
+          }
           // Paid/cloud consent gate runs once BEFORE the chunk loop so
           // read-aloud prompts at most once, never once per chunk
           // (ai-billing-safety #14). A denial stops the read rather than
@@ -327,6 +342,17 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         // with feedback instead of showing a bare provider error.
         let retryFailure: Error | undefined;
         if (error instanceof TTSServiceError && error.consentRequired) {
+          // Change C §4.3: backstop path must not bypass the cloud-AI
+          // disclosure either. A denial stops the read with feedback.
+          if (
+            !(await ensureCloudAiDisclosure({
+              featureClass: "tts",
+              provider: String(ttsSettings?.provider),
+            }))
+          ) {
+            setLastError("Cloud TTS disclosure declined — read-aloud stopped.");
+            return;
+          }
           const granted = await requestPaidConsent({
             kind: "tts",
             provider: String(ttsSettings?.provider),

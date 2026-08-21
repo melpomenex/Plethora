@@ -1,4 +1,5 @@
 import { invokeCommand, isTauri } from "../lib/tauri";
+import { ensureCloudAiDisclosure } from "../lib/privacy/cloudAiDisclosure";
 
 export interface ModelProfile {
   id: string;
@@ -157,8 +158,21 @@ export const enqueueAutoTranscription = (
   chapterId?: string,
 ): Promise<void> => {
   if (!isTauri()) return Promise.reject(new Error("Transcription requires desktop app"));
-  return invokeCommand("enqueue_auto_transcription", {
-    documentId, audioPath, provider, modelId, language, priority, chapterId,
+  // Change C §4.3: cloud transcription providers (e.g. groq cluster routing)
+  // require the one-time cloud-AI disclosure before audio leaves the device.
+  // Local whisper.cpp profiles are exempt. Because this is a fire-and-forget
+  // queue enqueue, a missing/declined disclosure rejects the enqueue.
+  const gate =
+    provider === "local"
+      ? Promise.resolve(true)
+      : ensureCloudAiDisclosure({ featureClass: "transcription", provider });
+  return gate.then((disclosed) => {
+    if (!disclosed) {
+      throw new Error("Cloud transcription disclosure declined — audio was not sent.");
+    }
+    return invokeCommand<void>("enqueue_auto_transcription", {
+      documentId, audioPath, provider, modelId, language, priority, chapterId,
+    });
   });
 };
 

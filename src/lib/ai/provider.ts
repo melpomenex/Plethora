@@ -19,6 +19,7 @@ import {
 } from "./onDeviceAI";
 import { isCancelledError, toAIError } from "./errors";
 import { requestPaidConsent } from "../../utils/aiBillingConsent";
+import { ensureCloudAiDisclosure } from "../../lib/privacy/cloudAiDisclosure";
 import { getActiveCloudConfig } from "./providers/cloudProvider";
 import { t } from "../i18n";
 
@@ -131,7 +132,30 @@ export async function runAiAction<T>(
 ): Promise<T | null> {
   const path = await resolveAiPath(requirement);
   if (path === "none") return null;
-  if (path === "cloud") return action.cloud();
+  if (path === "cloud") {
+    // Change C §4.3: one-time cloud-AI disclosure before any content leaves
+    // the device. Local/keyless destinations (Ollama, localhost endpoints)
+    // are exempt; an already-acknowledged provider class proceeds silently;
+    // a denial stops the action with feedback (fail closed).
+    const config = getActiveCloudConfig();
+    const isLocal = config
+      ? providerAllowsKeylessAccess(config.provider, config.baseUrl)
+      : false;
+    const disclosed = await ensureCloudAiDisclosure({
+      featureClass: "ai_actions",
+      provider: config?.provider ?? "cloud",
+      isLocal,
+    });
+    if (!disclosed) {
+      useToastStore.getState().addToast({
+        type: ToastType.Warning,
+        title: `${label} stayed off the cloud`,
+        message: t("paid.fallbackBlocked"),
+      });
+      return null;
+    }
+    return action.cloud();
+  }
 
   try {
     return await action.onDevice();

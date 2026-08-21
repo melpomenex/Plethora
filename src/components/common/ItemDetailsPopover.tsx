@@ -10,6 +10,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { getDocument, dismissDocument, updateDocument } from "../../api/documents";
+import { LocalOnlyShieldToggle } from "../settings/LocalOnlyShieldToggle";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
 import { useToast } from "../common/Toast";
 import { getExtract } from "../../api/extracts";
@@ -463,6 +464,21 @@ export function ItemDetailsPopover({
                 <div className="text-xs text-muted-foreground">{t("itemDetails.source")}: {target.source}</div>
               )}
             </div>
+
+            {/* Change C task 1.4: per-document Local-Only shield control */}
+            {target.type === "document" && (
+              <LocalOnlyShieldToggle
+                documentId={target.id}
+                baseDocument={details.raw as unknown as import("../../types/document").Document | null}
+                onChanged={(next) => {
+                  setDetails((prev) =>
+                    prev.raw
+                      ? { ...prev, raw: { ...prev.raw, isLocalOnly: next } }
+                      : prev
+                  );
+                }}
+              />
+            )}
 
             {(editorTags.length > 0 || target.category || canEditTags) && (
               <div className="space-y-1">
