@@ -901,7 +901,24 @@ export function OcclusionCanvas({
                   </button>
                   <button
                     type="button"
+                    aria-label={t("occlusionComposer.editSuggestion")}
+                    title={t("occlusionComposer.editSuggestion")}
+                    data-testid={`occlusion-suggestion-edit-${index + 1}`}
+                    className="rounded bg-sky-600 p-1 text-white shadow hover:bg-sky-500"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      // Accepting selects the box and exposes the normal
+                      // resize handles, making this an explicit edit mode.
+                      apply({ type: "acceptSuggestion", id: suggestion.id ?? "" });
+                    }}
+                  >
+                    <span className="sr-only">{t("occlusionComposer.editSuggestion")}</span>
+                    <span aria-hidden="true" className="text-[10px] font-semibold">Edit</span>
+                  </button>
+                  <button
+                    type="button"
                     aria-label={t("occlusionComposer.rejectSuggestion")}
+                    title={t("occlusionComposer.rejectSuggestion")}
                     className="rounded bg-rose-600 p-1 text-white shadow hover:bg-rose-500"
                     onClick={(event) => {
                       event.stopPropagation();

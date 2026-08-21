@@ -24,6 +24,7 @@ tauri = { version = "=2.11.0", features = ["unstable", "tray-icon", "macos-priva
 # Note: "devtools" feature is intentionally not enabled unconditionally.
 # DevTools are opened at runtime via INCREMENTUM_OPEN_DEVTOOLS env var.
 tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
 # Cross-platform OS media controls (macOS now-playing keys, Windows SMTC,
 # Linux MPRIS) for the desktop remote-media bridge. use_zbus keeps MPRIS on
 # the pure-Rust zbus stack — no system libdbus needed at build time.

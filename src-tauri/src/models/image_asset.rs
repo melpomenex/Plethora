@@ -15,6 +15,10 @@ pub struct ImageAsset {
     pub height: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Bounded JSON metadata: browser capture context, provenance, and smart
+    /// organization state for browser-imported images (optional).
+    #[serde(default)]
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

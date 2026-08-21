@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ReviewCard } from "../ReviewCard";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
@@ -251,5 +251,248 @@ describe("ReviewCard", () => {
     expect(["#0f172a", "rgb(15, 23, 42)"]).toContain(defaultMask.style.backgroundColor);
     // An explicit composer-authored color wins over the default.
     expect(["#b91c1c", "rgb(185, 28, 28)"]).toContain(authoredMask.style.backgroundColor);
+  });
+
+  it("masks all siblings on front face and distinguishes target with badge and active border", async () => {
+    const { getImageAssetById } = await import("../../../api/image-registry");
+    vi.mocked(getImageAssetById).mockResolvedValue({
+      id: "asset-1",
+      mime_type: "image/png",
+      byte_size: 123,
+      sha256: "abc",
+      created_at: new Date().toISOString(),
+      data_url: "data:image/png;base64,AAAA",
+    });
+
+    render(
+      <ReviewCard
+        card={{
+          ...baseCard,
+          image_asset_ids: ["asset-1"],
+          interaction_metadata: {
+            occlusionMode: "hide-all",
+            targetRegionId: "r2",
+            imageOcclusionRegions: [
+              { id: "r1", x: 0.1, y: 0.1, width: 0.2, height: 0.1, label: "Thalamus" },
+              { id: "r2", x: 0.4, y: 0.4, width: 0.2, height: 0.1, label: "Hippocampus" },
+              { id: "r3", x: 0.7, y: 0.7, width: 0.2, height: 0.1, label: "Amygdala" },
+            ],
+          },
+        } as any}
+        showAnswer={false}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    await screen.findByAltText("Image occlusion study prompt");
+    const overlays = screen.getAllByTestId("occlusion-region-overlay");
+    expect(overlays).toHaveLength(3);
+
+    // Target overlay (r2)
+    const targetOverlay = overlays.find((el) => el.getAttribute("data-occlusion-target") === "true");
+    expect(targetOverlay).toBeDefined();
+    expect(targetOverlay?.className).toContain("border-primary");
+    expect(targetOverlay?.querySelector('[data-testid="occlusion-target-badge"]')).toBeInTheDocument();
+    expect(targetOverlay?.textContent).toBe("?");
+
+    // Sibling overlays (r1, r3)
+    const siblingOverlays = overlays.filter((el) => el.getAttribute("data-occlusion-target") === "false");
+    expect(siblingOverlays).toHaveLength(2);
+    for (const sibling of siblingOverlays) {
+      expect(sibling.className).toContain("border-white/20");
+      expect(sibling.querySelector('[data-testid="occlusion-target-badge"]')).toBeNull();
+      expect(sibling.textContent).toBe("");
+    }
+
+    // Answers / labels remain concealed on the front face
+    expect(screen.queryByText("Hippocampus")).not.toBeInTheDocument();
+    expect(screen.queryByText("Thalamus")).not.toBeInTheDocument();
+    expect(screen.queryByText("Amygdala")).not.toBeInTheDocument();
+  });
+
+  it("unmasks only the target region on reveal and provides a functional reveal-all toggle", async () => {
+    const { getImageAssetById } = await import("../../../api/image-registry");
+    vi.mocked(getImageAssetById).mockResolvedValue({
+      id: "asset-1",
+      mime_type: "image/png",
+      byte_size: 123,
+      sha256: "abc",
+      created_at: new Date().toISOString(),
+      data_url: "data:image/png;base64,AAAA",
+    });
+
+    const card = {
+      ...baseCard,
+      answer: "Hippocampus",
+      image_asset_ids: ["asset-1"],
+      interaction_metadata: {
+        occlusionMode: "hide-all",
+        targetRegionId: "r2",
+        imageOcclusionRegions: [
+          { id: "r1", x: 0.1, y: 0.1, width: 0.2, height: 0.1, label: "Thalamus" },
+          { id: "r2", x: 0.4, y: 0.4, width: 0.2, height: 0.1, label: "Hippocampus" },
+          { id: "r3", x: 0.7, y: 0.7, width: 0.2, height: 0.1, label: "Amygdala" },
+        ],
+      },
+    };
+
+    const { rerender } = render(
+      <ReviewCard
+        card={card as any}
+        showAnswer={true}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    await screen.findByAltText("Image occlusion study prompt");
+
+    // Only sibling masks (r1, r3) remain; target (r2) is unmasked
+    const overlays = screen.getAllByTestId("occlusion-region-overlay");
+    expect(overlays).toHaveLength(2);
+    for (const overlay of overlays) {
+      expect(overlay.getAttribute("data-occlusion-target")).toBe("false");
+    }
+
+    // Target answer text is displayed
+    expect(screen.getByText("Hippocampus")).toBeInTheDocument();
+
+    // "Reveal all labels" toggle button is present
+    const revealAllBtn = screen.getByTestId("occlusion-reveal-all");
+    expect(revealAllBtn).toHaveTextContent("Reveal all labels");
+
+    // Click "Reveal all labels" -> sibling masks are uncovered
+    act(() => {
+      fireEvent.click(revealAllBtn);
+    });
+    expect(screen.queryAllByTestId("occlusion-region-overlay")).toHaveLength(0);
+    expect(revealAllBtn).toHaveTextContent("Hide other labels");
+
+    // Click again -> sibling masks re-appear
+    act(() => {
+      fireEvent.click(revealAllBtn);
+    });
+    expect(screen.getAllByTestId("occlusion-region-overlay")).toHaveLength(2);
+
+    // Navigating to the next card resets reveal-all state
+    act(() => {
+      fireEvent.click(revealAllBtn); // uncovered
+    });
+    expect(screen.queryAllByTestId("occlusion-region-overlay")).toHaveLength(0);
+
+    act(() => {
+      rerender(
+        <ReviewCard
+          card={{ ...card, id: "card-2", answer: "Thalamus", interaction_metadata: { ...card.interaction_metadata, targetRegionId: "r1" } } as any}
+          showAnswer={true}
+          onShowAnswer={vi.fn()}
+        />
+      );
+    });
+
+    // New card starts with sibling masks concealed again
+    expect(screen.getAllByTestId("occlusion-region-overlay")).toHaveLength(2);
+  });
+
+  it("masks only the target region in hide-one mode", async () => {
+    const { getImageAssetById } = await import("../../../api/image-registry");
+    vi.mocked(getImageAssetById).mockResolvedValue({
+      id: "asset-1",
+      mime_type: "image/png",
+      byte_size: 123,
+      sha256: "abc",
+      created_at: new Date().toISOString(),
+      data_url: "data:image/png;base64,AAAA",
+    });
+
+    const card = {
+      ...baseCard,
+      answer: "Hippocampus",
+      image_asset_ids: ["asset-1"],
+      interaction_metadata: {
+        occlusionMode: "hide-one",
+        targetRegionId: "r2",
+        imageOcclusionRegions: [
+          { id: "r1", x: 0.1, y: 0.1, width: 0.2, height: 0.1, label: "Thalamus" },
+          { id: "r2", x: 0.4, y: 0.4, width: 0.2, height: 0.1, label: "Hippocampus" },
+        ],
+      },
+    };
+
+    const { rerender } = render(
+      <ReviewCard
+        card={card as any}
+        showAnswer={false}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    await screen.findByAltText("Image occlusion study prompt");
+
+    // Only target is masked on front face
+    const overlays = screen.getAllByTestId("occlusion-region-overlay");
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0].getAttribute("data-occlusion-target")).toBe("true");
+
+    // Reveal answer -> target unmasked, no reveal-all button shown
+    rerender(
+      <ReviewCard
+        card={card as any}
+        showAnswer={true}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    expect(screen.queryAllByTestId("occlusion-region-overlay")).toHaveLength(0);
+    expect(screen.queryByTestId("occlusion-reveal-all")).not.toBeInTheDocument();
+  });
+
+  it("supports legacy cards without targetRegionId by treating the first region as target", async () => {
+    const { getImageAssetById } = await import("../../../api/image-registry");
+    vi.mocked(getImageAssetById).mockResolvedValue({
+      id: "asset-1",
+      mime_type: "image/png",
+      byte_size: 123,
+      sha256: "abc",
+      created_at: new Date().toISOString(),
+      data_url: "data:image/png;base64,AAAA",
+    });
+
+    const legacyCard = {
+      ...baseCard,
+      answer: "Legacy Target",
+      image_asset_ids: ["asset-1"],
+      interaction_metadata: {
+        // No targetRegionId or occlusionSetId
+        imageOcclusionRegions: [
+          { id: "legacy-r1", x: 0.2, y: 0.2, width: 0.3, height: 0.2 },
+        ],
+      },
+    };
+
+    const { rerender } = render(
+      <ReviewCard
+        card={legacyCard as any}
+        showAnswer={false}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    await screen.findByAltText("Image occlusion study prompt");
+    const overlays = screen.getAllByTestId("occlusion-region-overlay");
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0].getAttribute("data-occlusion-target")).toBe("true");
+    expect(screen.getByTestId("occlusion-target-badge")).toBeInTheDocument();
+
+    // Reveal
+    rerender(
+      <ReviewCard
+        card={legacyCard as any}
+        showAnswer={true}
+        onShowAnswer={vi.fn()}
+      />
+    );
+
+    expect(screen.queryAllByTestId("occlusion-region-overlay")).toHaveLength(0);
+    expect(screen.getByText("Legacy Target")).toBeInTheDocument();
   });
 });

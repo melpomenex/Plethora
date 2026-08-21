@@ -15,6 +15,7 @@ import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import { cn } from "../../utils";
 import { useOcclusionSession } from "./useOcclusionSession";
 import { useOcclusionSuggestions } from "./useOcclusionSuggestions";
+import { useOcclusionOcrSuggestions } from "./useOcclusionOcrSuggestions";
 import { useOcclusionAssist } from "./useOcclusionAssist";
 import { OcclusionAssistPanel } from "./OcclusionAssistPanel";
 import { OcclusionCanvas } from "./OcclusionCanvas";
@@ -110,6 +111,7 @@ export function ImageOcclusionComposer({
   const [question, setQuestion] = useState(t("occlusionComposer.defaultQuestion"));
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
   const ai = useOcclusionSuggestions(asset, session);
+  const ocr = useOcclusionOcrSuggestions(asset, session);
 
   // OCR-backed AI assist (tasks 3.6–3.8): flag- and capability-gated; every
   // failure lands inside the panel, manual authoring is never affected.
@@ -357,6 +359,17 @@ export function ImageOcclusionComposer({
         <div className="flex items-center gap-1">
           <button
             type="button"
+            data-testid="auto-detect-labels"
+            disabled={!asset || ocr.busy}
+            onClick={() => void ocr.run()}
+            className="rounded-md border border-border px-2 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {ocr.busy
+              ? t("occlusionComposer.autoDetectingLabels")
+              : t("occlusionComposer.autoDetectLabels")}
+          </button>
+          <button
+            type="button"
             aria-label={t("occlusionComposer.undo")}
             disabled={!canUndo}
             onClick={() => undo()}
@@ -400,6 +413,17 @@ export function ImageOcclusionComposer({
           >
             <X className="h-4 w-4" />
           </button>
+          {ocr.status.kind !== "idle" && (
+            <span data-testid="occlusion-ocr-status" className="ml-1 hidden max-w-[15rem] truncate text-xs text-muted-foreground sm:inline">
+              {ocr.status.kind === "running"
+                ? t("occlusionComposer.autoDetectingLabels")
+                : ocr.status.kind === "ready"
+                  ? t("occlusionComposer.autoDetectedLabels", { count: ocr.status.kept })
+                  : ocr.status.kind === "no-labels"
+                    ? t("occlusionComposer.noLabelsDetected")
+                    : `${t("occlusionComposer.autoDetectFailed")}${ocr.status.message ? ` ${ocr.status.message}` : ""}`}
+            </span>
+          )}
         </div>
       </header>
 
@@ -459,24 +483,6 @@ export function ImageOcclusionComposer({
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                data-testid="mode-per-region"
-                onClick={() => apply({ type: "setMode", mode: "per-region" })}
-                className={cn(
-                  "rounded-md border px-2 py-1.5 text-left",
-                  mode === "per-region"
-                    ? "border-primary/60 bg-primary/10"
-                    : "border-border hover:bg-muted",
-                )}
-              >
-                <span className="block text-xs font-medium text-foreground">
-                  {t("occlusionComposer.modePerRegion")}
-                </span>
-                <span className="mt-0.5 block text-[11px] leading-tight text-muted-foreground">
-                  {t("occlusionComposer.modePerRegionDesc")}
-                </span>
-              </button>
-              <button
-                type="button"
                 data-testid="mode-hide-all"
                 onClick={() => apply({ type: "setMode", mode: "hide-all" })}
                 className={cn(
@@ -491,6 +497,24 @@ export function ImageOcclusionComposer({
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-tight text-muted-foreground">
                   {t("occlusionComposer.modeHideAllDesc")}
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="mode-hide-one"
+                onClick={() => apply({ type: "setMode", mode: "hide-one" })}
+                className={cn(
+                  "rounded-md border px-2 py-1.5 text-left",
+                  mode === "hide-one" || mode === "per-region"
+                    ? "border-primary/60 bg-primary/10"
+                    : "border-border hover:bg-muted",
+                )}
+              >
+                <span className="block text-xs font-medium text-foreground">
+                  {t("occlusionComposer.modeHideOne")}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-tight text-muted-foreground">
+                  {t("occlusionComposer.modeHideOneDesc")}
                 </span>
               </button>
             </div>

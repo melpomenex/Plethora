@@ -195,4 +195,68 @@ describe("OcclusionComposerHost", () => {
       })
     );
   });
+
+  it("batch creation writes shared occlusionSetId and distinct targetRegionId on every card", async () => {
+    render(<OcclusionComposerHost />);
+    act(() => dispatchOcclusionRequest("asset-1", "doc-1", "deck-1"));
+    await waitFor(() => expect(screen.getByTestId("occlusion-composer")).toBeInTheDocument());
+
+    await waitFor(() => expect(document.body.querySelector("img")).not.toBeNull());
+    const img = document.body.querySelector("img") as HTMLImageElement;
+    const rect = { left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    Object.defineProperty(img, "naturalWidth", { value: 800, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 600, configurable: true });
+    vi.spyOn(img, "getBoundingClientRect").mockReturnValue(rect);
+    const container = img.closest('[tabindex="0"]') as HTMLElement;
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue(rect);
+    act(() => fireEvent.load(img));
+
+    // Draw region 1
+    act(() => fireEvent.pointerDown(container, { pointerId: 1, clientX: 50, clientY: 50, button: 0 }));
+    act(() => fireEvent.pointerMove(container, { pointerId: 1, clientX: 150, clientY: 100 }));
+    act(() => fireEvent.pointerUp(container, { pointerId: 1 }));
+    await waitFor(() => expect(screen.getByTestId("region-list-row-1")).toBeInTheDocument());
+
+    // Draw region 2
+    act(() => fireEvent.pointerDown(container, { pointerId: 2, clientX: 200, clientY: 200, button: 0 }));
+    act(() => fireEvent.pointerMove(container, { pointerId: 2, clientX: 300, clientY: 300 }));
+    act(() => fireEvent.pointerUp(container, { pointerId: 2 }));
+    await waitFor(() => expect(screen.getByTestId("region-list-row-2")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Regions 1"), { target: { value: "Region 1 Label" } });
+    fireEvent.change(screen.getByLabelText("Regions 2"), { target: { value: "Region 2 Label" } });
+
+    await waitFor(() => expect(screen.getByText(/Save 2 cards/)).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("occlusion-save"));
+    });
+
+    await waitFor(() => expect(mockCreateBatch).toHaveBeenCalledTimes(1));
+    const inputs = mockCreateBatch.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(inputs).toHaveLength(2);
+
+    const meta0 = inputs[0].interaction_metadata as Record<string, unknown>;
+    const meta1 = inputs[1].interaction_metadata as Record<string, unknown>;
+
+    // Shared occlusionSetId
+    expect(meta0.occlusionSetId).toBeDefined();
+    expect(typeof meta0.occlusionSetId).toBe("string");
+    expect(meta0.occlusionSetId).toMatch(/^occ-set-/);
+    expect(meta0.occlusionSetId).toBe(meta1.occlusionSetId);
+
+    // Distinct targetRegionId
+    expect(meta0.targetRegionId).toBeDefined();
+    expect(meta1.targetRegionId).toBeDefined();
+    expect(meta0.targetRegionId).not.toBe(meta1.targetRegionId);
+
+    // Both cards carry the complete list of diagram regions
+    expect(meta0.imageOcclusionRegions).toHaveLength(2);
+    expect(meta1.imageOcclusionRegions).toHaveLength(2);
+
+    // Correct mode and answers
+    expect(meta0.occlusionMode).toBe("hide-all");
+    expect(meta1.occlusionMode).toBe("hide-all");
+    expect(inputs[0].answer).toBe("Region 1 Label");
+    expect(inputs[1].answer).toBe("Region 2 Label");
+  });
 });

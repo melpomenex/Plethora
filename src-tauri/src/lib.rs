@@ -836,6 +836,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         // Filesystem access for writeTextFile/readFile from
         // @tauri-apps/plugin-fs (used by app-state export, image save, and
         // NotebookLM artifact export). Dialog-picked paths are granted scope

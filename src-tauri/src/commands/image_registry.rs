@@ -27,6 +27,10 @@ pub struct ImageAssetDto {
     pub reference_count: i64,
     pub is_referenced: bool,
     pub data_url: String,
+    /// Bounded JSON metadata (browser capture context, provenance, smart
+    /// organization state) for browser-imported images.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -48,7 +52,41 @@ pub async fn ingest_image_asset(
             PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e))
         })?;
 
-    ingest_image_bytes(bytes, mime_type, file_name, repo.inner()).await
+    ingest_image_bytes(bytes, mime_type, file_name, repo.inner())
+        .await
+        .map(|(asset, _)| asset)
+}
+
+/// Browser-sync entry point for registry ingestion. It shares the exact same
+/// validation, SVG sanitization, dimension checks, and content-addressed
+/// deduplication as the frontend command without requiring a Tauri `State`
+/// wrapper.
+pub async fn ingest_image_asset_from_base64(
+    base64_data: &str,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    repo: &Repository,
+) -> Result<ImageAssetDto> {
+    ingest_image_asset_from_base64_with_status(base64_data, mime_type, file_name, repo)
+        .await
+        .map(|(asset, _)| asset)
+}
+
+/// Like [`ingest_image_asset_from_base64`], but also reports whether an asset
+/// with identical content already existed (`true` = duplicate, no new storage).
+pub async fn ingest_image_asset_from_base64_with_status(
+    base64_data: &str,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    repo: &Repository,
+) -> Result<(ImageAssetDto, bool)> {
+    let bytes = general_purpose::STANDARD
+        .decode(base64_data.as_bytes())
+        .map_err(|e| {
+            PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e))
+        })?;
+
+    ingest_image_bytes(bytes, mime_type, file_name, repo).await
 }
 
 /// Ingest an image already present on disk (e.g. a downloaded NotebookLM
@@ -81,7 +119,9 @@ pub async fn ingest_image_asset_from_path_inner(
             "Image file is empty: {file_path}"
         )));
     }
-    ingest_image_bytes(bytes, mime_type, file_name, repo).await
+    ingest_image_bytes(bytes, mime_type, file_name, repo)
+        .await
+        .map(|(asset, _)| asset)
 }
 
 #[tauri::command]
@@ -91,7 +131,18 @@ pub async fn ingest_remote_image_asset(
     referrer_url: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<ImageAssetDto> {
-    let parsed = reqwest::Url::parse(&image_url)
+    ingest_remote_image_asset_inner(&image_url, file_name, referrer_url, repo.inner()).await
+}
+
+/// Non-command variant for browser-sync ingestion, where the repository is
+/// already available as shared server state.
+pub async fn ingest_remote_image_asset_inner(
+    image_url: &str,
+    file_name: Option<String>,
+    referrer_url: Option<String>,
+    repo: &Repository,
+) -> Result<ImageAssetDto> {
+    let parsed = reqwest::Url::parse(image_url)
         .map_err(|error| PlethoraError::InvalidInput(format!("Invalid image URL: {error}")))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(PlethoraError::InvalidInput(
@@ -182,7 +233,9 @@ pub async fn ingest_remote_image_asset(
         bytes.extend_from_slice(&chunk);
     }
 
-    ingest_image_bytes(bytes, mime_type, file_name.or(response_name), repo.inner()).await
+    ingest_image_bytes(bytes, mime_type, file_name.or(response_name), repo)
+        .await
+        .map(|(asset, _)| asset)
 }
 
 fn validated_image_referrer(
@@ -211,12 +264,103 @@ fn validated_image_referrer(
     Ok(origin)
 }
 
+pub const MAX_IMAGE_DIMENSION: u32 = 16384;
+
+pub fn is_svg(bytes: &[u8], mime_type: Option<&str>) -> bool {
+    if let Some(mime) = mime_type {
+        if mime.trim().to_lowercase().starts_with("image/svg") {
+            return true;
+        }
+        if mime.trim().to_lowercase().starts_with("image/") {
+            return false;
+        }
+    }
+    let trimmed = match std::str::from_utf8(bytes) {
+        Ok(s) => s.trim_start_matches('\u{feff}').trim_start(),
+        Err(_) => return false,
+    };
+    trimmed.starts_with("<svg")
+        || (trimmed.starts_with("<?xml") && trimmed.contains("<svg"))
+        || (trimmed.starts_with("<!DOCTYPE") && trimmed.contains("<svg"))
+}
+
+pub fn sanitize_svg(input: &[u8]) -> Result<Vec<u8>> {
+    let svg_str = std::str::from_utf8(input)
+        .map_err(|e| PlethoraError::InvalidInput(format!("Invalid UTF-8 in SVG: {}", e)))?;
+
+    // Strip <!DOCTYPE ...> and <!ENTITY ...> to prevent XXE & entity expansion attacks
+    let doctype_re = regex::Regex::new(r#"(?is)<!DOCTYPE\s+[^>]*(\[[^]]*\])?>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let entity_re = regex::Regex::new(r#"(?is)<!ENTITY\s+[^>]*>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let mut cleaned = doctype_re.replace_all(svg_str, "").to_string();
+    cleaned = entity_re.replace_all(&cleaned, "").to_string();
+
+    // Strip <script...>...</script> and <script.../>
+    let script_re = regex::Regex::new(r#"(?is)<script\b[^>]*>.*?</script\s*>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let script_self_closing_re = regex::Regex::new(r#"(?is)<script\b[^>]*/>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    cleaned = script_re.replace_all(&cleaned, "").to_string();
+    cleaned = script_self_closing_re.replace_all(&cleaned, "").to_string();
+
+    // Strip inline event handlers: on*="..." or on*='...' or on*=value
+    let event_handler_re = regex::Regex::new(r#"(?is)\s+on[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    cleaned = event_handler_re.replace_all(&cleaned, "").to_string();
+
+    // Strip javascript: and data: in href / xlink:href
+    let js_href_re = regex::Regex::new(r#"(?is)\s+(?:xlink:)?href\s*=\s*["']\s*(?:javascript|data):[^"']*["']"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    cleaned = js_href_re.replace_all(&cleaned, "").to_string();
+
+    // Strip <foreignObject...>...</foreignObject> to prevent embedded HTML/XSS injection
+    let foreign_obj_re = regex::Regex::new(r#"(?is)<foreignObject\b[^>]*>.*?</foreignObject\s*>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let foreign_obj_self_closing_re = regex::Regex::new(r#"(?is)<foreignObject\b[^>]*/>"#)
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    cleaned = foreign_obj_re.replace_all(&cleaned, "").to_string();
+    cleaned = foreign_obj_self_closing_re.replace_all(&cleaned, "").to_string();
+
+    if cleaned.trim().is_empty() {
+        return Err(PlethoraError::InvalidInput(
+            "SVG content is empty after sanitization".to_string(),
+        ));
+    }
+
+    Ok(cleaned.into_bytes())
+}
+
+pub fn parse_svg_dimensions(svg_bytes: &[u8]) -> (Option<i32>, Option<i32>) {
+    let Ok(svg_str) = std::str::from_utf8(svg_bytes) else {
+        return (None, None);
+    };
+    let width_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bwidth\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
+    let height_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bheight\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
+
+    let width = width_re.as_ref().and_then(|re| re.captures(svg_str)).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+    let height = height_re.as_ref().and_then(|re| re.captures(svg_str)).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+
+    if width.is_some() && height.is_some() {
+        return (width, height);
+    }
+
+    let viewbox_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bviewBox\s*=\s*["'][^"']*?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*["']"#).ok();
+    if let Some(captures) = viewbox_re.as_ref().and_then(|re| re.captures(svg_str)) {
+        let vb_w = captures.get(1).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+        let vb_h = captures.get(2).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+        return (width.or(vb_w), height.or(vb_h));
+    }
+
+    (width, height)
+}
+
 async fn ingest_image_bytes(
     bytes: Vec<u8>,
     mime_type: Option<String>,
     file_name: Option<String>,
     repo: &Repository,
-) -> Result<ImageAssetDto> {
+) -> Result<(ImageAssetDto, bool)> {
     if bytes.is_empty() {
         return Err(PlethoraError::InvalidInput(
             "Image payload is empty".to_string(),
@@ -225,6 +369,24 @@ async fn ingest_image_bytes(
 
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(image_too_large_error());
+    }
+
+    if is_svg(&bytes, mime_type.as_deref()) {
+        let sanitized = sanitize_svg(&bytes)?;
+        let (width, height) = parse_svg_dimensions(&sanitized);
+        let sha256 = hex_sha256(&sanitized);
+        let existed = repo.get_image_asset_by_sha256(&sha256).await?.is_some();
+        let asset = repo
+            .create_or_get_image_asset(
+                "image/svg+xml",
+                file_name.as_deref(),
+                &sanitized,
+                &sha256,
+                width,
+                height,
+            )
+            .await?;
+        return Ok((to_dto(asset), existed));
     }
 
     let guessed = image::guess_format(&bytes)
@@ -237,7 +399,15 @@ async fn ingest_image_bytes(
         })?
         .dimensions();
 
+    if dimensions.0 > MAX_IMAGE_DIMENSION || dimensions.1 > MAX_IMAGE_DIMENSION {
+        return Err(PlethoraError::InvalidInput(format!(
+            "Image dimensions ({}x{}) exceed max allowed {}x{}",
+            dimensions.0, dimensions.1, MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION
+        )));
+    }
+
     let sha256 = hex_sha256(&bytes);
+    let existed = repo.get_image_asset_by_sha256(&sha256).await?.is_some();
     let asset = repo
         .create_or_get_image_asset(
             &normalized_mime,
@@ -249,7 +419,7 @@ async fn ingest_image_bytes(
         )
         .await?;
 
-    Ok(to_dto(asset))
+    Ok((to_dto(asset), existed))
 }
 
 fn image_too_large_error() -> PlethoraError {
@@ -310,6 +480,40 @@ pub async fn rename_image_asset(
     Ok(to_dto(asset))
 }
 
+/// Persist bounded browser metadata (capture context, provenance, smart
+/// organization state) on an image asset. Returns the updated asset DTO.
+#[tauri::command]
+pub async fn update_image_asset_metadata(
+    asset_id: String,
+    metadata: serde_json::Value,
+    repo: State<'_, Repository>,
+) -> Result<ImageAssetDto> {
+    if !metadata.is_object() {
+        return Err(crate::error::PlethoraError::InvalidInput(
+            "Image asset metadata must be a JSON object".to_string(),
+        ));
+    }
+    let serialized = serde_json::to_string(&metadata)
+        .map_err(|e| PlethoraError::Internal(format!("Failed to serialize metadata: {}", e)))?;
+    if serialized.len() > 64 * 1024 {
+        return Err(PlethoraError::InvalidInput(
+            "Image asset metadata exceeds the 64 KB limit".to_string(),
+        ));
+    }
+
+    if !repo.update_image_asset_metadata(&asset_id, &serialized).await? {
+        return Err(crate::error::PlethoraError::NotFound(format!(
+            "Image asset {}",
+            asset_id
+        )));
+    }
+
+    let asset = repo.get_image_asset(&asset_id).await?.ok_or_else(|| {
+        crate::error::PlethoraError::NotFound(format!("Image asset {}", asset_id))
+    })?;
+    Ok(to_dto(asset))
+}
+
 #[tauri::command]
 pub async fn delete_image_asset(
     asset_id: String,
@@ -347,6 +551,10 @@ fn to_dto_with_usage(asset: crate::models::ImageAsset, reference_count: i64) -> 
         reference_count,
         is_referenced: reference_count > 0,
         data_url,
+        metadata: asset
+            .metadata
+            .as_deref()
+            .and_then(|value| serde_json::from_str(value).ok()),
     }
 }
 
@@ -366,6 +574,10 @@ fn to_registry_list_dto(asset: crate::models::ImageAsset, reference_count: i64) 
         reference_count,
         is_referenced: reference_count > 0,
         data_url,
+        metadata: asset
+            .metadata
+            .as_deref()
+            .and_then(|value| serde_json::from_str(value).ok()),
     }
 }
 
@@ -415,4 +627,147 @@ fn normalize_mime(requested: Option<&str>, guessed: image::ImageFormat) -> Resul
     }
 
     Ok(guessed_mime.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_svg_strips_scripts_handlers_and_entities() {
+        let input = br#"<?xml version="1.0"?>
+<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" width="10" height="10">
+  <script>alert('xss')</script>
+  <script src="https://evil.example/x.js"/>
+  <foreignObject><iframe src="https://evil.example"></iframe></foreignObject>
+  <a xlink:href="javascript:alert(1)"><text>label</text></a>
+  <circle cx="5" cy="5" r="4" onmouseover="steal()"/>
+</svg>"#;
+
+        let cleaned = sanitize_svg(input).expect("sanitize should succeed");
+        let cleaned_str = String::from_utf8(cleaned).expect("utf8");
+        assert!(!cleaned_str.contains("<script"), "script tags stripped");
+        assert!(!cleaned_str.contains("onload"), "inline handlers stripped");
+        assert!(!cleaned_str.contains("onmouseover"), "inline handlers stripped");
+        assert!(!cleaned_str.contains("DOCTYPE"), "DOCTYPE stripped");
+        assert!(!cleaned_str.contains("ENTITY"), "entity declarations stripped");
+        assert!(!cleaned_str.contains("foreignObject"), "foreignObject stripped");
+        assert!(!cleaned_str.contains("javascript:"), "javascript href stripped");
+        assert!(cleaned_str.contains("<svg"), "svg element retained");
+        assert!(cleaned_str.contains("<circle"), "benign content retained");
+        assert!(cleaned_str.contains(">label<"), "text content retained");
+    }
+
+    #[test]
+    fn sanitize_svg_rejects_empty_result() {
+        let err = sanitize_svg(b"<script>alert(1)</script>").unwrap_err();
+        assert!(matches!(err, PlethoraError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn sanitize_svg_rejects_invalid_utf8() {
+        let err = sanitize_svg(&[0xff, 0xfe, 0x00, 0x01]).unwrap_err();
+        assert!(matches!(err, PlethoraError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn is_svg_detects_mime_and_markup() {
+        assert!(is_svg(b"<svg></svg>", None));
+        assert!(is_svg(b"<?xml version=\"1.0\"?><svg/>", None));
+        assert!(is_svg(b"<!DOCTYPE svg PUBLIC \"x\"><svg/>", None));
+        assert!(is_svg(b"<svg/>", Some("image/svg+xml")));
+        assert!(!is_svg(b"<svg></svg>", Some("image/png")));
+        assert!(!is_svg(b"\x89PNG\r\n\x1a\n", None));
+        assert!(!is_svg(b"not svg at all", Some("image/png")));
+    }
+
+    #[test]
+    fn parse_svg_dimensions_reads_attributes_and_viewbox() {
+        let attrs = parse_svg_dimensions(br#"<svg width="640" height="480">"#);
+        assert_eq!(attrs, (Some(640), Some(480)));
+
+        let px = parse_svg_dimensions(br#"<svg width="100px" height="50px">"#);
+        assert_eq!(px, (Some(100), Some(50)));
+
+        let viewbox = parse_svg_dimensions(br#"<svg viewBox="0 0 200 100">"#);
+        assert_eq!(viewbox, (Some(200), Some(100)));
+
+        let none = parse_svg_dimensions(br#"<svg></svg>"#);
+        assert_eq!(none, (None, None));
+    }
+
+    #[test]
+    fn dimension_limit_constant_matches_spec() {
+        assert_eq!(MAX_IMAGE_DIMENSION, 16_384);
+    }
+
+    #[tokio::test]
+    async fn ingest_base64_rejects_invalid_encoding() {
+        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+            .await
+            .expect("in-memory db");
+        repo_pool.migrate().await.expect("migrate");
+        let repo = Repository::new(repo_pool.pool().clone());
+        let err = ingest_image_asset_from_base64(
+            "%%%not-base64%%%",
+            None,
+            None,
+            &repo,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, PlethoraError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn ingest_image_asset_deduplicates_by_sha256() {
+        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+            .await
+            .expect("in-memory db");
+        repo_pool.migrate().await.expect("migrate");
+        let repo = Repository::new(repo_pool.pool().clone());
+        // 1x1 red PNG
+        let png = base64::engine::general_purpose::STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+            .expect("valid png base64");
+        let base64_data = general_purpose::STANDARD.encode(&png);
+        let first = ingest_image_asset_from_base64(
+            &base64_data,
+            Some("image/png".to_string()),
+            Some("diagram.png".to_string()),
+            &repo,
+        )
+        .await
+        .expect("first ingest succeeds");
+        let second = ingest_image_asset_from_base64(
+            &base64_data,
+            Some("image/png".to_string()),
+            Some("duplicate.png".to_string()),
+            &repo,
+        )
+        .await
+        .expect("duplicate ingest succeeds");
+        assert_eq!(first.id, second.id, "identical content reuses the asset");
+        assert_eq!(first.sha256, second.sha256);
+    }
+
+    #[tokio::test]
+    async fn ingest_image_asset_rejects_non_image_payload() {
+        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+            .await
+            .expect("in-memory db");
+        repo_pool.migrate().await.expect("migrate");
+        let repo = Repository::new(repo_pool.pool().clone());
+        let base64_data = general_purpose::STANDARD.encode(b"this is definitely not an image");
+        let err = ingest_image_asset_from_base64(
+            &base64_data,
+            Some("image/png".to_string()),
+            None,
+            &repo,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, PlethoraError::InvalidInput(_)));
+    }
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { LearningItem } from "../../api/review";
 import {
   Brain,
+  Eye,
   Lightbulb,
   Pause,
   Pencil,
@@ -16,6 +17,7 @@ import { useTTS } from "../../hooks/useTTS";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { getImageAssetById } from "../../api/image-registry";
 import { normalizeClozeSyntax } from "../../utils/cloze";
+import { cn } from "../../utils";
 import { CardSourceContext } from "./CardSourceContext";
 import { AssessmentPanel, FreeResponseInput } from "./AssessmentPanel";
 import type { AnswerAssessment } from "../../lib/ai/schemas/answerAssessment";
@@ -69,10 +71,15 @@ export const ReviewCard = React.memo(function ReviewCard({
   const { t } = useI18n();
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
+  const [revealAllSiblings, setRevealAllSiblings] = useState(false);
 
   useEffect(() => {
     warmAnkiLatexNormalization([card.question, card.answer, card.cloze_text]);
   }, [card.question, card.answer, card.cloze_text]);
+
+  useEffect(() => {
+    setRevealAllSiblings(false);
+  }, [card.id]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -427,6 +434,33 @@ export const ReviewCard = React.memo(function ReviewCard({
       })
     );
 
+    const occlusionMode = interactionMetadata.occlusionMode ?? "hide-all";
+    const isHideOne = occlusionMode === "hide-one" || occlusionMode === "per-region";
+
+    // Target region identification (defaults to first region for legacy cards)
+    const targetRegionId = interactionMetadata.targetRegionId;
+    const targetRegion = targetRegionId
+      ? imageOcclusionRegions.find((r) => r.id === targetRegionId) ?? imageOcclusionRegions[0]
+      : imageOcclusionRegions[0];
+
+    const hasSiblings = imageOcclusionRegions.length > 1;
+
+    const regionsToRender = (() => {
+      if (!showAnswer) {
+        if (isHideOne) {
+          return targetRegion ? [targetRegion] : [];
+        }
+        return imageOcclusionRegions;
+      }
+      if (revealAllSiblings || isHideOne) {
+        return [];
+      }
+      // Keep sibling blocker masks concealed after revealing answer
+      return imageOcclusionRegions.filter(
+        (r) => (r.id ? r.id !== targetRegion?.id : r !== targetRegion)
+      );
+    })();
+
     return (
       <div className="mt-5">
         {interactionMetadata.imageOcclusionPrompt && (
@@ -448,12 +482,22 @@ export const ReviewCard = React.memo(function ReviewCard({
               alt={t("review.imageOcclusionAlt")}
               className="block h-auto w-auto max-h-[40dvh] max-w-full md:max-h-[calc(100dvh-32rem)]"
             />
-            {!showAnswer &&
-              imageOcclusionRegions.map((region) => (
+            {regionsToRender.map((region) => {
+              const isTarget = region.id
+                ? region.id === targetRegion?.id
+                : region === targetRegion;
+
+              return (
                 <div
                   key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}
                   data-testid="occlusion-region-overlay"
-                  className="absolute rounded-md border border-white/30 bg-slate-950 shadow-sm"
+                  data-occlusion-target={isTarget ? "true" : "false"}
+                  className={cn(
+                    "absolute flex items-center justify-center rounded-md bg-slate-950 shadow-sm transition-all",
+                    isTarget
+                      ? "border-2 border-primary ring-2 ring-primary/30 z-10"
+                      : "border border-white/20 z-0"
+                  )}
                   style={{
                     left: `${normalizeMetric(region.x)}%`,
                     top: `${normalizeMetric(region.y)}%`,
@@ -461,10 +505,36 @@ export const ReviewCard = React.memo(function ReviewCard({
                     height: `${normalizeMetric(region.height)}%`,
                     backgroundColor: region.color || "#0f172a",
                   }}
-                />
-              ))}
+                >
+                  {isTarget && !showAnswer && (
+                    <span
+                      data-testid="occlusion-target-badge"
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-primary font-bold text-xs text-primary-foreground shadow"
+                      aria-hidden="true"
+                    >
+                      ?
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
+
+        {/* Reveal all sibling labels toggle button */}
+        {showAnswer && hasSiblings && !isHideOne && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              data-testid="occlusion-reveal-all"
+              onClick={() => setRevealAllSiblings((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <Eye className="w-4 h-4" />
+              {revealAllSiblings ? t("review.hideAllLabels") : t("review.revealAllLabels")}
+            </button>
+          </div>
+        )}
       </div>
     );
   };
