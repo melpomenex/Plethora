@@ -68,6 +68,7 @@ import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts
 import { usePriorityPopup } from "../documents/usePriorityPopup";
 import { getQueuePrimaryAction, getQueuePrimaryActionLabelKey } from "./queueActions";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
+import { scrollModeEntryProminentClasses } from "../queue/scrollModeEntry";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
 import { useI18n } from "../../lib/i18n";
 import { ScheduleView } from "../schedule/ScheduleView";
@@ -1083,7 +1084,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                   captureQueueScrollAnchor();
                   onOpenScrollMode({ items: visibleItems, mode: "queue-list", itemTypes: effectiveItemTypes });
                 }}
-                className="flex-1 md:flex-none px-3 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:opacity-90 flex flex-col items-center justify-center min-h-[44px] shadow-sm transition-all"
+                className={`flex-1 md:flex-none px-3 md:px-4 py-1 md:py-1.5 ${scrollModeEntryProminentClasses} rounded-md flex flex-col items-center justify-center min-h-[44px] shadow-sm transition-all`}
                 title={t("queue.scrollModeTooltip")}
               >
                 <div className="flex items-center gap-1.5 font-medium text-xs md:text-sm">

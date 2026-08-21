@@ -57,6 +57,12 @@
 
   --color-warning: #f59e0b;
 
+  /* Mode accent — semantic accent for special-mode controls (e.g. the Scroll
+     Mode launcher). Static defaults so the Tailwind utilities always exist;
+     ThemeContext.applyThemeToDOM overrides these per applied theme. */
+  --color-mode-accent: #4f46e5;
+  --color-mode-accent-foreground: #ffffff;
+
   /* Glass Theme - Glassmorphism Design System */
   --color-glass-50: rgba(255, 255, 255, 0.05);
   --color-glass-100: rgba(255, 255, 255, 0.10);

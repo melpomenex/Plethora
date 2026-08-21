@@ -42,6 +42,10 @@ import { MobileScheduleView } from "../schedule/MobileScheduleView";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { orderQueueItems, type OrderedQueueItem, type PriorityPreset, type SessionItemTypes } from "../../utils/reviewUx";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
+import {
+  scrollModeEntryDisabledClasses,
+  scrollModeEntryProminentClasses,
+} from "../queue/scrollModeEntry";
 import { useStartupStore } from "../../stores/startupStore";
 import { DynamicVirtualList } from "../common/VirtualList";
 
@@ -720,7 +724,7 @@ export function MobileQueueView({
             <button
               onClick={() => onOpenScrollMode({ items: filteredItems, mode: "queue-list" })}
               disabled={filteredItems.length === 0}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+              className={`flex items-center justify-center gap-2 px-4 py-3 ${scrollModeEntryProminentClasses} ${scrollModeEntryDisabledClasses} rounded-xl font-medium active:scale-95 transition-all`}
               title={t("queue.scrollModeTooltip")}
             >
               <DeviceMobile className="w-5 h-5" />

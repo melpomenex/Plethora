@@ -12,6 +12,8 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // that is both statically and dynamically imported into the static importer's
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
 import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme } from "../themes/fallback";
+import { makeOpaque } from "../themes/color";
+import { resolveModeAccent } from "../themes/modeAccent";
 import { loadGoogleFont } from "../utils/fonts";
 import { migratedGetItem } from "../lib/brandMigration";
 import { invokeCommand } from "../lib/tauri";
@@ -60,25 +62,6 @@ interface ThemeProviderProps {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 /**
- * Ensures a color value is opaque by stripping alpha or falling back to a solid color.
- */
-function makeOpaque(color: string | undefined, fallback = "#1e293b"): string {
-  if (!color) return fallback;
-  const trimmed = color.trim();
-  const rgbaMatch = trimmed.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*[\d.]+\s*\)$/i);
-  if (rgbaMatch) {
-    return `rgb(${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]})`;
-  }
-  if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) {
-    return trimmed.slice(0, 7);
-  }
-  if (/^#[0-9a-fA-F]{4}$/.test(trimmed)) {
-    return trimmed.slice(0, 4);
-  }
-  return trimmed;
-}
-
-/**
  * Apply theme CSS variables to document root
  */
 function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void {
@@ -117,6 +100,13 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
     "--color-secondary-foreground",
     theme.colors.onSecondary || theme.colors.onPrimary
   );
+
+  // Semantic mode accent (special-mode controls, e.g. the Scroll Mode
+  // launcher). Resolved from the theme on every apply so preview, commit, and
+  // restart paths all refresh the tokens.
+  const modeAccent = resolveModeAccent(theme);
+  root.style.setProperty("--color-mode-accent", modeAccent.accent);
+  root.style.setProperty("--color-mode-accent-foreground", modeAccent.foreground);
 
   // Apply typography - use font family override from settings if available
   const fontFamily = fontFamilyOverride || theme.typography.fontFamily;

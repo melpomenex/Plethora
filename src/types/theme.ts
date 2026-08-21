@@ -38,6 +38,9 @@ export interface ThemeColors {
   text: string;
   textSecondary: string;
   link: string;
+  /** Optional explicit accent for special-mode controls. When absent, a
+   *  deterministic palette-derived accent is computed at theme-apply time. */
+  modeAccent?: string;
 }
 
 export interface ThemeTypography {
