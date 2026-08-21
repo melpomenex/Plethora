@@ -2512,6 +2512,11 @@ fn is_public_browser_extension_endpoint(path: &str, method: &axum::http::Method)
 /// this decoded-bytes number alone.
 const IMAGE_OCCLUSION_DECODED_MAX_BYTES: usize = 7 * 1024 * 1024;
 
+/// Approximate decoded byte size of a base64 payload (`3/4` of encoded length).
+fn decoded_base64_size(base64_data: &str) -> usize {
+    base64_data.len().saturating_mul(3) / 4
+}
+
 async fn handle_image_occlusion_request(
     State(state): State<ServerState>,
     Json(payload): Json<ImageOcclusionRequest>,
@@ -2785,7 +2790,7 @@ async fn handle_image_registry_ingest_internal(
     payload: ImageRegistryIngestPayload,
 ) -> Response {
     let (asset_result, effective_mime) = if let Some(base64_data) = payload.image_base64.as_deref() {
-        let decoded_size = base64_data.len().saturating_mul(3) / 4;
+        let decoded_size = decoded_base64_size(base64_data);
         if decoded_size == 0 || decoded_size > IMAGE_OCCLUSION_DECODED_MAX_BYTES {
             return error_response(StatusCode::PAYLOAD_TOO_LARGE, "Image must be between 1 byte and 7 MB");
         }
@@ -2926,6 +2931,7 @@ async fn handle_image_registry_ingest_internal(
 
     if payload.open_composer {
         if let Some(window) = state.app_handle.get_webview_window("main") {
+            #[cfg(desktop)]
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
@@ -6389,5 +6395,85 @@ mod x_thread_capture_tests {
             .as_str()
             .expect("error string")
             .contains("Rate limited"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_ingest_decoded_size_bounds_match_transport_limit() {
+        // base64 "AA==" decodes to 1 byte
+        assert_eq!(decoded_base64_size("AA=="), 3);
+        assert_eq!(decoded_base64_size(""), 0);
+        assert_eq!(decoded_base64_size("QQ=="), 3);
+
+        // 7 MB decoded budget: 7 * 1024 * 1024 bytes -> 9_331_536 base64 chars
+        let at_limit: usize = 7 * 1024 * 1024;
+        let base64_len = at_limit.div_ceil(3) * 4;
+        assert!(decoded_base64_size(&"A".repeat(base64_len)) >= at_limit);
+        assert!(decoded_base64_size(&"A".repeat(base64_len + 4)) > IMAGE_OCCLUSION_DECODED_MAX_BYTES);
+    }
+
+    #[test]
+    fn ingest_route_is_a_public_browser_extension_endpoint() {
+        assert!(is_public_browser_extension_endpoint(
+            "/api/image-registry/ingest",
+            &axum::http::Method::POST
+        ));
+        assert!(!is_public_browser_extension_endpoint(
+            "/api/image-registry/ingest",
+            &axum::http::Method::GET
+        ));
+    }
+
+    #[test]
+    fn browser_import_tags_preserves_only_explicit_tags() {
+        assert_eq!(
+            browser_import_tags(Some(&vec!["anatomy".to_string(), "diagram".to_string()])),
+            vec!["anatomy", "diagram"]
+        );
+        assert!(browser_import_tags(None).is_empty());
+    }
+
+    #[test]
+    fn queued_browser_organization_emits_provenance_and_fingerprint() {
+        let context = serde_json::json!({
+            "sourceUrl": "https://example.com/article",
+            "domain": "example.com",
+            "pageTitle": "Anatomy diagram",
+            "captionAltText": "Labeled heart diagram",
+        });
+        let (provenance, organization) = queued_browser_organization(
+            "image-registry",
+            "Anatomy diagram — Labeled heart diagram",
+            &Some(context),
+            &["anatomy".to_string()],
+            None,
+        );
+        let provenance = provenance.expect("provenance present");
+        let organization = organization.expect("organization present");
+        assert_eq!(provenance["source"], "browser_extension");
+        assert_eq!(provenance["itemType"], "image-registry");
+        assert_eq!(provenance["sourceUrl"], "https://example.com/article");
+        assert_eq!(organization["status"], "queued");
+        assert_eq!(organization["confidenceBand"], "none");
+        let fingerprint = organization["fingerprint"].as_str().expect("fingerprint");
+        assert!(fingerprint.starts_with("browser-org-v1-"));
+        assert_eq!(fingerprint.len(), "browser-org-v1-".len() + 64);
+    }
+
+    #[test]
+    fn queued_browser_organization_is_empty_without_context() {
+        let (provenance, organization) = queued_browser_organization(
+            "image-registry",
+            "content",
+            &None,
+            &[],
+            None,
+        );
+        assert!(provenance.is_none());
+        assert!(organization.is_none());
     }
 }

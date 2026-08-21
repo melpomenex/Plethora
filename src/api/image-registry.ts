@@ -12,6 +12,8 @@ export interface ImageAsset {
   reference_count?: number;
   is_referenced?: boolean;
   data_url: string;
+  /** Bounded JSON metadata: browser capture context, provenance, smart-organization state. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface DeleteImageAssetResult {
@@ -37,6 +39,17 @@ export async function deleteImageAsset(assetId: string): Promise<DeleteImageAsse
  */
 export async function renameImageAsset(assetId: string, fileName: string): Promise<ImageAsset> {
   return invokeCommand<ImageAsset>("rename_image_asset", { assetId, fileName });
+}
+
+/**
+ * Persist bounded browser metadata (capture context, provenance, smart
+ * organization state) on an image asset.
+ */
+export async function updateImageAssetMetadata(
+  assetId: string,
+  metadata: Record<string, unknown>,
+): Promise<ImageAsset> {
+  return invokeCommand<ImageAsset>("update_image_asset_metadata", { assetId, metadata });
 }
 
 export async function ingestImageFile(file: File): Promise<ImageAsset> {

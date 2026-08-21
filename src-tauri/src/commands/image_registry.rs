@@ -770,4 +770,54 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, PlethoraError::InvalidInput(_)));
     }
+
+    #[tokio::test]
+    async fn image_asset_metadata_round_trips_and_status_reports_duplicates() {
+        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+            .await
+            .expect("in-memory db");
+        repo_pool.migrate().await.expect("migrate");
+        let repo = Repository::new(repo_pool.pool().clone());
+        // 1x1 red PNG
+        let png = base64::engine::general_purpose::STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+            .expect("valid png base64");
+        let base64_data = general_purpose::STANDARD.encode(&png);
+
+        let (asset, is_duplicate) = ingest_image_asset_from_base64_with_status(
+            &base64_data,
+            Some("image/png".to_string()),
+            None,
+            &repo,
+        )
+        .await
+        .expect("ingest succeeds");
+        assert!(!is_duplicate, "first ingest is not a duplicate");
+        assert!(asset.metadata.is_none(), "fresh asset has no metadata");
+
+        assert!(repo
+            .update_image_asset_metadata(&asset.id, r#"{"organization":{"status":"queued"}}"#)
+            .await
+            .expect("metadata update succeeds"));
+
+        let loaded = repo
+            .get_image_asset(&asset.id)
+            .await
+            .expect("reload")
+            .expect("exists");
+        assert_eq!(
+            loaded.metadata.as_deref(),
+            Some(r#"{"organization":{"status":"queued"}}"#)
+        );
+
+        let (_, duplicate) = ingest_image_asset_from_base64_with_status(
+            &base64_data,
+            Some("image/png".to_string()),
+            None,
+            &repo,
+        )
+        .await
+        .expect("duplicate ingest succeeds");
+        assert!(duplicate, "second ingest reports is_duplicate");
+    }
 }
