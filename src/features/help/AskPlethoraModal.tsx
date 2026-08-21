@@ -24,6 +24,7 @@ import {
 } from "@phosphor-icons/react";
 import { defaultHelpRetrieval } from "./helpRetrieval";
 import { dispatchRegisteredHelpAction } from "./registeredHelpActions";
+import { renderMarkdown } from "../../utils/markdown";
 
 export interface AskPlethoraModalProps {
   isOpen: boolean;
@@ -228,7 +229,14 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
                         : "bg-muted/50 border border-border/60 text-foreground rounded-bl-none shadow-sm"
                     }`}
                   >
-                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                    {msg.sender === "user" ? (
+                      <div className="whitespace-pre-wrap">{msg.text}</div>
+                    ) : (
+                      <div
+                        className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_pre]:my-2 [&_code]:text-[11px] [&_strong]:font-semibold [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs text-foreground/90"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.text) }}
+                      />
+                    )}
 
                     {/* Citations Footer */}
                     {msg.citations && msg.citations.length > 0 && (
