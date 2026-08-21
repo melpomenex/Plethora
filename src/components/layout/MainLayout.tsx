@@ -10,7 +10,7 @@ import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 import { Toolbar } from "../Toolbar";
 import { Tabs } from "../common/Tabs";
-import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab } from "../tabs/TabRegistry";
+import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, prefetchCommonTabs } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
 import { CommandCenter } from "../search/CommandCenter";
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
@@ -22,7 +22,7 @@ import { KeyboardShortcutsHelp } from "../common/KeyboardShortcutsHelp";
 import { ImageSaveOverlay } from "../viewer/ImageSaveOverlay";
 import { OcclusionComposerHost } from "../occlusion/OcclusionComposerHost";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
-import { isTauri, invokeCommand, listen } from "../../lib/tauri";
+import { isTauri, invokeCommand, listen, whenBackendReady } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
 import { useModal } from "../common/Modal";
 import { checkForUpdates, setSkippedVersion } from "../../utils/updateChecker";
@@ -261,6 +261,13 @@ export function MainLayout() {
     // so only a genuine main-window launch marks readiness.
     requestAnimationFrame(() => {
       useStartupExperienceStore.getState().markRoutePainted();
+    });
+
+    // Warm the common tab chunks once the backend gate clears. The first tap
+    // on a cold tab otherwise races the WebView cold-start fetch-stall window
+    // and can spin until the user navigates away and back.
+    void whenBackendReady().then(() => {
+      prefetchCommonTabs();
     });
   }, []);
 

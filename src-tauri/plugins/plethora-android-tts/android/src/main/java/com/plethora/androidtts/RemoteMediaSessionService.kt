@@ -296,6 +296,10 @@ class WebViewBridgePlayer(
             .add(Player.COMMAND_PLAY_PAUSE)
             .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
             .add(Player.COMMAND_GET_TIMELINE)
+            // Required by DefaultMediaNotificationProvider: without it the
+            // provider skips reading mediaMetadata entirely and posts the
+            // notification with null title/text ("null" on the lock screen).
+            .add(Player.COMMAND_GET_METADATA)
             .add(Player.COMMAND_SET_MEDIA_ITEM)
             .addIf(Player.COMMAND_SEEK_TO_NEXT, MediaBridge.canNext)
             .addIf(Player.COMMAND_SEEK_TO_PREVIOUS, MediaBridge.canPrevious)
