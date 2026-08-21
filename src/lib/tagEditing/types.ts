@@ -16,10 +16,13 @@ export type ItemTagType = "document" | "extract" | "learning-item";
  * `tags` is the currently known persisted tag list (may be a stale snapshot;
  * editors reconcile from the persisted response).
  */
+import type { SmartTagDetail } from "../../types/document";
+
 export interface ItemTagTarget {
   type: ItemTagType;
   id: string;
   tags: string[];
+  smartTagDetails?: SmartTagDetail[];
 }
 
 /**

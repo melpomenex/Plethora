@@ -12,3 +12,4 @@ export * from "./prerequisite";
 export * from "./passageClassification";
 export * from "./tutorTurn";
 export * from "./libraryAnswer";
+export * from "./smartTagging";

@@ -116,7 +116,7 @@ pub fn canonicalize_tag(candidate: &str, existing_tags: &[String]) -> String {
 
     // 4. Known common synonym / acronym mappings if present in existing taxonomy
     let known_synonyms: &[(&[&str], &str)] = &[
-        (&["machine learning", "ml"], "Machine Learning"),
+        (&["machine learning", "ml", "ai ml", "ai / ml"], "Machine Learning"),
         (&["artificial intelligence", "ai"], "Artificial Intelligence"),
         (&["operating systems", "operating system", "os"], "Operating Systems"),
         (&["deep learning", "dl"], "Deep Learning"),

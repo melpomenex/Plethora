@@ -82,8 +82,13 @@ pub fn evaluate_and_filter_tags(
 
     // 2. Process High-Scoring Candidate Existing Tags
     for ct in candidate_existing {
-        // Compute confidence from candidate score
-        let confidence = (ct.score / 12.0).clamp(0.50, 0.96);
+        // Compute confidence from candidate score: score >= 2.0 is high confidence
+        let confidence = if ct.score >= 2.0 {
+            (0.70 + (ct.score - 2.0) * 0.04).clamp(0.70, 0.98)
+        } else {
+            (ct.score / 3.0).clamp(0.0, 0.69)
+        };
+
         if confidence >= config.min_confidence {
             let canonical = ct.tag.clone();
             let norm = normalize_for_comparison(&canonical);
@@ -116,13 +121,13 @@ pub fn evaluate_and_filter_tags(
             break;
         }
 
-        // Only accept multi-word phrases or terms with strong evidence (e.g. score >= 4.5 and freq >= 2)
-        if st.is_phrase && st.score >= 4.0 && st.frequency >= 2 {
+        // Only accept multi-word phrases or terms with strong evidence (e.g. score >= 3.0 and freq >= 2)
+        if st.is_phrase && st.score >= 3.0 && st.frequency >= 2 {
             let canonical = canonicalize_tag(&st.term, existing_library_tags);
             let norm = normalize_for_comparison(&canonical);
 
             if !dismissed_norms.contains(&norm) && !manual_norms.contains(&norm) && !seen_canonical.contains(&norm) {
-                let confidence = (st.score / 8.0).clamp(0.70, 0.90);
+                let confidence = (0.70 + (st.score - 3.0) * 0.04).clamp(0.70, 0.92);
                 if confidence >= config.min_confidence {
                     seen_canonical.insert(norm);
                     let reason = format!(

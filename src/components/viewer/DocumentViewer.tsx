@@ -36,6 +36,7 @@ import {
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
+import { useSmartTaggingQueueStore } from "../../stores/smartTaggingQueueStore";
 import { useShallow } from "zustand/react/shallow";
 import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
 import { markBusy } from "../../lib/memoryScenario/activity";
@@ -5195,6 +5196,16 @@ export function DocumentViewer({
       "doc.toggleVimMode": () => {
         const vim = useVimModeStore.getState();
         vim.setMode(vim.mode === "inactive" ? "normal" : "inactive");
+      },
+      "doc.smartTag": () => {
+        if (currentDocument?.id) {
+          useSmartTaggingQueueStore.getState().enqueue(currentDocument.id, { forceRetag: true });
+        }
+      },
+      "doc.suggestTags": () => {
+        if (currentDocument?.id) {
+          useSmartTaggingQueueStore.getState().enqueue(currentDocument.id, { forceRetag: true });
+        }
       },
     },
     { isActive: tabContextIsActive },

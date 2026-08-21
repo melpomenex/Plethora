@@ -37,6 +37,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useSmartTaggingQueueStore } from "../../stores/smartTaggingQueueStore";
 import { useShallow } from "zustand/react/shallow";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
@@ -1942,6 +1943,17 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
                   onClick={() => {
+                    const target = listCtxDoc.doc;
+                    setListCtxDoc(null);
+                    useSmartTaggingQueueStore.getState().enqueue(target.id, { forceRetag: true });
+                  }}
+                >
+                  <Sparkle className="h-3.5 w-3.5 text-amber-500" />
+                  Retag Document (Smart Tagging)
+                </button>
+                <button
+                  className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                  onClick={() => {
                     const clicked = listCtxDoc.doc;
                     setListCtxDoc(null);
                     const inSelection = selectedIds.has(clicked.id);
@@ -3829,6 +3841,13 @@ function LibraryCard({
         const next = new Set(doc.tags);
         next.add(tag);
         onUpdate(doc.id, { tags: Array.from(next) });
+      },
+    },
+    {
+      label: "Retag Document (Smart Tagging)",
+      icon: <Sparkle className="h-3.5 w-3.5 text-amber-500" />,
+      action: () => {
+        useSmartTaggingQueueStore.getState().enqueue(doc.id, { forceRetag: true });
       },
     },
     ...(onOpenPopup ? [{

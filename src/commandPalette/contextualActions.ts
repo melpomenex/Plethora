@@ -51,7 +51,9 @@ export type DocumentActionId =
   | "doc.createExtract"
   | "doc.highlightSelection"
   | "doc.toggleFullscreen"
-  | "doc.toggleVimMode";
+  | "doc.toggleVimMode"
+  | "doc.smartTag"
+  | "doc.suggestTags";
 
 export type RssActionId =
   | "rss.search"
@@ -224,6 +226,20 @@ export const documentActions: ViewAction[] = [
     iconName: "CommandLine",
     keywords: ["vim", "keyboard", "reading", "mode"],
     applies: (ctx) => ctx.vimAvailable !== false,
+  },
+  {
+    id: "doc.smartTag",
+    title: "Retag Document (Smart Tagging)",
+    view: "document-viewer",
+    iconName: "Tag",
+    keywords: ["tag", "smart", "retag", "auto", "ai", "classify"],
+  },
+  {
+    id: "doc.suggestTags",
+    title: "Suggest Tags for Document",
+    view: "document-viewer",
+    iconName: "Sparkle",
+    keywords: ["tag", "suggest", "recommend", "ai", "topics"],
   },
 ];
 

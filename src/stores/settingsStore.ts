@@ -252,8 +252,16 @@ interface DocumentSettings {
   htmlSettings: HTMLSettings;
   segmentation: SegmentationSettings;
   ocr: OCRSettings;
+  smartTagging: SmartTaggingSettings;
   cacheContent: boolean;
   autoCleanupCache: boolean;
+}
+
+export interface SmartTaggingSettings {
+  enabled: boolean;
+  mode: "automatic" | "suggestions-only";
+  maxTagsPerDocument: number;
+  preferExistingTags: boolean;
 }
 
 /**
@@ -981,6 +989,12 @@ export const defaultSettings: Settings = {
     defaultCategory: "Uncategorized",
     autoProcessOnImport: false,
     detectDuplicates: true,
+    smartTagging: {
+      enabled: true,
+      mode: "automatic",
+      maxTagsPerDocument: 6,
+      preferExistingTags: true,
+    },
     webImportPreserveImages: true,
     webImportKeepRawSource: true,
     pdfSettings: {
@@ -1413,6 +1427,10 @@ export const useSettingsStore = create<SettingsState>()(
             ocr: {
               ...defaultSettings.documents.ocr,
               ...persisted.documents?.ocr,
+            },
+            smartTagging: {
+              ...defaultSettings.documents.smartTagging,
+              ...persisted.documents?.smartTagging,
             },
           },
           ai: {

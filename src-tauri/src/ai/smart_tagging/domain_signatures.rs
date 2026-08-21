@@ -89,16 +89,18 @@ static DOMAIN_SIGNATURES: &[DomainSignature] = &[
     DomainSignature {
         domain_name: "Computer Science",
         primary_terms: &[
-            "operating systems", "cpu scheduling", "distributed systems",
+            "operating systems", "operating system", "cpu scheduling", "distributed systems",
             "compiler design", "data structures", "machine learning",
             "neural networks", "garbage collection", "relational database",
             "concurrency control", "asymptotic complexity", "type system",
             "memory management", "virtual memory", "file system", "tcp/ip",
+            "software architecture", "software engineering", "software development",
         ],
         secondary_terms: &[
-            "algorithm", "compiler", "database", "programming", "software engineering",
+            "algorithm", "compiler", "database", "programming", "software", "hardware",
             "kernel", "thread", "process", "mutex", "cache", "latency", "throughput",
             "bytecode", "runtime", "polymorphism", "recursion", "microservice",
+            "drivers", "linux", "architecture",
         ],
         ambiguous_terms: &["program", "code", "system", "data", "compute", "interface"],
         min_distinct_matches: 2,

@@ -491,7 +491,12 @@ export function ItemDetailsPopover({
                 )}
                 {canEditTags && (
                   <ItemTagEditor
-                    target={{ type: target.type, id: target.id, tags: editorTags }}
+                    target={{
+                      type: target.type,
+                      id: target.id,
+                      tags: editorTags,
+                      smartTagDetails: (details.raw as { metadata?: { smartTagDetails?: import("../../types/document").SmartTagDetail[] } })?.metadata?.smartTagDetails,
+                    }}
                     onTagClick={handleTagClick}
                     onTagsPersisted={(tags) => {
                       // Keep the popover's raw snapshot in sync so a later

@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
+  Broom,
   ChartBar,
   Command as CommandIcon,
   Gear,
@@ -15,6 +16,8 @@ import {
   Palette,
   Play,
   Plus,
+  Sparkle,
+  Tag,
   TextT,
 } from "@phosphor-icons/react";
 import { useI18n, t } from "../../lib/i18n";
@@ -385,6 +388,108 @@ export function getDefaultCommands(): Command[] {
       },
       keywords: ["create", "add", "import", "file", "pdf", "epub"],
       shortcut: "⌘N",
+    }),
+    createCommand({
+      id: "tag-untagged-documents",
+      label: "Smart Tag Untagged Documents",
+      description: "Run Smart Tagging on library documents with no tags",
+      icon: <Sparkle className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: async () => {
+        const { useDocumentStore } = await import("../../stores/documentStore");
+        const { useSmartTaggingQueueStore } = await import("../../stores/smartTaggingQueueStore");
+        const { useToastStore, ToastType } = await import("./Toast");
+
+        const allDocs = useDocumentStore.getState().documents;
+        const untagged = allDocs.filter((d) => !d.tags || d.tags.length === 0);
+        if (untagged.length === 0) {
+          useToastStore.getState().addToast({
+            type: ToastType.Info,
+            title: "Smart Tagging",
+            message: "All library documents already have tags",
+          });
+          return;
+        }
+
+        useSmartTaggingQueueStore.getState().enqueueBatch(untagged.map((d) => d.id), { forceRetag: true });
+        useToastStore.getState().addToast({
+          type: ToastType.Success,
+          title: "Smart Tagging",
+          message: `Enqueued ${untagged.length} untagged document${untagged.length !== 1 ? "s" : ""} for tagging`,
+        });
+      },
+      keywords: ["smart", "tag", "untagged", "auto", "batch", "classify"],
+    }),
+    createCommand({
+      id: "cleanup-legacy-auto-tags",
+      label: "Clean Up Legacy Auto-Tags",
+      description: "Remove legacy 'auto-tagged' marker and faulty static substring tags",
+      icon: <Broom className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: async () => {
+        const { useDocumentStore } = await import("../../stores/documentStore");
+        const { updateDocument } = await import("../../api/documents");
+        const { publishItemTagsUpdated } = await import("../../lib/tagEditing/itemTagEvents");
+        const { useToastStore, ToastType } = await import("./Toast");
+
+        const allDocs = useDocumentStore.getState().documents;
+        const legacyStaticTags = new Set([
+          "auto-tagged",
+          "programming",
+          "research",
+          "notes",
+          "science",
+          "history",
+          "language",
+          "math",
+          "economics",
+          "biology",
+          "physics",
+          "philosophy",
+        ]);
+
+        let cleanedDocsCount = 0;
+        let removedTagsCount = 0;
+
+        for (const doc of allDocs) {
+          if (!doc.tags || doc.tags.length === 0) continue;
+          const details = doc.metadata?.smartTagDetails || [];
+          // Keep tags that have explicit smart or manual provenance
+          const filteredTags = doc.tags.filter((tag) => {
+            if (tag === "auto-tagged") {
+              removedTagsCount++;
+              return false;
+            }
+            const hasProvenance = details.some((d) => d.tag.toLowerCase() === tag.toLowerCase());
+            if (!hasProvenance && legacyStaticTags.has(tag.toLowerCase())) {
+              // Legacy tag with no provenance attached
+              removedTagsCount++;
+              return false;
+            }
+            return true;
+          });
+
+          if (filteredTags.length !== doc.tags.length) {
+            cleanedDocsCount++;
+            const updatedDoc = { ...doc, tags: filteredTags };
+            try {
+              await updateDocument(doc.id, updatedDoc);
+              publishItemTagsUpdated({ itemType: "document", id: doc.id, tags: filteredTags });
+            } catch (e) {
+              console.warn(`[CleanupLegacyTags] Failed to update doc ${doc.id}:`, e);
+            }
+          }
+        }
+
+        useDocumentStore.getState().loadDocuments();
+
+        useToastStore.getState().addToast({
+          type: ToastType.Success,
+          title: "Tag Cleanup Complete",
+          message: `Removed ${removedTagsCount} legacy tag${removedTagsCount !== 1 ? "s" : ""} across ${cleanedDocsCount} document${cleanedDocsCount !== 1 ? "s" : ""}`,
+        });
+      },
+      keywords: ["cleanup", "clean", "legacy", "auto-tagged", "tags", "fix"],
     }),
     createCommand({
       id: "new-flashcard",
