@@ -1,5 +1,5 @@
-//! Tauri commands for the SuperMemo neural queue (supermemo-faithful-queue
-//! Phase 4) — the optional "Go neural" creative-exploration mode.
+//! Tauri commands for the neural queue — the optional "Go neural"
+//! creative-exploration mode.
 //!
 //! These commands are the entry points the frontend invokes to enter neural
 //! review, fetch the next elements, mark them studied, and let the depletion
@@ -12,7 +12,7 @@ use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::{ElementKind, ElementTreeRepository, NeuralQueueRepository, Repository};
 use crate::error::{PlethoraError, Result};
 
-/// Enter neural review (SuperMemo's *Learn : Go neural*): build the neural
+/// Enter neural review ("Go neural"): build the neural
 /// queue by spreading activation seeded at the element derived from
 /// `(element_kind, element_ref_id)`. Returns the number of elements queued.
 ///

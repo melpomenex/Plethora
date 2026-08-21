@@ -27,7 +27,7 @@ actions:
 related:
   - review.flashcard_studio
   - scheduler.fsrs
-  - scheduler.sm18
+  - scheduler.adaptive
 ---
 
 # Anki Deck Import (.apkg)
@@ -43,7 +43,7 @@ Enables total migration of Anki flashcard decks, card styling templates, audio r
 ## Exact Behavioral Rules
 1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.
 2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.
-3. Converts Anki stability/difficulty/interval values into FSRS-6 / SM-18 state parameters so due dates remain consistent.
+3. Converts Anki stability/difficulty/interval values into FSRS-6 / Plethora Adaptive state parameters so due dates remain consistent.
 
 ## Rationale
 No user should be forced to abandon their hard-earned spaced repetition memory stability when switching to Plethora's incremental reading environment.

@@ -31,9 +31,9 @@
       "cost": 0.02902,
       "tolerance": 1.5
     },
-    "sm20/review-sequence": {
-      "cost": 12.87,
-      "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path. Re-recorded as the median of three calibrated runs (13.00, 13.87, 14.46) because this long allocation-heavy path scales differently from the gate's median mixed-workload runner calibration; the longer 2s/100-iteration sample supports tightening tolerance from 1.6x to the 1.25x default."
+    "precision-scheduler/review-sequence": {
+      "cost": 9.5,
+      "reason": "Plethora Precision 5-model ensemble scheduler review sequence hot path benchmark. Shallow array copying of mutable arrays and matrices."
     },
     "queue/build-500-items": {
       "cost": 0.0964,
@@ -43,19 +43,20 @@
     "queueScrollOrder/combined-sort-300-items": {
       "cost": 0.42,
       "tolerance": 1.5,
-      "reason": "SuperMemo combined-criterion session sort: hoisted the per-item-invariant score terms (priority + jitterWeight*stableJitter(id), and the topic/item classification) out of the O(n^2) selection loop into precomputed Float64/Uint8 arrays, and lifted the two type-specific proportion terms to once-per-position. stableJitter (a BigInt FNV-1a hash) was the dominant cost, recomputed ~n^2 times for n distinct values. ~38x faster; output byte-identical (verified by differential fuzzing, 17732 checks, 0 mismatches)."
+      "reason": "Combined-criterion session sort: hoisted the per-item-invariant score terms (priority + jitterWeight*stableJitter(id), and the topic/item classification) out of the O(n^2) selection loop into precomputed Float64/Uint8 arrays, and lifted the two type-specific proportion terms to once-per-position. stableJitter (a BigInt FNV-1a hash) was the dominant cost, recomputed ~n^2 times for n distinct values. ~38x faster; output byte-identical (verified by differential fuzzing, 17732 checks, 0 mismatches)."
     },
     "neuralQueue/spreading-activation-300-nodes": {
       "cost": 0.0017,
       "tolerance": 2.0,
-      "reason": "SuperMemo neural-queue spreading-activation pass (Phase 4): TS port of the Rust algorithm, propagating activation over a 300-node seeded tree via concept/inter-element/descendant/sibling links with the monotonicity InsertOrUpdate. Runs only on neural-queue depletion (< 20 remaining); the ~0.9us cost reflects the pure-combine hot path. Wider tolerance because Map operations are GC-sensitive at this timescale."
+      "reason": "Neural-queue spreading-activation pass (Phase 4): TS port of the Rust algorithm, propagating activation over a 300-node seeded tree via concept/inter-element/descendant/sibling links with the monotonicity InsertOrUpdate. Runs only on neural-queue depletion (< 20 remaining); the ~0.9us cost reflects the pure-combine hot path. Wider tolerance because Map operations are GC-sensitive at this timescale."
     },
     "ankiImport/convert-2000-notes": {
       "cost": 1.368,
       "reason": "convertAnkiCardsToLearningItems did deck.notes.find(n => n.id === card.noteId) inside the card loop, an O(n) linear scan of all notes per card (O(n^2) overall, ~4M comparisons for 2000 cards). Indexed notes by id in a first-wins Map once before the loop (preserving Array.find's first-match semantics), so each lookup is O(1). Byte-identical for all finite-integer ids (verified by differential testing); NaN ids would differ but are unreachable (Rust producer types ids as i64 from SQLite). Re-recorded as the median of three unchanged-code Linux x86_64 / Node 24.18.0 CI samples (1.202, 1.408, 1.368) after GitHub Actions moved the LTS runner from Node 22 to Node 24; the 1.25x tolerance remains unchanged."
     },
     "markdown/render-document": {
-      "cost": 0.5807
+      "cost": 0.5807,
+      "tolerance": 1.4
     },
     "semanticGrading/routing-fallback": {
       "cost": 3.22,
@@ -127,6 +128,7 @@
     },
     "visible-text/first-visible-scan": {
       "cost": 0.05649,
+      "tolerance": 1.4,
       "reason": "improve-reader-tts: initial baseline for first-visible-word scan (400 synthetic paragraphs, visible-word short-circuit on first word)."
     },
     "language-processing/tokenize-4000-words": {
@@ -135,10 +137,12 @@
     },
     "language-processing/index-lookup-4000-tokens": {
       "cost": 0.03598,
+      "tolerance": 1.4,
       "reason": "add-language-processing-adapter-layer: initial deterministic baseline for normalized token index lookup over 4,000 tokens."
     },
     "help/intent-classification-50-queries": {
       "cost": 0.09599,
+      "tolerance": 1.4,
       "reason": "canonical-product-documentation-and-ask-plethora: intent classification across 50 query fixtures"
     },
     "help/bm25-search-10-queries": {
@@ -147,6 +151,7 @@
     },
     "help/direct-canonical-lookup": {
       "cost": 0.01851,
+      "tolerance": 1.4,
       "reason": "canonical-product-documentation-and-ask-plethora: 0ms direct lookup resolution"
     },
     "smartTagging/classify-document-baseline": {

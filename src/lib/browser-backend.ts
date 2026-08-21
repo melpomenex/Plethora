@@ -18,7 +18,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useLLMProvidersStore } from '../stores/llmProvidersStore';
 import { resolveFsrsParamsForScope } from '../utils/fsrsScope';
 import { getDefaultFsrsParameters, normalizeFsrsParameters } from '../utils/fsrsParameters';
-import { parseSm18State, sm18Review, ratingToSm18Grade } from './sm18';
+import { parseSm18State, sm18Review, ratingToSm18Grade } from './adaptiveScheduler';
 import {
     parseSm20State,
     sm20PreviewIntervals,
@@ -27,8 +27,8 @@ import {
     STABILITY_MAX,
     currentDayFromCe,
     type SM20CollectionState,
-} from './sm20';
-import { parseSm20CollectionState } from './sm20Collection';
+} from './precisionScheduler';
+import { parseSm20CollectionState } from './precisionCollection';
 import {
     SM20_ARENA_MODEL_ORDER,
     type ArenaSelection,
@@ -2689,11 +2689,11 @@ const commandHandlers: Record<string, CommandHandler> = {
             return toCamelCase(await applySm2ReviewBrowser(item, rating, algorithmType));
         }
 
-        if (algorithmType === 'sm18') {
+        if (algorithmType === 'sm18' || algorithmType === 'adaptive') {
             return toCamelCase(await applySm18ReviewBrowser(item, rating, algorithmType));
         }
 
-        if (algorithmType === 'sm20') {
+        if (algorithmType === 'sm20' || algorithmType === 'precision') {
             const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
             const nativeGradeRaw = args.grade;
             const nativeGrade = typeof nativeGradeRaw === 'number'
@@ -2849,14 +2849,20 @@ const commandHandlers: Record<string, CommandHandler> = {
         const algorithmType = (args.algorithm as string) || item.algorithm_type || 'fsrs';
 
         // SM-18 preview
-        if (algorithmType === 'sm18') {
+        if (algorithmType === 'sm18' || algorithmType === 'adaptive') {
             const now = new Date();
             let elapsedDays = 0;
             if (item.last_review_date) {
                 elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
             }
             const previewIntervals: Record<string, number> = {};
-            for (const [name, rating] of [['again', 0], ['hard', 1], ['good', 2], ['easy', 3]] as const) {
+            const ratings: Array<[string, number]> = [
+                ['again', 0],
+                ['hard', 1],
+                ['good', 2],
+                ['easy', 3],
+            ];
+            for (const [name, rating] of ratings) {
                 const state = parseSm18State(item.algorithm_state);
                 const grade = ratingToSm18Grade(rating);
                 const result = sm18Review(state, grade, elapsedDays);
@@ -2865,7 +2871,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             return previewIntervals;
         }
 
-        if (algorithmType === 'sm20') {
+        if (algorithmType === 'sm20' || algorithmType === 'precision') {
             const now = new Date();
             let elapsedDays = 0;
             if (item.last_review_date) {
@@ -3240,6 +3246,29 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
     },
 
+    get_arena_optimization_status: async () => {
+        const items = await db.getLearningItems();
+        const sampleCount = items.reduce((sum, item) => sum + (item.review_count || 0), 0);
+        const stored = await db.getSyncState("sm20_optimizer_profile") as Record<string, unknown> | null;
+        return stored ?? {
+            coefficients: {
+                coefficient_1: 1,
+                coefficient_2: 0,
+                coefficient_3: 0.5,
+                coefficient_4: -0.5,
+            },
+            objective_score: null,
+            sample_count: sampleCount,
+            minimum_samples_required: 200,
+            optimizer_version: 1,
+            model_version: 4,
+            activation_state: "diagnostic",
+            last_optimized_at: null,
+            optimized: false,
+            message: "The V4 recall model is diagnostic-only and does not change intervals.",
+        };
+    },
+
     optimize_sm20_locally: async () => {
         const items = await db.getLearningItems();
         const sampleCount = items.reduce((sum, item) => sum + (item.review_count || 0), 0);
@@ -3264,10 +3293,51 @@ const commandHandlers: Record<string, CommandHandler> = {
         return status;
     },
 
-    // SM-20 Algorithm Arena. The Arena runs natively in the desktop app; in the
+    optimize_arena_locally: async () => {
+        const items = await db.getLearningItems();
+        const sampleCount = items.reduce((sum, item) => sum + (item.review_count || 0), 0);
+        const status = {
+            coefficients: {
+                coefficient_1: 1,
+                coefficient_2: 0,
+                coefficient_3: 0.5,
+                coefficient_4: -0.5,
+            },
+            objective_score: null,
+            sample_count: sampleCount,
+            minimum_samples_required: 200,
+            optimizer_version: 1,
+            model_version: 4,
+            activation_state: "diagnostic",
+            last_optimized_at: null,
+            optimized: false,
+            message: "Native local fitting is available in the desktop app; browser data stays on this device.",
+        };
+        await db.setSyncState("sm20_optimizer_profile", status);
+        return status;
+    },
+
+    // Algorithm Arena. The Arena runs natively in the desktop app; in the
     // browser we return a static, well-formed snapshot so the settings panel can
     // render without crashing. Optimization is a no-op (browser data is local).
     get_sm20_arena_stats: async () => {
+        const items = await db.getLearningItems();
+        const totalScored = items.reduce(
+            (sum, item) => sum + Math.max(0, (item.review_count || 0) - 1),
+            0
+        );
+        return {
+            model_names: [...ARENA_MODEL_LABEL_ORDER],
+            weights: [6, 14, 45, 25, 10],
+            mean_losses: null,
+            r_metric: null,
+            total_scored: totalScored,
+            fsrs_optimized: false,
+            m4_optimized: false,
+        };
+    },
+
+    get_arena_stats: async () => {
         const items = await db.getLearningItems();
         const totalScored = items.reduce(
             (sum, item) => sum + Math.max(0, (item.review_count || 0) - 1),
@@ -3293,6 +3363,15 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
     },
 
+    optimize_arena_fsrs: async () => {
+        return {
+            accepted: false,
+            items: 0,
+            train_items: 0,
+            message: "FSRS fitting runs in the desktop app; browser data stays on this device.",
+        };
+    },
+
     optimize_sm20_m4: async () => {
         return {
             accepted: false,
@@ -3304,6 +3383,38 @@ const commandHandlers: Record<string, CommandHandler> = {
             val_loss_after: 0,
             iterations: 0,
             message: "Plethora Precision parameter fitting runs in the desktop app; browser data stays on this device.",
+        };
+    },
+
+    optimize_precision_kernel: async () => {
+        return {
+            accepted: false,
+            params: null,
+            items: 0,
+            train_predictions: 0,
+            val_predictions: 0,
+            val_loss_before: 0,
+            val_loss_after: 0,
+            iterations: 0,
+            message: "Plethora Precision parameter fitting runs in the desktop app; browser data stays on this device.",
+        };
+    },
+
+    calculate_classic_next: async () => {
+        return {
+            ease_factor: 2.5,
+            interval: 1,
+            repetitions: 1,
+            next_review_date: new Date(Date.now() + 86400000).toISOString(),
+        };
+    },
+
+    calculate_sm2_next: async () => {
+        return {
+            ease_factor: 2.5,
+            interval: 1,
+            repetitions: 1,
+            next_review_date: new Date(Date.now() + 86400000).toISOString(),
         };
     },
 

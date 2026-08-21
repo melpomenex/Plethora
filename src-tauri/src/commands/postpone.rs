@@ -1,5 +1,4 @@
-//! Tauri commands for SuperMemo auto-postpone (supermemo-faithful-queue
-//! Phase 3, tasks 3.11/3.12) — the priority-queue overflow handler.
+//! Tauri commands for auto-postpone — the priority-queue overflow handler.
 //!
 //! At session start, when outstanding material exceeds daily capacity, the
 //! lowest-priority surplus is postponed. The decision logic lives in

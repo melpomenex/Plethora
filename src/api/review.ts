@@ -2,9 +2,10 @@ import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
 import type { LearningSettings } from "../stores/settingsStore";
 
-export const SM20_ARENA_SCHEMA_VERSION = 1 as const;
+export const ARENA_SCHEMA_VERSION = 1 as const;
+export const SM20_ARENA_SCHEMA_VERSION = ARENA_SCHEMA_VERSION;
 
-export const SM20_ARENA_MODEL_ORDER = [
+export const ARENA_MODEL_ORDER = [
   "sm2",
   "sm15",
   "sm19",
@@ -12,8 +13,12 @@ export const SM20_ARENA_MODEL_ORDER = [
   "fsrs",
 ] as const;
 
-export type SM20ArenaModelId = (typeof SM20_ARENA_MODEL_ORDER)[number];
-export type SM20NativeGrade = 0 | 1 | 2 | 3 | 4 | 5;
+export const SM20_ARENA_MODEL_ORDER = ARENA_MODEL_ORDER;
+
+export type ArenaModelId = (typeof ARENA_MODEL_ORDER)[number];
+export type SM20ArenaModelId = ArenaModelId;
+export type NativeGrade = 0 | 1 | 2 | 3 | 4 | 5;
+export type SM20NativeGrade = NativeGrade;
 export type ArenaSelectionSource = "arena" | "model" | "custom";
 
 export interface ArenaIntervalChoice {
@@ -22,7 +27,7 @@ export interface ArenaIntervalChoice {
 }
 
 export interface ArenaModelCandidate extends ArenaIntervalChoice {
-  model_id: SM20ArenaModelId;
+  model_id: ArenaModelId;
   label: string;
   weight_percent: number;
   personalized: boolean;
@@ -33,23 +38,27 @@ export interface ArenaIntervalRange {
   max_days: number;
 }
 
-export interface SM20ArenaGradePreview {
-  grade: SM20NativeGrade;
+export interface ArenaGradePreview {
+  grade: NativeGrade;
   recommendation: ArenaIntervalChoice;
   candidates: ArenaModelCandidate[];
   range: ArenaIntervalRange;
   custom_bounds: ArenaIntervalRange;
 }
 
-export interface SM20ArenaPreviewSet {
-  schema_version: typeof SM20_ARENA_SCHEMA_VERSION;
+export type SM20ArenaGradePreview = ArenaGradePreview;
+
+export interface ArenaPreviewSet {
+  schema_version: typeof ARENA_SCHEMA_VERSION;
   preview_id: string;
   item_revision: string;
   arena_revision: string;
   generated_at: string;
-  model_order: SM20ArenaModelId[];
-  grades: SM20ArenaGradePreview[];
+  model_order: ArenaModelId[];
+  grades: ArenaGradePreview[];
 }
+
+export type SM20ArenaPreviewSet = ArenaPreviewSet;
 
 export interface ArenaSelection {
   commit_id: string;
@@ -57,7 +66,7 @@ export interface ArenaSelection {
   item_revision: string;
   arena_revision: string;
   source: ArenaSelectionSource;
-  model_id?: SM20ArenaModelId;
+  model_id?: ArenaModelId;
   /** Required for custom selections and ignored for model selections. */
   interval_days?: number;
   decision_time_ms: number;
@@ -214,26 +223,31 @@ export async function getReviewStreak(): Promise<ReviewStreak> {
   return await invokeCommand<ReviewStreak>("get_review_streak");
 }
 
-// ── SM-20 Algorithm Arena + per-user optimizers ─────────────────────────────
+// ── Algorithm Arena + per-user optimizers ───────────────────────────────────
 
-/** Live Algorithm Arena snapshot: adaptive weights over the five SM-20
- * competitors (SM-2 / SM-15 / SM-19 / SM-20 / FSRS) plus the R-Metric. */
-export interface SM20ArenaStats {
+/** Live Algorithm Arena snapshot: adaptive weights over the five
+ * competitors (Classic / Classic 15 / Classic 19 / Precision / FSRS) plus the R-Metric. */
+export interface ArenaStats {
   model_names: string[];
   /** Blend weights, sum 100, slot order matches model_names. */
   weights: number[];
   /** Mean decayed log-loss per model (null until enough scored reviews). */
   mean_losses: number[] | null;
-  /** % log-loss improvement of the blend over SM-19 alone. */
+  /** % log-loss improvement of the blend over baseline alone. */
   r_metric: number | null;
   total_scored: number;
   fsrs_optimized: boolean;
   m4_optimized: boolean;
 }
 
-export async function getSm20ArenaStats(): Promise<SM20ArenaStats> {
-  return await invokeCommand<SM20ArenaStats>("get_sm20_arena_stats");
+export type SM20ArenaStats = ArenaStats;
+
+export async function getArenaStats(): Promise<ArenaStats> {
+  return await invokeCommand<ArenaStats>("get_arena_stats");
 }
+
+/** Backward compatibility alias */
+export const getSm20ArenaStats = getArenaStats;
 
 export interface FsrsOptimizeSummary {
   accepted: boolean;
@@ -243,11 +257,14 @@ export interface FsrsOptimizeSummary {
 }
 
 /** Fit per-user FSRS parameters for the Arena's FSRS competitor. */
-export async function optimizeSm20Fsrs(): Promise<FsrsOptimizeSummary> {
-  return await invokeCommand<FsrsOptimizeSummary>("optimize_sm20_fsrs");
+export async function optimizeArenaFsrs(): Promise<FsrsOptimizeSummary> {
+  return await invokeCommand<FsrsOptimizeSummary>("optimize_arena_fsrs");
 }
 
-export interface M4OptimizeOutcome {
+/** Backward compatibility alias */
+export const optimizeSm20Fsrs = optimizeArenaFsrs;
+
+export interface PrecisionOptimizeOutcome {
   accepted: boolean;
   params?: number[] | null;
   items: number;
@@ -259,10 +276,15 @@ export interface M4OptimizeOutcome {
   message: string;
 }
 
-/** Fit the SM-20 (M4) 35-parameter kernel to the user's review history. */
-export async function optimizeSm20M4(): Promise<M4OptimizeOutcome> {
-  return await invokeCommand<M4OptimizeOutcome>("optimize_sm20_m4");
+export type M4OptimizeOutcome = PrecisionOptimizeOutcome;
+
+/** Fit the Precision kernel parameters to the user's review history. */
+export async function optimizePrecisionKernel(): Promise<PrecisionOptimizeOutcome> {
+  return await invokeCommand<PrecisionOptimizeOutcome>("optimize_precision_kernel");
 }
+
+/** Backward compatibility alias */
+export const optimizeSm20M4 = optimizePrecisionKernel;
 
 export interface CardSourceContext {
   document_id: string;

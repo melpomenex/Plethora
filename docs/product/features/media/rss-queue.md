@@ -46,7 +46,7 @@ Seamlessly interleaves unread RSS news and blog articles into the daily incremen
 3. Automatically skips articles older than `maxArticleAgeDays` to prevent processing stale news.
 
 ## Rationale
-Adopts the SuperMemo principle of processing all information streams through a single unified priority queue.
+Adopts the core incremental reading principle of processing all information streams through a single unified priority queue.
 
 ## Settings & Defaults
 | Key | Default | Description |

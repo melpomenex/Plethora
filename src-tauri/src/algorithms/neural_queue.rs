@@ -1,4 +1,4 @@
-//! SuperMemo neural queue — the optional "Go neural" creative-exploration
+//! Neural queue — the optional "Go neural" creative-exploration
 //! mode that builds a review sequence by **spreading activation** through the
 //! knowledge tree.
 //!
@@ -27,14 +27,13 @@
 //! A *new* element also combines with its intrinsic priority read from the
 //! priority queue.
 //!
-//! Reference: `neural_queue_algorithm.md` (complete), `design.md` §Phase 4,
-//! and the orchestrator `FUN_19a30` in the decompiled binary.
+//! Reference: `neural_queue_algorithm.md` (complete) and `design.md` §Phase 4.
 
 use std::collections::{HashMap, HashSet};
 
-// ── Constants (extracted from the SuperMemo binary) ─────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────
 
-/// The fixed activation seed. SuperMemo's production value; not derived from
+/// The fixed activation seed. Fixed production value; not derived from
 /// the element's learning state.
 pub const ACTIVATION: f64 = 0.05;
 
@@ -78,7 +77,7 @@ pub const QUEUE_REFILL_MIN: usize = 20;
 // ── Pure combine function ──────────────────────────────────────────────────
 
 /// Probabilistic OR: `f(x, y) = x + y - x*y`, bounded [0, 1]. This is how
-/// activation combines with a link priority (SuperMemo's `FUN_00c17aa0`).
+/// activation combines with a link priority.
 ///
 /// A link priority of 0.0 passes the activation through unchanged
 /// (`x + 0 - 0 = x`); a link priority near 1.0 makes the result near 1.0.
@@ -151,8 +150,8 @@ pub trait NeuralGraph {
 }
 
 /// The maximum-urgency intrinsic priority used when an element has no
-/// priority-queue position yet (a newly-reached element). Matches SuperMemo's
-/// InsertOrUpdate new-element default.
+/// priority-queue position yet (a newly-reached element). Matches the
+/// new-element insert default.
 pub const INTRINSIC_DEFAULT: f64 = 1.0;
 
 // ── Neural-queue state ─────────────────────────────────────────────────────

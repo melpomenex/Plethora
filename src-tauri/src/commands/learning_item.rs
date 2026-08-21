@@ -351,7 +351,7 @@ pub async fn create_learning_items_batch(
     Ok(created)
 }
 
-/// Set a learning item's user-set priority (supermemo-faithful-queue Phase 3).
+/// Set a learning item's user-set priority.
 /// Mirrors `update_document_priority`: the slider is the authoritative
 /// importance rank on the 0-100 scale; the score is derived from it. FSRS
 /// urgency (which drives *when* the card is scheduled) is untouched.
@@ -420,9 +420,8 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
 
     let mut transaction = repo.pool().begin().await?;
 
-    // Unlink the learning item's element_tree node from the overlay topology
-    // (supermemo-faithful-queue Phase 2), mirroring create_learning_item's
-    // register_node edge.
+    // Unlink the learning item's element_tree node from the overlay topology,
+    // mirroring create_learning_item's register_node edge.
     if let Some(node_id) = find_node_id_in_tx(&mut transaction, ElementKind::LearningItem, &item_id)
         .await
         .ok()

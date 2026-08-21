@@ -25,7 +25,7 @@ actions:
     shortcut: Alt+,
 related:
   - scheduler.fsrs
-  - scheduler.sm18
+  - scheduler.adaptive
   - library.collection
 ---
 

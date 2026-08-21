@@ -51,11 +51,14 @@ function findScrollableContainer(el: HTMLElement): HTMLElement | null {
   for (let depth = 0; current && depth < 6; depth += 1) {
     const doc = current.ownerDocument;
     const win = doc?.defaultView ?? null;
-    if (win && win !== window) {
+    if (win && win !== window && !win.closed) {
       let iframe: HTMLIFrameElement | null = null;
       try {
         for (const frame of Array.from(document.querySelectorAll("iframe"))) {
-          if (frame.contentWindow === win) {
+          // contentWindow is null for unmounted/removed frames; identity
+          // comparison never touches cross-origin internals.
+          const frameWin = frame.contentWindow;
+          if (frameWin && frameWin === win) {
             iframe = frame;
             break;
           }
@@ -71,16 +74,21 @@ function findScrollableContainer(el: HTMLElement): HTMLElement | null {
   }
 
   while (current) {
-    if (
-      current.hasAttribute("data-document-scroll-container") ||
-      current.getAttribute("data-epub-viewer") === "true"
-    ) {
-      return current;
-    }
-    const style = current.ownerDocument?.defaultView?.getComputedStyle(current);
-    const overflowY = style?.overflowY;
-    if ((overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight) {
-      return current;
+    try {
+      if (
+        current.hasAttribute("data-document-scroll-container") ||
+        current.getAttribute("data-epub-viewer") === "true"
+      ) {
+        return current;
+      }
+      const style = current.ownerDocument?.defaultView?.getComputedStyle(current);
+      const overflowY = style?.overflowY;
+      if ((overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight) {
+        return current;
+      }
+    } catch {
+      // Detached mid-traversal (unmounted frame/view): abort this cycle.
+      return null;
     }
     current = current.parentElement;
   }
@@ -113,11 +121,11 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
   /** Locate the active highlight span and its scroll container. */
   const findActiveTarget = useCallback((): { span: HTMLElement; container: HTMLElement } | null => {
     for (const container of containers) {
-      if (!container) continue;
+      if (!container || !container.isConnected) continue;
       const span = container.querySelector(ACTIVE_SPAN_SELECTOR) as HTMLElement | null;
-      if (span) {
+      if (span && span.isConnected) {
         const scroll = findScrollableContainer(span);
-        if (scroll) return { span, container: scroll };
+        if (scroll && scroll.isConnected) return { span, container: scroll };
       }
     }
     return null;
@@ -128,8 +136,22 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
       const target = findActiveTarget();
       if (!target) return;
       const { span, container } = target;
+      // Detached or hidden targets: never measure or scroll a dead subtree
+      // (document/iframe unmounted, virtualized page, backgrounded view).
+      if (!span.isConnected || !container.isConnected) return;
+      if (container.clientHeight <= 0) return;
+
       const containerRect = container.getBoundingClientRect();
       const spanRect = span.getBoundingClientRect();
+      // Zero-dimension or non-finite geometry would produce NaN offsets.
+      if (
+        containerRect.height <= 0 ||
+        containerRect.width <= 0 ||
+        !Number.isFinite(containerRect.top) ||
+        !Number.isFinite(spanRect.top)
+      ) {
+        return;
+      }
 
       const ratio = compact ? FOLLOW_OFFSET_RATIO_COMPACT : FOLLOW_OFFSET_RATIO_DESKTOP;
       const relativeTop = spanRect.top - containerRect.top + container.scrollTop;
@@ -218,7 +240,8 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
     };
   }, [enabled, active, wordKey, containers, findActiveTarget, endProgrammaticScroll]);
 
-  // Reset the pause when playback stops/restarts (new session).
+  // Reset the pause when playback stops/restarts (new session). Any pending
+  // follow work is dropped with it.
   useEffect(() => {
     if (!active) {
       setPausedByUser(false);
@@ -226,6 +249,18 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
       endProgrammaticScroll();
     }
   }, [active, endProgrammaticScroll]);
+
+  // Final teardown on unmount: no debounce callback or programmatic-scroll
+  // timeout may fire against a dead component.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      endProgrammaticScroll();
+    };
+  }, [endProgrammaticScroll]);
 
   const reCenter = useCallback(() => {
     userScrollingRef.current = false;

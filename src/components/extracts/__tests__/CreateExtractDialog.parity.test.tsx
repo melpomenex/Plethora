@@ -266,10 +266,14 @@ describe("extract image ingest (bug 09)", () => {
   });
 
   it("dropping an image file ingests it; a non-image drop is ignored quietly", async () => {
-    const { container } = render(
+    render(
       <CreateExtractDialog documentId="doc-1" isOpen onClose={() => {}} />
     );
-    const overlay = container.firstElementChild as HTMLElement;
+    // The dialog portals to document.body via the shared overlay layer.
+    const overlay = document.body.querySelector(
+      ":scope > .adaptive-dialog-layer",
+    ) as HTMLElement;
+    expect(overlay).not.toBeNull();
 
     const dropImage = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(dropImage, "dataTransfer", {

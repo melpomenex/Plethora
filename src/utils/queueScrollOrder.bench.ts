@@ -5,7 +5,7 @@
  * session. It lives in queueScrollOrder.ts so it can be exercised without
  * mounting the ~4000-line QueueScrollPage component.
  *
- * This is SuperMemo's combined sort (supermemo-faithful-queue Phase 3):
+ * This is the combined sort:
  * priority (primary) + topic/item proportion bias + stable per-id jitter. See
  * design.md and algorithms/priority_queue.rs.
  *

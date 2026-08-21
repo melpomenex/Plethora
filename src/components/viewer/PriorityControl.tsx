@@ -23,7 +23,7 @@ import { useI18n } from "../../lib/i18n";
 
 /**
  * Which kind of item this control targets. Documents and learning items both
- * carry a 0-100 priority slider (supermemo-faithful-queue Phase 3); this just
+ * carry a 0-100 priority slider; this just
  * selects which update command to call.
  */
 type PriorityTargetKind = "document" | "learningItem";
@@ -247,9 +247,8 @@ export function PriorityControl({
                   {t(currentInfo.descKey)}
                 </p>
 
-                {/* The element's live rank in the global priority queue —
-                    SuperMemo's actual unit of priority. Position 1 is the most
-                    important element. */}
+                {/* The element's live rank in the global priority queue.
+                    Position 1 is the most important element. */}
                 {typeof shownQueueSize === "number" && shownQueueSize > 0 && typeof shownPosition === "number" ? (
                   <p className="text-[10px] text-muted-foreground text-center">
                     {t("priority.queuePosition", { position: shownPosition, size: shownQueueSize })}

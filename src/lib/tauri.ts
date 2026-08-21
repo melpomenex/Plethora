@@ -70,6 +70,20 @@ async function awaitBackendReadyWithRetry(): Promise<void> {
   }
   throw lastError;
 }
+
+/**
+ * Resolves once the cold-start backend readiness gate has settled (either
+ * outcome) — or immediately when no gate is pending. Lets post-startup work
+ * that would otherwise race the WebView bridge stall (e.g. prefetching lazy
+ * tab chunks) wait for a clear window instead of competing with it.
+ */
+export function whenBackendReady(): Promise<void> {
+  if (!backendReadyPromise) return Promise.resolve();
+  return backendReadyPromise.then(
+    () => undefined,
+    () => undefined
+  );
+}
 let tauriDialogOpen: ((options: unknown) => Promise<string | string[] | null>) | null = null;
 let tauriEventListen: (<T>(event: string, handler: (event: T) => void) => Promise<() => void>) | null = null;
 let tauriConvertFileSrc: ((path: string, protocol?: string) => string) | null = null;

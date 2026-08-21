@@ -101,3 +101,59 @@ describe("CompactTagEditor", () => {
     expect(dialog.className).toContain("z-50");
   });
 });
+
+describe("CompactTagEditor shrink contract", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("allows the trigger to shrink below intrinsic width in constrained containers", () => {
+    const { container } = render(
+      <div style={{ width: 120, display: "flex" }}>
+        <CompactTagEditor target={target()} className="min-w-0 flex-1" />
+      </div>
+    );
+    const harness = container.firstElementChild as HTMLElement;
+    const wrapper = harness.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain("min-w-0");
+
+    const trigger = screen.getByRole("button", { name: /tagEditor\.editTags/ });
+    expect(trigger.className).toContain("min-w-0");
+    expect(trigger.className).toContain("max-w-full");
+    expect(trigger.className).toContain("overflow-hidden");
+  });
+
+  it("caps chips responsively and keeps the +N/pencil indicators non-shrinking", () => {
+    render(<CompactTagEditor target={target()} />);
+
+    for (const chip of ["one", "two", "three"].map((text) => screen.getByText(text))) {
+      expect(chip.className).toContain("truncate");
+      expect(chip.className).toContain("max-w-[5rem]");
+      expect(chip.className).toContain("sm:max-w-[8rem]");
+    }
+    expect(screen.getByText("+1").className).toContain("shrink-0");
+  });
+
+  it("renders zero tags without chips or +N, and one tag without +N", () => {
+    const { rerender } = render(<CompactTagEditor target={{ type: "learning-item", id: "li-1", tags: [] }} />);
+    expect(screen.queryByText(/^\+\d+$/)).toBeNull();
+
+    rerender(<CompactTagEditor target={{ type: "learning-item", id: "li-1", tags: ["only"] }} />);
+    expect(screen.getByText("only")).toBeTruthy();
+    expect(screen.queryByText(/^\+\d+$/)).toBeNull();
+  });
+
+  it("truncates an extremely long single tag inside the preview cap", () => {
+    render(
+      <CompactTagEditor
+        target={{ type: "learning-item", id: "li-1", tags: ["Science Fiction Space Exploration Novel"] }}
+        previewLimit={1}
+      />
+    );
+    const chip = screen.getByText("Science Fiction Space Exploration Novel");
+    expect(chip.className).toContain("truncate");
+    expect(chip.className).toContain("max-w-[5rem]");
+    // Full text stays available to assistive tech / popover; clipping is visual only.
+    expect(chip.textContent).toBe("Science Fiction Space Exploration Novel");
+  });
+});

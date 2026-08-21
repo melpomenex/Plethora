@@ -26,15 +26,21 @@
 
 package com.plethora.androidtts
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Looper
+import android.util.Log
 import android.view.KeyEvent
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
@@ -90,12 +96,13 @@ object MediaBridge {
         return queue
     }
 
-    fun updateSnapshot(args: UpdateMediaMetadataArgs) {
+    /** @return true when applied, false when rejected as stale. */
+    fun updateSnapshot(args: UpdateMediaMetadataArgs): Boolean {
         // Same-session snapshots are monotonic; a source switch is allowed to
         // replace the previous source even if its wall-clock value is lower.
         if (args.sessionId != null && args.sessionId == sessionId &&
             args.updatedAt != null && args.updatedAt!! < updatedAt) {
-            return
+            return false
         }
         args.sourceId?.let { sourceId = it }
         args.sessionId?.let { sessionId = it }
@@ -119,6 +126,7 @@ object MediaBridge {
         args.canPrevious?.let { canPrevious = it }
         args.precisePosition?.let { precisePosition = it }
         args.updatedAt?.let { updatedAt = maxOf(updatedAt, it) }
+        return true
     }
 
     /** Emit a normalized command envelope to the WebView + durable queue. */
@@ -128,6 +136,7 @@ object MediaBridge {
         positionSec: Double? = null,
         occurredAt: Long = System.currentTimeMillis(),
     ) {
+        Log.d(AndroidTtsPlugin.MEDIA_LOG_TAG, "command received -> $command")
         val envelope = JSONObject()
             .put("command", command)
             .put("eventId", UUID.randomUUID().toString())
@@ -238,8 +247,20 @@ class WebViewBridgePlayer(
 
     private val voidFuture: ListenableFuture<Void?> get() = CompletedFuture(null)
 
+    /** Last (state, playing) pair we logged; keeps diagnostics non-spammy. */
+    private var lastLoggedState: Pair<String, Boolean>? = null
+
     fun refreshState() {
         invalidateState()
+        val current = MediaBridge.playbackState to MediaBridge.isPlaying
+        if (current != lastLoggedState) {
+            Log.i(
+                AndroidTtsPlugin.MEDIA_LOG_TAG,
+                "player state -> ${current.first} playing=${current.second} " +
+                    "source=${MediaBridge.sourceId}"
+            )
+            lastLoggedState = current
+        }
     }
 
     override fun getState(): State {
@@ -275,6 +296,10 @@ class WebViewBridgePlayer(
             .add(Player.COMMAND_PLAY_PAUSE)
             .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
             .add(Player.COMMAND_GET_TIMELINE)
+            // Required by DefaultMediaNotificationProvider: without it the
+            // provider skips reading mediaMetadata entirely and posts the
+            // notification with null title/text ("null" on the lock screen).
+            .add(Player.COMMAND_GET_METADATA)
             .add(Player.COMMAND_SET_MEDIA_ITEM)
             .addIf(Player.COMMAND_SEEK_TO_NEXT, MediaBridge.canNext)
             .addIf(Player.COMMAND_SEEK_TO_PREVIOUS, MediaBridge.canPrevious)
@@ -356,19 +381,59 @@ class RemoteMediaSessionService : MediaSessionService() {
         private var audioFocusRequest: AudioFocusRequest? = null
         private var wasPlayingBeforeInterruption = false
         private var ducked = false
+
+        /**
+         * Set when the service could only be started via
+         * startForegroundService() (i.e. the app was in the background), which
+         * obliges us to call startForeground() within the system's ~5s window.
+         * In the normal foreground path we use plain startService() and let
+         * Media3 own foreground promotion once the bridge player reports an
+         * active/paused media session — no user-visible notification exists
+         * before then.
+         */
+        @Volatile private var needsCompliantStartForeground = false
+
         val focusPolicy = MediaFocusStateMachine()
+
+        /**
+         * Must match androidx.media3.session.DefaultMediaNotificationProvider
+         * .DEFAULT_NOTIFICATION_ID: the bootstrap notification below satisfies
+         * the startForegroundService() contract immediately, and Media3's own
+         * rich media notification (posted under this same id once playback is
+         * active) replaces it seamlessly instead of stacking a second entry.
+         */
+        private const val FOREGROUND_NOTIFICATION_ID = 100
+        private const val CHANNEL_ID = "plethora_media_session"
 
         fun start(ctx: Context) {
             startReferences.incrementAndGet()
             try {
                 val intent = Intent(ctx, RemoteMediaSessionService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ctx.startForegroundService(intent)
+                    try {
+                        // Normal path: the app is foregrounded when playback
+                        // starts, so plain startService is legal and carries
+                        // no startForeground obligation. Media3 promotes the
+                        // service (and posts the media notification) when the
+                        // forwarding player reports ready/playing state.
+                        needsCompliantStartForeground = false
+                        ctx.startService(intent)
+                    } catch (e: IllegalStateException) {
+                        // Backgrounded start (e.g. headset resume): the
+                        // startForegroundService contract applies, so onCreate
+                        // must post a compliant notification immediately.
+                        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG,
+                            "background start; using startForegroundService contract"
+                        )
+                        needsCompliantStartForeground = true
+                        ctx.startForegroundService(intent)
+                    }
                 } else {
+                    needsCompliantStartForeground = false
                     ctx.startService(intent)
                 }
             } catch (e: Throwable) {
-                Logger.warn("RemoteMediaSessionService start failed: ${e.message}")
+                Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "start failed: ${e.message}")
             }
         }
 
@@ -384,6 +449,9 @@ class RemoteMediaSessionService : MediaSessionService() {
         fun refresh() {
             bridgePlayer?.refreshState()
         }
+
+        /** Test/diagnostics hook: current reference count. */
+        fun referenceCount(): Int = startReferences.get()
     }
 
     private val audioManager: AudioManager by lazy {
@@ -402,8 +470,70 @@ class RemoteMediaSessionService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         activeSession
 
+    /**
+     * Post a minimal silent notification and enter foreground right away.
+     * Media3's DefaultMediaNotificationProvider later replaces it (same
+     * notification id) with the full media controls once playback starts.
+     * Failure is non-fatal: without promotion the service degrades to a
+     * background service instead of crashing the process.
+     */
+    private fun enterForegroundImmediately() {
+        try {
+            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_ID,
+                        "Playback",
+                        NotificationManager.IMPORTANCE_LOW,
+                    )
+                )
+            }
+            val smallIcon = applicationInfo.icon.takeIf { it != 0 }
+                ?: android.R.drawable.ic_media_play
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+                .setContentTitle(MediaBridge.title)
+                .setContentText("Playback session active")
+                .setSmallIcon(smallIcon)
+                .setOngoing(true)
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        this,
+                        0,
+                        packageManager.getLaunchIntentForPackage(packageName),
+                        PendingIntent.FLAG_IMMUTABLE,
+                    )
+                )
+            val notification: Notification = builder.build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    FOREGROUND_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            } else {
+                startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            }
+        } catch (e: Throwable) {
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "foreground promotion failed: ${e.message}")
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service created")
+        // Only satisfy the startForegroundService() contract when it actually
+        // applies (backgrounded start). In the normal foreground path Media3
+        // owns promotion once the bridge player reports ready/playing, so no
+        // user-visible notification exists before a real media session does.
+        if (needsCompliantStartForeground) {
+            enterForegroundImmediately()
+        }
         // Everything here must be non-fatal: a foreground service refusal must
         // degrade to "no native media session" rather than crash the process.
         try {
@@ -447,6 +577,11 @@ class RemoteMediaSessionService : MediaSessionService() {
                 .build()
             activeSession = session
             addSession(session)
+            Log.i(
+                AndroidTtsPlugin.MEDIA_LOG_TAG,
+                "session created source=${MediaBridge.sourceId} " +
+                    "state=${MediaBridge.playbackState} playing=${MediaBridge.isPlaying}"
+            )
 
             player.setAudioAttributes(
                 Media3AudioAttributes.Builder()
@@ -468,7 +603,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                 registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
             }
         } catch (e: Throwable) {
-            Logger.warn("RemoteMediaSessionService create failed: ${e.message}")
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "create failed: ${e.message}")
             stopSelf()
         }
     }
@@ -526,7 +661,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                 audioManager.requestAudioFocus(listener, android.media.AudioAttributes.USAGE_MEDIA, AudioManager.AUDIOFOCUS_GAIN)
             }
         } catch (e: Throwable) {
-            Logger.warn("RemoteMediaSessionService focus request failed: ${e.message}")
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "focus request failed: ${e.message}")
         }
     }
 
@@ -549,6 +684,7 @@ class RemoteMediaSessionService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service destroyed (session teardown)")
         abandonFocus()
         try {
             unregisterReceiver(noisyReceiver)

@@ -967,7 +967,7 @@ export function AssistantPanel({
 
 /help - Show this help message
 /tools - List available tools
-/20rules - Formulate atomic flashcards following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (Minimum Information Principle, clozes, anti-interference)
+/20rules - Formulate atomic flashcards following the 20 Rules of Knowledge Formulation (Minimum Information Principle, clozes, anti-interference)
 /clear - Clear conversation
 
 **Available Tools:**
@@ -1236,7 +1236,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // sees correct turn ordering: system → [past turns...] → current user message
       const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
       const effectivePrompt = isTwentyRules
-        ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation.")
+        ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following the 20 Rules of Knowledge Formulation.")
         : prompt;
 
       const llmMessages: LLMMessage[] = [
@@ -2988,7 +2988,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
                 <button
                   onClick={() => {
-                    const prompt = "/20rules Formulate atomic flashcards from this X thread following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
+                    const prompt = "/20rules Formulate atomic flashcards from this X thread following the 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();
@@ -3140,10 +3140,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     <div
                       key={idx}
                       className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${tool.status === "success"
-                        ? "bg-green-100 text-green-800"
+                        ? "bg-emerald-500/15 text-emerald-500"
                         : tool.status === "error"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-yellow-100 text-yellow-800"
+                          ? "bg-red-500/15 text-red-500"
+                          : "bg-amber-500/15 text-amber-500"
                         }`}
                     >
                       <Code className="w-3 h-3" />

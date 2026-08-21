@@ -1,18 +1,10 @@
-//! SuperMemo auto-postpone — the overflow handler for the priority queue.
+//! Auto-postpone — the overflow handler for the priority queue.
 //!
-//! When the outstanding material exceeds what the student can get through,
-//! SuperMemo postpones the lowest-priority excess to a future date rather
+//! When the outstanding material exceeds what the learner can get through,
+//! auto-postpone moves the lowest-priority excess to a future date rather
 //! than letting it accumulate unboundedly. This module ports that algorithm:
 //! it selects which elements to postpone based on priority and difficulty
 //! thresholds and a per-element do-not-postpone flag.
-//!
-//! Reference: `~sushi/sm20-re/postpone_algorithm.md` (manual + auto-postpone,
-//! per-branch config, priority/difficulty thresholds). Those reference
-//! materials were not available during this session, so this implementation
-//! follows the behavior described in the change's spec
-//! (`specs/priority-queue/spec.md`): the lowest-priority elements above the
-//! capacity are postponed; high-priority elements (above the threshold) are
-//! never postponed; the do-not-postpone flag overrides everything.
 
 /// The scheduling fields the postpone engine reads for one element.
 #[derive(Debug, Clone)]

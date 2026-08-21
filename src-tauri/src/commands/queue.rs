@@ -49,14 +49,13 @@ fn preview_text(text: &str, max_chars: usize) -> String {
 ///
 /// All three fields are derived from the element's *rank* at read time, never
 /// from a stored number — a percentage means "this far up the collection right
-/// now", so it drifts as the collection grows. This is SuperMemo's model; see
-/// `database::priority_rank`.
+/// now", so it drifts as the collection grows. See `database::priority_rank`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriorityStanding {
     /// 0-100, higher = more important (matches the slider's direction).
     pub percentile: f64,
-    /// 1-based, position 1 = most important (SuperMemo's display direction).
+    /// 1-based, position 1 = most important.
     pub position: usize,
     pub queue_size: usize,
 }
@@ -265,7 +264,7 @@ async fn get_queue_items_from_repo(
 
         // Blend inherited priority with review state. New extracts still get
         // a small boost over reviewed ones, but higher-priority documents
-        // surface their extracts earlier (SuperMemo-style IR priority chain).
+        // surface their extracts earlier (incremental reading priority chain).
         const PRIORITY_SPAN: f64 = 2.0;
         let base_weight = if extract.review_count == 0 { 9.0 } else { 7.0 };
         let priority = base_weight + (extract.priority_score / 100.0) * PRIORITY_SPAN;

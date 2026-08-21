@@ -1,10 +1,10 @@
-//! Scheduling algorithms implementation
+//! Spaced repetition and scheduling algorithms implementation
 //!
-//! This module provides different spaced repetition algorithms:
-//! - FSRS-6 (Free Spaced Repetition Scheduler)
-//! - SM-2, SM-5, SM-8, SM-15 (SuperMemo algorithms)
-//! - SM-18 (Latest SuperMemo algorithm)
-//! - SM-20 (native Rust implementation, mirrored in TypeScript)
+//! This module provides scheduling algorithms:
+//! - FSRS (Free Spaced Repetition Scheduler)
+//! - Adaptive (Continuous 3D stability matrix scheduler)
+//! - Precision (Ensemble Algorithm Arena scheduler)
+//! - Classic, Classic 5, Classic 8, Classic 15 (Classic factor algorithms)
 //! - Queue selector with weighted randomization
 //! - Document scheduler for incremental reading
 
@@ -12,41 +12,61 @@ use crate::models::{ItemState, LearningItem, ReviewRating};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod adaptive;
+pub mod adaptive_data;
+pub mod classic;
 pub mod document_scheduler;
 pub mod engaging_scheduler;
 pub mod incremental_scheduler;
 pub mod neural_queue;
 pub mod optimizer;
 pub mod postpone;
+pub mod precision;
 pub mod priority_queue;
 pub mod queue_selector;
 pub mod relevance;
-pub mod sm18;
-pub mod sm20;
-pub mod supermemo;
 
 // Re-exports
+pub use adaptive::{AdaptiveReviewResult, AdaptiveScheduler, AdaptiveState};
+pub use classic::{
+    Classic15Scheduler, Classic15State, Classic2Algorithm, Classic2State, Classic5Scheduler,
+    Classic5State, Classic8Scheduler, Classic8State, ClassicScheduler, ClassicState,
+};
 pub use document_scheduler::{DocumentScheduler, DocumentSchedulerParams};
 pub use engaging_scheduler::{
     EngagementPreferences, EngagingScheduleResult, EngagingScheduler, ItemEngagementMeta,
 };
 pub use incremental_scheduler::{IncrementalScheduler, IncrementalSchedulerParams};
 pub use optimizer::calculate_review_statistics;
+pub use precision::{
+    ArenaModelId, ArenaState, PrecisionCollectionState, PrecisionPreviewIntervals,
+    PrecisionReviewResult, PrecisionState,
+};
 pub use queue_selector::QueueSelector;
-pub use sm18::{SM18Algorithm, SM18ReviewResult, SM18State};
-pub use sm20::{SM20PreviewIntervals, SM20ReviewResult, SM20State};
+
+// Backward-compatibility aliases
+pub use adaptive::AdaptiveReviewResult as SM18ReviewResult;
+pub use adaptive::AdaptiveScheduler as SM18Algorithm;
+pub use adaptive::AdaptiveState as SM18State;
+pub use precision::PrecisionPreviewIntervals as SM20PreviewIntervals;
+pub use precision::PrecisionReviewResult as SM20ReviewResult;
+pub use precision::PrecisionState as SM20State;
 
 /// Supported spaced repetition algorithms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum AlgorithmType {
     #[default]
     Fsrs,
-    Sm2,
-    Sm5,
-    Sm8,
-    Sm15,
-    Sm18,
-    Sm20,
+    Adaptive,
+    Precision,
+    Classic,
+    #[serde(rename = "classic_5")]
+    Classic5,
+    #[serde(rename = "classic_8")]
+    Classic8,
+    #[serde(rename = "classic_15")]
+    Classic15,
 }
 
 impl AlgorithmType {
@@ -54,12 +74,12 @@ impl AlgorithmType {
     pub fn from_str_lossy(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "fsrs" => AlgorithmType::Fsrs,
-            "sm2" => AlgorithmType::Sm2,
-            "sm5" => AlgorithmType::Sm5,
-            "sm8" => AlgorithmType::Sm8,
-            "sm15" => AlgorithmType::Sm15,
-            "sm18" => AlgorithmType::Sm18,
-            "sm20" => AlgorithmType::Sm20,
+            "adaptive" | "sm18" => AlgorithmType::Adaptive,
+            "precision" | "sm20" => AlgorithmType::Precision,
+            "classic" | "classic_2" | "sm2" => AlgorithmType::Classic,
+            "classic_5" | "classic5" | "sm5" => AlgorithmType::Classic5,
+            "classic_8" | "classic8" | "sm8" => AlgorithmType::Classic8,
+            "classic_15" | "classic15" | "sm15" => AlgorithmType::Classic15,
             _ => AlgorithmType::Fsrs,
         }
     }
@@ -68,12 +88,12 @@ impl AlgorithmType {
     pub fn as_str(&self) -> &'static str {
         match self {
             AlgorithmType::Fsrs => "fsrs",
-            AlgorithmType::Sm2 => "sm2",
-            AlgorithmType::Sm5 => "sm5",
-            AlgorithmType::Sm8 => "sm8",
-            AlgorithmType::Sm15 => "sm15",
-            AlgorithmType::Sm18 => "sm18",
-            AlgorithmType::Sm20 => "sm20",
+            AlgorithmType::Adaptive => "adaptive",
+            AlgorithmType::Precision => "precision",
+            AlgorithmType::Classic => "classic",
+            AlgorithmType::Classic5 => "classic_5",
+            AlgorithmType::Classic8 => "classic_8",
+            AlgorithmType::Classic15 => "classic_15",
         }
     }
 }
@@ -87,9 +107,9 @@ impl std::fmt::Display for AlgorithmType {
 #[cfg(test)]
 mod tests;
 
-/// SM-2 algorithm parameters
+/// Classic algorithm parameters
 #[derive(Debug, Clone)]
-pub struct SM2Params {
+pub struct ClassicParams {
     /// Ease factor (minimum 1.3)
     pub ease_factor: f64,
     /// Interval in days
@@ -98,7 +118,9 @@ pub struct SM2Params {
     pub repetitions: u32,
 }
 
-impl Default for SM2Params {
+pub type SM2Params = ClassicParams;
+
+impl Default for ClassicParams {
     fn default() -> Self {
         Self {
             ease_factor: 2.5,
@@ -108,45 +130,37 @@ impl Default for SM2Params {
     }
 }
 
-impl SM2Params {
-    /// Calculate next interval using SM-2 algorithm
+impl ClassicParams {
+    /// Calculate next interval using Classic algorithm
     pub fn next_interval(&self, rating: ReviewRating) -> Self {
         let _rating_value = rating as i32;
 
         let mut new_params = self.clone();
 
-        // SM-2 quality mapping: 0-2 = again, 3-4 = hard, 5 = good, 6 = easy
-        // Our rating: 1 = again, 2 = hard, 3 = good, 4 = easy
-        // Map to SM-2 quality:
-        let sm2_quality = match rating {
+        let quality = match rating {
             ReviewRating::Again => 0, // Complete failure
             ReviewRating::Hard => 3,  // Hard difficulty
             ReviewRating::Good => 4,  // Good response
             ReviewRating::Easy => 5,  // Perfect response
         };
 
-        // If quality < 3, start over
-        if sm2_quality < 3 {
+        if quality < 3 {
             new_params.repetitions = 0;
             new_params.interval = 0.0;
         } else {
             new_params.repetitions += 1;
 
-            // Calculate interval based on repetition number
             match new_params.repetitions {
                 1 => new_params.interval = 1.0,
                 2 => new_params.interval = 6.0,
                 _ => {
-                    // I(n) = I(n-1) * EF
                     new_params.interval *= new_params.ease_factor;
                 }
             }
 
-            // EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
-            let q = sm2_quality as f64;
+            let q = quality as f64;
             new_params.ease_factor += 0.1 - (5.0 - q) * (0.08 + (5.0 - q) * 0.02);
 
-            // Ensure ease factor doesn't go below 1.3
             if new_params.ease_factor < 1.3 {
                 new_params.ease_factor = 1.3;
             }

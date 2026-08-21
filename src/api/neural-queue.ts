@@ -1,6 +1,6 @@
 /**
- * Tauri API wrapper for the SuperMemo neural queue (supermemo-faithful-queue
- * Phase 4) — the optional "Go neural" creative-exploration mode.
+ * Tauri API wrapper for the neural queue — the optional "Go neural"
+ * creative-exploration mode.
  *
  * The neural queue is layered on top of the priority queue: entering neural
  * review builds a queue by spreading activation from a seed element; exiting
@@ -23,7 +23,7 @@ export interface NeuralQueueRow {
 }
 
 /**
- * Enter neural review (SuperMemo's *Learn : Go neural*): build the neural
+ * Enter neural review (*Learn : Go neural*): build the neural
  * queue by spreading activation seeded at the given element. Returns the
  * number of elements queued. The priority queue is not mutated.
  *

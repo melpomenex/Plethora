@@ -47,6 +47,38 @@ export const PodcastTab = debugLazy("PodcastTab", () => import("../media/Podcast
 export const AudiobooksTab = debugLazy("AudiobooksTab", () => import("./AudiobooksTab").then(m => ({ default: m.AudiobooksTab })));
 export const ImportNeedsReviewTab = debugLazy("ImportNeedsReviewTab", () => import("../../pages/ImportNeedsReviewPage").then(m => ({ default: m.ImportNeedsReviewTab })));
 
+/**
+ * Destinations a user is likely to tap first on a fresh boot. Their lazy
+ * chunks are warmed right after the backend readiness gate clears so the
+ * first tap never races the WebView cold-start fetch-stall window (the
+ * "first switch to a view spins forever, away-and-back fixes it" class of
+ * bug; see importWithRetry.ts and lib/tauri.ts for the stall mechanics).
+ *
+ * Raw loaders (not the lazy components) — React.lazy would only invoke each
+ * loader once anyway, and calling these thunks early populates the same ESM
+ * module cache the later lazy render reads.
+ */
+const COMMON_TAB_LOADERS: Array<() => Promise<unknown>> = [
+  () => import("./DocumentsTab"),
+  () => import("../settings/SettingsPage"),
+  () => import("./QueueTab"),
+  () => import("./ReviewTab"),
+  () => import("./DashboardTab"),
+  () => import("./ContinueReadingTab"),
+];
+
+let prefetchStarted = false;
+
+export function prefetchCommonTabs(): void {
+  if (prefetchStarted) return;
+  prefetchStarted = true;
+  for (const load of COMMON_TAB_LOADERS) {
+    // importWithRetry already retries + logs; failures here are non-fatal by
+    // design (the tab's own lazy loader will surface them if ever real).
+    void load().catch(() => {});
+  }
+}
+
 export const TAB_TYPE_ICONS: Record<string, string> = {
   dashboard: "📊", documents: "📂", queue: "📚", review: "🧠",
   analytics: "📈", settings: "⚙️", rss: "📡", newsletter: "📰",

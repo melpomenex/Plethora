@@ -16,7 +16,7 @@ Complete list of Incrementum features and their implementation status.
 | URL Scraping | ✅ Implemented | Web content extraction with article detection |
 | Arxiv Integration | ✅ Implemented | Direct research paper import with metadata extraction |
 | Anki Import (.apkg) | ✅ Implemented | Full Anki deck migration with card types and scheduling |
-| SuperMemo Import | ✅ Implemented | ZIP export import from SuperMemo |
+| JSON Deck Import (.json) | ✅ Implemented | Flashcard deck import with review history |
 | Screenshot Capture | ✅ Implemented | Screen capture with OCR text extraction |
 | Document Organization | ✅ Implemented | Categories, tags, and folder structure |
 | Document Search | ✅ Implemented | Full-text search with filters and sorting |
@@ -46,8 +46,9 @@ Complete list of Incrementum features and their implementation status.
 | Feature | Status | Description |
 |---------|--------|-------------|
 | FSRS-6 Algorithm | ✅ Implemented | State-of-the-art spaced repetition scheduler |
-| SM-18 Algorithm | ✅ Implemented | Latest SuperMemo 18 algorithm with 3D SInc matrix |
-| SM-2 Algorithm | ✅ Implemented | Classic SuperMemo 2 algorithm option |
+| Plethora Adaptive Algorithm | ✅ Implemented | Adaptive spaced repetition scheduler with 3D SInc matrix |
+| Plethora Precision Algorithm | ✅ Implemented | 5-model weighted ensemble scheduler with online learning |
+| Classic Scheduler | ✅ Implemented | Classic algorithm options (Classic 2, Classic 5, Classic 8, Classic 15) |
 | Flashcard Creation | ✅ Implemented | Basic front/back cards |
 | Cloze Deletion | ✅ Implemented | Fill-in-the-blank style cards |
 | Q&A Cards | ✅ Implemented | Question and answer format |
@@ -57,7 +58,7 @@ Complete list of Incrementum features and their implementation status.
 | AI Card Generation | ✅ Implemented | LLM-powered flashcard creation |
 | Auto-Summarization | ✅ Implemented | AI-generated document summaries |
 | Extract to Card | ✅ Implemented | Convert extracts directly to learning items |
-| Extract Priority Inheritance | ✅ Implemented | Extracts inherit parent document priority (SuperMemo-style IR chain) |
+| Extract Priority Inheritance | ✅ Implemented | Extracts inherit parent document priority (hierarchical IR chain) |
 | Extract Lifecycle (Forget/Dismiss/Done) | ✅ Implemented | Graduate or retire extracts without deleting |
 | Priority System | ✅ Implemented | 0-100 priority scoring for items |
 | Tags & Categories | ✅ Implemented | Hierarchical organization system |

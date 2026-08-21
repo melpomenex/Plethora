@@ -1,6 +1,6 @@
 /**
- * Gesture-math tests for the H-pattern rating joystick (change
- * unify-supermemo-rating-ux). These pin the zone→grade resolution, the
+ * Gesture-math tests for the H-pattern rating joystick.
+ * These pin the zone→grade resolution, the
  * dead-zone no-commit behavior, and release-in-zone commits so the shared
  * grade-table refactor cannot silently change the touch UX.
  *

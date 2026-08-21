@@ -5,12 +5,11 @@ domain: concepts
 status: implemented
 platforms:
   - all
-summary: Comprehensive guide to the SuperMemo incremental reading methodology, extract formulation, and knowledge distillation in Plethora.
+summary: Comprehensive guide to the incremental reading methodology, extract formulation, and knowledge distillation in Plethora.
 how_to: Import multiple long-form articles or books into your reading queue. Read in spaced increments, extracting key insights as you go.
 why: Reading linearly from cover to cover causes reader burnout and fast forgetting; incremental reading processes hundreds of texts simultaneously in bite-sized increments.
 aliases:
   - incremental reading
-  - supermemo method
   - knowledge distillation
   - reading workflow
 settings:

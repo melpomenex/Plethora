@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../lib/tauri", () => ({
   isTauri: () => true,
+  isNativeMobile: () => false,
+  isAndroid: () => false,
+  isIOS: () => false,
   invokeCommand: mocks.invokeCommand,
   listen: vi.fn().mockResolvedValue(vi.fn()),
   openExternal: vi.fn(),

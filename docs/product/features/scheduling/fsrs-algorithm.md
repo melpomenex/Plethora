@@ -11,7 +11,7 @@ platforms:
   - mobile-ios
 summary: Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).
 how_to: Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).
-why: FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy SM-2 while maintaining target retention.
+why: FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy heuristic schedulers while maintaining target retention.
 aliases:
   - fsrs
   - fsrs-6
@@ -27,8 +27,8 @@ actions:
     label: Configure FSRS Settings
     shortcut: Alt+,
 related:
-  - scheduler.sm18
-  - scheduler.sm20.arena
+  - scheduler.adaptive
+  - scheduler.precision.arena
   - scheduler.scoped_params
 ---
 
@@ -50,7 +50,7 @@ Implements the state-of-the-art Free Spaced Repetition Scheduler (FSRS-6), calcu
 3. Stability increases exponentially after successful recall and decreases upon lapse.
 
 ## Rationale
-Legacy algorithms like SM-2 use arbitrary heuristics. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.
+Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.
 
 ## Settings & Defaults
 | Key | Default | Description |

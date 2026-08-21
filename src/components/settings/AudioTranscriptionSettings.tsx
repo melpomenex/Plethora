@@ -66,7 +66,7 @@ const listUntranscribedMediaDocuments = (): Promise<UntranscribedMediaDocument[]
 export function AudioTranscriptionSettings() {
   const { t } = useI18n();
   const toast = useToast();
-  const { profiles, fetchProfiles, downloadProgress, currentStatus } = useTranscriptionStore();
+  const { profiles = [], fetchProfiles, downloadProgress, currentStatus } = useTranscriptionStore();
   const { settings, updateSettings } = useSettingsStore();
   const queueStore = useTranscriptionQueueStore();
   const audioSettings = settings.audioTranscription;
@@ -83,7 +83,7 @@ export function AudioTranscriptionSettings() {
   const [enqueuingAll, setEnqueuingAll] = useState(false);
   
   // Local state for form inputs
-  const [apiKeyInput, setApiKeyInput] = useState(audioSettings.groq.apiKey);
+  const [apiKeyInput, setApiKeyInput] = useState(audioSettings.groq?.apiKey ?? "");
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
@@ -134,7 +134,7 @@ export function AudioTranscriptionSettings() {
 
   useEffect(() => {
     setIsKeyValid(isGroqConfigured());
-  }, [audioSettings.groq.apiKey]);
+  }, [audioSettings.groq?.apiKey]);
 
   const handleDownload = async (id: string) => {
     try {
@@ -172,42 +172,43 @@ export function AudioTranscriptionSettings() {
     handleUpdateSettings({ provider });
   };
 
+  const safeProfiles = profiles ?? [];
   const hasInstalledModel = useMemo(
-    () => profiles.some((profile) => profile.installed),
-    [profiles]
+    () => safeProfiles.some((profile) => profile.installed),
+    [safeProfiles]
   );
 
   const hasDownloadInProgress = useMemo(
-    () => Object.values(downloadProgress).some((progress) => progress > 0 && progress < 100),
+    () => Object.values(downloadProgress ?? {}).some((progress) => progress > 0 && progress < 100),
     [downloadProgress]
   );
 
   const preferredProfile = useMemo(
-    () => profiles.find((profile) => profile.id === audioSettings.preferredModelId),
-    [profiles, audioSettings.preferredModelId],
+    () => safeProfiles.find((profile) => profile.id === audioSettings.preferredModelId),
+    [safeProfiles, audioSettings.preferredModelId],
   );
   const preferredModelUnavailable = !!audioSettings.preferredModelId && !preferredProfile?.installed;
   const transcriptionResolution = useMemo(
     () => resolveTranscription(
       audioSettings,
-      profiles,
+      safeProfiles,
       isNativeMobile() ? "native-mobile" : "desktop",
     ),
-    [audioSettings, profiles],
+    [audioSettings, safeProfiles],
   );
 
   useEffect(() => {
-    if (profiles.length === 0) return;
+    if (safeProfiles.length === 0) return;
     // An explicit preference remains authoritative even when unavailable. The
     // warning/download affordance above surfaces that state without silently
     // switching to a different installed model.
     if (audioSettings.preferredModelId) return;
-    const installed = profiles.find((profile) => profile.installed);
-    const fallback = installed?.id ?? profiles[0].id;
+    const installed = safeProfiles.find((profile) => profile.installed);
+    const fallback = installed?.id ?? safeProfiles[0]?.id;
     if (fallback && fallback !== audioSettings.preferredModelId) {
       handleUpdateSettings({ preferredModelId: fallback });
     }
-  }, [profiles, audioSettings.preferredModelId]);
+  }, [safeProfiles, audioSettings.preferredModelId]);
 
   const rateLimitStatus = getRateLimitStatus();
 
@@ -229,17 +230,19 @@ export function AudioTranscriptionSettings() {
         </div>
       </div>
 
-      {/* Web/PWA Notice - Only show in browser */}
+      {/* Web/PWA Notice - Only show in browser. Uses opacity-modified base
+          colors rather than -50/-950 palette steps, which are light-theme-only
+          and render as unreadable gray-on-gray under dark themes. */}
       {!isDesktop && (
         <div className={cn(
           "rounded-xl border p-4 flex items-start gap-3 transition-all duration-300",
           isPWA() 
-            ? "border-green-200 bg-green-50/50 text-green-950" 
-            : "border-blue-200 bg-blue-50/50 text-blue-950"
+            ? "border-emerald-500/30 bg-emerald-500/10" 
+            : "border-primary/30 bg-primary/10"
         )}>
           <div className={cn(
             "p-2 rounded-lg",
-            isPWA() ? "bg-green-500/10 text-green-600" : "bg-blue-500/10 text-blue-600"
+            isPWA() ? "bg-emerald-500/15 text-emerald-500" : "bg-primary/15 text-primary"
           )}>
             <Desktop className="w-5 h-5" />
           </div>
@@ -250,7 +253,7 @@ export function AudioTranscriptionSettings() {
               </span>
               <span className={cn(
                 "px-2 py-0.5 text-[10px] font-medium rounded-full",
-                isPWA() ? "bg-green-500/20 text-green-700" : "bg-blue-500/20 text-blue-700"
+                isPWA() ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/20 text-primary"
               )}>
                 {isPWA() ? "Standalone App" : "Browser Tab"}
               </span>
@@ -967,7 +970,7 @@ export function AudioTranscriptionSettings() {
             </button>
           </div>
 
-          {queueStore.entries.length === 0 ? (
+          {(queueStore.entries?.length ?? 0) === 0 ? (
             <div className="rounded-xl border border-dashed border-border p-8 text-center">
               <FileAudio className="mx-auto h-8 w-8 text-muted-foreground/50" />
               <p className="mt-3 text-sm text-muted-foreground">{t("settings.audioNoPendingTranscriptions")}</p>

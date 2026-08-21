@@ -139,7 +139,7 @@ export async function getDueQueueItems(randomness?: number, collectionId?: strin
  *
  * Nothing stores these numbers — they are derived from the element's rank each
  * time you ask, so an untouched element's percentile drifts as the collection
- * grows. That is SuperMemo's model: a priority is a position, not a value.
+ * grows: a priority is a position, not a value.
  */
 export interface PriorityStanding {
   /** 0-100, higher = more important (same direction as the slider). */

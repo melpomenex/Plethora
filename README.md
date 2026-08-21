@@ -45,13 +45,13 @@ Built with modern technologies—Tauri, React, and Rust—it offers a beautiful,
 - Capture screenshots and run OCR extraction
 - Auto-transcribe audio/video content with local Whisper or cloud providers (OpenAI, Groq)
 - Create highlights/extracts, organize by tags/categories, and resume reading positions
-- Migrate study data from Anki (`.apkg`) and SuperMemo (ZIP exports)
+- Migrate study data from Anki (`.apkg`) and JSON flashcard decks
 
 ---
 
 ### 🧠 Learning & Review
 
-- Multiple scheduling algorithms: FSRS-6, SM-18, SM-20, SM-2
+- Multiple scheduling algorithms: FSRS-6, Plethora Adaptive (3D SInc), Plethora Precision (5-Model Ensemble), and Classic
 - Card types: Basic, Cloze, Q&A, Multiple Choice, and Image Occlusion (via Flashcard Studio)
 - Review queue with filtering/sorting, keyboard-first rating flow, and session stats
 - Preview intervals (including long-form duration-aware safety caps)
@@ -238,7 +238,7 @@ Documents → Import Document → Choose source
 | 📄 **Arxiv** | Paste Arxiv ID or URL for research papers |
 | 📸 **Screenshot** | Capture your screen directly |
 | 🃏 **Anki** | Import .apkg files from Anki |
-| 📦 **SuperMemo** | Import ZIP exports from SuperMemo |
+| 🗃️ **JSON Deck** | Import .json flashcard decks |
 
 ---
 

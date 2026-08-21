@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
-import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
+import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import { applyLanguageAnnotationSpans, clearLanguageAnnotationSpans, buildVocabularyAnnotations, loadLanguageHighlightSettings, normalizeLanguageHighlightSettings } from "../../lib/languageHighlighting";
 import { DomLanguageHighlightAdapter, EpubLanguageHighlightAdapter, HtmlLanguageHighlightAdapter, MarkdownLanguageHighlightAdapter } from "../../lib/languageHighlighting/adapters";
 import type { LanguageHighlightReaderAdapter } from "../../lib/languageHighlighting/adapters";
@@ -81,7 +81,9 @@ function fixedPdfAnchors(
 
 /** Mounts the existing read-only adapters into HTML/Markdown/EPUB content. */
 export function LanguageReaderDomBridge({ root, surface, sourceId, contentSelector, pdfTextLayerRoots = [], pdfCanonicalPages = new Map() }: LanguageReaderDomBridgeProps) {
-  const { snapshot } = useLanguageLearningHost();
+  const host = useOptionalLanguageLearningHost();
+  if (!host) return null;
+  const { snapshot } = host;
 
   useEffect(() => {
     let disposed = false;

@@ -104,3 +104,74 @@ describe("WordHighlighter.highlightAnchoredWord", () => {
     root.remove();
   });
 });
+
+/**
+ * Regression tests for the IndexedText cache: clear()/normalize() destroys
+ * Text-node identity while the `${childNodes.length}:${textContent.length}`
+ * signature stays identical, so the old code reused detached node references
+ * and silently applied zero highlight ranges. The cache must invalidate after
+ * DOM mutations and always resolve against connected Text nodes.
+ */
+describe("WordHighlighter IndexedText cache invalidation", () => {
+  it("re-indexes after a clear/normalize cycle so repeated highlights keep working", () => {
+    const root = mount("<p>alpha bravo charlie delta echo foxtrot</p>");
+    const { chunk } = chunkFor(root, "test", () => 2); // "charlie"
+    const hl = new WordHighlighter();
+    hl.init(root);
+    hl.setEnabled(true);
+
+    expect(hl.highlightAnchoredWord(chunk, 2)).toBe(true);
+    expect(root.querySelectorAll(".tts-word-highlight").length).toBe(1);
+
+    // Second cycle: clear() replaces the span with a text node and normalizes
+    // the parent, destroying the previously indexed Text nodes.
+    expect(hl.highlightAnchoredWord(chunk, 2)).toBe(true);
+    const marks = root.querySelectorAll(".tts-word-highlight");
+    expect(marks.length).toBe(1);
+    expect(marks[0].textContent).toBe("charlie");
+    expect(marks[0].isConnected).toBe(true);
+    root.remove();
+  });
+
+  it("discards cached nodes detached by external DOM mutation with an unchanged signature", () => {
+    // Whitespace text node between paragraphs keeps word boundaries intact.
+    const root = mount("<p>alpha bravo charlie</p> <p>second paragraph text here</p>");
+    const { chunk } = chunkFor(root, "test", () => 2); // "charlie"
+    const hl = new WordHighlighter();
+    hl.init(root);
+    hl.setEnabled(true);
+    expect(hl.highlightAnchoredWord(chunk, 2)).toBe(true);
+    hl.clear();
+
+    // External rewrite keeps the container's childCount:textLength signature
+    // identical but orphans every previously indexed Text node.
+    const firstParagraph = root.querySelectorAll("p")[0];
+    firstParagraph.innerHTML = firstParagraph.textContent ?? "";
+
+    expect(hl.highlightAnchoredWord(chunk, 2)).toBe(true);
+    const marks = root.querySelectorAll(".tts-word-highlight");
+    expect(marks.length).toBe(1);
+    expect(marks[0].textContent).toBe("charlie");
+    expect(marks[0].isConnected).toBe(true);
+    root.remove();
+  });
+
+  it("never applies ranges onto disconnected text nodes across rapid cycles", () => {
+    const root = mount("<p>one two three four five six seven eight nine ten</p>");
+    const { chunk } = chunkFor(root, "test", () => 9); // "ten"
+    const hl = new WordHighlighter();
+    hl.init(root);
+    hl.setEnabled(true);
+
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      expect(hl.highlightAnchoredWord(chunk, 9)).toBe(true);
+      const marks = root.querySelectorAll(".tts-word-highlight");
+      expect(marks.length).toBe(1);
+      expect(marks[0].isConnected).toBe(true);
+      expect(marks[0].textContent).toBe("ten");
+      hl.clear();
+      expect(root.querySelectorAll(".tts-word-highlight").length).toBe(0);
+    }
+    root.remove();
+  });
+});

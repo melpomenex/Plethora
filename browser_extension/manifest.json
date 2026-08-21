@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Plethora Capture",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "browser_specific_settings": {
     "gecko": {
       "id": "{bb3443c2-dfb8-42a3-8df7-3737a3f80185}",

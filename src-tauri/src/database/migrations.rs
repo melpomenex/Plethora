@@ -1616,7 +1616,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
         "#,
     ),
-    // Extract priority inheritance (SuperMemo-style IR priority chain).
+    // Extract priority inheritance (incremental reading priority chain).
     Migration::new(
         "049_add_extract_priority",
         r#"
@@ -2343,8 +2343,8 @@ pub const MIGRATIONS: &[Migration] = &[
           );
         "#,
     ),
-    // Migration 078: SuperMemo knowledge-tree overlay (supermemo-faithful-queue
-    // Phase 2). A thin `element_tree` table references the existing documents /
+    // Migration 078: Knowledge-tree overlay.
+    // A thin `element_tree` table references the existing documents /
     // extracts / learning_items tables via (element_kind, element_ref_id) and
     // carries the tree topology columns the priority and neural queues
     // traverse (parent/child/sibling, element type, concept and inter-element
@@ -2367,7 +2367,7 @@ pub const MIGRATIONS: &[Migration] = &[
             first_child_id           INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
             next_sibling_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
             prev_sibling_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
-            element_type             INTEGER NOT NULL, -- 0=Topic, 1=Item, 4=Concept (SM taxonomy)
+            element_type             INTEGER NOT NULL, -- 0=Topic, 1=Item, 4=Concept
             concept_link_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
             inter_element_link_id    INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
             descendant_count_a       INTEGER NOT NULL DEFAULT 0, -- cached, threshold 300
@@ -2487,10 +2487,10 @@ pub const MIGRATIONS: &[Migration] = &[
         WHERE parent_id IS NOT NULL;
         "#,
     ),
-    // Migration 079: priority-queue completion for learning items
-    // (supermemo-faithful-queue Phase 3). Cards historically had no user-set
+    // Migration 079: priority-queue completion for learning items.
+    // Cards historically had no user-set
     // priority — their queue `priority` was derived from FSRS urgency at read
-    // time, which is scheduling urgency, not importance. SuperMemo's priority
+    // time, which is scheduling urgency, not importance. The priority
     // queue treats topics and items uniformly, so learning_items gain the same
     // `priority_slider` (0-100, default 50 = neutral) and `priority_score`
     // columns documents already have. The slider is the user-set importance
@@ -2505,10 +2505,10 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE learning_items ADD COLUMN priority_explicitly_set INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
-    // Migration 080: neural-queue storage (supermemo-faithful-queue Phase 4).
+    // Migration 080: neural-queue storage.
     // A distinct table from the priority queue: it holds the spreading-
     // activation-built review sequence for the optional "Go neural" creative
-    // mode. `element_id` references `element_tree.id` (Phase 2's overlay);
+    // mode. `element_id` references `element_tree.id` (overlay);
     // `position` is the 1-based presentation order; `priority_value` is the
     // combined activation the algorithm computed (lower = earlier); `consumed`
     // marks elements already studied so depletion can trigger a refill.
@@ -2616,8 +2616,8 @@ pub const MIGRATIONS: &[Migration] = &[
     // Migration 082: index the priority-queue order key.
     //
     // `priority_score` stopped being a standalone importance value and became
-    // a position in one global priority queue (SuperMemo's model — see
-    // `database::priority_rank`). Every priority edit and every priority
+    // a position in one global priority queue — see
+    // `database::priority_rank`. Every priority edit and every priority
     // readout now runs `ORDER BY priority_score` / `COUNT(*) WHERE
     // priority_score < ?` across all three element tables, which is a full
     // scan per table without these.
@@ -3778,6 +3778,29 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE image_assets ADD COLUMN metadata TEXT;
         "#,
     ),
+    // Migration 103: Complete Plethora identity migration — rename legacy SM-20
+    // arena tables to arena_*, drop obsolete diagnostic tables, and migrate
+    // learning_items.algorithm_type values to canonical Plethora identifiers.
+    Migration::new(
+        "103_complete_plethora_identity_migration",
+        r#"
+        ALTER TABLE sm20_arena RENAME TO arena_state;
+        ALTER TABLE sm20_m2_optimizer RENAME TO arena_m2_optimizer;
+        ALTER TABLE sm20_m3_matrices RENAME TO arena_m3_matrices;
+        ALTER TABLE sm20_model_params RENAME TO arena_model_params;
+
+        DROP TABLE IF EXISTS sm20_matrices;
+        DROP TABLE IF EXISTS sm20_recall_cells;
+        DROP TABLE IF EXISTS sm20_optimizer_profiles;
+
+        UPDATE learning_items SET algorithm_type = 'adaptive' WHERE algorithm_type = 'sm18';
+        UPDATE learning_items SET algorithm_type = 'precision' WHERE algorithm_type = 'sm20';
+        UPDATE learning_items SET algorithm_type = 'classic' WHERE algorithm_type = 'sm2';
+        UPDATE learning_items SET algorithm_type = 'classic_5' WHERE algorithm_type = 'sm5';
+        UPDATE learning_items SET algorithm_type = 'classic_8' WHERE algorithm_type = 'sm8';
+        UPDATE learning_items SET algorithm_type = 'classic_15' WHERE algorithm_type = 'sm15';
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4231,6 +4254,58 @@ mod tests {
             .await
             .expect("inspect migration tracking after rollback");
         assert_eq!(tracked, 0);
+    }
+
+    #[tokio::test]
+    async fn complete_plethora_identity_migration_renames_tables_and_updates_algorithm_types() {
+        let pool = pool_migrated_up_to("103_complete_plethora_identity_migration").await;
+
+        // Seed legacy learning_items rows
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES ('doc-test', 'Test Doc', '/test.md', 'markdown', datetime('now'), datetime('now'))")
+            .execute(&pool)
+            .await
+            .expect("insert test doc");
+        sqlx::query("INSERT INTO learning_items (id, document_id, item_type, question, answer, algorithm_type, due_date, date_created, date_modified) VALUES ('item-sm18', 'doc-test', 'flashcard', 'Q1', 'A1', 'sm18', datetime('now'), datetime('now'), datetime('now'))")
+            .execute(&pool)
+            .await
+            .expect("insert sm18 item");
+        sqlx::query("INSERT INTO learning_items (id, document_id, item_type, question, answer, algorithm_type, due_date, date_created, date_modified) VALUES ('item-sm20', 'doc-test', 'flashcard', 'Q2', 'A2', 'sm20', datetime('now'), datetime('now'), datetime('now'))")
+            .execute(&pool)
+            .await
+            .expect("insert sm20 item");
+
+        run_migrations(&pool).await.expect("apply migration 103");
+
+        // Verify algorithm_type values updated
+        let (algo_18,): (String,) = sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm18'")
+            .fetch_one(&pool)
+            .await
+            .expect("query item-sm18");
+        assert_eq!(algo_18, "adaptive");
+
+        let (algo_20,): (String,) = sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm20'")
+            .fetch_one(&pool)
+            .await
+            .expect("query item-sm20");
+        assert_eq!(algo_20, "precision");
+
+        // Verify renamed tables exist
+        for table in ["arena_state", "arena_m2_optimizer", "arena_m3_matrices", "arena_model_params"] {
+            let (count,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"))
+                .fetch_one(&pool)
+                .await
+                .expect("check table exists");
+            assert_eq!(count, 1, "table {table} should exist");
+        }
+
+        // Verify dropped tables do not exist
+        for table in ["sm20_matrices", "sm20_recall_cells", "sm20_optimizer_profiles", "sm20_arena"] {
+            let (count,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"))
+                .fetch_one(&pool)
+                .await
+                .expect("check table does not exist");
+            assert_eq!(count, 0, "table {table} should be dropped");
+        }
     }
 
     #[test]

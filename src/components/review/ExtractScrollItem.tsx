@@ -480,7 +480,7 @@ export function ExtractScrollItem({
                     />
                 </div>
 
-                {/* Lifecycle actions: Forget / Dismiss / Done (SuperMemo-style) */}
+                {/* Lifecycle actions: Forget / Dismiss / Done */}
                 <div className="flex items-center justify-center gap-2 mt-3">
                     <button
                         onClick={() => {

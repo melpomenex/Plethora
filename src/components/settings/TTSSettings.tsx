@@ -4,6 +4,7 @@ import { getCacheSize, clearAudioCache, updateMaxCacheSize, bytesToMiB } from ".
 function DownloadedSpeechSection() {
   const [info, setInfo] = useState<{ totalSize: number; maxSize: number; entryCount: number } | null>(null);
   const [maxSel, setMaxSel] = useState("500");
+  const [confirmingClear, setConfirmingClear] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const load = async () => { const s = await getCacheSize(); if (!cancelled) setInfo(s); };
@@ -18,12 +19,39 @@ function DownloadedSpeechSection() {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">Plethora stores generated speech on this device so replaying the same passages does not require another TTS request.</p>
       <p className="text-sm">{info ? `${bytesToMiB(info.totalSize)} MB · ${info.entryCount} segments of ${bytesToMiB(info.maxSize)} MB` : "Loading…"}</p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
         <select value={maxSel} onChange={(e)=>setMaxSel(e.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-sm">
           <option value="250">250 MB</option><option value="500">500 MB</option><option value="1000">1 GB</option><option value="2000">2 GB</option><option value="999999">Unlimited</option>
         </select>
         <button onClick={() => { void updateMaxCacheSize(Number(maxSel)).then(()=>getCacheSize().then(setInfo)); }} className="rounded-lg border border-border px-3 py-1 text-sm">Manage</button>
-        <button onClick={async()=>{ if(confirm("This removes all cached speech. Next playback will regenerate via your provider.")){ await clearAudioCache(); setInfo(await getCacheSize()); } }} className="rounded-lg border border-destructive/40 px-3 py-1 text-sm text-destructive">Clear cached speech</button>
+        {confirmingClear ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Remove all cached speech?</span>
+            <button
+              onClick={async () => {
+                await clearAudioCache();
+                setInfo(await getCacheSize());
+                setConfirmingClear(false);
+              }}
+              className="rounded-lg bg-destructive px-2 py-1 text-xs text-destructive-foreground"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmingClear(false)}
+              className="rounded-lg border border-border px-2 py-1 text-xs"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingClear(true)}
+            className="rounded-lg border border-destructive/40 px-3 py-1 text-sm text-destructive"
+          >
+            Clear cached speech
+          </button>
+        )}
       </div>
     </div>
   );
@@ -869,6 +897,27 @@ export function TTSSettings() {
             aria-label="Enable Text-to-Speech"
             touchTarget
           />
+        </div>
+
+        {/* At-a-glance summary of what will actually speak: provider, model,
+            and resolved voice display name. Sits above the configuration grid
+            so the active selection is visible without hunting through
+            sub-sections. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/50 border border-border px-3 py-2 text-sm">
+          <span className="text-muted-foreground">{t("settings.ttsActiveVoice")}:</span>
+          <span className="font-medium text-foreground">
+            {listAdapters().find((adapter) => adapter.id === tts.provider)?.label ?? String(tts.provider)}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span className="font-medium text-foreground">
+            {getProviderSettings(tts, String(tts.provider)).modelId || "—"}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span data-testid="tts-active-voice" className="font-medium text-primary">
+            {defaultVoice?.name ||
+              getProviderSettings(tts, String(tts.provider)).voiceId ||
+              t("settings.ttsNoVoiceSelected")}
+          </span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
