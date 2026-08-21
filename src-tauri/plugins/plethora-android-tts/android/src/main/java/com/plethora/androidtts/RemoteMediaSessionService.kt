@@ -40,6 +40,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Looper
+import android.util.Log
 import android.view.KeyEvent
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
@@ -135,7 +136,7 @@ object MediaBridge {
         positionSec: Double? = null,
         occurredAt: Long = System.currentTimeMillis(),
     ) {
-        Logger.debug("PlethoraMedia: command received -> $command")
+        Log.d(AndroidTtsPlugin.MEDIA_LOG_TAG, "command received -> $command")
         val envelope = JSONObject()
             .put("command", command)
             .put("eventId", UUID.randomUUID().toString())
@@ -253,8 +254,9 @@ class WebViewBridgePlayer(
         invalidateState()
         val current = MediaBridge.playbackState to MediaBridge.isPlaying
         if (current != lastLoggedState) {
-            Logger.info(
-                "PlethoraMedia: player state -> ${current.first} playing=${current.second} " +
+            Log.i(
+                AndroidTtsPlugin.MEDIA_LOG_TAG,
+                "player state -> ${current.first} playing=${current.second} " +
                     "source=${MediaBridge.sourceId}"
             )
             lastLoggedState = current
@@ -416,8 +418,8 @@ class RemoteMediaSessionService : MediaSessionService() {
                         // Backgrounded start (e.g. headset resume): the
                         // startForegroundService contract applies, so onCreate
                         // must post a compliant notification immediately.
-                        Logger.info(
-                            "RemoteMediaSessionService: background start; using startForegroundService contract"
+                        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG,
+                            "background start; using startForegroundService contract"
                         )
                         needsCompliantStartForeground = true
                         ctx.startForegroundService(intent)
@@ -427,7 +429,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                     ctx.startService(intent)
                 }
             } catch (e: Throwable) {
-                Logger.warn("RemoteMediaSessionService start failed: ${e.message}")
+                Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "start failed: ${e.message}")
             }
         }
 
@@ -514,13 +516,13 @@ class RemoteMediaSessionService : MediaSessionService() {
                 startForeground(FOREGROUND_NOTIFICATION_ID, notification)
             }
         } catch (e: Throwable) {
-            Logger.warn("RemoteMediaSessionService foreground promotion failed: ${e.message}")
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "foreground promotion failed: ${e.message}")
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        Logger.info("PlethoraMedia: service created")
+        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service created")
         // Only satisfy the startForegroundService() contract when it actually
         // applies (backgrounded start). In the normal foreground path Media3
         // owns promotion once the bridge player reports ready/playing, so no
@@ -571,8 +573,9 @@ class RemoteMediaSessionService : MediaSessionService() {
                 .build()
             activeSession = session
             addSession(session)
-            Logger.info(
-                "PlethoraMedia: session created source=${MediaBridge.sourceId} " +
+            Log.i(
+                AndroidTtsPlugin.MEDIA_LOG_TAG,
+                "session created source=${MediaBridge.sourceId} " +
                     "state=${MediaBridge.playbackState} playing=${MediaBridge.isPlaying}"
             )
 
@@ -596,7 +599,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                 registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
             }
         } catch (e: Throwable) {
-            Logger.warn("RemoteMediaSessionService create failed: ${e.message}")
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "create failed: ${e.message}")
             stopSelf()
         }
     }
@@ -654,7 +657,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                 audioManager.requestAudioFocus(listener, android.media.AudioAttributes.USAGE_MEDIA, AudioManager.AUDIOFOCUS_GAIN)
             }
         } catch (e: Throwable) {
-            Logger.warn("RemoteMediaSessionService focus request failed: ${e.message}")
+            Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "focus request failed: ${e.message}")
         }
     }
 
@@ -677,7 +680,7 @@ class RemoteMediaSessionService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        Logger.info("PlethoraMedia: service destroyed (session teardown)")
+        Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service destroyed (session teardown)")
         abandonFocus()
         try {
             unregisterReceiver(noisyReceiver)
