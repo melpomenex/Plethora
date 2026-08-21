@@ -4,17 +4,30 @@ import { useBillingStore } from '../../stores/billingStore';
 
 export const PaywallModal: React.FC = () => {
   const { isOpen, activeContext, closePaywall, trial, startTrial } = usePaywallStore();
-  const { products, loading, purchase } = useBillingStore();
+  const {
+    products,
+    loading,
+    error,
+    purchase,
+    init,
+    usingMockProvider,
+    pendingApproval,
+  } = useBillingStore();
 
   if (!isOpen || !activeContext) return null;
 
   const proProduct = products.find((p) => p.id.includes('pro')) || products[0];
+  const productsFailedToLoad = !loading && !proProduct;
 
   const handleUpgrade = async () => {
     if (proProduct) {
       await purchase(proProduct.id);
       closePaywall();
     }
+  };
+
+  const handleRetryProducts = () => {
+    void init();
   };
 
   return (
@@ -51,36 +64,83 @@ export const PaywallModal: React.FC = () => {
             {activeContext.description}
           </p>
 
-          {activeContext.quotaDetails && (
-            <div className="bg-bg-subtle/50 p-3 rounded-lg border border-border-subtle text-xs">
-              <span className="font-semibold text-fg-default">Included Allowance: </span>
-              {activeContext.quotaDetails}
+          {usingMockProvider && (
+            <div
+              data-testid="paywall-mock-banner"
+              className="bg-warning/10 border border-warning/40 text-warning px-3 py-2 rounded-lg text-xs font-medium"
+            >
+              Development build: billing is running against the mock provider.
+              Prices shown are fixtures, not real App Store pricing.
             </div>
           )}
 
-          <div className="bg-bg-subtle/30 p-3 rounded-lg border border-border-subtle/50 text-xs text-fg-muted space-y-1">
-            <div className="flex items-center gap-1.5 font-medium text-fg-default">
-              <span>🛡️</span>
-              <span>Privacy & Free Guarantee</span>
+          {pendingApproval && (
+            <div
+              data-testid="paywall-pending-approval"
+              className="bg-accent/10 border border-accent/40 text-accent-fg px-3 py-2 rounded-lg text-xs font-medium"
+              role="status"
+            >
+              Purchase awaiting approval. Your subscription activates
+              automatically once the purchase is approved.
             </div>
-            <p>
-              Your local library, documents, notes, and spaced repetition review are 100% free forever.
-              Cloud compute is an optional augmentation that never locks your personal data.
-            </p>
-          </div>
+          )}
+
+          {productsFailedToLoad ? (
+            /* Retry state — prices come only from the store provider; none are
+               invented when products fail to load (mock-firewall invariant). */
+            <div
+              data-testid="paywall-product-error"
+              className="bg-bg-subtle/50 p-4 rounded-lg border border-border-subtle text-center space-y-3"
+              role="alert"
+            >
+              <p className="text-sm text-fg-default">
+                Couldn&apos;t load subscription options
+                {error ? ` (${error})` : ''}.
+              </p>
+              <button
+                type="button"
+                onClick={handleRetryProducts}
+                className="px-4 py-2 text-sm font-medium border border-border-default rounded-lg hover:bg-bg-subtle text-fg-default transition-colors"
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <>
+              {activeContext.quotaDetails && (
+                <div className="bg-bg-subtle/50 p-3 rounded-lg border border-border-subtle text-xs">
+                  <span className="font-semibold text-fg-default">Included Allowance: </span>
+                  {activeContext.quotaDetails}
+                </div>
+              )}
+
+              <div className="bg-bg-subtle/30 p-3 rounded-lg border border-border-subtle/50 text-xs text-fg-muted space-y-1">
+                <div className="flex items-center gap-1.5 font-medium text-fg-default">
+                  <span>🛡️</span>
+                  <span>Privacy & Free Guarantee</span>
+                </div>
+                <p>
+                  Your local library, documents, notes, and spaced repetition review are 100% free forever.
+                  Cloud compute is an optional augmentation that never locks your personal data.
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer actions */}
         <div className="p-6 bg-bg-subtle/40 border-t border-border-subtle flex flex-col sm:flex-row gap-3 items-center justify-between">
-          <div className="text-left w-full sm:w-auto">
-            <span className="text-lg font-bold text-fg-default">
-              {proProduct?.priceFormatted || '$12/month'}
-            </span>
-            <span className="text-xs text-fg-muted block">Cancel anytime</span>
-          </div>
+          {!productsFailedToLoad && (
+            <div className="text-left w-full sm:w-auto">
+              <span className="text-lg font-bold text-fg-default">
+                {proProduct?.priceFormatted}
+              </span>
+              <span className="text-xs text-fg-muted block">Cancel anytime</span>
+            </div>
+          )}
 
           <div className="flex gap-2 w-full sm:w-auto">
-            {!trial.isActive && (
+            {!trial.isActive && !productsFailedToLoad && (
               <button
                 type="button"
                 onClick={() => {
@@ -96,7 +156,7 @@ export const PaywallModal: React.FC = () => {
             <button
               type="button"
               onClick={handleUpgrade}
-              disabled={loading}
+              disabled={loading || productsFailedToLoad}
               className="px-5 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto"
             >
               {loading ? 'Processing…' : 'Upgrade to Pro'}
