@@ -1,0 +1,175 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ASC privacy-label draft generator (Change C §3.2) > produces a stable questionnaire draft from the registry (snapshot) 1`] = `
+{
+  "collectedData": [
+    {
+      "dataType": "purchases",
+      "linkedToIdentity": true,
+      "purposes": [
+        "app_functionality",
+      ],
+      "sourceDisclosureIds": [
+        "store_transactions",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataType": "usage_data",
+      "linkedToIdentity": false,
+      "purposes": [
+        "analytics",
+      ],
+      "sourceDisclosureIds": [
+        "web_analytics",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataType": "user_content",
+      "linkedToIdentity": true,
+      "purposes": [
+        "app_functionality",
+      ],
+      "sourceDisclosureIds": [
+        "cloud_sync",
+        "cloud_backup",
+        "cloud_ai_intelligence",
+        "cloud_document_processing",
+        "cloud_tts",
+        "cloud_transcription",
+        "cloud_web_capture",
+      ],
+      "usedForTracking": false,
+    },
+  ],
+  "perDisclosure": [
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_sync",
+      "linkedToIdentity": true,
+      "name": "End-to-End Encrypted Cloud Sync",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_backup",
+      "linkedToIdentity": true,
+      "name": "Cloud Encrypted Backups",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_ai_intelligence",
+      "linkedToIdentity": true,
+      "name": "Cloud Intelligence & RAG Indexing",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_document_processing",
+      "linkedToIdentity": true,
+      "name": "Cloud Document Reconstruction & OCR",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_tts",
+      "linkedToIdentity": true,
+      "name": "Premium Neural Text-to-Speech",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_transcription",
+      "linkedToIdentity": true,
+      "name": "Cloud Audio & Video Transcription",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "user_content",
+      ],
+      "id": "cloud_web_capture",
+      "linkedToIdentity": true,
+      "name": "Web Inbox & Remote Capture",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "purchases",
+      ],
+      "id": "store_transactions",
+      "linkedToIdentity": true,
+      "name": "Store Transactions & Entitlements",
+      "purposes": [
+        "app_functionality",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [
+        "usage_data",
+      ],
+      "id": "web_analytics",
+      "linkedToIdentity": false,
+      "name": "Web Analytics (Web/PWA builds only)",
+      "purposes": [
+        "analytics",
+      ],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": false,
+      "dataTypes": [],
+      "id": "telemetry_crash_reporting",
+      "linkedToIdentity": false,
+      "name": "Diagnostics & Crash Reporting (Not Currently Shipped)",
+      "purposes": [],
+      "usedForTracking": false,
+    },
+  ],
+}
+`;
