@@ -183,6 +183,7 @@ pub async fn hf_inspect_model(
                 },
                 estimated_memory_bytes: 0,
                 confidence: DetectionConfidence::Exact,
+                metadata: Default::default(),
             },
             suitability: classify(&system_info, None),
         };

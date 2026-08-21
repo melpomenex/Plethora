@@ -479,7 +479,17 @@ pub async fn build_file_index(
                 || lower == "voices.bin"
         })
         .collect();
-    for name in ["tokens.txt", "tokens.json", "lexicon.txt", "voices.bin"] {
+    for name in [
+        "tokens.txt",
+        "tokens.json",
+        "lexicon.txt",
+        "voices.bin",
+        // Supertonic pipeline files: probed explicitly so sizes/SHA-256
+        // resolve for all seven assets even when siblings omits metadata.
+        "tts.json",
+        "unicode_indexer.bin",
+        "voice.bin",
+    ] {
         pending.push(name.to_string());
     }
     pending.sort();

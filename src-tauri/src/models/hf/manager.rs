@@ -154,6 +154,26 @@ async fn registry_insert(pool: &Pool<sqlx::Sqlite>, model: &InstalledHfModel) ->
     Ok(())
 }
 
+/// Normalize a deserialized row's run contract without touching the DB:
+/// legacy sherpa TTS rows (`family: None`) get their family inferred
+/// (`voices.bin` ⇒ Kokoro, else VITS) so callers never see an inferred-None
+/// contract. Writes back to the row are optional and not required — the next
+/// install of the same repo persists a fully-formed contract.
+fn with_inferred_tts_family(mut model: InstalledHfModel) -> InstalledHfModel {
+    if let RunContract::SherpaTts { family: None, .. } = &model.run_contract {
+        if let Some(family) = model.run_contract.effective_tts_family() {
+            if let RunContract::SherpaTts {
+                family: slot,
+                ..
+            } = &mut model.run_contract
+            {
+                *slot = Some(family);
+            }
+        }
+    }
+    model
+}
+
 async fn registry_get(pool: &Pool<sqlx::Sqlite>, id: &str) -> Option<InstalledHfModel> {
     let row: Option<(String, String, String, String, String, String, i64, Option<String>, String, String)> =
         sqlx::query_as(
@@ -169,7 +189,7 @@ async fn registry_get(pool: &Pool<sqlx::Sqlite>, id: &str) -> Option<InstalledHf
         let runtime = HfRuntime::from_tag(&runtime)?;
         let artifact_files: Vec<InstalledModelFile> = serde_json::from_str(&files).ok()?;
         let run_contract: RunContract = serde_json::from_str(&contract).ok()?;
-        Some(InstalledHfModel {
+        Some(with_inferred_tts_family(InstalledHfModel {
             id: id.to_string(),
             repo_id,
             revision,
@@ -182,10 +202,9 @@ async fn registry_get(pool: &Pool<sqlx::Sqlite>, id: &str) -> Option<InstalledHf
             run_contract,
             installed_at: at,
             installed: false,
-        })
+        }))
     })
 }
-
 async fn registry_delete(pool: &Pool<sqlx::Sqlite>, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM hf_installed_models WHERE id = ?")
         .bind(id)
@@ -233,7 +252,7 @@ pub async fn registry_list(pool: &Pool<sqlx::Sqlite>) -> Result<Vec<InstalledHfM
                 let artifact_files: Vec<InstalledModelFile> = serde_json::from_str(&files).ok()?;
                 let run_contract: RunContract = serde_json::from_str(&contract).ok()?;
                 let installed = verify_on_disk(&install_dir, &artifact_files);
-                Some(InstalledHfModel {
+                Some(with_inferred_tts_family(InstalledHfModel {
                     id,
                     repo_id,
                     revision,
@@ -246,7 +265,7 @@ pub async fn registry_list(pool: &Pool<sqlx::Sqlite>) -> Result<Vec<InstalledHfM
                     run_contract,
                     installed_at: at,
                     installed,
-                })
+                }))
             },
         )
         .collect())
@@ -279,6 +298,13 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
     let (runtime, _repo, _rev) = parse_model_id(id)?;
     let model = registry_get(pool, id).await?;
     if !model.installed && !verify_on_disk(&model.install_dir, &model.artifact_files) {
+        return None;
+    }
+    // Defense in depth: every path referenced by the run contract must be a
+    // contained relative path (covers the Whisper model_file and every
+    // sherpa TTS file field — never resolve a traversal out of the install
+    // dir, even if a stale or hostile registry row references `../evil.bin`).
+    if !model.run_contract.paths_contained() {
         return None;
     }
     let root = PathBuf::from(&model.install_dir);
@@ -314,7 +340,34 @@ pub async fn resolve_run_contract(
     if !verify_on_disk(&model.install_dir, &model.artifact_files) {
         return None;
     }
+    if !model.run_contract.paths_contained() {
+        return None;
+    }
     Some((model.runtime, model.run_contract))
+}
+
+/// Resolve an installed sherpa TTS model id to its on-disk directory plus a
+/// validated, family-resolved run contract.
+///
+/// This is the shared storage bridge used by the desktop TTS engine and the
+/// Android plugin shim: HF-installed weights stay in `<app_data>/models/tts/`
+/// and are consumed in place — never duplicated into another runtime's asset
+/// area. Returns `None` when the id is unknown, files are missing, the
+/// contract fails validation, or any contract path escapes the install dir.
+pub async fn resolve_installed_tts(
+    pool: &Pool<sqlx::Sqlite>,
+    id: &str,
+) -> Option<(PathBuf, RunContract)> {
+    let (runtime, contract) = resolve_run_contract(pool, id).await?;
+    if runtime != HfRuntime::SherpaOnnxTts {
+        return None;
+    }
+    if contract.validate().is_err() {
+        return None;
+    }
+    let (_tag, _repo, _rev) = parse_model_id(id)?;
+    let model = registry_get(pool, id).await?;
+    Some((PathBuf::from(model.install_dir), contract))
 }
 
 /// How an STT model id should be dispatched to the transcription engine.
@@ -1090,6 +1143,176 @@ mod tests {
         assert!(whisper_dir.to_string_lossy().contains("whisper"));
         assert!(stt_dir.to_string_lossy().contains("parakeet"));
         assert!(tts_dir.to_string_lossy().contains("tts"));
+    }
+
+    // ── supertonic: legacy-row inference + shared storage bridge ───────────
+
+    fn legacy_tts_row_json() -> String {
+        // Exactly what a pre-change row looks like in the DB.
+        r#"{"type":"sherpa-tts","model_file":"model.onnx","tokens_file":"tokens.txt","voices_file":"voices.bin"}"#
+            .to_string()
+    }
+
+    fn supertonic_row_json() -> String {
+        serde_json::json!({
+            "type": "sherpa-tts",
+            "family": "supertonic",
+            "model_file": "duration_predictor.int8.onnx",
+            "text_encoder_file": "text_encoder.int8.onnx",
+            "vector_estimator_file": "vector_estimator.int8.onnx",
+            "vocoder_file": "vocoder.int8.onnx",
+            "tts_json_file": "tts.json",
+            "unicode_indexer_file": "unicode_indexer.bin",
+            "voice_bin_file": "voice.bin",
+        })
+        .to_string()
+    }
+
+    fn files_json(paths: &[&str]) -> String {
+        serde_json::to_string(
+            &paths
+                .iter()
+                .map(|p| InstalledModelFile {
+                    path: p.to_string(),
+                    size: 10,
+                    sha256: None,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    async fn insert_raw_row(pool: &Pool<sqlx::Sqlite>, id: &str, dir: &str, contract: &str, files: &str) {
+        sqlx::query(
+            "INSERT INTO hf_installed_models
+             (id, repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
+              download_size_bytes, license, run_contract, metadata, installed_at)
+             VALUES (?, ?, 'main', 'sherpa-onnx-tts', ?, ?, ?, 0, NULL, ?, '{}', '2026-08-19T00:00:00Z')",
+        )
+        .bind(id)
+        .bind("someone/tts-model")
+        .bind(if id.contains("supertonic") { "supertonic" } else { "kokoro" })
+        .bind(dir)
+        .bind(files)
+        .bind(contract)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn registry_read_infers_legacy_tts_family_without_db_write() {
+        let pool = test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let model_dir = dir.path().join("models/tts/someone_tts-model");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        for f in ["model.onnx", "tokens.txt", "voices.bin"] {
+            std::fs::write(model_dir.join(f), vec![0x42; 100]).unwrap();
+        }
+        insert_raw_row(
+            &pool,
+            "hf:sherpa-onnx-tts:someone/tts-model",
+            model_dir.to_str().unwrap(),
+            &legacy_tts_row_json(),
+            &files_json(&["model.onnx", "tokens.txt", "voices.bin"]),
+        )
+        .await;
+
+        let listed = registry_list(&pool).await.unwrap();
+        let m = listed.iter().find(|m| m.id == "hf:sherpa-onnx-tts:someone/tts-model").unwrap();
+        assert_eq!(
+            m.run_contract.effective_tts_family(),
+            Some(crate::models::hf::adapters::SherpaTtsFamily::Kokoro),
+            "voices.bin ⇒ Kokoro"
+        );
+        assert!(matches!(
+            m.run_contract,
+            RunContract::SherpaTts { family: Some(_), .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_installed_tts_returns_supertonic_dir_and_contract() {
+        let pool = test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let model_dir = dir.path().join("models/tts/someone_supertonic");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        for f in [
+            "duration_predictor.int8.onnx",
+            "text_encoder.int8.onnx",
+            "vector_estimator.int8.onnx",
+            "vocoder.int8.onnx",
+            "tts.json",
+            "unicode_indexer.bin",
+            "voice.bin",
+        ] {
+            std::fs::write(model_dir.join(f), vec![0x42; 100]).unwrap();
+        }
+        insert_raw_row(
+            &pool,
+            "hf:sherpa-onnx-tts:someone/supertonic",
+            model_dir.to_str().unwrap(),
+            &supertonic_row_json(),
+            &files_json(&[
+                "duration_predictor.int8.onnx",
+                "text_encoder.int8.onnx",
+                "vector_estimator.int8.onnx",
+                "vocoder.int8.onnx",
+                "tts.json",
+                "unicode_indexer.bin",
+                "voice.bin",
+            ]),
+        )
+        .await;
+
+        let (resolved_dir, contract) =
+            resolve_installed_tts(&pool, "hf:sherpa-onnx-tts:someone/supertonic")
+                .await
+                .expect("supertonic resolves");
+        assert_eq!(resolved_dir, model_dir);
+        assert_eq!(
+            contract.effective_tts_family(),
+            Some(crate::models::hf::adapters::SherpaTtsFamily::Supertonic)
+        );
+        assert!(contract.validate().is_ok());
+
+        // Unknown / non-TTS ids do not resolve.
+        assert!(resolve_installed_tts(&pool, "hf:sherpa-onnx-tts:someone/missing").await.is_none());
+        assert!(resolve_installed_tts(&pool, "not-an-hf-id").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_installed_tts_rejects_traversal_contracts() {
+        let pool = test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let model_dir = dir.path().join("models/tts/evil");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        let hostile = serde_json::json!({
+            "type": "sherpa-tts",
+            "family": "supertonic",
+            "model_file": "../evil.onnx",
+            "text_encoder_file": "text_encoder.int8.onnx",
+            "vector_estimator_file": "vector_estimator.int8.onnx",
+            "vocoder_file": "vocoder.int8.onnx",
+            "tts_json_file": "tts.json",
+            "unicode_indexer_file": "unicode_indexer.bin",
+            "voice_bin_file": "voice.bin",
+        })
+        .to_string();
+        insert_raw_row(
+            &pool,
+            "hf:sherpa-onnx-tts:someone/evil",
+            model_dir.to_str().unwrap(),
+            &hostile,
+            &files_json(&["duration_predictor.int8.onnx"]),
+        )
+        .await;
+        assert!(
+            resolve_installed_tts(&pool, "hf:sherpa-onnx-tts:someone/evil")
+                .await
+                .is_none(),
+            "a traversal path in any contract field must refuse to resolve"
+        );
     }
 
     // ── engine routing ─────────────────────────────────────────────────────

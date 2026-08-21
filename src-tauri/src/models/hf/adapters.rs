@@ -16,6 +16,7 @@
 
 use super::hf_client::{FileIndex, HfRepoInfo, file_name};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The speech runtimes Plethora can actually run a downloaded model with.
@@ -50,7 +51,8 @@ impl HfRuntime {
 /// Which sherpa-onnx STT flag set a model needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum SherpaSttFamily {    /// NVIDIA Parakeet — `--nemo-ctc-model`.
+pub enum SherpaSttFamily {
+    /// NVIDIA Parakeet — `--nemo-ctc-model`.
     NemoCtc,
     /// Alibaba SenseVoice — `--sense-voice-model`.
     SenseVoice,
@@ -58,6 +60,43 @@ pub enum SherpaSttFamily {    /// NVIDIA Parakeet — `--nemo-ctc-model`.
     Zipformer,
     /// FunASR Paraformer — `--paraformer-model`.
     Paraformer,
+}
+
+/// Which sherpa-onnx TTS model family a contract drives. Selects the engine
+/// config struct (`OfflineTts*ModelConfig`) at synthesis time; installation,
+/// verification, and uninstall are family-agnostic (they walk `artifact_files`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SherpaTtsFamily {
+    /// model.onnx + tokens.txt (+ optional lexicon/data-dir). Existing behavior.
+    Vits,
+    /// Kokoro-82M: model.onnx + tokens.txt + voices.bin.
+    Kokoro,
+    /// KittenTTS: model.onnx + tokens.txt + voices.bin.
+    Kitten,
+    /// Supertonic 3 multi-model pipeline (4 ONNX + tts.json + indexer + voice).
+    Supertonic,
+}
+
+impl SherpaTtsFamily {
+    pub fn label(self) -> &'static str {
+        match self {
+            SherpaTtsFamily::Vits => "VITS",
+            SherpaTtsFamily::Kokoro => "Kokoro",
+            SherpaTtsFamily::Kitten => "KittenTTS",
+            SherpaTtsFamily::Supertonic => "Supertonic 3",
+        }
+    }
+
+    /// The serde kebab-case value (must stay in sync with the derive).
+    pub fn serialized(self) -> &'static str {
+        match self {
+            SherpaTtsFamily::Vits => "vits",
+            SherpaTtsFamily::Kokoro => "kokoro",
+            SherpaTtsFamily::Kitten => "kitten",
+            SherpaTtsFamily::Supertonic => "supertonic",
+        }
+    }
 }
 
 /// A single repo-relative file that must be downloaded and verified.
@@ -86,10 +125,198 @@ pub enum RunContract {
         use_itn: bool,
     },
     SherpaTts {
+        /// Model family. `None` = legacy row written before families existed;
+        /// the family is inferred on read (`effective_tts_family`) and never
+        /// guessed at detection time.
+        #[serde(default)]
+        family: Option<SherpaTtsFamily>,
+        /// Family-primary model file (model.onnx for Vits/Kokoro/Kitten;
+        /// duration_predictor*.onnx for Supertonic — anchors containment checks).
         model_file: String,
+        /// VITS/Kokoro/Kitten token table.
+        #[serde(default)]
         tokens_file: Option<String>,
+        /// Kokoro/Kitten speaker embeddings.
+        #[serde(default)]
         voices_file: Option<String>,
+        /// Supertonic pipeline files (repo-relative), all required at run time.
+        #[serde(default)]
+        text_encoder_file: Option<String>,
+        #[serde(default)]
+        vector_estimator_file: Option<String>,
+        #[serde(default)]
+        vocoder_file: Option<String>,
+        #[serde(default)]
+        tts_json_file: Option<String>,
+        #[serde(default)]
+        unicode_indexer_file: Option<String>,
+        #[serde(default)]
+        voice_bin_file: Option<String>,
+        /// Optional espeak-ng-data dir (Vits/Kokoro/Kitten), empty = none.
+        #[serde(default)]
+        data_dir: Option<String>,
     },
+}
+
+impl RunContract {
+    /// The family a sherpa TTS contract drives, inferring legacy rows.
+    ///
+    /// Legacy rows (written before `family` existed) carry only
+    /// model/tokens/voices: `voices.bin` present ⇒ Kokoro, otherwise VITS.
+    /// Inference happens in this one place; it never mutates stored rows.
+    pub fn effective_tts_family(&self) -> Option<SherpaTtsFamily> {
+        match self {
+            RunContract::SherpaTts { family, voices_file, .. } => Some(match family {
+                Some(f) => *f,
+                None if voices_file.is_some() => SherpaTtsFamily::Kokoro,
+                None => SherpaTtsFamily::Vits,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Every repo-relative file path referenced by the contract (present
+    /// fields only). Used by containment validation and disk verification.
+    pub fn contract_files(&self) -> Vec<&str> {
+        match self {
+            RunContract::Whisper { model_file } => vec![model_file.as_str()],
+            RunContract::SherpaStt {
+                model_file,
+                decoder_file,
+                joiner_file,
+                tokens_file,
+                ..
+            } => {
+                let mut files = vec![model_file.as_str()];
+                for extra in [decoder_file, joiner_file, tokens_file] {
+                    if let Some(f) = extra {
+                        files.push(f.as_str());
+                    }
+                }
+                files
+            }
+            RunContract::SherpaTts {
+                model_file,
+                tokens_file,
+                voices_file,
+                text_encoder_file,
+                vector_estimator_file,
+                vocoder_file,
+                tts_json_file,
+                unicode_indexer_file,
+                voice_bin_file,
+                data_dir,
+                ..
+            } => {
+                let mut files = vec![model_file.as_str()];
+                for extra in [
+                    tokens_file,
+                    voices_file,
+                    text_encoder_file,
+                    vector_estimator_file,
+                    vocoder_file,
+                    tts_json_file,
+                    unicode_indexer_file,
+                    voice_bin_file,
+                    data_dir,
+                ] {
+                    if let Some(f) = extra {
+                        if !f.is_empty() {
+                            files.push(f.as_str());
+                        }
+                    }
+                }
+                files
+            }
+        }
+    }
+
+    /// True when every referenced path is a safe relative path (no traversal,
+    /// no absolute prefix, no Windows separators). Defense in depth for rows
+    /// loaded from the registry — see `sanitize_install_rel`.
+    pub fn paths_contained(&self) -> bool {
+        self.contract_files()
+            .iter()
+            .all(|f| super::manager::sanitize_install_rel(f).is_some())
+    }
+
+    /// Validate that the contract's family ↔ required files are consistent.
+    /// A half-filled contract must be unusable rather than misleading; run at
+    /// detection time and again before engine use.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            RunContract::Whisper { model_file } => {
+                if model_file.is_empty() {
+                    return Err("whisper contract has an empty model_file".to_string());
+                }
+                Ok(())
+            }
+            RunContract::SherpaStt { model_file, .. } => {
+                if model_file.is_empty() {
+                    return Err("sherpa-stt contract has an empty model_file".to_string());
+                }
+                Ok(())
+            }
+            RunContract::SherpaTts {
+                family,
+                model_file,
+                tokens_file,
+                voices_file,
+                text_encoder_file,
+                vector_estimator_file,
+                vocoder_file,
+                tts_json_file,
+                unicode_indexer_file,
+                voice_bin_file,
+                ..
+            } => {
+                if model_file.is_empty() {
+                    return Err("sherpa-tts contract has an empty model_file".to_string());
+                }
+                match family.unwrap_or_else(|| {
+                    if voices_file.is_some() {
+                        SherpaTtsFamily::Kokoro
+                    } else {
+                        SherpaTtsFamily::Vits
+                    }
+                }) {
+                    SherpaTtsFamily::Vits => Ok(()),
+                    SherpaTtsFamily::Kokoro | SherpaTtsFamily::Kitten => {
+                        if voices_file.is_none() {
+                            return Err(format!(
+                                "{} contract requires voices_file",
+                                family.map(|f| f.label()).unwrap_or("kokoro")
+                            ));
+                        }
+                        Ok(())
+                    }
+                    SherpaTtsFamily::Supertonic => {
+                        // All seven pipeline files are mandatory in sherpa's
+                        // Supertonic Validate(); there is no partial config.
+                        let missing: Vec<&str> = [
+                            ("text_encoder_file", text_encoder_file),
+                            ("vector_estimator_file", vector_estimator_file),
+                            ("vocoder_file", vocoder_file),
+                            ("tts_json_file", tts_json_file),
+                            ("unicode_indexer_file", unicode_indexer_file),
+                            ("voice_bin_file", voice_bin_file),
+                        ]
+                        .iter()
+                        .filter(|(_, v)| v.is_none())
+                        .map(|(name, _)| *name)
+                        .collect();
+                        if !missing.is_empty() {
+                            return Err(format!(
+                                "supertonic contract is missing required files: {}",
+                                missing.join(", ")
+                            ));
+                        }
+                        Ok(())
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// How confident the adapter is that the artifact is genuinely runnable.
@@ -115,6 +342,11 @@ pub struct Artifact {
     pub run_contract: RunContract,
     pub estimated_memory_bytes: u64,
     pub confidence: DetectionConfidence,
+    /// Family-specific extras for the UI: `precision` ("int8"), `family`,
+    /// `voice_roster` ("engine-reported") for Supertonic. Absent for older
+    /// artifacts (`#[serde(default)]` keeps rows/IPC backward compatible).
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
 }
 
 /// The trait every runtime adapter implements. The manager only talks to this.
@@ -159,9 +391,18 @@ fn repo_tags_contain(info: &HfRepoInfo, needle: &str) -> bool {
 /// `sherpa-onnx-vits-*` repo is never offered as STT.
 fn is_tts_repo_name(name: &str) -> bool {
     let name = name.to_lowercase();
-    ["vits", "kokoro", "melotts", "melo-tts", "matcha", "kitten", "tts"]
-        .iter()
-        .any(|t| name.contains(t))
+    [
+        "vits",
+        "kokoro",
+        "melotts",
+        "melo-tts",
+        "matcha",
+        "kitten",
+        "supertonic",
+        "tts",
+    ]
+    .iter()
+    .any(|t| name.contains(t))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,6 +450,7 @@ impl RuntimeAdapter for WhisperCppAdapter {
             },
             estimated_memory_bytes,
             confidence: DetectionConfidence::Exact,
+            metadata: BTreeMap::new(),
         })
     }
 }
@@ -283,6 +525,7 @@ impl SherpaOnnxSttAdapter {
             },
             estimated_memory_bytes,
             confidence: DetectionConfidence::Exact,
+            metadata: BTreeMap::new(),
         }
     }
 }
@@ -381,6 +624,7 @@ impl RuntimeAdapter for SherpaOnnxSttAdapter {
                 },
                 estimated_memory_bytes: (size as f64 * 1.15) as u64,
                 confidence: DetectionConfidence::Exact,
+                metadata: BTreeMap::new(),
             });
         }
 
@@ -433,6 +677,46 @@ impl RuntimeAdapter for SherpaOnnxSttAdapter {
 
 pub struct SherpaOnnxTtsAdapter;
 
+/// The Supertonic pipeline's non-ONNX files (all mandatory in sherpa's
+/// `Validate()`); the four ONNX files carry a shared precision suffix.
+const SUPERTONIC_FIXED_FILES: [&str; 3] = ["tts.json", "unicode_indexer.bin", "voice.bin"];
+/// Precision suffixes attempted for the four Supertonic ONNX files, in
+/// preference order. Mixed-precision sets are rejected, never guessed.
+const SUPERTONIC_SUFFIXES: [&str; 3] = [".int8", ".fp16", ""];
+
+impl SherpaOnnxTtsAdapter {
+    /// Try to match the exact 7-file Supertonic sherpa export layout.
+    ///
+    /// Requires all four ONNX files (`duration_predictor`, `text_encoder`,
+    /// `vector_estimator`, `vocoder`) to exist with the **same** precision
+    /// suffix, plus `tts.json` + `unicode_indexer.bin` + `voice.bin`. The
+    /// fixed trio is unusual enough that arbitrary multi-ONNX repos do not
+    /// match. Returns `(suffix_without_dot, paths)` on a match.
+    fn detect_supertonic(index: &FileIndex) -> Option<(String, Vec<String>)> {
+        for suffix in SUPERTONIC_SUFFIXES {
+            let onnx_names = [
+                format!("duration_predictor{suffix}.onnx"),
+                format!("text_encoder{suffix}.onnx"),
+                format!("vector_estimator{suffix}.onnx"),
+                format!("vocoder{suffix}.onnx"),
+            ];
+            let mut paths = Vec::with_capacity(7);
+            for name in onnx_names.iter().map(String::as_str).chain(SUPERTONIC_FIXED_FILES) {
+                match index.find_file_named(name) {
+                    Some(p) => paths.push(p),
+                    // Any miss ⇒ not Supertonic for this suffix.
+                    None => break,
+                }
+            }
+            if paths.len() == 7 {
+                let precision = suffix.trim_start_matches('.').to_string();
+                return Some((if precision.is_empty() { "fp32".to_string() } else { precision }, paths));
+            }
+        }
+        None
+    }
+}
+
 impl RuntimeAdapter for SherpaOnnxTtsAdapter {
     fn runtime(&self) -> HfRuntime {
         HfRuntime::SherpaOnnxTts
@@ -444,7 +728,11 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
         "sherpa-onnx (ONNX TTS)"
     }
     fn required_metadata(&self) -> Vec<&'static str> {
-        vec!["model.onnx", "tokens.txt"]
+        vec![
+            "model.onnx",
+            "tokens.txt",
+            "duration_predictor*.onnx + text_encoder*.onnx + vector_estimator*.onnx + vocoder*.onnx + tts.json + unicode_indexer.bin + voice.bin (supertonic)",
+        ]
     }
     fn install_dir(&self, app_data_dir: &Path) -> PathBuf {
         app_data_dir.join("models").join("tts")
@@ -454,6 +742,61 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
         let is_tts_repo = is_tts_repo_name(&name)
             || repo_tags_contain(info, "text-to-speech")
             || repo_tags_contain(info, "tts");
+        if !is_tts_repo {
+            return None;
+        }
+
+        // Supertonic first: its layout has no model.onnx, and the generic
+        // VITS/Kokoro path below must never half-match a multi-model pipeline.
+        if let Some((precision, paths)) = Self::detect_supertonic(index) {
+            let mut files: Vec<ArtifactFile> = paths
+                .iter()
+                .map(|p| artifact_file(index, p.clone()))
+                .collect();
+            files.sort_by(|a, b| a.path.cmp(&b.path));
+            let size = total_download_size(&files);
+            if size == 0 {
+                return None;
+            }
+            let mut metadata = BTreeMap::new();
+            metadata.insert("precision".to_string(), precision);
+            metadata.insert("family".to_string(), "supertonic".to_string());
+            // The roster is read from the engine at load time (`NumSpeakers()`
+            // over voice.bin style rows); detection carries a placeholder so
+            // the UI can label it without loading the model.
+            metadata.insert("voice_roster".to_string(), "engine-reported".to_string());
+            let [duration_predictor, text_encoder, vector_estimator, vocoder, tts_json, unicode_indexer, voice_bin] =
+                paths.as_slice()
+            else {
+                unreachable!("detect_supertonic returns exactly 7 paths");
+            };
+            return Some(Artifact {
+                runtime: HfRuntime::SherpaOnnxTts,
+                kind: "supertonic".to_string(),
+                label: "Supertonic 3 (sherpa-onnx TTS)".to_string(),
+                files,
+                download_size_bytes: size,
+                run_contract: RunContract::SherpaTts {
+                    family: Some(SherpaTtsFamily::Supertonic),
+                    model_file: duration_predictor.clone(),
+                    tokens_file: None,
+                    voices_file: None,
+                    text_encoder_file: Some(text_encoder.clone()),
+                    vector_estimator_file: Some(vector_estimator.clone()),
+                    vocoder_file: Some(vocoder.clone()),
+                    tts_json_file: Some(tts_json.clone()),
+                    unicode_indexer_file: Some(unicode_indexer.clone()),
+                    voice_bin_file: Some(voice_bin.clone()),
+                    data_dir: None,
+                },
+                // INT8 weights + activation headroom at 44.1 kHz (same factor
+                // as the sherpa STT estimate).
+                estimated_memory_bytes: (size as f64 * 1.15) as u64,
+                // The layout itself is an exact known shape; no name heuristics.
+                confidence: DetectionConfidence::Exact,
+                metadata,
+            });
+        }
 
         let model = ["model.onnx", "model.fp16.onnx", "model.int8.onnx"]
             .iter()
@@ -472,10 +815,6 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
             None => return None,
         };
 
-        if !is_tts_repo {
-            return None;
-        }
-
         let mut files = vec![artifact_file(index, model_file.clone())];
         if let Some(t) = tokens_file.as_ref() {
             files.push(artifact_file(index, t.clone()));
@@ -488,11 +827,15 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
             return None;
         }
 
-        let kind = if name.contains("kokoro") {
-            "kokoro"
+        let (kind, family) = if name.contains("kokoro") {
+            ("kokoro", SherpaTtsFamily::Kokoro)
+        } else if name.contains("kitten") {
+            ("kitten", SherpaTtsFamily::Kitten)
         } else {
-            "vits"
+            ("vits", SherpaTtsFamily::Vits)
         };
+        let mut metadata = BTreeMap::new();
+        metadata.insert("family".to_string(), family.serialized().to_string());
         Some(Artifact {
             runtime: HfRuntime::SherpaOnnxTts,
             kind: kind.to_string(),
@@ -500,13 +843,22 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
             files,
             download_size_bytes: size,
             run_contract: RunContract::SherpaTts {
+                family: Some(family),
                 model_file,
                 tokens_file,
                 voices_file,
+                text_encoder_file: None,
+                vector_estimator_file: None,
+                vocoder_file: None,
+                tts_json_file: None,
+                unicode_indexer_file: None,
+                voice_bin_file: None,
+                data_dir: None,
             },
             estimated_memory_bytes: (size as f64 * 1.1) as u64,
             confidence: if name.contains("vits")
                 || name.contains("kokoro")
+                || name.contains("kitten")
                 || name.contains("melotts")
                 || name.contains("melo-tts")
             {
@@ -514,6 +866,7 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
             } else {
                 DetectionConfidence::Heuristic
             },
+            metadata,
         })
     }
 }
@@ -772,5 +1125,332 @@ mod tests {
         let info = repo("google-bert/bert-base-uncased", &["fill-mask", "bert"]);
         let idx = index(&[file("model.safetensors", 400_000_000)]);
         assert!(detect_all(&info, &idx).is_empty());
+    }
+
+    // ── Supertonic detection (change: add-supertonic-3-cross-platform-tts) ─
+
+    /// The canonical sherpa export layout (all 7 files, int8).
+    fn supertonic_files() -> Vec<HfFile> {
+        vec![
+            file("duration_predictor.int8.onnx", 3_700_147),
+            file("text_encoder.int8.onnx", 36_416_150),
+            file("vector_estimator.int8.onnx", 78_400_833),
+            file("vocoder.int8.onnx", 25_991_073),
+            file("tts.json", 8_253),
+            file("unicode_indexer.bin", 262_144),
+            file("voice.bin", 517_168),
+        ]
+    }
+
+    #[test]
+    fn detects_supertonic_seven_file_layout() {
+        let info = repo(
+            "csukuangfj2/sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+            &["text-to-speech"],
+        );
+        let idx = index(&supertonic_files());
+        let artifact = SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).expect("artifact");
+        assert_eq!(artifact.runtime, HfRuntime::SherpaOnnxTts);
+        assert_eq!(artifact.kind, "supertonic");
+        assert_eq!(artifact.label, "Supertonic 3 (sherpa-onnx TTS)");
+        assert_eq!(artifact.confidence, DetectionConfidence::Exact);
+        assert_eq!(artifact.files.len(), 7);
+        assert_eq!(
+            artifact.download_size_bytes,
+            145_295_768,
+            "size is the sum of all seven assets"
+        );
+        // Memory estimate ×1.15 (same factor as sherpa STT).
+        assert_eq!(
+            artifact.estimated_memory_bytes,
+            (145_295_768u64 as f64 * 1.15) as u64
+        );
+        assert_eq!(artifact.metadata.get("precision").map(String::as_str), Some("int8"));
+        assert_eq!(artifact.metadata.get("family").map(String::as_str), Some("supertonic"));
+        match &artifact.run_contract {
+            RunContract::SherpaTts {
+                family: Some(SherpaTtsFamily::Supertonic),
+                model_file,
+                text_encoder_file,
+                vector_estimator_file,
+                vocoder_file,
+                tts_json_file,
+                unicode_indexer_file,
+                voice_bin_file,
+                tokens_file,
+                voices_file,
+                ..
+            } => {
+                assert_eq!(model_file, "duration_predictor.int8.onnx");
+                assert_eq!(text_encoder_file.as_deref(), Some("text_encoder.int8.onnx"));
+                assert_eq!(
+                    vector_estimator_file.as_deref(),
+                    Some("vector_estimator.int8.onnx")
+                );
+                assert_eq!(vocoder_file.as_deref(), Some("vocoder.int8.onnx"));
+                assert_eq!(tts_json_file.as_deref(), Some("tts.json"));
+                assert_eq!(unicode_indexer_file.as_deref(), Some("unicode_indexer.bin"));
+                assert_eq!(voice_bin_file.as_deref(), Some("voice.bin"));
+                assert!(tokens_file.is_none() && voices_file.is_none());
+            }
+            other => panic!("expected supertonic contract, got {:?}", other),
+        }
+        // The contract must validate and be contained.
+        assert!(artifact.run_contract.validate().is_ok());
+        assert!(artifact.run_contract.paths_contained());
+    }
+
+    #[test]
+    fn supertonic_each_missing_file_is_rejected() {
+        let info = repo(
+            "csukuangfj2/sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+            &["text-to-speech"],
+        );
+        let all = supertonic_files();
+        for dropped in [
+            "duration_predictor.int8.onnx",
+            "text_encoder.int8.onnx",
+            "vector_estimator.int8.onnx",
+            "vocoder.int8.onnx",
+            "tts.json",
+            "unicode_indexer.bin",
+            "voice.bin",
+        ] {
+            let files: Vec<HfFile> = all.iter().filter(|f| f.rfilename != dropped).cloned().collect();
+            let idx = index(&files);
+            assert!(
+                SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).is_none(),
+                "missing {dropped} must reject the whole layout"
+            );
+        }
+    }
+
+    #[test]
+    fn supertonic_mixed_precision_is_rejected() {
+        let info = repo("somebody/supertonic-tts", &["text-to-speech"]);
+        let mut files = supertonic_files();
+        // Swap the vocoder to fp16 while the rest are int8 → no shared suffix.
+        files[3] = file("vocoder.fp16.onnx", 51_982_146);
+        let idx = index(&files);
+        assert!(
+            SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).is_none(),
+            "mixed-precision sets are rejected, not guessed"
+        );
+    }
+
+    #[test]
+    fn supertonic_arbitrary_multi_onnx_repo_is_not_misclassified() {
+        // A split ASR-style encoder/decoder set plus a json/bin file or two
+        // must never satisfy the Supertonic layout (it may legitimately match
+        // the zipformer STT layout — that is a different adapter).
+        let info = repo("somebody/split-asr-pipeline", &["automatic-speech-recognition"]);
+        let idx = index(&[
+            file("encoder.onnx", 100_000_000),
+            file("decoder.onnx", 20_000_000),
+            file("joiner.onnx", 1_000_000),
+            file("tts.json", 8_253),
+            file("unicode_indexer.bin", 262_144),
+            file("voice.bin", 517_168),
+        ]);
+        let detected = detect_all(&info, &idx);
+        assert!(
+            detected.iter().all(|a| a.kind != "supertonic"),
+            "arbitrary multi-ONNX repos must not be claimed as Supertonic"
+        );
+        // A TTS-tagged repo with an incomplete Supertonic layout must not
+        // match anything: two of the four ONNX files missing ⇒ rejected.
+        let info = repo("somebody/supertonic-tts", &["text-to-speech"]);
+        let idx = index(&[
+            file("duration_predictor.int8.onnx", 3_700_147),
+            file("tts.json", 8_253),
+            file("unicode_indexer.bin", 262_144),
+            file("voice.bin", 517_168),
+        ]);
+        let detected = detect_all(&info, &idx);
+        assert!(detected.is_empty(), "no supertonic/vits match for a near-miss repo");
+    }
+
+    #[test]
+    fn upstream_supertone_fp32_layout_stays_blocked() {
+        // The raw Supertone/supertonic-3 repo (fp32 under onnx/,
+        // unicode_indexer.json, voice_styles/*.json) is not sherpa-loadable.
+        let info = repo("Supertone/supertonic-3", &["text-to-speech"]);
+        let idx = index(&[
+            file("onnx/duration_predictor.onnx", 14_800_589),
+            file("onnx/text_encoder.onnx", 145_664_601),
+            file("onnx/vector_estimator.onnx", 313_603_341),
+            file("onnx/vocoder.onnx", 103_964_297),
+            file("unicode_indexer.json", 431_259),
+            file("voice_styles/default.json", 2_048),
+        ]);
+        assert!(
+            detect_all(&info, &idx).is_empty(),
+            "upstream fp32 layout matches nothing"
+        );
+    }
+
+    #[test]
+    fn supertonic_repo_is_never_detected_as_stt() {
+        let info = repo(
+            "csukuangfj2/sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+            &["text-to-speech"],
+        );
+        let idx = index(&supertonic_files());
+        assert!(SherpaOnnxSttAdapter.detect_artifact(&info, &idx).is_none());
+        let detected = detect_all(&info, &idx);
+        assert_eq!(detected.len(), 1);
+        assert_eq!(detected[0].kind, "supertonic");
+    }
+
+    // ── contract serialization backward compatibility ──────────────────────
+
+    #[test]
+    fn legacy_sherpa_tts_rows_deserialize_and_infer_family() {
+        // Rows written before families existed carry only these fields.
+        let legacy_vits: RunContract = serde_json::from_str(
+            r#"{"type":"sherpa-tts","model_file":"model.onnx","tokens_file":"tokens.txt"}"#,
+        )
+        .expect("legacy vits row deserializes");
+        assert_eq!(legacy_vits.effective_tts_family(), Some(SherpaTtsFamily::Vits));
+
+        let legacy_kokoro: RunContract = serde_json::from_str(
+            r#"{"type":"sherpa-tts","model_file":"model.onnx","tokens_file":"tokens.txt","voices_file":"voices.bin"}"#,
+        )
+        .expect("legacy kokoro row deserializes");
+        assert_eq!(legacy_kokoro.effective_tts_family(), Some(SherpaTtsFamily::Kokoro));
+    }
+
+    #[test]
+    fn supertonic_contract_round_trips_with_family() {
+        let original = RunContract::SherpaTts {
+            family: Some(SherpaTtsFamily::Supertonic),
+            model_file: "duration_predictor.int8.onnx".to_string(),
+            tokens_file: None,
+            voices_file: None,
+            text_encoder_file: Some("text_encoder.int8.onnx".to_string()),
+            vector_estimator_file: Some("vector_estimator.int8.onnx".to_string()),
+            vocoder_file: Some("vocoder.int8.onnx".to_string()),
+            tts_json_file: Some("tts.json".to_string()),
+            unicode_indexer_file: Some("unicode_indexer.bin".to_string()),
+            voice_bin_file: Some("voice.bin".to_string()),
+            data_dir: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains("\"family\":\"supertonic\""), "{json}");
+        assert!(json.contains("\"type\":\"sherpa-tts\""), "{json}");
+        let back: RunContract = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+        assert_eq!(back.effective_tts_family(), Some(SherpaTtsFamily::Supertonic));
+    }
+
+    #[test]
+    fn family_serde_matches_serialized_helper() {
+        for family in [
+            SherpaTtsFamily::Vits,
+            SherpaTtsFamily::Kokoro,
+            SherpaTtsFamily::Kitten,
+            SherpaTtsFamily::Supertonic,
+        ] {
+            let value = serde_json::to_value(family).unwrap();
+            assert_eq!(value.as_str(), Some(family.serialized()));
+        }
+    }
+
+    #[test]
+    fn contract_validation_rejects_half_filled_supertonic() {
+        let incomplete = RunContract::SherpaTts {
+            family: Some(SherpaTtsFamily::Supertonic),
+            model_file: "duration_predictor.int8.onnx".to_string(),
+            tokens_file: None,
+            voices_file: None,
+            text_encoder_file: None,
+            vector_estimator_file: None,
+            vocoder_file: None,
+            tts_json_file: None,
+            unicode_indexer_file: None,
+            voice_bin_file: None,
+            data_dir: None,
+        };
+        assert!(incomplete.validate().is_err());
+        // Kokoro without voices is also invalid.
+        let kokoro_no_voices = RunContract::SherpaTts {
+            family: Some(SherpaTtsFamily::Kokoro),
+            model_file: "model.onnx".to_string(),
+            tokens_file: Some("tokens.txt".to_string()),
+            voices_file: None,
+            text_encoder_file: None,
+            vector_estimator_file: None,
+            vocoder_file: None,
+            tts_json_file: None,
+            unicode_indexer_file: None,
+            voice_bin_file: None,
+            data_dir: None,
+        };
+        assert!(kokoro_no_voices.validate().is_err());
+    }
+
+    #[test]
+    fn containment_validation_rejects_traversal_in_every_new_field() {
+        let fields: [&str; 8] = [
+            "model_file",
+            "tokens_file",
+            "voices_file",
+            "text_encoder_file",
+            "vector_estimator_file",
+            "vocoder_file",
+            "tts_json_file",
+            "unicode_indexer_file",
+        ];
+        for field in fields {
+            let contract = RunContract::SherpaTts {
+                family: Some(SherpaTtsFamily::Supertonic),
+                model_file: if field == "model_file" {
+                    "../evil.onnx".to_string()
+                } else {
+                    "duration_predictor.int8.onnx".to_string()
+                },
+                tokens_file: Some(if field == "tokens_file" {
+                    "../evil.txt".to_string()
+                } else {
+                    "tokens.txt".to_string()
+                }),
+                voices_file: Some(if field == "voices_file" {
+                    "../evil.bin".to_string()
+                } else {
+                    "voices.bin".to_string()
+                }),
+                text_encoder_file: Some(if field == "text_encoder_file" {
+                    "../evil.onnx".to_string()
+                } else {
+                    "text_encoder.int8.onnx".to_string()
+                }),
+                vector_estimator_file: Some(if field == "vector_estimator_file" {
+                    "../evil.onnx".to_string()
+                } else {
+                    "vector_estimator.int8.onnx".to_string()
+                }),
+                vocoder_file: Some(if field == "vocoder_file" {
+                    "../evil.onnx".to_string()
+                } else {
+                    "vocoder.int8.onnx".to_string()
+                }),
+                tts_json_file: Some(if field == "tts_json_file" {
+                    "../evil.json".to_string()
+                } else {
+                    "tts.json".to_string()
+                }),
+                unicode_indexer_file: Some(if field == "unicode_indexer_file" {
+                    "../evil.bin".to_string()
+                } else {
+                    "unicode_indexer.bin".to_string()
+                }),
+                voice_bin_file: Some("../evil.bin".to_string()),
+                data_dir: None,
+            };
+            assert!(
+                !contract.paths_contained(),
+                "traversal in {field} must fail containment"
+            );
+        }
     }
 }
