@@ -68,7 +68,6 @@ describe("playChime", () => {
       return osc;
     }
     createGain() {
-      const self = this;
       let lastIdx = -1;
       return {
         gain: {
@@ -84,7 +83,6 @@ describe("playChime", () => {
         },
         connect: () => {},
         resume() {
-          void self;
           return Promise.resolve();
         },
       };

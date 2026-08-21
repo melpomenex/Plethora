@@ -112,6 +112,7 @@ export interface BrowserOrganizationTarget {
 
 function boundedString(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the purpose of this regex
   const normalized = value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ").trim();
   return normalized ? normalized.slice(0, max) : undefined;
 }

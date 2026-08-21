@@ -37,7 +37,7 @@ describe("pdf coordinates", () => {
       const [rx, ry] = rasterPointToPdf(vx, vy, g);
       sink += rx + ry;
     }
-    if (sink === Number.NaN) throw new Error("elided");
+    if (Number.isNaN(sink)) throw new Error("elided");
   });
 
   const rects = Array.from({ length: 1000 }, () => {
@@ -54,7 +54,7 @@ describe("pdf coordinates", () => {
       const back = rasterRectToPdf(raster, g);
       sink += back.x0 + back.y1;
     }
-    if (sink === Number.NaN) throw new Error("elided");
+    if (Number.isNaN(sink)) throw new Error("elided");
   });
 });
 
