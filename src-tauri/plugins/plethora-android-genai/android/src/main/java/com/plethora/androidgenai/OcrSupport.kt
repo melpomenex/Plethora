@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // ML Kit Text Recognition v2 (Latin, bundled) support for the android-genai

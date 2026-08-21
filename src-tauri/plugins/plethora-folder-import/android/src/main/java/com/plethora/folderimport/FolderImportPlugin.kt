@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // Android implementation of the folder-import Tauri plugin.
@@ -505,7 +505,7 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
    * Capture a page's rendered DOM with a bare offscreen WebView.
    *
    * This WebView is NOT the Tauri webview and has no bridge/IPC — remote JS
-   * gets zero Incrementum access. Stability detection mirrors the shared
+   * gets zero app access. Stability detection mirrors the shared
    * script (stabilityScript.ts): wait for page load, sample
    * (nodes|textLen|images) every 250 ms via evaluateJavascript, capture after
    * 750 ms of no change, bounded by a 6 s post-load cap and the overall

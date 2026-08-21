@@ -4,8 +4,8 @@
 # the native lib references Kotlin class/field names by string, so minification
 # would break native->Kotlin callbacks at runtime.
 
--keep class com.incrementum.androidtts.AndroidTtsPlugin { *; }
--keep class com.incrementum.androidtts.** { *; }
+-keep class com.plethora.androidtts.AndroidTtsPlugin { *; }
+-keep class com.plethora.androidtts.** { *; }
 
 # sherpa-onnx JNI bindings — the .so looks these up reflectively.
 -keep class com.k2fsa.sherpa.onnx.** { *; }

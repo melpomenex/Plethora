@@ -21,7 +21,7 @@
 //! folder import lands in the same SQLite store as every other import.
 //!
 //! The plugin targets the concrete `tauri::Wry` runtime (the only runtime the
-//! Incrementum app uses), which keeps `generate_handler!` monomorphization
+//! Plethora app uses), which keeps `generate_handler!` monomorphization
 //! simple and avoids thread-safety bounds issues with a generic `R` (the
 //! `Runtime` trait is not `Send + Sync` as a supertrait, so a generic `R` +
 //! `PhantomData<R>` state type fails to satisfy `State`/`manage` bounds).
@@ -271,7 +271,7 @@ mod commands {
 
     /// Capture a page's rendered DOM via the native offscreen WebView
     /// (article-import rendered fallback). The capture WebView is bare — no
-    /// Tauri bridge — so the loaded page has zero Incrementum access.
+    /// Tauri bridge — so the loaded page has zero app access.
     /// Rejection messages carry typed prefixes (UNAVAILABLE/TIMEOUT/
     /// CAPTURE_FAILED) that the frontend maps onto failure codes.
     #[tauri::command]
@@ -570,7 +570,7 @@ pub use commands::register_share_listener;
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<Wry> {
-    // NOTE: the builder name MUST match the crate name (`incrementum-folder-import`),
+    // NOTE: the builder name MUST match the crate name (`plethora-folder-import`),
     // because tauri-plugin's ACL manifest codegen keys the plugin's permissions
     // under the crate name. The runtime ACL lookup on `plugin:<name>|<cmd>` uses
     // this builder name, so a mismatch (e.g. "folder-import") makes every

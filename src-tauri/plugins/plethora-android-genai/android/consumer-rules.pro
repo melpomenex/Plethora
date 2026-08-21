@@ -6,7 +6,7 @@
 # ships these rules to that app-level R8 run.
 #
 # Tauri binds @Command methods reflectively by name.
--keep class com.incrementum.androidgenai.** { *; }
+-keep class com.plethora.androidgenai.** { *; }
 
 # ML Kit GenAI. The genai AARs already ship consumer rules for their generated
 # proto fields, which AGP applies automatically. These cover what those do not:
@@ -36,7 +36,7 @@
 # them reflectively by target class when building typed requests. The blanket
 # package keep above already covers them — this documents the load path and
 # guards against narrowing that rule to hand-written classes only.
--keep class com.incrementum.androidgenai.*_GeneratedProvider { *; }
+-keep class com.plethora.androidgenai.*_GeneratedProvider { *; }
 
 # The @Generable/@Guide annotations are RUNTIME-retention; keep them visible
 # so tooling and any future runtime annotation reads keep working.

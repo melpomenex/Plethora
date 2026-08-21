@@ -1,29 +1,29 @@
 // swift-tools-version:5.3
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 
 import PackageDescription
 
 // IMPORTANT: the package/target/product name MUST match the Rust crate name
-// (`incrementum-folder-import`). tauri-utils's `link_swift_library` calls
+// (`plethora-folder-import`). tauri-utils's `link_swift_library` calls
 // swift-rs's `SwiftLinker::with_package(CARGO_PKG_NAME, …)`, and swift-rs then
 // emits `cargo:rustc-link-lib=static=<name>` using that same name. SwiftPM
 // builds the static artifact from the package *target* name, so a mismatch
 // here (e.g. the `tauri-plugin-…` prefix) produces
-// `libtauri-plugin-incrementum-folder-import.a` while the linker looks for
-// `libincrementum-folder-import.a` and fails with
+// `libtauri-plugin-plethora-folder-import.a` while the linker looks for
+// `libplethora-folder-import.a` and fails with
 // "could not find native static library".
 let package = Package(
-  name: "incrementum-folder-import",
+  name: "plethora-folder-import",
   platforms: [
     .macOS(.v10_13),
     .iOS(.v13),
   ],
   products: [
     .library(
-      name: "incrementum-folder-import",
+      name: "plethora-folder-import",
       type: .static,
-      targets: ["incrementum-folder-import"]
+      targets: ["plethora-folder-import"]
     )
   ],
   dependencies: [
@@ -31,7 +31,7 @@ let package = Package(
   ],
   targets: [
     .target(
-      name: "incrementum-folder-import",
+      name: "plethora-folder-import",
       dependencies: [
         .byName(name: "Tauri")
       ],

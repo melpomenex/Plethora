@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // On-device embedding backend support for the android-genai plugin
@@ -520,7 +520,7 @@ internal val httpGetOpener: HttpGetOpener = HttpGetOpener { url ->
     connection.connectTimeout = 30_000
     connection.readTimeout = 60_000
     connection.instanceFollowRedirects = true
-    connection.setRequestProperty("User-Agent", "Incrementum-AndroidGenAi/1.0")
+    connection.setRequestProperty("User-Agent", "Plethora-AndroidGenAi/1.0")
     val status = connection.responseCode
     object : HttpSource {
         override val status: Int = status

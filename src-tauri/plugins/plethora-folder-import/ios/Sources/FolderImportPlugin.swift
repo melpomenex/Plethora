@@ -1,4 +1,4 @@
-// Copyright 2026 Incrementum
+// Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 //
 // iOS implementation of the folder-import Tauri plugin.
@@ -152,7 +152,7 @@ extension FolderImportPlugin: UIDocumentPickerDelegate {
   }
 }
 
-@_cdecl("init_plugin_incrementum_folder_import")
+@_cdecl("init_plugin_plethora_folder_import")
 func initPlugin() -> Plugin {
   return FolderImportPlugin()
 }
