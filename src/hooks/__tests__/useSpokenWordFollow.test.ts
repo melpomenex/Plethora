@@ -8,6 +8,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSpokenWordFollow } from "../useSpokenWordFollow";
+import type { UseSpokenWordFollowOptions } from "../useSpokenWordFollow";
 
 function makeScrollContainer(): HTMLElement {
   const container = document.createElement("div");
@@ -30,10 +31,6 @@ function makeSpan(container: HTMLElement): HTMLElement {
   span.className = "tts-word-highlight";
   container.appendChild(span);
   return span;
-}
-
-async function settle(ms: number) {
-  await new Promise((r) => setTimeout(r, ms));
 }
 
 describe("useSpokenWordFollow", () => {
@@ -284,5 +281,123 @@ describe("useSpokenWordFollow", () => {
     expect(container.scrollTo).toHaveBeenCalled();
     const call = (container.scrollTo as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.top).toBeGreaterThan(0);
+  });
+
+  // Boundary-transition regression tests: when narration crosses the initial
+  // viewport boundary, follow must stay debounced and must never co-issue
+  // duplicate scroll commands for a single transition.
+  it("does not scroll before the debounce window elapses", async () => {
+    makeSpan(container);
+    renderHook(() =>
+      useSpokenWordFollow({
+        enabled: true,
+        active: true,
+        wordKey: "0:1",
+        containers: [container],
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100); // < FOLLOW_DEBOUNCE_MS
+    });
+    expect(container.scrollTo).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100); // past 150ms
+    });
+    expect((container.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
+  it("coalesces rapid boundary-crossing word transitions into one scroll per settle", async () => {
+    makeSpan(container);
+    const base: UseSpokenWordFollowOptions = {
+      enabled: true,
+      active: true,
+      wordKey: "0:1",
+      containers: [container],
+    };
+    const { rerender } = renderHook((p: UseSpokenWordFollowOptions) => useSpokenWordFollow(p), {
+      initialProps: base,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect((container.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+
+    // Three word transitions inside the debounce window collapse to one.
+    await act(async () => {
+      rerender({ ...base, wordKey: "0:2" });
+      await vi.advanceTimersByTimeAsync(40);
+      rerender({ ...base, wordKey: "0:3" });
+      await vi.advanceTimersByTimeAsync(40);
+      rerender({ ...base, wordKey: "0:4" });
+      await vi.advanceTimersByTimeAsync(40);
+    });
+    expect((container.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    // Exactly one additional command for the whole rapid burst — no duplicates.
+    expect((container.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+  });
+
+  it("safely no-ops when the container unmounts during the debounce window", async () => {
+    makeSpan(container);
+    const base: UseSpokenWordFollowOptions = {
+      enabled: true,
+      active: true,
+      wordKey: "0:1",
+      containers: [container],
+    };
+    const { rerender } = renderHook((p: UseSpokenWordFollowOptions) => useSpokenWordFollow(p), {
+      initialProps: base,
+    });
+    rerender({ ...base, wordKey: "0:2" });
+
+    container.remove();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(container.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("aborts follow when the container has zero height (hidden/backgrounded view)", async () => {
+    makeSpan(container);
+    Object.defineProperty(container, "clientHeight", {
+      value: 0,
+      writable: true,
+      configurable: true,
+    });
+    renderHook(() =>
+      useSpokenWordFollow({
+        enabled: true,
+        active: true,
+        wordKey: "0:1",
+        containers: [container],
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(container.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("clears pending debounce and programmatic timers when active becomes false", async () => {
+    makeSpan(container);
+    const base: UseSpokenWordFollowOptions = {
+      enabled: true,
+      active: true,
+      wordKey: "0:1",
+      containers: [container],
+    };
+    const { rerender } = renderHook((p: UseSpokenWordFollowOptions) => useSpokenWordFollow(p), {
+      initialProps: base,
+    });
+    rerender({ ...base, wordKey: "0:2" }); // debounce scheduled
+    rerender({ ...base, active: false }); // playback stops mid-window
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    expect(container.scrollTo).not.toHaveBeenCalled();
   });
 });

@@ -1,14 +1,17 @@
 import { invokeCommand } from "../lib/tauri";
 
 /**
- * SM-2 calculation result
+ * Classic calculation result
  */
-export interface SM2Calculation {
+export interface ClassicCalculation {
   ease_factor: number;
   interval: number;
   repetitions: number;
   next_review_date: string;
 }
+
+/** Backward compatibility alias */
+export type SM2Calculation = ClassicCalculation;
 
 /**
  * Document rating request
@@ -188,17 +191,20 @@ export interface SmartStartResponse {
 }
 
 /**
- * Calculate next review state using SM-2 algorithm
+ * Calculate next review state using Classic algorithm
  */
-export async function calculateSM2Next(
+export async function calculateClassicNext(
   itemId: string,
   rating: number
-): Promise<SM2Calculation> {
-  return await invokeCommand<SM2Calculation>("calculate_sm2_next", {
+): Promise<ClassicCalculation> {
+  return await invokeCommand<ClassicCalculation>("calculate_classic_next", {
     itemId,
     rating,
   });
 }
+
+/** Backward compatibility alias */
+export const calculateSM2Next = calculateClassicNext;
 
 /**
  * Rate a document and schedule its next reading
@@ -300,10 +306,9 @@ export async function optimizeAlgorithmParams(
 }
 
 /**
- * SM-20 ensemble optimization status. The true SM-20 algorithm uses a 5-model
- * weighted ensemble (M1-M5). M2 and M3 learn automatically on every review.
+ * Arena ensemble optimization status.
  */
-export interface SM20OptimizationStatus {
+export interface ArenaOptimizationStatus {
   model_version: number;
   activation_state: 'active';
   m2_optimizer_initialized: boolean;
@@ -312,13 +317,21 @@ export interface SM20OptimizationStatus {
   message: string;
 }
 
-export async function getSM20OptimizationStatus(): Promise<SM20OptimizationStatus> {
-  return await invokeCommand<SM20OptimizationStatus>("get_sm20_optimization_status");
+export type SM20OptimizationStatus = ArenaOptimizationStatus;
+
+export async function getArenaOptimizationStatus(): Promise<ArenaOptimizationStatus> {
+  return await invokeCommand<ArenaOptimizationStatus>("get_arena_optimization_status");
 }
 
-export async function optimizeSM20Locally(): Promise<SM20OptimizationStatus> {
-  return await invokeCommand<SM20OptimizationStatus>("optimize_sm20_locally");
+/** Backward compatibility alias */
+export const getSM20OptimizationStatus = getArenaOptimizationStatus;
+
+export async function optimizeArenaLocally(): Promise<ArenaOptimizationStatus> {
+  return await invokeCommand<ArenaOptimizationStatus>("optimize_arena_locally");
 }
+
+/** Backward compatibility alias */
+export const optimizeSM20Locally = optimizeArenaLocally;
 
 /**
  * Get default engagement preferences for scroll mode

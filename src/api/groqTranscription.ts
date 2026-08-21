@@ -106,7 +106,7 @@ export interface UsageStats {
  */
 function getGroqApiKey(): string {
   const state = useSettingsStore.getState();
-  return state.settings.audioTranscription.groq.apiKey;
+  return state.settings?.audioTranscription?.groq?.apiKey ?? "";
 }
 
 /**
@@ -114,7 +114,7 @@ function getGroqApiKey(): string {
  */
 function getGroqModel(): 'whisper-large-v3' | 'whisper-large-v3-turbo' {
   const state = useSettingsStore.getState();
-  return state.settings.audioTranscription.groq.model;
+  return state.settings?.audioTranscription?.groq?.model ?? 'whisper-large-v3';
 }
 
 /**

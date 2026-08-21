@@ -5,7 +5,7 @@ domain: concepts
 status: implemented
 platforms:
   - all
-summary: In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and SM-18 SInc matrices.
+summary: In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and Adaptive 3D SInc matrices.
 how_to: Review the formulas in this document to understand why specific review intervals are calculated for your cards.
 why: Spaced repetition is not arbitrary magic; understanding the mathematical two-component memory model helps learners formulate better flashcards and choose retention targets.
 aliases:
@@ -22,8 +22,8 @@ actions:
     shortcut: Alt+,
 related:
   - scheduler.fsrs
-  - scheduler.sm18
-  - scheduler.sm20.arena
+  - scheduler.adaptive
+  - scheduler.precision.arena
 ---
 
 # Mathematical Foundations of Spaced Repetition

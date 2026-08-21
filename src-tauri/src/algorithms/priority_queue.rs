@@ -1,10 +1,8 @@
-//! SuperMemo priority queue — the backbone of normal incremental reading.
+//! Priority queue — the backbone of normal incremental reading.
 //!
 //! Every element (document, extract, or learning item) is ranked 0%–100% by
 //! user-set importance. The learning session is auto-sorted by a combined
-//! criterion, and low-priority overflow is auto-postponed. This mirrors the
-//! SuperMemo priority queue (`FUN_00cb1630` / `FUN_00cb21c0` for the
-//! position↔priority map; `FUN_00c15fd0` for the combined sort).
+//! criterion, and low-priority overflow is auto-postponed.
 //!
 //! This is distinct from the optional [`neural queue`](super::neural_queue),
 //! which reads intrinsic priority from this queue as one input to its
@@ -13,10 +11,8 @@
 /// `priority_from_position` — derive a 0–100 priority from an element's
 /// 1-based position in the priority queue.
 ///
-/// Mirrors SuperMemo's `FUN_00cb1630`. Position 1 (the front) is the highest
-/// importance; the *displayed* priority value is inverted so that the front
-/// reads as the most important. Here we return the raw linear interpolation;
-/// callers that want "higher = more important" invert as needed.
+/// Position 1 (the front) is the highest importance; the *displayed* priority
+/// value is inverted so that the front reads as the most important.
 ///
 /// - `position` is 1-based (1 = front of queue).
 /// - `size` is the total number of elements in the queue.
@@ -25,9 +21,6 @@
 ///
 /// # Formula
 /// `priority = ((position - 1) / (size - 1)) * 100`
-///
-/// This matches design.md. Position 1 → priority 0 (front); the last position
-/// → priority 100.
 pub fn priority_from_position(position: usize, size: usize) -> f64 {
     if size <= 1 {
         return 0.0;
@@ -38,7 +31,7 @@ pub fn priority_from_position(position: usize, size: usize) -> f64 {
 
 /// `position_from_priority` — the inverse of [`priority_from_position`]:
 /// reposition an element so its derived priority matches a desired 0–100
-/// value. Mirrors SuperMemo's `FUN_00cb21c0`.
+/// value.
 ///
 /// Returns a 1-based position in `1..=size`.
 pub fn position_from_priority(priority: f64, size: usize) -> usize {
@@ -63,9 +56,7 @@ pub enum SortElementType {
 #[derive(Debug, Clone)]
 pub struct CombinedSortConfig {
     /// Weight of the proportion-of-topics-vs-items bias. Higher pushes the
-    /// session harder toward a balanced topic/item mix. Defaults to a gentle
-    /// nudge; the exact SuperMemo formula for this term is not yet
-    /// reverse-engineered (see the deviation note below).
+    /// session harder toward a balanced topic/item mix.
     pub proportion_weight: f64,
 }
 
@@ -90,25 +81,15 @@ pub struct SortElement<'a> {
 
 /// Compute the combined-criterion score for a single element.
 ///
-/// Per design.md, the criterion combines three terms:
+/// The criterion combines terms:
 ///
 /// 1. **Priority** (the user-set 0–100) — primary.
 /// 2. **Proportion-of-topics-vs-items bias** — a per-element nudge so the
-///    session is a read/quiz mix. The exact SuperMemo formula is referenced by
-///    string in `FUN_00c15fd0` ("Probability of a topic/item being placed at
-///    the top of the outstanding queue [0 .. max]") but the production
-///    coefficient at `param_1 + 0x748` has not been extracted. Until it is,
-///    this term is a simple type-alternation bias (topics nudged up when the
-///    running session is item-heavy, and vice versa), and the composition
-///    sliders remain the manual proxy for the *count* split. See the deviation
-///    note in the change's tasks.md (3.7).
+///    session is a read/quiz mix.
 /// **Higher score = earlier in the session.** The caller sorts descending.
 ///
-/// Randomization is deliberately *not* a term here. SuperMemo varies the order
-/// of **equally** prioritized elements; adding a jitter term to every score
-/// instead blurs genuinely distinct priorities (with the old ±5 weight, an
-/// element at 48 routinely beat one at 52). [`stable_jitter`] is now applied by
-/// [`sort_session`] only to break exact ties.
+/// Randomization is deliberately *not* a term here; [`stable_jitter`] is
+/// applied by [`sort_session`] only to break exact ties.
 pub fn combined_score(
     element: &SortElement<'_>,
     config: &CombinedSortConfig,
@@ -165,8 +146,7 @@ pub fn sort_session(elements: &[SortElement<'_>], config: &CombinedSortConfig) -
 
     while !remaining.is_empty() {
         // Pick the highest-scoring remaining element. Exact ties break by the
-        // stable per-id jitter — SuperMemo varies the order of equally
-        // prioritized elements, and only those.
+        // stable per-id jitter.
         let mut best_idx = 0;
         let mut best_score = f64::NEG_INFINITY;
         let mut best_jitter = f64::NEG_INFINITY;
@@ -189,24 +169,6 @@ pub fn sort_session(elements: &[SortElement<'_>], config: &CombinedSortConfig) -
 
     order
 }
-
-// ─── Reverse-engineering deviation note (task 3.7) ─────────────────────────
-//
-// The exact SuperMemo proportion-of-topics-vs-items formula and its "[0 .. max]"
-// config knob are referenced by string in `FUN_00c15fd0` but the production
-// coefficient at `param_1 + 0x748` has NOT been extracted from the binary.
-// The reference materials (`~/sushi/sm20-re/priority_queue_algorithm.md`) were
-// not available during this implementation session.
-//
-// DEVIATION: until the formula is recovered, the proportion term here is a
-// tanh-scaled type-alternation bonus (above), and the existing composition
-// sliders (add-queue-composition-sliders) remain the manual proxy for the
-// *count* split between topics and items. The priority term (the primary
-// ordering) is faithful to the design.
-//
-// The `priority` fed to this sort is the element's rank-derived percentile —
-// see `database::priority_rank`, which is what makes it a total order with no
-// ties to blur in the first place.
 
 #[cfg(test)]
 mod tests {

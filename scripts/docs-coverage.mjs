@@ -37,7 +37,6 @@ export const CORE_FEATURE_INVENTORY = [
   { id: "import.arxiv", name: "ArXiv Paper Import", domain: "imports", codeRefs: ["src/utils/arxiv.ts", "src-tauri/src/commands/arxiv.rs"] },
   { id: "import.kindle", name: "Kindle Clippings Ingestion", domain: "imports", codeRefs: ["src-tauri/src/commands/kindle_clippings.rs", "src/components/import/KindleImportModal.tsx"] },
   { id: "import.anki_apkg", name: "Anki Deck Import (.apkg)", domain: "imports", codeRefs: ["src-tauri/src/commands/anki.rs"] },
-  { id: "import.supermemo_zip", name: "SuperMemo XML/ZIP Import", domain: "imports", codeRefs: ["src-tauri/src/commands/supermemo_import.rs"] },
   { id: "import.browser_ext", name: "Browser Extension Bridge", domain: "imports", codeRefs: ["src-tauri/src/commands/browser_sync_server.rs"] },
   { id: "library.collection", name: "Collections & Folder Archives", domain: "imports", codeRefs: ["src/stores/collectionStore.ts", "src-tauri/src/commands/collection_archive.rs"] },
 
@@ -52,9 +51,9 @@ export const CORE_FEATURE_INVENTORY = [
 
   // 4. Scheduling & Algorithms
   { id: "scheduler.fsrs", name: "FSRS-6 Spaced Repetition", domain: "scheduling", codeRefs: ["src/utils/fsrsParameters.ts", "src-tauri/src/commands/fsrs.rs"] },
-  { id: "scheduler.sm18", name: "SuperMemo 18 Algorithm (3D SInc)", domain: "scheduling", codeRefs: ["src-tauri/src/commands/sm18.rs", "src-tauri/src/commands/sm18_data.rs"] },
-  { id: "scheduler.sm20.arena", name: "SM-20 Algorithm Arena", domain: "scheduling", codeRefs: ["src/components/review/ArenaChoiceRail.tsx"] },
-  { id: "scheduler.sm20.postpone", name: "SM-20 Postpone Engine", domain: "scheduling", codeRefs: ["src-tauri/src/commands/postpone.rs"] },
+  { id: "scheduler.adaptive", name: "Plethora Adaptive Algorithm (3D SInc)", domain: "scheduling", codeRefs: ["src-tauri/src/algorithms/adaptive.rs", "src-tauri/src/algorithms/adaptive_data.rs"] },
+  { id: "scheduler.precision.arena", name: "Algorithm Arena", domain: "scheduling", codeRefs: ["src/components/review/ArenaChoiceRail.tsx", "src-tauri/src/algorithms/precision/mod.rs"] },
+  { id: "scheduler.postpone", name: "Postpone Engine", domain: "scheduling", codeRefs: ["src-tauri/src/commands/postpone.rs"] },
   { id: "scheduler.scoped_params", name: "Scoped Retention Overrides", domain: "scheduling", codeRefs: ["src/utils/fsrsScope.ts"] },
   { id: "scheduler.load_balancing", name: "Queue Load Smoothing & Easy Days", domain: "scheduling", codeRefs: ["src/stores/reviewStore.ts"] },
 

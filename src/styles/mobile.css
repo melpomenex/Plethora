@@ -1015,16 +1015,95 @@
 
 .pwa-install-prompt {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(80px + var(--shell-safe-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
-  background: #6366f1;
-  color: white;
-  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-card, #ffffff);
+  color: var(--color-foreground, #020817);
+  border: 1px solid var(--color-border, #e2e8f0);
+  padding: 10px 12px;
   border-radius: 12px;
-  font-weight: 500;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
+}
+
+/* Theme-aware controls for the install prompt. These classes had no
+   definitions before, so the buttons rendered as unstyled UA defaults that
+   ignored the active theme entirely (unreadable on several themes). */
+.pwa-install-prompt .pwa-install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--color-primary, #3b82f6);
+  color: var(--color-primary-foreground, #ffffff);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pwa-install-prompt .pwa-install-btn:hover {
+  filter: brightness(1.08);
+}
+
+.pwa-install-prompt .pwa-dismiss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted-foreground, #64748b);
+  cursor: pointer;
+}
+
+.pwa-install-prompt .pwa-dismiss-btn:hover {
+  background: var(--color-muted, #f1f5f9);
+  color: var(--color-foreground, #020817);
+}
+
+/* Offline indicator: same unstyled-classes problem as the install prompt —
+   restyled with theme tokens so it follows the active theme. */
+.offline-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: calc(6px + var(--shell-safe-top, 0px)) 12px 6px;
+  background: var(--color-destructive, #dc2626);
+  color: var(--color-primary-foreground, #ffffff);
+  font-size: 0.875rem;
+  z-index: var(--overlay-backdrop-z, 1050);
+}
+
+.offline-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.offline-retry-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* ==========================================================================

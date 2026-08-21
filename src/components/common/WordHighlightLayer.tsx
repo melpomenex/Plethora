@@ -38,18 +38,23 @@ export function WordHighlightLayer({
 }: WordHighlightLayerProps) {
   // Track highlighters mapped by their HTML container elements to avoid leaks and memory issues
   const highlightersRef = useRef<Map<HTMLElement, WordHighlighter>>(new Map());
+  // The instance currently owning the on-screen highlight, so section-routed
+  // updates retire it exactly once when ownership moves elsewhere.
+  const activeHighlighterRef = useRef<WordHighlighter | null>(null);
 
   // Clean up all highlighters on unmount
   useEffect(() => {
     return () => {
       highlightersRef.current.forEach((hl) => hl.destroy());
       highlightersRef.current.clear();
+      activeHighlighterRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (!enabled) {
       highlightersRef.current.forEach((hl) => hl.clear());
+      activeHighlighterRef.current = null;
       return;
     }
 
@@ -108,7 +113,9 @@ export function WordHighlightLayer({
         currentHighlighters.set(el, hl);
       }
       hl.setEnabled(true);
-      hl.clear();
+      // No pre-clear here: every highlight* call below performs its own
+      // single-pass clear before applying, so a word transition mutates the
+      // DOM exactly once instead of three times.
     }
 
     // 3. Apply the highlight. With an anchored chunk, resolve the owning
@@ -123,17 +130,28 @@ export function WordHighlightLayer({
       // owning section's instance highlights, never a duplicate-text sibling.
       if (owningContainer && currentHighlighters.has(owningContainer)) {
         const hl = currentHighlighters.get(owningContainer)!;
+        // Ownership moved to another instance since the last word: retire the
+        // previous highlight exactly once; the new instance clears itself.
+        const prev = activeHighlighterRef.current;
+        if (prev && prev !== hl) prev.clear();
         if (chunk && !useChunkLevel) {
           hl.highlightAnchoredWord(chunk, wordOffset, timingApproximate);
         } else {
           hl.highlightChunk(chunk?.text ?? chunkText);
         }
+        activeHighlighterRef.current = hl;
+      } else {
+        // No owning container this cycle: drop any stale highlight so it
+        // cannot linger on a section that is no longer narrated.
+        activeHighlighterRef.current?.clear();
+        activeHighlighterRef.current = null;
       }
       return;
     }
 
     for (const hl of currentHighlighters.values()) {
       if (chunk && !useChunkLevel && hl.highlightAnchoredWord(chunk, wordOffset, timingApproximate)) {
+        activeHighlighterRef.current = hl;
         continue;
       }
       if (useChunkLevel) {

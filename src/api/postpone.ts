@@ -1,6 +1,5 @@
 /**
- * Tauri API wrapper for SuperMemo auto-postpone (supermemo-faithful-queue
- * Phase 3, tasks 3.11/3.12) — the priority-queue overflow handler.
+ * Tauri API wrapper for auto-postpone — the priority-queue overflow handler.
  *
  * At session start, when outstanding material exceeds daily capacity, the
  * lowest-priority surplus is postponed. The decision runs on the backend

@@ -34,9 +34,9 @@ describe("HelpRetrievalEngine", () => {
     expect(result1?.confidence).toBe(1.0);
     expect(result1?.primaryAction?.id).toBe("settings.appearance.eink");
 
-    const result2 = engine.resolveDirectLookup("sm18");
+    const result2 = engine.resolveDirectLookup("adaptive");
     expect(result2).not.toBeNull();
-    expect(result2?.featureId).toBe("scheduler.sm18");
+    expect(result2?.featureId).toBe("scheduler.adaptive");
 
     const result3 = engine.resolveDirectLookup("read aloud");
     expect(result3).not.toBeNull();
@@ -73,15 +73,15 @@ describe("HelpRetrievalEngine", () => {
     const fsrsResults = engine.search("stability retention interval", {
       context: { activeAlgorithm: "fsrs" },
     });
-    const sm18Results = engine.search("stability retention interval", {
-      context: { activeAlgorithm: "sm18" },
+    const adaptiveResults = engine.search("stability retention interval", {
+      context: { activeAlgorithm: "adaptive" },
     });
 
     const topFsrs = fsrsResults.find((r) => r.chunk.docId === "scheduler.fsrs");
-    const topSm18 = sm18Results.find((r) => r.chunk.docId === "scheduler.sm18");
+    const topAdaptive = adaptiveResults.find((r) => r.chunk.docId === "scheduler.adaptive");
 
     expect(topFsrs?.boostMultiplier).toBeGreaterThan(1.0);
-    expect(topSm18?.boostMultiplier).toBeGreaterThan(1.0);
+    expect(topAdaptive?.boostMultiplier).toBeGreaterThan(1.0);
   });
 
   it("enforces strict prompt token budgeting ceiling (≤ 1500 tokens)", () => {

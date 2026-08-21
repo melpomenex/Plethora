@@ -53,7 +53,7 @@ pub async fn create_extract(
     if let Some(level) = max_disclosure_level {
         extract.max_disclosure_level = level;
     }
-    // Inherit the parent document's priority score (SuperMemo-style IR
+    // Inherit the parent document's priority score (incremental reading
     // priority chain). Falls back to 0.0 when the document is unknown or
     // has no priority set.
     if let Ok(Some(doc)) = repo.get_document(&document_id).await {

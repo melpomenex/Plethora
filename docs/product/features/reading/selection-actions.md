@@ -50,7 +50,7 @@ Acts as the primary conversion hub turning passive reading text into active lear
 3. Automatically clears selection after action execution unless configured otherwise.
 
 ## Rationale
-In SuperMemo-style incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.
+In incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.
 
 ## Settings & Defaults
 | Key | Default | Description |

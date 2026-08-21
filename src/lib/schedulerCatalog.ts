@@ -4,13 +4,13 @@
  * Persisted ids (`fsrs`, `sm2`, `sm5`, `sm8`, `sm15`, `sm18`, `sm20`) are a
  * compatibility contract (DB `algorithm_type`, settings, sync payloads) and are
  * intentionally NOT renamed here — only the presentation layer changes.
- * Rating semantics stay sourced from `supermemo-grades.ts`; this catalog is
+ * Rating semantics stay sourced from `rating-grades.ts`; this catalog is
  * display metadata only. View code must resolve labels through this module
  * instead of hardcoding algorithm names.
  */
 
 import type { LearningSettings } from "../stores/settingsStore";
-import { getRatingSchema, type RatingSchema } from "./supermemo-grades";
+import { getRatingSchema, type RatingSchema } from "./rating-grades";
 
 export type SchedulerId = LearningSettings["algorithm"];
 
@@ -34,6 +34,48 @@ export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
     shortLabel: "FSRS-6",
     descriptionKey: "learningSettings.fsrsDesc",
     thirdParty: true,
+  },
+  adaptive: {
+    id: "adaptive",
+    label: "Plethora Adaptive",
+    shortLabel: "Adaptive",
+    descriptionKey: "learningSettings.adaptiveDesc",
+    thirdParty: false,
+  },
+  precision: {
+    id: "precision",
+    label: "Plethora Precision",
+    shortLabel: "Precision",
+    descriptionKey: "learningSettings.precisionDesc",
+    thirdParty: false,
+  },
+  classic: {
+    id: "classic",
+    label: "Plethora Classic",
+    shortLabel: "Classic",
+    descriptionKey: "learningSettings.classicDesc",
+    thirdParty: false,
+  },
+  classic_5: {
+    id: "classic_5",
+    label: "Plethora Classic 5",
+    shortLabel: "Classic 5",
+    descriptionKey: "learningSettings.classicDesc",
+    thirdParty: false,
+  },
+  classic_8: {
+    id: "classic_8",
+    label: "Plethora Classic 8",
+    shortLabel: "Classic 8",
+    descriptionKey: "learningSettings.classicDesc",
+    thirdParty: false,
+  },
+  classic_15: {
+    id: "classic_15",
+    label: "Plethora Classic 15",
+    shortLabel: "Classic 15",
+    descriptionKey: "learningSettings.classicDesc",
+    thirdParty: false,
   },
   sm2: {
     id: "sm2",
@@ -82,20 +124,20 @@ export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
 /** Schedulers offered in the main learning settings selector, in order. */
 export const SELECTABLE_SCHEDULERS: SchedulerInfo[] = [
   SCHEDULER_CATALOG.fsrs,
-  SCHEDULER_CATALOG.sm18,
-  SCHEDULER_CATALOG.sm20,
-  SCHEDULER_CATALOG.sm2,
+  SCHEDULER_CATALOG.adaptive,
+  SCHEDULER_CATALOG.precision,
+  SCHEDULER_CATALOG.classic,
 ];
 
 /** Legacy selectors expose the full historical id set. */
 export const LEGACY_SELECTABLE_SCHEDULERS: SchedulerInfo[] = [
   SCHEDULER_CATALOG.fsrs,
-  SCHEDULER_CATALOG.sm18,
-  SCHEDULER_CATALOG.sm20,
-  SCHEDULER_CATALOG.sm15,
-  SCHEDULER_CATALOG.sm8,
-  SCHEDULER_CATALOG.sm5,
-  SCHEDULER_CATALOG.sm2,
+  SCHEDULER_CATALOG.adaptive,
+  SCHEDULER_CATALOG.precision,
+  SCHEDULER_CATALOG.classic_15,
+  SCHEDULER_CATALOG.classic_8,
+  SCHEDULER_CATALOG.classic_5,
+  SCHEDULER_CATALOG.classic,
 ];
 
 export function schedulerInfo(id: SchedulerId | string | undefined): SchedulerInfo | undefined {

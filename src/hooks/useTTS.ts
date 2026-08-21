@@ -471,7 +471,10 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     isPlaying: activeTtsIsSpeaking,
     duration: audioRef.current?.duration,
     currentTime: audioRef.current?.currentTime ?? 0,
-    enabled: activeTtsIsSpeaking || activeTtsIsPaused || activeTtsIsGenerating,
+    // Generating must not boot the OS media session — only a real speaking or
+    // paused-and-resumable TTS session is OS-visible.
+    enabled: activeTtsIsSpeaking || activeTtsIsPaused,
+    playbackState: activeTtsIsSpeaking ? "playing" : "paused",
     capabilities: {
       canPlay: true,
       canPause: true,

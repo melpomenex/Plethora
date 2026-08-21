@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Check,
@@ -37,6 +38,7 @@ import {
   saveScreenshotToRegistry,
 } from "../../utils/screenshotCapture";
 import { isNativeMobile, isTauri } from "../../lib/tauri";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import type { DragEvent, ClipboardEvent as ReactClipboardEvent } from "react";
 
@@ -136,6 +138,53 @@ export function CreateExtractDialog({
   const { t } = useI18n();
   const { documents } = useDocumentStore();
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  // While a sub-creator (Cloze/QA) has replaced this dialog's content, that
+  // component owns dismissal; our Escape/overlay handling must stand down.
+  const subCreatorActive = Boolean(savedExtractId) && (creationMode === "cloze" || creationMode === "qa");
+  useOverlayDismissal(isOpen && !subCreatorActive, onClose, 100);
+
+  // Focus management matching the shared overlay contract: move focus into
+  // the dialog on open, trap Tab inside it, restore focus on close.
+  useEffect(() => {
+    if (!isOpen || subCreatorActive) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.focus();
+    });
+
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleTab);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleTab);
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen, subCreatorActive]);
 
   const currentDocument = documents.find((d) => d.id === documentId);
   const articleImages = Array.from(
@@ -583,9 +632,9 @@ export function CreateExtractDialog({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="adaptive-dialog-layer"
       onPasteCapture={handleDialogPasteCapture}
       onDragOver={(event) => {
         if (!event.dataTransfer?.types?.includes("Files")) return;
@@ -598,10 +647,20 @@ export function CreateExtractDialog({
       }}
       onDrop={handleDialogDrop}
     >
+      <div className="adaptive-dialog-backdrop" aria-hidden />
       <div
-        className={`bg-background border rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col transition-colors ${
-          isDialogDragOver ? "border-primary border-dashed" : "border-border"
-        }`}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEditing ? t("extracts.editTitle") : t("extracts.createTitle")}
+        tabIndex={-1}
+        className="adaptive-dialog-panel adaptive-dialog-centered transition-colors focus:outline-none"
+        style={{
+          maxWidth: "42rem",
+          ...(isDialogDragOver
+            ? { borderColor: "var(--color-primary)", borderStyle: "dashed" }
+            : {}),
+        }}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
@@ -958,79 +1017,88 @@ export function CreateExtractDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-border">
-          <button
-            onClick={onClose}
-            disabled={isSaving}
-            className="px-4 py-2 bg-card border border-border text-foreground rounded-md hover:bg-muted transition-colors disabled:opacity-50"
-          >
-            {t("common.cancel")}
-          </button>
-          {isEditing ? (
-            <>
-              <button
-                onClick={() => handleUpdate(false)}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {isSaving ? t("extracts.updating") : t("extracts.updateExtract")}
-              </button>
-              <button
-                onClick={() => handleUpdate(true)}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {isGenerating ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    {t("extracts.regeneratingCards")}
-                  </>
-                ) : (
-                  <span>{t("extracts.updateAndRegenerate")}</span>
-                )}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => handleCreate("extract")}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {isSaving ? t("extracts.creating") : t("extracts.createExtract")}
-              </button>
-              <button
-                onClick={() => handleCreate("generate")}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {isGenerating ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    {t("extracts.generatingCards")}
-                  </>
-                ) : (
-                  <span>{t("extracts.createAndGenerate")}</span>
-                )}
-              </button>
-              <button
-                onClick={() => handleCreate("cloze")}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {t("extracts.createAndCloze")}
-              </button>
-              <button
-                onClick={() => handleCreate("qa")}
-                disabled={isSaving || isGenerating}
-                className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50"
-              >
-                {t("extracts.createAndQA")}
-              </button>
-            </>
-          )}
+        <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {/* Responsive action hierarchy: phones get a structured two-column
+              grid (primary pair, then specialized secondary actions, then a
+              full-width Cancel); ≥lg restores the original single row. One
+              set of DOM buttons is reordered with flex/grid ordering so both
+              layouts share state, handlers, and labels.
+              See openspec fix-mobile-layout-and-android-media-controls. */}
+          <div className="grid grid-cols-2 gap-2 lg:flex lg:items-center lg:justify-end lg:gap-3">
+            <button
+              onClick={onClose}
+              disabled={isSaving}
+              className="order-5 col-span-2 min-h-11 px-4 py-2 bg-card border border-border text-foreground rounded-md hover:bg-muted transition-colors disabled:opacity-50 lg:order-1 lg:col-span-1"
+            >
+              {t("common.cancel")}
+            </button>
+            {isEditing ? (
+              <>
+                <button
+                  onClick={() => handleUpdate(false)}
+                  disabled={isSaving || isGenerating}
+                  className="order-1 min-h-11 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 lg:order-2"
+                >
+                  {isSaving ? t("extracts.updating") : t("extracts.updateExtract")}
+                </button>
+                <button
+                  onClick={() => handleUpdate(true)}
+                  disabled={isSaving || isGenerating}
+                  className="order-2 min-h-11 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 lg:order-3 lg:inline-flex"
+                >
+                  {isGenerating ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      {t("extracts.regeneratingCards")}
+                    </>
+                  ) : (
+                    <span>{t("extracts.updateAndRegenerate")}</span>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleCreate("extract")}
+                  disabled={isSaving || isGenerating}
+                  className="order-1 min-h-11 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 lg:order-2"
+                >
+                  {isSaving ? t("extracts.creating") : t("extracts.createExtract")}
+                </button>
+                <button
+                  onClick={() => handleCreate("generate")}
+                  disabled={isSaving || isGenerating}
+                  className="order-2 min-h-11 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 lg:order-3 lg:inline-flex"
+                >
+                  {isGenerating ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      {t("extracts.generatingCards")}
+                    </>
+                  ) : (
+                    <span>{t("extracts.createAndGenerate")}</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleCreate("cloze")}
+                  disabled={isSaving || isGenerating}
+                  className="order-3 min-h-11 px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 lg:order-4"
+                >
+                  {t("extracts.createAndCloze")}
+                </button>
+                <button
+                  onClick={() => handleCreate("qa")}
+                  disabled={isSaving || isGenerating}
+                  className="order-4 min-h-11 px-3 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50 lg:order-5"
+                >
+                  {t("extracts.createAndQA")}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

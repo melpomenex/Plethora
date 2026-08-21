@@ -183,14 +183,13 @@ pub async fn get_reviewable_extracts(repo: State<'_, Repository>) -> Result<Vec<
 }
 
 /// Forget an extract: reset its memory state and return it to the new queue.
-/// (SuperMemo-style Forget lifecycle action.)
 #[tauri::command]
 pub async fn forget_extract(extract_id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.forget_extract(&extract_id).await
 }
 
 /// Dismiss (or undismiss) an extract: removes it from the review queue
-/// without deleting it. (SuperMemo-style Dismiss lifecycle action.)
+/// without deleting it.
 #[tauri::command]
 pub async fn dismiss_extract(
     extract_id: String,
@@ -203,7 +202,6 @@ pub async fn dismiss_extract(
 
 /// Graduate an extract: schedule it ~5 years in the future with high stability,
 /// signalling mastered material that has left active rotation.
-/// (SuperMemo-style Done lifecycle action.)
 #[tauri::command]
 pub async fn graduate_extract(extract_id: String, repo: State<'_, Repository>) -> Result<()> {
     let far_future = Utc::now() + Duration::days(365 * 5);

@@ -15,12 +15,12 @@ import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { normalizeClozeSyntax } from "../../utils/cloze";
-import { SuperMemoRatingControl } from "./SuperMemoRatingControl";
+import { SixGradeRatingControl } from "./SixGradeRatingControl";
 import {
   gradeToRating,
   useRatingSchema,
-  type SM20NativeGrade,
-} from "../../lib/supermemo-grades";
+  type SixGrade,
+} from "../../lib/rating-grades";
 
 interface FlashcardScrollItemProps {
     learningItem: LearningItem;
@@ -54,7 +54,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     // scale — same shared control, keyboard mapping, and touch joystick as
     // the review session.
     const ratingSchema = useRatingSchema();
-    const useNativeGrades = ratingSchema.type === "supermemo";
+    const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) === "supermemo";
     const isAnswerRevealedRef = useRef(isAnswerRevealed);
     isAnswerRevealedRef.current = isAnswerRevealed;
 
@@ -106,7 +106,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 if (useNativeGrades && /^[0-5]$/.test(e.key)) {
                     e.preventDefault();
                     click();
-                    const grade = Number(e.key) as SM20NativeGrade;
+                    const grade = Number(e.key) as SixGrade;
                     onRate(gradeToRating(grade), grade);
                 } else if (e.key === "1") {
                     e.preventDefault();
@@ -443,7 +443,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 {/* Rating Buttons - show after answer is revealed */}
                 {isAnswerRevealed && useNativeGrades && (
                     <div className="mt-6">
-                        <SuperMemoRatingControl
+                        <SixGradeRatingControl
                             onSelect={(rating, grade) => { click(); onRate(rating, grade); }}
                             enabled={() => isAnswerRevealedRef.current}
                             touchAreaRef={containerRef}

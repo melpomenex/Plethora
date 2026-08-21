@@ -9,7 +9,6 @@ import { TranscriptionButton } from "../components/transcription";
 import { isTranscribableFileType } from "../components/transcription/TranscriptionQueueActions";
 import type { Document } from "../types/document";
 import { useI18n } from "../lib/i18n";
-import { importSuperMemoPackage, convertSuperMemoCollectionToDocuments } from "../utils/supermemoImport";
 import * as documentsApi from "../api/documents";
 import { invokeCommand } from "../lib/tauri";
 import { useCollectionStore } from "../stores/collectionStore";
@@ -104,43 +103,7 @@ export function Documents() {
         if (imported.length > 0) {
           importedDoc = imported[0];
         }
-      } else if (source === 'supermemo') {
-        setImporting(true);
-        setError(null);
-        try {
-          const collection = await importSuperMemoPackage(data.filePath);
-          if (collection.items.length === 0) {
-            setError("No items found in the legacy export.");
-            setImporting(false);
-            return;
-          }
 
-          const docEntries = await convertSuperMemoCollectionToDocuments(collection);
-          setImportProgress(0, docEntries.length);
-
-          let firstDoc: Document | null = null;
-          for (let i = 0; i < docEntries.length; i++) {
-            const entry = docEntries[i];
-            setImportProgress(i + 1, docEntries.length, entry.title);
-            try {
-              const doc = await documentsApi.createDocument(
-                entry.title,
-                `supermemo://${collection.name}/${entry.title}`,
-                entry.fileType,
-              );
-              addDocument(doc);
-              if (!firstDoc) firstDoc = doc;
-            } catch (err) {
-              console.error(`Failed to create document for "${entry.title}":`, err);
-            }
-          }
-
-          if (firstDoc) importedDoc = firstDoc;
-          else setError("Failed to import any items from the legacy collection.");
-        } finally {
-          setImporting(false);
-          setImportProgress(0, 0);
-        }
       } else if (source === 'json') {
         setImporting(true);
         setError(null);

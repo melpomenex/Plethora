@@ -14,8 +14,8 @@ Architecture and technical details for Incrementum developers.
 6. [Database Schema](#database-schema)
 7. [Key Algorithms](#key-algorithms)
    - [FSRS-6 Algorithm](#fsrs-6-algorithm)
-   - [SM-18 Algorithm](#sm-18-algorithm-supermemo-18)
-   - [SM-20 Algorithm](#sm-20-algorithm-supermemo-20)
+   - [Plethora Adaptive Algorithm](#plethora-adaptive-algorithm)
+   - [Plethora Precision Algorithm](#plethora-precision-algorithm)
 8. [API Reference](#api-reference)
 9. [Development Workflow](#development-workflow)
 10. [Testing Strategy](#testing-strategy)
@@ -348,12 +348,11 @@ Key parameters:
 - **Stability**: How long a memory lasts (in days)
 - **Difficulty**: Item difficulty (1-10 scale)
 
-### SM-18 Algorithm (SuperMemo 18)
+### Plethora Adaptive Algorithm
 
-The latest publicly available SuperMemo algorithm, reverse-engineered from `sm18.exe`. SM-18 uses a three-dimensional lookup table for stability increases rather than closed-form formulas.
+An adaptive spaced repetition algorithm using a continuous three-dimensional lookup table for stability increases rather than closed-form formulas.
 
-**Source**: `src-tauri/src/algorithms/sm18.rs`, `sm18_data.rs`
-**Reference**: [sm18-re](https://github.com/melpomenex/sm18-re)
+**Source**: `src-tauri/src/algorithms/adaptive.rs`, `adaptive_data.rs`
 
 #### Core Formulas
 
@@ -366,7 +365,7 @@ The latest publicly available SuperMemo algorithm, reverse-engineered from `sm18
 #### Key Data Structures
 
 ```rust
-pub struct SM18State {
+pub struct AdaptiveState {
     pub difficulty: f64,   // D ∈ [0, 1]
     pub stability: f64,    // Memory stability in days
     pub interval: f64,     // Current interval in days
@@ -377,18 +376,18 @@ pub struct SM18State {
 
 #### SInc Matrix
 
-The Stability Increase (SInc) matrix is the heart of SM-18. It's a 21×21×21 lookup table loaded from `data/sinc_matrix.bin` (74 KB) at compile time via `include_bytes!`. Layout: `flat[D * 441 + S * 21 + R]` where D is slowest-varying and R is fastest. Indices 0–19 are active; index 20 is a sentinel (value 0). The matrix was extracted from the original `StabilityIncrease.dat` shipped with SuperMemo 18.
+The Stability Increase (SInc) matrix is the heart of the Adaptive scheduler. It's a 21×21×21 lookup table loaded from `data/sinc_matrix.bin` (74 KB) at compile time via `include_bytes!`. Layout: `flat[D * 441 + S * 21 + R]` where D is slowest-varying and R is fastest. Indices 0–19 are active; index 20 is a sentinel (value 0).
 
 #### Grade Mapping
 
-| App Rating | SM-18 Grade | Classification |
-|------------|-------------|----------------|
+| App Rating | Grade | Classification |
+|------------|-------|----------------|
 | Again | 0 | Failure (lapse) |
 | Hard | 2 | Success (low) |
 | Good | 3 | Success (normal) |
 | Easy | 5 | Success (high) |
 
-#### Key Constants (from 80-bit x87 decompilation)
+#### Key Constants
 
 - Startup stability: `1.2`, startup interval: `6.9` days
 - Post-lapse modifier: `0.87`, post-lapse interval: `2.4` days
@@ -398,48 +397,42 @@ The Stability Increase (SInc) matrix is the heart of SM-18. It's a 21×21×21 lo
 
 ---
 
-### SM-20 Algorithm (SuperMemo 20)
+### Plethora Precision Algorithm
 
-A native Rust implementation of the SuperMemo 20 algorithm, reverse-engineered from `sm20.exe`. SM-20 is the most complex algorithm in the codebase, supporting three interval formula versions (V2/V4/V6) and an integrated FSRS-family branch.
+A native Rust implementation of the Plethora Precision algorithm: a 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling.
 
-**Source**: `src-tauri/src/algorithms/sm20.rs`
+**Source**: `src-tauri/src/algorithms/precision/`
 
 #### Architecture
 
-SM-20 operates on a **Dual-Stability-Retrievability (DSR) model** and supports two algorithm branches selected per-item via the `algorithm_branch` flag:
+Precision operates on a 5-model ensemble combining distinct memory models with dynamic weight updates based on observed recall:
 
-1. **Classic SM-20 branch** (`algorithm_branch == 0`): Uses interval matrices with Bayesian smoothing
-2. **FSRS-family branch** (`algorithm_branch == 1`): Uses a 3-expert mixture model for retrievability estimation
+1. **M1 (Classic)**: Interval-ratio progression
+2. **M2 (A-Factor Optimizer)**: Two-dimensional matrix optimization
+3. **M3 (Outcome Matrices)**: Multi-stage probability smoothing
+4. **M4 (Kernel)**: Continuous parametric kernel
+5. **M5 (FSRS)**: Free Spaced Repetition Scheduler model
 
 #### Key Data Structures
 
 ```rust
-pub struct SM20State {
-    pub version: u8,           // Algorithm version (2, 4, or 6)
+pub struct PrecisionState {
     pub stability: f64,        // Memory stability in days
     pub difficulty: f64,       // D ∈ [0, 1]
     pub repetition: u32,       // Repetition counter
     pub lapses: u32,           // Failure count
     pub interval: f64,         // Current interval in days
     pub last_quality: f64,     // Last review quality
-    pub algorithm_branch: u8,  // 0 = classic, 1 = FSRS
-    pub retrov: f64,           // Retrievability estimate
-    pub s_factor: f64,         // Stability scaling factor
-    pub multiplier: f64,       // Interval multiplier
 }
 ```
 
-#### Classic SM-20 Interval Formulas
+#### 5-Model Ensemble Pipeline
 
-Three versions of the interval calculation:
+- **Ensemble calculation**: `ensemble = (6·M1 + 14·M2 + 45·M3 + 25·M4 + 10·M5) / 100`
+- **Forgetting index adjustment**: `adjusted = ln(1 - FI/100) / ln(0.9) · ensemble`
+- **Interval clamping**: `interval = clamp(round(clamp(adjusted, 0.7, 44530)), 1, 44530)`
 
-- **V2** (SM-19 compatible): `interval = (scale - offset) × S^power + bias` × `2^(-penalty × D)` — stability-scale-based with difficulty penalty
-- **V4** (SM-20 proper): Linear combination `interval = (p3 × p5 + 1)(p1 × p7 + p2) + p4` — matrix-derived parameters
-- **V6** (FSRS-style): `interval = p4 + p1 × 2^p6 × 2^(-p3 × p5)` — exponential blending of matrix parameters
-
-All three versions share the same Bayesian smoothing core for initial intervals.
-
-#### Bayesian Smoothing Core
+#### Online Weight Learning & Bayesian Smoothing Core
 
 The interval matrix is smoothed using a 3×3×3 neighborhood Bayesian approach:
 

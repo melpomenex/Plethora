@@ -726,6 +726,7 @@ export function ExtractsList({
                 <CompactTagEditor
                   target={{ type: "extract", id: extract.id, tags: extract.tags ?? [] }}
                   previewLimit={3}
+                  className="min-w-0 max-w-full"
                 />
               )}
             </div>

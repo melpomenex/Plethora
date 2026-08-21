@@ -1,10 +1,9 @@
 /**
- * Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation Engine
+ * 20 Rules of Knowledge Formulation Engine
  *
  * Provides shared definitions, metadata, educational reminders, prompt builders,
  * and command parsing for generating atomic, high-retention flashcards adhering to
- * SuperMemo / incremental reading cognitive formulation principles.
- * Reference: https://supermemo.guru/wiki/20_rules_of_knowledge_formulation
+ * incremental reading cognitive formulation principles.
  */
 
 export interface KnowledgeRule {
@@ -141,7 +140,7 @@ export const TWENTY_RULES_COMMAND = "/20rules";
 export const TWENTY_RULES_ALIASES = ["/20rules", "/formulate", "/twenty-rules", "/rules"] as const;
 
 export const TWENTY_RULES_PROMPT_TEMPLATE =
-  "Apply Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation to extract atomic, high-retention flashcards from this content. Focus on the Minimum Information Principle (atomic items, shortest possible answers), cloze deletions for terminology, rule-based abstract principles over isolated facts, and zero complex lists or enumerations.";
+  "Apply the 20 Rules of Knowledge Formulation to extract atomic, high-retention flashcards from this content. Focus on the Minimum Information Principle (atomic items, shortest possible answers), cloze deletions for terminology, rule-based abstract principles over isolated facts, and zero complex lists or enumerations.";
 
 export interface TwentyRulesCommandMatch {
   isMatch: boolean;
@@ -190,7 +189,7 @@ export function stripTwentyRulesCommand(rawInput: string): string {
  * Generate formatted LLM system prompt instructions enforcing the 20 Rules of Knowledge Formulation.
  */
 export function buildTwentyRulesSystemPrompt(customContext?: string): string {
-  return `You are an expert cognitive learning assistant applying Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (Incremental Reading).
+  return `You are an expert cognitive learning assistant applying the 20 Rules of Knowledge Formulation (Incremental Reading).
 
 CRITICAL KNOWLEDGE FORMULATION MANDATES:
 1. MINIMUM INFORMATION PRINCIPLE (Atomic Cards): Every flashcard MUST test exactly ONE atomic fact or concept. Keep questions concise and answers as short as humanly possible (1-5 words or a single key phrase).
@@ -211,7 +210,7 @@ When generating flashcards, you MUST output standard executable tool calls (crea
  * Educational summary of the 20 Rules in Markdown for dialogs, help screens, and tooltips.
  */
 export function getTwentyRulesReminderMarkdown(): string {
-  return `### 🧠 20 Rules of Knowledge Formulation (Dr. Piotr Wozniak)
+  return `### 🧠 20 Rules of Knowledge Formulation
 
 Formulating knowledge properly makes learning 10× faster and prevents memory decay:
 

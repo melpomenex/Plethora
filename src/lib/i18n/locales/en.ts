@@ -3969,6 +3969,8 @@ export const en: Dict = {
 
   "settings.ttsTitle": "Text To Speech",
   "settings.ttsDescription": "Provider-backed speech generation with built-in and custom voices.",
+  "settings.ttsActiveVoice": "Active voice",
+  "settings.ttsNoVoiceSelected": "No voice selected",
   "settings.ttsProvider": "Provider",
   "settings.ttsProviderFalCloud": "Fal.ai (cloud)",
   "settings.ttsProviderGroqCloud": "Groq (cloud)",

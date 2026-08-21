@@ -148,9 +148,9 @@ describe("resolveScrollRatingKey under the SuperMemo six-grade schema", () => {
 });
 
 describe("usesNativeGradeKeys (which items get 0-5 grade keys)", () => {
-  it("flashcards get grade keys only under SuperMemo six-grade schedulers", () => {
-    expect(usesNativeGradeKeys("flashcard", "sm18")).toBe(true);
-    expect(usesNativeGradeKeys("flashcard", "sm20")).toBe(true);
+  it("flashcards get grade keys only under six-grade schedulers", () => {
+    expect(usesNativeGradeKeys("flashcard", "adaptive")).toBe(true);
+    expect(usesNativeGradeKeys("flashcard", "precision")).toBe(true);
   });
 
   it("flashcards under four-grade schedulers keep 1-4 rating keys", () => {
