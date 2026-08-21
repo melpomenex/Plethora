@@ -96,6 +96,30 @@ function buildSmartTaggingInput(input: SmartTaggingTaskInput) {
     );
   }
 
+  if (context.sourceUrl || context.sourceDomain) {
+    lines.push(
+      "Browser Source Identity:",
+      wrapUntrustedBlock("source-identity", [context.sourceDomain, context.sourceUrl].filter(Boolean).join(" | ")),
+      ""
+    );
+  }
+
+  if (context.nearbyText) {
+    lines.push("Nearby Browser Context:", wrapUntrustedBlock("nearby-context", context.nearbyText), "");
+  }
+
+  if (context.captionAltText) {
+    lines.push("Caption / Alt Evidence:", wrapUntrustedBlock("caption-alt", context.captionAltText), "");
+  }
+
+  if (context.sourceTags.length > 0) {
+    lines.push(
+      "Source Tags (evidence only; do not copy without item-local support):",
+      wrapUntrustedBlock("source-tags", context.sourceTags.join(", ")),
+      ""
+    );
+  }
+
   if (context.candidateExistingTags.length > 0) {
     lines.push(
       "Candidate Existing Tags from User's Library:",
@@ -214,7 +238,7 @@ export async function runSmartTagging(
     const baselineDetails = classifyDocumentBaseline({
       title: input.title,
       headings: input.headings,
-      body: input.content || "",
+      body: [input.content, input.nearbyText, input.captionAltText].filter(Boolean).join("\n"),
       existingLibraryTags: input.existingLibraryTagsList,
       manualTags: input.manualTags,
       dismissedTags: input.dismissedTags,

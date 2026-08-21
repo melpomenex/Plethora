@@ -72,6 +72,7 @@ export interface UpdateExtractInput {
   category?: string;
   color?: string;
   max_disclosure_level?: number;
+  selection_context?: SelectionContext | Record<string, unknown>;
 }
 
 function normalizeExtract(extract: Extract): Extract {
@@ -166,6 +167,7 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
     category: input.category,
     color: input.color,
     maxDisclosureLevel: input.max_disclosure_level,
+    selectionContext: input.selection_context,
   });
   const normalized = normalizeExtract(extract);
   return normalized;

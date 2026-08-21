@@ -1,4 +1,32 @@
 import type { ItemTagTarget } from "./types";
+import {
+  extractOrganizationContainer,
+  withOrganizationContainer,
+  type BrowserOrganizationMetadata,
+} from "../smartTagging/browserImportOrganization";
+
+function recordBrowserTagAuthority(
+  organization: BrowserOrganizationMetadata | undefined,
+  previousTags: string[],
+  nextTags: string[],
+): BrowserOrganizationMetadata | undefined {
+  if (!organization) return undefined;
+  const manualTags = new Set(organization.manualTags || []);
+  const dismissedTags = new Set(organization.dismissedTags || []);
+  for (const tag of nextTags) {
+    if (!previousTags.includes(tag)) manualTags.add(tag);
+  }
+  for (const tag of previousTags) {
+    if (!nextTags.includes(tag)) dismissedTags.add(tag);
+  }
+  return {
+    ...organization,
+    status: "completed",
+    manualTags: Array.from(manualTags),
+    dismissedTags: Array.from(dismissedTags),
+    userConfirmedAt: new Date().toISOString(),
+  };
+}
 
 /**
  * One item-type mutation adapter for persisted tag arrays. Dispatches to the
@@ -25,8 +53,16 @@ export async function persistItemTags(target: ItemTagTarget, nextTags: string[])
     if (!doc) throw new Error("Document not found");
 
     const prevTags = doc.tags || [];
-    const prevDetails = doc.metadata?.smartTagDetails ? [...doc.metadata.smartTagDetails] : [];
+    const isBrowserImport = doc.metadata?.source === "browser_extension"
+      || doc.metadata?.captureProvenance?.source === "browser_extension"
+      || Boolean(doc.metadata?.browserCaptureContext || doc.metadata?.organization);
+    const prevDetails = isBrowserImport && doc.metadata?.smartTagDetails
+      ? [...doc.metadata.smartTagDetails]
+      : [];
     const now = new Date().toISOString();
+    const organization = isBrowserImport
+      ? recordBrowserTagAuthority(doc.metadata?.organization, prevTags, nextTags)
+      : undefined;
 
     // 1. Added tags marked as manual
     for (const tag of nextTags) {
@@ -70,30 +106,93 @@ export async function persistItemTags(target: ItemTagTarget, nextTags: string[])
       }
     }
 
-    const updatedMetadata = {
-      ...(doc.metadata || {}),
-      smartTagDetails: prevDetails,
-    };
+    const updatedMetadata = isBrowserImport
+      ? {
+          ...(doc.metadata || {}),
+          smartTagDetails: prevDetails,
+          ...(organization ? { organization } : {}),
+        }
+      : undefined;
 
-    await updateDocument(target.id, { ...doc, tags: nextTags, metadata: updatedMetadata });
+    await updateDocument(target.id, {
+      ...doc,
+      tags: nextTags,
+      ...(updatedMetadata ? { metadata: updatedMetadata } : {}),
+    });
     return nextTags;
   }
 
   if (target.type === "extract") {
-    const { updateExtract } = await import("../../api/extracts");
-    await updateExtract({ id: target.id, tags: nextTags });
+    const extractsApi = await import("../../api/extracts");
+    const updateExtract = extractsApi.updateExtract;
+    const getExtract = "getExtract" in extractsApi
+      ? (extractsApi as typeof extractsApi & {
+          getExtract: (id: string) => Promise<Awaited<ReturnType<typeof extractsApi.updateExtract>> | null>;
+        }).getExtract
+      : undefined;
+    // Preserve the minimal update contract for embedded editor consumers that
+    // only provide the historical updateExtract mock/API surface.
+    if (!getExtract) {
+      await updateExtract({ id: target.id, tags: nextTags });
+      return nextTags;
+    }
+    const extract = await getExtract(target.id);
+    if (!extract) throw new Error("Extract not found");
+    const container = extractOrganizationContainer(extract.selection_context);
+    const organization = recordBrowserTagAuthority(container.organization, extract.tags || [], nextTags);
+    await updateExtract({
+      id: target.id,
+      tags: nextTags,
+      ...(organization ? {
+        selection_context: withOrganizationContainer(extract.selection_context, {
+          captureContext: container.captureContext,
+          organization,
+        }),
+      } : {}),
+    });
     return nextTags;
   }
 
   if (target.type === "learning-item") {
-    const [{ updateLearningItemTags }, { invokeCommand, isTauri }] = await Promise.all([
+    const [learningItemsApi, tauriApi] = await Promise.all([
       import("../../api/learning-items"),
       import("../../lib/tauri"),
     ]);
+    const updateLearningItemTags = learningItemsApi.updateLearningItemTags;
+    const getLearningItem = "getLearningItem" in learningItemsApi
+      ? (learningItemsApi as typeof learningItemsApi & {
+          getLearningItem: (id: string) => Promise<Awaited<ReturnType<typeof learningItemsApi.updateLearningItemTags>> | null>;
+        }).getLearningItem
+      : undefined;
+    const { invokeCommand, isTauri } = tauriApi;
+    // As with extracts, retain the pre-organization path for callers that
+    // expose only the existing tag mutation API.
+    if (!getLearningItem) {
+      if (isTauri()) await updateLearningItemTags(target.id, nextTags);
+      else await invokeCommand("update_learning_item", { id: target.id, tags: nextTags });
+      return nextTags;
+    }
+    const item = await getLearningItem(target.id);
+    if (!item) throw new Error("Learning item not found");
+    const container = extractOrganizationContainer(item.interaction_metadata);
+    const organization = recordBrowserTagAuthority(container.organization, item.tags || [], nextTags);
+    const interactionMetadata = organization
+      ? {
+          ...(item.interaction_metadata || {}),
+          ...withOrganizationContainer(item.interaction_metadata, {
+            captureContext: container.captureContext,
+            organization,
+          }),
+        }
+      : undefined;
     if (isTauri()) {
-      await updateLearningItemTags(target.id, nextTags);
+      await updateLearningItemTags(target.id, nextTags, interactionMetadata);
     } else {
-      await invokeCommand("update_learning_item", { id: target.id, tags: nextTags });
+      await invokeCommand("update_learning_item", {
+        id: target.id,
+        tags: nextTags,
+        ...(interactionMetadata ? { interactionMetadata } : {}),
+      });
     }
     return nextTags;
   }

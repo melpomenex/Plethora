@@ -546,6 +546,15 @@ export function getDefaultCommands(): Command[] {
       shortcut: "⌘R",
     }),
     createCommand({
+      id: "review-browser-imports",
+      label: "Review browser imports",
+      description: "Resolve uncertain tags and organization from browser captures",
+      icon: <Tag className="w-4 h-4" />,
+      category: CommandCategory.Review,
+      action: () => { window.dispatchEvent(new CustomEvent("navigate", { detail: "/needs-review" })); },
+      keywords: ["browser", "import", "needs review", "tags", "organization"],
+    }),
+    createCommand({
       id: "start-optimal-session",
       label: t("commandPalette.startOptimalSession"),
       description: t("commandPalette.startOptimalSessionDesc"),

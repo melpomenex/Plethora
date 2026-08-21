@@ -95,6 +95,7 @@ pub async fn update_extract(
     category: Option<String>,
     color: Option<String>,
     max_disclosure_level: Option<i32>,
+    selection_context: Option<serde_json::Value>,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
     let mut extract = repo
@@ -125,6 +126,9 @@ pub async fn update_extract(
     }
     if let Some(level) = max_disclosure_level {
         extract.max_disclosure_level = level;
+    }
+    if let Some(selection_context) = selection_context {
+        extract.selection_context = Some(selection_context);
     }
     extract.date_modified = chrono::Utc::now();
 

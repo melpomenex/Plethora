@@ -38,6 +38,21 @@
   // TRANSPORT_LIMITS.EXTENSION_REQUEST_BUDGET_BYTES.
   const DEFAULT_REQUEST_BUDGET = TRANSPORT_LIMITS.EXTENSION_REQUEST_BUDGET_BYTES;
 
+  const CAPTURE_CONTEXT_LIMITS = Object.freeze({
+    version: 1,
+    title: 240,
+    url: 2048,
+    domain: 160,
+    author: 180,
+    heading: 180,
+    headingPath: 12,
+    nearbyText: 1800,
+    captionAltText: 1200,
+    sourceTags: 24,
+    sourceTag: 80,
+    totalBytes: 8 * 1024
+  });
+
   function serializedByteLength(value) {
     const text = typeof value === 'string' ? value : JSON.stringify(value);
     if (typeof TextEncoder !== 'undefined') {
@@ -49,7 +64,82 @@
     return unescape(encodeURIComponent(text)).length;
   }
 
+  function boundedContextString(value, max) {
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
+    return normalized ? normalized.slice(0, max) : undefined;
+  }
+
+  function boundedContextList(value, maxItems, maxLength) {
+    if (!Array.isArray(value)) return undefined;
+    const items = value
+      .map((item) => boundedContextString(item, maxLength))
+      .filter(Boolean);
+    return items.length ? [...new Set(items)].slice(0, maxItems) : undefined;
+  }
+
+  function normalizeCaptureContext(raw, fallback = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    let sourceUrl = boundedContextString(source.sourceUrl || source.source_url || fallback.sourceUrl, CAPTURE_CONTEXT_LIMITS.url);
+    let domain = boundedContextString(source.domain, CAPTURE_CONTEXT_LIMITS.domain);
+    if (!domain && sourceUrl) {
+      try { domain = new URL(sourceUrl).hostname.replace(/^www\./i, '').slice(0, CAPTURE_CONTEXT_LIMITS.domain); } catch { /* optional */ }
+    }
+    const context = {
+      version: Number.isFinite(Number(source.version)) ? Number(source.version) : CAPTURE_CONTEXT_LIMITS.version,
+      sourceUrl,
+      domain,
+      pageTitle: boundedContextString(source.pageTitle || source.page_title || fallback.pageTitle, CAPTURE_CONTEXT_LIMITS.title),
+      author: boundedContextString(source.author, CAPTURE_CONTEXT_LIMITS.author),
+      headingPath: boundedContextList(source.headingPath || source.heading_path || source.headings, CAPTURE_CONTEXT_LIMITS.headingPath, CAPTURE_CONTEXT_LIMITS.heading),
+      nearbyText: boundedContextString(source.nearbyText || source.nearby_text || source.context || fallback.nearbyText, CAPTURE_CONTEXT_LIMITS.nearbyText),
+      captionAltText: boundedContextString(source.captionAltText || source.caption_alt_text || source.caption || source.alt, CAPTURE_CONTEXT_LIMITS.captionAltText),
+      contentKind: boundedContextString(source.contentKind || source.content_kind, 80),
+      sourceDocumentId: boundedContextString(source.sourceDocumentId || source.source_document_id, 120),
+      sourceTags: boundedContextList(source.sourceTags || source.source_tags, CAPTURE_CONTEXT_LIMITS.sourceTags, CAPTURE_CONTEXT_LIMITS.sourceTag),
+      selector: boundedContextString(source.selector, 240),
+      reduced: source.reduced === true,
+      extensionVersion: boundedContextString(source.extensionVersion || source.extension_version, 80)
+    };
+    for (const key of Object.keys(context)) {
+      const value = context[key];
+      if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) delete context[key];
+    }
+    while (serializedByteLength(context) > CAPTURE_CONTEXT_LIMITS.totalBytes) {
+      if (context.captionAltText) context.captionAltText = context.captionAltText.slice(0, Math.max(0, context.captionAltText.length - 200));
+      else if (context.nearbyText) context.nearbyText = context.nearbyText.slice(0, Math.max(0, context.nearbyText.length - 300));
+      else if (context.sourceTags?.length) context.sourceTags = context.sourceTags.slice(0, -1);
+      else if (context.headingPath?.length) context.headingPath = context.headingPath.slice(0, -1);
+      else break;
+      context.reduced = true;
+    }
+    return Object.keys(context).length > 1 ? context : undefined;
+  }
+
+  function buildCaptureContext(data = {}) {
+    const rawContext = data.capture_context || data.captureContext;
+    if (!rawContext && !data.context) return undefined;
+    return normalizeCaptureContext(rawContext || { nearbyText: data.context }, {
+      sourceUrl: data.url,
+      pageTitle: data.title,
+      nearbyText: data.context
+    });
+  }
+
+  function compactCaptureContext(context) {
+    const normalized = normalizeCaptureContext(context);
+    if (!normalized) return undefined;
+    return normalizeCaptureContext({
+      ...normalized,
+      nearbyText: undefined,
+      captionAltText: undefined,
+      sourceTags: normalized.sourceTags?.slice(0, 8),
+      reduced: true
+    });
+  }
+
   function buildExtensionPayload(data) {
+    const captureContext = buildCaptureContext(data);
     const trimmedText = String(data?.text || '').trim();
     return {
       url: data?.url,
@@ -61,6 +151,7 @@
       source: data?.source || 'browser_extension',
       timestamp: data?.timestamp || new Date().toISOString(),
       context: data?.context,
+      capture_context: captureContext,
       tags: data?.tags,
       priority: data?.priority,
       analysis: data?.analysis,
@@ -109,6 +200,7 @@
     let compactedHtml = false;
     let droppedImages = false;
     let truncatedText = false;
+    let reducedCaptureContext = false;
 
     if (serializedByteLength(requestBody) > budgetBytes && payload.html_content) {
       const compactHtml = compactRichHtml(payload.html_content);
@@ -131,6 +223,12 @@
       droppedImages = true;
     }
 
+    if (serializedByteLength(requestBody) > budgetBytes && payload.capture_context) {
+      payload = { ...payload, capture_context: compactCaptureContext(payload.capture_context) };
+      requestBody = JSON.stringify(payload);
+      reducedCaptureContext = true;
+    }
+
     if (serializedByteLength(requestBody) > budgetBytes) {
       payload = trimTextToBudget(payload, budgetBytes);
       requestBody = JSON.stringify(payload);
@@ -144,7 +242,8 @@
       droppedHtml,
       compactedHtml,
       droppedImages,
-      truncatedText
+      truncatedText,
+      reducedCaptureContext
     };
   }
 
@@ -174,6 +273,9 @@
     }
     if (fitted.truncatedText) {
       parts.push('with the content truncated');
+    }
+    if (fitted.reducedCaptureContext) {
+      parts.push('with reduced capture context');
     }
     if (parts.length === 0) return null;
     return `Saved ${parts.join(', ')} to fit the size limit.`;
@@ -255,6 +357,40 @@
       byteLength,
       message: `Request is ${(byteLength / (1024 * 1024)).toFixed(1)} MB, over the ${(budgetBytes / (1024 * 1024)).toFixed(1)} MB limit.`
     };
+  }
+
+  /**
+   * Calculate decoded byte length from a base64 string or data URL.
+   */
+  function estimateBase64DecodedBytes(base64OrDataUrl) {
+    if (typeof base64OrDataUrl !== 'string') return 0;
+    const base64 = base64OrDataUrl.includes(',')
+      ? base64OrDataUrl.split(',')[1]
+      : base64OrDataUrl;
+    const clean = base64.trim();
+    if (!clean) return 0;
+    const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+  }
+
+  /**
+   * Validate that decoded image byte size conforms to the 7 MB limit
+   * (TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES).
+   */
+  function validateImageDecodedSize(byteSize, limitBytes = TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES) {
+    if (typeof byteSize !== 'number' || !Number.isFinite(byteSize) || byteSize <= 0) {
+      return { ok: false, message: 'Invalid image size.' };
+    }
+    if (byteSize > limitBytes) {
+      const limitMb = (limitBytes / (1024 * 1024)).toFixed(0);
+      const actualMb = (byteSize / (1024 * 1024)).toFixed(1);
+      return {
+        ok: false,
+        byteSize,
+        message: `The selected image is ${actualMb} MB, which exceeds the ${limitMb} MB limit.`
+      };
+    }
+    return { ok: true, byteSize };
   }
 
   /**
@@ -355,8 +491,13 @@
     buildExtensionPayload,
     compactRichHtml,
     fitPayloadToBudget,
+    CAPTURE_CONTEXT_LIMITS,
+    normalizeCaptureContext,
+    buildCaptureContext,
     fitAiRequestToBudget,
     checkRequestBudget,
+    estimateBase64DecodedBytes,
+    validateImageDecodedSize,
     withoutRichContent,
     describeDegradation,
     normalizeCaptureSettings,

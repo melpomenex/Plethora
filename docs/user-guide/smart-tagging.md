@@ -72,6 +72,19 @@ Your choices are always authoritative:
 - **Manual tags are never overwritten**: Manually assigned tags are permanently protected against automatic removal.
 - **Dismissed tags are remembered**: When you remove an automated tag from a document, it is marked as `dismissed` in the document's metadata. Automated tagging will never re-apply a tag you explicitly dismissed.
 
+### Browser imports
+
+Pages, extracts, Q&A cards, cloze cards, and image-occlusion cards captured by
+the browser extension use the same Smart Tagging pipeline. A bounded capture
+context envelope preserves source URL, domain, headings, nearby text, captions,
+and source tags as evidence; it is stored separately from semantic tags.
+
+Organization runs asynchronously with a local baseline fallback. Each target
+stores a fingerprint and status (`queued`, `completed`, `needs-review`, or
+`dismissed`) so retries are idempotent and late automatic results do not
+overwrite user edits. Open **Review browser imports** from the command palette
+to confirm, dismiss, retry, or edit tags for low-confidence results.
+
 ---
 
 ## 4. Configuration & Settings
@@ -94,3 +107,9 @@ You can trigger tagging actions anytime via `⌘K` / `Ctrl+K`:
 - **Smart Tag Untagged Documents**: Scans your entire library and enqueues all documents with 0 tags for background classification.
 - **Clean Up Legacy Auto-Tags**: Cleans up faulty `"auto-tagged"` markers and legacy 5-line static substring tags across your library.
 - **Retag Document (Smart Tagging)**: Available when viewing a document to re-evaluate its tags.
+- **Review browser imports**: Opens the virtual Needs Review queue for uncertain browser captures.
+
+Deterministic tag-correction memory is intentionally disabled in this release.
+Manual and dismissed tag tombstones are persisted per target; a future,
+explicitly enabled preference layer can build on those records without
+changing the default behavior or privacy boundary.

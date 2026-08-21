@@ -16,6 +16,13 @@ export interface SmartTaggingContextInput {
   headings?: string[];
   content?: string;
   candidateExistingTags?: string[];
+  /** Bounded browser evidence. Kept optional for legacy document callers. */
+  sourceUrl?: string;
+  sourceDomain?: string;
+  nearbyText?: string;
+  captionAltText?: string;
+  sourceTags?: string[];
+  sourceDocumentId?: string;
   maxTokens?: number;
 }
 
@@ -27,6 +34,12 @@ export interface AssembledSmartTaggingContext {
   conclusionExcerpt: string;
   topKeywords: string[];
   candidateExistingTags: string[];
+  sourceUrl?: string;
+  sourceDomain?: string;
+  nearbyText?: string;
+  captionAltText?: string;
+  sourceTags: string[];
+  sourceDocumentId?: string;
 }
 
 export function buildSmartTaggingContext(
@@ -60,6 +73,7 @@ export function buildSmartTaggingContext(
 
   // 4. Candidate existing tags (bounded to 30)
   const candidateExistingTags = (input.candidateExistingTags || []).slice(0, 30);
+  const sourceTags = Array.from(new Set((input.sourceTags || []).filter(Boolean))).slice(0, 24);
 
   return {
     title: input.title,
@@ -69,5 +83,11 @@ export function buildSmartTaggingContext(
     conclusionExcerpt,
     topKeywords,
     candidateExistingTags,
+    sourceUrl: input.sourceUrl,
+    sourceDomain: input.sourceDomain,
+    nearbyText: input.nearbyText?.slice(0, 1800),
+    captionAltText: input.captionAltText?.slice(0, 1200),
+    sourceTags,
+    sourceDocumentId: input.sourceDocumentId,
   };
 }

@@ -548,6 +548,7 @@ pub async fn update_learning_item_content_with_version(
 pub async fn update_learning_item_tags(
     item_id: String,
     tags: Vec<String>,
+    interaction_metadata: Option<serde_json::Value>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     let mut item = repo
@@ -556,6 +557,9 @@ pub async fn update_learning_item_tags(
         .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
     item.tags = tags;
+    if let Some(interaction_metadata) = interaction_metadata {
+        item.interaction_metadata = Some(interaction_metadata);
+    }
     item.date_modified = chrono::Utc::now();
     repo.update_learning_item(&item).await?;
     Ok(item)

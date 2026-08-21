@@ -561,7 +561,7 @@ export interface Extract {
     source_url?: string;
     page_title?: string;
     page_number?: number;
-    selection_context?: PdfSelectionContext;
+    selection_context?: PdfSelectionContext | Record<string, unknown>;
     highlight_color?: string;
     notes?: string;
     progressive_disclosure_level: number;
