@@ -3,10 +3,17 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wasm from "vite-plugin-wasm";
 import path from "path";
+import { scanForForbiddenStoreArtifacts } from "./src/lib/storeProfileGuard";
+import { parseBuildProfile } from "./src/lib/buildProfile";
 
 // @ts-expect-error process is a nodejs global
 const rawHost = process.env.TAURI_DEV_HOST;
 const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "0.0.0.0");
+
+// Build profile (Change A §3.2): development | sideload | store. Consumed
+// read-only by src/lib/buildProfile.ts (Proposals B and D import from there).
+// @ts-expect-error process is a nodejs global
+const buildProfile = parseBuildProfile(process.env.PLETHORA_BUILD_PROFILE);
 
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }) => {
@@ -25,6 +32,26 @@ export default defineConfig(async ({ mode }) => {
     react({ fastRefresh: !isTauriBuild }),
     tailwindcss(),
     wasm(),
+    // Store-profile guard (Change A §3.3): a store build hard-fails if any
+    // emitted chunk references dev/loopback endpoints.
+    {
+      name: "plethora-store-profile-guard",
+      writeBundle(_options, bundle) {
+        if (buildProfile !== "store") return;
+        const violations: string[] = [];
+        for (const [fileName, chunk] of Object.entries(bundle)) {
+          if (chunk.type === "chunk") {
+            violations.push(...scanForForbiddenStoreArtifacts(chunk.code, fileName));
+          }
+        }
+        if (violations.length > 0) {
+          throw new Error(
+            `PLETHORA_BUILD_PROFILE=store: forbidden dev/test artifacts in bundle:\n` +
+              violations.join("\n")
+          );
+        }
+      },
+    },
   ];
 
   return {
@@ -52,6 +79,7 @@ export default defineConfig(async ({ mode }) => {
 
     define: {
       __PWA_MODE__: JSON.stringify(isPWA),
+      __PLETHORA_BUILD_PROFILE__: JSON.stringify(buildProfile),
     },
 
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
