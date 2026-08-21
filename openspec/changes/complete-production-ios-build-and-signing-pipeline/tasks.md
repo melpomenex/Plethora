@@ -37,27 +37,41 @@
 
 ## 4. Signing, Archive, Validation, Upload
 
-- [ ] 4.1 Define the local signing protocol: gitignored `src-tauri/gen/apple/secrets/` (exportOptions plist template committed as `.example`), documented in `docs/release/ios-signing.md` (mirrors Android's `keystore.properties.example` pattern).
-- [ ] 4.2 Implement `tauri:ios:archive` → `.xcarchive`, `tauri:ios:export` → `.ipa` via `xcodebuild -exportArchive`, `tauri:ios:validate` via `xcrun altool --validate-app`.
-- [ ] 4.3 Implement `tauri:ios:upload` to TestFlight using App Store Connect API key auth (secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PDF_BASE64`), using Apple's current recommended CLI at implementation time.
-- [ ] 4.4 Version/build-number automation: extend `scripts/release.cjs` to write marketing version + monotonic `CURRENT_PROJECT_VERSION` via the overrides script; document the scheme; add a unit test for the version math.
+- [x] 4.1 Define the local signing protocol: gitignored `src-tauri/gen/apple/secrets/` (exportOptions plist template committed as `.example`), documented in `docs/release/ios-signing.md` (mirrors Android's `keystore.properties.example` pattern).
+  - `secrets/exportOptions.plist.example` committed via a `.gitignore` exception (the dir itself stays ignored); covers both signed bundle ids (app + share extension). Protocol doc mirrors the Android keystore precedent.
+- [x] 4.2 Implement `tauri:ios:archive` → `.xcarchive`, `tauri:ios:export` → `.ipa` via `xcodebuild -exportArchive`, `tauri:ios:validate` via `xcrun altool --validate-app`.
+  - Full implementations behind `scripts/ios-release.mjs`; archive drives `tauri ios build --target aarch64-apple-ios` with the store build profile + monotonic build number; fail-fast preflight lists exactly what's missing.
+- [x] 4.3 Implement `tauri:ios:upload` to TestFlight using App Store Connect API key auth (secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PDF_BASE64`), using Apple's current recommended CLI at implementation time.
+  - `xcrun altool --validate-app/--upload-app --apiKey/--apiIssuer` retained: notarytool is notarization-only and cannot submit .ipas; altool is the only first-party CLI doing standalone validate+upload, keeping pipeline stages symmetric. Rationale + swap point recorded in ios-signing.md and the script header.
+- [x] 4.4 Version/build-number automation: extend `scripts/release.cjs` to write marketing version + monotonic `CURRENT_PROJECT_VERSION` via the overrides script; document the scheme; add a unit test for the version math.
+  - Committed counter file `src-tauri/gen/apple/build-number.txt`, +1 per release (`IOS_BUILD_NUMBER` override for between-release uploads); overrides script writes CURRENT_PROJECT_VERSION/CFBundleVersion; `scripts/__tests__/iosBuildNumber.test.mjs` 4/4 pass.
 - [ ] 4.5 **Verification (each level recorded as evidence):** (a) app installs and launches on a physical iPhone; (b) on a physical iPad; (c) Release archive validates with `altool`; (d) TestFlight upload succeeds and the build processes; (e) the TestFlight build installs on a clean device.
+  - **Blocked in this environment:** no Xcode/iphoneos SDK, no signing secrets. One-command ready via `docs/release/ios-reproducible-build.md`; fail-fast preflight proven (`node scripts/ios-release.mjs preflight`). Evidence in `evidence/a-tasks-4-7.md`.
 
 ## 5. CI Pipeline
 
-- [ ] 5.1 Extend the `ios-build` job in `.github/workflows/mobile-build.yml`: signed archive + export + validate when secrets present; keep the simulator fallback for non-release refs only; tag builds MUST fail if signing is unavailable.
-- [ ] 5.2 Add a TestFlight upload step gated on ASC API-key secrets and release tags/dispatch inputs; upload only after successful validation.
-- [ ] 5.3 Upload archive/ipa/validation logs as workflow artifacts using the naming convention Proposal G defines (coordinate the artifact names before merging; G owns the evidence schema).
-- [ ] 5.4 Document all iOS CI secrets in the workflow comment block and `docs/release/ios-signing.md`; no secret values in repo.
+- [x] 5.1 Extend the `ios-build` job in `.github/workflows/mobile-build.yml`: signed archive + export + validate when secrets present; keep the simulator fallback for non-release refs only; tag builds MUST fail if signing is unavailable.
+  - Tag refs without signing secrets exit with an explicit error before any build; simulator fallback step is non-release-ref only.
+- [x] 5.2 Add a TestFlight upload step gated on ASC API-key secrets and release tags/dispatch inputs; upload only after successful validation.
+  - Gated on ASC secrets present AND (`v*` tag OR `workflow_dispatch` input `upload_testflight=true`); runs after and only after the validation step succeeds.
+- [x] 5.3 Upload archive/ipa/validation logs as workflow artifacts using the naming convention Proposal G defines (coordinate the artifact names before merging; G owns the evidence schema).
+  - Names defined by A pending G's schema: `ios-archive` (.xcarchive+dSYM zips), `ios-ipa`, `ios-validation-logs`.
+- [x] 5.4 Document all iOS CI secrets in the workflow comment block and `docs/release/ios-signing.md`; no secret values in repo.
+  - Includes optional `IOS_SHARE_PROFILE_BASE64` for manual-signing exports of the share-extension target; CI generates exportOptions at $RUNNER_TEMP from secrets.
 - [ ] 5.5 **Verification:** one green CI run producing a signed artifact, and one TestFlight upload from CI, recorded with run IDs.
+  - **Pending:** requires repo secrets + Xcode-equipped runner. YAML parse-checked locally; actionlint unavailable here — verify on first run.
 
 ## 6. Production Environment Hygiene
 
-- [ ] 6.1 Audit iOS runtime configuration for dev-only values (localhost URLs, test API endpoints, devtools flags); ensure store-profile builds point at production endpoints via the build profile; add a test scanning the iOS bundle config for forbidden hosts.
-- [ ] 6.2 Verify desktop-only commands (`install_apk`, `capture_rendered_dom`, updater commands) are unreachable or clearly error on iOS; coordinate exact UX wording with Proposal D (D owns user-facing copy; A only guarantees the native layer errors safely).
-- [ ] 6.3 **Documentation correction:** in `openspec/changes/prepare-plethora-for-apple-app-store-and-google-play-commercial-release/tasks.md`, annotate tasks 1.2 and 5.2 as stale (claimed `[x]` without evidence) and point to this change as the replacement implementation. Do not rewrite other history.
+- [x] 6.1 Audit iOS runtime configuration for dev-only values (localhost URLs, test API endpoints, devtools flags); ensure store-profile builds point at production endpoints via the build profile; add a test scanning the iOS bundle config for forbidden hosts.
+  - `scripts/__tests__/iosRuntimeConfigAudit.test.mjs` (4/4): merged iOS-effective config has no loopback outside structural allowlist (devUrl/CSP), no test/staging hostnames, updater endpoints https-only, store-profile guard wiring intact.
+- [x] 6.2 Verify desktop-only commands (`install_apk`, `capture_rendered_dom`, updater commands) are unreachable or clearly error on iOS; coordinate exact UX wording with Proposal D (D owns user-facing copy; A only guarantees the native layer errors safely).
+  - `scripts/__tests__/iosDesktopCommandSafety.test.mjs` (4/4): updater/process plugins cfg-excluded on iOS; capture_rendered_dom returns typed UNAVAILABLE on mobile; install_apk errors on non-Android; download_update_apk asserted installer-free (inert if invoked). Note: `install_apk` lives in the folder-import plugin, not lib.rs.
+- [x] 6.3 **Documentation correction:** in `openspec/changes/prepare-plethora-for-apple-app-store-and-google-play-commercial-release/tasks.md`, annotate tasks 1.2 and 5.2 as stale (claimed `[x]` without evidence) and point to this change as the replacement implementation. Do not rewrite other history.
+  - Annotated 1.2 (iOS ASC half) + 5.2 with dated STALE notes.
 
 ## 7. Reproducible Build Documentation
 
-- [ ] 7.1 Write `docs/release/ios-reproducible-build.md`: clean-checkout → signed TestFlight build, every command, every secret name, every manual Apple-side prerequisite (certs, profiles, ASC key), and the evidence-recording expectation.
-- [ ] 7.2 Record the verification ladder status (implemented / automated tests pass / simulator verified / physical-device verified / TestFlight verified / ASC validation passed) for this proposal's deliverables in the evidence location Proposal G defines.
+- [x] 7.1 Write `docs/release/ios-reproducible-build.md`: clean-checkout → signed TestFlight build, every command, every secret name, every manual Apple-side prerequisite (certs, profiles, ASC key), and the evidence-recording expectation.
+- [x] 7.2 Record the verification ladder status (implemented / automated tests pass / simulator verified / physical-device verified / TestFlight verified / ASC validation passed) for this proposal's deliverables in the evidence location Proposal G defines.
+  - Recorded honestly in `evidence/a-tasks-4-7.md`: implemented + automated-tests levels green; device/signing/TestFlight levels unchecked (Xcode-gated).
