@@ -240,7 +240,10 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
         if (view != null && isFrontendReady) {
           view.post {
             val jsonStr = batch.toString().replace("'", "\\'")
-            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('incrementum-native-share', { detail: JSON.parse('$jsonStr') }));", null)
+            // Must match the listener in src/lib/shareTarget.ts
+            // ('plethora-native-share'). The legacy 'android-shared-url'
+            // URL-only path in handleSharedUrl is kept for old clients.
+            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('plethora-native-share', { detail: JSON.parse('$jsonStr') }));", null)
           }
         } else {
           synchronized(pendingBatches) {

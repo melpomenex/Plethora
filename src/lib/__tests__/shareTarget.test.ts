@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { normalizeSharedBatch, registerShareListener } from "../shareTarget";
+import { normalizeSharedBatch, registerShareListener, fetchPendingShares } from "../shareTarget";
+import * as tauriLib from "../tauri";
+
+vi.mock("../tauri", () => ({
+  isTauri: vi.fn(() => false),
+  invokeCommand: vi.fn(),
+}));
 
 describe("shareTarget utilities", () => {
   beforeEach(() => {
@@ -92,6 +98,107 @@ describe("shareTarget utilities", () => {
 
       window.dispatchEvent(testEvent);
       expect(onBatch).toHaveBeenCalledTimes(1); // not called again
+    });
+
+    it("delivers warm-start file/text batches on 'plethora-native-share' (regression: event-name mismatch dropped these)", () => {
+      const onBatch = vi.fn();
+      const unsubscribe = registerShareListener(onBatch);
+
+      // This is exactly the payload Kotlin builds for ACTION_SEND with a
+      // stream attachment plus note — previously emitted under the
+      // 'incrementum-native-share' name and silently dropped.
+      window.dispatchEvent(
+        new CustomEvent("plethora-native-share", {
+          detail: {
+            timestamp: 1723700000000,
+            items: [
+              {
+                type: "file",
+                filePath: "/data/user/0/com.plethora.app/files/imports/paper.pdf",
+                fileName: "paper.pdf",
+                mimeType: "application/pdf",
+                fileSize: 12345,
+                title: "A paper",
+                text: "read later",
+              },
+              { type: "text", text: "plain note" },
+            ],
+          },
+        })
+      );
+
+      expect(onBatch).toHaveBeenCalledTimes(1);
+      const batch = onBatch.mock.calls[0][0];
+      expect(batch.items).toHaveLength(2);
+      expect(batch.items[0]).toMatchObject({ type: "file", fileName: "paper.pdf" });
+      expect(batch.items[1]).toMatchObject({ type: "text", text: "plain note" });
+
+      unsubscribe();
+    });
+
+    it("still delivers the legacy 'android-shared-url' single-URL path", () => {
+      const onBatch = vi.fn();
+      const unsubscribe = registerShareListener(onBatch);
+
+      window.dispatchEvent(
+        new CustomEvent("android-shared-url", { detail: "https://example.com/legacy" })
+      );
+
+      expect(onBatch).toHaveBeenCalledTimes(1);
+      expect(onBatch.mock.calls[0][0].items[0]).toMatchObject({
+        type: "url",
+        url: "https://example.com/legacy",
+      });
+
+      unsubscribe();
+    });
+
+    it("ignores the retired 'incrementum-native-share' event name", () => {
+      const onBatch = vi.fn();
+      const unsubscribe = registerShareListener(onBatch);
+
+      window.dispatchEvent(
+        new CustomEvent("incrementum-native-share", {
+          detail: { items: [{ type: "url", url: "https://example.com/old" }] },
+        })
+      );
+
+      expect(onBatch).not.toHaveBeenCalled();
+      unsubscribe();
+    });
+  });
+
+  describe("fetchPendingShares (cold-start drain)", () => {
+    it("returns [] when not running inside Tauri", async () => {
+      vi.mocked(tauriLib.isTauri).mockReturnValue(false);
+      await expect(fetchPendingShares()).resolves.toEqual([]);
+      expect(tauriLib.invokeCommand).not.toHaveBeenCalled();
+    });
+
+    it("drains pending batches via get_pending_shares and normalizes them", async () => {
+      vi.mocked(tauriLib.isTauri).mockReturnValue(true);
+      vi.mocked(tauriLib.invokeCommand).mockResolvedValue([
+        {
+          id: "batch-1",
+          timestamp: 1723700000000,
+          items: [{ type: "url", url: "https://example.com/cold" }],
+        },
+      ]);
+
+      const batches = await fetchPendingShares();
+
+      expect(tauriLib.invokeCommand).toHaveBeenCalledWith(
+        "plugin:plethora-folder-import|get_pending_shares"
+      );
+      expect(batches).toHaveLength(1);
+      expect(batches[0].id).toBe("batch-1");
+      expect(batches[0].items[0]).toMatchObject({ type: "url", url: "https://example.com/cold" });
+    });
+
+    it("resolves to [] when the command fails instead of throwing", async () => {
+      vi.mocked(tauriLib.isTauri).mockReturnValue(true);
+      vi.mocked(tauriLib.invokeCommand).mockRejectedValue(new Error("plugin missing"));
+      await expect(fetchPendingShares()).resolves.toEqual([]);
     });
   });
 });
