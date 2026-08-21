@@ -1576,7 +1576,7 @@ if (isTauri()) {
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 
   const scheduleBrowserOrganization = async (
-    targetType: "document" | "extract" | "learning-item",
+    targetType: "document" | "extract" | "learning-item" | "image-asset",
     targetId?: string,
   ) => {
     if (!targetId) return;
@@ -1624,6 +1624,19 @@ if (isTauri()) {
     (event) => void scheduleBrowserOrganization("learning-item", event.payload.target_id),
   ).catch((err) => {
     console.warn("[DocumentStore] Failed to register listener for browser-sync://learning-item-saved:", err);
+  });
+
+  listen<{ asset_id?: string; assetId?: string; is_duplicate?: boolean; isDuplicate?: boolean }>(
+    "browser-sync://image-asset-saved",
+    (event) => {
+      const assetId = event.payload.asset_id ?? event.payload.assetId;
+      if (event.payload.is_duplicate === true || event.payload.isDuplicate === true) return;
+      // Refresh any open Image Registry panel.
+      window.dispatchEvent(new CustomEvent("refresh-image-registry"));
+      void scheduleBrowserOrganization("image-asset", assetId);
+    },
+  ).catch((err) => {
+    console.warn("[DocumentStore] Failed to register listener for browser-sync://image-asset-saved:", err);
   });
 
 }
