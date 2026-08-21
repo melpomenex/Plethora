@@ -1,0 +1,35 @@
+{
+  "_contract": {
+    "readme": "scripts/ios-overrides/README.md",
+    "consumer": "scripts/apply-ios-project-overrides.js",
+    "note": "Self-describing Proposal E data file. Unknown keys (underscore-prefixed and documentation-only fields like sizeLimits) are ignored by the consumer; keep enforced size limits in sync with ShareStagingWriter.sizeLimits."
+  },
+  "targetName": "Plethora",
+  "bundleIdSuffix": "ShareExtension",
+  "appGroup": "group.com.plethora.app",
+  "deploymentTarget": "14.0",
+  "infoPlist": {
+    "NSExtension": {
+      "NSExtensionPointIdentifier": "com.apple.share-services",
+      "NSExtensionPrincipalClass": "PlethoraShareViewController",
+      "NSExtensionActivationRule": {
+        "NSExtensionActivationSupportsText": true,
+        "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+        "NSExtensionActivationSupportsImageWithMaxCount": 10,
+        "NSExtensionActivationSupportsFileWithMaxCount": 10,
+        "NSExtensionActivationSupportsMovieWithMaxCount": 0
+      }
+    }
+  },
+  "entitlements": {
+    "com.apple.security.application-groups": ["group.com.plethora.app"]
+  },
+  "sourceFiles": "../../../src-tauri/share-extension/Sources",
+  "sizeLimitsDocumentationOnly": {
+    "text": "1 MB (maxTextBytes)",
+    "images": "30 MB per image",
+    "pdfAndDocuments": "200 MB per file",
+    "audio": "500 MB per audio file",
+    "enforcedBy": "src-tauri/share-extension/Sources/ShareStagingWriter.swift"
+  }
+}
