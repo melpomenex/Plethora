@@ -16,8 +16,14 @@
  *   - iPhone + iPad device families (TARGETED_DEVICE_FAMILY "1,2")
  *   - iOS deployment target 14.0
  *   - Icon asset catalog sync from src-tauri/icons/ios/AppIcon-*.png
- *   - Marketing version (CFBundleShortVersionString / CFBundleVersion) from
+ *   - Marketing version (CFBundleShortVersionString) from
  *     src-tauri/tauri.conf.json
+ *   - Optional monotonic iOS build number (CURRENT_PROJECT_VERSION /
+ *     CFBundleVersion) via --build-number <n> or $IOS_BUILD_NUMBER; scripts/
+ *     release.cjs drives this on every release (task 4.4, scheme documented in
+ *     docs/release/ios-reproducible-build.md). Without a build number the
+ *     generated project keeps CFBundleVersion aligned with the marketing
+ *     version, as before.
  *   - Minimal entitlements (no unneeded capabilities)
  *   - Placeholder Info.plist markers for Proposal C (privacy purpose strings)
  *     and Proposal E (share extension)
@@ -107,14 +113,33 @@ function readMarketingVersion(tauriConfPath) {
 
 /* ── project.yml (xcodegen source of truth) ──────────────────────────────── */
 
-export function updateProjectYml(yml, { version, overrides }) {  let out = yml;
+export function updateProjectYml(yml, { version, overrides, buildNumber }) {
+  let out = yml;
   const applied = [];
+
+  // Build number (CURRENT_PROJECT_VERSION) — monotonic counter maintained by
+  // scripts/release.cjs. Written into the main target's settings.base.
+  if (buildNumber !== undefined && buildNumber !== null) {
+    const bnRe = /(^|\n)(\s*)CURRENT_PROJECT_VERSION:\s*([^\s#]+)/;
+    if (bnRe.test(out)) {
+      if (out.match(bnRe)[3] !== String(buildNumber)) {
+        out = out.replace(bnRe, `$1$2CURRENT_PROJECT_VERSION: ${buildNumber}`);
+        applied.push(`project.yml: CURRENT_PROJECT_VERSION -> ${buildNumber}`);
+      }
+    } else {
+      out = out.replace(
+        /( {8}IPHONEOS_DEPLOYMENT_TARGET: [^\s]+\n)/,
+        `$1        CURRENT_PROJECT_VERSION: ${buildNumber}\n`
+      );
+      applied.push(`project.yml: CURRENT_PROJECT_VERSION -> ${buildNumber}`);
+    }
+  }
 
   // Device families + deployment target: add to the iOS target's settings.base
   // block (after ENABLE_BITCODE) when not already present.
   if (!/TARGETED_DEVICE_FAMILY:/m.test(out)) {
     out = out.replace(
-      /(        ENABLE_BITCODE: false\n)/,
+      /( {8}ENABLE_BITCODE: false\n)/,
       `$1        TARGETED_DEVICE_FAMILY: "${DEFAULTS.deviceFamilies}"\n        IPHONEOS_DEPLOYMENT_TARGET: ${DEFAULTS.deploymentTarget}\n`
     );
     applied.push("project.yml: TARGETED_DEVICE_FAMILY + IPHONEOS_DEPLOYMENT_TARGET");
@@ -123,7 +148,7 @@ export function updateProjectYml(yml, { version, overrides }) {  let out = yml;
   // Display name in the target's info properties.
   if (!/CFBundleDisplayName:/m.test(out)) {
     out = out.replace(
-      /(        LSRequiresIPhoneOS: true\n)/,
+      /( {8}LSRequiresIPhoneOS: true\n)/,
       `$1        CFBundleDisplayName: ${DEFAULTS.displayName}\n`
     );
     applied.push("project.yml: CFBundleDisplayName");
@@ -151,6 +176,7 @@ export function updateProjectYml(yml, { version, overrides }) {  let out = yml;
   if (overrides && overrides.shareExtension) {
     const ext = overrides.shareExtension;
     const stanza = buildExtensionTargetStanza(ext, version);
+    const before = out;
     if (out.includes(EXT_TARGET_BEGIN)) {
       const re = new RegExp(
         `${escapeRegExp(EXT_TARGET_BEGIN)}[\\s\\S]*?${escapeRegExp(EXT_TARGET_END)}\\n?`
@@ -159,7 +185,9 @@ export function updateProjectYml(yml, { version, overrides }) {  let out = yml;
     } else {
       out = out.trimEnd() + "\n" + stanza;
     }
-    applied.push("project.yml: share-extension target stanza (TODO-E data applied)");
+    if (out !== before) {
+      applied.push("project.yml: share-extension target stanza (TODO-E data applied)");
+    }
   }
 
   if (out === yml) return { out, applied: [] };
@@ -202,7 +230,7 @@ function buildExtensionTargetStanza(ext, version) {
 
 /* ── Info.plist ──────────────────────────────────────────────────────────── */
 
-export function updateInfoPlist(plist, { version, purposeStrings }) {
+export function updateInfoPlist(plist, { version, purposeStrings, buildNumber }) {
   let out = plist;
   const applied = [];
   // Insertion anchor: entries are tab-indented; the dict closes at column 0.
@@ -216,12 +244,15 @@ export function updateInfoPlist(plist, { version, purposeStrings }) {
     }
   }
 
+  // CFBundleVersion carries the monotonic build number when one is supplied
+  // (release pipeline); otherwise it mirrors the marketing version.
+  const bundleVersion = buildNumber ?? version;
   const versionRe = /(<key>CFBundleShortVersionString<\/key>\n\t<string>)([^<]*)(<\/string>)/;
-  if (versionRe.test(out) && out.match(versionRe)[2] !== version) {
+  if (versionRe.test(out) && (out.match(versionRe)[2] !== version || out.match(/<key>CFBundleVersion<\/key>\n\t<string>([^<]*)<\/string>/)?.[1] !== String(bundleVersion))) {
     out = out
       .replace(versionRe, `$1${version}$3`)
-      .replace(/(<key>CFBundleVersion<\/key>\n\t<string>)([^<]*)(<\/string>)/, `$1${version}$3`);
-    applied.push(`Info.plist: version -> ${version}`);
+      .replace(/(<key>CFBundleVersion<\/key>\n\t<string>)([^<]*)(<\/string>)/, `$1${bundleVersion}$3`);
+    applied.push(`Info.plist: version -> ${version} / CFBundleVersion -> ${bundleVersion}`);
   }
 
   if (purposeStrings && Object.keys(purposeStrings).length > 0) {
@@ -344,6 +375,7 @@ export function applyIosProjectOverrides({
   iconsSourceDir = DEFAULTS.iconsSourceDir,
   tauriConfPath = DEFAULTS.tauriConfPath,
   repoRoot = REPO_ROOT,
+  buildNumber,
 } = {}) {
   const changes = [];
 
@@ -359,14 +391,14 @@ export function applyIosProjectOverrides({
   const version = readMarketingVersion(tauriConfPath);
 
   // 1. project.yml
-  const yml = updateProjectYml(readText(projectYmlPath), { version, overrides: { shareExtension } });
+  const yml = updateProjectYml(readText(projectYmlPath), { version, overrides: { shareExtension }, buildNumber });
   writeTextIfChanged(projectYmlPath, yml.out, changes, "project.yml: updated");
   changes.push(...yml.applied);
 
   // 2. Info.plist
   const infoPlistPath = join(appleDir, "plethora-tauri_iOS", "Info.plist");
   const purposeStrings = privacyManifest?.purposeStrings ?? null;
-  const plist = updateInfoPlist(readText(infoPlistPath), { version, purposeStrings });
+  const plist = updateInfoPlist(readText(infoPlistPath), { version, purposeStrings, buildNumber });
   writeTextIfChanged(infoPlistPath, plist.out, changes, "Info.plist: updated");
   changes.push(...plist.applied);
 
@@ -429,7 +461,21 @@ export function applyIosProjectOverrides({
 }
 
 function main() {
-  const { changes } = applyIosProjectOverrides();
+  // Optional monotonic build number: --build-number <n> wins over
+  // $IOS_BUILD_NUMBER. scripts/release.cjs passes --build-number on releases.
+  let buildNumber;
+  const argv = process.argv.slice(2);
+  const flagIdx = argv.indexOf("--build-number");
+  if (flagIdx !== -1) {
+    buildNumber = Number(argv[flagIdx + 1]);
+  } else if (process.env.IOS_BUILD_NUMBER) {
+    buildNumber = Number(process.env.IOS_BUILD_NUMBER);
+  }
+  if (buildNumber !== undefined && (!Number.isInteger(buildNumber) || buildNumber < 1)) {
+    throw new Error(`--build-number must be a positive integer (got "${argv[flagIdx + 1] ?? process.env.IOS_BUILD_NUMBER}")`);
+  }
+
+  const { changes } = applyIosProjectOverrides({ buildNumber });
   if (changes.length === 0) {
     console.log("apply-ios-project-overrides: nothing to do (project already up to date)");
   } else {
