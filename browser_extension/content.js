@@ -271,7 +271,7 @@
   loadPageExtracts();
   
   // Add visual indicator when page is saved
-  function showSaveIndicator(message, type = 'success') {
+  function showSaveIndicator(message, type = 'success', options = {}) {
     const existing = document.getElementById('plethora-save-indicator');
     if (existing) {
       existing.remove();
@@ -284,7 +284,7 @@
 
     const indicator = document.createElement('div');
     indicator.id = 'plethora-save-indicator';
-    indicator.textContent = message;
+    indicator.setAttribute('role', 'status');
     indicator.style.cssText = `
       position: fixed;
       top: 20px;
@@ -301,15 +301,60 @@
       opacity: 0;
       transform: translateY(-10px);
       transition: all 0.3s ease;
+      max-width: 340px;
     `;
-    
+
+    const line = document.createElement('div');
+    line.textContent = message;
+    indicator.appendChild(line);
+
+    // Optional tag chips ("Saved to Image Registry" + assigned tags)
+    if (Array.isArray(options.tags) && options.tags.length > 0) {
+      const tagRow = document.createElement('div');
+      tagRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;';
+      for (const tag of options.tags.slice(0, 6)) {
+        const chip = document.createElement('span');
+        chip.textContent = `#${tag}`;
+        chip.style.cssText =
+          'background:rgba(255,255,255,0.22);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;';
+        tagRow.appendChild(chip);
+      }
+      if (options.tags.length > 6) {
+        const more = document.createElement('span');
+        more.textContent = `+${options.tags.length - 6}`;
+        more.style.cssText = 'font-size:11px;opacity:0.85;align-self:center;';
+        tagRow.appendChild(more);
+      }
+      indicator.appendChild(tagRow);
+    }
+
+    // Optional "View in Plethora" action link
+    if (options.actionLabel) {
+      const actionRow = document.createElement('div');
+      actionRow.style.cssText = 'margin-top:8px;';
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.textContent = options.actionLabel;
+      action.style.cssText =
+        'background:white;color:#4c51bf;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;';
+      action.addEventListener('click', () => {
+        if (options.actionUrl) {
+          window.open(options.actionUrl, '_blank');
+        } else if (typeof options.onAction === 'function') {
+          options.onAction();
+        }
+      });
+      actionRow.appendChild(action);
+      indicator.appendChild(actionRow);
+    }
+
     document.body.appendChild(indicator);
-    
+
     setTimeout(() => {
       indicator.style.opacity = '1';
       indicator.style.transform = 'translateY(0)';
     }, 10);
-    
+
     // Animate out and remove
     setTimeout(() => {
       indicator.style.opacity = '0';
@@ -319,7 +364,7 @@
           indicator.parentNode.removeChild(indicator);
         }
       }, 300);
-    }, 3000);
+    }, 4500);
   }
 
   function getPrimaryContentRoot() {
@@ -616,6 +661,255 @@
     return globalThis.IncrementumExtensionShared?.normalizeCaptureContext
       ? globalThis.IncrementumExtensionShared.normalizeCaptureContext(context)
       : context;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Image capture for the Image Registry ("Save Image to Plethora")
+  // ---------------------------------------------------------------------------
+
+  function normalizeImageUrl(url) {
+    if (!url) return '';
+    try {
+      return decodeURIComponent(new URL(url, window.location.href).href);
+    } catch {
+      return url;
+    }
+  }
+
+  function findImageElement(imageUrl) {
+    const target = normalizeImageUrl(imageUrl);
+    if (!target) return null;
+
+    // Canvas: Chrome exposes the serialized bitmap as the context-menu URL.
+    if (target.startsWith('data:image/')) {
+      const canvas = Array.from(document.querySelectorAll('canvas')).find((element) => {
+        try {
+          return normalizeImageUrl(element.toDataURL('image/png')) === target;
+        } catch {
+          return false;
+        }
+      });
+      if (canvas) return { element: canvas, kind: 'canvas' };
+    }
+
+    const candidateUrls = (element) => {
+      const urls = [];
+      if (element.currentSrc) urls.push(element.currentSrc);
+      if (element.src) urls.push(element.src);
+      if (element.srcset) {
+        for (const part of element.srcset.split(',')) {
+          const candidate = part.trim().split(/\s+/)[0];
+          if (candidate) urls.push(candidate);
+        }
+      }
+      return urls;
+    };
+
+    const img = Array.from(document.images || []).find((element) =>
+      candidateUrls(element).some((url) => normalizeImageUrl(url) === target)
+    );
+    if (img) return { element: img, kind: 'img' };
+
+    const source = Array.from(document.querySelectorAll('picture source')).find((element) =>
+      candidateUrls(element).some((url) => normalizeImageUrl(url) === target)
+    );
+    if (source) {
+      const img = source.closest('picture')?.querySelector('img') || null;
+      return { element: source, kind: 'source', img };
+    }
+
+    // CSS background-image match
+    const cssMatch = Array.from(document.querySelectorAll('body *')).find((element) => {
+      const background = getComputedStyle(element).backgroundImage;
+      return background && background !== 'none' && background.includes(target);
+    });
+    if (cssMatch) return { element: cssMatch, kind: 'css' };
+
+    return null;
+  }
+
+  function nearestCaption(element) {
+    const figure = element?.closest?.('figure');
+    const figcaption = figure?.querySelector?.('figcaption');
+    if (figcaption?.textContent?.trim()) {
+      return figcaption.textContent.replace(/\s+/g, ' ').trim().slice(0, 1200);
+    }
+    // Walk up a few ancestors looking for a short nearby paragraph.
+    let node = element?.parentElement;
+    for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text && text.length <= 600) return text.slice(0, 1200);
+    }
+    return '';
+  }
+
+  function fileNameFromImageUrl(imageUrl) {
+    try {
+      const name = decodeURIComponent(new URL(imageUrl).pathname.split('/').pop() || '').trim();
+      return name || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener('load', () => resolve(reader.result), { once: true });
+      reader.addEventListener('error', () => reject(reader.error || new Error('Could not read image')), {
+        once: true
+      });
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function loadImageBitmap(url) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.addEventListener('load', () => resolve(image), { once: true });
+      image.addEventListener('error', () => reject(new Error('The image could not be loaded from the page.')), {
+        once: true
+      });
+      image.src = url;
+    });
+  }
+
+  async function serializeImageToDataUrl(resolvedUrl) {
+    // 1) Page-context fetch: runs with the page's cookies and CORS headers,
+    //    so authenticated / same-site CDN images usually succeed.
+    try {
+      const response = await fetch(resolvedUrl, { credentials: 'include', mode: 'cors' });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.type && !blob.type.startsWith('image/')) {
+          throw new Error('The selected resource is not a supported image.');
+        }
+        if (blob.size === 0) throw new Error('The selected image is empty.');
+        const dataUrl = await blobToDataUrl(blob);
+        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+          return { dataUrl, mimeType: blob.type || 'image/png' };
+        }
+      }
+    } catch (error) {
+      if (error?.message?.includes('not a supported image')) throw error;
+      // Fall through to the canvas path for CORS-restricted resources.
+    }
+
+    // 2) Canvas export fallback: works for same-origin and CORS-enabled
+    //    images; tainted canvases throw a clear, actionable error.
+    try {
+      const bitmap = await loadImageBitmap(resolvedUrl);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.naturalWidth || bitmap.width;
+      canvas.height = bitmap.naturalHeight || bitmap.height;
+      if (canvas.width === 0 || canvas.height === 0) {
+        throw new Error('The image has no renderable size.');
+      }
+      const context = canvas.getContext('2d');
+      context.drawImage(bitmap, 0, 0);
+      const dataUrl = canvas.toDataURL('image/png');
+      if (!dataUrl.startsWith('data:image/png;base64,') || dataUrl.length <= 64) {
+        throw new Error('The image is protected by the site and cannot be captured.');
+      }
+      return { dataUrl, mimeType: 'image/png' };
+    } catch (error) {
+      if (error?.name === 'SecurityError' || /tainted|protected/i.test(error?.message || '')) {
+        throw new Error(
+          'This image is protected by the site (CORS) and cannot be captured from the page. Try opening the image in a new tab first.'
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Extract the image at `imageUrl` inside the page DOM, returning a base64
+   * data URL plus provenance metadata (alt text, caption, file name, rendered
+   * dimensions). Handles `<img>`, `<picture>`/`srcset`, `<canvas>`, and CSS
+   * background images; validates the decoded size against the 7 MB transport
+   * limit before returning.
+   */
+  async function extractImageForRegistry(imageUrl) {
+    const shared = globalThis.IncrementumExtensionShared;
+    if (!imageUrl) {
+      throw new Error('Could not identify the selected image.');
+    }
+
+    const found = findImageElement(imageUrl);
+    if (!found) {
+      // Blob/data URLs or dynamically injected images: serialize by URL.
+      const serialized = await serializeImageToDataUrl(imageUrl);
+      return finalizeImageCapture(serialized, {
+        alt: '',
+        caption: '',
+        fileName: fileNameFromImageUrl(imageUrl),
+        width: undefined,
+        height: undefined,
+      });
+    }
+
+    const element = found.element;
+    if (element instanceof HTMLCanvasElement) {
+      return captureSerializedCanvas(element);
+    }
+
+    const resolvedUrl = element.currentSrc || element.src || imageUrl;
+    const serialized = await serializeImageToDataUrl(resolvedUrl);
+    return finalizeImageCapture(serialized, {
+      alt: (element.getAttribute?.('alt') || element.getAttribute?.('title') || '').trim(),
+      caption: nearestCaption(found.img || element),
+      fileName: fileNameFromImageUrl(resolvedUrl) || fileNameFromImageUrl(imageUrl),
+      width: element.naturalWidth || undefined,
+      height: element.naturalHeight || undefined,
+    });
+  }
+
+  async function captureSerializedCanvas(canvas) {
+    let dataUrl;
+    try {
+      dataUrl = canvas.toDataURL('image/png');
+    } catch {
+      throw new Error('The canvas is protected by the site and cannot be captured.');
+    }
+    if (!dataUrl.startsWith('data:image/png;base64,') || dataUrl.length <= 64) {
+      throw new Error('The canvas could not be exported.');
+    }
+    return finalizeImageCapture(
+      { dataUrl, mimeType: 'image/png' },
+      {
+        alt: canvas.getAttribute?.('alt') || '',
+        caption: nearestCaption(canvas),
+        fileName: fileNameFromImageUrl(window.location.href) || 'canvas-image.png',
+        width: canvas.width,
+        height: canvas.height,
+      }
+    );
+  }
+
+  function finalizeImageCapture(serialized, provenance) {
+    const shared = globalThis.IncrementumExtensionShared;
+    const match = /^data:(image\/[\w.+-]+)?;base64,(.+)$/s.exec(serialized.dataUrl || '');
+    const base64 = match ? match[2].replace(/\s+/g, '') : '';
+    const decodedBytes = shared?.estimateBase64DecodedBytes
+      ? shared.estimateBase64DecodedBytes(base64)
+      : Math.floor((base64.length * 3) / 4);
+    const sizeCheck = shared?.validateImageDecodedSize
+      ? shared.validateImageDecodedSize(decodedBytes)
+      : { ok: decodedBytes > 0 && decodedBytes <= 7 * 1024 * 1024 };
+    if (!sizeCheck.ok) {
+      throw new Error(sizeCheck.message || 'The selected image exceeds the size limit.');
+    }
+    return {
+      success: true,
+      dataUrl: serialized.dataUrl,
+      mimeType: serialized.mimeType,
+      fileName: provenance.fileName,
+      alt: provenance.alt,
+      caption: provenance.caption,
+      width: provenance.width,
+      height: provenance.height,
+    };
   }
 
   function getPageContent() {
@@ -2337,7 +2631,11 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.action) {
       case 'showSaveIndicator':
-        showSaveIndicator(message.text || 'Saved to Plethora', message.type || 'success');
+        showSaveIndicator(message.text || 'Saved to Plethora', message.type || 'success', {
+          tags: message.tags,
+          actionLabel: message.actionLabel,
+          actionUrl: message.actionUrl
+        });
         sendResponse({ success: true });
         break;
 
@@ -2464,6 +2762,17 @@
             sendResponse({ success: true, dataUrl });
           } catch (error) {
             sendResponse({ success: false, error: error?.message || 'Could not read image' });
+          }
+        })();
+        break;
+
+      case 'extractImageForRegistry':
+        (async () => {
+          try {
+            const result = await extractImageForRegistry(message.imageUrl);
+            sendResponse(result);
+          } catch (error) {
+            sendResponse({ success: false, error: error?.message || 'Could not capture the selected image.' });
           }
         })();
         break;

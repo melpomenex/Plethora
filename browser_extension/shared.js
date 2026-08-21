@@ -103,7 +103,7 @@
     };
     for (const key of Object.keys(context)) {
       const value = context[key];
-      if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) delete context[key];
+      if (value === undefined || value === '' || value === false || (Array.isArray(value) && value.length === 0)) delete context[key];
     }
     while (serializedByteLength(context) > CAPTURE_CONTEXT_LIMITS.totalBytes) {
       if (context.captionAltText) context.captionAltText = context.captionAltText.slice(0, Math.max(0, context.captionAltText.length - 200));
@@ -484,6 +484,50 @@
     };
   }
 
+  /**
+   * Build the canonical `POST /api/image-registry/ingest` payload for an
+   * image captured from a web page. Provenance fields (source URL, title,
+   * alt text, caption, domain) feed the desktop smart-tagging pipeline;
+   * `open_composer` stays false so plain registry saves never hijack the
+   * desktop occlusion composer.
+   */
+  function buildImageIngestPayload({
+    imageBase64,
+    mimeType,
+    fileName,
+    sourceUrl,
+    title,
+    alt,
+    caption,
+    domain,
+    captureContext,
+    tags
+  }) {
+    const context = normalizeCaptureContext(captureContext || {
+      sourceUrl,
+      domain,
+      pageTitle: title,
+      captionAltText: caption || alt
+    });
+    const payload = {
+      image_base64: imageBase64,
+      mime_type: mimeType || undefined,
+      file_name: fileName || undefined,
+      source_url: sourceUrl || undefined,
+      title: title || undefined,
+      alt: alt || undefined,
+      caption: caption || undefined,
+      domain: domain || undefined,
+      open_composer: false,
+      ...(context ? { capture_context: context } : {}),
+      ...(Array.isArray(tags) && tags.length ? { tags } : {})
+    };
+    for (const key of Object.keys(payload)) {
+      if (payload[key] === undefined) delete payload[key];
+    }
+    return payload;
+  }
+
   return {
     TRANSPORT_LIMITS,
     DEFAULT_REQUEST_BUDGET,
@@ -494,6 +538,7 @@
     CAPTURE_CONTEXT_LIMITS,
     normalizeCaptureContext,
     buildCaptureContext,
+    buildImageIngestPayload,
     fitAiRequestToBudget,
     checkRequestBudget,
     estimateBase64DecodedBytes,
