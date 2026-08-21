@@ -9,7 +9,7 @@ import {
   schedulerShortLabel,
   type SchedulerId,
 } from "../schedulerCatalog";
-import { getRatingSchema, SUPERMEMO_RATING_SCHEMA, FOUR_GRADE_RATING_SCHEMA } from "../supermemo-grades";
+import { getRatingSchema, SIX_GRADE_RATING_SCHEMA, FOUR_GRADE_RATING_SCHEMA } from "../rating-grades";
 
 describe("schedulerCatalog", () => {
   it("maps persisted ids to Plethora product names", () => {
@@ -39,14 +39,14 @@ describe("schedulerCatalog", () => {
     expect(schedulerShortLabel("sm20")).toBe("Precision");
   });
 
-  it("offers the main selector set (fsrs/sm18/sm20/sm2)", () => {
-    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual(["fsrs", "sm18", "sm20", "sm2"]);
+  it("offers the main selector set (fsrs/adaptive/precision/classic)", () => {
+    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual(["fsrs", "adaptive", "precision", "classic"]);
   });
 
   it("keeps rating semantics tied to ids, not labels", () => {
-    expect(getRatingSchema("sm18")).toBe(SUPERMEMO_RATING_SCHEMA);
-    expect(getRatingSchema("sm20")).toBe(SUPERMEMO_RATING_SCHEMA);
-    expect(getRatingSchema("sm2")).toBe(FOUR_GRADE_RATING_SCHEMA);
+    expect(getRatingSchema("adaptive")).toBe(SIX_GRADE_RATING_SCHEMA);
+    expect(getRatingSchema("precision")).toBe(SIX_GRADE_RATING_SCHEMA);
+    expect(getRatingSchema("classic")).toBe(FOUR_GRADE_RATING_SCHEMA);
     expect(getRatingSchema("fsrs")).toBe(FOUR_GRADE_RATING_SCHEMA);
   });
 

@@ -94,16 +94,16 @@ export function CompactTagEditor({
         aria-haspopup="dialog"
         aria-label={t("tagEditor.editTags", { count: tags.length })}
         title={t("tagEditor.editTags", { count: tags.length })}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2 py-1 text-xs text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-md border border-border/50 bg-muted/40 px-2 py-1 text-xs text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
-        <Tag className="w-3.5 h-3.5 text-muted-foreground" />
+        <Tag className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
         {preview.map((tag) => (
-          <span key={tag} className="max-w-[8rem] truncate">
+          <span key={tag} className="max-w-[5rem] truncate sm:max-w-[8rem]">
             {tag}
           </span>
         ))}
-        {remaining > 0 && <span className="text-muted-foreground">+{remaining}</span>}
-        <span className="text-muted-foreground">
+        {remaining > 0 && <span className="shrink-0 text-muted-foreground">+{remaining}</span>}
+        <span className="shrink-0 text-muted-foreground">
           <PencilSimple className="w-3 h-3" />
         </span>
       </button>

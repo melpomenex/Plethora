@@ -24,15 +24,15 @@ import { FSRSExplanationModal, useFSRSExplanation } from "../onboarding/FSRSExpl
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../hooks/useSwipeGesture";
 import {
-  SuperMemoRatingControl,
+  SixGradeRatingControl,
   useIsTouchRating,
-} from "./SuperMemoRatingControl";
+} from "./SixGradeRatingControl";
 import {
   gradeToRating,
   useRatingSchema,
   type ReviewRating,
-  type SM20NativeGrade,
-} from "../../lib/supermemo-grades";
+  type SixGrade,
+} from "../../lib/rating-grades";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { useAudioReviewMode } from "../../hooks/useAudioReviewMode";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -197,7 +197,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   // surface the native scale instead of squeezing it into the 4 Anki-style
   // buttons. The scale is declared by the shared rating schema.
   const ratingSchema = useRatingSchema();
-  const useNativeGrades = ratingSchema.type === "supermemo";
+  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) === "supermemo";
   const canChooseArenaMode = useSettingsStore(
     (state) =>
       featureFlags.reviewAlgorithmArena &&
@@ -245,7 +245,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
   // The joystick and swipe gestures both attach to the same card container;
   // only one is active depending on the algorithm + form factor. The joystick
-  // itself is owned by `SuperMemoRatingControl` below.
+  // itself is owned by `SixGradeRatingControl` below.
   const joystickAreaRef = useRef<HTMLDivElement | null>(null);
   const gestureRef = useJoystick ? joystickAreaRef : swipeRef;
 
@@ -661,9 +661,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       // Number keys for rating (only when answer is shown)
       if (isAnswerShown && currentCard && !isSubmitting) {
         if (useNativeGrades) {
-          // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
+          // Native six-grade scale: keys 0-5 (0-2 fail, 3-5 pass).
           if (/^[0-5]$/.test(e.key)) {
-            const grade = Number(e.key) as SM20NativeGrade;
+            const grade = Number(e.key) as SixGrade;
             handleRating(gradeToRating(grade), grade);
           }
         } else {
@@ -1004,7 +1004,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
             )}
 
             {/* H-pattern rating joystick overlay (touch + native-grade only)
-                is rendered by SuperMemoRatingControl below. */}
+                is rendered by SixGradeRatingControl below. */}
 
             {isAnswerShown ? (
               <>
@@ -1032,7 +1032,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                 {/* Rating Buttons */}
                 <div {...tourAnchor("reviewGradingControls")} className="flex-shrink-0 mt-4">
                   {useNativeGrades ? (
-                    <SuperMemoRatingControl
+                    <SixGradeRatingControl
                       onSelect={(rating, grade) => ratingCbRef.current(rating, grade)}
                       enabled={() => answerShownRef.current && !submittingRef.current}
                       disabled={isSubmitting}

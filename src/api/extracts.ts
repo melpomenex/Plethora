@@ -190,7 +190,7 @@ export async function deleteExtract(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Extract lifecycle actions (SuperMemo-style Forget / Dismiss / Done)
+// Extract lifecycle actions (Forget / Dismiss / Done)
 // ---------------------------------------------------------------------------
 
 /**

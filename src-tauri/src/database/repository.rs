@@ -38,16 +38,6 @@ pub struct WorkloadForecastGrouped {
     pub overdue_video_extracts: i64,
 }
 
-#[derive(Debug, Clone)]
-pub struct SM20OptimizerProfileRow {
-    pub coefficients: crate::algorithms::sm20::SM20RecallCoefficients,
-    pub objective_score: Option<f64>,
-    pub sample_count: u32,
-    pub optimizer_version: i32,
-    pub model_version: i32,
-    pub activation_state: String,
-    pub last_optimized_at: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct ArenaReviewProvenance<'a> {
@@ -396,7 +386,7 @@ impl Repository {
             .transpose()?;
 
         // Wrap the document INSERT and the element_tree root registration in a
-        // single transaction (supermemo-faithful-queue Phase 2): every document
+        // single transaction: every document
         // auto-registers as a root Topic node so the tree has a root to build
         // under as the user reads and extracts.
         let mut tx = self.pool.begin().await?;
@@ -1729,7 +1719,7 @@ impl Repository {
 
     pub async fn delete_document(&self, id: &str) -> Result<()> {
         // Unlink the document's element_tree node from the topology before the
-        // row is removed (supermemo-faithful-queue Phase 2). The overlay's
+        // row is removed. The overlay's
         // cascade rules handle child rows; the unlink patches the sibling chain
         // symmetrically. Done in a transaction so a partial failure rolls back.
         let mut tx = self.pool.begin().await?;
@@ -1829,7 +1819,7 @@ impl Repository {
         // not here — an increment at each insert site had no matching decrement
         // at the delete sites and drifted upward forever.
 
-        // SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2):
+        // Knowledge-tree overlay:
         // append this extract as the last child Topic under its document's
         // element_tree node, in the same transaction so a failure rolls both
         // back. Documents register a root node on import (see create_document),
@@ -2303,18 +2293,17 @@ impl Repository {
         Ok(())
     }
 
-    /// Update an extract's inherited priority score (manual override).
     pub async fn update_extract_priority(&self, id: &str, priority_score: f64) -> Result<()> {
+        let now = Utc::now();
         sqlx::query(
             r#"
-            UPDATE extracts SET
-                priority_score = ?1,
-                date_modified = ?2
+            UPDATE extracts
+            SET priority_score = ?1, date_modified = ?2
             WHERE id = ?3
             "#,
         )
-        .bind(priority_score.clamp(0.0, 100.0))
-        .bind(Utc::now())
+        .bind(priority_score)
+        .bind(now)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -2322,8 +2311,6 @@ impl Repository {
         Ok(())
     }
 
-    /// Set an extract's dismissed flag (SuperMemo-style Dismiss lifecycle).
-    /// Dismissed extracts leave the review queue but remain in the library.
     pub async fn update_extract_dismissed(&self, id: &str, is_dismissed: bool) -> Result<()> {
         sqlx::query(
             r#"
@@ -2342,9 +2329,6 @@ impl Repository {
         Ok(())
     }
 
-    /// Reset an extract's FSRS memory state to initial values and clear its
-    /// scheduling (SuperMemo-style Forget lifecycle). Returns it to the
-    /// new-extract queue.
     pub async fn forget_extract(&self, id: &str) -> Result<()> {
         sqlx::query(
             r#"
@@ -2367,8 +2351,6 @@ impl Repository {
         Ok(())
     }
 
-    /// Graduate an extract: schedule it far in the future and mark high
-    /// stability (SuperMemo-style Done lifecycle).
     pub async fn graduate_extract(
         &self,
         id: &str,
@@ -2526,7 +2508,7 @@ impl Repository {
         // documents.learning_item_count is maintained by the migration 081
         // triggers, not here (see create_extract for why).
 
-        // SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2):
+        // Knowledge-tree overlay:
         // append this card as the last child Item under its extract's node when
         // extract_id is set, else its document's node. Parent must already be
         // registered (extracts register on create; documents on import).
@@ -2882,8 +2864,8 @@ impl Repository {
         self.get_learning_item_by_id(id).await
     }
 
-    /// Update a learning item's user-set priority (supermemo-faithful-queue
-    /// Phase 3). Mirrors `update_document_priority`: sets the slider, derives
+    /// Update a learning item's user-set priority.
+    /// Mirrors `update_document_priority`: sets the slider, derives
     /// the priority_score, flips `priority_explicitly_set`, and returns the
     /// updated row. The slider is the importance rank; FSRS urgency (which
     /// drives *when* the card is scheduled) is untouched.
@@ -3322,12 +3304,14 @@ impl Repository {
 
     /// Reconcile the append-only event and collection-wide learning side
     /// effects when the user immediately undoes an Arena review.
+    /// Reconcile the append-only event and collection-wide learning side
+    /// effects when the user immediately undoes an Arena review.
     pub async fn undo_arena_review_by_commit_id(&self, arena_commit_id: &str) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct UndoCollection {
-            m2_optimizer: crate::algorithms::sm20::model2::ClassicM2Optimizer,
-            m3_matrices: crate::algorithms::sm20::model3::M3MatrixState,
-            arena: crate::algorithms::sm20::arena::ArenaState,
+            m2_optimizer: crate::algorithms::precision::model2::ClassicM2Optimizer,
+            m3_matrices: crate::algorithms::precision::model3::M3MatrixState,
+            arena: crate::algorithms::precision::arena::ArenaState,
         }
         #[derive(serde::Deserialize)]
         struct UndoSnapshot {
@@ -3365,7 +3349,7 @@ impl Repository {
         {
             let now_text = Utc::now().to_rfc3339();
             sqlx::query(
-                "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+                "INSERT INTO arena_m2_optimizer (id, optimizer_state, date_modified)
                  VALUES ('global', ?1, ?2)
                  ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
             )
@@ -3374,7 +3358,7 @@ impl Repository {
             .execute(&mut *tx)
             .await?;
             sqlx::query(
-                "INSERT INTO sm20_m3_matrices
+                "INSERT INTO arena_m3_matrices
                  (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
                   lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
                  VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -3401,7 +3385,7 @@ impl Repository {
             .execute(&mut *tx)
             .await?;
             sqlx::query(
-                "INSERT INTO sm20_arena (id, state, date_modified)
+                "INSERT INTO arena_state (id, state, date_modified)
                  VALUES ('global', ?1, ?2)
                  ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
             )
@@ -3463,22 +3447,22 @@ impl Repository {
         Ok(true)
     }
 
-    async fn load_sm20_collection_in_transaction(
+    pub async fn load_precision_collection_in_transaction(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<crate::algorithms::sm20::SM20CollectionState> {
-        use crate::algorithms::sm20::model3::{LAPSE_CELLS, OUTCOME_CELLS};
-        use crate::algorithms::sm20::{
-            arena::ArenaState, model3::M3MatrixState, SM20CollectionState,
+    ) -> Result<crate::algorithms::precision::PrecisionCollectionState> {
+        use crate::algorithms::precision::model3::{LAPSE_CELLS, OUTCOME_CELLS};
+        use crate::algorithms::precision::{
+            arena::ArenaState, model3::M3MatrixState, PrecisionCollectionState,
         };
         const FIRST_STAGE_DIM: usize = 36;
 
         let m2_optimizer = sqlx::query_scalar::<_, Vec<u8>>(
-            "SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'",
+            "SELECT optimizer_state FROM arena_m2_optimizer WHERE id = 'global'",
         )
         .fetch_optional(&mut **tx)
         .await?
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_else(crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh);
+        .unwrap_or_else(crate::algorithms::precision::model2::ClassicM2Optimizer::fresh);
 
         let m3_row: Option<(
             Vec<u8>,
@@ -3492,7 +3476,7 @@ impl Repository {
         )> = sqlx::query_as(
             "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
                     lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
-             FROM sm20_m3_matrices WHERE id = 'global'",
+             FROM arena_m3_matrices WHERE id = 'global'",
         )
         .fetch_optional(&mut **tx)
         .await?;
@@ -3510,7 +3494,7 @@ impl Repository {
             .unwrap_or_default();
 
         let arena =
-            sqlx::query_scalar::<_, String>("SELECT state FROM sm20_arena WHERE id = 'global'")
+            sqlx::query_scalar::<_, String>("SELECT state FROM arena_state WHERE id = 'global'")
                 .fetch_optional(&mut **tx)
                 .await?
                 .and_then(|json| serde_json::from_str::<ArenaState>(&json).ok())
@@ -3518,14 +3502,14 @@ impl Repository {
                 .sanitized();
 
         let fsrs_params = sqlx::query_scalar::<_, String>(
-            "SELECT params FROM sm20_model_params WHERE id = 'fsrs'",
+            "SELECT params FROM arena_model_params WHERE id = 'fsrs'",
         )
         .fetch_optional(&mut **tx)
         .await?
         .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
         .filter(|params| !params.is_empty() && params.iter().all(|value| value.is_finite()));
         let m4_params =
-            sqlx::query_scalar::<_, String>("SELECT params FROM sm20_model_params WHERE id = 'm4'")
+            sqlx::query_scalar::<_, String>("SELECT params FROM arena_model_params WHERE id = 'm4'")
                 .fetch_optional(&mut **tx)
                 .await?
                 .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
@@ -3533,7 +3517,7 @@ impl Repository {
                     params.len() == 35 && params.iter().all(|value| value.is_finite())
                 });
 
-        Ok(SM20CollectionState {
+        Ok(PrecisionCollectionState {
             m2_optimizer,
             m3_matrices,
             arena,
@@ -3542,15 +3526,21 @@ impl Repository {
         })
     }
 
+    pub async fn load_sm20_collection_in_transaction(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+    ) -> Result<crate::algorithms::precision::PrecisionCollectionState> {
+        Self::load_precision_collection_in_transaction(tx).await
+    }
+
     /// Commit an Algorithm Arena review as one SQLite unit. The review row is
     /// inserted first to acquire SQLite's write reservation; item and Arena
     /// revisions are then rechecked under that reservation before any durable
     /// scheduler state is replaced. Any error rolls every write back.
     #[allow(clippy::too_many_arguments)]
-    pub async fn commit_sm20_arena_review(
+    pub async fn commit_precision_arena_review(
         &self,
         item: &LearningItem,
-        collection: &crate::algorithms::sm20::SM20CollectionState,
+        collection: &crate::algorithms::precision::PrecisionCollectionState,
         review_result_id: &str,
         session_id: Option<&str>,
         rating: i32,
@@ -3582,9 +3572,6 @@ impl Repository {
             ));
         }
 
-        // This first write reserves the database for the rest of the commit.
-        // It remains invisible and is removed automatically if validation or
-        // any later write fails.
         let inserted = sqlx::query(
             r#"
             INSERT INTO review_results (
@@ -3641,7 +3628,7 @@ impl Repository {
             ));
         }
 
-        let current_collection = Self::load_sm20_collection_in_transaction(&mut tx).await?;
+        let current_collection = Self::load_precision_collection_in_transaction(&mut tx).await?;
         let current_arena_revision =
             crate::commands::review::sm20_arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
@@ -3698,7 +3685,7 @@ impl Repository {
         let now_text = Utc::now().to_rfc3339();
         let m2_bytes = serde_json::to_vec(&collection.m2_optimizer)?;
         sqlx::query(
-            "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+            "INSERT INTO arena_m2_optimizer (id, optimizer_state, date_modified)
              VALUES ('global', ?1, ?2)
              ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
         )
@@ -3707,7 +3694,7 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
         sqlx::query(
-            "INSERT INTO sm20_m3_matrices
+            "INSERT INTO arena_m3_matrices
              (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
               lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
              VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -3735,7 +3722,7 @@ impl Repository {
         .await?;
         let arena_json = serde_json::to_string(&collection.arena)?;
         sqlx::query(
-            "INSERT INTO sm20_arena (id, state, date_modified)
+            "INSERT INTO arena_state (id, state, date_modified)
              VALUES ('global', ?1, ?2)
              ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
         )
@@ -3759,7 +3746,7 @@ impl Repository {
                 review_cards = review_cards + excluded.review_cards
             "#,
         )
-        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(format!("stat-{}", statistics_date))
         .bind(statistics_date)
         .bind(correct_reviews)
         .bind(time_taken)
@@ -3786,6 +3773,42 @@ impl Repository {
 
         tx.commit().await?;
         Ok(true)
+    }
+
+    pub async fn commit_sm20_arena_review(
+        &self,
+        item: &LearningItem,
+        collection: &crate::algorithms::precision::PrecisionCollectionState,
+        review_result_id: &str,
+        session_id: Option<&str>,
+        rating: i32,
+        time_taken: i32,
+        provenance: &ArenaReviewProvenance<'_>,
+        expected_item_revision: &str,
+        expected_arena_revision: &str,
+        statistics_date: &str,
+        correct_reviews: i32,
+        new_cards: i32,
+        learning_cards: i32,
+        review_cards: i32,
+    ) -> Result<bool> {
+        self.commit_precision_arena_review(
+            item,
+            collection,
+            review_result_id,
+            session_id,
+            rating,
+            time_taken,
+            provenance,
+            expected_item_revision,
+            expected_arena_revision,
+            statistics_date,
+            correct_reviews,
+            new_cards,
+            learning_cards,
+            review_cards,
+        )
+        .await
     }
 
     /// Batch-insert review log entries (used for Anki revlog import).
@@ -4248,259 +4271,27 @@ impl Repository {
     }
 
     // -----------------------------------------------------------------------
-    // SM-20 local recall optimizer
-    // -----------------------------------------------------------------------
-
-    pub async fn record_sm20_recall_observation(
-        &self,
-        retrievability_bucket: u8,
-        difficulty_bucket: u8,
-        passed: bool,
-    ) -> Result<()> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"INSERT INTO sm20_recall_cells
-               (retrievability_bucket, difficulty_bucket, total_count, pass_count, date_modified)
-               VALUES (?1, ?2, 1, ?3, ?4)
-               ON CONFLICT(retrievability_bucket, difficulty_bucket) DO UPDATE SET
-                   total_count = total_count + 1,
-                   pass_count = pass_count + excluded.pass_count,
-                   date_modified = excluded.date_modified"#,
-        )
-        .bind(i64::from(retrievability_bucket.clamp(1, 20)))
-        .bind(i64::from(difficulty_bucket.clamp(1, 20)))
-        .bind(if passed { 1_i64 } else { 0_i64 })
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    pub async fn get_sm20_recall_cells(
-        &self,
-    ) -> Result<Vec<crate::algorithms::sm20::SM20RecallCell>> {
-        let rows = sqlx::query(
-            r#"SELECT retrievability_bucket, difficulty_bucket, total_count, pass_count
-               FROM sm20_recall_cells ORDER BY retrievability_bucket, difficulty_bucket"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(crate::algorithms::sm20::SM20RecallCell {
-                    retrievability_bucket: row.try_get::<i64, _>("retrievability_bucket")? as u8,
-                    difficulty_bucket: row.try_get::<i64, _>("difficulty_bucket")? as u8,
-                    total_count: row.try_get::<i64, _>("total_count")? as u32,
-                    pass_count: row.try_get::<i64, _>("pass_count")? as u32,
-                })
-            })
-            .collect()
-    }
-
-    pub async fn get_sm20_optimizer_profile(&self) -> Result<Option<SM20OptimizerProfileRow>> {
-        let row = sqlx::query(
-            r#"SELECT model_version, optimizer_version, coefficient_1, coefficient_2,
-                      coefficient_3, coefficient_4, objective_score, sample_count,
-                      activation_state, last_optimized_at
-               FROM sm20_optimizer_profiles WHERE id = 'global'"#,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(row) = row else { return Ok(None) };
-        Ok(Some(SM20OptimizerProfileRow {
-            coefficients: crate::algorithms::sm20::SM20RecallCoefficients {
-                coefficient_1: row.try_get("coefficient_1")?,
-                coefficient_2: row.try_get("coefficient_2")?,
-                coefficient_3: row.try_get("coefficient_3")?,
-                coefficient_4: row.try_get("coefficient_4")?,
-            },
-            objective_score: row.try_get("objective_score")?,
-            sample_count: row.try_get::<i64, _>("sample_count")? as u32,
-            optimizer_version: row.try_get("optimizer_version")?,
-            model_version: row.try_get("model_version")?,
-            activation_state: row.try_get("activation_state")?,
-            last_optimized_at: row.try_get("last_optimized_at")?,
-        }))
-    }
-
-    pub async fn save_sm20_optimizer_profile(
-        &self,
-        coefficients: crate::algorithms::sm20::SM20RecallCoefficients,
-        objective_score: f64,
-        sample_count: u32,
-        optimized_at: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"INSERT INTO sm20_optimizer_profiles
-               (id, model_version, optimizer_version, coefficient_1, coefficient_2,
-                coefficient_3, coefficient_4, objective_score, sample_count,
-                activation_state, last_optimized_at, date_modified)
-               VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'diagnostic', ?9, ?9)
-               ON CONFLICT(id) DO UPDATE SET
-                   model_version = excluded.model_version,
-                   optimizer_version = excluded.optimizer_version,
-                   coefficient_1 = excluded.coefficient_1,
-                   coefficient_2 = excluded.coefficient_2,
-                   coefficient_3 = excluded.coefficient_3,
-                   coefficient_4 = excluded.coefficient_4,
-                   objective_score = excluded.objective_score,
-                   sample_count = excluded.sample_count,
-                   activation_state = 'diagnostic',
-                   last_optimized_at = excluded.last_optimized_at,
-                   date_modified = excluded.date_modified"#,
-        )
-        .bind(crate::algorithms::sm20::SM20_MODEL_VERSION)
-        .bind(crate::algorithms::sm20::SM20_OPTIMIZER_VERSION)
-        .bind(coefficients.coefficient_1)
-        .bind(coefficients.coefficient_2)
-        .bind(coefficients.coefficient_3)
-        .bind(coefficients.coefficient_4)
-        .bind(objective_score)
-        .bind(i64::from(sample_count))
-        .bind(optimized_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Legacy SM-20 Bayesian matrices (retained for rollback; no active callers)
-    // -----------------------------------------------------------------------
-
-    /// Size of each SM-20 matrix dimension (21³ = 9,261 cells).
-    pub const SM20_MATRIX_SIZE: usize = 9261;
-
-    /// Load the global SM-20 Bayesian matrices. Returns `None` on first run
-    /// (no row yet). The returned arrays are little-endian-deserialized BLOBs.
-    pub async fn get_sm20_matrices(&self) -> Result<Option<([f64; 9261], [u32; 9261])>> {
-        let row = sqlx::query(
-            r#"SELECT interval_matrix, count_matrix FROM sm20_matrices WHERE id = 'global'"#,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-
-        let Some(row) = row else { return Ok(None) };
-
-        let interval_blob: Vec<u8> = row.try_get("interval_matrix")?;
-        let count_blob: Vec<u8> = row.try_get("count_matrix")?;
-
-        Ok(Some((
-            Self::bytes_to_sm20_interval_matrix(&interval_blob)?,
-            Self::bytes_to_sm20_count_matrix(&count_blob)?,
-        )))
-    }
-
-    /// Persist the global SM-20 Bayesian matrices, creating or replacing the
-    /// single `global` row.
-    pub async fn upsert_sm20_matrices(
-        &self,
-        interval: &[f64; 9261],
-        count: &[u32; 9261],
-    ) -> Result<()> {
-        let interval_bytes = Self::sm20_interval_matrix_to_bytes(interval);
-        let count_bytes = Self::sm20_count_matrix_to_bytes(count);
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r#"INSERT INTO sm20_matrices (id, collection_id, interval_matrix, count_matrix, date_modified)
-               VALUES ('global', ?1, ?2, ?3, ?4)
-               ON CONFLICT(id) DO UPDATE SET
-                   interval_matrix = excluded.interval_matrix,
-                   count_matrix = excluded.count_matrix,
-                   date_modified = excluded.date_modified"#,
-        )
-        .bind(DEFAULT_COLLECTION_ID)
-        .bind(&interval_bytes)
-        .bind(&count_bytes)
-        .bind(&now)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    /// Deserialize the interval_matrix BLOB (9,261 × f64 little-endian) into a
-    /// fixed-size array. Errors if the blob is not exactly 74,088 bytes.
-    fn bytes_to_sm20_interval_matrix(bytes: &[u8]) -> Result<[f64; 9261]> {
-        const EXPECTED: usize = 9261 * 8;
-        if bytes.len() != EXPECTED {
-            return Err(PlethoraError::Internal(format!(
-                "sm20 interval_matrix blob is {} bytes, expected {EXPECTED}",
-                bytes.len()
-            )));
-        }
-        let mut out = [0.0f64; 9261];
-        for (i, cell) in out.iter_mut().enumerate() {
-            let off = i * 8;
-            *cell = f64::from_le_bytes([
-                bytes[off],
-                bytes[off + 1],
-                bytes[off + 2],
-                bytes[off + 3],
-                bytes[off + 4],
-                bytes[off + 5],
-                bytes[off + 6],
-                bytes[off + 7],
-            ]);
-        }
-        Ok(out)
-    }
-
-    /// Deserialize the count_matrix BLOB (9,261 × u32 little-endian) into a
-    /// fixed-size array. Errors if the blob is not exactly 37,044 bytes.
-    fn bytes_to_sm20_count_matrix(bytes: &[u8]) -> Result<[u32; 9261]> {
-        const EXPECTED: usize = 9261 * 4;
-        if bytes.len() != EXPECTED {
-            return Err(PlethoraError::Internal(format!(
-                "sm20 count_matrix blob is {} bytes, expected {EXPECTED}",
-                bytes.len()
-            )));
-        }
-        let mut out = [0u32; 9261];
-        for (i, cell) in out.iter_mut().enumerate() {
-            let off = i * 4;
-            *cell =
-                u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]]);
-        }
-        Ok(out)
-    }
-
-    /// Serialize the interval_matrix into a little-endian f64 byte blob.
-    fn sm20_interval_matrix_to_bytes(interval: &[f64; 9261]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(9261 * 8);
-        for &val in interval {
-            bytes.extend_from_slice(&val.to_le_bytes());
-        }
-        bytes
-    }
-
-    /// Serialize the count_matrix into a little-endian u32 byte blob.
-    fn sm20_count_matrix_to_bytes(count: &[u32; 9261]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(9261 * 4);
-        for &val in count {
-            bytes.extend_from_slice(&val.to_le_bytes());
-        }
-        bytes
-    }
-
-    // -----------------------------------------------------------------------
-    // SM-20 Ensemble collection-wide state (M2 optimizer + M3 matrices)
+    // Algorithm Arena collection-wide state (M2 optimizer + M3 matrices + Arena state + Model params)
     // -----------------------------------------------------------------------
 
     /// Load the M2 optimizer state (JSON blob). Returns None if not yet initialized.
-    pub async fn get_sm20_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
+    pub async fn get_arena_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
         let row: Option<(Vec<u8>,)> =
-            sqlx::query_as("SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'")
+            sqlx::query_as("SELECT optimizer_state FROM arena_m2_optimizer WHERE id = 'global'")
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|(state,)| state))
     }
 
+    pub async fn get_sm20_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
+        self.get_arena_m2_optimizer().await
+    }
+
     /// Save the M2 optimizer state (JSON blob).
-    pub async fn save_sm20_m2_optimizer(&self, state: &[u8]) -> Result<()> {
+    pub async fn save_arena_m2_optimizer(&self, state: &[u8]) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+            "INSERT INTO arena_m2_optimizer (id, optimizer_state, date_modified)
              VALUES ('global', ?, ?)
              ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
         )
@@ -4511,11 +4302,15 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn save_sm20_m2_optimizer(&self, state: &[u8]) -> Result<()> {
+        self.save_arena_m2_optimizer(state).await
+    }
+
     /// Load the M3 matrix state. Returns None if not yet initialized.
-    pub async fn get_sm20_m3_matrices(
+    pub async fn get_arena_m3_matrices(
         &self,
-    ) -> Result<Option<crate::algorithms::sm20::model3::M3MatrixState>> {
-        use crate::algorithms::sm20::model3::{M3MatrixState, LAPSE_CELLS, OUTCOME_CELLS};
+    ) -> Result<Option<crate::algorithms::precision::model3::M3MatrixState>> {
+        use crate::algorithms::precision::model3::{M3MatrixState, LAPSE_CELLS, OUTCOME_CELLS};
         const FIRST_STAGE_DIM: usize = 36;
 
         let row: Option<(
@@ -4530,7 +4325,7 @@ impl Repository {
         )> = sqlx::query_as(
             "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
                     lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
-             FROM sm20_m3_matrices WHERE id = 'global'",
+             FROM arena_m3_matrices WHERE id = 'global'",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -4560,14 +4355,20 @@ impl Repository {
         }
     }
 
-    /// Save the M3 matrix state.
-    pub async fn save_sm20_m3_matrices(
+    pub async fn get_sm20_m3_matrices(
         &self,
-        state: &crate::algorithms::sm20::model3::M3MatrixState,
+    ) -> Result<Option<crate::algorithms::precision::model3::M3MatrixState>> {
+        self.get_arena_m3_matrices().await
+    }
+
+    /// Save the M3 matrix state.
+    pub async fn save_arena_m3_matrices(
+        &self,
+        state: &crate::algorithms::precision::model3::M3MatrixState,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO sm20_m3_matrices
+            "INSERT INTO arena_m3_matrices
              (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
               lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
              VALUES ('global', ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4596,20 +4397,31 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn save_sm20_m3_matrices(
+        &self,
+        state: &crate::algorithms::precision::model3::M3MatrixState,
+    ) -> Result<()> {
+        self.save_arena_m3_matrices(state).await
+    }
+
     /// Load the Algorithm Arena state (JSON `ArenaState`).
-    pub async fn get_sm20_arena(&self) -> Result<Option<String>> {
+    pub async fn get_arena_state(&self) -> Result<Option<String>> {
         let row: Option<(String,)> =
-            sqlx::query_as("SELECT state FROM sm20_arena WHERE id = 'global'")
+            sqlx::query_as("SELECT state FROM arena_state WHERE id = 'global'")
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|(s,)| s))
     }
 
+    pub async fn get_sm20_arena(&self) -> Result<Option<String>> {
+        self.get_arena_state().await
+    }
+
     /// Save the Algorithm Arena state (JSON `ArenaState`).
-    pub async fn save_sm20_arena(&self, state_json: &str) -> Result<()> {
+    pub async fn save_arena_state(&self, state_json: &str) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO sm20_arena (id, state, date_modified)
+            "INSERT INTO arena_state (id, state, date_modified)
              VALUES ('global', ?, ?)
              ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
         )
@@ -4620,19 +4432,27 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn save_sm20_arena(&self, state_json: &str) -> Result<()> {
+        self.save_arena_state(state_json).await
+    }
+
     /// Load per-user optimized model parameters (`id` = 'fsrs' or 'm4').
     /// Returns the params JSON string.
-    pub async fn get_sm20_model_params(&self, id: &str) -> Result<Option<String>> {
+    pub async fn get_arena_model_params(&self, id: &str) -> Result<Option<String>> {
         let row: Option<(String,)> =
-            sqlx::query_as("SELECT params FROM sm20_model_params WHERE id = ?")
+            sqlx::query_as("SELECT params FROM arena_model_params WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|(s,)| s))
     }
 
+    pub async fn get_sm20_model_params(&self, id: &str) -> Result<Option<String>> {
+        self.get_arena_model_params(id).await
+    }
+
     /// Save per-user optimized model parameters (`id` = 'fsrs' or 'm4').
-    pub async fn save_sm20_model_params(
+    pub async fn save_arena_model_params(
         &self,
         id: &str,
         params_json: &str,
@@ -4640,7 +4460,7 @@ impl Repository {
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO sm20_model_params (id, params, meta, date_modified)
+            "INSERT INTO arena_model_params (id, params, meta, date_modified)
              VALUES (?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET params = excluded.params, meta = excluded.meta, date_modified = excluded.date_modified",
         )
@@ -4651,6 +4471,15 @@ impl Repository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn save_sm20_model_params(
+        &self,
+        id: &str,
+        params_json: &str,
+        meta_json: Option<&str>,
+    ) -> Result<()> {
+        self.save_arena_model_params(id, params_json, meta_json).await
     }
 
     /// Fetch the full review log for optimizer training:
@@ -8432,7 +8261,7 @@ mod tests {
             .expect("stored item");
         let expected_item_revision =
             crate::commands::review::sm20_item_revision(&original).expect("item revision");
-        let collection = crate::algorithms::sm20::SM20CollectionState::default();
+        let collection = crate::algorithms::precision::PrecisionCollectionState::default();
         let expected_arena_revision =
             crate::commands::review::sm20_arena_revision(&collection).expect("Arena revision");
 
@@ -8442,7 +8271,7 @@ mod tests {
         scheduled.review_count += 1;
         scheduled.last_review_date = Some(Utc::now());
         scheduled.state = ItemState::Review;
-        scheduled.algorithm_type = "sm20".to_string();
+        scheduled.algorithm_type = "precision".to_string();
         scheduled.algorithm_state = Some(r#"{"interval":12}"#.to_string());
         let provenance_snapshot = serde_json::to_string(&serde_json::json!({
             "version": 1,
@@ -8466,7 +8295,7 @@ mod tests {
         let statistics_date = Utc::now().format("%Y-%m-%d").to_string();
 
         let stale = repo
-            .commit_sm20_arena_review(
+            .commit_precision_arena_review(
                 &scheduled,
                 &collection,
                 "atomic-stale-result",
@@ -8510,7 +8339,7 @@ mod tests {
         .await
         .expect("failure trigger");
         let injected_failure = repo
-            .commit_sm20_arena_review(
+            .commit_precision_arena_review(
                 &scheduled,
                 &collection,
                 "atomic-injected-failure-result",
@@ -8552,7 +8381,7 @@ mod tests {
         );
 
         let committed = repo
-            .commit_sm20_arena_review(
+            .commit_precision_arena_review(
                 &scheduled,
                 &collection,
                 "atomic-valid-result",
@@ -8589,7 +8418,7 @@ mod tests {
         assert_eq!(statistics, (1, 1, 1));
 
         let repeated = repo
-            .commit_sm20_arena_review(
+            .commit_precision_arena_review(
                 &scheduled,
                 &collection,
                 "atomic-retry-result",
@@ -9152,45 +8981,6 @@ mod tests {
         assert_eq!(row.0, "ok", "Fresh migrated DB should pass integrity check");
     }
 
-    #[tokio::test]
-    async fn sm20_recall_observations_aggregate_pass_and_total() {
-        let repo = setup_repo().await;
-        repo.record_sm20_recall_observation(8, 4, true)
-            .await
-            .expect("record pass");
-        repo.record_sm20_recall_observation(8, 4, false)
-            .await
-            .expect("record failure");
-        let cells = repo.get_sm20_recall_cells().await.expect("load cells");
-        assert_eq!(cells.len(), 1);
-        assert_eq!(cells[0].retrievability_bucket, 8);
-        assert_eq!(cells[0].difficulty_bucket, 4);
-        assert_eq!(cells[0].total_count, 2);
-        assert_eq!(cells[0].pass_count, 1);
-    }
-
-    #[tokio::test]
-    async fn sm20_optimizer_profile_round_trip_stays_diagnostic() {
-        let repo = setup_repo().await;
-        let coefficients = crate::algorithms::sm20::SM20RecallCoefficients {
-            coefficient_1: 0.1,
-            coefficient_2: 0.2,
-            coefficient_3: 0.3,
-            coefficient_4: 0.4,
-        };
-        repo.save_sm20_optimizer_profile(coefficients, 7.5, 250, "2026-07-14T00:00:00Z")
-            .await
-            .expect("save profile");
-        let profile = repo
-            .get_sm20_optimizer_profile()
-            .await
-            .expect("load profile")
-            .expect("profile");
-        assert_eq!(profile.coefficients, coefficients);
-        assert_eq!(profile.objective_score, Some(7.5));
-        assert_eq!(profile.sample_count, 250);
-        assert_eq!(profile.activation_state, "diagnostic");
-    }
 
     #[tokio::test]
     async fn core_tables_exist_after_migration() {
@@ -9298,82 +9088,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sm20_matrices_round_trip_preserves_every_cell() {
-        // The round-trip holds four 9,261-element arrays live across an await
-        // (two inputs + two returned), which the #[tokio::test] async state
-        // machine captures into its Future struct and overflows the default
-        // 2 MB test stack. Run the body on a thread with a larger stack.
-        std::thread::Builder::new()
-            .stack_size(8 * 1024 * 1024)
-            .spawn(|| {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    let repo = setup_repo().await;
-
-                    // First read on a fresh DB: no row yet.
-                    assert!(repo.get_sm20_matrices().await.expect("get none").is_none());
-
-                    // Build deterministic non-zero matrices so any encoding bug shows up.
-                    let mut interval = Box::new([0.0f64; 9261]);
-                    let mut count = Box::new([0u32; 9261]);
-                    for i in 0..9261 {
-                        interval[i] = (i as f64) * 1.5 + 0.25;
-                        count[i] = (i as u32) % 1000;
-                    }
-                    // Pin a few cells with awkward IEEE-754 values.
-                    interval[0] = f64::INFINITY.recip();
-                    interval[1] = -3.5;
-                    count[0] = u32::MAX;
-
-                    repo.upsert_sm20_matrices(&interval, &count)
-                        .await
-                        .expect("upsert");
-
-                    let (got_interval, got_count) = repo
-                        .get_sm20_matrices()
-                        .await
-                        .expect("get")
-                        .expect("row present after upsert");
-
-                    assert_eq!(
-                        &got_count[..],
-                        &count[..],
-                        "count_matrix must round-trip exactly"
-                    );
-                    for i in 0..9261 {
-                        assert!(
-                            got_interval[i].to_bits() == interval[i].to_bits(),
-                            "interval[{i}]: got {} expected {} (bit-exact)",
-                            got_interval[i],
-                            interval[i]
-                        );
-                    }
-                });
-            })
-            .expect("spawn test thread")
-            .join()
-            .expect("test thread panicked");
-    }
-
-    #[tokio::test]
-    async fn sm20_matrices_upsert_replaces_existing() {
+    async fn arena_state_and_matrices_round_trip() {
         let repo = setup_repo().await;
 
-        let mut interval = Box::new([0.0f64; 9261]);
-        let count = Box::new([0u32; 9261]);
-        interval[42] = 7.0;
-        repo.upsert_sm20_matrices(&interval, &count)
-            .await
-            .expect("first upsert");
+        // Verify initial state is none
+        assert!(repo.get_arena_state().await.expect("get state").is_none());
+        assert!(repo.get_arena_m2_optimizer().await.expect("get m2").is_none());
+        assert!(repo.get_arena_m3_matrices().await.expect("get m3").is_none());
 
-        // Second upsert should replace, not duplicate.
-        interval[42] = 99.0;
-        repo.upsert_sm20_matrices(&interval, &count)
+        // Save arena state
+        let arena_json = r#"{"weights":[6.0,14.0,45.0,25.0,10.0]}"#;
+        repo.save_arena_state(arena_json)
             .await
-            .expect("second upsert");
+            .expect("save arena state");
+        let loaded_arena = repo.get_arena_state().await.expect("load arena state");
+        assert_eq!(loaded_arena.as_deref(), Some(arena_json));
 
-        let (got_interval, _) = repo.get_sm20_matrices().await.expect("get").expect("row");
-        assert_eq!(got_interval[42], 99.0, "ON CONFLICT must update in place");
+        // Save m2 optimizer
+        let m2_bytes = vec![1, 2, 3, 4];
+        repo.save_arena_m2_optimizer(&m2_bytes)
+            .await
+            .expect("save m2");
+        let loaded_m2 = repo.get_arena_m2_optimizer().await.expect("load m2");
+        assert_eq!(loaded_m2.as_deref(), Some(m2_bytes.as_slice()));
+
+        // Save model params
+        repo.save_arena_model_params("fsrs", "[1.0, 2.0]", None)
+            .await
+            .expect("save fsrs params");
+        let loaded_params = repo
+            .get_arena_model_params("fsrs")
+            .await
+            .expect("load fsrs params");
+        assert_eq!(loaded_params.as_deref(), Some("[1.0, 2.0]"));
     }
 
     #[tokio::test]
@@ -9491,7 +9238,7 @@ mod tests {
             .is_empty());
     }
 
-    // ── SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2) ──
+    // ── Knowledge-tree overlay ──
 
     /// Helper: count rows in element_tree for a given kind.
     async fn element_tree_count(repo: &Repository, kind: &str) -> i64 {

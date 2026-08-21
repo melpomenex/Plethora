@@ -1413,7 +1413,7 @@ export function QueueScrollPage() {
         const limitedExtracts = toppedExtracts.slice(0, composed.extracts);
         const limitedFlashcards = toppedFlashcards.slice(0, composed.flashcards);
 
-        // Order by SuperMemo's combined criterion (Phase 3): priority (primary)
+        // Order by combined criterion: priority (primary)
         // + topic/item proportion bias + stable per-id jitter. Higher-priority
         // items surface first, with a topic/item mix so a flashcard-heavy
         // source doesn't present all flashcards up front. Runs once per session
@@ -3228,7 +3228,7 @@ export function QueueScrollPage() {
   }, [settings.interface.volumeRockerScroll]);
 
   // Handle rating (for documents, flashcards, or mark as read for RSS).
-  // `grade` carries the exact SuperMemo 0-5 grade under six-grade schemas so
+  // `grade` carries the exact 0-5 grade under six-grade schemas so
   // the backend schedules natively instead of collapsing via rating_to_grade;
   // the equivalent legacy 1-4 `rating` is still populated.
   const handleRating = async (rating: number, grade?: number) => {

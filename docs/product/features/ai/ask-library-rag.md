@@ -10,7 +10,7 @@ platforms:
   - mobile-android
   - mobile-ios
 summary: Grounded question-answering across your personal document library with numbered citation markers [N], untrusted chunk containment, and honest refusal.
-how_to: Open Command Palette (Cmd+K) and type your question (e.g. "What is the stability increase formula in SM-18?").
+how_to: Open Command Palette (Cmd+K) and type your question (e.g. "What is the stability increase formula in the Adaptive scheduler?").
 why: Finding synthesized answers across hundreds of books and papers requires semantic search paired with strict citation grounding to prevent AI hallucinations.
 aliases:
   - ask library

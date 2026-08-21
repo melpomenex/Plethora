@@ -27,7 +27,7 @@ actions:
     shortcut: Alt+,
 related:
   - scheduler.fsrs
-  - scheduler.sm20.postpone
+  - scheduler.postpone
   - queue.scroll_session
 ---
 

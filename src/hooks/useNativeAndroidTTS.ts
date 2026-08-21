@@ -81,6 +81,8 @@ export function useNativeAndroidTTS(
   // that arrives rather than trying to predict it — speak() resolves natively
   // before the id exists, so the frontend cannot know it up front.
   const utteranceRef = useRef<number>(-1);
+  /** Whether the OS media-session service has been started for this session. */
+  const mediaSessionStartedRef = useRef(false);
 
   // ── Event subscriptions ──────────────────────────────────────────────
   useEffect(() => {
@@ -198,7 +200,6 @@ export function useNativeAndroidTTS(
 
       // Stop any in-flight utterance first (single-engine ownership is also
       // enforced natively, but this keeps highlight state tidy).
-      await pluginStartMediaSession().catch(() => {});
       await pluginStop().catch(() => {});
       setActiveSentenceIndex(-1);
       setActiveSentence(null);
@@ -260,6 +261,7 @@ export function useNativeAndroidTTS(
     if (!available) return;
     void pluginStop().catch(() => {});
     void pluginStopMediaSession().catch(() => {});
+    mediaSessionStartedRef.current = false;
     setActiveSentenceIndex(-1);
     setActiveSentence(null);
     setIsSpeaking(false);
@@ -267,12 +269,24 @@ export function useNativeAndroidTTS(
     setIsGenerating(false);
   }, [available]);
 
+  // OS media session lifecycle: start the service only once a real speaking
+  // or paused-and-resumable session exists — generation/loading must not
+  // advertise media controls (openspec android-media-session-reliability).
+  useEffect(() => {
+    if (!available) return;
+    if ((isSpeaking || isPaused) && !mediaSessionStartedRef.current) {
+      mediaSessionStartedRef.current = true;
+      void pluginStartMediaSession().catch(() => {});
+    }
+  }, [available, isSpeaking, isPaused]);
+
   // Cleanup on unmount: stop native playback.
   useEffect(() => {
     return () => {
       if (available) {
         void pluginStop().catch(() => {});
         void pluginStopMediaSession().catch(() => {});
+        mediaSessionStartedRef.current = false;
       }
     };
   }, [available]);

@@ -1,6 +1,6 @@
 ---
 id: queue.extract_chain
-title: SuperMemo IR Extract Chain
+title: Incremental Reading Extract Chain
 domain: queue
 status: implemented
 platforms:
@@ -30,7 +30,7 @@ related:
   - review.source_provenance
 ---
 
-# SuperMemo IR Extract Chain
+# Incremental Reading Extract Chain
 
 ## Purpose
 Preserves the full genealogical hierarchy of incremental reading extracts, tracing every concise memory item back to its original source book and chapter.

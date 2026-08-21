@@ -10,7 +10,7 @@
  * Mode handles Space and the number keys at the page level instead.
  */
 
-import { getRatingSchema } from "../lib/supermemo-grades";
+import { getRatingSchema } from "../lib/rating-grades";
 
 export type ScrollItemType = "document" | "rss" | "flashcard" | "extract" | "podcast";
 
@@ -21,7 +21,7 @@ export const FLASHCARD_REVEAL_EVENT = "plethora:flashcard-reveal-request";
 /**
  * Whether the number keys should submit native 0-5 grades for the current
  * item. ONLY flashcards follow the flashcard scheduler's rating schema
- * (SM-18/SM-20 → six grades); documents, extracts, RSS, and podcasts are
+ * (Adaptive/Precision → six grades); documents, extracts, RSS, and podcasts are
  * scheduled by four-grade schedulers (e.g. the FSRS-6 engagement scheduler
  * for documents) regardless of the flashcard algorithm, so they keep plain
  * 1-4 rating keys matching their on-screen buttons.
@@ -30,7 +30,8 @@ export function usesNativeGradeKeys(
   itemType: ScrollItemType | undefined,
   algorithm: Parameters<typeof getRatingSchema>[0],
 ): boolean {
-  return itemType === "flashcard" && getRatingSchema(algorithm).type === "supermemo";
+  const schema = getRatingSchema(algorithm);
+  return itemType === "flashcard" && (schema.type === "six-grade" || (schema.type as string) === "supermemo");
 }
 
 export interface ScrollRatingKeyContext {

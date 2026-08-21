@@ -20,7 +20,7 @@ import {
 } from "@phosphor-icons/react";
 import { validateUrl, validateArxivInput } from "../../utils/documentImport";
 
-export type ImportSource = "local" | "folder" | "url" | "arxiv" | "screenshot" | "anki" | "supermemo" | "json";
+export type ImportSource = "local" | "folder" | "url" | "arxiv" | "screenshot" | "anki" | "json";
 
 interface ImportOption {
   id: ImportSource;
@@ -72,13 +72,6 @@ const importOptions: ImportOption[] = [
     icon: Book,
     description: "Import Anki deck packages (.apkg)",
     supportedFormats: ["apkg"],
-  },
-  {
-    id: "supermemo",
-    label: "Legacy Collection",
-    icon: Download,
-    description: "Import legacy incremental-learning collections (.zip)",
-    supportedFormats: ["zip"],
   },
   {
     id: "json",
@@ -181,13 +174,11 @@ export function EnhancedFilePicker({
         await onImport("arxiv", { url: urlInput });
       } else if (selectedSource === "screenshot") {
         await onImport("screenshot", {});
-      } else if (selectedSource === "anki" || selectedSource === "supermemo" || selectedSource === "json") {
+      } else if (selectedSource === "anki" || selectedSource === "json") {
         const { open } = await import("@tauri-apps/plugin-dialog");
         const filterConfig = selectedSource === "anki"
           ? { name: "Anki Package", extensions: ["apkg"] as string[] }
-          : selectedSource === "supermemo"
-            ? { name: "Legacy Collection", extensions: ["zip"] as string[] }
-            : { name: "JSON Deck", extensions: ["json"] as string[] };
+          : { name: "JSON Deck", extensions: ["json"] as string[] };
         const selected = await open({
           multiple: false,
           filters: [filterConfig],
@@ -322,18 +313,7 @@ export function EnhancedFilePicker({
           </div>
         );
 
-      case "supermemo":
-        return (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Select a legacy collection export (.zip) to import
-            </p>
-            <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-              <Download className="w-5 h-5 text-primary" />
-              <span className="text-sm">Imports items, topics, and images</span>
-            </div>
-          </div>
-        );
+
 
       case "json":
         return (

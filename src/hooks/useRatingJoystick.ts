@@ -26,7 +26,7 @@
 
 import { useRef, useCallback, useState, useEffect } from "react";
 import { vibrate } from "../utils/soundService";
-import { SUPERMEMO_GRADES } from "../lib/supermemo-grades";
+import { SIX_GRADE_SCALE } from "../lib/rating-grades";
 
 /** Pixel radius around the base inside which no grade is selected. */
 const DEAD_ZONE = 24;
@@ -61,11 +61,11 @@ const TINT_BY_GRADE: Record<number, string> = {
  * The 6 shared grades laid out on the H. Order is row-major for the 2×3 grid:
  * index 0-2 = pass row (3,4,5), index 3-5 = fail row (0,1,2).
  *
- * Grade semantics come from `lib/supermemo-grades`; only the H-layout order
+ * Grade semantics come from `lib/rating-grades`; only the H-layout order
  * and zone tints are joystick-specific.
  */
 export const JOYSTICK_GRADES: JoystickGrade[] = [3, 4, 5, 0, 1, 2].map((grade) => {
-  const shared = SUPERMEMO_GRADES.find((g) => g.grade === grade)!;
+  const shared = SIX_GRADE_SCALE.find((g) => g.grade === grade)!;
   return {
     grade: shared.grade,
     rating: shared.rating,

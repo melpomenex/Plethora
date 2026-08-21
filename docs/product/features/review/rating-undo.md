@@ -26,7 +26,7 @@ actions:
 related:
   - review.flashcard_studio
   - scheduler.fsrs
-  - scheduler.sm18
+  - scheduler.adaptive
 ---
 
 # Review Rating Undo

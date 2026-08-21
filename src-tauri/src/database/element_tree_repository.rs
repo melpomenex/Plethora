@@ -1,4 +1,4 @@
-//! SuperMemo knowledge-tree overlay repository.
+//! Knowledge-tree overlay repository.
 //!
 //! A thin `element_tree` table (migration 078) overlays the existing
 //! `documents` / `extracts` / `learning_items` tables without modifying them.
@@ -9,8 +9,7 @@
 //!
 //! Documents are Topics (type 0) at the root; extracts are Topics under their
 //! document; learning items are Items (type 1) under their extract (or
-//! document). Children are appended as the last sibling, mirroring SuperMemo's
-//! `AddNewElement` constructor.
+//! document). Children are appended as the last sibling in the hierarchy.
 
 use std::collections::HashSet;
 
@@ -52,7 +51,7 @@ impl ElementKind {
     }
 }
 
-/// SuperMemo element-type byte stored in `element_type`.
+/// Element-type byte stored in `element_type`.
 ///
 /// 0 = Topic (documents, extracts), 1 = Item (learning items),
 /// 4 = Concept (created explicitly; no v1 UI). 2/3 are reserved.
@@ -83,8 +82,8 @@ pub struct ElementTreeNode {
     pub created_at: String,
 }
 
-/// A repository for the `element_tree` overlay table. Holds no state beyond
-/// the shared connection pool; construct freely.
+/// Repository for the `element_tree` table. Holds no state beyond the shared
+/// connection pool.
 #[derive(Clone)]
 pub struct ElementTreeRepository {
     pool: Pool<Sqlite>,
@@ -115,8 +114,7 @@ impl ElementTreeRepository {
     }
 
     /// Register a new element_tree node under `parent_id` (None = root),
-    /// appending it as the **last** child of its parent — the same semantics
-    /// as SuperMemo's `AddNewElement`. Performs the sibling-chain surgery:
+    /// appending it as the **last** child of its parent. Performs the sibling-chain surgery:
     /// the prior last child's `next_sibling_id` is pointed at the new node,
     /// the new node's `prev_sibling_id` at the prior last child, and the
     /// parent's `first_child_id` is initialized if this is its first child.
@@ -160,12 +158,12 @@ impl ElementTreeRepository {
 
     /// Unlink a node from the topology — patching the prev/next sibling chain
     /// symmetrically and clearing the parent's child pointer when the node is
-    /// its first child. This mirrors SuperMemo's doubly-linked-list unlink.
+    /// its first child. This maintains doubly-linked-list integrity.
     ///
     /// The row itself is left in place (history); callers that want a hard
     /// delete can drop the row afterward. Children of the unlinked node, if
-    /// any, are orphaned (their parent_id is not rewritten here) — that matches
-    /// SuperMemo, which deletes an element's subtree before unlinking.
+    /// any, are orphaned (their parent_id is not rewritten here) — callers
+    /// should delete an element's subtree before unlinking.
     pub async fn unlink_node(&self, id: i64) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         unlink_node_in_tx(&mut tx, id).await?;

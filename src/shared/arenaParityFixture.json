@@ -1,0 +1,90 @@
+{
+  "model_order": ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+  "elapsed_days": 30,
+  "state": {
+    "stability": 30,
+    "difficulty": 0.4,
+    "repetition": 3,
+    "lapses": 0,
+    "interval": 30,
+    "slot_stabilities": [28, 26, 31, 30, 29],
+    "m1_state": {
+      "last_review_day": 0,
+      "previous_interval": 30,
+      "repetitions": 3,
+      "lapses": 0
+    },
+    "m2_state": {
+      "last_review_day": 0,
+      "previous_interval": 30,
+      "repetitions": 3,
+      "lapses": 0,
+      "a_factor": 3,
+      "u_factor": 1
+    },
+    "m3_state": {
+      "last_review_day": 0,
+      "previous_interval": 30,
+      "repetitions": 3,
+      "lapses": 0,
+      "stability": 30,
+      "difficulty": 0.4,
+      "previous_stability": -1,
+      "previous_stability_index": 0,
+      "previous_r_index": 0
+    }
+  },
+  "weights": [6, 14, 45, 25, 10],
+  "custom_bounds": { "min_days": 0.0006944444444444445, "max_days": 44530 },
+  "grades": [
+    { "grade": 0, "recommendation": 3, "candidates": [1, 2, 2, 4, 3], "range": [1, 4] },
+    { "grade": 1, "recommendation": 3, "candidates": [1, 2, 2, 4, 3], "range": [1, 4] },
+    { "grade": 2, "recommendation": 3, "candidates": [1, 2, 2, 4, 3], "range": [1, 4] },
+    { "grade": 3, "recommendation": 48, "candidates": [75, 44, 48, 52, 37], "range": [37, 75] },
+    { "grade": 4, "recommendation": 49, "candidates": [75, 44, 48, 53, 40], "range": [40, 75] },
+    { "grade": 5, "recommendation": 54, "candidates": [75, 62, 48, 55, 60], "range": [48, 75] }
+  ],
+  "committed_grade": 4,
+  "committed_interval": 49,
+  "committed_state": {
+    "stability": 53.139168113916405,
+    "difficulty": 0.3239920581330266,
+    "m1_state": { "last_review_day": 30, "previous_interval": 49, "repetitions": 4, "lapses": 0 },
+    "m2_state": { "last_review_day": 30, "previous_interval": 49, "repetitions": 4, "lapses": 0, "a_factor": 2.28, "u_factor": 1.4666666666666666 },
+    "m3_state": { "last_review_day": 30, "previous_interval": 49, "repetitions": 4, "lapses": 0, "stability": 47.67908386578474, "difficulty": 0.35800000000000026, "previous_stability": 30.0, "previous_stability_index": 4, "previous_r_index": 15 },
+    "slot_stabilities": [75.0, 44.0, 47.67908386578474, 53.139168113916405, 40.068401432776014]
+  },
+  "committed_collection": {
+    "m2_case_count": 1,
+    "m3_outcome_count": 1,
+    "arena": {
+      "weights": [5.998978717006975, 13.994190529221704, 45.00633671992704, 25.001091910253574, 9.999402123590707],
+      "decayed_loss": [0.11288626677624239, 0.12156982575903029, 0.10196178934628351, 0.10536051565782628, 0.10899363688740647],
+      "decayed_blend_loss": 0.10689317436195994,
+      "decayed_baseline_loss": 0.10196178934628351,
+      "decayed_count": 1,
+      "total_scored": 1
+    }
+  },
+  "post_commit_elapsed_days": 49,
+  "post_commit_today": 79,
+  "post_commit_grades": [
+    { "recommendation": 3, "candidates": [1, 2, 2, 5, 4] },
+    { "recommendation": 3, "candidates": [1, 2, 2, 5, 4] },
+    { "recommendation": 3, "candidates": [1, 2, 2, 5, 4] },
+    { "recommendation": 84, "candidates": [122, 65, 73, 115, 57] },
+    { "recommendation": 85, "candidates": [122, 65, 73, 117, 69] },
+    { "recommendation": 91, "candidates": [122, 80, 73, 120, 99] }
+  ],
+  "personalized_fsrs": {
+    "parameters": [0.2120, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.0010, 1.8722, 0.1666, 0.7960, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542],
+    "grades": [
+      { "interval": 1, "memory": { "stability": 0.21199999749660492, "difficulty": 6.413300037384033 } },
+      { "interval": 1, "memory": { "stability": 0.21199999749660492, "difficulty": 6.413300037384033 } },
+      { "interval": 1, "memory": { "stability": 0.21199999749660492, "difficulty": 6.413300037384033 } },
+      { "interval": 37, "memory": { "stability": 1.2930999994277954, "difficulty": 5.112170696258545 } },
+      { "interval": 37, "memory": { "stability": 2.30649995803833, "difficulty": 2.1181039810180664 } },
+      { "interval": 37, "memory": { "stability": 8.295599937438965, "difficulty": 1.0 } }
+    ]
+  }
+}

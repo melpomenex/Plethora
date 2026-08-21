@@ -1609,6 +1609,9 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     sourceKind: readerSourceKind,
     section: { index: chunkIndex, title: `Section ${chunkIndex + 1}`, anchor: String(chunkIndex) },
     isPlaying,
+    // Auto-play still loading audio is honest buffering, not a paused media
+    // session; the bridge defers OS-visible controls until playback starts.
+    playbackState: isPlaying ? "playing" : isPaused ? "paused" : "buffering",
     enabled: isPlaying || isPaused || isAutoPlaying,
     duration: preciseReaderAudio ? audioRef.current?.duration : undefined,
     currentTime: audioRef.current?.currentTime ?? chunkIndex,

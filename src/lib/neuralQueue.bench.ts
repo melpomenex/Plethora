@@ -1,6 +1,6 @@
 /**
  * Neural-queue spreading-activation propagation pass — the hot path for
- * SuperMemo's "Go neural" creative mode (supermemo-faithful-queue Phase 4).
+ * the "Go neural" creative mode.
  * When the neural queue depletes (< 20 remaining), a pass seeds at the just-
  * studied element and spreads activation through concept / inter-element /
  * descendant / sibling links, inserting neighbors into the queue.

@@ -373,15 +373,52 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     // position/metadata so media-button envelopes can carry a position hint.
     // ──────────────────────────────────────────────────────────────────
 
+    companion object {
+        private const val REQUEST_POST_NOTIFICATIONS = 8_421
+    }
+
+    /**
+     * Android 13+ (API 33) requires a runtime grant before ANY notification is
+     * shown — including the MediaStyle media notification that carries
+     * lock-screen/notification media controls. Without it the foreground
+     * service runs fine but the controls never appear. Requests once per
+     * process, at first playback-session start (not app launch). No-op below
+     * API 33 where notifications are granted at install.
+     */
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx,
+            android.Manifest.permission.POST_NOTIFICATIONS,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) return
+        Logger.info("PlethoraMedia: requesting POST_NOTIFICATIONS for media controls")
+        try {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                activity,
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_POST_NOTIFICATIONS,
+            )
+        } catch (e: Throwable) {
+            Logger.warn("PlethoraMedia: POST_NOTIFICATIONS request failed: ${e.message}")
+        }
+    }
+
     @Command
     fun startMediaSession(invoke: Invoke) {
+        // Android 13+ silently drops the media notification (and therefore the
+        // lock-screen/notification controls) without the runtime grant. Ask at
+        // first playback-session start rather than app launch.
+        ensureNotificationPermission()
         MediaBridge.ensureQueue(ctx)
+        Logger.info("PlethoraMedia: starting RemoteMediaSessionService")
         RemoteMediaSessionService.start(ctx)
         invoke.resolve()
     }
 
     @Command
     fun stopMediaSession(invoke: Invoke) {
+        Logger.info("PlethoraMedia: stopping RemoteMediaSessionService")
         RemoteMediaSessionService.stop(ctx)
         invoke.resolve()
     }
@@ -390,9 +427,23 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     fun updateMediaMetadata(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(UpdateMediaMetadataArgs::class.java)
-            MediaBridge.updateSnapshot(args)
+            val applied = MediaBridge.updateSnapshot(args)
             RemoteMediaSessionService.refresh()
-        } catch (_: Throwable) {
+            if (!applied) {
+                Logger.warn(
+                    "PlethoraMedia: metadata snapshot rejected (stale or invalid) " +
+                        "source=${args.sourceId} session=${args.sessionId} state=${args.state}"
+                )
+            } else {
+                Logger.debug(
+                    "PlethoraMedia: snapshot applied source=${args.sourceId} " +
+                        "state=${args.state} playing=${args.isPlaying}"
+                )
+            }
+        } catch (e: Throwable) {
+            // Never swallow integration breaks silently: a dropped snapshot
+            // leaves the OS surface idle/paused forever with no controls.
+            Logger.warn("PlethoraMedia: update_media_metadata failed: ${e.message}")
         }
         invoke.resolve()
     }

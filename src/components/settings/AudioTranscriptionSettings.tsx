@@ -66,7 +66,7 @@ const listUntranscribedMediaDocuments = (): Promise<UntranscribedMediaDocument[]
 export function AudioTranscriptionSettings() {
   const { t } = useI18n();
   const toast = useToast();
-  const { profiles, fetchProfiles, downloadProgress, currentStatus } = useTranscriptionStore();
+  const { profiles = [], fetchProfiles, downloadProgress, currentStatus } = useTranscriptionStore();
   const { settings, updateSettings } = useSettingsStore();
   const queueStore = useTranscriptionQueueStore();
   const audioSettings = settings.audioTranscription;
@@ -83,7 +83,7 @@ export function AudioTranscriptionSettings() {
   const [enqueuingAll, setEnqueuingAll] = useState(false);
   
   // Local state for form inputs
-  const [apiKeyInput, setApiKeyInput] = useState(audioSettings.groq.apiKey);
+  const [apiKeyInput, setApiKeyInput] = useState(audioSettings.groq?.apiKey ?? "");
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
@@ -134,7 +134,7 @@ export function AudioTranscriptionSettings() {
 
   useEffect(() => {
     setIsKeyValid(isGroqConfigured());
-  }, [audioSettings.groq.apiKey]);
+  }, [audioSettings.groq?.apiKey]);
 
   const handleDownload = async (id: string) => {
     try {
@@ -172,42 +172,43 @@ export function AudioTranscriptionSettings() {
     handleUpdateSettings({ provider });
   };
 
+  const safeProfiles = profiles ?? [];
   const hasInstalledModel = useMemo(
-    () => profiles.some((profile) => profile.installed),
-    [profiles]
+    () => safeProfiles.some((profile) => profile.installed),
+    [safeProfiles]
   );
 
   const hasDownloadInProgress = useMemo(
-    () => Object.values(downloadProgress).some((progress) => progress > 0 && progress < 100),
+    () => Object.values(downloadProgress ?? {}).some((progress) => progress > 0 && progress < 100),
     [downloadProgress]
   );
 
   const preferredProfile = useMemo(
-    () => profiles.find((profile) => profile.id === audioSettings.preferredModelId),
-    [profiles, audioSettings.preferredModelId],
+    () => safeProfiles.find((profile) => profile.id === audioSettings.preferredModelId),
+    [safeProfiles, audioSettings.preferredModelId],
   );
   const preferredModelUnavailable = !!audioSettings.preferredModelId && !preferredProfile?.installed;
   const transcriptionResolution = useMemo(
     () => resolveTranscription(
       audioSettings,
-      profiles,
+      safeProfiles,
       isNativeMobile() ? "native-mobile" : "desktop",
     ),
-    [audioSettings, profiles],
+    [audioSettings, safeProfiles],
   );
 
   useEffect(() => {
-    if (profiles.length === 0) return;
+    if (safeProfiles.length === 0) return;
     // An explicit preference remains authoritative even when unavailable. The
     // warning/download affordance above surfaces that state without silently
     // switching to a different installed model.
     if (audioSettings.preferredModelId) return;
-    const installed = profiles.find((profile) => profile.installed);
-    const fallback = installed?.id ?? profiles[0].id;
+    const installed = safeProfiles.find((profile) => profile.installed);
+    const fallback = installed?.id ?? safeProfiles[0]?.id;
     if (fallback && fallback !== audioSettings.preferredModelId) {
       handleUpdateSettings({ preferredModelId: fallback });
     }
-  }, [profiles, audioSettings.preferredModelId]);
+  }, [safeProfiles, audioSettings.preferredModelId]);
 
   const rateLimitStatus = getRateLimitStatus();
 
@@ -967,7 +968,7 @@ export function AudioTranscriptionSettings() {
             </button>
           </div>
 
-          {queueStore.entries.length === 0 ? (
+          {(queueStore.entries?.length ?? 0) === 0 ? (
             <div className="rounded-xl border border-dashed border-border p-8 text-center">
               <FileAudio className="mx-auto h-8 w-8 text-muted-foreground/50" />
               <p className="mt-3 text-sm text-muted-foreground">{t("settings.audioNoPendingTranscriptions")}</p>

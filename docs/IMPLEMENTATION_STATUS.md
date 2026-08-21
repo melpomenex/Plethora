@@ -120,7 +120,7 @@ Additional commands live in top-level modules: `notebooklm.rs` (26), `integratio
 
 ### External-Service Integrations
 
-Beyond the algorithm and AI layers, the backend integrates with: NotebookLM (automation), YouTube (fetch + transcripts), Twitter/X (thread import), SponsorBlock, Pocket TTS, Anki (`.apkg` import/export), Kindle Clippings, Obsidian, Logseq, SuperMemo ZIP, and legacy Study JSON formats. A `browser_sync_server.rs` (~4,400 lines) provides the local HTTP/WebSocket bridge for the browser extension and cross-device pairing.
+Beyond the algorithm and AI layers, the backend integrates with: NotebookLM (automation), YouTube (fetch + transcripts), Twitter/X (thread import), SponsorBlock, Pocket TTS, Anki (`.apkg` import/export), Kindle Clippings, Obsidian, Logseq, and JSON flashcard formats. A `browser_sync_server.rs` (~4,400 lines) provides the local HTTP/WebSocket bridge for the browser extension and cross-device pairing.
 
 ---
 
@@ -148,14 +148,14 @@ Six locales ship: English, 中文 (Chinese), Español, Deutsch, Français, 日�
 
 ## Learning & Spaced Repetition
 
-This is the core of the product. The `AlgorithmType` enum supports **Fsrs, Sm2, Sm5, Sm8, Sm15, Sm18, Sm20** (default: Fsrs).
+This is the core of the product. The `AlgorithmType` enum supports **Fsrs, Adaptive, Precision, Classic, Classic5, Classic8, Classic15** (default: Fsrs).
 
 | Algorithm | Source | Notes |
 |-----------|--------|-------|
 | **FSRS-6** | Data model + schedulers | Default scheduler. `MemoryState { stability, difficulty }` on every learning item; preview intervals, optimization, and long-form duration safety caps. |
-| **SM-2 / SM-5 / SM-8 / SM-15** | `algorithms/supermemo.rs` (~800 lines) | Classic SuperMemo formulas, each as a separate struct with `next_interval()`. |
-| **SM-18** | `algorithms/sm18.rs` (~212 KB) + `sm18_data.rs` | Faithful port reverse-engineered from `sm18.exe` via Ghidra. Uses the 21³ (9,261-entry) SInc matrix extracted from SuperMemo's `StabilityIncrease.dat`. |
-| **SM-20** | `algorithms/sm20.rs` (~45 KB) | Line-by-line translation of `sm20_reference.py` (75 functions decompiled). Three interval versions (V2/V4/V6), Bayesian smoothing core, and an FSRS-family 3-expert mixture branch. |
+| **Classic (2 / 5 / 8 / 15)** | `algorithms/classic.rs` (~800 lines) | Classic spaced repetition formulas, each with `next_interval()`. |
+| **Plethora Adaptive** | `algorithms/adaptive.rs` (~212 KB) + `adaptive_data.rs` | Complete implementation with continuous 3D SInc (Stability Increase) matrix, D-Factor, and Retrievability calculations. |
+| **Plethora Precision** | `algorithms/precision/` (~45 KB) | 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling. |
 
 Supporting scheduling layers: `engaging_scheduler.rs`, `incremental_scheduler.rs`, `document_scheduler.rs`, `queue_selector.rs` (weighted randomization), `relevance.rs`, `optimizer.rs`, and the Topic-Aware Scheduling system (`tas/` — circular queues, gating, jitter, maturity).
 
@@ -190,7 +190,7 @@ A full vim engine lives in `utils/vim/` (26 files + 20 test files): `DocumentVim
 
 ### Segmentation & Extracts
 
-Documents can be split into extracts via smart, paragraph, semantic, or fixed segmentation. Extracts support a full lifecycle (forget / dismiss / done), priority inheritance from parent documents (SuperMemo-style IR chain), and one-click conversion to flashcards (single or bulk AI generation).
+Documents can be split into extracts via smart, paragraph, semantic, or fixed segmentation. Extracts support a full lifecycle (forget / dismiss / done), priority inheritance from parent documents (hierarchical IR chain), and one-click conversion to flashcards (single or bulk AI generation).
 
 ---
 

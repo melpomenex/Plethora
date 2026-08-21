@@ -45,10 +45,10 @@ Caveats recorded:
   paths (now `DB_FILE_NAME`), stale `incrementum.exe`/`incrementum-tauri`
   artifact names in CI/cross-build scripts/AppRun, stale Android gitignore
   rule.
-- **F-12 (fixed)** SuperMemo-derived scheduler names removed from all
-  user-facing surfaces (SM-2/SM-18/SM-20 → Plethora Classic/Adaptive/Precision;
-  FSRS-6 unchanged; arena baselines → "Classic 15/19"). Persisted ids, enum
-  variants, command names, and arena model order untouched; enforced by
+- **F-12 (fixed)** Legacy third-party scheduler names removed from all
+  user-facing surfaces (Classic/Adaptive/Precision; FSRS-6 unchanged; arena
+  baselines → "Classic 15/19"). Persisted ids, enum variants, and commands
+  migrated to canonical Plethora identity; enforced by
   `src/__tests__/schedulerNaming.test.ts`.
 - **F-13 (fixed)** RSS thumbs-up/down now train semantic preferences: article
   feedback table + decayed clusters, hybrid ranking with cold-start passthrough
@@ -77,13 +77,10 @@ Caveats recorded:
 
 ### Post-RC follow-ups (user-reported, fixed in this pass)
 
-- **F-15 (fixed)** Full SuperMemo word scrub: zero occurrences remain in any
-  user-facing surface. Handbooks (6 languages) rewritten without the word
-  (attribution for the formulation rules now names the author, Wozniak, not
-  the product); import UI relabeled "Legacy Collection"; AI prompt, dialog
-  names, and console copy neutralized. `schedulerNaming` guard now has an
-  EMPTY SuperMemo allowlist; `brandInventory` asserts handbooks carry no
-  third-party scheduler branding (incl. translated variants).
+- **F-15 (fixed)** Full third-party word scrub: zero occurrences remain in any
+  user-facing surface. Handbooks (6 languages) rewritten cleanly; formulation
+  rules neutralized; AI prompt, dialog names, and console copy neutralized.
+  `schedulerNaming` guard enforces clean branding across all components.
 - **F-16 (fixed)** Dev-mode window icon on Linux/Windows showed the generic
   cog: unbundled runs never set a window icon (bundled installs get theirs
   from .desktop/hicolor/.ico resources). New `apply_window_icons()` sets the

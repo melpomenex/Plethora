@@ -6,19 +6,27 @@
       runtime permission, and the playback service is microphone-free so
       RECORD_AUDIO is not required either.
 
-      The two permissions below ARE required and must be declared here: the
-      host app manifest does not carry them, and this plugin is the only thing
-      in the merged manifest that declares a foreground service. Without
-      FOREGROUND_SERVICE, Service.startForeground() throws SecurityException
-      from TtsPlaybackService.onCreate() — inside the service's own
-      handleCreateService frame, where the caller's try/catch cannot reach it —
-      which kills the process the first time anything speaks.
+      The foreground-service permissions below ARE required and must be
+      declared here: the host app manifest does not carry them, and this
+      plugin is the only thing in the merged manifest that declares a
+      foreground service. Without FOREGROUND_SERVICE, Service.startForeground()
+      throws SecurityException inside the service's own handleCreateService
+      frame, where the caller's try/catch cannot reach it, which kills the
+      process the first time anything speaks.
       FOREGROUND_SERVICE_MEDIA_PLAYBACK is the type-specific permission Android
       14 (API 34+) additionally requires for foregroundServiceType
       "mediaPlayback"; the app targets SDK 36, so it is mandatory, not optional.
+
+      POST_NOTIFICATIONS is required on Android 13+ (API 33+) for the media
+      notification to be visible at all. Without the runtime grant the OS
+      silently drops the MediaStyle notification — the foreground service
+      keeps running, but lock-screen and notification-shade media controls
+      never appear. The plugin requests the grant at first playback start;
+      see AndroidTtsPlugin.ensureNotificationPermission().
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <!--
@@ -28,14 +36,28 @@
           activity starts/stops it; if foreground services are unavailable the
           plugin degrades gracefully (playback simply stops on task removal).
         -->
-        <!-- Media3 media session service (tasks 6.1 + 10.1): real media-button
-             routing, lock-screen/notification controls, and audio-focus
-             handling for hands-free study mode. Exported=false is standard for
-             Media3 services; media buttons reach it via the MediaSession, not
-             direct binds. -->
+        <!-- Media3 MediaSessionService (openspec fix-mobile-layout-and-android-media-controls):
+             real media-button routing, lock-screen/notification controls, and
+             audio-focus handling. Per the Media3 contract (verified against
+             androidx.media3:media3-session 1.8.0), a MediaSessionService MUST
+             be declared with the androidx.media3.session.MediaSessionService
+             intent filter so the system and media controllers can bind/start
+             it (media-button delivery and restart-after-process-death on
+             API 31+). Exported=true is required for the intent-filtered
+             service; MediaSessionService verifies callers internally, so this
+             does not open the service to arbitrary apps.
+             The legacy "android.media.browse.MediaBrowserService" action is
+             intentionally omitted: it is only needed for MediaBrowserCompat
+             clients (Android Auto/library browsing), which are not in the
+             supported surface matrix, and it is not required for lock-screen
+             or notification controls on any supported API level. -->
         <service
             android:name=".RemoteMediaSessionService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

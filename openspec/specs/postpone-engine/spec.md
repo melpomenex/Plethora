@@ -37,7 +37,7 @@ For documents (topics), the system SHALL skip postponement when `priority >= top
 - **THEN** the document passes eligibility and is skipped
 
 ### Requirement: Interval randomization prevents date clustering
-When randomization is enabled, the system SHALL add noise to the computed interval increase using the formula: `RoundWithNoise(increase, increase * 0.5)`. The noise distribution SHALL use the SM-20 randomization formula with `sqrt(1 - random01 * 1.97979) * -10.8578`, scaled by 50, with a 50% sign flip. The result SHALL be clamped to a minimum of 1 day.
+When randomization is enabled, the system SHALL add noise to the computed interval increase using the formula: `RoundWithNoise(increase, increase * 0.5)`. The noise distribution SHALL use the Precision randomization formula with `sqrt(1 - random01 * 1.97979) * -10.8578`, scaled by 50, with a 50% sign flip. The result SHALL be clamped to a minimum of 1 day.
 
 #### Scenario: Randomization spreads postponed items
 - **WHEN** 100 items are postponed with the same base increase of 30 days and randomization enabled
