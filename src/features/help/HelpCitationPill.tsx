@@ -30,13 +30,25 @@ export const HelpCitationPill: React.FC<HelpCitationPillProps> = ({ citation, on
       </button>
 
       {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-64 p-2.5 rounded-lg bg-card border border-border shadow-xl text-left z-50 animate-glass-fade-in pointer-events-none">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold text-primary-400 uppercase tracking-wider mb-1">
-            <span>Doc Citation [{citation.index}]</span>
-            <span className="text-muted-foreground">• {citation.section}</span>
+        <div
+          role="tooltip"
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 rounded-xl bg-popover text-popover-foreground border border-border/80 shadow-2xl text-left z-[100] animate-glass-fade-in pointer-events-none ring-1 ring-black/20 dark:ring-white/10 backdrop-blur-2xl"
+          style={{
+            backgroundColor: "var(--color-popover, #1c1917)",
+            color: "var(--color-popover-foreground, #f5f5f4)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-1.5 text-[10px] font-semibold text-primary-400 uppercase tracking-wider mb-1.5 border-b border-border/40 pb-1">
+            <span className="flex items-center gap-1 shrink-0">
+              <BookOpen className="w-3 h-3 text-primary-400" />
+              <span>Doc Citation [{citation.index}]</span>
+            </span>
+            <span className="text-muted-foreground font-normal truncate max-w-[130px]">{citation.section}</span>
           </div>
-          <div className="text-xs font-medium text-foreground mb-1">{citation.title}</div>
-          <p className="text-[11px] text-muted-foreground line-clamp-3 leading-tight">{citation.snippet}</p>
+          <div className="text-xs font-semibold text-foreground mb-1.5 leading-snug">{citation.title}</div>
+          <div className="text-[11px] text-muted-foreground line-clamp-4 leading-relaxed font-sans bg-muted/60 p-2 rounded-lg border border-border/40 text-foreground/90">
+            "{citation.snippet}"
+          </div>
         </div>
       )}
     </span>

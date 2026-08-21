@@ -3364,6 +3364,16 @@ export const liquidGlassTheme: Theme = {
       border-radius: var(--radius-lg);
     }
 
+    /* Floating popovers and tooltips — ensure solid opacity over glass backdrop */
+    :root[data-theme-id="liquid-glass"] .bg-popover,
+    :root[data-theme-id="liquid-glass"] [role="tooltip"],
+    :root[data-theme-id="liquid-glass"] [data-popover="true"] {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+    }
+
     /* Top navigation / toolbar overlays */
     :root[data-theme-id="liquid-glass"] .toolbar,
     :root[data-theme-id="liquid-glass"] .top-bar,
@@ -3629,6 +3639,16 @@ export const amberLiquidGlassTheme: Theme = {
       border-radius: var(--radius-lg);
     }
 
+    /* Floating popovers and tooltips — ensure solid opacity over glass backdrop */
+    :root[data-theme-id="amber-liquid-glass"] .bg-popover,
+    :root[data-theme-id="amber-liquid-glass"] [role="tooltip"],
+    :root[data-theme-id="amber-liquid-glass"] [data-popover="true"] {
+      background: #1c1308 !important;
+      color: #fef3c7 !important;
+      border-color: rgba(245, 158, 11, 0.25) !important;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+    }
+
     /* Top navigation / toolbar overlays */
     :root[data-theme-id="amber-liquid-glass"] .toolbar,
     :root[data-theme-id="amber-liquid-glass"] .top-bar,
@@ -3892,6 +3912,16 @@ export const roseLiquidGlassTheme: Theme = {
       border: 1px solid rgba(255, 255, 255, 0.06) !important;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
       border-radius: var(--radius-lg);
+    }
+
+    /* Floating popovers and tooltips — ensure solid opacity over glass backdrop */
+    :root[data-theme-id="rose-liquid-glass"] .bg-popover,
+    :root[data-theme-id="rose-liquid-glass"] [role="tooltip"],
+    :root[data-theme-id="rose-liquid-glass"] [data-popover="true"] {
+      background: #1a0b12 !important;
+      color: #ffe4e6 !important;
+      border-color: rgba(244, 63, 94, 0.25) !important;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
     }
 
     /* Top navigation / toolbar overlays */
