@@ -29,7 +29,16 @@ Plethora is built on the philosophy that reading, thinking, and note-taking are 
 | `cloud_tts` | Neural TTS Synthesis | Manual | Neural TTS Cluster | **In-Transit TLS** | Ephemeral (cached locally) | Voice Provider | System TTS & Pocket TTS |
 | `cloud_transcription` | Audio/Video Speech | Manual | Whisper Cluster | **In-Transit TLS** | Ephemeral audio chunks | Hosted Whisper | Local Whisper.cpp |
 | `cloud_web_capture` | Remote Web Inbox | Manual | Remote Capture Queue | **Stored Encrypted** | Until synced to local inbox | None | Local browser extension |
-| `telemetry_crash_reporting` | Diagnostics | Opt-in | Telemetry Ingestion | **In-Transit TLS** | 90 days aggregated | None | Complete disablement (default) |
+| `store_transactions` | Store Transactions & Entitlements | Manual (purchase/restore/renewal) | Apple App Store; signed records to Plethora billing server | **In-Transit TLS** | Minimal transaction records for accounting/refunds (no content) | Apple (StoreKit 2 / ASNS) | None (billing needs Apple); app fully usable free |
+| `web_analytics` | Web Analytics (web/PWA builds only) | Automatic | Vercel Analytics | **In-Transit TLS** | Aggregated cookieless metrics | Vercel (aggregated, no content) | Never loaded in native desktop/iOS builds |
+| `telemetry_crash_reporting` | Diagnostics | **None — not shipped** | **No crash/telemetry SDK ships today** | N/A (no egress) | No data collected | None | Complete disablement (default) |
+
+> **Correction log (Change C, 2026-08):** the `telemetry_crash_reporting` row previously described an
+> opt-in telemetry endpoint that does not exist in shipped builds — no crash-reporting or analytics SDK
+> ships in any native build. The row now records that reality. The only third-party analytics is Vercel
+> Analytics on web/PWA builds (`!isTauri()` gate in `src/main.tsx`), now disclosed as `web_analytics`.
+> `store_transactions` is drafted from Proposal B's documented planned flows and will be finalized when
+> B's StoreKit implementation lands.
 
 ---
 
@@ -42,6 +51,10 @@ When a document has `isLocalOnly: true` (or `metadata.isLocalOnly: true`):
 - Cross-library RAG and AI tutor ignore the document during query embedding.
 - TTS and transcription fallback exclusively to local Whisper.cpp and system speech synthesizers.
 - OCR bypasses cloud reconstructors and uses on-device engines.
+
+The shield is surfaced as a functional per-document control ("Local-Only Shield" toggle in the
+item-details popover, `src/components/settings/LocalOnlyShieldToggle.tsx`), so users can mark any
+document as never-leaving-device without touching settings.
 
 ---
 

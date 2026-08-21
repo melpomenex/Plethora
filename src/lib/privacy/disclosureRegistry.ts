@@ -23,6 +23,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'Local SQLite database and local device storage only',
     description:
       'Encrypted sync payloads and document blobs are encrypted on-device before transmission and decrypted only on authenticated client devices.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_backup: {
     id: 'cloud_backup',
@@ -38,6 +44,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'Local manual and automated .plethora export files',
     description:
       'Full database and collection snapshots exported into encrypted archive containers.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_ai_intelligence: {
     id: 'cloud_ai_intelligence',
@@ -53,6 +65,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'On-device EmbeddingGemma, Ollama, and SQLite FTS5 vector search',
     description:
       'Document excerpts and query embeddings sent for semantic search, tutoring, and flashcard generation. Excluded if document is flagged local-only.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_document_processing: {
     id: 'cloud_document_processing',
@@ -68,6 +86,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'Local native PDF parser, on-device OCR, and Markdown/EPUB renderers',
     description:
       'Scanned PDFs and complex layouts processed into clean reflowed text and SVG math equations.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_tts: {
     id: 'cloud_tts',
@@ -83,6 +107,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'System native TTS engines and on-device Pocket/Sherpa models',
     description:
       'Extracted sentence text synthesized to natural neural audio streams.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_transcription: {
     id: 'cloud_transcription',
@@ -98,6 +128,12 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'On-device Whisper.cpp and native platform speech recognition',
     description:
       'Audio segments sent for speech-to-text conversion and word-level timestamp alignment.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
   },
   cloud_web_capture: {
     id: 'cloud_web_capture',
@@ -113,21 +149,89 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
     localFallback: 'Local browser extension bridge and manual clipboard/HTML import',
     description:
       'URLs, newsletters, and articles sent from mobile share sheets or browser extensions to your reading inbox.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
+  },
+  // NOTE (Change C task 1.1): this entry is drafted from Proposal B's
+  // DOCUMENTED PLANNED flows (StoreKit 2 signed transaction JWS payloads
+  // forwarded to the Plethora server over TLS; App Store Server Notifications
+  // received server-side). Final wording is CONTINGENT on Proposal B's landed
+  // implementation — revisit destination/retention strings when B merges.
+  store_transactions: {
+    id: 'store_transactions',
+    name: 'Store Transactions & Entitlements',
+    category: 'core',
+    dataLeavesDevice: true,
+    trigger: 'manual',
+    destination: 'Apple App Store (StoreKit 2); signed transaction records forwarded to Plethora billing server',
+    retention:
+      'Minimal transaction identifiers and signed payloads retained for accounting, refunds, and entitlement restoration; no document content',
+    encryptionState: 'in_transit_tls',
+    thirdPartyInvolvement: 'Apple (App Store / StoreKit 2 / App Store Server Notifications)',
+    // Rationale for userDeletable=false: these are minimal financial records
+    // (transaction ids + Apple-signed JWS payloads) required for accounting,
+    // refund handling, and entitlement integrity. They contain no document or
+    // reading content. Account deletion (Proposal F) removes all
+    // account-linked personal data; transaction ledgers are retained per
+    // accounting obligations and disassociated from the deleted account.
+    userDeletable: false,
+    localFallback: 'None (billing requires Apple servers); all learning features work free without any purchase',
+    description:
+      'When you purchase, restore, or renew a subscription, Apple provides signed transaction records that Plethora forwards to its billing server over TLS to grant and restore your entitlements.',
+    labelMapping: {
+      dataTypes: ['purchases'],
+      linkedToIdentity: true,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
+  },
+  web_analytics: {
+    id: 'web_analytics',
+    name: 'Web Analytics (Web/PWA builds only)',
+    category: 'telemetry',
+    dataLeavesDevice: true,
+    trigger: 'automatic',
+    destination: 'Vercel Analytics (loaded ONLY in browser web/PWA builds; never in native desktop/iOS apps)',
+    retention: 'Aggregated, cookieless page-view metrics per Vercel Web Analytics default retention',
+    encryptionState: 'in_transit_tls',
+    thirdPartyInvolvement: 'Vercel (cookieless, aggregated; no document content, no cross-app tracking)',
+    // Aggregated anonymous metrics cannot be attributed back to a user, so
+    // there is nothing user-deletable to offer.
+    userDeletable: false,
+    localFallback: 'Not loaded at all in native desktop/iOS builds — zero egress outside the browser web/PWA',
+    description:
+      'On web/PWA builds only, cookieless page-view counts are sent to Vercel Analytics. Native desktop and iOS builds never load it.',
+    labelMapping: {
+      dataTypes: ['usage_data'],
+      linkedToIdentity: false,
+      usedForTracking: false,
+      purposes: ['analytics'],
+    },
   },
   telemetry_crash_reporting: {
     id: 'telemetry_crash_reporting',
-    name: 'Anonymous Diagnostics & Telemetry (Opt-In)',
+    name: 'Diagnostics & Crash Reporting (Not Currently Shipped)',
     category: 'telemetry',
-    dataLeavesDevice: true,
-    trigger: 'opt_in',
-    destination: 'Plethora Telemetry Endpoint',
-    retention: 'Aggregated counters retained 90 days; no raw user identifiers',
-    encryptionState: 'in_transit_tls',
+    dataLeavesDevice: false,
+    trigger: 'never',
+    destination: 'None — no crash-reporting or telemetry SDK ships in current builds',
+    retention: 'No diagnostic data is collected or transmitted today',
+    encryptionState: 'none_local_only',
     thirdPartyInvolvement: 'None',
     userDeletable: true,
-    localFallback: 'Disabled completely by default; zero egress',
+    localFallback: 'Complete disablement (default). The opt-in endpoint described previously does not exist yet; if a crash reporter ships under a future proposal, this entry will be updated before it ever transmits.',
     description:
-      'Opt-in anonymous error classes and performance counters. Strictly scrubs all document titles, URLs, and personal content.',
+      'Corrected disclosure: no crash-reporting SDK ships in current builds and no diagnostics leave the device. This entry is reserved for a strictly opt-in, content-scrubbed diagnostics flow that may ship later.',
+    labelMapping: {
+      dataTypes: [],
+      linkedToIdentity: false,
+      usedForTracking: false,
+      purposes: [],
+    },
   },
 };
 
