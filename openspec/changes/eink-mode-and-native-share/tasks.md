@@ -24,11 +24,25 @@
 
 ## 5. Native Mobile Share Target — Android & Bridge
 
+> **Annotation (2026-08-21, superseded by `implement-native-ios-share-extension`):**
+> items 5.1–5.3 were implemented **Android-only**. The iOS Share Extension
+> requirement they implied is implemented by the dedicated change
+> `implement-native-ios-share-extension` (`ios-share-extension` capability);
+> on iOS `register_share_listener`/`get_pending_shares` were silent-empty stubs
+> until that change lands its consumption path.
+
 - [x] 5.1 Update `AndroidManifest.xml` with intent filters for `ACTION_SEND` and `ACTION_SEND_MULTIPLE` supporting URLs, text, PDFs, EPUBs, images, audio, and documents.
 - [x] 5.2 Implement native `content://` URI streaming to `<filesDir>/imports/` in `FolderImportPlugin.kt` and `MainActivity.kt` with thread-safe queueing.
 - [x] 5.3 Expose native IPC command to consume and listen for structured share payloads (`register_share_listener` / `get_pending_shares`).
 
 ## 6. Normalized Shared Payload & Import Routing
+
+> **Annotation (2026-08-21, superseded by `implement-native-ios-share-extension`):**
+> Android-only implementation; see the section-5 annotation above. Known
+> defects fixed by that change: the Kotlin event name
+> (`incrementum-native-share`) did not match the frontend listener
+> (`plethora-native-share`), dropping warm-start file/text batches, and
+> `get_pending_shares` had no frontend caller.
 
 - [x] 6.1 Define normalized `SharedPayload` model in `src/types/share.ts` and handle payload deserialization in `src/lib/shareTarget.ts`.
 - [x] 6.2 Wire shared URLs and files into `useDocumentStore` (`importFromUrl`, `importFromFiles`, text+provenance extraction, offline URL queue).

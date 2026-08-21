@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { registerShareListener } from "../lib/shareTarget";
+import { fetchPendingShares, registerShareListener } from "../lib/shareTarget";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
@@ -198,6 +198,17 @@ export function useShareTarget() {
     }
 
     const unsubscribe = registerShareListener(handleBatch);
+
+    // Cold-start drain: consume batches queued before the listener was
+    // registered (Android pending queue / iOS App Group staged manifests).
+    // The native side returns-and-clears, so this never double-delivers with
+    // registerShareListener's own pending-batch return.
+    void fetchPendingShares().then((batches) => {
+      for (const batch of batches) {
+        void handleBatch(batch);
+      }
+    });
+
     return () => {
       unsubscribe();
     };

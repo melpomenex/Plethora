@@ -24,6 +24,9 @@ export interface SharedItem {
 }
 
 export interface SharedBatch {
+  /** Stable id for staged/claimed batches (iOS App Group manifests); absent
+   *  for ephemeral warm-start batches. Used for exactly-once acknowledgement. */
+  id?: string;
   /** Timestamp when the share intent was captured. */
   timestamp: number;
   /** Array of shared items in this intent. */

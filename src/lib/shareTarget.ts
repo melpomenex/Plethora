@@ -35,6 +35,8 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
 
     if (items.length > 0) {
       return {
+        // Staged-batch id (iOS App Group manifests); undefined for warm-start.
+        id: typeof raw.id === "string" ? raw.id : undefined,
         timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
         items,
       };
@@ -102,6 +104,37 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
   }
 
   return null;
+}
+
+/**
+ * Fetch and drain any pending cold-start share batches from the native side.
+ *
+ * This is the cold-start counterpart to {@link registerShareListener}'s
+ * return-and-clear behavior: on Android the native plugin queues batches that
+ * arrive before the WebView is ready and `get_pending_shares` drains them
+ * (return-and-clear, so no batch is ever delivered twice across the two
+ * paths); on iOS it claims staged App Group manifests with exactly-once
+ * semantics (see the folder-import plugin's staged-share reader).
+ */
+export async function fetchPendingShares(): Promise<SharedBatch[]> {
+  if (!isTauri()) return [];
+  try {
+    const batches = await invokeCommand<SharedBatch[]>(
+      "plugin:plethora-folder-import|get_pending_shares"
+    );
+    if (!Array.isArray(batches)) return [];
+    const normalized: SharedBatch[] = [];
+    for (const rawBatch of batches) {
+      const batch = normalizeSharedBatch(rawBatch);
+      if (batch) {
+        normalized.push(batch);
+      }
+    }
+    return normalized;
+  } catch (err) {
+    console.warn("[Share Target] Failed to fetch pending shares:", err);
+    return [];
+  }
 }
 
 /**
