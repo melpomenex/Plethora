@@ -46,6 +46,10 @@ Leverages native desktop operating system capabilities through Tauri 2.0 Rust bi
 1. Uses `tauri-plugin-window-state` to persist window coordinates in SQLite.
 2. Supports horizontal and vertical split panes (e.g. PDF viewer on the left, Flashcard Studio on the right).
 3. Closes or hides gracefully to tray based on user preference.
+4. On Linux (the only platform with custom chrome, `decorations: false`), empty areas of the topmost chrome — the tab-strip row and the top toolbar row — drag the window via `handleWindowDragRequest` in `src/lib/windowDrag.ts`. The handler is gated to Linux desktop Tauri (`isCustomChromeDragActive()`); macOS/Windows drag via their native title bars and mobile builds have no window-drag behavior.
+
+### Drag-surface convention
+Attach `handleWindowDragRequest` with `onMouseDown` to a chrome **container** whose own background is empty, non-interactive space. A drag starts only when the mousedown target is the marked element itself (`event.target === event.currentTarget`), so every descendant — tabs, buttons, menus, inputs, window controls — stays interactive with no opt-out needed, and new chrome controls are safe by default. Double-click on empty chrome toggles maximize; window movement is delegated to the OS (`startDragging()`), never computed in-app.
 
 ## Rationale
 Knowledge work is multitasking work. True desktop integration gives learners full screen real estate and zero-latency keyboard control.

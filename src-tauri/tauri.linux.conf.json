@@ -13,7 +13,7 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "decorations": true,
+        "decorations": false,
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "devtools": true,
