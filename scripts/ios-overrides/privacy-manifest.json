@@ -1,0 +1,5 @@
+{
+  "$comment": "Change C privacy data contract for Proposal A's iOS overrides script (scripts/apply-ios-project-overrides.js). privacyManifestSourcePath points at the checked-in PrivacyInfo.xcprivacy source owned by Change C; the overrides script copies it into the generated Xcode project. purposeStrings are injected into Info.plist verbatim. Never edit src-tauri/gen/apple directly.",
+  "privacyManifestSourcePath": "src-tauri/ios-assets/PrivacyInfo.xcprivacy",
+  "purposeStrings": {}
+}
