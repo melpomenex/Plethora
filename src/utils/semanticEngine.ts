@@ -4,6 +4,7 @@ import { GraphNodeType, type GraphNode, type GraphEdge } from "../components/gra
 import type { QueueItem } from "../types/queue";
 import { type FeedItem, getSubscribedFeeds } from "../api/rss";
 import { requestPaidConsent } from "./aiBillingConsent";
+import { ensureCloudAiDisclosure } from "../lib/privacy/cloudAiDisclosure";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export interface EmbeddingConfigInput {
@@ -190,6 +191,19 @@ export async function buildSemanticGraph(
     // lexical graph and no embedding request is sent.
     const isCloud = embeddingConfig.provider !== "Ollama";
     if (isCloud) {
+      // Change C §4.3: one-time cloud-AI disclosure before item text is sent
+      // for embedding. A denial falls through to the lexical graph.
+      const disclosed = await ensureCloudAiDisclosure({
+        featureClass: "embeddings",
+        provider: embeddingConfig.provider,
+      });
+      if (!disclosed) {
+        onEmbeddingStatus?.("error");
+        return lexicalBuildSemanticGraph(items, thresholdPercent, focalTopic, rssItems);
+      }
+      // ai-billing-safety #14: a cloud embedding provider requires explicit
+      // consent. If consent is off, prompt once; a denial falls through to the
+      // lexical graph and no embedding request is sent.
       const granted = await requestPaidConsent({
         kind: "embeddings",
         provider: embeddingConfig.provider,

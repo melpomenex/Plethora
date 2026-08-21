@@ -77,6 +77,9 @@ const AIProviderSettings = lazySection("AIProviderSettings", () =>
 const ImportExportSettingsComponent = lazySection("ImportExportSettings", () =>
   import("./ImportExportSettings").then((m) => ({ default: m.ImportExportSettings }))
 );
+const PrivacyCenter = lazySection("PrivacyCenter", () =>
+  import("./PrivacyCenter").then((m) => ({ default: m.PrivacyCenter }))
+);
 const LearningSettings = lazySection("LearningSettings", () =>
   import("./LearningSettings").then((m) => ({ default: m.LearningSettings }))
 );
@@ -1730,6 +1733,11 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* Privacy Center — renders the full disclosure registry (Change C §4.1) */}
+      <Suspense fallback={null}>
+        <PrivacyCenter />
+      </Suspense>
+
       {/* Privacy Architecture Guarantee */}
       <div className="p-6 bg-card border rounded-lg space-y-3">
         <div className="flex items-center gap-3">

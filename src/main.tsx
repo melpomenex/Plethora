@@ -409,6 +409,22 @@ import('./lib/paidConsent/registerPaidConsentHandler')
     console.error('[Paid Consent] Handler registration failed:', error);
   });
 
+// Cloud-AI first-use disclosure presenter (Change C §4): the modal shown once
+// per provider class before content is sent to a cloud AI provider. The gate
+// (src/lib/privacy/cloudAiDisclosure.ts) consults it at every cloud-AI entry
+// point; without this registration headless contexts proceed un-persisted.
+import('./lib/privacy/cloudAiDisclosureUi')
+  .then(({ defaultCloudAiDisclosurePresenter }) => {
+    return import('./lib/privacy/cloudAiDisclosure').then(
+      ({ setCloudAiDisclosurePresenter }) => {
+        setCloudAiDisclosurePresenter(defaultCloudAiDisclosurePresenter);
+      }
+    );
+  })
+  .catch((error) => {
+    console.error('[Cloud AI Disclosure] Presenter registration failed:', error);
+  });
+
 // Memory benchmark harness (bound-runtime-memory-and-gate): drives the app
 // through a deterministic scenario when the harness env vars are present.
 // Inert in any other configuration (the backend command returns null).
