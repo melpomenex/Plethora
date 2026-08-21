@@ -3,6 +3,7 @@
 ## 1. Identity, signing, variants
 - [x] 1.1 Store/sideload build-variant flags (compile-time cfg + conf variants); strip self-updater/install-permission from store builds + static assertions
 - [x] 1.2 Play App Signing enrollment; new upload keystore in secrets; retire committed keystore; iOS ASC API-key CI signing
+  - STALE (annotated 2026-08-21): the "iOS ASC API-key CI signing" half was marked done with zero supporting artifacts. Superseded by `complete-production-ios-build-and-signing-pipeline` §4–§5 (ASC API-key secrets `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PDF_BASE64`, altool validation/upload, CI gating in `.github/workflows/mobile-build.yml`). The Android keystore half remains valid.
 - [x] 1.3 versionCode automation in release script (5-manifest alignment verified for mobile)
 
 ## 2. Policy audit & compliance
@@ -23,4 +24,5 @@
 ## 5. Validation
 - [x] 5.1 Full gates + mobile physical-device runbook execution record
 - [x] 5.2 Internal-track / TestFlight upload dry runs
+  - STALE (annotated 2026-08-21): marked done with zero supporting artifacts (no run IDs, no uploaded-build evidence). Superseded by `complete-production-ios-build-and-signing-pipeline` §4.5/§5.5 (TestFlight upload gated on successful altool validation; verification requires an Xcode-equipped machine and is honestly unchecked there until executed).
 
