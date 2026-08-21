@@ -7,6 +7,7 @@ mod algorithms;
 mod anki;
 mod backup;
 mod battery;
+mod build_profile;
 mod browser_sync_server;
 mod rss_preferences;
 mod cloud;
