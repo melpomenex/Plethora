@@ -4,16 +4,45 @@ Status: planning artifact (2026-08-21). Cross-proposal coordination map for the 
 
 ## The changes
 
-| # | Change | Wave | Capability | Priority |
-|---|--------|------|------------|----------|
-| A | `complete-production-ios-build-and-signing-pipeline` | W1 | `ios-release-pipeline` | P0 foundation |
-| B | `implement-native-ios-storekit2-billing` | W1 | `ios-storekit-billing`, `store-entitlement-validation` | P0 commercial |
-| C | `complete-ios-apple-privacy-compliance` | W1 | `apple-privacy-compliance` | P0 submission req. |
-| D | `harden-ios-feature-availability-and-mobile-product-scope` | W1 | `ios-feature-availability` | P0 completeness |
-| E | `implement-native-ios-share-extension` | W1 | `ios-share-extension` | P1 parallelizable |
-| F | `harden-ios-account-and-subscription-lifecycle` | W2 (parts W1) | `ios-account-lifecycle` | P1/P0-adjacent |
-| G | `establish-ios-testflight-release-evidence-gates` | W3 (authorable W1) | `ios-release-evidence-gates` | P0 gate |
-| H | `prepare-plethora-ios-app-store-listing-and-review-package` | W4 (draftable W1) | `app-store-listing-package` | P2 packaging |
+| # | Change | Wave | Capability | Priority | Status |
+|---|--------|------|------------|----------|--------|
+| A | `complete-production-ios-build-and-signing-pipeline` | W1 | `ios-release-pipeline` | P0 foundation | **W1 implemented** (device/signing verification pending Xcode) |
+| B | `implement-native-ios-storekit2-billing` | W1 | `ios-storekit-billing`, `store-entitlement-validation` | P0 commercial | **W1 implemented** (simulator/sandbox verification pending) |
+| C | `complete-ios-apple-privacy-compliance` | W1 | `apple-privacy-compliance` | P0 submission req. | **W1 implemented** (archive-audit items blocked on A §4 run) |
+| D | `harden-ios-feature-availability-and-mobile-product-scope` | W1 | `ios-feature-availability` | P0 completeness | **W1 implemented** (simulator walkthroughs pending) |
+| E | `implement-native-ios-share-extension` | W1 | `ios-share-extension` | P1 parallelizable | **W1 implemented** (extension compile/device verification pending) |
+| F | `harden-ios-account-and-subscription-lifecycle` | W2 (parts W1) | `ios-account-lifecycle` | P1/P0-adjacent | **§1–§2 implemented (W1)**; §3–§4 queued for W2 |
+| G | `establish-ios-testflight-release-evidence-gates` | W3 (authorable W1) | `ios-release-evidence-gates` | P0 gate | queued |
+| H | `prepare-plethora-ios-app-store-listing-and-review-package` | W4 (draftable W1) | `app-store-listing-package` | P2 packaging | queued |
+
+## Session log — Wave 1 execution (2026-08-21)
+
+Implemented via six parallel subagents in two launch groups. All commits direct to `main`.
+
+**Merge order (chronological):**
+1. Housekeeping: pre-existing settings-prefetch work committed separately (`a2f85618`) to keep agent diffs clean.
+2. Group 1 (concurrent): **A §1** landed first (`cc37ea37`, compile-unblocking symbol fix) ∥ **C** (`03b7dd23`, `42ce10ce`, `e1bafae6`, `e81c41d2`, `a7017295`) ∥ **E** (`de519d5e`, `26829f80`, `4decefe0`, `ac6723cb`). A §2–§3 followed inside group 1 (`82ca7deb`, `98bddb50`, `530f1d06`).
+3. Group 2 (after A's buildProfile landed): **F §1–§2** (`dcd4e850`, `5f3d62ed`) ∥ **D** (`8edec533`…`d744b0df`) ∥ **A §4–§7** (`dc70682f`…`11665061`, incl. `1baf06f7` integrating C/E override data into gen/apple) ∥ **B** (`d1f25537`…`ffadee49`; one silent agent failure required a relaunch).
+
+**Contracts as landed:**
+- `src/lib/buildProfile.ts`: `type BuildProfile = "development" | "sideload" | "store"`, `parseBuildProfile(value)`, `const BUILD_PROFILE`, `isStoreProfile()`, `isDevelopmentProfile()`; Vite define `__PLETHORA_BUILD_PROFILE__`. Rust twin: `src-tauri/src/build_profile.rs` (`build_profile()`, `is_store_profile()`). B/D/F consume read-only — held exactly.
+- Overrides hook: data dir `scripts/ios-overrides/` (`privacy-manifest.json` ← C, `share-extension.target.json` ← E), consumed by `scripts/apply-ios-project-overrides.js`. Both files landed and were integrated into `gen/apple` (E ran the script itself; A re-ran post-C and committed `1baf06f7`). Neither C nor E touched gen/apple directly — contract held.
+
+**Deviations from the collision map / task text (accepted):**
+- B registered the storekit plugin **unconditionally** (not `#[cfg(ios)]`-wrapped) so non-iOS targets get typed UNSUPPORTED command errors; matches folder-import precedent. Also added one `capabilities/default.json` permission line beyond the "two lines" budget; transaction-update events use the Tauri channel-listener mechanism instead of global emit (same event name).
+- A retained `xcrun altool` for validate+upload (`notarytool` is notarization-only); added optional secret `IOS_SHARE_PROFILE_BASE64` (extension signing profile); `ASC_KEY_PDF_BASE64` holds a .p8 despite its name (documented).
+- D keeps `app_updater` available on Android (sideload self-update) — iOS-only hiding, per "no Android degradation".
+- F: `signIn`/`register` now throw on failure (previously swallowed) so LoginModal renders errors; server deletion handler extracted to testable `deleteAccountHandler`.
+- C: no fields added to `aiBillingConsent.ts` (read-only consumption) — no B↔C field coordination debt materialized; DiskSpace/SystemBootTime Required-Reason APIs deliberately omitted pending archive symbol audit.
+
+**Blockers found & owners:**
+- No Xcode/iphoneos SDK on the dev machine: blocks all *execution* verifications — A 1.5/2.5/3.5/4.5/5.5, B 1.3/7.2, C 2.1/2.3/2.4/5.3/6.1/6.2, D 4.2/6.3, E 4.4/5.x. Runbook ready (one command per stage); physical-device evidence belongs to the owning proposals + G's wave.
+- B: Apple Root CA G3 fingerprint constant must be confirmed against Apple's published root list before production sign-off (env-overridable meanwhile). Owner: B.
+- C: finalize `store_transactions` disclosure wording now that B's real flows are known (flow facts recorded in B's report). Owner: C (small follow-up).
+- E: `shareProvenance` applied to text-note imports only; URL/file-import metadata hook needs a documentStore change outside E's ownership. Owner: E + document-store owners.
+- Pre-existing failures on main, NOT introduced this session (verified against pre-session commit): `precisionScheduler.test.ts` SM-20 fixture mismatch; `prefetchCommonTabs` mock unhandled rejections in MainLayout tests; server tsc errors (`capture.ts`, `video-extracts.ts`); ~20 cargo sherpa/tts test-compile errors. Owners: unrelated to A–H; flagged for general triage.
+
+**Post-merge integration gate (this session):** `tsc --noEmit` clean · eslint 0 errors · vitest 4840 passed / 1 failed (the pre-existing precisionScheduler fixture) · server tests 46/46 · `test:scripts` 149 pass / 0 fail.
 
 ## Dependency graph
 
