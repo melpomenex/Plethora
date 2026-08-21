@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fakePeekProvider, fakeProcessingManifest, fakeTranslationProvider, fakeTutorProvider, SPANISH_EPUB_FIXTURE, SPANISH_PRACTICE_FIXTURE, SPANISH_VIDEO_FIXTURE } from "../testing";
+import { fakePeekProvider, fakeProcessingManifest, fakeShadowingProvider, fakeTranslationProvider, fakeTutorProvider, SPANISH_EPUB_FIXTURE, SPANISH_PRACTICE_FIXTURE, SPANISH_VIDEO_FIXTURE } from "../testing";
 import { createTranslationCacheKey, translationCacheIdentity } from "../../languageTranslation";
 
 describe("language integration fixtures", () => {
   it("are deterministic and cover the cross-surface stories", async () => {
     expect(SPANISH_EPUB_FIXTURE.languageTag).toBe("es");
     expect(SPANISH_VIDEO_FIXTURE.segments).toHaveLength(2);
+    expect(await fakeShadowingProvider().recognize({ attemptId: "a", profileId: SPANISH_PRACTICE_FIXTURE.profileId, languageTag: "es", audio: new Blob(["audio"]) })).toMatchObject({ text: SPANISH_PRACTICE_FIXTURE.prompt, confidence: 1 });
     expect(SPANISH_PRACTICE_FIXTURE.normalizedAnswer).toContain("español");
     expect(fakeProcessingManifest().capabilities.tokenize.supported).toBe(true);
     expect((await fakePeekProvider().lookup({ text: "casa", languageTag: "es" })).ok).toBe(true);

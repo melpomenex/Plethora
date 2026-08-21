@@ -163,6 +163,7 @@ export const fr: Dict = {
   "settings.discardChangesConfirm": "Des modifications ne sont pas enregistrées. Les ignorer et revenir en arrière ?",
   "settings.resetAllConfirm": "Voulez-vous vraiment réinitialiser tous les paramètres par défaut ?",
   "settings.general": "Général",
+  "settings.languageLearning": "Apprentissage des langues",
   "settings.appearance": "Apparence",
   "settings.learning": "Apprentissage",
   "settings.documents": "Documents",

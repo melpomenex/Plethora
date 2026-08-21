@@ -29,7 +29,8 @@ import {
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorTurnBubble } from "./TutorTurnBubble";
 import { TutorComposer } from "./TutorComposer";
-import type { LearnerContextPacket, TutorMode } from "../../lib/languageTutor";
+import { redactTutorContext, redactTutorMaterial, resolveTutorPrivacyPolicy, type LearnerContextPacket, type TutorMode } from "../../lib/languageTutor";
+import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 
 export interface TutorSheetProps {
   open: boolean;
@@ -66,6 +67,7 @@ export function TutorSheet({
 }: TutorSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
+  const hasByoProvider = useLLMProvidersStore((state) => state.providers.some((provider) => provider.enabled && provider.apiKey.trim().length > 0));
 
   const sessionRef = useRef<TutorSession | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -82,8 +84,9 @@ export function TutorSheet({
   const [cloudConsent, setCloudConsent] = useState<boolean | null>(null);
 
   const resolvedTopic = topic?.trim() || deriveTopicFromMaterial(material);
-  const languageContextText = languageContext && languageContext.items.length > 0
-    ? `\n\nLanguage tutor instructions: respond in ${languageContext.targetLanguage} when practical and explain in ${languageContext.baseLanguage}; use this bounded learner context only as background: ${languageContext.items.map((item) => `${item.surface} (${item.state})`).join(", ")}`
+  const safeLanguageContext = redactTutorContext(languageContext);
+  const languageContextText = safeLanguageContext && safeLanguageContext.items.length > 0
+    ? `\n\nLanguage tutor instructions: respond in ${safeLanguageContext.targetLanguage} when practical and explain in ${safeLanguageContext.baseLanguage}; use this bounded learner context only as background: ${safeLanguageContext.items.map((item) => `${item.surface} (${item.state})`).join(", ")}`
     : "";
   const modeInstruction = languageMode === "conversation"
     ? "Practice a short conversation in the target language and correct only material errors."
@@ -93,9 +96,11 @@ export function TutorSheet({
         ? "Focus on correction categories, explain the reason, and preserve the learner's original wording."
         : "Explain the selected source in a source-grounded way, separating quoted facts from general guidance.";
   const sourceCitation = documentId ? `\n\nSource reference: document ${documentId}; selected material must remain the grounding boundary.` : "";
-  const sessionMaterial = `${modeInstruction}${sourceCitation}\n\n${material}${languageContextText}`;
+  const safeMaterial = redactTutorMaterial(material);
+  const sessionMaterial = `${modeInstruction}${sourceCitation}\n\n${safeMaterial}${languageContextText}`;
   const sessionTopic = languageMode ? `${resolvedTopic} · ${languageMode}` : resolvedTopic;
-  const cloudBlocked = ai.path === "cloud" && Boolean(languageMode) && cloudConsent !== true;
+  const privacyPolicy = resolveTutorPrivacyPolicy({ aiPath: ai.path, cloudConsent, hasByoProvider });
+  const cloudBlocked = privacyPolicy.requiresConsent && Boolean(languageMode) && !privacyPolicy.consented;
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -162,6 +167,17 @@ export function TutorSheet({
 
   // Abort whatever is in flight when the sheet unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  const exportTranscript = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const blob = new Blob([JSON.stringify({ topic: sessionTopic, transcript }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "plethora-tutor-session.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [sessionTopic, transcript]);
 
   // Keep the newest turn in view.
   useEffect(() => {
@@ -297,6 +313,7 @@ export function TutorSheet({
               </p>
             )}
             {languageContext && <p className="text-[11px] text-muted-foreground" data-tutor-context-freshness="true">Language context: {languageContext.freshness}</p>}
+            <p className="text-[11px] text-muted-foreground" data-tutor-privacy="true">{privacyPolicy.disclosure} Session retention only.</p>
           </div>
           <span
             className={`text-[11px] px-2 py-0.5 rounded ${
@@ -331,7 +348,7 @@ export function TutorSheet({
         {cloudBlocked && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs" role="alert">
             <p className="font-medium">Cloud tutor consent required</p>
-            <p className="mt-1 text-muted-foreground">Selected text and bounded learner context will stay local until you choose a provider policy.</p>
+            <p className="mt-1 text-muted-foreground">{privacyPolicy.disclosure}</p>
             {cloudConsent === null ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" className="rounded bg-primary px-2 py-1 text-primary-foreground" onClick={() => setCloudConsent(true)}>Allow cloud for this session</button>
@@ -410,6 +427,12 @@ export function TutorSheet({
               )}
             </div>
           )
+        )}
+        {transcript.length > 0 && (
+          <div className="flex justify-end gap-2 text-[11px]">
+            <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" onClick={exportTranscript}>Export session</button>
+            <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" onClick={reset}>Delete session</button>
+          </div>
         )}
       </div>
     </MobileContextMenuSheet>

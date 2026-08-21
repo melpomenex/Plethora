@@ -29,6 +29,12 @@ describe("practice session lifecycle", () => {
     expect(acceptPracticeEvidence(submitted).activeEvidenceAccepted).toBe(false);
   });
 
+  it("does not promote uncertain recognition to active evidence", () => {
+    const attempt = createPracticeAttempt({ id: "uncertain", profileId: "p", mode: "shadowing", source: {}, promptText: "hola", now: 1 });
+    const submitted = { ...submitPracticeAttempt(attempt, "ola", 2), comparison: { ...submitPracticeAttempt(attempt, "ola", 2).comparison!, uncertain: true } };
+    expect(acceptPracticeEvidence(submitted).activeEvidenceAccepted).toBe(false);
+  });
+
   it("keeps large local histories exportable and purges only expired attempts", () => {
     const values = new Map<string, string>();
     const store = new LanguagePracticeAttemptStore({ getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) });

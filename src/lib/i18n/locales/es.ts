@@ -163,6 +163,7 @@ export const es: Dict = {
   "settings.discardChangesConfirm": "Tienes cambios sin guardar. ¿Descartarlos y volver?",
   "settings.resetAllConfirm": "¿Seguro que quieres restablecer todos los ajustes predeterminados?",
   "settings.general": "General",
+  "settings.languageLearning": "Aprendizaje de idiomas",
   "settings.appearance": "Apariencia",
   "settings.learning": "Aprendizaje",
   "settings.documents": "Documentos",

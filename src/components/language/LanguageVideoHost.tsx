@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, Camera, FilmStrip, Play, Translate } from "@phosphor-icons/react";
 import { DictionaryPeek, type DictionaryPeekTarget } from "../viewer/selectionInteraction/DictionaryPeek";
-import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
-import { dispatchLanguageHostAction, type LanguageHostActionDetail } from "../../lib/languageHost";
+import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
+import { dispatchLanguageHostAction, type LanguageHostActionDetail, type LanguageHostSnapshot } from "../../lib/languageHost";
 import { createLanguageMiningPayload } from "../../lib/languageMining";
 import { TranscriptLanguageHighlightAdapter } from "../../lib/languageHighlighting/adapters";
 import { languageVocabularyStateClass } from "../../lib/languageHighlighting";
@@ -39,8 +39,13 @@ function transcriptAnchor(videoId: string, segment: TranscriptSegment, sourceFin
  * player/transcript controls: the YouTube player remains the only clock,
  * seek owner, and progress persistence path.
  */
-export function LanguageVideoHost({ videoId, documentId, sourceFingerprint, segments, currentTime, onSeek }: LanguageVideoHostProps) {
-  const { snapshot } = useLanguageLearningHost();
+export function LanguageVideoHost(props: LanguageVideoHostProps) {
+  const host = useOptionalLanguageLearningHost();
+  if (!host) return null;
+  return <LanguageVideoHostConnected {...props} snapshot={host.snapshot} />;
+}
+
+function LanguageVideoHostConnected({ videoId, documentId, sourceFingerprint, segments, currentTime, onSeek, snapshot }: LanguageVideoHostProps & { snapshot: LanguageHostSnapshot }) {
   const tts = useTTS({ lang: snapshot.profile?.targetLanguage ?? "en-US" });
   const [peekOpen, setPeekOpen] = useState(false);
   const [states, setStates] = useState<ReadonlyMap<string, LanguageKnowledgeState>>(new Map());

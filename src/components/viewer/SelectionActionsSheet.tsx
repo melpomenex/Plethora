@@ -56,6 +56,10 @@ import {
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorSheet } from "../tutor/TutorSheet";
 import { openLibrarySource } from "../../utils/openLibrarySource";import type { Extract } from "../../api/extracts";
+import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
+import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageTutor";
+import { listLanguageLexicalEntries } from "../../api/languageLexicon";
+import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 
 export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
 
@@ -199,6 +203,7 @@ export function SelectionActionsSheet({
 }: SelectionActionsSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
+  const languageHost = useOptionalLanguageLearningHost();
   // "Learn this" ships behind its phase flag (default off) AND the generative
   // requirement (`ai.available`) — task 2.3 gating.
   const aiLearnThisEnabled = useSettingsStore((s) => s.settings.features.aiLearnThis);
@@ -231,6 +236,7 @@ export function SelectionActionsSheet({
   const [extractSaveState, setExtractSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     "idle"
   );
+  const [languageContext, setLanguageContext] = useState<ReturnType<typeof buildLearnerContext> | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   // `||`, not `??`: a surface with no reachable surrounding text (EPUB/HTML
@@ -263,6 +269,36 @@ export function SelectionActionsSheet({
   }, [open, reset]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    let disposed = false;
+    const snapshot = languageHost?.snapshot;
+    if (!showTutor || !snapshot || snapshot.status !== "ready" || !snapshot.profile) {
+      setLanguageContext(null);
+      return () => { disposed = true; };
+    }
+    if (learnThis?.documentId && learnThis.documentId !== snapshot.source.contentId) {
+      setLanguageContext(null);
+      return () => { disposed = true; };
+    }
+    void listLanguageLexicalEntries(snapshot.profile.id, { languageTag: snapshot.profile.targetLanguage, offset: 0, limit: 500 })
+      .then((page) => {
+        if (disposed) return;
+        const lexicon: ContextLexiconRow[] = page.items.flatMap((entry) => {
+          const state = entry.knowledgeState as LanguageKnowledgeState;
+          if (!["new", "encountered", "learning", "familiar", "known", "ignored"].includes(state)) return [];
+          return [{ entryId: entry.id, surface: entry.canonicalForm || entry.normalizedForm, lemma: entry.lemma, state: state as any, evidenceCount: entry.activeEvidenceCount + entry.passiveEvidenceCount }];
+        });
+        setLanguageContext(buildLearnerContext({
+          profile: { id: snapshot.profile!.id, targetLanguage: snapshot.profile!.targetLanguage, baseLanguage: snapshot.profile!.baseLanguage },
+          lexicon,
+          currentSource: { documentId: snapshot.source.contentId, text: sourcePassage },
+          budget: { maxItems: 24, maxTextCodeUnits: 1200, includeSourceText: false },
+        }));
+      })
+      .catch(() => { if (!disposed) setLanguageContext(null); });
+    return () => { disposed = true; };
+  }, [languageHost, learnThis?.documentId, showTutor, sourcePassage]);
 
   // Speculatively warm up on-device Prompt model while user views the sheet
   useEffect(() => {
@@ -433,6 +469,8 @@ export function SelectionActionsSheet({
         documentId={learnThis?.documentId}
         extractId={learnThis?.extractId}
         selectionContext={learnThis?.selectionContext}
+        languageContext={languageContext ?? undefined}
+        languageMode="explain"
         onClose={() => {
           setShowTutor(false);
           if (initialAction) onClose();

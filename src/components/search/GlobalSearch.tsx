@@ -434,7 +434,7 @@ export function GlobalSearch({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={isURLMode ? "Press Enter to import..." : "Search documents, extracts, flashcards... or paste a URL"}
+                placeholder={isURLMode ? "Press Enter to import..." : "Search library, commands, or type ? for Ask Plethora..."}
                 className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground"
               />
               {query && (
@@ -672,6 +672,11 @@ export function GlobalSearch({
                             </span>
                           ))}
                         </div>
+                        {result.excerpt && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            {result.excerpt}
+                          </p>
+                        )}
 
                         {/* More matches (hover) */}
                         {result.metadata?.secondaryHits && result.metadata.secondaryHits.length > 0 && (
@@ -687,7 +692,6 @@ export function GlobalSearch({
                                   onMouseDown={(e) => e.stopPropagation()}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    // Forward a synthetic result that uses the chosen hit as the primary hit.
                                     const synthetic: SearchResult = {
                                       ...result,
                                       metadata: {
@@ -767,6 +771,12 @@ export function GlobalSearch({
                           ↵
                         </kbd>
                         Select
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <kbd className="px-1.5 py-0.5 glass-button rounded text-[10px]">
+                          ?
+                        </kbd>
+                        Help
                       </span>
                       <span className="flex items-center gap-1">
                         <kbd className="px-1.5 py-0.5 glass-button rounded text-[10px]">

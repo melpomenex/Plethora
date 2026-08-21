@@ -59,31 +59,6 @@ fn build_youtube_thumbnail_url(video_id: &str) -> String {
     format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", video_id)
 }
 
-fn suggest_auto_tags(title: &str, content: &str) -> Vec<String> {
-    let corpus = format!("{} {}", title.to_lowercase(), content.to_lowercase());
-    let mut tags = Vec::new();
-    let candidates = [
-        ("math", vec!["equation", "theorem", "calculus", "algebra"]),
-        ("history", vec!["century", "empire", "war", "revolution"]),
-        ("biology", vec!["cell", "protein", "genome", "species"]),
-        (
-            "language",
-            vec!["vocabulary", "grammar", "translation", "sentence"],
-        ),
-        (
-            "computer-science",
-            vec!["algorithm", "compiler", "database", "programming"],
-        ),
-    ];
-    for (tag, keywords) in candidates {
-        if keywords.iter().any(|keyword| corpus.contains(keyword)) {
-            tags.push(tag.to_string());
-        }
-    }
-    tags.push("auto-tagged".to_string());
-    tags
-}
-
 async fn resolve_cover_for_document(
     doc: &Document,
     allow_anna: bool,
@@ -310,7 +285,7 @@ async fn import_from_path(
 
     let mut doc = Document::with_collection(title, stored_path, file_type, collection_id.clone());
     doc.content = Some(extracted.text);
-    doc.tags = suggest_auto_tags(&doc.title, doc.content.as_deref().unwrap_or(""));
+    doc.tags = Vec::new();
     doc.content_hash = content_hash;
     doc.total_pages = extracted.page_count.map(|p| p as i32);
     doc.metadata = metadata;

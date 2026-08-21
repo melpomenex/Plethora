@@ -14,6 +14,7 @@ pub mod prompts;
 pub mod provider_wrapper;
 pub mod providers;
 pub mod qa;
+pub mod smart_tagging;
 pub mod stream_registry;
 pub mod summarizer;
 

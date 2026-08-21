@@ -642,25 +642,6 @@ function getPriorityLabel(prioritySlider?: number): string {
     return 'Very Low';
 }
 
-function suggestAutoTags(title: string, content: string): string[] {
-    const corpus = `${title} ${content}`.toLowerCase();
-    const tags: string[] = [];
-    const candidates: Array<[string, string[]]> = [
-        ["math", ["equation", "theorem", "calculus", "algebra"]],
-        ["history", ["century", "empire", "war", "revolution"]],
-        ["biology", ["cell", "protein", "genome", "species"]],
-        ["language", ["vocabulary", "grammar", "translation", "sentence"]],
-        ["computer-science", ["algorithm", "compiler", "database", "programming"]],
-    ];
-    for (const [tag, keywords] of candidates) {
-        if (keywords.some((keyword) => corpus.includes(keyword))) {
-            tags.push(tag);
-        }
-    }
-    tags.push("auto-tagged");
-    return tags;
-}
-
 function buildCardFromDocument(doc: db.Document, now: Date): Card {
     const card = createEmptyCard(now);
     card.due = doc.next_reading_date ? new Date(doc.next_reading_date) : now;
@@ -1891,7 +1872,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             file_path: finalFilePath,
             file_type: fileType,
             content: extractedContent || undefined,
-            tags: suggestAutoTags(fileName, extractedContent || ""),
+            tags: [],
         });
         return toCamelCase(doc);
     },

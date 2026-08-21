@@ -180,7 +180,7 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
   },
   {
     id: SettingsTab.LanguageLearning,
-    label: "Language learning",
+    label: "settings.languageLearning",
     icon: GraduationCap,
     keywords: ["language", "learning", "profile", "target", "spanish", "japanese", "proficiency"],
     description: "Target-language profiles and explicit reader associations",

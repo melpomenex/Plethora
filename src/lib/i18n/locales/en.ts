@@ -237,6 +237,7 @@ export const en: Dict = {
   "settings.discardChangesConfirm": "You have unsaved changes. Discard them and go back?",
   "settings.resetAllConfirm": "Are you sure you want to reset all settings to default?",
   "settings.general": "General",
+  "settings.languageLearning": "Language Learning",
   "settings.appearance": "Appearance",
   "settings.displayMode": "Display Mode",
   "settings.readerOptimizations": "Reader Optimizations",

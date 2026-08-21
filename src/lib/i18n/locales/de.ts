@@ -163,6 +163,7 @@ export const de: Dict = {
   "settings.discardChangesConfirm": "Es gibt ungespeicherte Änderungen. Verwerfen und zurückgehen?",
   "settings.resetAllConfirm": "Möchten Sie wirklich alle Einstellungen auf die Standardwerte zurücksetzen?",
   "settings.general": "Allgemein",
+  "settings.languageLearning": "Sprachenlernen",
   "settings.appearance": "Erscheinungsbild",
   "settings.learning": "Lernen",
   "settings.documents": "Dokumente",

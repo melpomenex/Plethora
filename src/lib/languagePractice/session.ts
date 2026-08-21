@@ -29,7 +29,7 @@ export function revealPracticeAttempt(attempt: PracticeAttempt, now = Date.now()
 }
 
 export function acceptPracticeEvidence(attempt: PracticeAttempt, now = Date.now()): PracticeAttempt {
-  if (attempt.status !== "submitted" || attempt.comparison?.assisted) return attempt;
+  if (attempt.status !== "submitted" || attempt.comparison?.assisted || attempt.comparison?.uncertain) return attempt;
   return { ...attempt, activeEvidenceAccepted: true, updatedAt: now };
 }
 

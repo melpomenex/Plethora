@@ -29,4 +29,14 @@ describe("writing practice", () => {
     expect(result.draft.rawText).toBe("Yo viajo");
     expect(result.draft.corrections).toEqual([]);
   });
+
+  it("streams correction chunks while preserving raw learner text", async () => {
+    const context = buildLearnerContext({ profile: { id: "p", targetLanguage: "es", baseLanguage: "en" }, lexicon: [] });
+    const correction = { id: "c1", sourceStart: 0, sourceEnd: 2, learnerText: "Yo", correctedText: "Yo", category: "naturalness" as const, explanation: "Keep it.", confidence: 1, accepted: false };
+    const provider: WritingProvider = { id: "streaming-local", version: "1", correct: async () => [], streamCorrect: async (_prompt, _raw, { onChunk }) => { onChunk({ corrections: [correction] }); return [correction]; } };
+    const chunks: string[] = [];
+    const result = await new WritingPracticeService(provider).correct({ id: "prompt", profileId: "p", mode: "rewrite", prompt: "Rewrite", targetLanguage: "es", context }, "Yo viajo", undefined, (chunk) => chunks.push(chunk.corrections[0]?.id ?? ""));
+    expect(chunks).toEqual(["c1"]);
+    expect(result.draft.rawText).toBe("Yo viajo");
+  });
 });

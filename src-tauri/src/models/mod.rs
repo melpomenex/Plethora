@@ -29,7 +29,8 @@ pub use audio_edition::{
 pub use category::Category;
 pub use collection::{Collection, DEFAULT_COLLECTION_ID};
 pub use document::{
-    Document, DocumentImageAsset, DocumentMetadata, FileType, StartupDocumentSummary,
+    Document, DocumentImageAsset, DocumentMetadata, FileType, SmartTagDetail,
+    StartupDocumentSummary,
 };
 pub use extract::Extract;
 pub use image_asset::{ImageAsset, ImageAssetWithUsage};

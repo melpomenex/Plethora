@@ -2,6 +2,7 @@ import type { LanguagePeekProvider, LanguagePeekLookupResult } from "../language
 import type { TranslationProvider } from "../languageTranslation";
 import type { LanguageTutorProvider, TutorRequest, TutorResponse } from "../languageTutor";
 import type { LanguageProcessingCapabilityManifest } from "../languageProcessing";
+import type { ShadowingRecognitionProvider } from "../languageShadowing";
 
 export const SPANISH_EPUB_FIXTURE = {
   documentId: "fixture-spanish-epub",
@@ -90,5 +91,15 @@ export function fakeTutorProvider(): LanguageTutorProvider {
       providerVersion: "1.0.0",
       createdAt: Date.now(),
     }),
+  };
+}
+
+export function fakeShadowingProvider(): ShadowingRecognitionProvider {
+  return {
+    id: "fixture-stt",
+    version: "1.0.0",
+    route: "local",
+    supports: (languageTag) => languageTag === "es",
+    recognize: async () => ({ text: SPANISH_PRACTICE_FIXTURE.prompt, confidence: 1 }),
   };
 }
