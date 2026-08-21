@@ -66,39 +66,63 @@ export function ItemTagEditor({
       data-testid="item-tag-editor"
     >
       <div className="flex flex-wrap items-center gap-1">
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className={cn(
-              "inline-flex items-center gap-1 rounded bg-muted/80 text-foreground border border-border/70",
-              chipClass
-            )}
-          >
-            {onTagClick ? (
-              <button
-                type="button"
-                onClick={() => onTagClick(tag)}
-                className="hover:underline"
-                title={t("itemDetails.viewItemsWithTag", { tag })}
-              >
-                {tag}
-              </button>
-            ) : (
-              <span>{tag}</span>
-            )}
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={() => removeTag(tag)}
-                disabled={busy}
-                aria-label={t("itemDetails.removeTag", { tag })}
-                className="text-muted-foreground hover:text-destructive focus:text-destructive focus:outline-none rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </span>
-        ))}
+        {tags.map((tag) => {
+          const smartDetail = target.smartTagDetails?.find(
+            (d) => d.tag.toLowerCase() === tag.toLowerCase() && !d.dismissed
+          );
+          const tooltip = smartDetail
+            ? smartDetail.provenance === "smart-llm"
+              ? `Smart Tag (AI): ${smartDetail.reason}`
+              : smartDetail.provenance === "smart-local"
+              ? `Smart Tag (Local): ${smartDetail.reason}`
+              : "Manual Tag"
+            : undefined;
+
+          return (
+            <span
+              key={tag}
+              title={tooltip}
+              className={cn(
+                "inline-flex items-center gap-1 rounded bg-muted/80 text-foreground border border-border/70",
+                chipClass
+              )}
+            >
+              {smartDetail?.provenance === "smart-llm" && (
+                <span className="text-[9px] font-bold uppercase tracking-wider text-primary px-0.5 rounded bg-primary/10">
+                  AI
+                </span>
+              )}
+              {smartDetail?.provenance === "smart-local" && (
+                <span className="text-[9px] font-medium text-muted-foreground px-0.5 rounded bg-muted">
+                  auto
+                </span>
+              )}
+              {onTagClick ? (
+                <button
+                  type="button"
+                  onClick={() => onTagClick(tag)}
+                  className="hover:underline"
+                  title={t("itemDetails.viewItemsWithTag", { tag })}
+                >
+                  {tag}
+                </button>
+              ) : (
+                <span>{tag}</span>
+              )}
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => removeTag(tag)}
+                  disabled={busy}
+                  aria-label={t("itemDetails.removeTag", { tag })}
+                  className="text-muted-foreground hover:text-destructive focus:text-destructive focus:outline-none rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </span>
+          );
+        })}
 
         {!readOnly && (
           <div className="inline-flex items-center gap-1">

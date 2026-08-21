@@ -23,7 +23,59 @@ export async function persistItemTags(target: ItemTagTarget, nextTags: string[])
     const { getDocument, updateDocument } = await import("../../api/documents");
     const doc = await getDocument(target.id);
     if (!doc) throw new Error("Document not found");
-    await updateDocument(target.id, { ...doc, tags: nextTags });
+
+    const prevTags = doc.tags || [];
+    const prevDetails = doc.metadata?.smartTagDetails ? [...doc.metadata.smartTagDetails] : [];
+    const now = new Date().toISOString();
+
+    // 1. Added tags marked as manual
+    for (const tag of nextTags) {
+      if (!prevTags.includes(tag)) {
+        const existingIdx = prevDetails.findIndex((d) => d.tag.toLowerCase() === tag.toLowerCase());
+        const detail = {
+          tag,
+          provenance: "manual" as const,
+          confidence: 1.0,
+          reason: "Manually added by user",
+          assignedAt: now,
+          dismissed: false,
+        };
+        if (existingIdx >= 0) {
+          prevDetails[existingIdx] = detail;
+        } else {
+          prevDetails.push(detail);
+        }
+      }
+    }
+
+    // 2. Removed tags marked as dismissed
+    for (const tag of prevTags) {
+      if (!nextTags.includes(tag)) {
+        const existingIdx = prevDetails.findIndex((d) => d.tag.toLowerCase() === tag.toLowerCase());
+        if (existingIdx >= 0) {
+          prevDetails[existingIdx] = {
+            ...prevDetails[existingIdx],
+            dismissed: true,
+          };
+        } else {
+          prevDetails.push({
+            tag,
+            provenance: "manual" as const,
+            confidence: 1.0,
+            reason: "Dismissed by user",
+            assignedAt: now,
+            dismissed: true,
+          });
+        }
+      }
+    }
+
+    const updatedMetadata = {
+      ...(doc.metadata || {}),
+      smartTagDetails: prevDetails,
+    };
+
+    await updateDocument(target.id, { ...doc, tags: nextTags, metadata: updatedMetadata });
     return nextTags;
   }
 

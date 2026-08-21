@@ -45,6 +45,152 @@ export function DocumentsSettings() {
         </div>
       </div>
 
+      {/* Smart Tagging */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3 text-foreground">Smart Tagging</h3>
+        <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-foreground">Enable Smart Tagging</p>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+                Automatically organize imported documents and web articles with high-confidence semantic topic tags. Works completely offline with zero setup, and enhances precision when an AI provider is active.
+              </p>
+            </div>
+            <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={settings.documents.smartTagging?.enabled ?? true}
+                onChange={(e) =>
+                  updateSettings({
+                    documents: {
+                      ...settings.documents,
+                      smartTagging: {
+                        ...(settings.documents.smartTagging ?? {
+                          enabled: true,
+                          mode: "automatic",
+                          maxTagsPerDocument: 6,
+                          preferExistingTags: true,
+                        }),
+                        enabled: e.target.checked,
+                      },
+                    },
+                  })
+                }
+                className="peer sr-only"
+              />
+              <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700 dark:border-gray-600" />
+            </label>
+          </div>
+
+          {(settings.documents.smartTagging?.enabled ?? true) && (
+            <div className="pt-2 border-t border-border space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Tagging Mode</p>
+                  <p className="text-xs text-muted-foreground">
+                    Choose whether tags are applied directly to imported documents or offered as suggestions
+                  </p>
+                </div>
+                <select
+                  value={settings.documents.smartTagging?.mode ?? "automatic"}
+                  onChange={(e) =>
+                    updateSettings({
+                      documents: {
+                        ...settings.documents,
+                        smartTagging: {
+                          ...(settings.documents.smartTagging ?? {
+                            enabled: true,
+                            mode: "automatic",
+                            maxTagsPerDocument: 6,
+                            preferExistingTags: true,
+                          }),
+                          mode: e.target.value as "automatic" | "suggestions-only",
+                        },
+                      },
+                    })
+                  }
+                  className="px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground"
+                >
+                  <option value="automatic">Automatic (Apply to documents)</option>
+                  <option value="suggestions-only">Suggestions Only (Inspector)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Max Tags Per Document</p>
+                  <p className="text-xs text-muted-foreground">
+                    Maximum number of automatic tags assigned to an item (3 to 8)
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={3}
+                    max={8}
+                    step={1}
+                    value={settings.documents.smartTagging?.maxTagsPerDocument ?? 6}
+                    onChange={(e) =>
+                      updateSettings({
+                        documents: {
+                          ...settings.documents,
+                          smartTagging: {
+                            ...(settings.documents.smartTagging ?? {
+                              enabled: true,
+                              mode: "automatic",
+                              maxTagsPerDocument: 6,
+                              preferExistingTags: true,
+                            }),
+                            maxTagsPerDocument: Number(e.target.value),
+                          },
+                        },
+                      })
+                    }
+                    className="w-28 cursor-pointer accent-primary"
+                  />
+                  <span className="text-sm font-semibold w-4 text-center text-foreground">
+                    {settings.documents.smartTagging?.maxTagsPerDocument ?? 6}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Prefer Existing Library Taxonomy</p>
+                  <p className="text-xs text-muted-foreground">
+                    Align incoming document subjects with existing tags in your library before creating new ones
+                  </p>
+                </div>
+                <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    checked={settings.documents.smartTagging?.preferExistingTags ?? true}
+                    onChange={(e) =>
+                      updateSettings({
+                        documents: {
+                          ...settings.documents,
+                          smartTagging: {
+                            ...(settings.documents.smartTagging ?? {
+                              enabled: true,
+                              mode: "automatic",
+                              maxTagsPerDocument: 6,
+                              preferExistingTags: true,
+                            }),
+                            preferExistingTags: e.target.checked,
+                          },
+                        },
+                      })
+                    }
+                    className="peer sr-only"
+                  />
+                  <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700 dark:border-gray-600" />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Import Settings */}
       <div>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.documentImport")}</h3>

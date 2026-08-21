@@ -172,6 +172,17 @@ export interface DocumentMetadata {
   chunkStartPos?: number;
   chunkEndPos?: number;
   estimatedReadingTimeMins?: number;
+  /** Smart Tagging provenance, confidence, and explainability details */
+  smartTagDetails?: SmartTagDetail[];
+}
+
+export interface SmartTagDetail {
+  tag: string;
+  provenance: "manual" | "smart-local" | "smart-llm";
+  confidence: number;
+  reason: string;
+  assignedAt: string;
+  dismissed?: boolean;
 }
 
 export interface TwitterAuthor {

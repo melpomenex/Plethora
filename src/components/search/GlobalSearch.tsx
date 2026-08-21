@@ -141,6 +141,7 @@ export function GlobalSearch({
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
+  const [expandedResultIds, setExpandedResultIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<{
     types: SearchResultType[];
     categories: string[];

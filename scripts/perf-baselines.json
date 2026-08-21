@@ -148,6 +148,25 @@
     "help/direct-canonical-lookup": {
       "cost": 0.01851,
       "reason": "canonical-product-documentation-and-ask-plethora: 0ms direct lookup resolution"
+    },
+    "smartTagging/classify-document-baseline": {
+      "cost": 1.851,
+      "reason": "smart-tagging-system: initial baseline for deterministic Tier 1 Smart Tagging baseline classifier (tokenization, BM25 TF-IDF salience, domain signatures, taxonomy ranking over 1000-word document)."
+    },
+    "digestText128": {
+      "cost": 0.4642
+    },
+    "digestJson128": {
+      "cost": 0.2832
+    },
+    "makeTTSCacheKeyV2": {
+      "cost": 0.3884
+    },
+    "resolveListeningPosition": {
+      "cost": 0.1192
+    },
+    "fingerprintDocument": {
+      "cost": 0.2574
     }
   }
 }

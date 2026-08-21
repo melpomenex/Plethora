@@ -7,6 +7,7 @@ import { openKindleImportDialog } from "./kindleImportDialogStore";
 
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
+import { useSmartTaggingQueueStore } from "./smartTaggingQueueStore";
 import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
 import { importArticle } from "../utils/articleImport/importPipeline";
 import type { ArticleImportOutcome } from "../utils/articleImport/importPipeline";
@@ -203,6 +204,8 @@ async function persistWebArticleOutcome(
     prioritySlider: 50,
     priorityScore: 5,
   } as Document);
+
+  useSmartTaggingQueueStore.getState().enqueue(finalDoc.id);
 
   return finalDoc;
 }
@@ -759,6 +762,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isImporting: false,
       }));
 
+      useSmartTaggingQueueStore.getState().enqueue(doc.id);
+
       // Auto-segment if enabled
       const settings = useSettingsStore.getState().settings;
       if (settings.documents.autoProcessOnImport) {
@@ -869,6 +874,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isSegmenting: false,
         importProgress: { current: imported.length, total: filePaths.length }
       }));
+
+      if (imported.length > 0) {
+        useSmartTaggingQueueStore.getState().enqueueBatch(imported.map((d) => d.id));
+      }
 
       if (imported.length > 0) {
         const message = autoSegment && totalExtracts > 0
@@ -1047,6 +1056,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           isImporting: false,
           importProgress: { current: 1, total: 1, fileName: docData.title }
         }));
+
+        useSmartTaggingQueueStore.getState().enqueue(doc.id);
 
         return doc;
       } catch (error) {
@@ -1361,6 +1372,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         importProgress: { current: 1, total: 1, fileName: doc.title },
       }));
 
+      useSmartTaggingQueueStore.getState().enqueue(doc.id);
+
       // 3. Background enrichment: merge per-post X metadata (timestamps,
       //    engagement, video URLs, avatars, quotes) into the stored doc's
       //    `metadata.xThread` when it resolves. Non-blocking, non-fatal —
@@ -1478,6 +1491,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isImporting: false,
         importProgress: { current: 2, total: 2, fileName: docData.title }
       }));
+
+      useSmartTaggingQueueStore.getState().enqueue(doc.id);
 
       return doc;
     } catch (error) {

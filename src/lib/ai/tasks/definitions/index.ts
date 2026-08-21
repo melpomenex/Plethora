@@ -11,3 +11,5 @@ export * from "./recallTask";
 export * from "./assessmentTask";
 export * from "./tutorTask";
 export * from "./askPlethoraTask";
+export * from "./smartTaggingContext";
+export * from "./smartTaggingTask";

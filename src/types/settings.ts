@@ -48,6 +48,14 @@ export interface DocumentSettings {
     modelDir: string;
     modelUrl: string;
   };
+  smartTagging: SmartTaggingSettings;
+}
+
+export interface SmartTaggingSettings {
+  enabled: boolean;
+  mode: "automatic" | "suggestions-only";
+  maxTagsPerDocument: number;
+  preferExistingTags: boolean;
 }
 
 // Learning Settings
