@@ -68,6 +68,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   "audiobook-epub-sync": Headphones,
   audiobook: Headphones,
   extracts: Scissors,
+  "import-needs-review": Stack,
 };
 
 /**

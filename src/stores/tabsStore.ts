@@ -29,7 +29,8 @@ export type TabType =
   | "audiobook"
   | "extract-reader"
   | "document-extracts"
-  | "extracts";
+  | "extracts"
+  | "import-needs-review";
 
 export interface Tab {
   id: string;

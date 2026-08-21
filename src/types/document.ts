@@ -1,5 +1,10 @@
 import type { ViewState } from "./readerPosition";
 import type { SelectionContext } from "./selection";
+import type {
+  BrowserCaptureContext,
+  BrowserCaptureProvenance,
+  BrowserOrganizationMetadata,
+} from "../lib/smartTagging/browserImportOrganization";
 
 // Document types matching the C++ schema
 export interface Document {
@@ -174,15 +179,24 @@ export interface DocumentMetadata {
   estimatedReadingTimeMins?: number;
   /** Smart Tagging provenance, confidence, and explainability details */
   smartTagDetails?: SmartTagDetail[];
+  /** Bounded browser evidence retained separately from semantic tags. */
+  browserCaptureContext?: BrowserCaptureContext;
+  /** Structured source/item provenance for browser-created records. */
+  captureProvenance?: BrowserCaptureProvenance;
+  /** Async organization status and review metadata. */
+  organization?: BrowserOrganizationMetadata;
 }
 
 export interface SmartTagDetail {
   tag: string;
-  provenance: "manual" | "smart-local" | "smart-llm";
+  provenance: "manual" | "smart-local" | "smart-llm" | "source-inherited";
   confidence: number;
   reason: string;
   assignedAt: string;
   dismissed?: boolean;
+  confidenceBand?: "high" | "medium" | "low" | "none";
+  sourceDocumentId?: string;
+  fingerprint?: string;
 }
 
 export interface TwitterAuthor {
@@ -284,7 +298,7 @@ export interface Extract {
   content: string;
   pageTitle?: string;
   pageNumber?: number;
-  selectionContext?: SelectionContext;
+  selectionContext?: SelectionContext | Record<string, unknown>;
   highlightColor?: string;
   notes?: string;
   progressiveDisclosureLevel: number;
@@ -317,6 +331,7 @@ export interface LearningItem {
   state: "new" | "learning" | "review" | "relearning";
   isSuspended: boolean;
   tags: string[];
+  interactionMetadata?: import("./learningItemInteractions").LearningItemInteractionMetadata;
   imageAssetIds?: string[];
   firstReviewedAt?: string;
 }

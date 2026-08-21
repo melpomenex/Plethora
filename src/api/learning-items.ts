@@ -238,8 +238,16 @@ export async function getLearningItemVersions(itemId: string): Promise<CardVersi
   return await invokeCommand<CardVersionEntry[]>("get_learning_item_versions", { itemId });
 }
 
-export async function updateLearningItemTags(itemId: string, tags: string[]): Promise<LearningItem> {
-  const item = await invokeCommand<LearningItem>("update_learning_item_tags", { itemId, tags });
+export async function updateLearningItemTags(
+  itemId: string,
+  tags: string[],
+  interactionMetadata?: LearningItemInteractionMetadata,
+): Promise<LearningItem> {
+  const item = await invokeCommand<LearningItem>("update_learning_item_tags", {
+    itemId,
+    tags,
+    interactionMetadata,
+  });
   return item;
 }
 

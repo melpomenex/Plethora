@@ -446,6 +446,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         );
         return { documents: mergedDocs, isLoading: false };
       });
+      void reconcileBrowserOrganizationNow();
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to load documents",
@@ -1552,9 +1553,41 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setError: (error) => set({ error }),
 }));
 
+export async function reconcileBrowserOrganizationNow(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const [{ listBrowserOrganizationTargets }, { useSmartTaggingQueueStore }] = await Promise.all([
+      import("../lib/smartTagging/browserOrganizationAdapter"),
+      import("./smartTaggingQueueStore"),
+    ]);
+    const targets = await listBrowserOrganizationTargets();
+    for (const target of targets) {
+      if (target.organization?.status !== "completed" && target.organization?.status !== "dismissed") {
+        useSmartTaggingQueueStore.getState().enqueueTarget(target);
+      }
+    }
+  } catch (error) {
+    console.warn("[DocumentStore] Browser organization reconciliation failed:", error);
+  }
+}
+
 // Listen for browser extension save events (Tauri only)
 if (isTauri()) {
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleBrowserOrganization = async (
+    targetType: "document" | "extract" | "learning-item",
+    targetId?: string,
+  ) => {
+    if (!targetId) return;
+    try {
+      const { loadBrowserOrganizationTarget } = await import("../lib/smartTagging/browserOrganizationAdapter");
+      const target = await loadBrowserOrganizationTarget(targetType, targetId);
+      if (target) useSmartTaggingQueueStore.getState().enqueueTarget(target);
+    } catch (error) {
+      console.warn("[DocumentStore] Failed to schedule browser organization:", error);
+    }
+  };
 
   listen<{ document_id: string; title: string; url: string }>(
     "browser-sync://document-saved",
@@ -1570,12 +1603,27 @@ if (isTauri()) {
       // Debounce document list refresh (500ms)
       if (reloadTimer) clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
-        useDocumentStore.getState().loadDocuments();
+        void useDocumentStore.getState().loadDocuments().then(() => reconcileBrowserOrganizationNow());
+        void scheduleBrowserOrganization("document", event.payload.document_id);
         reloadTimer = null;
       }, 500);
     }
   ).catch((err) => {
     console.warn("[DocumentStore] Failed to register listener for browser-sync://document-saved:", err);
+  });
+
+  listen<{ target_type?: "extract"; target_id?: string }>(
+    "browser-sync://extract-saved",
+    (event) => void scheduleBrowserOrganization("extract", event.payload.target_id),
+  ).catch((err) => {
+    console.warn("[DocumentStore] Failed to register listener for browser-sync://extract-saved:", err);
+  });
+
+  listen<{ target_type?: "learning-item"; target_id?: string }>(
+    "browser-sync://learning-item-saved",
+    (event) => void scheduleBrowserOrganization("learning-item", event.payload.target_id),
+  ).catch((err) => {
+    console.warn("[DocumentStore] Failed to register listener for browser-sync://learning-item-saved:", err);
   });
 
 }

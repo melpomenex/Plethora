@@ -10,6 +10,7 @@ const {
   fitAiRequestToBudget,
   fitPayloadToBudget,
   isXStatusURL,
+  normalizeCaptureContext,
   normalizeCaptureSettings,
   serializedByteLength,
   shouldCapturePassiveEvent,
@@ -52,6 +53,32 @@ test('whole-page payloads default to page and do not duplicate text', () => {
   assert.equal(payload.type, 'page');
   assert.equal(payload.text, 'Readable body');
   assert.equal(Object.hasOwn(payload, 'content'), false);
+});
+
+test('browser capture context is bounded, normalized, and kept separate from semantic tags', () => {
+  const context = normalizeCaptureContext({
+    sourceUrl: 'https://example.com/article',
+    pageTitle: '  Article\u0000 title ',
+    headingPath: Array.from({ length: 30 }, (_, index) => `Heading ${index}`),
+    nearbyText: 'x'.repeat(5000),
+    sourceTags: ['topic', 'topic', 'source'],
+  });
+  assert.equal(context.version, 1);
+  assert.equal(context.pageTitle, 'Article  title');
+  assert.equal(context.headingPath.length, 12);
+  assert.ok(context.nearbyText.length <= 1800);
+  assert.deepEqual(context.sourceTags, ['topic', 'source']);
+
+  const payload = buildExtensionPayload({
+    url: 'https://example.com/article',
+    title: 'Article',
+    text: 'Readable body',
+    capture_context: context,
+    tags: ['user-tag'],
+  });
+  assert.deepEqual(payload.tags, ['user-tag']);
+  assert.equal(payload.capture_context.sourceUrl, 'https://example.com/article');
+  assert.equal(Object.hasOwn(payload.capture_context, 'tags'), false);
 });
 
 test('oversized rich HTML is removed before readable text is truncated', () => {

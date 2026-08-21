@@ -2114,6 +2114,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             tags: args.tags as string[] | undefined,
             category: args.category as string | undefined,
             highlight_color: args.color as string | undefined,
+            selection_context: args.selectionContext as Record<string, unknown> | undefined,
             page_number: args.pageNumber as number | undefined,
         });
         appendDailyNoteLink({ type: "extract", id: extract.id, title: extract.content?.slice(0, 80) || "Extract" });
@@ -2130,6 +2131,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             tags: args.tags as string[] | undefined,
             category: args.category as string | undefined,
             highlight_color: args.color as string | undefined,
+            selection_context: args.selectionContext as Record<string, unknown> | undefined,
         });
         return toCamelCase(extract);
     },
@@ -2285,6 +2287,9 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
         const updated = await db.updateLearningItem(itemId, {
             tags: (args.tags || []) as string[],
+            ...(args.interactionMetadata !== undefined || args.interaction_metadata !== undefined
+                ? { interaction_metadata: (args.interactionMetadata ?? args.interaction_metadata) as Record<string, unknown> }
+                : {}),
             date_modified: new Date().toISOString(),
         });
         return toCamelCase(updated);

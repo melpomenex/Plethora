@@ -10,6 +10,10 @@ import * as documentsApi from "../api/documents";
 import { runSmartTagging } from "../lib/ai/tasks/definitions/smartTaggingTask";
 import { classifyDocumentBaseline } from "../lib/smartTagging/baseline";
 import { normalizeForComparison } from "../lib/smartTagging/normalization";
+import {
+  organizeBrowserTarget,
+} from "../lib/smartTagging/browserOrganizationAdapter";
+import { buildDocumentTarget, type BrowserOrganizationTarget, type BrowserOrganizationTargetType } from "../lib/smartTagging/browserImportOrganization";
 import { publishItemTagsUpdated } from "../lib/tagEditing/itemTagEvents";
 import type { Document, SmartTagDetail } from "../types/document";
 import { useDocumentStore } from "./documentStore";
@@ -19,6 +23,10 @@ const MAX_CONCURRENT_JOBS = 2;
 
 export interface TaggingJob {
   documentId: string;
+  targetType?: BrowserOrganizationTargetType;
+  targetId?: string;
+  fingerprint?: string;
+  target?: BrowserOrganizationTarget;
   forceRetag?: boolean;
   status: "queued" | "processing" | "completed" | "failed";
   enqueuedAt: number;
@@ -29,7 +37,9 @@ interface SmartTaggingQueueState {
   activeJobsCount: number;
   enqueue: (documentId: string, options?: { forceRetag?: boolean }) => void;
   enqueueBatch: (documentIds: string[], options?: { forceRetag?: boolean }) => void;
+  enqueueTarget: (target: BrowserOrganizationTarget) => void;
   isProcessing: (documentId: string) => boolean;
+  isTargetProcessing: (targetType: BrowserOrganizationTargetType, targetId: string) => boolean;
 }
 
 export const useSmartTaggingQueueStore = create<SmartTaggingQueueState>((set, get) => {
@@ -53,12 +63,18 @@ export const useSmartTaggingQueueStore = create<SmartTaggingQueueState>((set, ge
     executeTaggingJob(job)
       .finally(() => {
         set((curr) => ({
-          queue: curr.queue.filter((j) => j.documentId !== job.documentId),
+          queue: curr.queue.filter((j) => jobKey(j) !== jobKey(job)),
           activeJobsCount: Math.max(0, curr.activeJobsCount - 1),
         }));
         // Pump next job in queue
         pumpQueue();
       });
+  }
+
+  function jobKey(job: TaggingJob): string {
+    return job.targetType && job.targetId
+      ? `${job.targetType}:${job.targetId}`
+      : `document:${job.documentId}`;
   }
 
   return {
@@ -112,8 +128,37 @@ export const useSmartTaggingQueueStore = create<SmartTaggingQueueState>((set, ge
       setTimeout(pumpQueue, 0);
     },
 
+    enqueueTarget: (target: BrowserOrganizationTarget) => {
+      if (!target.targetId) return;
+      const fingerprint = target.organization?.fingerprint;
+      const key = `${target.targetType}:${target.targetId}`;
+      const existing = get().queue.find((job) => jobKey(job) === key);
+      if (existing && existing.status !== "failed" && existing.fingerprint === fingerprint) return;
+
+      set((state) => ({
+        queue: [
+          ...state.queue.filter((job) => jobKey(job) !== key),
+          {
+            documentId: target.documentId || target.targetId,
+            targetType: target.targetType,
+            targetId: target.targetId,
+            fingerprint,
+            target,
+            status: "queued",
+            enqueuedAt: Date.now(),
+          },
+        ],
+      }));
+      setTimeout(pumpQueue, 0);
+    },
+
     isProcessing: (documentId: string) => {
       const job = get().queue.find((j) => j.documentId === documentId);
+      return job ? job.status === "processing" || job.status === "queued" : false;
+    },
+
+    isTargetProcessing: (targetType, targetId) => {
+      const job = get().queue.find((candidate) => jobKey(candidate) === `${targetType}:${targetId}`);
       return job ? job.status === "processing" || job.status === "queued" : false;
     },
   };
@@ -124,6 +169,14 @@ export const useSmartTaggingQueueStore = create<SmartTaggingQueueState>((set, ge
  */
 async function executeTaggingJob(job: TaggingJob): Promise<void> {
   try {
+    if (job.targetType && job.targetId) {
+      const target = job.target || await import("../lib/smartTagging/browserOrganizationAdapter").then(({ loadBrowserOrganizationTarget }) =>
+        loadBrowserOrganizationTarget(job.targetType!, job.targetId!),
+      );
+      if (target) await organizeBrowserTarget(target);
+      return;
+    }
+
     const doc = await documentsApi.getDocument(job.documentId);
     if (!doc || doc.isAiExcluded || doc.isDismissed) {
       return;
@@ -172,6 +225,11 @@ async function executeTaggingJob(job: TaggingJob): Promise<void> {
 
     // 3. Run tagging (Tier 2 LLM with Tier 1 baseline fallback)
     const content = doc.content || "";
+    const browserTarget = buildDocumentTarget(doc);
+    if (browserTarget) {
+      await organizeBrowserTarget(browserTarget);
+      return;
+    }
     const result = await runSmartTagging({
       title: doc.title,
       author: doc.metadata?.author,

@@ -10,7 +10,7 @@ import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 import { Toolbar } from "../Toolbar";
 import { Tabs } from "../common/Tabs";
-import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer } from "../tabs/TabRegistry";
+import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
 import { CommandCenter } from "../search/CommandCenter";
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
@@ -55,6 +55,7 @@ const TAB_TYPE_ALIASES: Record<string, TabType> = {
   nb: "notebooklm", notebook: "notebooklm", notebooklm: "notebooklm",
   img: "image-registry", images: "image-registry", "image-registry": "image-registry",
   web: "web-browser", browser: "web-browser", "web-browser": "web-browser",
+  "needs-review": "import-needs-review", "import-needs-review": "import-needs-review",
 };
 
 function resolveTabType(input: string): TabType | null {
@@ -571,6 +572,7 @@ export function MainLayout() {
       "doc-qa": { title: "Document Q&A", content: DocumentQATab, closable: true },
       notebooklm: { title: "NotebookLM", content: NotebookLMTab, closable: true },
       "image-registry": { title: "Images", content: ImageRegistryTab, closable: true },
+      "import-needs-review": { title: "Import Needs Review", content: ImportNeedsReviewTab, closable: true },
     };
     if (type === "queue") {
       // "Queue" can mean either the list view or Scroll Mode — reactivate
@@ -1420,4 +1422,3 @@ export function MainLayout() {
     </MobileLayoutWrapper>
   );
 }
-

@@ -185,6 +185,15 @@ pub struct DocumentMetadata {
     /// Smart Tagging provenance and explainability details
     #[serde(default)]
     pub smart_tag_details: Option<Vec<SmartTagDetail>>,
+    /// Bounded browser evidence retained separately from semantic tags.
+    #[serde(default)]
+    pub browser_capture_context: Option<serde_json::Value>,
+    /// Structured browser source/item provenance.
+    #[serde(default)]
+    pub capture_provenance: Option<serde_json::Value>,
+    /// Async Smart Tagging status, fingerprint, and review state.
+    #[serde(default)]
+    pub organization: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
