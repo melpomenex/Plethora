@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -340,30 +340,65 @@ authRouter.post('/devices/:id/revoke', authMiddleware, async (req: AuthRequest, 
 });
 
 // DELETE /v1/auth/account (Proposal 22 - Cascading Account Deletion)
-authRouter.delete('/account', authMiddleware, async (req: AuthRequest, res: Response, next) => {
+// Response semantics are explicit (Change F §1.4):
+//   200 { success: true, deletedAt, message } — account and cloud data fully deleted
+//   404 { error: { code: 'account_not_found' } } — nothing to delete (already gone)
+//   5xx { error: { code: 'deletion_failed', retryable: true } } — cascade failed;
+//       the account remains intact and the client must stay signed in and retry.
+export async function deleteAccountHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  const pool = getPool();
   try {
-    const pool = getPool();
     const userId = req.userId;
+    await pool.query('BEGIN');
+    try {
+      // Delete in sequence (FK cascade also covers dependents)
+      await pool.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM devices WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM webhooks WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM inbox_items WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM sync_records WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM usage_records WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM capability_grants WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM quota_state WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
+      await pool.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
+      const userDelete = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 
-    // Delete in sequence or rely on cascade
-    await pool.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM devices WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM webhooks WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM inbox_items WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM sync_records WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM usage_records WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM capability_grants WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM quota_state WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
-    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+      if (userDelete.rowCount === 0) {
+        await pool.query('ROLLBACK');
+        throw new AppError(404, 'account_not_found', 'No active account exists for this session');
+      }
 
-    res.json({ success: true, message: 'Account and associated cloud data deleted completely.' });
+      await pool.query('COMMIT');
+      res.json({
+        success: true,
+        deletedAt: new Date().toISOString(),
+        message: 'Account and associated cloud data deleted completely.',
+      });
+    } catch (txErr) {
+      try {
+        await pool.query('ROLLBACK');
+      } catch {
+        // Connection already aborted; nothing further to roll back.
+      }
+      throw txErr;
+    }
   } catch (err) {
-    next(err);
+    if (err instanceof AppError) {
+      next(err);
+      return;
+    }
+    // Explicit, retryable failure semantics: never a silent partial delete.
+    next(
+      new AppError(500, 'deletion_failed', 'Account deletion failed. The account remains active; please retry.', {
+        retryable: true,
+      })
+    );
   }
-});
+}
+
+authRouter.delete('/account', authMiddleware, deleteAccountHandler);
 
 // GET /v1/auth/export (Proposal 22 - Portability & Cloud Data Export)
 authRouter.get('/export', authMiddleware, async (req: AuthRequest, res: Response, next) => {

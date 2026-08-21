@@ -15,12 +15,14 @@ import {
   User,
 } from "@phosphor-icons/react";
 import { LoginModal } from "../auth/LoginModal";
+import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { useI18n } from "../../lib/i18n";
 
 export function UserProfilePanel() {
   const { t } = useI18n();
   const { isAuthenticated, user, devices, signOut, loadDevices, revokeDevice } = useAccountStore();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isDeleteFlowOpen, setIsDeleteFlowOpen] = useState(false);
   const plan = useEntitlementStore((state) => state.snapshot.plan);
   const openPaywall = usePaywallStore((state) => state.openPaywall);
 
@@ -181,6 +183,32 @@ export function UserProfilePanel() {
             })}
           </div>
         </div>
+      )}
+
+      {/* Danger Zone — account deletion (reviewer-discoverable within two
+          taps: Settings → Account → Delete Account) */}
+      {isAuthenticated && (
+        <div className="bg-card border border-destructive/20 rounded-lg p-6 space-y-3">
+          <h3 className="text-base font-semibold text-destructive flex items-center gap-2">
+            <Trash className="w-4 h-4" />
+            Delete Account
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Permanently delete your Plethora account and all cloud data. Your local library stays
+            on this device; an Apple subscription is not cancelled.
+          </p>
+          <button
+            onClick={() => setIsDeleteFlowOpen(true)}
+            className="px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg text-sm font-medium transition-colors"
+          >
+            Delete Account…
+          </button>
+        </div>
+      )}
+
+      {/* Delete Account Flow */}
+      {isDeleteFlowOpen && (
+        <DeleteAccountFlow open onClose={() => setIsDeleteFlowOpen(false)} />
       )}
 
       {/* Login Modal */}
