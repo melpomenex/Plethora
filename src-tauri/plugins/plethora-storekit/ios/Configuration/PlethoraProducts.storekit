@@ -1,0 +1,84 @@
+{
+  "identifier" : "8E4F2A1C-6B9D-4E3A-9C21-A1B2C3D4E5F6",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "plethora.local.sandbox",
+    "_developerTeamID" : "LOCAL",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21400000_PLETHORA_PRO_GROUP",
+      "localizations" : [
+
+      ],
+      "name" : "Plethora Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "2140000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Full multi-device cloud sync, AI intelligence, and premium audio synthesis.",
+              "displayName" : "Plethora Pro (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "plethora_pro_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Plethora Pro Monthly",
+          "subscriptionGroupID" : "21400000_PLETHORA_PRO_GROUP",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "79.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "2140000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Save 33% with annual billing. Full multi-device cloud sync, AI intelligence, and premium audio synthesis.",
+              "displayName" : "Plethora Pro (Annual)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "plethora_pro_annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Plethora Pro Annual",
+          "subscriptionGroupID" : "21400000_PLETHORA_PRO_GROUP",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

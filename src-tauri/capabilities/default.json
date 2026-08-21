@@ -43,6 +43,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "plethora-folder-import:default",
+    "plethora-storekit:default",
     "plethora-android-tts:default",
     "plethora-android-genai:default",
     "updater:default",

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-current-entitlements"
+description = "Enables the storekit_current_entitlements command without any pre-configured scope."
+commands.allow = ["storekit_current_entitlements"]
+
+[[permission]]
+identifier = "deny-storekit-current-entitlements"
+description = "Denies the storekit_current_entitlements command without any pre-configured scope."
+commands.deny = ["storekit_current_entitlements"]

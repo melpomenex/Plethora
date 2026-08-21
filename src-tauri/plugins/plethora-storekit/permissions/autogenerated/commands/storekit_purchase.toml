@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-storekit-purchase"
+description = "Enables the storekit_purchase command without any pre-configured scope."
+commands.allow = ["storekit_purchase"]
+
+[[permission]]
+identifier = "deny-storekit-purchase"
+description = "Denies the storekit_purchase command without any pre-configured scope."
+commands.deny = ["storekit_purchase"]

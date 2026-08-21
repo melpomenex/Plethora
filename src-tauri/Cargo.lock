@@ -6372,6 +6372,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plethora-storekit"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "plethora-tauri"
 version = "2.7.0"
 dependencies = [
@@ -6412,6 +6423,7 @@ dependencies = [
  "plethora-android-genai",
  "plethora-android-tts",
  "plethora-folder-import",
+ "plethora-storekit",
  "pulldown-cmark",
  "quick-xml 0.37.5",
  "rand 0.8.6",

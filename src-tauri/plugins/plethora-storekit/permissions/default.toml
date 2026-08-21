@@ -1,0 +1,19 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the StoreKit 2 billing plugin's product/purchase/entitlement/restore
+commands to be invoked from the frontend.
+"""
+permissions = [
+  "allow-storekit-get-products",
+  "allow-storekit-purchase",
+  "allow-storekit-current-entitlements",
+  "allow-storekit-restore",
+  "allow-storekit-start-transaction-listener",
+  "allow-storekit-manage-subscriptions",
+  "allow-storekit-app-account-token",
+  "allow-storekit-set-app-account-token",
+  "allow-register-listener",
+  "allow-remove-listener"
+]

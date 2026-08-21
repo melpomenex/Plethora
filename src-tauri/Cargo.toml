@@ -56,6 +56,11 @@ log = "0.4"
 # folder mode, staging files into app-private storage so the path-based import
 # pipeline can read them. See plugins/plethora-folder-import/.
 plethora-folder-import = { path = "plugins/plethora-folder-import" }
+# In-repo iOS plugin for native StoreKit 2 billing (products, purchase with
+# appAccountToken, verified entitlements, restore, transaction updates,
+# manage-subscriptions). Non-iOS targets return typed UNSUPPORTED errors.
+# See plugins/plethora-storekit/.
+plethora-storekit = { path = "plugins/plethora-storekit" }
 # In-repo mobile plugin for on-device TTS on Android via sherpa-onnx
 # (KittenTTS Micro / Kokoro-82M). The Rust side is a thin shim that registers
 # the Android plugin; the Kotlin side owns inference, AudioTrack playback, audio
