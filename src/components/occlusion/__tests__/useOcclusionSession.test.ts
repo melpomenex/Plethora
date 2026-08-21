@@ -20,7 +20,7 @@ describe("useOcclusionSession", () => {
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
     expect(result.current.hasChanges).toBe(false);
-    expect(result.current.mode).toBe("per-region");
+    expect(result.current.mode).toBe("hide-all");
   });
 
   it("a single committed gesture yields exactly one history entry", () => {

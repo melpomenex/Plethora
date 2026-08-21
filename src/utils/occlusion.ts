@@ -126,7 +126,7 @@ export function zoomViewportAt(
 }
 
 /** Occlusion modes: how a session's regions expand into saved cards. */
-export type OcclusionMode = "per-region" | "hide-all";
+export type OcclusionMode = "hide-all" | "hide-one" | "per-region";
 
 /** A card draft produced by `expandRegionsToCards`. */
 export interface OcclusionCardDraft {
@@ -134,6 +134,8 @@ export interface OcclusionCardDraft {
   hiddenRegions: ImageOcclusionRegion[];
   /** Regions left visible on this card's front face. */
   visibleRegions: ImageOcclusionRegion[];
+  /** The specific region being tested/prompted by this card. */
+  targetRegionId?: string;
   /** Answer text: explicit answer if supplied, else derived from region labels. */
   answer?: string;
 }
@@ -142,42 +144,50 @@ export interface OcclusionCardDraft {
 export interface ExpandRegionsMeta {
   /** Explicit answer text per region id; wins over the region's label. */
   answersByRegionId?: Record<string, string>;
-  /** Explicit answer for the single hide-all card; wins over joined labels. */
+  /** Explicit answer fallback (e.g. single region or custom override). */
   answer?: string;
 }
 
 /**
  * Expand a session's regions into the card drafts it will produce.
  *
- * - `per-region`: one card per usable region; that region alone is hidden,
- *   every other usable region is visible.
- * - `hide-all`: a single card hiding every usable region at once.
+ * - `hide-all`: one card per usable region; all usable regions are hidden on
+ *   the front face to prevent answer leakage, with `targetRegionId` designating
+ *   the active test target.
+ * - `hide-one` (or `per-region`): one card per usable region; that region alone
+ *   is hidden, every other usable region is visible.
  *
  * Zero-area / out-of-bounds regions are excluded (they are dropped on save),
  * so the preview built from this function always matches what is persisted.
- * The answer for a per-region card is the region's label unless an explicit
- * answer is supplied for that region; the hide-all card uses the explicit
- * answer or the joined region labels.
+ * The answer for a card is the target region's label unless an explicit
+ * answer is supplied for that region.
  */
 export function expandRegionsToCards(
   regions: ImageOcclusionRegion[],
-  mode: OcclusionMode,
+  mode: OcclusionMode = "hide-all",
   meta?: ExpandRegionsMeta,
 ): OcclusionCardDraft[] {
   const usable = regions.filter(regionHasUsableArea);
   if (usable.length === 0) return [];
   if (mode === "hide-all") {
-    const explicit = meta?.answer?.trim();
-    const fromLabels = usable
-      .map((r) => r.label?.trim())
-      .filter((label): label is string => Boolean(label))
-      .join(", ");
-    return [{ hiddenRegions: usable, visibleRegions: [], answer: explicit || fromLabels || undefined }];
+    return usable.map((region) => {
+      const explicit =
+        meta?.answersByRegionId?.[region.id ?? ""]?.trim() ||
+        (usable.length === 1 ? meta?.answer?.trim() : undefined);
+      const answer = explicit || region.label?.trim() || undefined;
+      return {
+        targetRegionId: region.id,
+        hiddenRegions: usable,
+        visibleRegions: [],
+        answer,
+      };
+    });
   }
   return usable.map((region) => {
     const explicit = meta?.answersByRegionId?.[region.id ?? ""]?.trim();
     const answer = explicit || region.label?.trim() || undefined;
     return {
+      targetRegionId: region.id,
       hiddenRegions: [region],
       visibleRegions: usable.filter((r) => r !== region),
       answer,

@@ -568,6 +568,56 @@
     return images;
   }
 
+  // Small, structured evidence envelope for Smart Tagging. It intentionally
+  // captures the nearest useful context instead of shipping a second copy of
+  // the page body to the native endpoint.
+  function captureBrowserContext(root, selectedText = '') {
+    const headings = [];
+    const anchor = selectedText ? window.getSelection()?.anchorNode : null;
+    let node = anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
+    while (node && headings.length < 6) {
+      const heading = node.matches?.('h1, h2, h3, h4, h5, h6')
+        ? node
+        : node.querySelector?.('h1, h2, h3, h4, h5, h6');
+      const text = heading?.textContent?.trim();
+      if (text && !headings.includes(text)) headings.unshift(text);
+      node = node.parentElement;
+    }
+    if (headings.length === 0) {
+      root?.querySelectorAll?.('h1, h2, h3, h4, h5, h6').forEach((heading) => {
+        const text = heading.textContent?.trim();
+        if (text && headings.length < 12) headings.push(text);
+      });
+    }
+
+    const nearbyRoot = anchor?.parentElement || root;
+    const nearbyText = (nearbyRoot?.textContent || root?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const captionParts = Array.from((nearbyRoot || root || document).querySelectorAll?.('figcaption, img[alt], img[title]') || [])
+      .slice(0, 12)
+      .map((element) => element.textContent?.trim() || element.getAttribute?.('alt') || element.getAttribute?.('title') || '')
+      .filter(Boolean);
+    const author = document.querySelector('[rel="author"], [itemprop="author"], .author, .byline')?.textContent?.trim();
+    const context = {
+      version: 1,
+      sourceUrl: window.location.href,
+      domain: window.location.hostname.replace(/^www\./i, ''),
+      pageTitle: document.title?.trim(),
+      author,
+      headingPath: headings.slice(0, 12),
+      nearbyText: selectedText
+        ? nearbyText.slice(Math.max(0, nearbyText.indexOf(selectedText) - 700), nearbyText.indexOf(selectedText) + selectedText.length + 700)
+        : nearbyText.slice(0, 1800),
+      captionAltText: captionParts.join(' ').slice(0, 1200),
+      contentKind: root?.matches?.('article, [itemprop="articleBody"], main, [role="main"]') ? 'article' : 'page',
+      selector: selectedText && window.getSelection()?.anchorNode ? getElementSelector(window.getSelection().anchorNode) : undefined
+    };
+    return globalThis.IncrementumExtensionShared?.normalizeCaptureContext
+      ? globalThis.IncrementumExtensionShared.normalizeCaptureContext(context)
+      : context;
+  }
+
   function getPageContent() {
     try {
       const root = getPrimaryContentRoot();
@@ -613,7 +663,8 @@
         text,
         title,
         html_content: htmlContent || undefined,
-        extracted_images: extractedImages
+        extracted_images: extractedImages,
+        capture_context: captureBrowserContext(root)
       };
     } catch (error) {
       console.error('Error extracting page content:', error);
@@ -621,7 +672,8 @@
         text: normalizeArticleText(document.body.innerText || document.body.textContent || `Title: ${document.title}\nURL: ${window.location.href}`),
         title: document.title?.trim() || window.location.hostname,
         html_content: undefined,
-        extracted_images: []
+        extracted_images: [],
+        capture_context: captureBrowserContext(document.body)
       };
     }
   }
@@ -741,7 +793,8 @@
         initial_difficulty: calculateInitialDifficulty(text, analysis),
         initial_stability: calculateInitialStability(text, analysis),
         estimated_review_time: estimateReviewTime(text, analysis)
-      }
+      },
+      capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
     };
 
     pageExtracts.push(extractData);
@@ -1426,7 +1479,8 @@
         endOffset: range.endOffset,
         startContainer: getElementPath(range.startContainer),
         endContainer: getElementPath(range.endContainer)
-      }
+      },
+      capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
     };
     
     pageExtracts.push(extractData);
@@ -2258,7 +2312,9 @@
             fileName,
             question: prompt.value.trim(),
             answer: answer.value.trim(),
-            regions
+            regions,
+            capture_context: captureBrowserContext(getPrimaryContentRoot(), prompt.value.trim()),
+            title: document.title
           }
         });
         if (!result?.success) {
@@ -2382,6 +2438,34 @@
       case 'getPageContent':
         const content = getPageContent();
         sendResponse({ success: true, content: content.text, page: content });
+        break;
+
+      case 'getCaptureContext':
+        sendResponse({
+          success: true,
+          capture_context: captureBrowserContext(getPrimaryContentRoot(), message.selectedText || '')
+        });
+        break;
+
+      case 'serializeImageUrl':
+        (async () => {
+          try {
+            const response = await fetch(message.imageUrl);
+            if (!response.ok) throw new Error(`Image request failed (${response.status})`);
+            const blob = await response.blob();
+            const dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.addEventListener('load', () => resolve(reader.result), { once: true });
+              reader.addEventListener('error', () => reject(reader.error || new Error('Could not read image')), {
+                once: true
+              });
+              reader.readAsDataURL(blob);
+            });
+            sendResponse({ success: true, dataUrl });
+          } catch (error) {
+            sendResponse({ success: false, error: error?.message || 'Could not read image' });
+          }
+        })();
         break;
 
       case 'analyzePageStructure':

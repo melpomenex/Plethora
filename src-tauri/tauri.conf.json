@@ -87,6 +87,17 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["plethora"]
+      },
+      "mobile": [
+        {
+          "scheme": ["plethora"],
+          "appLink": false
+        }
+      ]
+    },
     "updater": {
       "active": true,
       "endpoints": [

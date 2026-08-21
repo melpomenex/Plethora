@@ -227,7 +227,7 @@ export function useOcclusionSession(options?: UseOcclusionSessionOptions) {
     return {
       ...initial,
       selection: [],
-      mode: opts?.initialMode ?? "per-region",
+      mode: opts?.initialMode ?? "hide-all",
       viewport: opts?.initialViewport ?? DEFAULT_OCCLUSION_VIEWPORT,
       past: [],
       future: [],

@@ -176,59 +176,77 @@ describe("expandRegionsToCards", () => {
   const b: ImageOcclusionRegion = { id: "b", x: 20, y: 20, width: 10, height: 10, label: "amygdala" };
   const c: ImageOcclusionRegion = { id: "c", x: 40, y: 40, width: 10, height: 10 };
 
-  it("produces one card per region with the region hidden and the rest visible", () => {
-    const cards = expandRegionsToCards([a, b, c], "per-region");
+  it("produces one card per region in hide-one mode with only target hidden and siblings visible", () => {
+    const cards = expandRegionsToCards([a, b, c], "hide-one");
     expect(cards).toHaveLength(3);
+    expect(cards[0].targetRegionId).toBe("a");
     expect(cards[0].hiddenRegions).toEqual([a]);
     expect(cards[0].visibleRegions).toEqual([b, c]);
+    expect(cards[0].answer).toBe("hippocampus");
+
+    expect(cards[1].targetRegionId).toBe("b");
     expect(cards[1].hiddenRegions).toEqual([b]);
     expect(cards[1].visibleRegions).toEqual([a, c]);
+    expect(cards[1].answer).toBe("amygdala");
+
+    expect(cards[2].targetRegionId).toBe("c");
     expect(cards[2].hiddenRegions).toEqual([c]);
     expect(cards[2].visibleRegions).toEqual([a, b]);
+    expect(cards[2].answer).toBeUndefined();
   });
 
-  it("uses the hidden region's label as the answer", () => {
-    const cards = expandRegionsToCards([a, b], "per-region");
-    expect(cards[0].answer).toBe("hippocampus");
-    expect(cards[1].answer).toBe("amygdala");
-  });
-
-  it("prefers an explicit answer over the region label", () => {
-    const cards = expandRegionsToCards([a], "per-region", {
-      answersByRegionId: { a: "explicit answer" },
-    });
-    expect(cards[0].answer).toBe("explicit answer");
-  });
-
-  it("leaves the answer undefined when neither label nor explicit answer exists", () => {
-    const cards = expandRegionsToCards([c], "per-region");
-    expect(cards[0].answer).toBeUndefined();
-  });
-
-  it("produces a single hide-all card hiding every region", () => {
+  it("produces one card per region in hide-all mode with all regions hidden and distinct targetRegionId", () => {
     const cards = expandRegionsToCards([a, b, c], "hide-all");
-    expect(cards).toHaveLength(1);
+    expect(cards).toHaveLength(3);
+    expect(cards[0].targetRegionId).toBe("a");
     expect(cards[0].hiddenRegions).toEqual([a, b, c]);
     expect(cards[0].visibleRegions).toEqual([]);
+    expect(cards[0].answer).toBe("hippocampus");
+
+    expect(cards[1].targetRegionId).toBe("b");
+    expect(cards[1].hiddenRegions).toEqual([a, b, c]);
+    expect(cards[1].visibleRegions).toEqual([]);
+    expect(cards[1].answer).toBe("amygdala");
+
+    expect(cards[2].targetRegionId).toBe("c");
+    expect(cards[2].hiddenRegions).toEqual([a, b, c]);
+    expect(cards[2].visibleRegions).toEqual([]);
+    expect(cards[2].answer).toBeUndefined();
   });
 
-  it("derives the hide-all answer from joined labels and prefers the explicit answer", () => {
-    const joined = expandRegionsToCards([a, b], "hide-all");
-    expect(joined[0].answer).toBe("hippocampus, amygdala");
-    const explicit = expandRegionsToCards([a, b], "hide-all", { answer: "whole image" });
-    expect(explicit[0].answer).toBe("whole image");
+  it("supports per-region as an alias for hide-one", () => {
+    const cards = expandRegionsToCards([a, b], "per-region");
+    expect(cards).toHaveLength(2);
+    expect(cards[0].targetRegionId).toBe("a");
+    expect(cards[0].hiddenRegions).toEqual([a]);
+    expect(cards[0].visibleRegions).toEqual([b]);
+  });
+
+  it("prefers explicit answer over region label in both modes", () => {
+    const hideAllCards = expandRegionsToCards([a, b], "hide-all", {
+      answersByRegionId: { a: "explicit A" },
+    });
+    expect(hideAllCards[0].answer).toBe("explicit A");
+    expect(hideAllCards[1].answer).toBe("amygdala");
+
+    const hideOneCards = expandRegionsToCards([a, b], "hide-one", {
+      answersByRegionId: { b: "explicit B" },
+    });
+    expect(hideOneCards[0].answer).toBe("hippocampus");
+    expect(hideOneCards[1].answer).toBe("explicit B");
   });
 
   it("returns no cards when every region is unusable", () => {
-    expect(expandRegionsToCards([{ x: 0, y: 0, width: 0, height: 0 }], "per-region")).toEqual([]);
+    expect(expandRegionsToCards([{ x: 0, y: 0, width: 0, height: 0 }], "hide-one")).toEqual([]);
     expect(expandRegionsToCards([{ x: 110, y: 0, width: 10, height: 10 }], "hide-all")).toEqual([]);
-    expect(expandRegionsToCards([], "per-region")).toEqual([]);
+    expect(expandRegionsToCards([], "hide-all")).toEqual([]);
   });
 
   it("excludes zero-area and out-of-bounds regions from card output", () => {
     const bad: ImageOcclusionRegion = { id: "bad", x: 95, y: 0, width: 20, height: 10 };
-    const cards = expandRegionsToCards([a, bad], "per-region");
+    const cards = expandRegionsToCards([a, bad], "hide-all");
     expect(cards).toHaveLength(1);
+    expect(cards[0].targetRegionId).toBe("a");
     expect(cards[0].hiddenRegions).toEqual([a]);
   });
 });

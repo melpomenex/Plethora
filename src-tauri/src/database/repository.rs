@@ -64,6 +64,26 @@ pub struct Repository {
     pool: Pool<Sqlite>,
 }
 
+/// Decode one `image_assets` row into an `ImageAsset`. Centralized so the four
+/// image-asset read methods stay in sync.
+fn row_to_image_asset(row: &SqliteRow) -> ImageAsset {
+    ImageAsset {
+        id: row.try_get("id").unwrap_or_default(),
+        mime_type: row
+            .try_get("mime_type")
+            .unwrap_or_else(|_| "image/png".to_string()),
+        file_name: row.try_get("file_name").ok(),
+        content: row.try_get("content").unwrap_or_default(),
+        byte_size: row.try_get("byte_size").unwrap_or_default(),
+        sha256: row.try_get("sha256").unwrap_or_default(),
+        width: row.try_get("width").ok(),
+        height: row.try_get("height").ok(),
+        created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
+        updated_at: row.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
+        metadata: row.try_get("metadata").ok(),
+    }
+}
+
 impl Repository {
     pub fn new(pool: Pool<Sqlite>) -> Self {
         Self { pool }
@@ -130,8 +150,7 @@ impl Repository {
     /// Decode one `learning_items` row into a `LearningItem`. Centralized so the
     /// four read methods stay in sync (and so the `updated_at` sync-clock field
     /// is mapped consistently — it is `None` on legacy rows until next review).
-    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {
-        let item_type_str: String = row.try_get("item_type")?;
+    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {        let item_type_str: String = row.try_get("item_type")?;
         let state_str: String = row.try_get("state")?;
         let tags_json: String = row.try_get("tags")?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
@@ -2042,8 +2061,8 @@ impl Repository {
                 next_review_date = ?11, last_review_date = ?12,
                 review_count = ?13, reps = ?14,
                 progressive_disclosure_level = ?15, max_disclosure_level = ?16,
-                progressive_summaries = ?17
-            WHERE id = ?18
+                progressive_summaries = ?17, selection_context = ?18
+            WHERE id = ?19
             "#,
         )
         .bind(&extract.content)
@@ -2063,6 +2082,13 @@ impl Repository {
         .bind(extract.progressive_disclosure_level)
         .bind(extract.max_disclosure_level)
         .bind(&progressive_summaries_json)
+        .bind(
+            &extract
+                .selection_context
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
         .bind(&extract.id)
         .execute(&self.pool)
         .await?;
@@ -2972,6 +2998,7 @@ impl Repository {
             height,
             created_at: now,
             updated_at: now,
+            metadata: None,
         })
     }
 
@@ -2981,20 +3008,7 @@ impl Repository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(row.map(|r| ImageAsset {
-            id: r.try_get("id").unwrap_or_default(),
-            mime_type: r
-                .try_get("mime_type")
-                .unwrap_or_else(|_| "image/png".to_string()),
-            file_name: r.try_get("file_name").ok(),
-            content: r.try_get("content").unwrap_or_default(),
-            byte_size: r.try_get("byte_size").unwrap_or_default(),
-            sha256: r.try_get("sha256").unwrap_or_default(),
-            width: r.try_get("width").ok(),
-            height: r.try_get("height").ok(),
-            created_at: r.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            updated_at: r.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
-        }))
+        Ok(row.map(|row| row_to_image_asset(&row)))
     }
 
     pub async fn list_image_assets(&self) -> Result<Vec<ImageAsset>> {
@@ -3002,23 +3016,7 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| ImageAsset {
-                id: r.try_get("id").unwrap_or_default(),
-                mime_type: r
-                    .try_get("mime_type")
-                    .unwrap_or_else(|_| "image/png".to_string()),
-                file_name: r.try_get("file_name").ok(),
-                content: r.try_get("content").unwrap_or_default(),
-                byte_size: r.try_get("byte_size").unwrap_or_default(),
-                sha256: r.try_get("sha256").unwrap_or_default(),
-                width: r.try_get("width").ok(),
-                height: r.try_get("height").ok(),
-                created_at: r.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-                updated_at: r.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
-            })
-            .collect())
+        Ok(rows.into_iter().map(|row| row_to_image_asset(&row)).collect())
     }
 
     pub async fn list_image_assets_with_usage(&self) -> Result<Vec<ImageAssetWithUsage>> {
@@ -3058,10 +3056,31 @@ impl Repository {
                     height: r.try_get("height").ok(),
                     created_at: r.try_get("created_at").unwrap_or_else(|_| Utc::now()),
                     updated_at: r.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
+                    metadata: r.try_get("metadata").ok(),
                 },
                 reference_count: r.try_get("reference_count").unwrap_or_default(),
             })
             .collect())
+    }
+
+    /// Persist bounded browser metadata (capture context, provenance, smart
+    /// organization state) on an image asset. Returns whether a row matched.
+    pub async fn update_image_asset_metadata(&self, id: &str, metadata: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE image_assets SET
+                metadata = ?1,
+                updated_at = ?2
+            WHERE id = ?3
+            "#,
+        )
+        .bind(metadata)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     /// Rename an image asset's display name.
@@ -3116,7 +3135,7 @@ impl Repository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn get_image_asset_by_sha256(&self, sha256: &str) -> Result<Option<ImageAsset>> {
+    pub async fn get_image_asset_by_sha256(&self, sha256: &str) -> Result<Option<ImageAsset>> {
         let row = sqlx::query("SELECT * FROM image_assets WHERE sha256 = ?1 LIMIT 1")
             .bind(sha256)
             .fetch_optional(&self.pool)
@@ -3135,6 +3154,7 @@ impl Repository {
             height: r.try_get("height").ok(),
             created_at: r.try_get("created_at").unwrap_or_else(|_| Utc::now()),
             updated_at: r.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
+            metadata: r.try_get("metadata").ok(),
         }))
     }
 

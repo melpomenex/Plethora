@@ -53,15 +53,20 @@ describe("ImageOcclusionComposer", () => {
   it("preview card count tracks the mode and region changes", async () => {
     setup([regionA, regionB]);
     await waitFor(() => expect(screen.getByTestId("region-list-row-1")).toBeInTheDocument());
-    // per-region default: two regions -> two cards
+    // hide-all default: two regions -> two cards, each masking all regions
     expect(screen.getByText(/Card 1 of 2/)).toBeInTheDocument();
-    // hide-all -> one card with both regions masked
-    fireEvent.click(screen.getByTestId("mode-hide-all"));
-    expect(screen.getByText(/Card 1 of 1/)).toBeInTheDocument();
     expect(screen.getAllByTestId("occlusion-preview-mask")).toHaveLength(2);
-    // back to per-region
-    fireEvent.click(screen.getByTestId("mode-per-region"));
+
+    // switch to hide-one -> two cards, but each masks only its target
+    fireEvent.click(screen.getByTestId("mode-hide-one"));
     expect(screen.getByText(/Card 1 of 2/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("occlusion-preview-mask")).toHaveLength(1);
+
+    // back to hide-all
+    fireEvent.click(screen.getByTestId("mode-hide-all"));
+    expect(screen.getByText(/Card 1 of 2/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("occlusion-preview-mask")).toHaveLength(2);
+
     // deleting a region shrinks the count
     fireEvent.click(screen.getByLabelText(/Delete 2/));
     expect(screen.getByText(/Card 1 of 1/)).toBeInTheDocument();
@@ -85,7 +90,7 @@ describe("ImageOcclusionComposer", () => {
     const payload = onSave.mock.calls[0][0];
     expect(payload.regions.map((r) => r.id)).toEqual(["a"]);
     expect(payload.cards).toHaveLength(1);
-    expect(payload.mode).toBe("per-region");
+    expect(payload.mode).toBe("hide-all");
     expect(payload.documentId).toBe("doc-1");
     expect(payload.deckId).toBe("deck-1");
   });

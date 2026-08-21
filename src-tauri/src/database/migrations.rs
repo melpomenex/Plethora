@@ -3768,6 +3768,16 @@ pub const MIGRATIONS: &[Migration] = &[
             ON language_practice_attempts(profile_id, media_id, start_ms, end_ms);
         "#,
     ),
+    // Migration 102: retain bounded browser-capture evidence, provenance, and
+    // smart-organization state on registry image assets so browser-imported
+    // images flow through the same deterministic/LLM tagging pipeline as
+    // documents, extracts, and learning items.
+    Migration::new(
+        "102_image_asset_browser_metadata",
+        r#"
+        ALTER TABLE image_assets ADD COLUMN metadata TEXT;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

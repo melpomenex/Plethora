@@ -69,16 +69,20 @@ export function OcclusionCardPreview({
 
   const card = cards[index];
   const hidden = card.hiddenRegions;
-  const hiddenRegionId = hidden[0]?.id ?? "";
-  const explicitAnswer =
-    mode === "hide-all" ? answers.hideAll ?? "" : answers.byRegionId[hiddenRegionId] ?? "";
-  const label = mode === "hide-all" ? undefined : hidden[0]?.label;
+  const targetId = card.targetRegionId || hidden[0]?.id || "";
+  const targetRegion = regions.find((r) => r.id === targetId) ?? hidden[0];
+  const explicitAnswer = answers.byRegionId[targetId] ?? (mode === "hide-all" ? answers.hideAll ?? "" : "");
+  const label = targetRegion?.label;
 
   const setExplicitAnswer = (value: string) => {
-    if (mode === "hide-all") {
+    if (targetId) {
+      onAnswersChange({
+        ...answers,
+        byRegionId: { ...answers.byRegionId, [targetId]: value },
+        hideAll: mode === "hide-all" ? value : answers.hideAll,
+      });
+    } else if (mode === "hide-all") {
       onAnswersChange({ ...answers, hideAll: value });
-    } else {
-      onAnswersChange({ ...answers, byRegionId: { ...answers.byRegionId, [hiddenRegionId]: value } });
     }
   };
 
@@ -122,20 +126,33 @@ export function OcclusionCardPreview({
           draggable={false}
         />
         {face === "front" &&
-          hidden.map((region, i) => (
-            <div
-              key={region.id || i}
-              data-testid="occlusion-preview-mask"
-              className="absolute bg-slate-950"
-              style={{
-                left: `${region.x}%`,
-                top: `${region.y}%`,
-                width: `${region.width}%`,
-                height: `${region.height}%`,
-                backgroundColor: region.color || "#0f172a",
-              }}
-            />
-          ))}
+          hidden.map((region, i) => {
+            const isTarget = region.id ? region.id === targetId : i === 0;
+            return (
+              <div
+                key={region.id || i}
+                data-testid="occlusion-preview-mask"
+                data-target={isTarget ? "true" : undefined}
+                className={cn(
+                  "absolute flex items-center justify-center rounded-sm bg-slate-950",
+                  isTarget ? "border-2 border-primary shadow-sm" : "border border-white/20",
+                )}
+                style={{
+                  left: `${region.x}%`,
+                  top: `${region.y}%`,
+                  width: `${region.width}%`,
+                  height: `${region.height}%`,
+                  backgroundColor: region.color || "#0f172a",
+                }}
+              >
+                {isTarget && (
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                    ?
+                  </span>
+                )}
+              </div>
+            );
+          })}
       </div>
 
       {face === "back" && (

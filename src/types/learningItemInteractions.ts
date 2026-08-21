@@ -16,6 +16,10 @@ export interface ImageOcclusionRegion {
 }
 
 export interface LearningItemInteractionMetadata {
+  /** Versioned browser capture evidence; kept out of semantic tag arrays. */
+  browserCaptureContext?: import("../lib/smartTagging/browserImportOrganization").BrowserCaptureContext;
+  /** Browser organization state and per-item user authority. */
+  organization?: import("../lib/smartTagging/browserImportOrganization").BrowserOrganizationMetadata;
   /** UI surface that created the item (e.g. "dictionary-peek"). */
   origin?: string;
   /** Bounded source sentence/passage preserved as creation context. */
@@ -38,6 +42,9 @@ export interface LearningItemInteractionMetadata {
   imageOcclusionAssetId?: string;
   imageOcclusionRegions?: ImageOcclusionRegion[];
   imageOcclusionPrompt?: string;
+  occlusionSetId?: string;
+  targetRegionId?: string;
+  occlusionMode?: "hide-all" | "hide-one" | "per-region";
   /** Language-learning provenance fields used by explicit vocabulary/phrase drafts. */
   languageDraftKey?: string;
   languageProfileId?: string;

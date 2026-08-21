@@ -20,6 +20,7 @@ let FLASHCARD_TYPES = ['qa', 'cloze'];
 let FLASHCARD_COUNT = 5;
 let keepAliveCount = 0;
 const PENDING_EXTRACTS_KEY = 'pendingExtracts';
+const PENDING_OCCLUSION_HANDOFFS_KEY = 'pendingOcclusionHandoffs';
 // Registrations of successfully created extracts that the background still
 // owes to a tab's content script (context-menu / quick-extract flow). Kept in
 // chrome.storage.local so a service-worker restart between the server create
@@ -97,6 +98,17 @@ async function getPendingExtracts() {
 
 async function setPendingExtracts(items) {
   await chrome.storage.local.set({ [PENDING_EXTRACTS_KEY]: items });
+}
+
+async function getPendingOcclusionHandoffs() {
+  const stored = await chrome.storage.local.get(PENDING_OCCLUSION_HANDOFFS_KEY);
+  return Array.isArray(stored[PENDING_OCCLUSION_HANDOFFS_KEY])
+    ? stored[PENDING_OCCLUSION_HANDOFFS_KEY]
+    : [];
+}
+
+async function setPendingOcclusionHandoffs(items) {
+  await chrome.storage.local.set({ [PENDING_OCCLUSION_HANDOFFS_KEY]: items });
 }
 
 async function getPendingExtractRegistrations() {
@@ -303,6 +315,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
+  await flushQueuedOcclusionHandoffsIfPossible();
   await flushPendingExtractRegistrations();
 });
 
@@ -311,6 +324,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureSettingsLoaded();
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
+  await flushQueuedOcclusionHandoffsIfPossible();
   await flushPendingExtractRegistrations();
 });
 
@@ -364,8 +378,8 @@ function createContextMenus() {
     });
 
     chrome.contextMenus.create({
-      id: 'ai-image-occlusion',
-      title: '🖼️ Create image occlusion card',
+      id: 'create-image-occlusion',
+      title: 'Create Image Occlusion in Plethora',
       contexts: ['image']
     });
   });
@@ -408,8 +422,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       await processSelectionWithAI('flashcards', info.selectionText, tab);
       break;
 
-    case 'ai-image-occlusion':
-      await openImageOcclusionEditor(info.srcUrl, tab);
+    case 'create-image-occlusion':
+      await createImageOcclusionFromBrowser(info, tab);
       break;
   }
 });
@@ -444,6 +458,219 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+function imageFileName(imageUrl, fallback = 'browser-image') {
+  try {
+    const parsed = new URL(imageUrl);
+    const name = decodeURIComponent(parsed.pathname.split('/').pop() || '').trim();
+    return name || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function dataUrlToImagePayload(dataUrl, fileName) {
+  const match = /^data:(image\/[\w.+-]+)?;base64,(.+)$/s.exec(dataUrl || '');
+  if (!match) {
+    throw new Error('The selected image could not be read.');
+  }
+  const mimeType = match[1] || 'image/png';
+  const base64 = match[2].replace(/\s+/g, '');
+  const shared = globalThis.IncrementumExtensionShared;
+  const sizeCheck = shared.validateImageDecodedSize(shared.estimateBase64DecodedBytes(base64));
+  if (!sizeCheck.ok) {
+    throw new Error(sizeCheck.message);
+  }
+  return { image_base64: base64, mime_type: mimeType, file_name: fileName };
+}
+
+async function captureBrowserImage(imageUrl, tab) {
+  if (!imageUrl) throw new Error('Could not identify the selected image.');
+
+  // Ask the content script first so authenticated page-local resources and
+  // blob URLs are read with the page's session. Restricted pages may not have
+  // a content script; ordinary URLs then fall back to the worker fetch path.
+  let pageResult = null;
+  if (tab?.id) {
+    try {
+      pageResult = await safeSendTabMessage(tab.id, { action: 'serializeImageUrl', imageUrl });
+    } catch {
+      pageResult = null;
+    }
+  }
+  if (pageResult?.dataUrl) {
+    return dataUrlToImagePayload(pageResult.dataUrl, imageFileName(imageUrl));
+  }
+  if (imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
+    if (imageUrl.startsWith('data:')) {
+      return dataUrlToImagePayload(imageUrl, imageFileName(imageUrl));
+    }
+    throw new Error('The page-local image could not be read.');
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Could not download image (${response.status})`);
+  }
+  const blob = await response.blob();
+  const shared = globalThis.IncrementumExtensionShared;
+  if (blob.type && !blob.type.startsWith('image/')) {
+    throw new Error('The selected resource is not a supported image.');
+  }
+  const sizeCheck = shared.validateImageDecodedSize(blob.size);
+  if (!sizeCheck.ok) {
+    throw new Error(sizeCheck.message);
+  }
+  return {
+    image_base64: arrayBufferToBase64(await blob.arrayBuffer()),
+    mime_type: blob.type || 'image/png',
+    file_name: imageFileName(imageUrl)
+  };
+}
+
+async function postImageRegistryIngest(payload) {
+  await ensureSettingsLoaded();
+  const endpoint = `${PLETHORA_BASE_URL}/api/image-registry/ingest`;
+  const requestBody = JSON.stringify(payload);
+  const budgetCheck = globalThis.IncrementumExtensionShared.checkRequestBudget(requestBody);
+  if (!budgetCheck.ok) {
+    const error = new Error(`The image is too large to send. ${budgetCheck.message}`);
+    error.retryable = false;
+    throw error;
+  }
+  const post = async (target) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      return await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  let response;
+  let requestEndpoint = endpoint;
+  try {
+    response = await post(endpoint);
+  } catch (firstError) {
+    const alternate = new URL(endpoint);
+    if (alternate.hostname === '127.0.0.1') alternate.hostname = 'localhost';
+    else if (alternate.hostname === 'localhost') alternate.hostname = '127.0.0.1';
+    else {
+      firstError.retryable = true;
+      throw firstError;
+    }
+    requestEndpoint = alternate.toString();
+    try {
+      response = await post(requestEndpoint);
+    } catch (secondError) {
+      secondError.retryable = true;
+      throw secondError;
+    }
+  }
+
+  const rawBody = await response.text().catch(() => '');
+  let result = {};
+  try {
+    result = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    result = {};
+  }
+  if (!response.ok || !result.success) {
+    const message = result.error || rawBody || `Plethora returned ${response.status}`;
+    const error = new Error(message);
+    error.retryable = response.status >= 500 || response.status === 408 || response.status === 429;
+    throw error;
+  }
+  return { ...result, requestEndpoint };
+}
+
+function createOcclusionHandoffPayload(image, tab, captureContext) {
+  return {
+    ...image,
+    source_url: tab?.url,
+    title: tab?.title || 'Browser image',
+    capture_context: captureContext,
+    open_composer: true
+  };
+}
+
+async function queueOcclusionHandoff(payload, tabId) {
+  const pending = await getPendingOcclusionHandoffs();
+  pending.push({ ...payload, tabId, queuedAt: new Date().toISOString() });
+  await setPendingOcclusionHandoffs(pending);
+}
+
+async function flushQueuedOcclusionHandoffs() {
+  const pending = await getPendingOcclusionHandoffs();
+  if (pending.length === 0) return { success: true, flushed: 0, remaining: 0 };
+  const remaining = [];
+  let flushed = 0;
+  for (const item of pending) {
+    try {
+      await postImageRegistryIngest(item);
+      flushed += 1;
+      await sendInPageToast(item.tabId, true, 'Plethora is opening the image occlusion composer.');
+    } catch (error) {
+      remaining.push(item);
+      if (error?.retryable !== true) break;
+    }
+  }
+  await setPendingOcclusionHandoffs(remaining);
+  return { success: true, flushed, remaining: remaining.length };
+}
+
+async function flushQueuedOcclusionHandoffsIfPossible() {
+  const pending = await getPendingOcclusionHandoffs();
+  if (pending.length === 0) return { success: true, flushed: 0, remaining: 0 };
+  return flushQueuedOcclusionHandoffs();
+}
+
+async function createImageOcclusionFromBrowser(info, tab) {
+  if (!info?.srcUrl || !tab?.id) {
+    await sendInPageToast(tab?.id, false, 'Could not identify the selected image.');
+    return { success: false, error: 'Could not identify the selected image.' };
+  }
+
+  let payload;
+  try {
+    const captureContext = (await safeSendTabMessage(tab.id, {
+      action: 'getCaptureContext',
+      selectedText: ''
+    }))?.capture_context || {
+      version: 1,
+      sourceUrl: tab.url,
+      pageTitle: tab.title,
+      contentKind: 'image'
+    };
+    const image = await captureBrowserImage(info.srcUrl, tab);
+    payload = createOcclusionHandoffPayload(image, tab, captureContext);
+  } catch (error) {
+    const message = error?.message || 'Could not capture the selected image.';
+    await sendInPageToast(tab.id, false, message);
+    return { success: false, error: message };
+  }
+
+  try {
+    const result = await postImageRegistryIngest(payload);
+    await sendInPageToast(tab.id, true, 'Image captured. Plethora is opening the occlusion composer.');
+    return result;
+  } catch (error) {
+    if (error?.retryable !== true) {
+      const message = error?.message || 'Plethora could not save the selected image.';
+      await sendInPageToast(tab.id, false, message);
+      return { success: false, error: message };
+    }
+    await queueOcclusionHandoff(payload, tab.id);
+    await sendInPageToast(tab.id, true, 'Plethora is closed. The image is queued and will open when Plethora is launched.');
+    return { success: true, queued: true };
+  }
+}
+
 async function createImageOcclusionCard(data, senderTabId) {
   await loadSettings();
   try {
@@ -467,7 +694,13 @@ async function createImageOcclusionCard(data, senderTabId) {
       question: data.question,
       answer: data.answer || '',
       regions: data.regions,
-      source_url: data.pageUrl
+      source_url: data.pageUrl,
+      title: data.title,
+      capture_context: globalThis.IncrementumExtensionShared?.buildCaptureContext?.({
+        ...(data.capture_context || {}),
+        url: data.pageUrl,
+        title: data.title
+      })
     });
 
     // The 7 MB check above bounds the DECODED image; base64 encoding alone
@@ -640,6 +873,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             html_content: extract.html_content, // Include rich HTML content
             type: 'extract',
             context: extract.context,
+            capture_context: extract.capture_context,
             tags: extract.tags,
             priority: extract.priority,
             analysis: extract.analysis,
@@ -995,7 +1229,19 @@ async function capturePageContentFallback(tabId) {
           text,
           title: document.title || location.hostname,
           html_content: html.length <= 4 * 1024 * 1024 ? html : undefined,
-          extracted_images: images
+          extracted_images: images,
+          capture_context: {
+            version: 1,
+            sourceUrl: window.location.href,
+            domain: window.location.hostname.replace(/^www\./i, ''),
+            pageTitle: document.title || location.hostname,
+            headingPath: Array.from(root?.querySelectorAll?.('h1, h2, h3, h4, h5, h6') || [])
+              .slice(0, 12)
+              .map((heading) => (heading.textContent || '').trim())
+              .filter(Boolean),
+            nearbyText: text.slice(0, 1800),
+            contentKind: root?.matches?.('article, main, [role="main"]') ? 'article' : 'page'
+          }
         };
       }
     });
@@ -1085,6 +1331,7 @@ async function savePage(url, title, tabId = null) {
     let pageContent = '';
     let pageHtml = undefined;
     let extractedImages = undefined;
+    let captureContext = undefined;
 
     if (resolvedTabId) {
       try {
@@ -1096,6 +1343,7 @@ async function savePage(url, title, tabId = null) {
           pageContent = response.page?.text || response.content || '';
           pageHtml = response.page?.html_content;
           extractedImages = response.page?.extracted_images;
+          captureContext = response.page?.capture_context;
         }
       } catch (error) {
         console.error('[DEBUG] Could not get content from content script:', error.message);
@@ -1108,6 +1356,7 @@ async function savePage(url, title, tabId = null) {
         pageContent = fallback.text || '';
         pageHtml = fallback.html_content;
         extractedImages = fallback.extracted_images;
+        captureContext = fallback.capture_context;
         title = fallback.title || title;
       }
     }
@@ -1121,6 +1370,7 @@ async function savePage(url, title, tabId = null) {
       text: pageContent,
       html_content: pageHtml,
       extracted_images: extractedImages,
+      capture_context: captureContext,
       type: 'page'
     };
     const result = await sendToIncrementum(payload);
@@ -1147,7 +1397,16 @@ async function createExtractFromSelection(selectedText, tab) {
   if (!text) {
     return { success: false, error: 'No selection provided' };
   }
-  const payload = { url: tab.url, title: tab.title, text, type: 'extract' };
+  const pageContext = tab?.id
+    ? await safeSendTabMessage(tab.id, { action: 'getCaptureContext', selectedText: text })
+    : null;
+  const payload = {
+    url: tab.url,
+    title: tab.title,
+    text,
+    capture_context: pageContext?.capture_context,
+    type: 'extract'
+  };
   const result = await sendToIncrementum(payload);
   if (!result.success && isRetryableConnectionError(result)) {
     const queuedItem = await queueExtractForSync(payload);
@@ -1406,7 +1665,8 @@ async function processSelectionWithAI(operation, selectedText, tab) {
       save_flashcards: operation === 'flashcards',
       card_types: operation === 'flashcards' ? FLASHCARD_TYPES : undefined,
       url: tab.url,
-      title: tab.title
+      title: tab.title,
+      capture_context: (await safeSendTabMessage(tab.id, { action: 'getCaptureContext', selectedText: content }))?.capture_context
     });
 
     if (!result?.success) {
@@ -1554,7 +1814,8 @@ async function requestAIAnalysis(data) {
       save_flashcards: Boolean(data.save_flashcards),
       card_types: Array.isArray(data.card_types) ? data.card_types : undefined,
       url: data.url,
-      title: data.title
+      title: data.title,
+      capture_context: data.capture_context
     });
 
     const response = await fetch(endpoint, {
@@ -1639,6 +1900,7 @@ if (chrome.alarms) {
   chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === 'autoSyncAlarm') {
       await flushQueuedExtractsIfPossible();
+      await flushQueuedOcclusionHandoffsIfPossible();
     }
   });
 }
