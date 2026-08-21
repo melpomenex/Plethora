@@ -3140,10 +3140,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     <div
                       key={idx}
                       className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${tool.status === "success"
-                        ? "bg-green-100 text-green-800"
+                        ? "bg-emerald-500/15 text-emerald-500"
                         : tool.status === "error"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-yellow-100 text-yellow-800"
+                          ? "bg-red-500/15 text-red-500"
+                          : "bg-amber-500/15 text-amber-500"
                         }`}
                     >
                       <Code className="w-3 h-3" />
