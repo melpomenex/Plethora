@@ -14,6 +14,9 @@ import { getAdapter } from "../api/tts/registry";
 import { getProviderSettings } from "../utils/ttsSettings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useNativeAndroidTTS } from "./useNativeAndroidTTS";
+import { useRemoteMediaBridge } from "./useRemoteMediaBridge";
+import type { RemoteMediaContext } from "../utils/remoteMediaDispatcher";
+import { createLongFormSessionId } from "../utils/longFormPlaybackSession";
 import { cloudTtsRequiresConsent, requestPaidConsent } from "../utils/aiBillingConsent";
 import { t } from "../lib/i18n";
 
@@ -411,6 +414,75 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       stop();
     };
   }, [stop]);
+
+  const ttsSourceKind = isAndroidProvider
+    ? ("native_android_tts" as const)
+    : isSystemProvider
+      ? ("web_speech" as const)
+      : ("generated_audio" as const);
+  const ttsSourceId = "tts:active";
+  const ttsSessionId = createLongFormSessionId(ttsSourceKind, ttsSourceId);
+  const ttsMediaContextRef = useRef<RemoteMediaContext>({
+    documentId: ttsSourceId,
+    documentTitle: "Read aloud",
+    playbackSessionId: ttsSessionId,
+    sourceId: ttsSourceId,
+    audioElement: null,
+    currentTimestampSec: 0,
+    anchors: [],
+  });
+  const activeTtsIsSpeaking = isAndroidProvider ? native.isSpeaking : isSpeaking;
+  const activeTtsIsPaused = isAndroidProvider ? native.isPaused : isPaused;
+  const activeTtsIsGenerating = isAndroidProvider ? native.isGenerating : isGenerating;
+  ttsMediaContextRef.current = {
+    documentId: ttsSourceId,
+    documentTitle: "Read aloud",
+    playbackSessionId: ttsSessionId,
+    sourceId: ttsSourceId,
+    audioElement: audioRef.current,
+    currentTimestampSec: audioRef.current?.currentTime ?? 0,
+    anchors: [],
+    onPlayPause: () => {
+      if (isAndroidProvider) {
+        if (activeTtsIsSpeaking && !activeTtsIsPaused) native.pause();
+        else if (activeTtsIsPaused) native.resume();
+      } else if (activeTtsIsSpeaking && !activeTtsIsPaused) pause();
+      else if (activeTtsIsPaused) resume();
+    },
+    onSeekRelative: !isAndroidProvider && !isSystemProvider
+      ? (deltaSec) => {
+          if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime + deltaSec);
+        }
+      : undefined,
+    onSeekAbsolute: !isAndroidProvider && !isSystemProvider
+      ? (positionSec) => {
+          if (audioRef.current) audioRef.current.currentTime = Math.max(0, positionSec);
+        }
+      : undefined,
+  };
+  useRemoteMediaBridge({
+    getContext: () => ttsMediaContextRef.current,
+    title: "Read aloud",
+    artist: "Plethora",
+    album: "Text to speech",
+    sourceId: ttsSourceId,
+    sessionId: ttsSessionId,
+    sourceKind: ttsSourceKind,
+    isPlaying: activeTtsIsSpeaking,
+    duration: audioRef.current?.duration,
+    currentTime: audioRef.current?.currentTime ?? 0,
+    enabled: activeTtsIsSpeaking || activeTtsIsPaused || activeTtsIsGenerating,
+    capabilities: {
+      canPlay: true,
+      canPause: true,
+      canResume: true,
+      canSeekRelative: !isAndroidProvider && !isSystemProvider,
+      canSeekAbsolute: !isAndroidProvider && !isSystemProvider,
+      precisePosition: !isAndroidProvider && !isSystemProvider,
+      canNext: false,
+      canPrevious: false,
+    },
+  });
 
   // Native provider: the native hook owns all state and playback, so we hand
   // back its surface instead of the Web Speech / audio-element one. This must

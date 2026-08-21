@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-discard-media-commands"
+description = "Enables the discard_media_commands command without any pre-configured scope."
+commands.allow = ["discard_media_commands"]
+
+[[permission]]
+identifier = "deny-discard-media-commands"
+description = "Denies the discard_media_commands command without any pre-configured scope."
+commands.deny = ["discard_media_commands"]

@@ -99,6 +99,7 @@ import { ensureTranscriptEdition } from "../../utils/transcriptEdition";
 import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
 import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
 import type { AudioEdition, AudioEditionAnchor } from "../../types/audioEdition";
+import { createLongFormSessionId } from "../../utils/longFormPlaybackSession";
 import { createLearningItem } from "../../api/learning-items";
 import { LanguageVideoHost } from "../language/LanguageVideoHost";
 
@@ -2111,11 +2112,22 @@ export function AudiobookViewer({
     currentTimestampSec: 0,
     anchors: [],
   });
+  const playbackSourceId = isPodcast
+    ? String(episodeId ?? document.id)
+    : String(audioEdition?.id ?? document.id);
+  const playbackSourceKind = isPodcast
+    ? ("podcast" as const)
+    : audioEdition
+      ? ("audio_edition" as const)
+      : ("audiobook" as const);
+  const playbackSessionId = createLongFormSessionId(playbackSourceKind, playbackSourceId);
   remoteMediaContextRef.current = {
     documentId: document.id,
     documentTitle: document.title,
     editionId: audioEdition?.id,
     sessionId: listeningSession?.id,
+    playbackSessionId,
+    sourceId: playbackSourceId,
     audioElement: audioRef.current,
     // Anchors are section-local: the capture timestamp is the time within the
     // CURRENT part, not the global timeline.
@@ -2136,6 +2148,16 @@ export function AudiobookViewer({
       if (!goPrevSectionOrChapter()) skip(-15);
     },
     onSeekRelative: (deltaSec: number) => skip(deltaSec),
+    onSeekAbsolute: (positionSec: number) => {
+      const target = fromGlobalSeconds(positionSec);
+      if (multiPartInfo && target.partIndex !== currentPartIndex) {
+        setCurrentPartIndex(target.partIndex);
+        pendingSeekTimeRef.current = target.timeInPart;
+        setIsWaitingForSeek(true);
+      } else {
+        seek(target.timeInPart);
+      }
+    },
   };
 
   // Exactly one media-command adapter per platform (web / desktop / Android).
@@ -2145,9 +2167,28 @@ export function AudiobookViewer({
     artist: metadata.author || podcastTitle || document.metadata?.author || "Plethora",
     album: podcastTitle || "Audiobook",
     artworkUrl: localCoverUrl,
+    sourceId: playbackSourceId,
+    sessionId: playbackSessionId,
+    sourceKind: playbackSourceKind,
+    section: {
+      id: editionSectionIdsRef.current[currentPartIndex],
+      index: currentPartIndex,
+      title: chapters.find((chapter) => chapter.startTime <= currentTime)?.title,
+    },
     isPlaying,
     duration: getTotalDurationSeconds() ?? duration,
     currentTime: Math.floor(currentGlobalTimeRef.current || currentTime),
+    playbackRate: playbackRate,
+    capabilities: {
+      canPlay: true,
+      canPause: true,
+      canResume: true,
+      canSeekRelative: true,
+      canSeekAbsolute: true,
+      precisePosition: true,
+      canNext: true,
+      canPrevious: true,
+    },
   });
   
   // Bookmarks

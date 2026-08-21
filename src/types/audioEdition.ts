@@ -101,10 +101,95 @@ export type RemoteMediaCommand =
   | "Next"
   | "Previous"
   | "SeekForward"
-  | "SeekBackward";
+  | "SeekBackward"
+  | "SeekTo";
 
 /** Which adapter produced a command envelope. */
-export type RemoteMediaCommandSource = "android" | "desktop" | "web";
+export type RemoteMediaCommandSource = "android" | "desktop" | "ios" | "web";
+
+/**
+ * Source-neutral long-form playback kinds. These are deliberately narrower
+ * than the UI taxonomy: they describe what a native media surface is
+ * controlling, not where the document was opened.
+ */
+export type LongFormPlaybackSourceKind =
+  | "podcast"
+  | "audiobook"
+  | "audio_edition"
+  | "browser_document"
+  | "reader_tts"
+  | "generated_audio"
+  | "web_speech"
+  | "native_android_tts";
+
+export type LongFormPlaybackState =
+  | "idle"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "buffering"
+  | "ended"
+  | "stopped";
+
+/** Capabilities are truthful, especially for sentence-based speech engines. */
+export interface LongFormPlaybackCapabilities {
+  canPlay: boolean;
+  canPause: boolean;
+  canResume: boolean;
+  canSeekRelative: boolean;
+  canSeekAbsolute: boolean;
+  /** True only when position is continuous/sample-accurate. */
+  precisePosition: boolean;
+  canNext: boolean;
+  canPrevious: boolean;
+}
+
+export interface LongFormPlaybackSection {
+  id?: string;
+  title?: string;
+  index?: number;
+  /** Reader/audio anchor or sentence/chunk identity. */
+  anchor?: string;
+}
+
+export interface LongFormPlaybackMetadata {
+  sourceId: string;
+  sourceKind: LongFormPlaybackSourceKind;
+  sessionId: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  artworkUrl?: string;
+  section?: LongFormPlaybackSection;
+}
+
+/** State sent to browser, desktop, and Android native media surfaces. */
+export interface LongFormPlaybackStateSnapshot {
+  metadata: LongFormPlaybackMetadata;
+  state: LongFormPlaybackState;
+  positionSec: number;
+  durationSec: number | null;
+  playbackRate: number;
+  capabilities: LongFormPlaybackCapabilities;
+  section?: LongFormPlaybackSection;
+  /** Monotonic wall-clock freshness for source-switch reconciliation. */
+  updatedAt: number;
+}
+
+/** Runtime adapter owned by the active playback host. */
+export interface LongFormPlaybackSession {
+  sessionId: string;
+  sourceId: string;
+  sourceKind: LongFormPlaybackSourceKind;
+  getSnapshot: () => LongFormPlaybackStateSnapshot;
+  play: () => void | Promise<void>;
+  pause: () => void | Promise<void>;
+  toggle: () => void | Promise<void>;
+  next?: () => void | Promise<void>;
+  previous?: () => void | Promise<void>;
+  seekRelative?: (deltaSec: number) => void | Promise<void>;
+  seekTo?: (positionSec: number) => void | Promise<void>;
+}
 
 /**
  * Normalized command envelope (design Decision 6/12): every dispatched command
@@ -119,8 +204,43 @@ export interface RemoteMediaCommandEnvelope {
   source: RemoteMediaCommandSource;
   /** Epoch milliseconds when the button was pressed (native clock). */
   occurredAt: number;
+  /** Active source/session identity at the time of the physical event. */
+  sourceId?: string;
+  sessionId?: string;
   /** Optional playback position at press time, used when reconciling queued commands. */
   positionHintSec?: number;
+  /** Absolute position for `SeekTo`; relative seeks use the canonical increments. */
+  positionSec?: number;
+}
+
+export type NativeMediaCommandDisposition =
+  | "accepted"
+  | "duplicate"
+  | "stale"
+  | "retryable_failure";
+
+export type NativeMediaCommandFailureReason =
+  | "unknown_command"
+  | "no_active_session"
+  | "source_mismatch"
+  | "expired"
+  | "unsupported_capability"
+  | "dispatch_error";
+
+/** One acknowledgement shape shared by Android and future native adapters. */
+export interface NativeMediaCommandAck {
+  eventId: string;
+  sessionId?: string;
+  disposition: NativeMediaCommandDisposition;
+  reason?: NativeMediaCommandFailureReason;
+  acknowledgedAt: number;
+}
+
+/** Native/frontend state exchange after resume, source switches, and seeks. */
+export interface NativeMediaReconciliationEnvelope {
+  source: RemoteMediaCommandSource;
+  observedAt: number;
+  snapshot: LongFormPlaybackStateSnapshot;
 }
 
 /**

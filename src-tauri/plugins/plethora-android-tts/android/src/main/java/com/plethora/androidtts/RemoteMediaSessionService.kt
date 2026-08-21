@@ -27,7 +27,9 @@
 package com.plethora.androidtts
 
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -36,7 +38,11 @@ import android.os.Looper
 import android.view.KeyEvent
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -45,6 +51,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -54,8 +61,28 @@ import org.json.JSONObject
 
 object MediaBridge {
     @Volatile var webView: WeakReference<android.webkit.WebView>? = null
+    @Volatile var sourceId: String? = null
+    @Volatile var sessionId: String? = null
+    @Volatile var sourceKind: String? = null
+    @Volatile var title: String = "Plethora"
+    @Volatile var artist: String = "Plethora"
+    @Volatile var album: String = "Library"
+    @Volatile var artworkUrl: String? = null
+    @Volatile var sectionId: String? = null
+    @Volatile var sectionTitle: String? = null
+    @Volatile var sectionIndex: Int? = null
+    @Volatile var sectionAnchor: String? = null
     @Volatile var lastPositionSec: Double? = null
+    @Volatile var durationSec: Double? = null
+    @Volatile var playbackRate: Float = 1.0f
+    @Volatile var playbackState: String = "idle"
     @Volatile var isPlaying: Boolean = false
+    @Volatile var canSeekRelative: Boolean = true
+    @Volatile var canSeekAbsolute: Boolean = true
+    @Volatile var canNext: Boolean = true
+    @Volatile var canPrevious: Boolean = true
+    @Volatile var precisePosition: Boolean = true
+    @Volatile var updatedAt: Long = 0L
     lateinit var queue: MediaCommandQueue
 
     fun ensureQueue(context: Context): MediaCommandQueue {
@@ -63,14 +90,53 @@ object MediaBridge {
         return queue
     }
 
+    fun updateSnapshot(args: UpdateMediaMetadataArgs) {
+        // Same-session snapshots are monotonic; a source switch is allowed to
+        // replace the previous source even if its wall-clock value is lower.
+        if (args.sessionId != null && args.sessionId == sessionId &&
+            args.updatedAt != null && args.updatedAt!! < updatedAt) {
+            return
+        }
+        args.sourceId?.let { sourceId = it }
+        args.sessionId?.let { sessionId = it }
+        args.sourceKind?.let { sourceKind = it }
+        args.title?.let { title = it }
+        args.artist?.let { artist = it }
+        args.album?.let { album = it }
+        args.artworkUrl?.let { artworkUrl = it }
+        args.sectionId?.let { sectionId = it }
+        args.sectionTitle?.let { sectionTitle = it }
+        args.sectionIndex?.let { sectionIndex = it }
+        args.sectionAnchor?.let { sectionAnchor = it }
+        args.positionSec?.let { lastPositionSec = it }
+        args.durationSec?.let { durationSec = it }
+        args.playbackRate?.let { playbackRate = it.toFloat().coerceIn(0.25f, 4.0f) }
+        args.state?.let { playbackState = it }
+        args.isPlaying?.let { isPlaying = it }
+        args.canSeekRelative?.let { canSeekRelative = it }
+        args.canSeekAbsolute?.let { canSeekAbsolute = it }
+        args.canNext?.let { canNext = it }
+        args.canPrevious?.let { canPrevious = it }
+        args.precisePosition?.let { precisePosition = it }
+        args.updatedAt?.let { updatedAt = maxOf(updatedAt, it) }
+    }
+
     /** Emit a normalized command envelope to the WebView + durable queue. */
-    fun emitCommand(context: Context, command: String, occurredAt: Long = System.currentTimeMillis()) {
+    fun emitCommand(
+        context: Context,
+        command: String,
+        positionSec: Double? = null,
+        occurredAt: Long = System.currentTimeMillis(),
+    ) {
         val envelope = JSONObject()
             .put("command", command)
             .put("eventId", UUID.randomUUID().toString())
             .put("source", "android")
             .put("occurredAt", occurredAt)
+            .put("sourceId", sourceId ?: JSONObject.NULL)
+            .put("sessionId", sessionId ?: JSONObject.NULL)
         lastPositionSec?.let { envelope.put("positionHintSec", it) }
+        positionSec?.let { envelope.put("positionSec", it) }
 
         // Durable append BEFORE delivery (Decision 8).
         try {
@@ -80,7 +146,10 @@ object MediaBridge {
                     command = command,
                     source = "android",
                     occurredAt = occurredAt,
+                    sourceId = sourceId,
+                    sessionId = sessionId,
                     positionHintSec = lastPositionSec,
+                    positionSec = positionSec,
                 )
             )
         } catch (e: Throwable) {
@@ -98,6 +167,18 @@ object MediaBridge {
             view.post { view.evaluateJavascript(js, null) }
         } catch (e: Throwable) {
             Logger.warn("MediaBridge: emit failed: ${e.message}")
+        }
+    }
+
+    fun emitAudioFocusState(context: Context, state: String) {
+        val view = webView?.get() ?: return
+        try {
+            val payload = JSONObject().put("state", state)
+            val literal = JSONObject.quote(payload.toString())
+            val js = "(function(){try{window.dispatchEvent(new CustomEvent('media://audio-focus',{detail:JSON.parse($literal)}));}catch(e){}})();"
+            view.post { view.evaluateJavascript(js, null) }
+        } catch (e: Throwable) {
+            Logger.warn("MediaBridge audio-focus event failed: ${e.message}")
         }
     }
 }
@@ -152,26 +233,70 @@ class CompletedFuture<T>(private val value: T?) : ListenableFuture<T> {
 @UnstableApi
 class WebViewBridgePlayer(
     private val context: Context,
-    private val onCommand: (String) -> Unit,
+    private val onCommand: (String, Double?) -> Unit,
 ) : androidx.media3.common.SimpleBasePlayer(Looper.getMainLooper()) {
 
     private val voidFuture: ListenableFuture<Void?> get() = CompletedFuture(null)
 
+    fun refreshState() {
+        invalidateState()
+    }
+
     override fun getState(): State {
+        val durationMs = ((MediaBridge.durationSec ?: 0.0).coerceAtLeast(0.0) * 1000.0).toLong()
+        val durationUs = if (durationMs > 0) durationMs * 1000L else C.TIME_UNSET
+        val mediaMetadata = MediaMetadata.Builder()
+            .setTitle(MediaBridge.title)
+            .setArtist(MediaBridge.artist)
+            .setAlbumTitle(MediaBridge.album)
+            .setSubtitle(MediaBridge.sectionTitle)
+            .setDurationMs(if (durationMs > 0) durationMs else null)
+            .apply {
+                MediaBridge.artworkUrl?.let { setArtworkUri(android.net.Uri.parse(it)) }
+            }
+            .build()
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(MediaBridge.sourceId ?: MediaBridge.sessionId ?: "plethora")
+            .setUri("about:blank")
+            .setMediaMetadata(mediaMetadata)
+            .build()
+        val periodUid = "plethora-period-${MediaBridge.sessionId ?: "default"}"
+        val period = SimpleBasePlayer.PeriodData.Builder(periodUid)
+            .setDurationUs(durationUs)
+            .build()
+        val mediaItemData = SimpleBasePlayer.MediaItemData.Builder(mediaItem.mediaId)
+            .setMediaItem(mediaItem)
+            .setMediaMetadata(mediaMetadata)
+            .setIsSeekable(MediaBridge.canSeekAbsolute)
+            .setDurationUs(durationUs)
+            .setPeriods(listOf(period))
+            .build()
+        val commands = Player.Commands.Builder()
+            .add(Player.COMMAND_PLAY_PAUSE)
+            .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+            .add(Player.COMMAND_GET_TIMELINE)
+            .add(Player.COMMAND_SET_MEDIA_ITEM)
+            .addIf(Player.COMMAND_SEEK_TO_NEXT, MediaBridge.canNext)
+            .addIf(Player.COMMAND_SEEK_TO_PREVIOUS, MediaBridge.canPrevious)
+            .addIf(Player.COMMAND_SEEK_FORWARD, MediaBridge.canSeekRelative)
+            .addIf(Player.COMMAND_SEEK_BACK, MediaBridge.canSeekRelative)
+            .addIf(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, MediaBridge.canSeekAbsolute)
+            .build()
+        val state = when (MediaBridge.playbackState) {
+            "loading", "buffering" -> Player.STATE_BUFFERING
+            "ended" -> Player.STATE_ENDED
+            "idle", "stopped" -> Player.STATE_IDLE
+            else -> Player.STATE_READY
+        }
         return State.Builder()
-            .setAvailableCommands(
-                Player.Commands.Builder()
-                    .add(Player.COMMAND_PLAY_PAUSE)
-                    .add(Player.COMMAND_SEEK_TO_NEXT)
-                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                    .add(Player.COMMAND_SEEK_FORWARD)
-                    .add(Player.COMMAND_SEEK_BACK)
-                    .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                    .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
-                    .add(Player.COMMAND_GET_TIMELINE)
-                    .add(Player.COMMAND_SET_MEDIA_ITEM)
-                    .build()
-            )
+            .setAvailableCommands(commands)
+            .setPlaylist(listOf(mediaItemData))
+            .setCurrentMediaItemIndex(0)
+            .setContentPositionMs(((MediaBridge.lastPositionSec ?: 0.0).coerceAtLeast(0.0) * 1000.0).toLong())
+            .setPlaybackParameters(PlaybackParameters(MediaBridge.playbackRate))
+            .setPlaybackState(state)
+            .setSeekForwardIncrementMs(30_000L)
+            .setSeekBackIncrementMs(15_000L)
             .setPlayWhenReady(MediaBridge.isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .build()
     }
@@ -180,17 +305,20 @@ class WebViewBridgePlayer(
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         MediaBridge.isPlaying = playWhenReady
+        RemoteMediaSessionService.focusPolicy.onUserPlayback(playWhenReady)
         invalidateState()
         // Notification/assistant play-pause controls arrive as player calls
         // (not raw keycodes); surface them as the same normalized commands so
         // every entry point produces identical envelopes.
-        onCommand(if (playWhenReady) "Play" else "Pause")
+        onCommand(if (playWhenReady) "Play" else "Pause", null)
         return voidFuture
     }
 
     override fun handleStop(): ListenableFuture<*> {
         MediaBridge.isPlaying = false
+        RemoteMediaSessionService.focusPolicy.onUserPlayback(false)
         invalidateState()
+        onCommand("Pause", null)
         return voidFuture
     }
 
@@ -206,9 +334,10 @@ class WebViewBridgePlayer(
             Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> "Previous"
             Player.COMMAND_SEEK_FORWARD -> "SeekForward"
             Player.COMMAND_SEEK_BACK -> "SeekBackward"
+            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM -> "SeekTo"
             else -> null
         }
-        if (command != null) onCommand(command)
+        if (command != null) onCommand(command, if (command == "SeekTo") positionMs / 1000.0 else null)
         return voidFuture
     }
 }
@@ -223,10 +352,14 @@ class RemoteMediaSessionService : MediaSessionService() {
     companion object {
         @Volatile private var activeSession: MediaSession? = null
         @Volatile private var bridgePlayer: WebViewBridgePlayer? = null
+        private val startReferences = AtomicInteger(0)
         private var audioFocusRequest: AudioFocusRequest? = null
-        private var lostFocusTransiently = false
+        private var wasPlayingBeforeInterruption = false
+        private var ducked = false
+        val focusPolicy = MediaFocusStateMachine()
 
         fun start(ctx: Context) {
+            startReferences.incrementAndGet()
             try {
                 val intent = Intent(ctx, RemoteMediaSessionService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -240,15 +373,30 @@ class RemoteMediaSessionService : MediaSessionService() {
         }
 
         fun stop(ctx: Context) {
+            if (startReferences.decrementAndGet() > 0) return
+            startReferences.set(0)
             try {
                 ctx.stopService(Intent(ctx, RemoteMediaSessionService::class.java))
             } catch (_: Throwable) {
             }
         }
+
+        fun refresh() {
+            bridgePlayer?.refreshState()
+        }
     }
 
     private val audioManager: AudioManager by lazy {
         getSystemService(AUDIO_SERVICE) as AudioManager
+    }
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            if (focusPolicy.onHeadphoneDisconnect(MediaBridge.isPlaying) == MediaFocusAction.PAUSE) {
+                wasPlayingBeforeInterruption = false
+                MediaBridge.emitCommand(this@RemoteMediaSessionService, "Pause")
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -259,8 +407,8 @@ class RemoteMediaSessionService : MediaSessionService() {
         // Everything here must be non-fatal: a foreground service refusal must
         // degrade to "no native media session" rather than crash the process.
         try {
-            val player = WebViewBridgePlayer(this) { command ->
-                MediaBridge.emitCommand(this, command)
+            val player = WebViewBridgePlayer(this) { command, positionSec ->
+                MediaBridge.emitCommand(this, command, positionSec)
             }
             bridgePlayer = player
 
@@ -283,6 +431,12 @@ class RemoteMediaSessionService : MediaSessionService() {
                         if (event != null) {
                             val command = MediaButtonNormalizer.fromKeyCode(event.keyCode, event.action)
                             if (command != null) {
+                                when (command) {
+                                    "Play" -> focusPolicy.onUserPlayback(true)
+                                    "Pause" -> focusPolicy.onUserPlayback(false)
+                                    "TogglePlayPause" -> focusPolicy.onUserPlayback(!MediaBridge.isPlaying)
+                                    else -> Unit
+                                }
                                 MediaBridge.emitCommand(this@RemoteMediaSessionService, command)
                                 return true // consumed — one physical press, one envelope
                             }
@@ -303,6 +457,16 @@ class RemoteMediaSessionService : MediaSessionService() {
             )
 
             requestFocus()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(
+                    noisyReceiver,
+                    IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                    Context.RECEIVER_NOT_EXPORTED,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            }
         } catch (e: Throwable) {
             Logger.warn("RemoteMediaSessionService create failed: ${e.message}")
             stopSelf()
@@ -318,17 +482,32 @@ class RemoteMediaSessionService : MediaSessionService() {
             val listener = AudioManager.OnAudioFocusChangeListener { change ->
                 when (change) {
                     AudioManager.AUDIOFOCUS_LOSS -> {
-                        lostFocusTransiently = false
-                        MediaBridge.emitCommand(this, "Pause")
+                        wasPlayingBeforeInterruption = false
+                        ducked = false
+                        MediaBridge.emitAudioFocusState(this, "lost")
+                        if (focusPolicy.onPermanentLoss(MediaBridge.isPlaying) == MediaFocusAction.STOP) {
+                            MediaBridge.emitCommand(this, "Pause")
+                        }
                     }
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                        val action = focusPolicy.onTransientLoss(MediaBridge.isPlaying)
+                        wasPlayingBeforeInterruption = action == MediaFocusAction.PAUSE
+                        MediaBridge.emitAudioFocusState(this, "transient_loss")
+                        if (action == MediaFocusAction.PAUSE) MediaBridge.emitCommand(this, "Pause")
+                    }
                     AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                        lostFocusTransiently = true
-                        MediaBridge.emitCommand(this, "Pause")
+                        ducked = focusPolicy.onDuck(MediaBridge.isPlaying) == MediaFocusAction.DUCK
+                        MediaBridge.emitAudioFocusState(this, "duck")
                     }
                     AudioManager.AUDIOFOCUS_GAIN -> {
-                        if (lostFocusTransiently) {
-                            lostFocusTransiently = false
+                        val action = focusPolicy.onGain(MediaBridge.isPlaying)
+                        val shouldResume = action == MediaFocusAction.RESTORE
+                        wasPlayingBeforeInterruption = false
+                        if (ducked) {
+                            ducked = false
+                            MediaBridge.emitAudioFocusState(this, "gain")
+                        }
+                        if (shouldResume && !MediaBridge.isPlaying) {
                             MediaBridge.emitCommand(this, "Play")
                         }
                     }
@@ -337,6 +516,7 @@ class RemoteMediaSessionService : MediaSessionService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setAudioAttributes(attrs)
+                    .setWillPauseWhenDucked(false)
                     .setOnAudioFocusChangeListener(listener)
                     .build()
                 audioFocusRequest = request
@@ -371,11 +551,16 @@ class RemoteMediaSessionService : MediaSessionService() {
     override fun onDestroy() {
         abandonFocus()
         try {
+            unregisterReceiver(noisyReceiver)
+        } catch (_: Throwable) {
+        }
+        try {
             activeSession?.release()
         } catch (_: Throwable) {
         }
         activeSession = null
         bridgePlayer = null
+        startReferences.set(0)
         super.onDestroy()
     }
 }

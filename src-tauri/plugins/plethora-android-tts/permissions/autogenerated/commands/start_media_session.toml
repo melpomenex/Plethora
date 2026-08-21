@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-start-media-session"
+description = "Enables the start_media_session command without any pre-configured scope."
+commands.allow = ["start_media_session"]
+
+[[permission]]
+identifier = "deny-start-media-session"
+description = "Denies the start_media_session command without any pre-configured scope."
+commands.deny = ["start_media_session"]

@@ -11,7 +11,7 @@
 //! integration tears down cleanly (design Decision 6).
 
 use std::sync::mpsc::{channel, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -27,18 +27,35 @@ pub struct RemoteMediaCommandEnvelope {
     pub source: &'static str,
     pub occurred_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position_hint_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_sec: Option<f64>,
 }
 
 /// Latest playback snapshot pushed by the frontend.
 #[derive(Debug, Clone, Default)]
 struct MediaSnapshot {
+    source_id: String,
+    session_id: String,
+    source_kind: String,
     title: String,
     artist: String,
     album: String,
+    artwork_url: Option<String>,
+    section_id: Option<String>,
+    section_title: Option<String>,
+    section_index: Option<i64>,
+    section_anchor: Option<String>,
     duration_sec: f64,
     position_sec: f64,
+    playback_rate: f64,
     is_playing: bool,
+    state: String,
+    updated_at: i64,
 }
 
 enum BridgeCommand {
@@ -74,8 +91,16 @@ fn event_name(event: &MediaControlEvent) -> Option<&'static str> {
         MediaControlEvent::Seek(souvlaki::SeekDirection::Backward) => Some("SeekBackward"),
         MediaControlEvent::SeekBy(souvlaki::SeekDirection::Forward, _) => Some("SeekForward"),
         MediaControlEvent::SeekBy(souvlaki::SeekDirection::Backward, _) => Some("SeekBackward"),
+        MediaControlEvent::SetPosition(_) => Some("SeekTo"),
         // Stop maps to Pause (never remapped, transport-only).
         MediaControlEvent::Stop => Some("Pause"),
+        _ => None,
+    }
+}
+
+fn event_position_sec(event: &MediaControlEvent) -> Option<f64> {
+    match event {
+        MediaControlEvent::SetPosition(MediaPosition(position)) => Some(position.as_secs_f64()),
         _ => None,
     }
 }
@@ -95,15 +120,24 @@ fn spawn_bridge(app: AppHandle, initial: MediaSnapshot) -> Option<Sender<BridgeC
     let mut controls = MediaControls::new(config).ok()?;
 
     let handle_for_cb = app.clone();
+    let identity = Arc::new(Mutex::new((initial.source_id.clone(), initial.session_id.clone())));
+    let identity_for_cb = Arc::clone(&identity);
     controls
         .attach(move |event: MediaControlEvent| {
             if let Some(command) = event_name(&event) {
+                let (source_id, session_id) = identity_for_cb
+                    .lock()
+                    .map(|value| (Some(value.0.clone()), Some(value.1.clone())))
+                    .unwrap_or((None, None));
                 let envelope = RemoteMediaCommandEnvelope {
                     command,
                     event_id: new_event_id(),
                     source: "desktop",
                     occurred_at: chrono::Utc::now().timestamp_millis(),
+                    source_id,
+                    session_id,
                     position_hint_sec: None,
+                    position_sec: event_position_sec(&event),
                 };
                 // The WebView listener normalizes + dispatches; failures are
                 // non-fatal (window may be closing).
@@ -130,9 +164,19 @@ fn spawn_bridge(app: AppHandle, initial: MediaSnapshot) -> Option<Sender<BridgeC
                 // tears down cleanly.
                 match rx.recv_timeout(Duration::from_millis(5_000)) {
                     Ok(BridgeCommand::Update(next)) => {
-                        idle_ticks = 0;
-                        snapshot = next;
-                        let _ = apply_snapshot(&mut controls, &snapshot);
+                        // Source switches always win; same-source updates use
+                        // the monotonic frontend timestamp so a late WebView
+                        // event cannot overwrite a newer seek.
+                        if next.session_id != snapshot.session_id
+                            || next.updated_at >= snapshot.updated_at
+                        {
+                            if let Ok(mut current_identity) = identity.lock() {
+                                *current_identity = (next.source_id.clone(), next.session_id.clone());
+                            }
+                            idle_ticks = 0;
+                            snapshot = next;
+                            let _ = apply_snapshot(&mut controls, &snapshot);
+                        }
                     }
                     Ok(BridgeCommand::Detach) | Err(_) => {
                         // Explicit detach, or the frontend stopped pushing
@@ -161,7 +205,7 @@ fn apply_snapshot(controls: &mut MediaControls, snapshot: &MediaSnapshot) -> Res
         } else {
             None
         },
-        cover_url: None,
+        cover_url: snapshot.artwork_url.as_deref(),
     })?;
     controls.set_playback(if snapshot.is_playing {
         MediaPlayback::Playing {
@@ -184,14 +228,36 @@ pub async fn update_media_metadata(
     duration_sec: Option<f64>,
     position_sec: Option<f64>,
     is_playing: Option<bool>,
+    source_id: Option<String>,
+    session_id: Option<String>,
+    source_kind: Option<String>,
+    artwork_url: Option<String>,
+    section_id: Option<String>,
+    section_title: Option<String>,
+    section_index: Option<i64>,
+    section_anchor: Option<String>,
+    playback_rate: Option<f64>,
+    state: Option<String>,
+    updated_at: Option<i64>,
 ) -> Result<(), String> {
     let snapshot = MediaSnapshot {
+        source_id: source_id.unwrap_or_else(|| "desktop:unknown".into()),
+        session_id: session_id.unwrap_or_else(|| "desktop:unknown".into()),
+        source_kind: source_kind.unwrap_or_else(|| "audiobook".into()),
         title: title.unwrap_or_else(|| "Plethora".into()),
         artist: artist.unwrap_or_else(|| "Plethora".into()),
         album: album.unwrap_or_else(|| "Library".into()),
+        artwork_url,
+        section_id,
+        section_title,
+        section_index,
+        section_anchor,
         duration_sec: duration_sec.unwrap_or(0.0),
         position_sec: position_sec.unwrap_or(0.0),
+        playback_rate: playback_rate.unwrap_or(1.0),
         is_playing: is_playing.unwrap_or(false),
+        state: state.unwrap_or_else(|| if is_playing.unwrap_or(false) { "playing" } else { "paused" }.into()),
+        updated_at: updated_at.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
     let bridge = app.state::<MediaControlBridge>();
@@ -201,7 +267,7 @@ pub async fn update_media_metadata(
         let _ = tx.send(BridgeCommand::Update(snapshot));
     } else {
         // First update while audio is active: create the bridge.
-        if snapshot.is_playing {
+        if snapshot.is_playing || snapshot.session_id != "desktop:unknown" {
             if let Some(tx) = spawn_bridge(app.clone(), snapshot) {
                 *guard = Some(tx);
             }
@@ -229,7 +295,7 @@ mod tests {
     use super::*;
 
     /// Every platform event maps onto the canonical TS RemoteMediaCommand
-    /// union; unmapped events (volume, position set) are ignored gracefully.
+    /// union; unmapped events (volume changes) are ignored gracefully.
     #[test]
     fn platform_events_map_to_canonical_commands() {
         use souvlaki::SeekDirection;
@@ -256,7 +322,11 @@ mod tests {
         assert_eq!(event_name(&MediaControlEvent::SetVolume(0.5)), None);
         assert_eq!(
             event_name(&MediaControlEvent::SetPosition(MediaPosition(Duration::from_secs(5)))),
-            None
+            Some("SeekTo")
+        );
+        assert_eq!(
+            event_position_sec(&MediaControlEvent::SetPosition(MediaPosition(Duration::from_secs(5)))),
+            Some(5.0)
         );
     }
 
@@ -267,14 +337,20 @@ mod tests {
             event_id: new_event_id(),
             source: "desktop",
             occurred_at: 0,
+            source_id: Some("source".into()),
+            session_id: Some("session".into()),
             position_hint_sec: None,
+            position_sec: None,
         };
         let b = RemoteMediaCommandEnvelope {
             command: "Next",
             event_id: new_event_id(),
             source: "desktop",
             occurred_at: 0,
+            source_id: Some("source".into()),
+            session_id: Some("session".into()),
             position_hint_sec: None,
+            position_sec: None,
         };
         assert_ne!(a.event_id, b.event_id);
     }

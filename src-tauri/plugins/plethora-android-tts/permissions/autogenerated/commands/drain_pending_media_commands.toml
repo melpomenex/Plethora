@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-drain-pending-media-commands"
+description = "Enables the drain_pending_media_commands command without any pre-configured scope."
+commands.allow = ["drain_pending_media_commands"]
+
+[[permission]]
+identifier = "deny-drain-pending-media-commands"
+description = "Denies the drain_pending_media_commands command without any pre-configured scope."
+commands.deny = ["drain_pending_media_commands"]

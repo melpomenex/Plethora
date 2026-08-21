@@ -80,6 +80,8 @@ class MediaCommandQueueTest {
             command = command,
             source = "android",
             occurredAt = 1_000L,
+            sourceId = "source-1",
+            sessionId = "session-1",
             positionHintSec = 42.5,
         )
 
@@ -93,6 +95,8 @@ class MediaCommandQueueTest {
         assertEquals("e1", reloaded[0].eventId)
         assertEquals("Next", reloaded[0].command)
         assertEquals(42.5, reloaded[0].positionHintSec!!, 0.001)
+        assertEquals("source-1", reloaded[0].sourceId)
+        assertEquals("session-1", reloaded[0].sessionId)
         assertNull(reloaded[0].ackedAt)
     }
 
@@ -145,6 +149,8 @@ class MediaCommandQueueTest {
         assertEquals("Next", o.getString("command"))
         assertEquals("android", o.getString("source"))
         assertEquals(42.5, o.getDouble("positionHintSec"), 0.001)
+        assertEquals("source-1", o.getString("sourceId"))
+        assertEquals("session-1", o.getString("sessionId"))
         assertFalse(o.getBoolean("acked"))
     }
 }

@@ -28,10 +28,6 @@
           activity starts/stops it; if foreground services are unavailable the
           plugin degrades gracefully (playback simply stops on task removal).
         -->
-        <service
-            android:name=".TtsPlaybackService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
         <!-- Media3 media session service (tasks 6.1 + 10.1): real media-button
              routing, lock-screen/notification controls, and audio-focus
              handling for hands-free study mode. Exported=false is standard for

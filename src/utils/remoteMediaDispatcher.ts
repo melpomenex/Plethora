@@ -44,7 +44,11 @@ export interface RemoteMediaContext {
   documentId: string;
   documentTitle: string;
   editionId?: string;
+  /** Native-media session identity; distinct from the listening-session DB id. */
+  playbackSessionId?: string;
   sessionId?: string;
+  /** Stable identity of the currently active source (not the adapter origin). */
+  sourceId?: string;
   audioElement: HTMLAudioElement | null;
   currentTimestampSec: number;
   /** Section-local anchors for the currently playing section (Decision 13). */
@@ -61,6 +65,7 @@ export interface RemoteMediaContext {
   onNextChapter?: () => void;
   onPrevChapter?: () => void;
   onSeekRelative?: (deltaSec: number) => void;
+  onSeekAbsolute?: (positionSec: number) => void;
   /** Optional immediate Q&A hand-off; the durable inbox marker is always persisted too. */
   onAskPlethora?: (passage: string) => void;
 }
@@ -71,6 +76,13 @@ export const NORMAL_SEEK_BACKWARD_SEC = 15;
 
 /** Duplicate suppression window (design Decision 12). */
 export const DEDUPE_WINDOW_MS = 1500;
+
+export interface RemoteMediaDispatchResult {
+  accepted: boolean;
+  disposition: "accepted" | "duplicate" | "stale" | "retryable_failure";
+  eventId: string;
+  reason?: "unknown_command" | "no_active_session" | "source_mismatch" | "expired" | "unsupported_capability" | "dispatch_error";
+}
 
 // ---------------------------------------------------------------------------
 // Envelope construction & dedupe
@@ -94,6 +106,8 @@ export function normalizeCommand(value: unknown): RemoteMediaCommand | null {
     previoustrack: "Previous",
     seekforward: "SeekForward",
     seekbackward: "SeekBackward",
+    seekto: "SeekTo",
+    setposition: "SeekTo",
   };
   if (typeof value !== "string") return null;
   const direct = value as RemoteMediaCommand;
@@ -118,36 +132,29 @@ export function envelopeForCommand(
   };
 }
 
-const seenEventIds = new Map<string, number>();
-const seenCommandPairs = new Map<string, number>();
+const acceptedEventIds = new Map<string, number>();
 
 /** True when this envelope was already accepted within the dedupe window. */
 function isDuplicateEnvelope(envelope: RemoteMediaCommandEnvelope): boolean {
   const now = Date.now();
 
-  for (const map of [seenEventIds, seenCommandPairs]) {
-    for (const [key, ts] of map) {
-      if (now - ts > DEDUPE_WINDOW_MS) map.delete(key);
-    }
+  for (const [key, ts] of acceptedEventIds) {
+    if (now - ts > DEDUPE_WINDOW_MS) acceptedEventIds.delete(key);
   }
 
-  const pairKey = `${envelope.source}:${envelope.command}`;
-  if (
-    seenEventIds.has(envelope.eventId) ||
-    (seenCommandPairs.get(pairKey) ?? 0) > now - DEDUPE_WINDOW_MS
-  ) {
-    return true;
-  }
+  // Event identity is the only authoritative dedupe key. In particular, do
+  // not use source+command+time: two real seek-forward presses in quick
+  // succession are distinct user intent and must both reach the dispatcher.
+  return acceptedEventIds.has(envelope.eventId);
+}
 
-  seenEventIds.set(envelope.eventId, now);
-  seenCommandPairs.set(pairKey, now);
-  return false;
+function markAcceptedEvent(eventId: string): void {
+  acceptedEventIds.set(eventId, Date.now());
 }
 
 /** Test seam: clear dedupe state. */
 export function resetDispatcherState(): void {
-  seenEventIds.clear();
-  seenCommandPairs.clear();
+  acceptedEventIds.clear();
   lastCaptureBySession.clear();
 }
 
@@ -626,25 +633,36 @@ function studyActionForCommand(
   }
 }
 
-function runTransport(command: RemoteMediaCommand, ctx: RemoteMediaContext): void {
+function runTransport(command: RemoteMediaCommand, ctx: RemoteMediaContext, positionSec?: number): boolean {
   switch (command) {
     case "Play":
     case "Pause":
     case "TogglePlayPause":
-      ctx.onPlayPause?.();
-      break;
+      if (!ctx.onPlayPause) return false;
+      ctx.onPlayPause();
+      return true;
     case "Next":
-      ctx.onNextChapter?.();
-      break;
+      if (!ctx.onNextChapter) return false;
+      ctx.onNextChapter();
+      return true;
     case "Previous":
-      ctx.onPrevChapter?.();
-      break;
+      if (!ctx.onPrevChapter) return false;
+      ctx.onPrevChapter();
+      return true;
     case "SeekForward":
-      ctx.onSeekRelative?.(NORMAL_SEEK_FORWARD_SEC);
-      break;
+      if (!ctx.onSeekRelative) return false;
+      ctx.onSeekRelative(NORMAL_SEEK_FORWARD_SEC);
+      return true;
     case "SeekBackward":
-      ctx.onSeekRelative?.(-NORMAL_SEEK_BACKWARD_SEC);
-      break;
+      if (!ctx.onSeekRelative) return false;
+      ctx.onSeekRelative(-NORMAL_SEEK_BACKWARD_SEC);
+      return true;
+    case "SeekTo":
+      if (!ctx.onSeekAbsolute || typeof positionSec !== "number" || !Number.isFinite(positionSec)) {
+        return false;
+      }
+      ctx.onSeekAbsolute(Math.max(0, positionSec));
+      return true;
   }
 }
 
@@ -657,27 +675,37 @@ function runTransport(command: RemoteMediaCommand, ctx: RemoteMediaContext): voi
 export function dispatchRemoteMediaCommand(
   commandOrEnvelope: RemoteMediaCommand | RemoteMediaCommandEnvelope,
   ctx: RemoteMediaContext
-): void {
+): RemoteMediaDispatchResult {
+  const fallbackEventId = `invalid-${Date.now()}`;
   try {
     const envelope: RemoteMediaCommandEnvelope =
       typeof commandOrEnvelope === "string"
         ? envelopeForCommand(commandOrEnvelope)
         : commandOrEnvelope;
 
-    const command = normalizeCommand(envelope.command);
-    if (!command) return; // unknown command — ignore gracefully
+    const eventId = typeof envelope?.eventId === "string" ? envelope.eventId : fallbackEventId;
 
-    if (isDuplicateEnvelope(envelope)) {
-      return; // one physical press, one action
+    const command = normalizeCommand(envelope.command);
+    if (!command) {
+      return { accepted: false, disposition: "retryable_failure", eventId, reason: "unknown_command" };
     }
 
-    // Acknowledge native durable-queue entries once accepted.
-    if (envelope.source !== "web" && mediaCommandAckHandler) {
-      try {
-        mediaCommandAckHandler([envelope.eventId]);
-      } catch {
-        // ack is best-effort; reconcile will re-drain
+    if (envelope.sessionId && ctx.playbackSessionId && envelope.sessionId !== ctx.playbackSessionId) {
+      return { accepted: false, disposition: "stale", eventId, reason: "source_mismatch" };
+    }
+    if (envelope.sourceId && ctx.sourceId && envelope.sourceId !== ctx.sourceId) {
+      return { accepted: false, disposition: "stale", eventId, reason: "source_mismatch" };
+    }
+
+    if (isDuplicateEnvelope(envelope)) {
+      if (envelope.source !== "web" && mediaCommandAckHandler) {
+        try {
+          mediaCommandAckHandler([eventId]);
+        } catch {
+          // idempotent acknowledgement is best-effort
+        }
       }
+      return { accepted: true, disposition: "duplicate", eventId };
     }
 
     const settings = useSettingsStore.getState().settings;
@@ -692,23 +720,42 @@ export function dispatchRemoteMediaCommand(
         : ctx;
 
     if (!isStudyMode) {
-      runTransport(command, dispatchCtx);
-      return;
+      const accepted = runTransport(command, dispatchCtx, envelope.positionSec);
+      if (!accepted) {
+        return { accepted: false, disposition: "retryable_failure", eventId, reason: "unsupported_capability" };
+      }
+      markAcceptedEvent(eventId);
+      if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
+      return { accepted: true, disposition: "accepted", eventId };
     }
 
     // Play/Pause are never remapped, in either mode.
     if (command === "Play" || command === "Pause" || command === "TogglePlayPause") {
-      dispatchCtx.onPlayPause?.();
-      return;
+      if (!dispatchCtx.onPlayPause) {
+        return { accepted: false, disposition: "retryable_failure", eventId, reason: "no_active_session" };
+      }
+      dispatchCtx.onPlayPause();
+      markAcceptedEvent(eventId);
+      if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
+      return { accepted: true, disposition: "accepted", eventId };
     }
 
     const action = studyActionForCommand(command, handsFree?.mappings);
     if (!action) {
-      runTransport(command, dispatchCtx);
-      return;
+      const accepted = runTransport(command, dispatchCtx, envelope.positionSec);
+      if (!accepted) {
+        return { accepted: false, disposition: "retryable_failure", eventId, reason: "unsupported_capability" };
+      }
+      markAcceptedEvent(eventId);
+      if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
+      return { accepted: true, disposition: "accepted", eventId };
     }
     void executeStudyAction(action, dispatchCtx);
+    markAcceptedEvent(eventId);
+    if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
+    return { accepted: true, disposition: "accepted", eventId };
   } catch {
     playChime("action_failed");
+    return { accepted: false, disposition: "retryable_failure", eventId: fallbackEventId, reason: "dispatch_error" };
   }
 }

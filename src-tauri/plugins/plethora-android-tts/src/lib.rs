@@ -380,6 +380,125 @@ mod commands {
             Err(not_android())
         }
     }
+
+    #[tauri::command]
+    pub async fn start_media_session(state: State<'_, AndroidTts>) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("startMediaSession", serde_json::json!({}))
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = state;
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn stop_media_session(state: State<'_, AndroidTts>) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("stopMediaSession", serde_json::json!({}))
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = state;
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn update_media_metadata(
+        state: State<'_, AndroidTts>,
+        payload: serde_json::Value,
+    ) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("updateMediaMetadata", payload)
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, payload);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn ack_media_commands(
+        state: State<'_, AndroidTts>,
+        event_ids: Vec<String>,
+    ) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>(
+                    "ackMediaCommands",
+                    serde_json::json!({ "eventIds": event_ids }),
+                )
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, event_ids);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn discard_media_commands(
+        state: State<'_, AndroidTts>,
+        event_ids: Vec<String>,
+        reason: Option<String>,
+    ) -> Result<(), Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>(
+                    "discardMediaCommands",
+                    serde_json::json!({ "eventIds": event_ids, "reason": reason }),
+                )
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, event_ids, reason);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn drain_pending_media_commands(
+        state: State<'_, AndroidTts>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("drainPendingMediaCommands", serde_json::json!({}))
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = state;
+            Err(not_android())
+        }
+    }
 }
 
 pub use commands::cancel_download;
@@ -392,6 +511,12 @@ pub use commands::pause;
 pub use commands::resume;
 pub use commands::speak;
 pub use commands::stop;
+pub use commands::ack_media_commands;
+pub use commands::discard_media_commands;
+pub use commands::drain_pending_media_commands;
+pub use commands::start_media_session;
+pub use commands::stop_media_session;
+pub use commands::update_media_metadata;
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<Wry> {
@@ -411,7 +536,13 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::pause,
             commands::resume,
             commands::stop,
-            commands::delete_model
+            commands::delete_model,
+            commands::start_media_session,
+            commands::stop_media_session,
+            commands::update_media_metadata,
+            commands::ack_media_commands,
+            commands::discard_media_commands,
+            commands::drain_pending_media_commands
         ])
         .setup(|app, api| {
             let android_tts = init_mobile(app.app_handle(), api)?;

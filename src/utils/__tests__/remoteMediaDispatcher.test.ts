@@ -12,6 +12,7 @@ import {
   resetDispatcherState,
   NORMAL_SEEK_FORWARD_SEC,
   NORMAL_SEEK_BACKWARD_SEC,
+  setMediaCommandAckHandler,
   type RemoteMediaContext,
 } from "../remoteMediaDispatcher";
 import {
@@ -93,6 +94,7 @@ describe("Remote Media Dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDispatcherState();
+    setMediaCommandAckHandler(null);
     setHandsFree({});
   });
 
@@ -398,11 +400,12 @@ describe("Remote Media Dispatcher", () => {
       expect(ctx.onNextChapter).toHaveBeenCalledTimes(1);
     });
 
-    it("drops the same (source, command) pair within the window", () => {
+    it("accepts distinct rapid commands, including repeated seeks", () => {
       const ctx = makeContext();
-      dispatchRemoteMediaCommand(envelopeForCommand("Next", "web"), ctx);
-      dispatchRemoteMediaCommand(envelopeForCommand("Next", "web"), ctx);
-      expect(ctx.onNextChapter).toHaveBeenCalledTimes(1);
+      dispatchRemoteMediaCommand(envelopeForCommand("SeekForward", "web"), ctx);
+      dispatchRemoteMediaCommand(envelopeForCommand("SeekForward", "web"), ctx);
+      expect(ctx.onSeekRelative).toHaveBeenNthCalledWith(1, NORMAL_SEEK_FORWARD_SEC);
+      expect(ctx.onSeekRelative).toHaveBeenNthCalledWith(2, NORMAL_SEEK_FORWARD_SEC);
     });
 
     it("accepts distinct physical presses (different eventIds after the window)", () => {
@@ -429,6 +432,33 @@ describe("Remote Media Dispatcher", () => {
       expect(() =>
         dispatchRemoteMediaCommand({ command: "Nonsense" as any, eventId: "e", source: "web", occurredAt: Date.now() }, makeContext())
       ).not.toThrow();
+    });
+
+    it("does not acknowledge a retryable failure and can retry the same event after capability recovery", () => {
+      const acked: string[] = [];
+      setMediaCommandAckHandler((eventIds) => acked.push(...eventIds));
+      const ctx = makeContext({ onNextChapter: undefined });
+      const envelope = {
+        command: "Next" as const,
+        eventId: "retry-after-capability-recovery",
+        source: "android" as const,
+        occurredAt: Date.now(),
+      };
+
+      expect(dispatchRemoteMediaCommand(envelope, ctx)).toMatchObject({
+        accepted: false,
+        disposition: "retryable_failure",
+      });
+      expect(acked).toEqual([]);
+
+      const onNextChapter = vi.fn();
+      ctx.onNextChapter = onNextChapter;
+      expect(dispatchRemoteMediaCommand(envelope, ctx)).toMatchObject({
+        accepted: true,
+        disposition: "accepted",
+      });
+      expect(onNextChapter).toHaveBeenCalledTimes(1);
+      expect(acked).toEqual([envelope.eventId]);
     });
   });
 });

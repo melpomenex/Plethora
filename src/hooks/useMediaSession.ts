@@ -12,6 +12,7 @@
 import { useEffect, useRef } from "react";
 import { isTauri } from "../lib/tauri";
 import type { RemoteMediaContext } from "../utils/remoteMediaDispatcher";
+import type { LongFormPlaybackCapabilities, LongFormPlaybackSection } from "../types/audioEdition";
 import {
   dispatchRemoteMediaCommand,
   envelopeForCommand,
@@ -25,6 +26,10 @@ export interface MediaSessionOptions {
   isPlaying: boolean;
   duration?: number;
   currentTime?: number;
+  playbackRate?: number;
+  section?: LongFormPlaybackSection;
+  capabilities?: LongFormPlaybackCapabilities;
+  enabled?: boolean;
   context: RemoteMediaContext;
 }
 
@@ -33,7 +38,7 @@ export function useMediaSession(options: MediaSessionOptions): void {
   optionsRef.current = options;
 
   // Single-adapter rule: inside Tauri the native bridge owns media commands.
-  const active = typeof window !== "undefined" && "mediaSession" in navigator && !isTauri();
+  const active = options.enabled !== false && typeof window !== "undefined" && "mediaSession" in navigator && !isTauri();
 
   useEffect(() => {
     if (!active) {
@@ -71,7 +76,7 @@ export function useMediaSession(options: MediaSessionOptions): void {
       try {
         navigator.mediaSession.setPositionState({
           duration: Math.max(0, duration),
-          playbackRate: 1.0,
+        playbackRate: options.playbackRate ?? 1.0,
           position: Math.min(Math.max(0, currentTime), duration),
         });
       } catch {
@@ -87,6 +92,9 @@ export function useMediaSession(options: MediaSessionOptions): void {
     options.isPlaying,
     options.duration,
     options.currentTime,
+    options.playbackRate,
+    options.section,
+    options.enabled,
   ]);
 
   useEffect(() => {
@@ -102,13 +110,25 @@ export function useMediaSession(options: MediaSessionOptions): void {
       );
     };
 
-    const actionHandlers: Array<[MediaSessionAction, () => void]> = [
+    const actionHandlers: Array<[MediaSessionAction, (details?: MediaSessionActionDetails) => void]> = [
       ["play", () => emit("Play")],
       ["pause", () => emit("Pause")],
       ["nexttrack", () => emit("Next")],
       ["previoustrack", () => emit("Previous")],
       ["seekforward", () => emit("SeekForward")],
       ["seekbackward", () => emit("SeekBackward")],
+      ["seekto", (details) => {
+        const seekTime = details?.seekTime;
+        if (typeof seekTime === "number" && Number.isFinite(seekTime)) {
+          dispatchRemoteMediaCommand(
+            {
+              ...envelopeForCommand("SeekTo", "web", optionsRef.current.context.currentTimestampSec),
+              positionSec: seekTime,
+            },
+            optionsRef.current.context,
+          );
+        }
+      }],
       ["stop", () => emit("Pause")],
     ];
 

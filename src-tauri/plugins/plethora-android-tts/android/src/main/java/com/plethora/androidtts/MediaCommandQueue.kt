@@ -26,7 +26,10 @@ data class PendingMediaCommand(
     val command: String,
     val source: String,
     val occurredAt: Long,
+    val sourceId: String? = null,
+    val sessionId: String? = null,
     val positionHintSec: Double?,
+    val positionSec: Double? = null,
     var ackedAt: Long? = null,
 )
 
@@ -56,8 +59,12 @@ class MediaCommandQueue(private val context: Context) {
                             command = o.getString("command"),
                             source = o.getString("source"),
                             occurredAt = o.getLong("occurredAt"),
+                            sourceId = if (o.has("sourceId") && !o.isNull("sourceId")) o.getString("sourceId") else null,
+                            sessionId = if (o.has("sessionId") && !o.isNull("sessionId")) o.getString("sessionId") else null,
                             positionHintSec = if (o.has("positionHintSec") && !o.isNull("positionHintSec"))
                                 o.getDouble("positionHintSec") else null,
+                            positionSec = if (o.has("positionSec") && !o.isNull("positionSec"))
+                                o.getDouble("positionSec") else null,
                             ackedAt = if (o.has("ackedAt") && !o.isNull("ackedAt"))
                                 o.getLong("ackedAt") else null,
                         )
@@ -84,7 +91,10 @@ class MediaCommandQueue(private val context: Context) {
                             .put("command", e.command)
                             .put("source", e.source)
                             .put("occurredAt", e.occurredAt)
+                            .put("sourceId", e.sourceId ?: JSONObject.NULL)
+                            .put("sessionId", e.sessionId ?: JSONObject.NULL)
                             .put("positionHintSec", e.positionHintSec ?: JSONObject.NULL)
+                            .put("positionSec", e.positionSec ?: JSONObject.NULL)
                             .put("ackedAt", e.ackedAt ?: JSONObject.NULL)
                     )
                 }
@@ -102,32 +112,52 @@ class MediaCommandQueue(private val context: Context) {
 
     /** Append an unacked envelope (called BEFORE WebView emission). */
     fun enqueue(entry: PendingMediaCommand) {
-        val entries = load()
-        entries.add(entry)
-        persist(entries)
+        synchronized(lock) {
+            val entries = load()
+            entries.add(entry)
+            persist(entries)
+        }
     }
 
     /** Mark envelopes acked by the frontend dispatcher. */
     fun ack(eventIds: List<String>) {
         if (eventIds.isEmpty()) return
-        val ids = eventIds.toHashSet()
-        var changed = false
-        val entries = load().map {
-            if (ids.contains(it.eventId) && it.ackedAt == null) {
-                changed = true
-                it.copy(ackedAt = System.currentTimeMillis())
-            } else it
+        synchronized(lock) {
+            val ids = eventIds.toHashSet()
+            var changed = false
+            val entries = load().map {
+                if (ids.contains(it.eventId) && it.ackedAt == null) {
+                    changed = true
+                    it.copy(ackedAt = System.currentTimeMillis())
+                } else it
+            }
+            if (changed) persist(entries)
         }
-        if (changed) persist(entries)
+    }
+
+    /** Discard a stale/mismatched/invalid command after recording the reason. */
+    fun discard(eventIds: List<String>, reason: String?) {
+        if (eventIds.isEmpty()) return
+        synchronized(lock) {
+            val ids = eventIds.toHashSet()
+            val entries = load()
+            val removed = entries.filter { ids.contains(it.eventId) }
+            if (removed.isNotEmpty()) {
+                Log.i(TAG, "discarded ${removed.size} media command(s), reason=${reason ?: "unspecified"}")
+                persist(entries.filterNot { ids.contains(it.eventId) })
+            }
+        }
     }
 
     /** Unacked commands oldest-first; acked ones are pruned. */
     fun drainUnacked(): List<PendingMediaCommand> {
-        val entries = load()
-        val unacked = entries.filter { it.ackedAt == null }
-        // Drop acked entries from disk while draining.
-        persist(unacked)
-        return unacked
+        synchronized(lock) {
+            val entries = load()
+            val unacked = entries.filter { it.ackedAt == null }
+            // Drop acked entries from disk while draining.
+            persist(unacked)
+            return unacked
+        }
     }
 
     /** Serialized envelope payloads for the frontend (camelCase keys). */
@@ -140,7 +170,10 @@ class MediaCommandQueue(private val context: Context) {
                     .put("command", e.command)
                     .put("source", e.source)
                     .put("occurredAt", e.occurredAt)
+                    .put("sourceId", e.sourceId ?: JSONObject.NULL)
+                    .put("sessionId", e.sessionId ?: JSONObject.NULL)
                     .put("positionHintSec", e.positionHintSec ?: JSONObject.NULL)
+                    .put("positionSec", e.positionSec ?: JSONObject.NULL)
                     .put("acked", e.ackedAt != null)
             )
         }

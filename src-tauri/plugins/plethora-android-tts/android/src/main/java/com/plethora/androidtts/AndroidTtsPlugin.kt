@@ -59,12 +59,37 @@ class DownloadModelArgs {
 }
 
 class UpdateMediaMetadataArgs {
+    var sourceId: String? = null
+    var sessionId: String? = null
+    var sourceKind: String? = null
+    var title: String? = null
+    var artist: String? = null
+    var album: String? = null
+    var artworkUrl: String? = null
+    var sectionId: String? = null
+    var sectionTitle: String? = null
+    var sectionIndex: Int? = null
+    var sectionAnchor: String? = null
     var positionSec: Double? = null
+    var durationSec: Double? = null
+    var playbackRate: Double? = null
+    var state: String? = null
     var isPlaying: Boolean? = null
+    var canSeekRelative: Boolean? = null
+    var canSeekAbsolute: Boolean? = null
+    var canNext: Boolean? = null
+    var canPrevious: Boolean? = null
+    var precisePosition: Boolean? = null
+    var updatedAt: Long? = null
 }
 
 class AckMediaCommandsArgs {
     var eventIds: List<String>? = null
+}
+
+class DiscardMediaCommandsArgs {
+    var eventIds: List<String>? = null
+    var reason: String? = null
 }
 
 @InvokeArg
@@ -169,12 +194,10 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun onPause() {
         super.onPause()
-        ttsHandler.post { teardownPlayback(releaseFocus = true) }
     }
 
     override fun onStop() {
         super.onStop()
-        ttsHandler.post { teardownPlayback(releaseFocus = true) }
     }
 
     override fun onDestroy(activity: androidx.appcompat.app.AppCompatActivity) {
@@ -367,8 +390,8 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     fun updateMediaMetadata(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(UpdateMediaMetadataArgs::class.java)
-            args.positionSec?.let { MediaBridge.lastPositionSec = it }
-            args.isPlaying?.let { MediaBridge.isPlaying = it }
+            MediaBridge.updateSnapshot(args)
+            RemoteMediaSessionService.refresh()
         } catch (_: Throwable) {
         }
         invoke.resolve()
@@ -400,6 +423,18 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             Logger.warn("drain_pending_media_commands failed: ${e.message}")
             invoke.resolve(JSObject().put("commands", org.json.JSONArray()))
         }
+    }
+
+    /** Remove commands that cannot safely be replayed into the active source. */
+    @Command
+    fun discardMediaCommands(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(DiscardMediaCommandsArgs::class.java)
+            MediaBridge.ensureQueue(ctx).discard(args.eventIds ?: emptyList(), args.reason)
+        } catch (e: Throwable) {
+            Logger.warn("discard_media_commands failed: ${e.message}")
+        }
+        invoke.resolve()
     }
 
     @Command
@@ -438,11 +473,6 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         speed = rate
 
         emitPlaybackState(PlaybackState.LOADING)
-
-        // Keep the process alive across screen lock / backgrounding (where the
-        // platform supports it). The service only holds a foreground
-        // notification; the engine stays here.
-        TtsPlaybackService.start(ctx)
 
         // Acquire audio focus before producing any sound.
         if (!requestAudioFocus()) {
@@ -667,7 +697,6 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     private fun teardownPlayback(releaseFocus: Boolean) {
         stopFlag.set(true)
-        TtsPlaybackService.stop(ctx)
         audioTrack?.let { track ->
             try {
                 if (track.playState == AudioTrack.PLAYSTATE_PLAYING) track.pause()
