@@ -23,6 +23,8 @@ export const zh: Dict = {
   "shareImport.error.rendered_failed": "页面渲染失败，无法提取。",
   "shareImport.error.sanitization_degenerate": "安全过滤移除了几乎全部内容，未导入该页面。",
   "shareImport.error.canceled": "导入已取消。",
+  "shareTarget.pendingSharesTitle": "部分分享内容仍在等待导入",
+  "shareTarget.pendingSharesMessage": "离线保存的分享链接将在下次启动 Plethora 时自动重试。",
   ...en,
   "nav.continue": "继续阅读",
   "nav.dashboard": "仪表盘",

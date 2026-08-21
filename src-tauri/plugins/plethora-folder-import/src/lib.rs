@@ -35,6 +35,12 @@ use tauri::{
 };
 use thiserror::Error;
 
+// Staged share-extension manifest reader. Compiled on every target so its
+// filesystem/unit tests run on desktop hosts; only the iOS command branches
+// reference it in production code (hence the dead-code allowance elsewhere).
+#[allow(dead_code)]
+mod staged_shares;
+
 #[cfg(target_os = "android")]
 const PLUGIN_IDENTIFIER: &str = "com.plethora.folderimport";
 
@@ -340,6 +346,10 @@ mod commands {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SharedBatch {
+        /// Staged-batch id (iOS App Group manifests); absent for Android
+        /// warm-start batches. Used for exactly-once acknowledgement.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub id: Option<String>,
         pub timestamp: u64,
         pub items: Vec<SharedPayloadItem>,
     }
@@ -377,21 +387,229 @@ mod commands {
 
     #[tauri::command]
     pub async fn get_pending_shares(
+        app: AppHandle<Wry>,
         state: State<'_, FolderImport>,
     ) -> Result<Vec<SharedBatch>, Error> {
         #[cfg(target_os = "android")]
         {
+            let _ = (&app, &state);
             let res: ShareListenerResult = state
                 .handle
                 .run_mobile_plugin("getPendingShares", serde_json::json!({}))
                 .map_err(|e| Error::Message(e.to_string()))?;
             Ok(res.batches)
         }
-        #[cfg(not(target_os = "android"))]
+        // iOS: claim staged App Group manifests (exactly-once via .ready →
+        // .claiming rename) and materialize file payloads into the app's
+        // staging area so the path-based import pipeline can consume them.
+        #[cfg(target_os = "ios")]
         {
-            let _ = state;
+            let _ = &state;
+            let staging_root = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| Error::Message(e.to_string()))?
+                .join("imports")
+                .join("share-extension");
+            tauri::async_runtime::spawn_blocking(move || read_staged_shares(&staging_root))
+                .await
+                .map_err(|e| Error::Message(format!("staged shares join error: {e}")))?
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let _ = (&app, &state);
             Ok(Vec::new())
         }
+    }
+
+    /// Delete claimed staged batches after successful handoff to the app's
+    /// import pipeline (iOS). No-op where there is nothing staged.
+    #[tauri::command]
+    pub async fn complete_pending_shares(ids: Vec<String>) -> Result<(), Error> {
+        #[cfg(target_os = "ios")]
+        {
+            let shares_root = staged_shares_root()?;
+            for id in ids {
+                staged_shares::complete_claim(&shares_root, &id)
+                    .map_err(|e| Error::Message(format!("complete claim {id}: {e}")))?;
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = ids;
+            Ok(())
+        }
+    }
+
+    /// Release claimed staged batches back to `.ready/` for a bounded retry
+    /// (e.g. offline URL fetch failed). The Rust side enforces the attempt
+    /// bound: after [`staged_shares::MAX_ATTEMPTS`] the batch moves to
+    /// `.failed/` and stops being served. No-op where there is nothing staged.
+    #[tauri::command]
+    pub async fn retry_pending_shares(ids: Vec<String>) -> Result<(), Error> {
+        #[cfg(target_os = "ios")]
+        {
+            let shares_root = staged_shares_root()?;
+            for id in ids {
+                match staged_shares::retry_claim(&shares_root, &id) {
+                    Ok(_) => {}
+                    // Already consumed/completed elsewhere — not an error.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(Error::Message(format!("retry claim {id}: {e}")));
+                    }
+                }
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = ids;
+            Ok(())
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// iOS staged share-extension consumption
+// ──────────────────────────────────────────────────────────────────────────
+
+/// App Group shared with the Share Extension target (see
+/// scripts/ios-overrides/share-extension.target.json).
+#[cfg(target_os = "ios")]
+const APP_GROUP_ID: &str = "group.com.plethora.app";
+
+/// Resolve the `<App Group container>/shares` queue root.
+#[cfg(target_os = "ios")]
+fn staged_shares_root() -> Result<std::path::PathBuf, Error> {
+    let container = app_group_container(APP_GROUP_ID)?;
+    Ok(container.join(staged_shares::SHARES_DIR))
+}
+
+/// Resolve the App Group container path via NSFileManager, falling back to
+/// the simulator/dev layout (`$HOME/Library/Group Containers/<group>`).
+#[cfg(target_os = "ios")]
+fn app_group_container(group_id: &str) -> Result<std::path::PathBuf, Error> {
+    use objc2_foundation::{NSFileManager, NSString};
+
+    let url = NSFileManager::defaultManager()
+        .containerURLForSecurityApplicationGroupIdentifier(&NSString::from_str(group_id));
+    if let Some(url) = url {
+        if let Some(path) = url.path() {
+            let s = path.to_string();
+            if !s.is_empty() {
+                return Ok(std::path::PathBuf::from(s));
+            }
+        }
+    }
+    // Simulator fallback: group containers live inside the app data sandbox.
+    if let Some(home) = std::env::var_os("HOME") {
+        let fallback = std::path::PathBuf::from(home)
+            .join("Library")
+            .join("Group Containers")
+            .join(group_id);
+        if fallback.is_dir() {
+            return Ok(fallback);
+        }
+    }
+    Err(Error::Message(format!(
+        "App Group container not found for {group_id}"
+    )))
+}
+
+/// Claim every pending staged batch and materialize its file payloads into
+/// `staging_root` (`<app_data>/imports/share-extension/<id>/`). Batches whose
+/// payloads are incomplete are released for a bounded retry instead of being
+/// delivered partially.
+#[cfg(target_os = "ios")]
+fn read_staged_shares(staging_root: &std::path::Path) -> Result<Vec<commands::SharedBatch>, Error> {
+    let shares_root = staged_shares_root()?;
+    let claimed = staged_shares::scan_and_claim(&shares_root)
+        .map_err(|e| Error::Message(format!("staged share scan failed: {e}")))?;
+
+    let mut batches = Vec::new();
+    for share in claimed {
+        match staged_shares::materialize_files(&share, staging_root) {
+            Ok((staged_files, missing)) if missing.is_empty() => {
+                batches.push(staged_batch(&share.manifest, &staged_files));
+            }
+            Ok((_staged, missing)) => {
+                eprintln!(
+                    "[folder-import] staged share {}: missing payloads {missing:?}; releasing for retry",
+                    share.manifest.id
+                );
+                release_claim(&shares_root, &share.manifest.id);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[folder-import] staged share {}: materialization failed ({e}); releasing for retry",
+                    share.manifest.id
+                );
+                release_claim(&shares_root, &share.manifest.id);
+            }
+        }
+    }
+    Ok(batches)
+}
+
+/// Best-effort bounded retry release; exhausted batches land in `.failed/`.
+#[cfg(target_os = "ios")]
+fn release_claim(shares_root: &std::path::Path, id: &str) {
+    if let Err(e) = staged_shares::retry_claim(shares_root, id) {
+        eprintln!("[folder-import] failed to release claim for {id}: {e}");
+    }
+}
+
+/// Map a staged manifest into the normalized `SharedBatch` contract consumed
+/// by `useShareTarget.handleBatch`. Mirrors `stagedManifestToBatch` in
+/// src/lib/shareTarget.ts.
+#[cfg(target_os = "ios")]
+fn staged_batch(
+    manifest: &staged_shares::StagedManifest,
+    staged_files: &std::collections::HashMap<String, String>,
+) -> commands::SharedBatch {
+    use staged_shares::StagedManifestItem;
+    let items = manifest
+        .items
+        .iter()
+        .map(|item| match item {
+            StagedManifestItem::Url { url_string, title } => commands::SharedPayloadItem {
+                r#type: "url".to_string(),
+                url: Some(url_string.clone()),
+                text: None,
+                title: title.clone(),
+                file_path: None,
+                file_name: None,
+                mime_type: None,
+                file_size: None,
+            },
+            StagedManifestItem::Text { text, title } => commands::SharedPayloadItem {
+                r#type: "text".to_string(),
+                url: None,
+                text: Some(text.clone()),
+                title: title.clone(),
+                file_path: None,
+                file_name: None,
+                mime_type: None,
+                file_size: None,
+            },
+            StagedManifestItem::File { filename, mime_type } => commands::SharedPayloadItem {
+                r#type: "file".to_string(),
+                url: None,
+                text: None,
+                title: None,
+                file_path: staged_files.get(filename).cloned(),
+                file_name: Some(filename.clone()),
+                mime_type: mime_type.clone(),
+                file_size: None,
+            },
+        })
+        .collect();
+    commands::SharedBatch {
+        id: Some(manifest.id.clone()),
+        timestamp: manifest.received_at,
+        items,
     }
 }
 
@@ -558,6 +776,7 @@ struct MobilePickResponse {
 // ──────────────────────────────────────────────────────────────────────────
 
 pub use commands::backup_db_to_downloads;
+pub use commands::complete_pending_shares;
 pub use commands::get_pending_shares;
 pub use commands::install_apk;
 /// Pick one or more files and return them staged into app-private storage.
@@ -567,6 +786,7 @@ pub use commands::pick_files;
 /// See `commands::pick_folder_documents` for the implementation.
 pub use commands::pick_folder_documents;
 pub use commands::register_share_listener;
+pub use commands::retry_pending_shares;
 
 /// Initializes the plugin.
 pub fn init() -> TauriPlugin<Wry> {
@@ -583,6 +803,8 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::backup_db_to_downloads,
             commands::register_share_listener,
             commands::get_pending_shares,
+            commands::complete_pending_shares,
+            commands::retry_pending_shares,
             commands::capture_rendered_dom
         ])
         .setup(|app, api| {

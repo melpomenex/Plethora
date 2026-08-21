@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the capture_rendered_dom command without any pre-configured scope."
         },
         {
+          "description": "Enables the complete_pending_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-complete-pending-shares",
+          "markdownDescription": "Enables the complete_pending_shares command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the complete_pending_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-complete-pending-shares",
+          "markdownDescription": "Denies the complete_pending_shares command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_pending_shares command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-pending-shares",
@@ -379,10 +391,22 @@
           "markdownDescription": "Denies the register_share_listener command without any pre-configured scope."
         },
         {
-          "description": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-capture-rendered-dom`",
+          "description": "Enables the retry_pending_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-retry-pending-shares",
+          "markdownDescription": "Enables the retry_pending_shares command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the retry_pending_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-retry-pending-shares",
+          "markdownDescription": "Denies the retry_pending_shares command without any pre-configured scope."
+        },
+        {
+          "description": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-complete-pending-shares`\n- `allow-retry-pending-shares`\n- `allow-capture-rendered-dom`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-capture-rendered-dom`"
+          "markdownDescription": "Allows the folder-import plugin's folder + file picker commands to be invoked\nfrom the frontend.\n\n#### This default permission set includes:\n\n- `allow-pick-folder-documents`\n- `allow-pick-files`\n- `allow-install-apk`\n- `allow-backup-db-to-downloads`\n- `allow-register-share-listener`\n- `allow-get-pending-shares`\n- `allow-complete-pending-shares`\n- `allow-retry-pending-shares`\n- `allow-capture-rendered-dom`"
         }
       ]
     }

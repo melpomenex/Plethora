@@ -235,6 +235,40 @@ export async function fetchPendingShares(): Promise<SharedBatch[]> {
 }
 
 /**
+ * Acknowledge successful handoff of claimed staged batches: the Rust reader
+ * deletes the `.claiming/` directories (exactly-once completion). No-op on
+ * platforms without staged shares.
+ */
+export async function completePendingShares(ids: string[]): Promise<void> {
+  if (!isTauri() || ids.length === 0) return;
+  try {
+    await invokeCommand(
+      "plugin:plethora-folder-import|complete_pending_shares",
+      { ids }
+    );
+  } catch (err) {
+    console.warn("[Share Target] Failed to complete pending shares:", err);
+  }
+}
+
+/**
+ * Release claimed staged batches for another attempt (e.g. offline URL fetch
+ * failed). The Rust reader enforces the attempt bound; batches exceeding it
+ * move to `.failed/` and stop being served. No-op on platforms without
+ * staged shares.
+ */
+export async function retryPendingShares(ids: string[]): Promise<void> {
+  if (!isTauri() || ids.length === 0) return;
+  try {
+    await invokeCommand("plugin:plethora-folder-import|retry_pending_shares", {
+      ids,
+    });
+  } catch (err) {
+    console.warn("[Share Target] Failed to retry pending shares:", err);
+  }
+}
+
+/**
  * Register native and web share intent listeners and retrieve any pending cold-start shares.
  */
 export function registerShareListener(
