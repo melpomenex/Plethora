@@ -100,6 +100,17 @@ async function setPendingExtracts(items) {
   await chrome.storage.local.set({ [PENDING_EXTRACTS_KEY]: items });
 }
 
+const PENDING_IMAGE_IMPORTS_KEY = 'pendingImageImports';
+
+async function getPendingImageImports() {
+  const stored = await chrome.storage.local.get(PENDING_IMAGE_IMPORTS_KEY);
+  return Array.isArray(stored[PENDING_IMAGE_IMPORTS_KEY]) ? stored[PENDING_IMAGE_IMPORTS_KEY] : [];
+}
+
+async function setPendingImageImports(items) {
+  await chrome.storage.local.set({ [PENDING_IMAGE_IMPORTS_KEY]: items });
+}
+
 async function getPendingOcclusionHandoffs() {
   const stored = await chrome.storage.local.get(PENDING_OCCLUSION_HANDOFFS_KEY);
   return Array.isArray(stored[PENDING_OCCLUSION_HANDOFFS_KEY])
@@ -316,6 +327,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
   await flushQueuedOcclusionHandoffsIfPossible();
+  await flushQueuedImageImportsIfPossible();
   await flushPendingExtractRegistrations();
 });
 
@@ -325,6 +337,7 @@ chrome.runtime.onStartup.addListener(async () => {
   refreshContextMenus();
   await flushQueuedExtractsIfPossible();
   await flushQueuedOcclusionHandoffsIfPossible();
+  await flushQueuedImageImportsIfPossible();
   await flushPendingExtractRegistrations();
 });
 
@@ -378,6 +391,12 @@ function createContextMenus() {
     });
 
     chrome.contextMenus.create({
+      id: 'save-image-to-registry',
+      title: 'Save Image to Plethora',
+      contexts: ['image']
+    });
+
+    chrome.contextMenus.create({
       id: 'create-image-occlusion',
       title: 'Create Image Occlusion in Plethora',
       contexts: ['image']
@@ -420,6 +439,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     case 'ai-flashcards-selection':
       await processSelectionWithAI('flashcards', info.selectionText, tab);
+      break;
+
+    case 'save-image-to-registry':
+      await saveImageToRegistry(info, tab);
       break;
 
     case 'create-image-occlusion':
@@ -671,6 +694,125 @@ async function createImageOcclusionFromBrowser(info, tab) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// "Save Image to Plethora" — Image Registry capture flow
+// ---------------------------------------------------------------------------
+
+async function queueImageImport(payload, tabId) {
+  const pending = await getPendingImageImports();
+  pending.push({ ...payload, tabId, queuedAt: new Date().toISOString() });
+  await setPendingImageImports(pending);
+}
+
+async function flushQueuedImageImports() {
+  const pending = await getPendingImageImports();
+  if (pending.length === 0) return { success: true, flushed: 0, remaining: 0 };
+  const remaining = [];
+  let flushed = 0;
+  for (const item of pending) {
+    try {
+      await postImageRegistryIngest(item);
+      flushed += 1;
+      if (item.tabId) {
+        await sendInPageToast(item.tabId, true, 'Saved to Image Registry');
+      }
+    } catch (error) {
+      remaining.push(item);
+      if (error?.retryable !== true) break;
+    }
+  }
+  await setPendingImageImports(remaining);
+  return { success: true, flushed, remaining: remaining.length };
+}
+
+async function flushQueuedImageImportsIfPossible() {
+  const pending = await getPendingImageImports();
+  if (pending.length === 0) return { success: true, flushed: 0, remaining: 0 };
+  return flushQueuedImageImports();
+}
+
+/**
+ * Right-click "Save Image to Plethora": extract the image in the page DOM
+ * (handles srcset/picture/canvas/CSS backgrounds and CORS-restricted
+ * resources), attach provenance metadata, and POST it to the desktop app's
+ * Image Registry ingest endpoint. When Plethora is unreachable the payload is
+ * queued in `chrome.storage.local` and replayed once the app is back.
+ */
+async function saveImageToRegistry(info, tab) {
+  if (!info?.srcUrl || !tab?.id) {
+    await sendInPageToast(tab?.id, false, 'Could not identify the selected image.');
+    return { success: false, error: 'Could not identify the selected image.' };
+  }
+
+  let payload;
+  try {
+    const captureContext = (await safeSendTabMessage(tab.id, {
+      action: 'getCaptureContext',
+      selectedText: ''
+    }))?.capture_context || {
+      version: 1,
+      sourceUrl: tab.url,
+      pageTitle: tab.title,
+      contentKind: 'image'
+    };
+    const extracted = await safeSendTabMessage(tab.id, {
+      action: 'extractImageForRegistry',
+      imageUrl: info.srcUrl
+    });
+    if (!extracted?.success) {
+      throw new Error(extracted?.error || 'Could not capture the selected image.');
+    }
+    const image = await dataUrlToImagePayload(extracted.dataUrl, extracted.fileName || imageFileName(info.srcUrl));
+    payload = globalThis.IncrementumExtensionShared?.buildImageIngestPayload?.({
+      ...image,
+      sourceUrl: tab.url,
+      title: tab.title || 'Browser image',
+      alt: extracted.alt,
+      caption: extracted.caption,
+      domain: captureContext?.domain,
+      captureContext
+    }) || {
+      ...image,
+      source_url: tab.url,
+      title: tab.title || 'Browser image',
+      alt: extracted.alt,
+      caption: extracted.caption,
+      capture_context: captureContext,
+      open_composer: false
+    };
+  } catch (error) {
+    const message = error?.message || 'Could not capture the selected image.';
+    await sendInPageToast(tab.id, false, message);
+    return { success: false, error: message };
+  }
+
+  try {
+    const result = await postImageRegistryIngest(payload);
+    const tags = Array.isArray(result?.organization?.details)
+      ? result.organization.details.map((detail) => detail.tag).filter(Boolean)
+      : [];
+    await sendInPageToast(tab.id, true, 'Saved to Image Registry', {
+      tags,
+      actionLabel: 'View in Plethora',
+      actionUrl: `plethora://image-registry?assetId=${encodeURIComponent(result.assetId || '')}`
+    });
+    return result;
+  } catch (error) {
+    if (error?.retryable !== true) {
+      const message = error?.message || 'Plethora could not save the selected image.';
+      await sendInPageToast(tab.id, false, message);
+      return { success: false, error: message };
+    }
+    await queueImageImport(payload, tab.id);
+    await sendInPageToast(
+      tab.id,
+      true,
+      'Plethora is closed. The image is queued and will be saved when Plethora is launched.'
+    );
+    return { success: true, queued: true };
+  }
+}
+
 async function createImageOcclusionCard(data, senderTabId) {
   await loadSettings();
   try {
@@ -800,6 +942,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'keepAlive':
           keepAliveCount += 1;
           await flushQueuedExtractsIfPossible();
+          await flushQueuedImageImportsIfPossible();
           // Content scripts ping every 20s; piggyback the registration retry
           // so an extract created in a tab whose content script was briefly
           // unavailable is still registered as soon as it comes back.
@@ -1163,6 +1306,7 @@ async function sendToIncrementum(data, options = {}) {
       }
       if (options.allowFlush !== false) {
         await flushQueuedExtractsIfPossible();
+        await flushQueuedImageImportsIfPossible();
       }
       const degradedMessage = shared.describeDegradation(fitted);
       return {
@@ -1540,7 +1684,7 @@ async function flushPendingExtractRegistrations() {
   });
 }
 
-async function sendInPageToast(tabId, success, message) {
+async function sendInPageToast(tabId, success, message, options = {}) {
   if (!ENABLE_NOTIFICATIONS) {
     return;
   }
@@ -1549,7 +1693,10 @@ async function sendInPageToast(tabId, success, message) {
       await safeSendTabMessage(tabId, {
         action: 'showSaveIndicator',
         text: message,
-        type: success ? 'success' : 'error'
+        type: success ? 'success' : 'error',
+        tags: Array.isArray(options.tags) ? options.tags : undefined,
+        actionLabel: options.actionLabel,
+        actionUrl: options.actionUrl
       });
     } else {
       // Fallback to native notification when no tab context is available
@@ -1901,6 +2048,7 @@ if (chrome.alarms) {
     if (alarm.name === 'autoSyncAlarm') {
       await flushQueuedExtractsIfPossible();
       await flushQueuedOcclusionHandoffsIfPossible();
+  await flushQueuedImageImportsIfPossible();
     }
   });
 }

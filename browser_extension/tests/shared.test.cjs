@@ -331,3 +331,68 @@ test('isXStatusURL rejects non-status X pages and lookalikes', () => {
   assert.equal(isXStatusURL(null), false);
   assert.equal(isXStatusURL(undefined), false);
 });
+
+test('buildImageIngestPayload assembles the canonical registry payload', () => {
+  const { buildImageIngestPayload } = globalThis.IncrementumExtensionShared;
+  const payload = buildImageIngestPayload({
+    imageBase64: 'aGVsbG8=',
+    mimeType: 'image/png',
+    fileName: 'diagram.png',
+    sourceUrl: 'https://example.com/articles/anatomy',
+    title: 'Anatomy diagram',
+    alt: 'Labeled heart diagram',
+    caption: 'Figure 1: heart chambers',
+    domain: 'example.com',
+    tags: ['anatomy']
+  });
+  assert.equal(payload.image_base64, 'aGVsbG8=');
+  assert.equal(payload.mime_type, 'image/png');
+  assert.equal(payload.file_name, 'diagram.png');
+  assert.equal(payload.source_url, 'https://example.com/articles/anatomy');
+  assert.equal(payload.title, 'Anatomy diagram');
+  assert.equal(payload.alt, 'Labeled heart diagram');
+  assert.equal(payload.caption, 'Figure 1: heart chambers');
+  assert.equal(payload.domain, 'example.com');
+  assert.equal(payload.open_composer, false, 'registry saves never open the composer');
+  assert.deepEqual(payload.tags, ['anatomy']);
+  assert.equal(payload.capture_context.sourceUrl, 'https://example.com/articles/anatomy');
+  assert.equal(payload.capture_context.domain, 'example.com');
+});
+
+test('buildImageIngestPayload omits empty provenance fields', () => {
+  const { buildImageIngestPayload } = globalThis.IncrementumExtensionShared;
+  const payload = buildImageIngestPayload({ imageBase64: 'aGVsbG8=' });
+  assert.equal(payload.image_base64, 'aGVsbG8=');
+  assert.equal(Object.hasOwn(payload, 'mime_type'), false);
+  assert.equal(Object.hasOwn(payload, 'file_name'), false);
+  assert.equal(Object.hasOwn(payload, 'source_url'), false);
+  assert.equal(Object.hasOwn(payload, 'title'), false);
+  assert.equal(Object.hasOwn(payload, 'alt'), false);
+  assert.equal(Object.hasOwn(payload, 'caption'), false);
+  assert.equal(Object.hasOwn(payload, 'capture_context'), false);
+  assert.equal(Object.hasOwn(payload, 'tags'), false);
+  assert.equal(payload.open_composer, false);
+});
+
+test('image decoded-size budgeting enforces the 7 MB transport limit', () => {
+  const { estimateBase64DecodedBytes, validateImageDecodedSize, TRANSPORT_LIMITS } =
+    globalThis.IncrementumExtensionShared;
+  assert.equal(TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES, 7 * 1024 * 1024);
+
+  // 1x1 red PNG
+  const tiny = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal(estimateBase64DecodedBytes(tiny), 70);
+  assert.deepEqual(validateImageDecodedSize(70), { ok: true, byteSize: 70 });
+
+  // At the limit is accepted; one byte over is rejected with a clear message.
+  const limit = TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES;
+  assert.deepEqual(validateImageDecodedSize(limit), { ok: true, byteSize: limit });
+  const rejected = validateImageDecodedSize(limit + 1);
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.message, /exceeds the 7 MB limit/);
+
+  // Invalid sizes are rejected without throwing.
+  assert.equal(validateImageDecodedSize(0).ok, false);
+  assert.equal(validateImageDecodedSize(-1).ok, false);
+  assert.equal(validateImageDecodedSize(NaN).ok, false);
+});
