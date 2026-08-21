@@ -1,6 +1,13 @@
 import { Dict, en } from "./en";
 
 export const de: Dict = {
+  "platform.unavailable.generic": "Auf diesem Gerät nicht verfügbar",
+  "platform.unavailable.unsupported_platform": "Auf diesem Gerät nicht verfügbar",
+  "platform.unavailable.requires_network": "Erfordert eine Internetverbindung",
+  "platform.unavailable.launch_deferred": "Kommt in einem zukünftigen Update",
+  "platform.unavailable.experimental": "Auf diesem Gerät noch nicht aktiviert",
+  "platform.unavailable.notebooklm": "Erfordert die NotebookLM-Desktop-Integration",
+  "platform.unavailable.storeBuild": "In dieser Plethora-Version nicht verfügbar",
   ...en,
   "nav.continue": "Weiterlesen",
   "nav.dashboard": "Dashboard",

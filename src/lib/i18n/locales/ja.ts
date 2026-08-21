@@ -1,6 +1,13 @@
 import { Dict, en } from "./en";
 
 export const ja: Dict = {
+  "platform.unavailable.generic": "このデバイスでは利用できません",
+  "platform.unavailable.unsupported_platform": "このデバイスでは利用できません",
+  "platform.unavailable.requires_network": "インターネット接続が必要です",
+  "platform.unavailable.launch_deferred": "今後のアップデートで提供予定",
+  "platform.unavailable.experimental": "このデバイスではまだ有効になっていません",
+  "platform.unavailable.notebooklm": "NotebookLM デスクトップ統合が必要です",
+  "platform.unavailable.storeBuild": "このビルドの Plethora では利用できません",
   ...en,
   "nav.continue": "続きを読む",
   "nav.dashboard": "ダッシュボード",

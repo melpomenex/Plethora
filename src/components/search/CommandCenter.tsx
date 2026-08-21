@@ -20,7 +20,7 @@ const AskPlethoraModal = lazy(() =>
   import("../../features/help/AskPlethoraModal").then((m) => ({ default: m.AskPlethoraModal }))
 );
 
-import { Command, CommandCategory, getDefaultCommands } from "../common/CommandPalette";
+import { Command, CommandCategory, getDefaultCommands, filterCommandsByPlatformAvailability } from "../common/CommandPalette";
 import { urlDetectorUtils } from "../../hooks/useURLDetector";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -731,7 +731,9 @@ export function CommandCenter() {
     // don't run the term-dependent search below.
     if (!term) return results;
 
-    const allCommands = [
+    // §3.3: platform gating applied to the assembled command set (no-op on
+    // desktop/Android/web — only registry-unavailable commands drop).
+    const allCommands = filterCommandsByPlatformAvailability([
       ...getDefaultCommands().filter((cmd) => ![
         "go-documents",
         "go-queue",
@@ -744,6 +746,7 @@ export function CommandCenter() {
       // Paste Extract command
       {
         id: "paste-extract",
+        capabilityId: "core_extract",
         label: "Paste Extract",
         description: selectedDocumentTitle
           ? `Save pasted content as an extract in "${selectedDocumentTitle}"`
@@ -792,7 +795,7 @@ export function CommandCenter() {
         keywords: ["tour", "onboarding", "guide", "tutorial", "help", "replay"],
         shortcut: undefined,
       } as Command,
-    ];
+    ]);
 
     if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
       const targetUrl = query.query.trim();

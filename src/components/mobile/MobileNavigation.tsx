@@ -55,6 +55,12 @@ import {
   ExtractsTab,
   DocumentQATab,
 } from "../tabs/TabRegistry";
+import {
+  getPlatformCapability,
+  isPlatformCapabilityUnavailable,
+  type PlatformAvailability,
+  type PlatformCapabilityId,
+} from "../../lib/platformCapabilities";
 
 interface NavItem {
   id: string;
@@ -66,6 +72,13 @@ interface NavItem {
   tabContent: React.ComponentType;
   closable: boolean;
   badge?: "review" | "rss";
+  /**
+   * Platform capability governing this destination (§3.1). Items whose
+   * capability is unavailable on the current platform are filtered out of
+   * the bottom bar and rendered marked-unavailable (disabled + reason) in
+   * the overflow sheet where discoverability matters (§3.4).
+   */
+  capabilityId?: PlatformCapabilityId;
 }
 
 /**
@@ -82,7 +95,8 @@ const MOBILE_NAV_ANCHORS: Record<string, string | undefined> = {
 };
 
 // Primary nav items shown on mobile bottom nav
-const primaryNavItems: NavItem[] = [
+// Exported for the capability lint-style test (§1.4) and the matrix doc test.
+export const primaryNavItems: NavItem[] = [
   {
     id: "dashboard",
     label: "nav.dashboard",
@@ -92,6 +106,7 @@ const primaryNavItems: NavItem[] = [
     tabIcon: "📊",
     tabContent: DashboardTab,
     closable: false,
+    capabilityId: "tab_dashboard",
   },
   {
     id: "queue",
@@ -103,6 +118,7 @@ const primaryNavItems: NavItem[] = [
     tabContent: QueueTab,
     closable: true,
     badge: "review",
+    capabilityId: "tab_queue",
   },
   {
     id: "review",
@@ -113,6 +129,7 @@ const primaryNavItems: NavItem[] = [
     tabIcon: "🧠",
     tabContent: ReviewTab,
     closable: true,
+    capabilityId: "tab_review",
   },
   {
     id: "documents",
@@ -123,6 +140,7 @@ const primaryNavItems: NavItem[] = [
     tabIcon: "📂",
     tabContent: DocumentsTab,
     closable: true,
+    capabilityId: "tab_documents",
   },
   {
     id: "settings",
@@ -133,10 +151,11 @@ const primaryNavItems: NavItem[] = [
     tabIcon: "⚙️",
     tabContent: SettingsTab,
     closable: true,
+    capabilityId: "tab_settings",
   },
 ];
 
-const allNavItems: NavItem[] = [
+export const allNavItems: NavItem[] = [
   ...primaryNavItems,
   {
     id: "extracts",
@@ -147,6 +166,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "✂️",
     tabContent: ExtractsTab,
     closable: true,
+    capabilityId: "tab_extracts",
   },
   {
     id: "image-registry",
@@ -157,6 +177,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "🖼️",
     tabContent: ImageRegistryTab,
     closable: true,
+    capabilityId: "tab_image_registry",
   },
   {
     id: "doc-qa",
@@ -167,6 +188,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "💬",
     tabContent: DocumentQATab,
     closable: true,
+    capabilityId: "tab_doc_qa",
   },
   {
     id: "rss",
@@ -178,6 +200,7 @@ const allNavItems: NavItem[] = [
     tabContent: RSSReader,
     closable: true,
     badge: "rss",
+    capabilityId: "tab_rss",
   },
   {
     id: "newsletter",
@@ -188,6 +211,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "📬",
     tabContent: NewsletterDirectoryTab,
     closable: true,
+    capabilityId: "tab_newsletter",
   },
   {
     id: "analytics",
@@ -198,6 +222,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "📈",
     tabContent: AnalyticsTab,
     closable: true,
+    capabilityId: "tab_analytics",
   },
   {
     id: "podcast",
@@ -208,6 +233,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "🎙️",
     tabContent: PodcastTab,
     closable: true,
+    capabilityId: "tab_podcast",
   },
   {
     id: "audiobook",
@@ -218,6 +244,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "🎧",
     tabContent: AudiobooksTab,
     closable: true,
+    capabilityId: "tab_audiobook",
   },
   {
     id: "knowledge-sphere",
@@ -228,6 +255,7 @@ const allNavItems: NavItem[] = [
     tabIcon: "🌐",
     tabContent: KnowledgeSphereTab,
     closable: true,
+    capabilityId: "tab_knowledge_sphere",
   },
 ];
 
@@ -235,6 +263,13 @@ interface MobileNavigationProps {
   dueCount?: number;
   unreadCount?: number;
   hidden?: boolean;
+}
+
+/** §3.1: resolve a nav item's platform availability (ungated ⇒ available). */
+function navItemAvailability(item: NavItem): PlatformAvailability {
+  return item.capabilityId
+    ? getPlatformCapability(item.capabilityId)
+    : { available: true };
 }
 
 export function MobileNavigation({
@@ -307,6 +342,22 @@ export function MobileNavigation({
   const moreItems = useMemo(
     () => allNavItems.filter((item) => !primaryNavItems.find((primary) => primary.id === item.id)),
     []
+  );
+
+  // §3.1: filter nav destinations through the platform capability registry.
+  // Platform detection is synchronous and immutable, so a plain read per
+  // render is sufficient.
+  const availablePrimaryNavItems = useMemo(
+    () => primaryNavItems.filter((item) => navItemAvailability(item).available),
+    []
+  );
+  const availableMoreItems = useMemo(
+    () => moreItems.filter((item) => navItemAvailability(item).available),
+    [moreItems]
+  );
+  const unavailableMoreItems = useMemo(
+    () => moreItems.filter((item) => !navItemAvailability(item).available),
+    [moreItems]
   );
   const activeMoreItem = moreItems.find(
     (item) => item.tabType === activeTab?.type,
@@ -393,7 +444,7 @@ export function MobileNavigation({
   return (
     <>
     <nav className={`mobile-bottom-nav ${hidden ? "hidden" : ""}`} aria-hidden={hidden}>
-      {primaryNavItems.map((item) => {
+      {availablePrimaryNavItems.map((item) => {
         const active = activeTab?.type === item.tabType;
         const badge =
           item.badge === "review"
@@ -484,7 +535,7 @@ export function MobileNavigation({
               </button>
             </div>
             <div className="mobile-more-section">
-              {moreItems.map((item) => {
+              {availableMoreItems.map((item) => {
                 const Icon = item.icon;
                 const badge =
                   item.badge === "review"
@@ -511,6 +562,36 @@ export function MobileNavigation({
                       </span>
                     )}
                   </button>
+                 );
+               })}
+              {/* §3.4: destinations unavailable on this platform stay visible
+                  in the overflow sheet — marked unavailable (disabled + i18n
+                  reason) so their absence is explainable, never a dead
+                  button. */}
+              {unavailableMoreItems.map((item) => {
+                const Icon = item.icon;
+                const availability = navItemAvailability(item);
+                let reasonKey = "platform.unavailable.generic";
+                if (isPlatformCapabilityUnavailable(availability)) {
+                  reasonKey =
+                    availability.explanationKey ??
+                    `platform.unavailable.${availability.reason}`;
+                }
+                return (
+                  <div
+                    key={item.id}
+                    className="mobile-more-item opacity-50 cursor-not-allowed"
+                    role="button"
+                    aria-disabled="true"
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span className="flex-1 text-left">
+                      {t(item.label)}
+                      <span className="block text-xs text-muted-foreground">
+                        {t(reasonKey)}
+                      </span>
+                    </span>
+                  </div>
                 );
               })}
             </div>

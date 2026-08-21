@@ -10,7 +10,7 @@ import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 import { Toolbar } from "../Toolbar";
 import { Tabs } from "../common/Tabs";
-import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, prefetchCommonTabs } from "../tabs/TabRegistry";
+import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, prefetchCommonTabs, resolveNearestAvailableTabType } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
 import { CommandCenter } from "../search/CommandCenter";
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
@@ -561,7 +561,10 @@ export function MainLayout() {
     });
   };
 
-  const openTabByType = useCallback((type: TabType) => {
+  const openTabByType = useCallback((requestedType: TabType) => {
+    // §3.2: deep-links to platform-hidden tabs land on the nearest available
+    // surface, never a broken destination. No-op on desktop/Android/web.
+    const type = resolveNearestAvailableTabType(requestedType);
     const tabConfig: Record<string, { title: string; content: React.ComponentType; closable: boolean }> = {
       dashboard: { title: "Dashboard", content: DashboardTab, closable: false },
       documents: { title: "Documents", content: DocumentsTab, closable: true },
