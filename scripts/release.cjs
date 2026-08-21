@@ -29,6 +29,41 @@ const rootDir = path.resolve(__dirname, '..');
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
 const writeJson = (filePath, obj) => fs.writeFileSync(filePath, JSON.stringify(obj, null, 2) + '\n', 'utf8');
 
+// --- iOS build number (task 4.4) -------------------------------------------
+// Monotonic CURRENT_PROJECT_VERSION scheme: the counter lives in a committed
+// file so every clean checkout computes the same next number; each release
+// increments it by exactly one. Hotfixes needing an extra TestFlight upload
+// between releases set IOS_BUILD_NUMBER explicitly (documented in
+// docs/release/ios-reproducible-build.md).
+const BUILD_NUMBER_FILE = path.join(rootDir, 'src-tauri', 'gen', 'apple', 'build-number.txt');
+
+function readBuildNumber(filePath) {
+  if (!fs.existsSync(filePath)) return 0;
+  const raw = fs.readFileSync(filePath, 'utf8').trim();
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`Corrupt build-number file ${filePath}: expected non-negative integer, got "${raw}"`);
+  }
+  return n;
+}
+
+function computeNextBuildNumber(current) {
+  return current + 1;
+}
+
+function applyIosVersionOverrides(buildNumber) {
+  // gen/apple is committed; skip silently when absent (e.g. fresh clones on
+  // machines without the generated project yet — regeneration re-applies via
+  // scripts/apply-ios-project-overrides.js which reads tauri.conf.json).
+  const projectYml = path.join(rootDir, 'src-tauri', 'gen', 'apple', 'project.yml');
+  if (!fs.existsSync(projectYml)) return false;
+  execSync(
+    `node scripts/apply-ios-project-overrides.js --build-number ${buildNumber}`,
+    { stdio: 'inherit', cwd: rootDir }
+  );
+  return true;
+}
+
 // --- Parse arguments -------------------------------------------------------
 let newVersion = null;
 let notesPath = path.join(rootDir, 'scripts', 'release-notes.md');
@@ -43,6 +78,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 // --- 1. Current version ----------------------------------------------------
+function main() {
 const packageJsonPath = path.join(rootDir, 'package.json');
 const packageJson = readJson(packageJsonPath);
 const currentVersion = packageJson.version;
@@ -121,6 +157,22 @@ if (fs.existsSync(cargoLockPath)) {
   fs.writeFileSync(cargoLockPath, cargoLock, 'utf8');
 }
 
+// --- 3b. iOS build number + generated project version sync (task 4.4) ------
+// Monotonic CURRENT_PROJECT_VERSION: committed counter file, incremented once
+// per release; explicit IOS_BUILD_NUMBER overrides (e.g. extra TestFlight
+// uploads between releases). The overrides script writes it into project.yml
+// and Info.plist so regenerated projects stay consistent.
+const manualBuildNumber = process.env.IOS_BUILD_NUMBER
+  ? Number(process.env.IOS_BUILD_NUMBER)
+  : null;
+if (process.env.IOS_BUILD_NUMBER && (!Number.isInteger(manualBuildNumber) || manualBuildNumber < 1)) {
+  throw new Error(`IOS_BUILD_NUMBER must be a positive integer, got "${process.env.IOS_BUILD_NUMBER}"`);
+}
+const nextBuildNumber = manualBuildNumber ?? computeNextBuildNumber(readBuildNumber(BUILD_NUMBER_FILE));
+fs.writeFileSync(BUILD_NUMBER_FILE, `${nextBuildNumber}\n`, 'utf8');
+console.log(`iOS build number: ${nextBuildNumber}${manualBuildNumber ? ' (manual override)' : ''}`);
+applyIosVersionOverrides(nextBuildNumber);
+
 // --- 4. CHANGELOG (prepend a dated entry; avoid duplicate headers) --------
 const changelogPath = path.join(rootDir, 'CHANGELOG.md');
 const dateStr = new Date().toISOString().slice(0, 10);
@@ -167,4 +219,17 @@ try {
 } catch (err) {
   console.error('Git/GitHub release step failed:', err.message);
   console.error('Version files were bumped and committed locally; finish the release manually if needed.');
+}
+}
+
+// --- Exports (unit-tested via scripts/__tests__/iosBuildNumber.test.mjs) ---
+module.exports = { readBuildNumber, computeNextBuildNumber, BUILD_NUMBER_FILE };
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error('Release failed:', err.message);
+    process.exit(1);
+  }
 }
