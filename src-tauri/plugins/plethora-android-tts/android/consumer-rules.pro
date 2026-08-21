@@ -11,7 +11,9 @@
 # synthesis fails at runtime while debug builds work fine.
 
 # Tauri binds @Command methods reflectively by name.
--keep class com.incrementum.androidtts.** { *; }
+# Rebrand note: the package moved from com.incrementum.androidtts to
+# com.plethora.androidtts; the old rule silently protected nothing.
+-keep class com.plethora.androidtts.** { *; }
 
 # sherpa-onnx JNI bindings. libsherpa-onnx-jni.so resolves its Kotlin entry
 # points through implicit JNI naming (Java_com_k2fsa_sherpa_onnx_...) and

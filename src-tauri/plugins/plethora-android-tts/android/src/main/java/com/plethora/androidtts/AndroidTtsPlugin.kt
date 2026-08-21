@@ -33,6 +33,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.util.Log
 import app.tauri.Logger
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -58,6 +59,7 @@ class DownloadModelArgs {
     var modelId: String? = null
 }
 
+@InvokeArg
 class UpdateMediaMetadataArgs {
     var sourceId: String? = null
     var sessionId: String? = null
@@ -83,10 +85,12 @@ class UpdateMediaMetadataArgs {
     var updatedAt: Long? = null
 }
 
+@InvokeArg
 class AckMediaCommandsArgs {
     var eventIds: List<String>? = null
 }
 
+@InvokeArg
 class DiscardMediaCommandsArgs {
     var eventIds: List<String>? = null
     var reason: String? = null
@@ -375,6 +379,8 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     companion object {
         private const val REQUEST_POST_NOTIFICATIONS = 8_421
+        /** Release-visible log tag (app.tauri.Logger is DEBUG-gated and silent in release builds). */
+        const val MEDIA_LOG_TAG = "PlethoraMedia"
     }
 
     /**
@@ -392,7 +398,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             android.Manifest.permission.POST_NOTIFICATIONS,
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (granted) return
-        Logger.info("PlethoraMedia: requesting POST_NOTIFICATIONS for media controls")
+        Log.i(MEDIA_LOG_TAG, "requesting POST_NOTIFICATIONS for media controls")
         try {
             androidx.core.app.ActivityCompat.requestPermissions(
                 activity,
@@ -400,7 +406,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
                 REQUEST_POST_NOTIFICATIONS,
             )
         } catch (e: Throwable) {
-            Logger.warn("PlethoraMedia: POST_NOTIFICATIONS request failed: ${e.message}")
+            Log.w(MEDIA_LOG_TAG, "POST_NOTIFICATIONS request failed: ${e.message}")
         }
     }
 
@@ -411,14 +417,14 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         // first playback-session start rather than app launch.
         ensureNotificationPermission()
         MediaBridge.ensureQueue(ctx)
-        Logger.info("PlethoraMedia: starting RemoteMediaSessionService")
+        Log.i(MEDIA_LOG_TAG, "starting RemoteMediaSessionService")
         RemoteMediaSessionService.start(ctx)
         invoke.resolve()
     }
 
     @Command
     fun stopMediaSession(invoke: Invoke) {
-        Logger.info("PlethoraMedia: stopping RemoteMediaSessionService")
+        Log.i(MEDIA_LOG_TAG, "stopping RemoteMediaSessionService")
         RemoteMediaSessionService.stop(ctx)
         invoke.resolve()
     }
@@ -430,20 +436,22 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             val applied = MediaBridge.updateSnapshot(args)
             RemoteMediaSessionService.refresh()
             if (!applied) {
-                Logger.warn(
-                    "PlethoraMedia: metadata snapshot rejected (stale or invalid) " +
+                Log.w(
+                    MEDIA_LOG_TAG,
+                    "metadata snapshot rejected (stale or invalid) " +
                         "source=${args.sourceId} session=${args.sessionId} state=${args.state}"
                 )
             } else {
-                Logger.debug(
-                    "PlethoraMedia: snapshot applied source=${args.sourceId} " +
+                Log.d(
+                    MEDIA_LOG_TAG,
+                    "snapshot applied source=${args.sourceId} " +
                         "state=${args.state} playing=${args.isPlaying}"
                 )
             }
         } catch (e: Throwable) {
             // Never swallow integration breaks silently: a dropped snapshot
             // leaves the OS surface idle/paused forever with no controls.
-            Logger.warn("PlethoraMedia: update_media_metadata failed: ${e.message}")
+            Log.w(MEDIA_LOG_TAG, "update_media_metadata failed: ${e.message}")
         }
         invoke.resolve()
     }
