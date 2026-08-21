@@ -284,3 +284,31 @@ class MediaManifestContractTest {
         assertTrue(names.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"))
     }
 }
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class WebViewBridgePlayerMetadataTest {
+
+    @Test
+    fun `player exposes snapshot metadata for the notification provider`() {
+        MediaBridge.updateSnapshot(
+            UpdateMediaMetadataArgs().also {
+                it.sourceId = "doc-meta"
+                it.title = "Project Hail Mary"
+                it.artist = "Andy Weir"
+                it.album = "Audiobooks"
+                it.state = "playing"
+                it.isPlaying = true
+                it.updatedAt = 5_000L
+            }
+        )
+        val player = WebViewBridgePlayer(RuntimeEnvironment.getApplication()) { _, _ -> }
+        // DefaultMediaNotificationProvider guards the title/text block behind
+        // COMMAND_GET_METADATA; without it the notification posts nulls.
+        assertTrue(player.isCommandAvailable(Player.COMMAND_GET_METADATA))
+        val metadata = player.getMediaMetadata()
+        assertEquals("Project Hail Mary", metadata.title?.toString())
+        assertEquals("Andy Weir", metadata.artist?.toString())
+        assertEquals("Audiobooks", metadata.albumTitle?.toString())
+    }
+}

@@ -445,7 +445,8 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
                 Log.d(
                     MEDIA_LOG_TAG,
                     "snapshot applied source=${args.sourceId} " +
-                        "state=${args.state} playing=${args.isPlaying}"
+                        "state=${args.state} playing=${args.isPlaying} " +
+                        "title=${args.title} artist=${args.artist} album=${args.album}"
                 )
             }
         } catch (e: Throwable) {
