@@ -208,7 +208,7 @@ jobs:
         run: Get-ChildItem -Path src-tauri/bin -Recurse -File -ErrorAction SilentlyContinue | Unblock-File
 
       - name: Build Tauri application
-        run: npx tauri build ${{ matrix.tauri_args }}
+        run: npx tauri build ${{ matrix.tauri_args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPIMAGE_EXTRACT_AND_RUN: "1"
