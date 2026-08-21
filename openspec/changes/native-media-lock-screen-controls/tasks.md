@@ -21,6 +21,11 @@
 - [x] 3.3 Consolidate `TtsPlaybackService` with the one media-session/foreground lifecycle or make it a subordinate implementation with no duplicate notification/control owner.
 - [x] 3.4 Implement the audio-focus/interruption state machine for permanent loss, transient loss, ducking, gain, and headphone disconnect without resuming user-paused playback.
 - [ ] 3.5 Verify Media3 notification actions, lock-screen metadata, background lifecycle, headset/car/Bluetooth/watch events, and service teardown on a physical Android device.
+  <!-- SUPERSEDED by fix-mobile-layout-and-android-media-controls Section 7: physical-device
+       verification of this area (including its root-cause fixes: POST_NOTIFICATIONS runtime
+       grant, MediaSessionService intent filter, service-start gating, foreground-promotion
+       policy) is now a mandatory completion gate of that change. Check this box only when that
+       change's Section 7 matrix has been executed. -->
 
 ## 4. Durable command bridge and reconciliation
 
@@ -48,5 +53,6 @@
 - [x] 7.1 Add frontend unit/integration tests for adapters, metadata snapshots, capabilities, queue drain/ack, dedupe, suspension, and state reconciliation.
 - [x] 7.2 Add Android unit/instrumentation coverage for Media3 state, focus transitions, queue persistence, event normalization, service lifecycle, and TTS integration.
 - [ ] 7.3 Add manual physical-device coverage for Android lock screen, notification, wired/Bluetooth headset, car/watch controls, interruption, ducking, background suspension, TTS, and resume position.
+  <!-- SUPERSEDED by fix-mobile-layout-and-android-media-controls Section 7 (same rationale as 3.5). -->
 - [x] 7.4 Document the desktop platform matrix and the conditional iOS status; if an iOS target becomes buildable, add a native adapter and its manual test path.
 - [x] 7.5 Run the relevant frontend, Rust, Android, and performance/regression checks and record any platform-specific limitations before handoff.

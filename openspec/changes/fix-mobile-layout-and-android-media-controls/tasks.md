@@ -7,7 +7,7 @@
 - [x] 1.3 Harden the same latent pattern in `src/components/ExtractsList.tsx:726` (add `min-w-0` ownership) without changing behavior where wrapping already contains it (e.g., `routes/queue.tsx`).
 - [x] 1.4 Verify the intentional horizontal-scroll rails (`DocumentsView.tsx:2953`, `:3569`, `:3704`) are untouched and the desktop grid branch (`:3268`) is unchanged.
 - [x] 1.5 Add Vitest coverage: CompactTagEditor shrink/truncate contract (long single tag, many tags, zero/one tags), and DocumentsView compact-row tests asserting the Open / Read button stays rendered alongside a constrained tag region for narrow phone viewports and long/translated tag strings; keep `tagEditingIntegration` inventory tests green.
-- [ ] 1.6 Run `npm run test` (or the repo's frontend suite), lint, and typecheck; optionally add a 390×844 Playwright visual spec for the compact library row if low-cost.
+- [x] 1.6 Run `npm run test` (or the repo's frontend suite), lint, and typecheck; optionally add a 390×844 Playwright visual spec for the compact library row if low-cost.
 
 ## 2. Overlay stacking + Create Extract dialog (Issue 2)
 
@@ -20,33 +20,35 @@
 
 ## 3. Android manifest + notification permission (Issue 3a)
 
-- [ ] 3.1 Add the `androidx.media3.session.MediaSessionService` intent filter to `RemoteMediaSessionService` in `src-tauri/plugins/plethora-android-tts/android/src/main/AndroidManifest.xml`, set `android:exported="true"` per the Media3 1.8.0 contract, and remove the stale `TtsPlaybackService` comment.
-- [ ] 3.2 Add `<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />` and implement the Android 13+ runtime request at first playback start (not app launch) from the plugin; no-op below API 33; log grant/denial.
-- [ ] 3.3 Evaluate the `android.media.browse.MediaBrowserService` compatibility action against Media3 1.8.0 docs and the supported surfaces; include only if verified necessary (record the decision).
-- [ ] 3.4 Confirm manifest merging for the generated app (`src-tauri/gen/android`) produces the expected merged service entry and permissions; document the check.
+- [x] 3.1 Add the `androidx.media3.session.MediaSessionService` intent filter to `RemoteMediaSessionService` in `src-tauri/plugins/plethora-android-tts/android/src/main/AndroidManifest.xml`, set `android:exported="true"` per the Media3 1.8.0 contract, and remove the stale `TtsPlaybackService` comment.
+- [x] 3.2 Add `<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />` and implement the Android 13+ runtime request at first playback start (not app launch) from the plugin; no-op below API 33; log grant/denial.
+- [x] 3.3 Evaluate the `android.media.browse.MediaBrowserService` compatibility action against Media3 1.8.0 docs and the supported surfaces; include only if verified necessary (record the decision).
+- [x] 3.4 Confirm manifest merging for the generated app (`src-tauri/gen/android`) produces the expected merged service entry and permissions; document the check.
 
 ## 4. Android service lifecycle + state gating (Issue 3b)
 
-- [ ] 4.1 Change `useRemoteMediaBridge.ts` semantics: start the Android service only for a real playable/paused session; map generating to `"buffering"` (or defer start); stop silently swallowing snapshot push failures (`:124–126`) — log and surface the last error.
-- [ ] 4.2 Update call sites: remove `isGenerating` from the enabled condition in `useTTS.ts:474`; add a playback-gated `enabled` condition in `AudiobookViewer.tsx:2164`; verify `ReaderTTSControls.tsx:1602` semantics remain honest.
-- [ ] 4.3 In `AndroidTtsPlugin.kt`, publish any pending snapshot before/at `startMediaSession` so the service never boots on stale defaults; keep `stopMediaSession` teardown idempotent.
-- [ ] 4.4 In `RemoteMediaSessionService.kt`, remove the unconditional `enterForegroundImmediately()` on `onCreate`; rely on Media3 promotion when the forwarding player reports ready/playing; retain only the minimal compliant `startForeground` path if a `startForegroundService` contract requires it, never posting a media-style control surface before a playable session.
-- [ ] 4.5 Add the tagged non-spammy logger (`PlethoraMedia`) covering service start/stop, session creation, snapshot application/rejection, player state transitions, foreground promotion/failure, command reception, teardown, exceptions; replace `catch (_: Throwable)` in `updateMediaMetadata` (`AndroidTtsPlugin.kt:395`) with logged failure.
-- [ ] 4.6 Preserve the single-adapter rule: confirm `useMediaSession.ts` remains disabled in Tauri and no second media-session/notification owner exists (grep for competing `setActionHandler`/notification owners).
+- [x] 4.1 Change `useRemoteMediaBridge.ts` semantics: start the Android service only for a real playable/paused session; map generating to `"buffering"` (or defer start); stop silently swallowing snapshot push failures (`:124–126`) — log and surface the last error.
+- [x] 4.2 Update call sites: remove `isGenerating` from the enabled condition in `useTTS.ts:474`; add a playback-gated `enabled` condition in `AudiobookViewer.tsx:2164`; verify `ReaderTTSControls.tsx:1602` semantics remain honest.
+- [x] 4.3 In `AndroidTtsPlugin.kt`, publish any pending snapshot before/at `startMediaSession` so the service never boots on stale defaults; keep `stopMediaSession` teardown idempotent.
+- [x] 4.4 In `RemoteMediaSessionService.kt`, remove the unconditional `enterForegroundImmediately()` on `onCreate`; rely on Media3 promotion when the forwarding player reports ready/playing; retain only the minimal compliant `startForeground` path if a `startForegroundService` contract requires it, never posting a media-style control surface before a playable session.
+- [x] 4.5 Add the tagged non-spammy logger (`PlethoraMedia`) covering service start/stop, session creation, snapshot application/rejection, player state transitions, foreground promotion/failure, command reception, teardown, exceptions; replace `catch (_: Throwable)` in `updateMediaMetadata` (`AndroidTtsPlugin.kt:395`) with logged failure.
+- [x] 4.6 Preserve the single-adapter rule: confirm `useMediaSession.ts` remains disabled in Tauri and no second media-session/notification owner exists (grep for competing `setActionHandler`/notification owners).
 
 ## 5. Android automated tests
 
-- [ ] 5.1 Add Kotlin tests for `WebViewBridgePlayer.getState()` mapping (idle/buffering/ready/ended, playWhenReady, stale-snapshot rejection).
-- [ ] 5.2 Add Kotlin tests for service lifecycle idempotence (start/start, stop/stop, start→stop→start) and the foreground-promotion policy (no media notification before playable state).
-- [ ] 5.3 Add Kotlin tests for snapshot handling: complete-snapshot-before-start, generating→playing transition, playing↔paused, stopped→teardown.
-- [ ] 5.4 Add a manifest contract test (parse the merged/declared XML: intent-filter action present, `exported`, `foregroundServiceType`, `POST_NOTIFICATIONS` declared) if feasible in the plugin's test setup; otherwise assert in CI script.
-- [ ] 5.5 Update frontend Vitest coverage for the bridge: enabled-condition gating (generating does not start the service), buffering state mapping, and error surfacing on failed snapshot pushes.
+- [x] 5.1 Add Kotlin tests for `WebViewBridgePlayer.getState()` mapping (idle/buffering/ready/ended, playWhenReady, stale-snapshot rejection).
+- [x] 5.2 Add Kotlin tests for service lifecycle idempotence (start/start, stop/stop, start→stop→start) and the foreground-promotion policy (no media notification before playable state).
+- [x] 5.3 Add Kotlin tests for snapshot handling: complete-snapshot-before-start, generating→playing transition, playing↔paused, stopped→teardown.
+- [x] 5.4 Add a manifest contract test (parse the merged/declared XML: intent-filter action present, `exported`, `foregroundServiceType`, `POST_NOTIFICATIONS` declared) if feasible in the plugin's test setup; otherwise assert in CI script.
+- [x] 5.5 Update frontend Vitest coverage for the bridge: enabled-condition gating (generating does not start the service), buffering state mapping, and error surfacing on failed snapshot pushes.
 
 ## 6. Regression guards
 
-- [ ] 6.1 Run `npm run test`, `npm run lint`, typecheck, and `npm run bench:check` (layout work touches hot render paths in DocumentsView).
-- [ ] 6.2 Run `npm run test:scripts` and any Rust checks if plugin Rust shim files were touched.
-- [ ] 6.3 Verify desktop Documents view, desktop Create Extract dialog, tablet layouts, and themes show no visual regression (manual pass + existing tests).
+- [x] 6.1 Run `npm run test`, `npm run lint`, typecheck, and `npm run bench:check` (layout work touches hot render paths in DocumentsView).
+  - Result (2026-08-21): vitest 4621/4623 pass. Two failures are UNRELATED to this change: `precisionScheduler.test.ts` ("matches the shared native fixture") breaks on the branding commit's Rust `sm20 -> precision` rename (ensemble fixture mismatch), and one ReviewCard occlusion case that passes in isolation (full-suite flake). Lint: 9 pre-existing errors, none in files touched here. `tsc --noEmit`: clean. `bench:check`: OK — no regressions, only stale-baseline (faster-than-recorded) warnings; bundle budget OK.
+- [x] 6.2 Run `npm run test:scripts` and any Rust checks if plugin Rust shim files were touched.
+  - Result: test:scripts 118 pass / 0 fail. Plugin Rust shim untouched, so no Rust re-check required.
+- [ ] 6.3 Verify desktop Documents view, desktop Create Extract dialog, tablet layouts, and themes show no visual regression (manual pass + existing tests). <!-- REMAINS: manual visual pass; existing desktop/tablet component tests all pass. -->
 
 ## 7. Physical-device verification (mandatory completion gate)
 
@@ -60,5 +62,5 @@
 
 ## 8. Handoff
 
-- [ ] 8.1 Update the `native-media-lock-screen-controls` change: note that tasks 3.5/7.3 (Android physical verification) are superseded by this change's Section 7 and check them off only if executed here.
-- [ ] 8.2 Summarize any deviations from the design (primitive fallback used, MediaBrowserService decision, buffering semantics per source) in the change notes.
+- [x] 8.1 Update the `native-media-lock-screen-controls` change: note that tasks 3.5/7.3 (Android physical verification) are superseded by this change's Section 7 and check them off only if executed here.
+- [x] 8.2 Summarize any deviations from the design (primitive fallback used, MediaBrowserService decision, buffering semantics per source) in the change notes.
