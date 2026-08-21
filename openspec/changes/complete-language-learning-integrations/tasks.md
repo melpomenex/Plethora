@@ -15,7 +15,7 @@
 - [x] 2.5 Implement annotation precedence with user highlights, search, TTS word highlighting, selection, and e-ink/reduced-motion styles.
 - [x] 2.6 Add reader-level Language Peek actions for state change, explicit Memorize, Extract, translation, sentence replay, Explain, and practice entry.
 - [x] 2.7 Add reader integration tests for EPUB, PDF fixed/reflow, HTML/article, Markdown, Queue, transcript selection, profile switching, stale anchors, and Language Mode off.
-- [ ] 2.8 Add keyboard, touch, screen-reader, contrast, mobile, and e-ink tests for reader language controls.
+- [x] 2.8 Add keyboard, touch, screen-reader, contrast, mobile, and e-ink tests for reader language controls.
 
 ## 3. Video and transcript integration
 
@@ -28,12 +28,12 @@
 
 ## 4. Tutor and writing host integration
 
-- [ ] 4.1 Integrate bounded `LearnerContextPacket` construction into TutorSheet, TutorComposer, document assistance, Language Peek Explain, and source-grounded tutor entry points.
+- [x] 4.1 Integrate bounded `LearnerContextPacket` construction into TutorSheet, TutorComposer, document assistance, Language Peek Explain, and source-grounded tutor entry points.
 - [x] 4.2 Add language tutor modes for explanation, conversation, target-vocabulary practice, correction, and source-grounded answers using the existing provider/session runtime.
 - [x] 4.3 Add target-language instructions, lexical targeting, source citations, freshness labels, streaming cancellation, retry, and typed unavailable/error states.
-- [ ] 4.4 Wire privacy consent, local/BYO/cloud provider selection, redaction, retention, delete/export, offline behavior, and provider capability disclosure.
-- [ ] 4.5 Add writing-practice prompt entry points, raw learner text preservation, correction modes/categories, editable feedback, and explicit active-evidence/SRS handoff.
-- [ ] 4.6 Add tutor and writing component tests for bounded context, source grounding, stale sources, provider failures, cancellation, consent, raw-text preservation, and evidence acceptance.
+- [x] 4.4 Wire privacy consent, local/BYO/cloud provider selection, redaction, retention, delete/export, offline behavior, and provider capability disclosure.
+- [x] 4.5 Add writing-practice prompt entry points, raw learner text preservation, correction modes/categories, editable feedback, and explicit active-evidence/SRS handoff.
+- [x] 4.6 Add tutor and writing component tests for bounded context, source grounding, stale sources, provider failures, cancellation, consent, raw-text preservation, and evidence acceptance.
 
 ## 5. Shared practice screen and session lifecycle
 
@@ -45,11 +45,11 @@
 
 ## 6. Practice modes
 
-- [ ] 6.1 Wire shadowing listen-first, immediate, and continuous flows with microphone capability/permission, start/stop/cancel/delete, local/cloud STT, confidence, retry, and original-audio/TTS fallback.
+- [x] 6.1 Wire shadowing listen-first, immediate, and continuous flows with microphone capability/permission, start/stop/cancel/delete, local/cloud STT, confidence, retry, and original-audio/TTS fallback.
 - [x] 6.2 Wire dictation hidden-answer flow with normalized comparison, raw-answer preservation, missing/extra/substituted/order errors, reveal, replay, retry, and offline text practice.
-- [ ] 6.3 Wire writing prompts from documents/interests/lexicon with bounded tutor context, correction modes, provider streaming, local draft recovery, and explicit production evidence.
-- [ ] 6.4 Wire pronunciation feedback from shadowing attempts using capability-gated transcription, word confidence, timing/rhythm, model, and phoneme dimensions without fabricated scores.
-- [ ] 6.5 Wire recommendation candidates into practice previews with coverage/difficulty explanations, duplicate suppression, and explicit start actions.
+- [x] 6.3 Wire writing prompts from documents/interests/lexicon with bounded tutor context, correction modes, provider streaming, local draft recovery, and explicit production evidence.
+- [x] 6.4 Wire pronunciation feedback from shadowing attempts using capability-gated transcription, word confidence, timing/rhythm, model, and phoneme dimensions without fabricated scores.
+- [x] 6.5 Wire recommendation candidates into practice previews with coverage/difficulty explanations, duplicate suppression, and explicit start actions.
 - [x] 6.6 Add mode-specific tests for normalization, uncertainty, permissions, provider mismatch, stale results, retention, deletion, privacy, and no-audio fallback.
 
 ## 7. Existing-surface compatibility and migrations
@@ -63,11 +63,11 @@
 
 ## 8. Cross-feature verification and rollout
 
-- [ ] 8.1 Add Spanish EPUB acceptance coverage: profile selection, state annotations, Peek, morphology/translation fallback, explicit state change, replay, Memorize, and no automatic card creation.
-- [ ] 8.2 Add repeated-word coverage: encounter/lookup evidence, unobtrusive Memorize, rich Studio draft, duplicate policy, and existing scheduler reuse.
-- [ ] 8.3 Add Sentence Mode coverage: translation reveal, vocabulary inspection, tutor explanation, original/TTS replay, loop, and exact return anchor.
-- [ ] 8.4 Add podcast/audio and YouTube coverage: transcript analysis, alignment, lexical highlighting, original replay, timestamp/frame mining, and normal playback invariants.
-- [ ] 8.5 Add Queue coverage: profile-specific coverage/difficulty signal, 92–98% preference behavior where configured, and unchanged Queue semantics.
-- [ ] 8.6 Add tutor and active/passive evidence coverage: bounded context, source grounding, privacy fallback, reading recognition, dictation/writing/speaking production evidence.
+- [x] 8.1 Add Spanish EPUB acceptance coverage: profile selection, state annotations, Peek, morphology/translation fallback, explicit state change, replay, Memorize, and no automatic card creation.
+- [x] 8.2 Add repeated-word coverage: encounter/lookup evidence, unobtrusive Memorize, rich Studio draft, duplicate policy, and existing scheduler reuse.
+- [x] 8.3 Add Sentence Mode coverage: translation reveal, vocabulary inspection, tutor explanation, original/TTS replay, loop, and exact return anchor.
+- [x] 8.4 Add podcast/audio and YouTube coverage: transcript analysis, alignment, lexical highlighting, original replay, timestamp/frame mining, and normal playback invariants.
+- [x] 8.5 Add Queue coverage: profile-specific coverage/difficulty signal, 92–98% preference behavior where configured, and unchanged Queue semantics.
+- [x] 8.6 Add tutor and active/passive evidence coverage: bounded context, source grounding, privacy fallback, reading recognition, dictation/writing/speaking production evidence.
 - [ ] 8.7 Run TypeScript/Vitest, Rust tests, `npx tsc --noEmit`, `npm run test:scripts`, `npm run bench:check`, accessibility checks, and reader/video regression suites.
 - [ ] 8.8 Run `openspec validate complete-language-learning-integrations --strict`, review the diff for hot-file ownership, and enable integrations behind profile/capability flags only after all gates pass.

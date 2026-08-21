@@ -889,6 +889,7 @@ mod tests {
 
     async fn repository() -> Repository {
         let database = Database::new(PathBuf::from(":memory:")).await.expect("database");
+        database.migrate().await.expect("migrations");
         Repository::new(database.pool().clone())
     }
 
