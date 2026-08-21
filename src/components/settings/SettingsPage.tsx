@@ -45,6 +45,7 @@ import { useAccountStore, useSettingsStore, useTabsStore } from "../../stores";
 import { PLETHORA_API_URL } from "../../config/product";
 import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
+import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
 import { registerContextualBackHandler } from "../../lib/contextualBack";
@@ -1675,10 +1676,9 @@ function ImportExportSettings({ onChange }: { onChange: () => void }) {
 }
 
 function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
-  const { isAuthenticated, signOut } = useAccountStore();
+  const { isAuthenticated } = useAccountStore();
   const toast = useToast();
-  const modal = useModal();
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteFlow, setShowDeleteFlow] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExportData = async () => {
@@ -1704,30 +1704,6 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
       toast.info('Export unavailable — sign in and connect to Plethora cloud to export your account data');
     } finally {
       setIsExporting(false);
-    }
-  };
-
-  const handleDeleteAccount = async () => {
-    const confirmed = await modal.confirm(
-      'This will permanently wipe all cloud data (synced items, web captures, devices, API tokens) across all servers. Your local on-device files will remain safe.',
-      'Delete Account & Erase Cloud Data?',
-      { confirmText: 'Delete Everything Permanently', cancelText: 'Cancel', variant: 'danger' }
-    );
-    if (!confirmed) return;
-    setIsDeleting(true);
-    try {
-      const token = useAccountStore.getState().tokens?.accessToken;
-      await fetch(`${PLETHORA_API_URL}/v1/auth/account`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      await signOut();
-      toast.success('Account and cloud data permanently deleted');
-    } catch {
-      await signOut();
-      toast.info('Account signed out and local session cleared');
-    } finally {
-      setIsDeleting(false);
     }
   };
 
@@ -1769,20 +1745,27 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
         </button>
       </div>
 
-      {/* In-App Account Deletion (App Store Guideline 5.1.1(v) Compliant) */}
+      {/* In-App Account Deletion — dedicated multi-step flow (Change F §1.1);
+          also discoverable from Settings → Account within two taps */}
       <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg space-y-3">
         <h3 className="text-base font-semibold text-destructive">Delete Account & Wipe Cloud Storage</h3>
         <p className="text-sm text-muted-foreground">
-          Permanently delete your user account and cascade-wipe all cloud databases across all 12 tables. This action cannot be undone.
+          Permanently delete your user account and all cloud data (sessions, devices, tokens,
+          synced data). Your local on-device library is retained; an Apple subscription is not
+          cancelled by deleting your account. This action cannot be undone.
         </p>
         <button
-          onClick={handleDeleteAccount}
-          disabled={isDeleting || !isAuthenticated}
+          onClick={() => setShowDeleteFlow(true)}
+          disabled={!isAuthenticated}
           className="px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
         >
-          {isDeleting ? 'Deleting…' : 'Delete Account & Erase Cloud Data'}
+          Delete Account & Erase Cloud Data
         </button>
       </div>
+
+      {showDeleteFlow && (
+        <DeleteAccountFlow open onClose={() => setShowDeleteFlow(false)} />
+      )}
     </div>
   );
 }

@@ -7,7 +7,16 @@
 
 ## 2. Deletion & revocation
 - [x] 2.1 Server deletion cascade + retention schedule + verification job + deletion receipt
+  > ⚠️ Correction (2026-08-21, `harden-ios-account-and-subscription-lifecycle` §1.6): the cascade itself is real
+  > (`server/src/routes/v1/auth.ts` DELETE /v1/auth/account), but the retention schedule, verification job, and
+  > deletion receipt were **never implemented**. Retained transaction records are instead defined by Proposal B's
+  > `store-entitlement-validation` spec; explicit success/failure response semantics landed in F §1.4.
 - [x] 2.2 In-app multi-step deletion flow (cloud vs optional local erase) + status/verification
+  > ⚠️ Correction (2026-08-21, `harden-ios-account-and-subscription-lifecycle` §1.6): this was a single
+  > `modal.confirm`, not a multi-step flow, and it silently signed the user out on API failure. A real multi-step
+  > component (scope description, export-before-delete, typed confirmation, explicit failure/retry) landed as
+  > `src/components/settings/DeleteAccountFlow.tsx` via that change's §1.1–§1.3. Local erase on deletion remains
+  > out of scope by product decision (local library is always retained).
 - [x] 2.3 Schema-driven completeness test harness (auto-discovers content-bearing stores)
 - [x] 2.4 Device revocation surfacing in privacy center (3's registry)
 
