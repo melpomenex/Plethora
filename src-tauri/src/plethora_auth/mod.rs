@@ -1,7 +1,18 @@
+use crate::build_profile;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::Emitter;
+
+/// Change F §2.2 — the fabricated mock sign-in must never exist in store
+/// (App Store distribution) builds. Development and sideload builds keep it,
+/// with credentials explicitly labeled `dev-mock-*`. Real credential
+/// transport (HTTP + refresh) is owned by Proposal B; until then the
+/// frontend signs in against the real Plethora API and owns session state,
+/// while this module only mirrors state for native callers.
+pub fn mock_sign_in_allowed(profile: &str) -> bool {
+    profile != "store"
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserProfile {
@@ -139,18 +150,28 @@ pub fn account_sign_in(
     password: String,
     device_name: Option<String>,
 ) -> Result<AccountState, String> {
-    // In desktop app, sign in coordinates with local AuthManager
+    // Store builds: never fabricate a session. The frontend performs the real
+    // login against the Plethora API; this command is a state-preserving
+    // no-op mirror until Proposal B lands the native transport.
+    if !mock_sign_in_allowed(build_profile::build_profile()) {
+        return Ok(auth.get_state());
+    }
+
+    // DEVELOPMENT/SIDELOAD ONLY: fabricate a clearly-labeled mock session so
+    // dev and simulator runs work without a configured backend. Tokens here
+    // are NOT real credentials.
+    let _ = (&password, &device_name);
     let user = UserProfile {
-        id: "mock-user-uuid".to_string(),
+        id: "dev-mock-user-uuid".to_string(),
         email: email.clone(),
         subscription_tier: "free".to_string(),
     };
     let tokens = AccountTokens {
-        access_token: "mock-access-jwt".to_string(),
-        refresh_token: "mock-refresh-token".to_string(),
+        access_token: "dev-mock-access-jwt".to_string(),
+        refresh_token: "dev-mock-refresh-token".to_string(),
         expires_in: 900,
     };
-    let device_id = Some("mock-device-uuid".to_string());
+    let device_id = Some("dev-mock-device-uuid".to_string());
 
     auth.set_signed_in(user, tokens, device_id);
     Ok(auth.get_state())
@@ -189,6 +210,28 @@ pub fn account_revoke_device(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mock_sign_in_is_refused_only_for_store_profile() {
+        assert!(!mock_sign_in_allowed("store"));
+        assert!(mock_sign_in_allowed("development"));
+        assert!(mock_sign_in_allowed("sideload"));
+    }
+
+    #[test]
+    fn any_non_store_profile_allows_mock() {
+        // Unknown values degrade to development semantics at the build-profile
+        // layer, so anything except the exact "store" profile allows mock.
+        assert!(mock_sign_in_allowed(""));
+        assert!(mock_sign_in_allowed("STORE")); // exact match only
+    }
+
+    #[test]
+    fn test_build_profile_defaults_to_development_in_test_harness() {
+        // Test builds never set PLETHORA_BUILD_PROFILE.
+        assert_eq!(build_profile::build_profile(), "development");
+        assert!(mock_sign_in_allowed(build_profile::build_profile()));
+    }
 
     #[test]
     fn test_auth_manager_initial_state_is_signed_out() {

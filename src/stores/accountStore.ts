@@ -88,21 +88,24 @@ export const useAccountStore = create<AccountStoreState>()(
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // Fallback mock login for offline / unconfigured cloud backend in dev
-          const mockUser: UserProfile = {
-            id: 'local-user-id',
-            email,
-            subscriptionTier: 'free',
-          };
+          // No mock fallback (Change F §2.1): a failed sign-in must never
+          // fabricate a session. Surface an explicit, retryable error and
+          // stay signed out.
+          const message =
+            err instanceof TypeError
+              ? 'Could not reach Plethora cloud. Check your connection and try again.'
+              : err instanceof Error && err.message
+                ? err.message
+                : 'Sign-in failed. Please try again.';
           set({
-            isAuthenticated: true,
-            user: mockUser,
-            tokens: { accessToken: 'dev-token', refreshToken: 'dev-refresh', expiresIn: 900 },
+            isAuthenticated: false,
+            user: null,
+            tokens: null,
+            deviceId: null,
             loading: false,
-            error: null,
+            error: message,
           });
-          void useEntitlementStore.getState().refresh();
+          throw new Error(message);
         }
       },
 
@@ -132,21 +135,23 @@ export const useAccountStore = create<AccountStoreState>()(
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          // Dev fallback
-          const mockUser: UserProfile = {
-            id: 'local-user-id',
-            email,
-            subscriptionTier: 'free',
-          };
+          // No mock fallback (Change F §2.1): registration failures are
+          // surfaced honestly and never produce a fabricated session.
+          const message =
+            err instanceof TypeError
+              ? 'Could not reach Plethora cloud. Check your connection and try again.'
+              : err instanceof Error && err.message
+                ? err.message
+                : 'Registration failed. Please try again.';
           set({
-            isAuthenticated: true,
-            user: mockUser,
-            tokens: { accessToken: 'dev-token', refreshToken: 'dev-refresh', expiresIn: 900 },
+            isAuthenticated: false,
+            user: null,
+            tokens: null,
+            deviceId: null,
             loading: false,
-            error: null,
+            error: message,
           });
-          void useEntitlementStore.getState().refresh();
+          throw new Error(message);
         }
       },
 
@@ -193,7 +198,10 @@ export const useAccountStore = create<AccountStoreState>()(
 
           if (!res.ok) {
             if (res.status === 401) {
-              void get().signOut();
+              // Refresh token rejected (expired/revoked family, or session
+              // cascade-deleted by account deletion elsewhere): transition
+              // cleanly to signed-out local mode (Change F §2.3).
+              await get().signOut();
             }
             return;
           }
