@@ -58,6 +58,7 @@ import {
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
 import { useApiTokensStore } from "../../stores/apiTokensStore";
+import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 
 type IntegrationType =
   | "obsidian"
@@ -74,6 +75,13 @@ export function IntegrationSettings() {
   const { t } = useI18n();
   const [settings, setSettings] = useState(getIntegrationSettings());
   const [activeTab, setActiveTab] = useState<IntegrationType>("obsidian");
+
+  // §2.4 / §2.5: browser-extension sync server and the NotebookLM CLI
+  // workspace are desktop-only mechanics (localhost socket / external
+  // `notebooklm-py` CLI). Their tabs are hidden on mobile via the platform
+  // capability registry; visibility only — no logic changes.
+  const extensionServerAvailable = usePlatformCapability("browser_extension_server").available;
+  const notebooklmAvailable = usePlatformCapability("notebooklm_cli").available;
 
   const { settings: globalSettings, updateSettings } = useSettingsStore();
 
@@ -448,28 +456,32 @@ export function IntegrationSettings() {
           <Brain className="w-4 h-4" />
           {t("integrations.anki")}
         </button>
-        <button
-          onClick={() => setActiveTab("extension")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "extension"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Globe className="w-4 h-4" />
-          {t("integrations.browserExtension")}
-        </button>
-        <button
-          onClick={() => setActiveTab("notebooklm")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "notebooklm"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Sparkle className="w-4 h-4" />
-          {t("integrations.notebooklm")}
-        </button>
+        {extensionServerAvailable && (
+          <button
+            onClick={() => setActiveTab("extension")}
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              activeTab === "extension"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:opacity-90"
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            {t("integrations.browserExtension")}
+          </button>
+        )}
+        {notebooklmAvailable && (
+          <button
+            onClick={() => setActiveTab("notebooklm")}
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              activeTab === "notebooklm"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:opacity-90"
+            }`}
+          >
+            <Sparkle className="w-4 h-4" />
+            {t("integrations.notebooklm")}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab("youtube")}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${

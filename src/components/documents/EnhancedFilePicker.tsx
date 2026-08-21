@@ -19,6 +19,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { validateUrl, validateArxivInput } from "../../utils/documentImport";
+import { isPlatformCapabilityAvailable } from "../../lib/platformCapabilities";
 
 export type ImportSource = "local" | "folder" | "url" | "arxiv" | "screenshot" | "anki" | "json";
 
@@ -96,6 +97,15 @@ export function EnhancedFilePicker({
   const [selectedSource, setSelectedSource] = useState<ImportSource>("local");
   const [urlInput, setUrlInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // §2.3: screenshot capture is desktop-only (nothing to capture inside a
+  // mobile webview — screenshotCapture early-returns). Hidden via the
+  // platform capability registry.
+  const availableImportOptions = importOptions.filter(
+    (option) =>
+      option.id !== "screenshot" ||
+      isPlatformCapabilityAvailable("import_screenshot")
+  );
 
   const handleSourceSelect = (source: ImportSource) => {
     setSelectedSource(source);
@@ -361,7 +371,7 @@ export function EnhancedFilePicker({
               Import Source
             </h3>
             <div className="space-y-1">
-              {importOptions.map((option) => {
+              {availableImportOptions.map((option) => {
                 const Icon = option.icon;
                 return (
                   <button

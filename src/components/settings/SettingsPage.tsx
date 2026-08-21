@@ -40,6 +40,7 @@ import { cn } from "../../utils";
 import { importWithRetry } from "../../utils/importWithRetry";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
+import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
 import { useAccountStore, useSettingsStore, useTabsStore } from "../../stores";
 import { PLETHORA_API_URL } from "../../config/product";
@@ -852,6 +853,11 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const isDesktop = isTauri();
+  // §2.2: the updater / check-for-updates row is gated through the platform
+  // capability registry — real desktop (and Android sideload) only, never the
+  // iOS webview where `isTauri()` alone would wrongly expose self-update
+  // (App Review guideline 2.5.2; matches storeReleaseReadiness policy).
+  const appUpdaterAvailable = usePlatformCapability("app_updater").available;
   const toast = useToast();
   const { t } = useI18n();
 
@@ -1056,7 +1062,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           </label>
         </SettingsRow>
 
-        {isDesktop && (
+        {isDesktop && appUpdaterAvailable && (
           <SettingsRow label={t("settings.appVersion")} description={t("settings.appVersionDesc")}>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">{appVersion ?? t("common.loading")}</span>
