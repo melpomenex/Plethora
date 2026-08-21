@@ -9,6 +9,8 @@ import { invokeCommand, isTauri } from "../lib/tauri";
 
 export type HfRuntime = "whisper-cpp" | "sherpa-onnx-stt" | "sherpa-onnx-tts";
 export type SherpaSttFamily = "nemo-ctc" | "sense-voice" | "zipformer" | "paraformer";
+/** Family of a sherpa-onnx TTS contract (`RunContract::SherpaTts.family`). */
+export type SherpaTtsFamily = "vits" | "kokoro" | "kitten" | "supertonic";
 export type DetectionConfidence = "exact" | "heuristic";
 export type SuitabilityLevel =
   | "recommended"
@@ -36,7 +38,20 @@ export interface RunContract {
   joiner_file?: string | null;
   tokens_file?: string | null;
   voices_file?: string | null;
-  family?: SherpaSttFamily;
+  /**
+   * Contract family. For `sherpa-stt`: one of SherpaSttFamily. For
+   * `sherpa-tts`: one of SherpaTtsFamily (absent on legacy rows, which the
+   * backend infers on read).
+   */
+  family?: SherpaSttFamily | SherpaTtsFamily;
+  /** Supertonic pipeline files (repo-relative), all required at run time. */
+  text_encoder_file?: string | null;
+  vector_estimator_file?: string | null;
+  vocoder_file?: string | null;
+  tts_json_file?: string | null;
+  unicode_indexer_file?: string | null;
+  voice_bin_file?: string | null;
+  data_dir?: string | null;
   use_itn?: boolean;
 }
 
@@ -49,6 +64,8 @@ export interface HfArtifact {
   run_contract: RunContract;
   estimated_memory_bytes: number;
   confidence: DetectionConfidence;
+  /** Family extras: `precision`, `family`, `voice_roster` (supertonic). */
+  metadata?: Record<string, string>;
 }
 
 export interface MachineFacts {

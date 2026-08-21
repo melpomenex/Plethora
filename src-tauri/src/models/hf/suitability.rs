@@ -117,6 +117,11 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
     // 2. Memory/VRAM sizing on the *actual artifact*.
     let needs = artifact.estimated_memory_bytes;
 
+    // Sherpa-onnx TTS runs CPU-only in Plethora (the bundled onnxruntime is
+    // the CPU build; no CUDA/DirectML/CoreML provider is configured for it),
+    // so a discrete GPU never gates or improves the verdict — evaluate RAM.
+    let cpu_first = artifact.runtime == HfRuntime::SherpaOnnxTts;
+
     // Apple Silicon: unified memory is the accelerator budget.
     if system.is_apple_silicon {
         let budget = system.available_memory_bytes;
@@ -164,8 +169,10 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
         };
     }
 
-    // Discrete GPU with reported VRAM.
-    if let Some(vram) = system.gpu.as_ref().and_then(|g| g.vram_bytes) {
+    // Discrete GPU with reported VRAM. Skipped for CPU-first (sherpa TTS)
+    // runtimes — a big VRAM number must not turn a CPU verdict into a GPU one.
+    if !cpu_first {
+        if let Some(vram) = system.gpu.as_ref().and_then(|g| g.vram_bytes) {
         let is_nvidia = system.gpu.as_ref().map(|g| g.vendor == "nvidia").unwrap_or(false);
         let accelerator = if is_nvidia {
             "CUDA"
@@ -231,6 +238,8 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
         };
     }
 
+    }
+
     // CPU-only (or GPU without reported VRAM): evaluate for CPU inference.
     let budget = system.available_memory_bytes;
     if needs > budget {
@@ -276,15 +285,23 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
     }
 }
 
-/// A short "why" for a TTS runtime being detected but desktop synthesis being
-/// unavailable (Plethora's sherpa sidecar is STT-only on desktop).
+/// A short "how it runs" note for a TTS artifact, replacing the old
+/// "desktop is STT-only" caveat: installed sherpa TTS models are now
+/// synthesizable in-process on desktop (bundled sherpa-onnx C API runtime)
+/// and natively on Android. CPU-first on every platform.
 pub fn tts_runtime_note(artifact: &Artifact) -> String {
     match artifact.runtime {
         HfRuntime::SherpaOnnxTts => {
-            "Installed and registered, but the desktop sherpa-onnx sidecar in this build is \
-             speech-to-text only — synthesis requires a TTS-capable sherpa runtime. On Android, \
-             the native sherpa TTS plugin is used instead."
-                .to_string()
+            let family = artifact
+                .run_contract
+                .effective_tts_family()
+                .map(|f| f.label())
+                .unwrap_or("TTS");
+            format!(
+                "Runs locally on this device via the bundled sherpa-onnx runtime (CPU, offline). \
+                 {family} synthesis loads the model once, then streams sentence audio. On Android, \
+                 the same model is played through the native sherpa TTS plugin."
+            )
         }
         _ => String::new(),
     }
@@ -400,9 +417,17 @@ mod tests {
                 use_itn: false,
             },
             HfRuntime::SherpaOnnxTts => RunContract::SherpaTts {
+                family: Some(crate::models::hf::adapters::SherpaTtsFamily::Vits),
                 model_file: "model.onnx".into(),
                 tokens_file: Some("tokens.txt".into()),
                 voices_file: None,
+                text_encoder_file: None,
+                vector_estimator_file: None,
+                vocoder_file: None,
+                tts_json_file: None,
+                unicode_indexer_file: None,
+                voice_bin_file: None,
+                data_dir: None,
             },
         };
         Artifact {
@@ -415,6 +440,7 @@ mod tests {
             // Estimated inference memory scales with the artifact size.
             estimated_memory_bytes: (size_bytes as f64 * 1.2) as u64,
             confidence,
+            metadata: Default::default(),
         }
     }
 

@@ -37,6 +37,7 @@ mod podcast;
 mod processor;
 mod scheduler;
 mod segmentation;
+mod tts;
 mod services;
 mod study_json_import;
 mod supermemo_import;
@@ -1283,6 +1284,7 @@ pub fn run() {
                 app.manage(auth_store.clone());
                 app.manage(ai_key_store.clone());
                 app.manage(pocket_tts::PocketTTSState::default());
+                app.manage(tts::SherpaTtsState::default());
                 app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
                     job_queue: transcription::job_queue::JobQueue::new(
@@ -2157,6 +2159,11 @@ pub fn run() {
             models::hf::commands::hf_uninstall_model,
             models::hf::commands::get_installed_hf_models,
             models::hf::commands::get_system_info,
+            tts::sherpa_tts_status,
+            tts::sherpa_tts_load,
+            tts::sherpa_tts_synthesize,
+            tts::sherpa_tts_cancel,
+            tts::sherpa_tts_unload,
             transcription::get_transcript,
             transcription::save_transcript,
             transcription::enqueue_auto_transcription,

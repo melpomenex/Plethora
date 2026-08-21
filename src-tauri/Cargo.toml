@@ -94,6 +94,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Base64 encoding
 base64 = "0.22"
 
+# Runtime dynamic loading of the bundled sherpa-onnx C API (desktop TTS)
+libloading = "0.8"
+
 # Error handling
 anyhow = "1"
 thiserror = "1"
