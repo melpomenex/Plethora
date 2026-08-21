@@ -2179,6 +2179,10 @@ export function AudiobookViewer({
     duration: getTotalDurationSeconds() ?? duration,
     currentTime: Math.floor(currentGlobalTimeRef.current || currentTime),
     playbackRate: playbackRate,
+    // Only mount the OS media session for a real playback session: playing,
+    // or paused with audible progress (a resumable position). A freshly
+    // opened, never-started viewer must not advertise media controls.
+    enabled: isPlaying || currentTime > 0,
     capabilities: {
       canPlay: true,
       canPause: true,

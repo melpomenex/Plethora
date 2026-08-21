@@ -499,46 +499,53 @@ function normalizeProviderSettings(
 export function migrateTTSSettings(input: unknown): Record<string, unknown> {
   if (!isObject(input)) return createDefaultTTSSettings() as unknown as Record<string, unknown>;
   const defaults = createDefaultTTSSettings();
-  const needsV4Fill = typeof (input as { schemaVersion?: unknown }).schemaVersion === "number" && (input as { schemaVersion: number }).schemaVersion < 4;
-  if (needsV4Fill || (input as { schemaVersion?: unknown }).schemaVersion === 3) {
-    const hw = (input as { highlightSpokenWord?: unknown }).highlightSpokenWord;
-    const fw = (input as { followSpokenWord?: unknown }).followSpokenWord;
-    return {
+
+  const hasProviders = isObject((input as { providers?: unknown }).providers);
+  const version =
+    typeof (input as { schemaVersion?: unknown }).schemaVersion === "number"
+      ? (input as { schemaVersion: number }).schemaVersion
+      : 2;
+
+  let base: Record<string, unknown>;
+  if (hasProviders || version >= 3) {
+    base = { ...input };
+  } else {
+    const providers = { ...defaults.providers };
+    providers.fal = {
+      ...providers.fal,
+      apiKey: asString(input.apiKey, providers.fal.apiKey),
+      modelId: asNonEmptyString(input.modelId, providers.fal.modelId),
+      cloneModelId: asNonEmptyString(input.cloneModelId, providers.fal.cloneModelId),
+      requestMode: input.requestMode === "proxy" ? "proxy" : "direct",
+      proxyUrl: asString(input.proxyUrl, providers.fal.proxyUrl),
+      language: (FAL_LANGUAGES as readonly string[]).includes(asString(input.language))
+        ? (asString(input.language) as FalLanguage)
+        : providers.fal.language,
+    };
+    providers.groq = {
+      ...providers.groq,
+      modelId: asNonEmptyString(input.groqModelId, providers.groq.modelId),
+      responseFormat: input.groqResponseFormat === "wav" ? "wav" : "mp3",
+      apiKey: asString(input.apiKey, providers.groq.apiKey),
+    };
+    providers.pocket = {
+      ...providers.pocket,
+      pocketSpeed: clampNumber(input.pocketSpeed, providers.pocket.pocketSpeed, 0.5, 2),
+      pocketAvailable: Boolean(input.pocketAvailable),
+    };
+    base = {
       ...input,
-      schemaVersion: TTS_SETTINGS_SCHEMA_VERSION,
-      highlightSpokenWord: typeof hw === "boolean" ? hw : true,
-      followSpokenWord: typeof fw === "boolean" ? fw : true,
+      providers,
     };
   }
 
-  const providers = { ...defaults.providers };
-  providers.fal = {
-    ...providers.fal,
-    apiKey: asString(input.apiKey, providers.fal.apiKey),
-    modelId: asNonEmptyString(input.modelId, providers.fal.modelId),
-    cloneModelId: asNonEmptyString(input.cloneModelId, providers.fal.cloneModelId),
-    requestMode: input.requestMode === "proxy" ? "proxy" : "direct",
-    proxyUrl: asString(input.proxyUrl, providers.fal.proxyUrl),
-    language: (FAL_LANGUAGES as readonly string[]).includes(asString(input.language))
-      ? (asString(input.language) as FalLanguage)
-      : providers.fal.language,
-  };
-  providers.groq = {
-    ...providers.groq,
-    modelId: asNonEmptyString(input.groqModelId, providers.groq.modelId),
-    responseFormat: input.groqResponseFormat === "wav" ? "wav" : "mp3",
-    apiKey: asString(input.apiKey, providers.groq.apiKey),
-  };
-  providers.pocket = {
-    ...providers.pocket,
-    pocketSpeed: clampNumber(input.pocketSpeed, providers.pocket.pocketSpeed, 0.5, 2),
-    pocketAvailable: Boolean(input.pocketAvailable),
-  };
-
+  const hw = (base as { highlightSpokenWord?: unknown }).highlightSpokenWord;
+  const fw = (base as { followSpokenWord?: unknown }).followSpokenWord;
   return {
-    ...input,
+    ...base,
     schemaVersion: TTS_SETTINGS_SCHEMA_VERSION,
-    providers,
+    highlightSpokenWord: typeof hw === "boolean" ? hw : true,
+    followSpokenWord: typeof fw === "boolean" ? fw : true,
   };
 }
 

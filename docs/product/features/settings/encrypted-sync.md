@@ -54,7 +54,7 @@ Ensures total data privacy and sovereignty while providing modern multi-device c
 | Key | Default | Description |
 | :--- | :--- | :--- |
 | `sync.enabled` | `false` | Enable cross-device synchronization |
-| `sync.serverUrl` | `"wss://sync.readsync.org"` | Secure WebSocket relay endpoint |
+| `sync.serverUrl` | `""` | Optional remote sync endpoint URL |
 
 ## Platform Behavior
-- **All Platforms**: Background WebSocket connection with exponential reconnect backoff.
+- **All Platforms**: End-to-end encrypted replication over secure HTTPS.

@@ -56,6 +56,12 @@ export interface RemoteMediaBridgeOptions {
   section?: LongFormPlaybackSection;
   playbackRate?: number;
   capabilities?: LongFormPlaybackCapabilities;
+  /**
+   * Explicit lifecycle override for adapters whose "not playing" is not
+   * necessarily "paused" (e.g. TTS generating audio). When omitted, the
+   * classic isPlaying ? "playing" : "paused" mapping applies.
+   */
+  playbackState?: LongFormPlaybackState;
   enabled?: boolean;
 }
 
@@ -90,13 +96,29 @@ const DEFAULT_CAPABILITIES: LongFormPlaybackCapabilities = {
   canPrevious: true,
 };
 
+/**
+ * States that represent an OS-visible media session: something is actually
+ * playing or paused-and-resumable. Generation/loading-only states must not
+ * start the Android service or advertise media controls (openspec
+ * fix-mobile-layout-and-android-media-controls, android-media-session-reliability).
+ */
+const OS_VISIBLE_STATES: ReadonlySet<LongFormPlaybackState> = new Set(["playing", "paused"]);
+
+export function isOsVisiblePlaybackState(state: LongFormPlaybackState): boolean {
+  return OS_VISIBLE_STATES.has(state);
+}
+
 function snapshotFor(options: RemoteMediaBridgeOptions): LongFormPlaybackStateSnapshot {
   if (options.session) return options.session;
   const context = options.getContext();
   const sourceKind = options.sourceKind ?? "audiobook";
   const sourceId = options.sourceId ?? context.sourceId ?? context.editionId ?? context.documentId;
   const sessionId = options.sessionId ?? createLongFormSessionId(sourceKind, sourceId);
-  const state: LongFormPlaybackState = options.isPlaying ? "playing" : "paused";
+  // Adapters with non-binary lifecycles (generation, chunk loading) pass an
+  // explicit `playbackState`; the audio-player default remains the classic
+  // playing/paused pair.
+  const state: LongFormPlaybackState =
+    options.playbackState ?? (options.isPlaying ? "playing" : "paused");
   return {
     metadata: {
       sourceId,
@@ -121,7 +143,10 @@ function snapshotFor(options: RemoteMediaBridgeOptions): LongFormPlaybackStateSn
 async function invokePluginSafe(command: string, args?: Record<string, unknown>): Promise<unknown> {
   try {
     return await invokeCommand<unknown>(command, args);
-  } catch {
+  } catch (error) {
+    // Never swallow integration breaks silently: a failed start/metadata push
+    // leaves the OS media surface dead with no diagnostic trail.
+    console.warn(`[media] plugin command failed: ${command}`, error);
     return null;
   }
 }
@@ -258,12 +283,23 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
   // plugin dispatches them as window CustomEvents via evaluateJavascript),
   // acknowledge them, keep the native session's position hint fresh, and
   // reconcile the durable queue on resume.
-  useEffect(() => {
-    if (!isAndroid || options.enabled === false) return;
+  const startRequestedRef = useRef(false);
 
-    // Start the native Media3 session service with player playback; it is
+  useEffect(() => {
+    if (!isAndroid || options.enabled === false) {
+      startRequestedRef.current = false;
+      return;
+    }
+
+    // Start the native Media3 session service ONLY when a real playable or
+    // paused-and-resumable session exists. Generation/loading must not boot
+    // the service or advertise media controls; the metadata effect below
+    // starts it lazily once the snapshot becomes OS-visible. The service is
     // stopped again on unmount (clean session lifecycle).
-    void invokePluginSafe("plugin:plethora-android-tts|start_media_session");
+    if (isOsVisiblePlaybackState(snapshotRef.current.state)) {
+      void invokePluginSafe("plugin:plethora-android-tts|start_media_session");
+      startRequestedRef.current = true;
+    }
 
     // Ack accepted envelopes to the plugin's durable queue.
     setMediaCommandAckHandler((eventIds) => {
@@ -337,13 +373,21 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
       document.removeEventListener("visibilitychange", onVisibility);
       setMediaCommandAckHandler(null);
       void invokePluginSafe("plugin:plethora-android-tts|stop_media_session");
+      startRequestedRef.current = false;
     };
   }, [isAndroid, options.enabled]);
 
   // Keep the native session's playback state + position hint fresh so queued
-  // envelopes can carry the position actually being heard (Decision 8).
+  // envelopes can carry the position actually being heard (Decision 8). Also
+  // owns lazy service start: if the bridge enabled while the source was still
+  // generating (not OS-visible), the service starts here once a real
+  // playable/paused session appears.
   useEffect(() => {
     if (!isAndroid || options.enabled === false) return;
+    if (!startRequestedRef.current && isOsVisiblePlaybackState(snapshotRef.current.state)) {
+      void invokePluginSafe("plugin:plethora-android-tts|start_media_session");
+      startRequestedRef.current = true;
+    }
     void invokePluginSafe("plugin:plethora-android-tts|update_media_metadata", {
       payload: {
         sourceId: snapshotRef.current.metadata.sourceId,
@@ -370,5 +414,5 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
         updatedAt: snapshotRef.current.updatedAt,
       },
     });
-  }, [isAndroid, options.enabled, options.isPlaying, options.currentTime, playbackSessionId, options.session]);
+  }, [isAndroid, options.enabled, options.isPlaying, options.currentTime, options.playbackState, playbackSessionId, options.session]);
 }

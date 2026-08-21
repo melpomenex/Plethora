@@ -44,7 +44,7 @@ interface MessageItem {
 
 const SAMPLE_QUESTIONS = [
   "How do I enable E-ink monochrome mode?",
-  "What is the 3D SInc matrix in SM-18?",
+  "What is the 3D SInc matrix in the Adaptive scheduler?",
   "How do composition sliders work in the queue?",
   "Why is my queue item reappearing tomorrow?",
   "How do I mine sentences while reading?",

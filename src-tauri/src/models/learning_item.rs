@@ -73,10 +73,10 @@ pub struct LearningItem {
     #[serde(default)]
     pub updated_at: Option<String>,
     pub first_reviewed_at: Option<DateTime<Utc>>,
-    /// User-set importance rank on the 0-100 priority-queue scale
-    /// (supermemo-faithful-queue Phase 3). Default 50 = neutral midpoint, so
-    /// un-prioritized cards are not silently demoted to the bottom. This is
-    /// distinct from FSRS urgency, which drives *when* the card is scheduled.
+    /// User-set importance rank on the 0-100 priority-queue scale.
+    /// Default 50 = neutral midpoint, so un-prioritized cards are not
+    /// silently demoted to the bottom. This is distinct from FSRS urgency,
+    /// which drives *when* the card is scheduled.
     #[serde(default = "default_priority_slider")]
     pub priority_slider: i32,
     /// Derived priority score used for queue ordering. Recomputed from the

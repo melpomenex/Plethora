@@ -1,15 +1,15 @@
-//! Storage for the SuperMemo neural queue (supermemo-faithful-queue Phase 4).
+//! Storage for the Plethora neural queue.
 //!
 //! The neural-queue algorithm lives in [`crate::algorithms::neural_queue`]
 //! (pure functions over a [`NeuralGraph`] abstraction). This module is the
 //! database-backed half: it implements `NeuralGraph` against the `element_tree`
-//! overlay (Phase 2) and persists the built queue to the `neural_queue` table
+//! overlay and persists the built queue to the `neural_queue` table
 //! (migration 080).
 //!
-//! The neural queue is an **opt-in** review mode (SuperMemo's *Learn : Go
-//! neural*). Normal learning continues to use the priority queue; entering
-//! neural review builds a queue by spreading activation from a seed element,
-//! and exiting returns to the priority queue without mutating it.
+//! The neural queue is an **opt-in** associative review mode. Normal learning
+//! continues to use the priority queue; entering neural review builds a queue
+//! by spreading activation from a seed element, and exiting returns to the
+//! priority queue without mutating it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -67,8 +67,7 @@ impl NeuralQueueRepository {
     /// persisting the result into the `neural_queue` table (replacing any
     /// prior contents). Returns the built entries in presentation order.
     ///
-    /// This is SuperMemo's *Learn : Go neural* entry action. The priority
-    /// queue is **not** mutated — only read for intrinsic priorities.
+    /// The priority queue is **not** mutated — only read for intrinsic priorities.
     pub async fn build(
         &self,
         seed_element_id: ElementId,

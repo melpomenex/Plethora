@@ -28,8 +28,7 @@ export function ClozeCreatorPopup({ extractId, selectedText, extractContent, sel
     // For simplicity: We will present the *selected text* as the cloze content.
     // Users typically select a sentence and want to hide a word.
     // But our current flow is: Select text -> create cloze.
-    // It's ambiguous: did they select the whole sentence, or just the word to hide?
-    // SuperMemo flow: You select the part to HIDE. The context is the surrounding text.
+    // Cloze flow: You select the part to HIDE. The context is the surrounding text.
     // 
     // Let's assume the user selects the text they want to HIDE.
     // We need the surrounding context.

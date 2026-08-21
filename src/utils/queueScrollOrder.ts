@@ -6,8 +6,8 @@
  * `queueScrollBudget.ts`).
  *
  * This replaced the type-even-spacing `interleaveScrollItems` + engagement
- * reshuffle as the primary arrangement. Priority is the ordering principle, as
- * in SuperMemo: higher-priority items surface first, with a gentle variety
+ * reshuffle as the primary arrangement. Priority is the ordering principle:
+ * higher-priority items surface first, with a gentle variety
  * guard so a run of equally-prioritized cards doesn't cluster.
  */
 
@@ -89,24 +89,19 @@ export function orderScrollItemsByPriority<T extends PrioritizableScrollItem>(
   return result;
 }
 
-// ── SuperMemo combined-criterion sort (Phase 3) ────────────────────────────
+// ── Combined-criterion sort ────────────────────────────────────────────────
 //
-// The priority sort above is Phase 1's arrangement principle. Phase 3's
-// combined criterion refines it with a proportion-of-topics-vs-items bias and
-// a stable per-id jitter, mirroring SuperMemo's `FUN_00c15fd0` (see
-// design.md). Higher combined score = earlier in the session.
+// The priority sort above is the basic arrangement principle. The combined
+// criterion refines it with a proportion-of-topics-vs-items bias and
+// a stable per-id jitter. Higher combined score = earlier in the session.
 //
-// The exact SuperMemo proportion formula and its "[0 .. max]" knob are
-// referenced by string in `FUN_00c15fd0` but not yet extracted from the
-// binary (the `~/sushi/sm20-re` materials were unavailable this session). The
-// proportion term here is a tanh-scaled type-alternation bonus; the
+// The proportion term here is a tanh-scaled type-alternation bonus; the
 // composition sliders remain the manual proxy for the count split. The
 // priority term (primary ordering) and the stable-jitter term are faithful.
 
-// ── Position ↔ priority mapping (Phase 3, task 3.5) ────────────────────────
+// ── Position ↔ priority mapping ───────────────────────────────────────────
 //
-// Mirrors SuperMemo's `FUN_00cb1630` / `FUN_00cb21c0` and the Rust
-// `algorithms/priority_queue::priority_from_position` /
+// Mirrors the Rust `algorithms/priority_queue::priority_from_position` /
 // `position_from_priority`. Position is 1-based (1 = front / highest
 // importance); priority is the 0-100 derived value. Used to show each
 // element's relative queue position alongside its percentage priority.
@@ -224,7 +219,7 @@ export const QUEUE_LIST_SORT_CONFIG: CombinedSortConfig = {
 };
 
 /**
- * Order scroll items by SuperMemo's combined criterion: priority (primary) +
+ * Order scroll items by combined criterion: priority (primary) +
  * a topic/item proportion bias + stable per-id jitter. Higher priority still
  * surfaces first; the proportion bias interleaves reading and review so a
  * 90%-items queue doesn't present 90% items up front; the jitter makes equal-

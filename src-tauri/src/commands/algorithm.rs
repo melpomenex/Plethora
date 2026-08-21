@@ -3,7 +3,7 @@
 use crate::algorithms::{
     calculate_priority_score, calculate_review_statistics, compare_algorithms,
     optimizer::{default_fsrs_weights, OptimizationParams, OptimizationResult, ParameterOptimizer},
-    AlgorithmComparison, DocumentScheduler as DocScheduler, EngagementPreferences,
+    AlgorithmComparison, ClassicParams, DocumentScheduler as DocScheduler, EngagementPreferences,
     EngagingScheduler, IncrementalScheduler, SM2Params,
 };
 use crate::commands::review::RepositoryExt;
@@ -98,14 +98,16 @@ fn duration_aware_interval_cap_days(
     Some((cap_days, reason))
 }
 
-/// SM-2 calculation parameters
+/// Classic calculation parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SM2Calculation {
+pub struct ClassicCalculation {
     pub ease_factor: f64,
     pub interval: f64,
     pub repetitions: u32,
     pub next_review_date: String,
 }
+
+pub type SM2Calculation = ClassicCalculation;
 
 /// Document scheduling request
 #[derive(Debug, Serialize, Deserialize)]
@@ -160,22 +162,28 @@ pub struct RestoreDocumentSchedulingRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlgorithmType {
     Fsrs,
+    Classic,
+    Classic5,
+    Classic8,
+    Classic15,
+    Adaptive,
+    Precision,
     SM2,
 }
 
-/// Calculate next review state using SM-2 algorithm
+/// Calculate next review state using Classic algorithm
 #[tauri::command]
-pub async fn calculate_sm2_next(
+pub async fn calculate_classic_next(
     item_id: String,
     rating: ReviewRating,
     repo: State<'_, Repository>,
-) -> Result<SM2Calculation> {
+) -> Result<ClassicCalculation> {
     let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
         crate::error::PlethoraError::NotFound(format!("Learning item {} not found", item_id))
     })?;
 
-    // Get current SM-2 params (or use defaults)
-    let current_params = SM2Params {
+    // Get current Classic params (or use defaults)
+    let current_params = ClassicParams {
         ease_factor: item.ease_factor,
         interval: item.interval,
         repetitions: item.review_count as u32,
@@ -185,12 +193,21 @@ pub async fn calculate_sm2_next(
     let next_params = current_params.next_interval(rating);
     let next_review_date = next_params.next_review_date();
 
-    Ok(SM2Calculation {
+    Ok(ClassicCalculation {
         ease_factor: next_params.ease_factor,
         interval: next_params.interval,
         repetitions: next_params.repetitions,
         next_review_date: next_review_date.to_rfc3339(),
     })
+}
+
+#[tauri::command]
+pub async fn calculate_sm2_next(
+    item_id: String,
+    rating: ReviewRating,
+    repo: State<'_, Repository>,
+) -> Result<ClassicCalculation> {
+    calculate_classic_next(item_id, rating, repo).await
 }
 
 /// Record one document rating in the per-item activity log.
@@ -973,11 +990,11 @@ pub async fn optimize_algorithm_params(
     Ok(result)
 }
 
-/// SM-20 ensemble optimization status. The true SM-20 algorithm uses a 5-model
+/// Arena optimization status. The Precision algorithm uses a 5-model
 /// weighted ensemble (M1-M5). M2 and M3 learn automatically on every review —
 /// there is no separate optimization step to run.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SM20OptimizationStatus {
+pub struct ArenaOptimizationStatus {
     pub model_version: i32,
     pub activation_state: String,
     pub m2_optimizer_initialized: bool,
@@ -986,15 +1003,17 @@ pub struct SM20OptimizationStatus {
     pub message: String,
 }
 
-/// Get the SM-20 ensemble status. Reports how many M3 matrix cells have been
+pub type SM20OptimizationStatus = ArenaOptimizationStatus;
+
+/// Get the Arena ensemble status. Reports how many M3 matrix cells have been
 /// populated by the learning pipeline. The ensemble is always active — there
 /// is no separate "optimize" step.
 #[tauri::command]
-pub async fn get_sm20_optimization_status(
+pub async fn get_arena_optimization_status(
     repo: State<'_, Repository>,
-) -> Result<SM20OptimizationStatus> {
-    let m2_initialized = repo.get_sm20_m2_optimizer().await?.is_some();
-    let m3_matrices = repo.get_sm20_m3_matrices().await?;
+) -> Result<ArenaOptimizationStatus> {
+    let m2_initialized = repo.get_arena_m2_optimizer().await?.is_some();
+    let m3_matrices = repo.get_arena_m3_matrices().await?;
     let (m3_cells, m3_total) = if let Some(ref m) = m3_matrices {
         let populated = m.outcome_count.iter().filter(|&&c| c > 0).count() as u32;
         (populated, m.outcome_count.len() as u32)
@@ -1002,23 +1021,35 @@ pub async fn get_sm20_optimization_status(
         (0, 9261)
     };
 
-    Ok(SM20OptimizationStatus {
+    Ok(ArenaOptimizationStatus {
         model_version: 4,
         activation_state: "active".to_string(),
         m2_optimizer_initialized: m2_initialized,
         m3_matrix_cells_populated: m3_cells,
         m3_matrix_total_cells: m3_total,
-        message: "SM-20 ensemble is active. M2 and M3 learn automatically on every review."
+        message: "Precision ensemble is active. M2 and M3 learn automatically on every review."
             .to_string(),
     })
 }
 
-/// The SM-20 ensemble does not require a separate optimization step — M2's
+#[tauri::command]
+pub async fn get_sm20_optimization_status(
+    repo: State<'_, Repository>,
+) -> Result<ArenaOptimizationStatus> {
+    get_arena_optimization_status(repo).await
+}
+
+/// The Arena ensemble does not require a separate optimization step — M2's
 /// optimizer and M3's matrices learn continuously as reviews occur. This
 /// command is kept for API compatibility but is a no-op.
 #[tauri::command]
-pub async fn optimize_sm20_locally(repo: State<'_, Repository>) -> Result<SM20OptimizationStatus> {
-    get_sm20_optimization_status(repo).await
+pub async fn optimize_arena_locally(repo: State<'_, Repository>) -> Result<ArenaOptimizationStatus> {
+    get_arena_optimization_status(repo).await
+}
+
+#[tauri::command]
+pub async fn optimize_sm20_locally(repo: State<'_, Repository>) -> Result<ArenaOptimizationStatus> {
+    get_arena_optimization_status(repo).await
 }
 
 /// Engagement preferences for scroll mode

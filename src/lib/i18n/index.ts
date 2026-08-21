@@ -136,13 +136,21 @@ export function useI18n() {
   };
 
   // Initial boot: load the persisted locale if it isn't English.
-  ensureLocaleLoaded(useSettingsStore.getState().settings.general.language);
+  if (typeof useSettingsStore?.getState === "function") {
+    const initialLang = useSettingsStore.getState()?.settings?.general?.language;
+    if (initialLang) {
+      ensureLocaleLoaded(initialLang);
+    }
+  }
 
   // React to runtime language changes (e.g. Settings → Language selector).
-  useSettingsStore.subscribe((state, prevState) => {
-    const next = state.settings.general.language;
-    if (next !== prevState.settings.general.language) {
-      ensureLocaleLoaded(next);
-    }
-  });
+  if (typeof useSettingsStore?.subscribe === "function") {
+    useSettingsStore.subscribe((state, prevState) => {
+      const next = state?.settings?.general?.language;
+      const prev = prevState?.settings?.general?.language;
+      if (next && next !== prev) {
+        ensureLocaleLoaded(next);
+      }
+    });
+  }
 }

@@ -9,18 +9,18 @@ import {
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 import {
-  SUPERMEMO_GRADES,
+  SIX_GRADES,
   SUGGESTED_GRADE_BY_RATING,
   type ReviewRating,
-} from "../../lib/supermemo-grades";
+} from "../../lib/rating-grades";
 
 interface RatingButtonsProps {
-  /** `grade` is set (0-5) when the native SM-20 grade scale is active. */
+  /** `grade` is set (0-5) when the native six-grade scale is active. */
   onSelectRating: (rating: ReviewRating, grade?: number) => void;
   disabled?: boolean;
   previewIntervals?: PreviewIntervals | null;
-  /** Render the algorithm's native 0-5 grade scale (SM-20) instead of the
-   *  4-button Anki-style scale. */
+  /** Render the algorithm's native 0-5 grade scale instead of the
+   *  4-button scale. */
   gradeScale?: boolean;
   /**
    * EXPERIMENTAL (`aiAutoGradeSuggest`, default off): advisory highlight of
@@ -32,7 +32,7 @@ interface RatingButtonsProps {
 }
 
 /** Per-grade icon for the tappable grid (presentation detail; the shared
- * grade semantics live in `lib/supermemo-grades`). */
+ * grade semantics live in `lib/rating-grades`). */
 const GRADE_ICON: Record<number, typeof ArrowCounterClockwise> = {
   0: Prohibit,
   1: X,
@@ -42,8 +42,8 @@ const GRADE_ICON: Record<number, typeof ArrowCounterClockwise> = {
   5: Lightning,
 };
 
-/** SM-20 native grades (0-2 fail, 3-5 pass) joined with their grid icons. */
-const GRADE_BUTTONS = SUPERMEMO_GRADES.map((g) => ({
+/** Native grades (0-2 fail, 3-5 pass) joined with their grid icons. */
+const GRADE_BUTTONS = SIX_GRADES.map((g) => ({
   ...g,
   icon: GRADE_ICON[g.grade],
 }));

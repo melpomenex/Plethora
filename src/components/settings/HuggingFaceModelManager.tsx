@@ -147,7 +147,7 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
   }, [fetchInstalled]);
 
   const modeInstalled = useMemo(
-    () => installedModels.filter((m) => allowedRuntimes.includes(m.runtime)),
+    () => (installedModels ?? []).filter((m) => allowedRuntimes.includes(m.runtime)),
     [installedModels, allowedRuntimes],
   );
 

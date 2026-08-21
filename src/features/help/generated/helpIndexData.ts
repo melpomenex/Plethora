@@ -14,14 +14,13 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:2d8da85ac5ae5a9cf3203f9ded19929d8b4dca1b951be5375881e0c5436146a0",
-  "generatedAt": "2026-08-21T04:47:30.163Z",
-  "totalDocs": 75,
-  "totalChunks": 226,
+  "corpusHash": "sha256:2fedff6f7514fba7142b7c52283d00f7c17f857851b70512d2d767b84b8f9e8d",
+  "generatedAt": "2026-08-21T12:20:40.707Z",
+  "totalDocs": 74,
+  "totalChunks": 223,
   "aliasMap": {
     "incremental reading philosophy & workflow": "concepts.incremental_reading",
     "incremental reading": "concepts.incremental_reading",
-    "supermemo method": "concepts.incremental_reading",
     "knowledge distillation": "concepts.incremental_reading",
     "reading workflow": "concepts.incremental_reading",
     "mathematical foundations of spaced repetition": "concepts.spaced_repetition_math",
@@ -96,11 +95,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "open document": "import.local_files",
     "drag and drop": "import.local_files",
     "folder import": "import.local_files",
-    "supermemo xml/zip import": "import.supermemo_zip",
-    "supermemo import": "import.supermemo_zip",
-    "sm18 import": "import.supermemo_zip",
-    "supermemo xml": "import.supermemo_zip",
-    "element tree import": "import.supermemo_zip",
     "web url article ingestion": "import.url_scraping",
     "scrape url": "import.url_scraping",
     "web capture": "import.url_scraping",
@@ -185,7 +179,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "content balance": "queue.composition",
     "study ratios": "queue.composition",
     "item distribution": "queue.composition",
-    "supermemo ir extract chain": "queue.extract_chain",
+    "incremental reading extract chain": "queue.extract_chain",
     "extract lineage": "queue.extract_chain",
     "incremental reading extracts": "queue.extract_chain",
     "parent child extracts": "queue.extract_chain",
@@ -295,12 +289,25 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "fullscreen review": "review.zen_mode",
     "distraction free review": "review.zen_mode",
     "focus mode": "review.zen_mode",
+    "plethora adaptive algorithm (3d sinc)": "scheduler.adaptive",
+    "plethora adaptive": "scheduler.adaptive",
+    "adaptive": "scheduler.adaptive",
+    "sinc matrix": "scheduler.adaptive",
+    "adaptive algorithm": "scheduler.adaptive",
     "fsrs-6 spaced repetition": "scheduler.fsrs",
     "fsrs": "scheduler.fsrs",
     "fsrs-6": "scheduler.fsrs",
     "modern srs": "scheduler.fsrs",
     "target retention": "scheduler.fsrs",
     "memory stability": "scheduler.fsrs",
+    "postpone engine": "scheduler.postpone",
+    "backlog manager": "scheduler.postpone",
+    "auto postpone": "scheduler.postpone",
+    "review delay": "scheduler.postpone",
+    "algorithm arena": "scheduler.precision.arena",
+    "arena": "scheduler.precision.arena",
+    "srs comparison": "scheduler.precision.arena",
+    "algorithm coach": "scheduler.precision.arena",
     "queue load smoothing & easy days": "scheduler.load_balancing",
     "easy days": "scheduler.load_balancing",
     "load balancing": "scheduler.load_balancing",
@@ -311,21 +318,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "per-deck fsrs": "scheduler.scoped_params",
     "tag retention": "scheduler.scoped_params",
     "custom weights": "scheduler.scoped_params",
-    "supermemo 18 algorithm (3d sinc)": "scheduler.sm18",
-    "supermemo 18": "scheduler.sm18",
-    "sm18": "scheduler.sm18",
-    "sinc matrix": "scheduler.sm18",
-    "wozniak algorithm": "scheduler.sm18",
-    "sm-20 algorithm arena": "scheduler.sm20.arena",
-    "algorithm arena": "scheduler.sm20.arena",
-    "sm20 arena": "scheduler.sm20.arena",
-    "srs comparison": "scheduler.sm20.arena",
-    "algorithm coach": "scheduler.sm20.arena",
-    "sm-20 postpone engine": "scheduler.sm20.postpone",
-    "postpone engine": "scheduler.sm20.postpone",
-    "backlog manager": "scheduler.sm20.postpone",
-    "sm20 postpone": "scheduler.sm20.postpone",
-    "review delay": "scheduler.sm20.postpone",
     "global commandcenter (cmd+k)": "palette.command_center",
     "command palette": "palette.command_center",
     "global search": "palette.command_center",
@@ -423,12 +415,11 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "platforms": [
         "all"
       ],
-      "summary": "Comprehensive guide to the SuperMemo incremental reading methodology, extract formulation, and knowledge distillation in Plethora.",
+      "summary": "Comprehensive guide to the incremental reading methodology, extract formulation, and knowledge distillation in Plethora.",
       "how_to": "Import multiple long-form articles or books into your reading queue. Read in spaced increments, extracting key insights as you go.",
       "why": "Reading linearly from cover to cover causes reader burnout and fast forgetting; incremental reading processes hundreds of texts simultaneously in bite-sized increments.",
       "aliases": [
         "incremental reading",
-        "supermemo method",
         "knowledge distillation",
         "reading workflow"
       ],
@@ -465,7 +456,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "platforms": [
         "all"
       ],
-      "summary": "In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and SM-18 SInc matrices.",
+      "summary": "In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and Adaptive 3D SInc matrices.",
       "how_to": "Review the formulas in this document to understand why specific review intervals are calculated for your cards.",
       "why": "Spaced repetition is not arbitrary magic; understanding the mathematical two-component memory model helps learners formulate better flashcards and choose retention targets.",
       "aliases": [
@@ -487,8 +478,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "related": [
         "scheduler.fsrs",
-        "scheduler.sm18",
-        "scheduler.sm20.arena"
+        "scheduler.adaptive",
+        "scheduler.precision.arena"
       ],
       "filePath": "docs/product/concepts/spaced-repetition-math.md",
       "sections": {
@@ -603,7 +594,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "mobile-ios"
       ],
       "summary": "Grounded question-answering across your personal document library with numbered citation markers [N], untrusted chunk containment, and honest refusal.",
-      "how_to": "Open Command Palette (Cmd+K) and type your question (e.g. \"What is the stability increase formula in SM-18?\").",
+      "how_to": "Open Command Palette (Cmd+K) and type your question (e.g. \"What is the stability increase formula in the Adaptive scheduler?\").",
       "why": "Finding synthesized answers across hundreds of books and papers requires semantic search paired with strict citation grounding to prevent AI hallucinations.",
       "aliases": [
         "ask library",
@@ -865,14 +856,14 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "related": [
         "review.flashcard_studio",
         "scheduler.fsrs",
-        "scheduler.sm18"
+        "scheduler.adaptive"
       ],
       "filePath": "docs/product/features/imports/anki-apkg.md",
       "sections": {
         "intro": "# Anki Deck Import (.apkg)",
         "Purpose": "Enables total migration of Anki flashcard decks, card styling templates, audio recordings, images, and card repetition histories into Plethora.",
         "User-Facing Behavior": "- Unpacks compressed `.apkg` zip archive and inspects internal SQLite `collection.anki2` database.\n- Displays deck hierarchy, card count, note types, and media asset summary before import confirmation.\n- Converts Cloze deletions (`{{c1::answer}}`), MathJax/KaTeX formulas, and image assets seamlessly.",
-        "Exact Behavioral Rules": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / SM-18 state parameters so due dates remain consistent.",
+        "Exact Behavioral Rules": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / Plethora Adaptive state parameters so due dates remain consistent.",
         "Rationale": "No user should be forced to abandon their hard-earned spaced repetition memory stability when switching to Plethora's incremental reading environment.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `import.anki.preserveScheduling` | `true` | Retain historical ease factors and review intervals |\n| `import.anki.importMedia` | `true` | Extract and link audio and image files |",
         "Platform Behavior": "- **All Platforms**: Fast native unpacking with progress indicator."
@@ -1110,51 +1101,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Rationale": "Prevents data lock-in and respects privacy by storing all source files locally in the user's Plethora library directory.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `library.extractCoverImages` | `true` | Generate visual thumbnails for library cards |",
         "Platform Behavior": "- **Desktop**: Native OS file dialogs and recursive folder scanning.\n- **Android**: Storage Access Framework (SAF) folder picker integration."
-      }
-    },
-    {
-      "id": "import.supermemo_zip",
-      "title": "SuperMemo XML/ZIP Import",
-      "domain": "imports",
-      "status": "implemented",
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux"
-      ],
-      "summary": "Ingests SuperMemo 15/16/18 XML element exports, preserving tree hierarchy, extract chains, repetition dates, and A-Factors.",
-      "how_to": "Export your SuperMemo collection as XML, then import via Settings → Import → SuperMemo XML.",
-      "why": "SuperMemo is the historical pioneer of incremental reading; Plethora provides a modern cross-platform home for SuperMemo collections with zero data loss.",
-      "aliases": [
-        "supermemo import",
-        "sm18 import",
-        "supermemo xml",
-        "element tree import"
-      ],
-      "settings": [
-        "import.supermemo.preserveHierarchy"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Imported Queue",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "related": [
-        "scheduler.sm18",
-        "queue.extract_chain",
-        "queue.priority_score"
-      ],
-      "filePath": "docs/product/features/imports/supermemo-zip.md",
-      "sections": {
-        "intro": "# SuperMemo XML/ZIP Import",
-        "Purpose": "Provides comprehensive import support for SuperMemo 15/16/17/18 collections, maintaining parent-child concept hierarchies and exact repetition histories.",
-        "User-Facing Behavior": "- Ingests XML element trees, HTML components, image files, and sound snippets.\n- Preserves the entire hierarchical folder structure as Plethora Collections.\n- Maps SuperMemo Articles, Extracts, and Items into Plethora incremental reading nodes.",
-        "Exact Behavioral Rules": "1. Translates SuperMemo repetition records (reps, lapses, interval, A-Factor, U-Factor) to the native SM-18 engine tables.\n2. Extracts embedded references (`#Title:`, `#Author:`, `#Source:`) into document provenance metadata.\n3. Automatically sets priority scores from SuperMemo percentage ranks (0.00% to 100.00%).",
-        "Rationale": "Long-time SuperMemo power users maintain knowledge bases spanning decades. Preserving their learning investments allows them to study on modern macOS, Linux, and mobile devices.",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `import.supermemo.preserveHierarchy` | `true` | Mirror SuperMemo knowledge tree in Plethora collections |",
-        "Platform Behavior": "- **Desktop**: Direct XML stream parser handling multi-gigabyte collections efficiently."
       }
     },
     {
@@ -1538,7 +1484,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Purpose": "Seamlessly interleaves unread RSS news and blog articles into the daily incremental reading queue session.",
         "User-Facing Behavior": "- While reading in the Composed Scroll Queue, unread RSS articles appear interspersed between book extracts and cards.\n- Reading an article automatically marks it as read in your RSS subscription list.\n- Creating an extract from an RSS item schedules it into your knowledge base before moving to the next item.",
         "Exact Behavioral Rules": "1. Samples unread articles adhering to the target percentage defined in `scrollQueue.composition.rss`.\n2. Prioritizes articles from starred feeds or high semantic preference scores.\n3. Automatically skips articles older than `maxArticleAgeDays` to prevent processing stale news.",
-        "Rationale": "Adopts the SuperMemo principle of processing all information streams through a single unified priority queue.",
+        "Rationale": "Adopts the core incremental reading principle of processing all information streams through a single unified priority queue.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `rssQueue.maxArticleAgeDays` | `14` | Maximum age of unread RSS articles queued for reading |",
         "Platform Behavior": "- **All Platforms**: Real-time synchronization between RSS unread state and queue sampler."
       }
@@ -1883,7 +1829,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     },
     {
       "id": "queue.extract_chain",
-      "title": "SuperMemo IR Extract Chain",
+      "title": "Incremental Reading Extract Chain",
       "domain": "queue",
       "status": "implemented",
       "platforms": [
@@ -1920,7 +1866,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "filePath": "docs/product/features/queue/extract-chains.md",
       "sections": {
-        "intro": "# SuperMemo IR Extract Chain",
+        "intro": "# Incremental Reading Extract Chain",
         "Purpose": "Preserves the full genealogical hierarchy of incremental reading extracts, tracing every concise memory item back to its original source book and chapter.",
         "User-Facing Behavior": "- Creating an extract displays a breadcrumb trail: `[Book Title] › [Chapter 3 Extract] › [Key Quote]`.\n- Clicking the source breadcrumb opens the parent document directly to the exact page and highlight location.\n- Extract children automatically inherit parent tags, collection assignments, and priority scores.",
         "Exact Behavioral Rules": "1. Extracts store `parentId`, `documentId`, `sourceOffset`, and `quoteText`.\n2. Modifying a parent document does not alter or corrupt previously spawned extract text.\n3. Deleting a parent document prompts whether to orphan, archive, or delete descendant extracts.",
@@ -2058,7 +2004,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "related": [
         "queue.extract_chain",
-        "scheduler.sm20.postpone",
+        "scheduler.postpone",
         "queue.reappearance"
       ],
       "filePath": "docs/product/features/queue/priority-system.md",
@@ -2066,8 +2012,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "intro": "# 0-100 Priority Scoring",
         "Purpose": "Provides a standardized, continuous priority metric that determines item sampling frequency, interval spacing, and automatic workload postponement.",
         "User-Facing Behavior": "- Visual color-coded priority badge on every document, extract, and card (Red = 0-20 High, Amber = 21-60 Medium, Blue/Gray = 61-100 Low).\n- Quick shortcut adjustments (`Alt+Up` increase priority / lower number, `Alt+Down` decrease priority).\n- Reading Queue can be sorted and filtered by priority thresholds.",
-        "Exact Behavioral Rules": "1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.\n2. In SuperMemo-style queue generation, items with higher priority receive shorter initial intervals and higher selection probability.\n3. During queue overload, the SM-20 Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.",
-        "Rationale": "Adopts Dr. Piotr Wozniak's priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.",
+        "Exact Behavioral Rules": "1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.\n2. In priority queue generation, items with higher priority receive shorter initial intervals and higher selection probability.\n3. During queue overload, the Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.",
+        "Rationale": "Adopts continuous priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `queue.defaultDocumentPriority` | `30.0` | Default priority for newly imported documents |\n| `queue.defaultExtractPriority` | `20.0` | Default priority for newly created extracts |",
         "Platform Behavior": "- **All Platforms**: Consistent priority algorithms evaluated in Rust backend."
       }
@@ -2546,7 +2492,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Purpose": "Acts as the primary conversion hub turning passive reading text into active learning items (extracts, clozes, Q&A flashcards, dictionary lookups).",
         "User-Facing Behavior": "- Appears smoothly when the user finishes selecting text with mouse or touch.\n- Features quick-action buttons:\n  - **Highlight** (Color picker with 6 curated palette colors).\n  - **Extract** (Creates a child incremental reading item).\n  - **Learn This** (Generates structured flashcards via AI).\n  - **Dictionary Peek** (Instant definition, pronunciation, and lexical info).\n  - **Ask AI** (Contextual question answering on selected text).",
         "Exact Behavioral Rules": "1. Automatically computes viewport positioning to prevent clipping off top/bottom screen edges.\n2. Selection metadata (exact quote, page number, CFI, character offsets) is captured in the created item.\n3. Automatically clears selection after action execution unless configured otherwise.",
-        "Rationale": "In SuperMemo-style incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.",
+        "Rationale": "In incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `viewer.selection.showToolbar` | `true` | Show floating toolbar on selection |\n| `viewer.selection.autoCopy` | `false` | Automatically copy selected text to system clipboard |",
         "Platform Behavior": "- **Desktop**: Fast keyboard shortcuts (`Cmd+E` extract, `Cmd+H` highlight).\n- **Mobile**: Touch callout menu optimized for thumb reach.\n- **E-ink**: High-contrast outline buttons with no transparency."
       }
@@ -2823,7 +2769,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "related": [
         "review.flashcard_studio",
         "scheduler.fsrs",
-        "scheduler.sm18"
+        "scheduler.adaptive"
       ],
       "filePath": "docs/product/features/review/rating-undo.md",
       "sections": {
@@ -2932,6 +2878,54 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       }
     },
     {
+      "id": "scheduler.adaptive",
+      "title": "Plethora Adaptive Algorithm (3D SInc)",
+      "domain": "scheduling",
+      "status": "implemented",
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "summary": "Complete 212KB Rust implementation of the Plethora Adaptive scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.",
+      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select Plethora Adaptive.",
+      "why": "Plethora Adaptive features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.",
+      "aliases": [
+        "plethora adaptive",
+        "adaptive",
+        "sinc matrix",
+        "adaptive algorithm"
+      ],
+      "settings": [
+        "scheduler.algorithm",
+        "scheduler.adaptive.forgettingIndex"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Configure Adaptive Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "related": [
+        "scheduler.fsrs",
+        "scheduler.precision.arena",
+        "import.anki_apkg"
+      ],
+      "filePath": "docs/product/features/scheduling/adaptive-algorithm.md",
+      "sections": {
+        "intro": "# Plethora Adaptive Algorithm (3D SInc)",
+        "Purpose": "Provides a high-performance Rust implementation of the continuous 3D SInc adaptive spaced repetition engine.",
+        "User-Facing Behavior": "- 6-grade rating scale (0-5) or simplified 4-button review interface.\n- Real-time display of A-Factor, D-Factor, Stability ($S$), and Retrievability ($R$).\n- Forgetting Index configuration (default 10%, meaning 90% expected recall).",
+        "Exact Behavioral Rules": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
+        "Rationale": "Accounts for the spacing effect and retrievability at the exact moment of repetition: reviewing when $R=0.9$ yields a different stability increase than reviewing when $R=0.6$.",
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.adaptive.forgettingIndex` | `10` | Requested forgetting index percentage (10% = 90% retention) |",
+        "Platform Behavior": "- **All Platforms**: Full 212KB Rust computation engine (`src-tauri/src/algorithms/adaptive.rs`)."
+      }
+    },
+    {
       "id": "scheduler.fsrs",
       "title": "FSRS-6 Spaced Repetition",
       "domain": "scheduling",
@@ -2945,7 +2939,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "summary": "Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).",
       "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).",
-      "why": "FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy SM-2 while maintaining target retention.",
+      "why": "FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy heuristic schedulers while maintaining target retention.",
       "aliases": [
         "fsrs",
         "fsrs-6",
@@ -2966,8 +2960,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         }
       ],
       "related": [
-        "scheduler.sm18",
-        "scheduler.sm20.arena",
+        "scheduler.adaptive",
+        "scheduler.precision.arena",
         "scheduler.scoped_params"
       ],
       "filePath": "docs/product/features/scheduling/fsrs-algorithm.md",
@@ -2976,9 +2970,105 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Purpose": "Implements the state-of-the-art Free Spaced Repetition Scheduler (FSRS-6), calculating exact memory Stability ($S$) and Difficulty ($D$) to minimize total repetition load.",
         "User-Facing Behavior": "- Displays four rating buttons during review: `[Again (1)]`, `[Hard (2)]`, `[Good (3)]`, `[Easy (4)]` with projected next interval previews (e.g. `1d`, `3d`, `8d`, `21d`).\n- Memory state inspector shows current Stability (days) and Retrievability percentage (e.g., $R = 91.4\\%$).\n- Retention slider allows adjusting desired retention between 70% and 97%.",
         "Exact Behavioral Rules": "1. Retrievability $R(t, S)$ follows the power forgetting curve:\n   $$R(t, S) = \\left(1 + \\text{FACTOR} \\times \\frac{t}{S}\\right)^{\\text{DECAY}}$$\n2. Next interval $I$ is calculated directly from desired retention $r$:\n   $$I(r, S) = \\frac{S}{\\text{FACTOR}} \\times \\left(r^{1/\\text{DECAY}} - 1\\right)$$\n3. Stability increases exponentially after successful recall and decreases upon lapse.",
-        "Rationale": "Legacy algorithms like SM-2 use arbitrary heuristics. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
+        "Rationale": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.fsrs.requestRetention` | `0.90` | Target retention probability (90%) |\n| `scheduler.fsrs.maximumIntervalDays` | `36500` | Maximum interval ceiling (100 years) |",
         "Platform Behavior": "- **All Platforms**: Implemented natively in Rust (`src-tauri/src/commands/fsrs.rs`) and TypeScript client fallback."
+      }
+    },
+    {
+      "id": "scheduler.postpone",
+      "title": "Postpone Engine",
+      "domain": "scheduling",
+      "status": "implemented",
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "summary": "Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.",
+      "how_to": "When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.",
+      "why": "Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.",
+      "aliases": [
+        "postpone engine",
+        "backlog manager",
+        "auto postpone",
+        "review delay"
+      ],
+      "settings": [
+        "scheduler.postpone.maxItemsPerDay",
+        "scheduler.postpone.protectHighPriority"
+      ],
+      "actions": [
+        {
+          "id": "action.queue.open",
+          "label": "View Postpone Status",
+          "shortcut": "Alt+Q"
+        }
+      ],
+      "related": [
+        "queue.priority_score",
+        "scheduler.precision.arena",
+        "scheduler.load_balancing"
+      ],
+      "filePath": "docs/product/features/scheduling/postpone-engine.md",
+      "sections": {
+        "intro": "# Postpone Engine",
+        "Purpose": "Provides mathematical backlog management that distributes overdue reviews over future days based on priority rankings and current memory retrievability.",
+        "User-Facing Behavior": "- Visual \"Overdue Backlog\" card offering one-click intelligent redistribution.\n- Sliders to choose how many items to postpone and across how many days to spread the load.\n- Protection indicators guaranteeing that items with Priority < 20 will never be delayed.",
+        "Exact Behavioral Rules": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
+        "Rationale": "Adopts the fundamental workload balancing postulate: \"It is better to review the top 20% of your knowledge base thoroughly than to fail 100% of it due to despair.\"",
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.postpone.protectHighPriority` | `true` | Never postpone items with priority <= 20 |",
+        "Platform Behavior": "- **All Platforms**: Evaluated in Rust backend (`src-tauri/src/algorithms/postpone.rs`)."
+      }
+    },
+    {
+      "id": "scheduler.precision.arena",
+      "title": "Algorithm Arena",
+      "domain": "scheduling",
+      "status": "implemented",
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "summary": "Head-to-head algorithm arena comparing FSRS-6, Plethora Adaptive, and Plethora Precision recommendations with live coach advice.",
+      "how_to": "Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.",
+      "why": "Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.",
+      "aliases": [
+        "algorithm arena",
+        "arena",
+        "srs comparison",
+        "algorithm coach"
+      ],
+      "settings": [
+        "review.arena.enabled",
+        "review.arena.coachMode"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Open Algorithm Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "related": [
+        "scheduler.fsrs",
+        "scheduler.adaptive",
+        "scheduler.postpone"
+      ],
+      "filePath": "docs/product/features/scheduling/precision-arena.md",
+      "sections": {
+        "intro": "# Algorithm Arena",
+        "Purpose": "Enables simultaneous parallel evaluation of multiple spaced repetition algorithms on your actual personal review cards.",
+        "User-Facing Behavior": "- Displays the Arena Choice Rail at the bottom of the card review screen.\n- Shows live side-by-side calculated intervals:\n  - **FSRS-6**: e.g., \"14 days ($R = 90\\%$)\"\n  - **Plethora Adaptive**: e.g., \"12 days (SInc 2.41)\"\n  - **Plethora Precision**: e.g., \"16 days (Optimal load smoothed)\"\n- An intelligent Coach Badge highlights which algorithm is making the most statistically sound prediction for that card type.",
+        "Exact Behavioral Rules": "1. Every review grades all enabled engines simultaneously in shadow mode.\n2. The user can either let their primary engine decide or click a specific engine badge to override that repetition.\n3. Historical accuracy (Brier score and log loss) is tracked and plotted in Analytics.",
+        "Rationale": "Removes the dogma around algorithm superiority by presenting transparent empirical data for your own learning material.",
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `review.arena.enabled` | `false` | Enable live side-by-side algorithm comparison rail |",
+        "Platform Behavior": "- **All Platforms**: Zero additional latency; all shadow evaluations compute in parallel Rust threads."
       }
     },
     {
@@ -3016,7 +3106,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "related": [
         "scheduler.fsrs",
-        "scheduler.sm20.postpone",
+        "scheduler.postpone",
         "queue.scroll_session"
       ],
       "filePath": "docs/product/features/scheduling/queue-load-management.md",
@@ -3063,7 +3153,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "related": [
         "scheduler.fsrs",
-        "scheduler.sm18",
+        "scheduler.adaptive",
         "library.collection"
       ],
       "filePath": "docs/product/features/scheduling/scoped-parameters.md",
@@ -3075,150 +3165,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Rationale": "Prevents over-studying trivial facts while ensuring critical professional knowledge receives the necessary repetition frequency.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scopedFsrsOverrides` | `{}` | Map of deckId/tag to custom FSRS parameter configurations |",
         "Platform Behavior": "- **All Platforms**: Evaluated instantaneously at review time via `src/utils/fsrsScope.ts`."
-      }
-    },
-    {
-      "id": "scheduler.sm18",
-      "title": "SuperMemo 18 Algorithm (3D SInc)",
-      "domain": "scheduling",
-      "status": "implemented",
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "summary": "Complete 212KB Rust implementation of SuperMemo 18 with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.",
-      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select SuperMemo 18.",
-      "why": "SuperMemo 18 is the culmination of 30+ years of memory research by Dr. Piotr Wozniak, featuring a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability.",
-      "aliases": [
-        "supermemo 18",
-        "sm18",
-        "sinc matrix",
-        "wozniak algorithm"
-      ],
-      "settings": [
-        "scheduler.algorithm",
-        "scheduler.sm18.forgettingIndex"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Configure SM-18 Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "related": [
-        "scheduler.fsrs",
-        "scheduler.sm20.arena",
-        "import.supermemo_zip"
-      ],
-      "filePath": "docs/product/features/scheduling/sm18-algorithm.md",
-      "sections": {
-        "intro": "# SuperMemo 18 Algorithm (3D SInc)",
-        "Purpose": "Provides a 100% faithful, high-performance Rust implementation of the SuperMemo 18 spaced repetition engine.",
-        "User-Facing Behavior": "- 6-grade rating scale (0-5) or simplified 4-button review interface.\n- Real-time display of A-Factor, D-Factor, Stability ($S$), and Retrievability ($R$).\n- Forgetting Index configuration (default 10%, meaning 90% expected recall).",
-        "Exact Behavioral Rules": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
-        "Rationale": "Accounts for the spacing effect and retrievability at the exact moment of repetition: reviewing when $R=0.9$ yields a different stability increase than reviewing when $R=0.6$.",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.sm18.forgettingIndex` | `10` | Requested forgetting index percentage (10% = 90% retention) |",
-        "Platform Behavior": "- **All Platforms**: Full 212KB Rust computation engine (`src-tauri/src/commands/sm18.rs`)."
-      }
-    },
-    {
-      "id": "scheduler.sm20.arena",
-      "title": "SM-20 Algorithm Arena",
-      "domain": "scheduling",
-      "status": "implemented",
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "summary": "Head-to-head algorithm arena comparing FSRS-6, SM-18, and SM-20 recommendations with live coach advice.",
-      "how_to": "Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.",
-      "why": "Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.",
-      "aliases": [
-        "algorithm arena",
-        "sm20 arena",
-        "srs comparison",
-        "algorithm coach"
-      ],
-      "settings": [
-        "review.arena.enabled",
-        "review.arena.coachMode"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Open Algorithm Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "related": [
-        "scheduler.fsrs",
-        "scheduler.sm18",
-        "scheduler.sm20.postpone"
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-arena.md",
-      "sections": {
-        "intro": "# SM-20 Algorithm Arena",
-        "Purpose": "Enables simultaneous parallel evaluation of multiple spaced repetition algorithms on your actual personal review cards.",
-        "User-Facing Behavior": "- Displays the Arena Choice Rail at the bottom of the card review screen.\n- Shows live side-by-side calculated intervals:\n  - **FSRS-6**: e.g., \"14 days ($R = 90\\%$)\"\n  - **SM-18**: e.g., \"12 days (SInc 2.41)\"\n  - **SM-20**: e.g., \"16 days (Optimal load smoothed)\"\n- An intelligent Coach Badge highlights which algorithm is making the most statistically sound prediction for that card type.",
-        "Exact Behavioral Rules": "1. Every review grades all enabled engines simultaneously in shadow mode.\n2. The user can either let their primary engine decide or click a specific engine badge to override that repetition.\n3. Historical accuracy (Brier score and log loss) is tracked and plotted in Analytics.",
-        "Rationale": "Removes the dogma around algorithm superiority by presenting transparent empirical data for your own learning material.",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `review.arena.enabled` | `false` | Enable live side-by-side algorithm comparison rail |",
-        "Platform Behavior": "- **All Platforms**: Zero additional latency; all shadow evaluations compute in parallel Rust threads."
-      }
-    },
-    {
-      "id": "scheduler.sm20.postpone",
-      "title": "SM-20 Postpone Engine",
-      "domain": "scheduling",
-      "status": "implemented",
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "summary": "Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.",
-      "how_to": "When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.",
-      "why": "Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.",
-      "aliases": [
-        "postpone engine",
-        "backlog manager",
-        "sm20 postpone",
-        "review delay"
-      ],
-      "settings": [
-        "scheduler.postpone.maxItemsPerDay",
-        "scheduler.postpone.protectHighPriority"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Postpone Status",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "related": [
-        "queue.priority_score",
-        "scheduler.sm20.arena",
-        "scheduler.load_balancing"
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-postpone.md",
-      "sections": {
-        "intro": "# SM-20 Postpone Engine",
-        "Purpose": "Provides mathematical backlog management that distributes overdue reviews over future days based on priority rankings and current memory retrievability.",
-        "User-Facing Behavior": "- Visual \"Overdue Backlog\" card offering one-click intelligent redistribution.\n- Sliders to choose how many items to postpone and across how many days to spread the load.\n- Protection indicators guaranteeing that items with Priority < 20 will never be delayed.",
-        "Exact Behavioral Rules": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
-        "Rationale": "Adopts SuperMemo's fundamental postulate: \"It is better to review the top 20% of your knowledge base thoroughly than to fail 100% of it due to despair.\"",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.postpone.protectHighPriority` | `true` | Never postpone items with priority <= 20 |",
-        "Platform Behavior": "- **All Platforms**: Evaluated in Rust backend (`src-tauri/src/commands/postpone.rs`)."
       }
     },
     {
@@ -3460,8 +3406,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "User-Facing Behavior": "- Visual sync status indicator in the app header (Green = Synced, Amber = Syncing, Gray = Offline).\n- Seamless background syncing: create a card on your desktop and see it on your phone seconds later.\n- Offline-first: study on an airplane; all offline changes merge cleanly when you reconnect.",
         "Exact Behavioral Rules": "1. Uses Yjs Conflict-Free Replicated Data Types (CRDTs) to guarantee zero data loss during concurrent offline edits.\n2. All sync payloads are encrypted on your device with AES-GCM-256 before transmission; the relay server sees only opaque ciphertext.\n3. Delta changes are compressed and synchronized incrementally over secure WebSockets.",
         "Rationale": "Ensures total data privacy and sovereignty while providing modern multi-device convenience.",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `sync.enabled` | `false` | Enable cross-device synchronization |\n| `sync.serverUrl` | `\"wss://sync.readsync.org\"` | Secure WebSocket relay endpoint |",
-        "Platform Behavior": "- **All Platforms**: Background WebSocket connection with exponential reconnect backoff."
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `sync.enabled` | `false` | Enable cross-device synchronization |\n| `sync.serverUrl` | `\"\"` | Optional remote sync endpoint URL |",
+        "Platform Behavior": "- **All Platforms**: End-to-end encrypted replication over secure HTTPS."
       }
     },
     {
@@ -3994,10 +3940,9 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Incremental Reading Philosophy & Workflow",
       "domain": "concepts",
       "section": "Summary & How-To",
-      "content": "Title: Incremental Reading Philosophy & Workflow\nDomain: concepts\nSummary: Comprehensive guide to the SuperMemo incremental reading methodology, extract formulation, and knowledge distillation in Plethora.\nHow to use: Import multiple long-form articles or books into your reading queue. Read in spaced increments, extracting key insights as you go.\nRationale: Reading linearly from cover to cover causes reader burnout and fast forgetting; incremental reading processes hundreds of texts simultaneously in bite-sized increments.\nAliases: incremental reading, supermemo method, knowledge distillation, reading workflow\nSettings: queue.composition",
+      "content": "Title: Incremental Reading Philosophy & Workflow\nDomain: concepts\nSummary: Comprehensive guide to the incremental reading methodology, extract formulation, and knowledge distillation in Plethora.\nHow to use: Import multiple long-form articles or books into your reading queue. Read in spaced increments, extracting key insights as you go.\nRationale: Reading linearly from cover to cover causes reader burnout and fast forgetting; incremental reading processes hundreds of texts simultaneously in bite-sized increments.\nAliases: incremental reading, knowledge distillation, reading workflow\nSettings: queue.composition",
       "aliases": [
         "incremental reading",
-        "supermemo method",
         "knowledge distillation",
         "reading workflow"
       ],
@@ -4005,7 +3950,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "concepts",
         "queue.composition",
         "incremental reading",
-        "supermemo method",
         "knowledge distillation",
         "reading workflow"
       ],
@@ -4030,7 +3974,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "content": "1. Ingestion: Import articles, research papers, and books into your Plethora library.\n2. Prioritization: Assign priority scores (0-100) to ensure high-value materials appear first.\n3. Extraction: Extract the core 10-20% of text containing key insights and dismiss the remaining fluff.\n4. Cloze / Card Formulation: Turn the distilled extracts into active recall flashcards.\n5. Review: Study cards in the Spaced Repetition engine to lock memories permanently.",
       "aliases": [
         "incremental reading",
-        "supermemo method",
         "knowledge distillation",
         "reading workflow"
       ],
@@ -4059,7 +4002,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "content": "Prevents cognitive overload, allows complex ideas to incubate over time, and eliminates the pressure to finish low-value books linearly.",
       "aliases": [
         "incremental reading",
-        "supermemo method",
         "knowledge distillation",
         "reading workflow"
       ],
@@ -4086,7 +4028,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Mathematical Foundations of Spaced Repetition",
       "domain": "concepts",
       "section": "Summary & How-To",
-      "content": "Title: Mathematical Foundations of Spaced Repetition\nDomain: concepts\nSummary: In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and SM-18 SInc matrices.\nHow to use: Review the formulas in this document to understand why specific review intervals are calculated for your cards.\nRationale: Spaced repetition is not arbitrary magic; understanding the mathematical two-component memory model helps learners formulate better flashcards and choose retention targets.\nAliases: srs math, forgetting curve, stability formula, retrievability equation, fsrs math\nSettings: scheduler.fsrs.requestRetention",
+      "content": "Title: Mathematical Foundations of Spaced Repetition\nDomain: concepts\nSummary: In-depth mathematical explanation of the Ebbinghaus forgetting curve, Stability, Difficulty, Retrievability, FSRS-6, and Adaptive 3D SInc matrices.\nHow to use: Review the formulas in this document to understand why specific review intervals are calculated for your cards.\nRationale: Spaced repetition is not arbitrary magic; understanding the mathematical two-component memory model helps learners formulate better flashcards and choose retention targets.\nAliases: srs math, forgetting curve, stability formula, retrievability equation, fsrs math\nSettings: scheduler.fsrs.requestRetention",
       "aliases": [
         "srs math",
         "forgetting curve",
@@ -4379,7 +4321,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Grounded Ask-Library RAG",
       "domain": "ai",
       "section": "Summary & How-To",
-      "content": "Title: Grounded Ask-Library RAG\nDomain: ai\nSummary: Grounded question-answering across your personal document library with numbered citation markers [N], untrusted chunk containment, and honest refusal.\nHow to use: Open Command Palette (Cmd+K) and type your question (e.g. \"What is the stability increase formula in SM-18?\").\nRationale: Finding synthesized answers across hundreds of books and papers requires semantic search paired with strict citation grounding to prevent AI hallucinations.\nAliases: ask library, library rag, semantic search qa, book question answering\nSettings: ai.rag.maxChunks, ai.rag.minConfidenceThreshold",
+      "content": "Title: Grounded Ask-Library RAG\nDomain: ai\nSummary: Grounded question-answering across your personal document library with numbered citation markers [N], untrusted chunk containment, and honest refusal.\nHow to use: Open Command Palette (Cmd+K) and type your question (e.g. \"What is the stability increase formula in the Adaptive scheduler?\").\nRationale: Finding synthesized answers across hundreds of books and papers requires semantic search paired with strict citation grounding to prevent AI hallucinations.\nAliases: ask library, library rag, semantic search qa, book question answering\nSettings: ai.rag.maxChunks, ai.rag.minConfidenceThreshold",
       "aliases": [
         "ask library",
         "library rag",
@@ -4940,7 +4882,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Anki Deck Import (.apkg) › Behavioral Rules",
       "domain": "imports",
       "section": "Exact Behavioral Rules",
-      "content": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / SM-18 state parameters so due dates remain consistent.",
+      "content": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / Plethora Adaptive state parameters so due dates remain consistent.",
       "aliases": [
         "anki import",
         "apkg deck",
@@ -5511,104 +5453,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         }
       ],
       "filePath": "docs/product/features/imports/local-files.md"
-    },
-    {
-      "id": "import.supermemo_zip#summary",
-      "docId": "import.supermemo_zip",
-      "title": "SuperMemo XML/ZIP Import",
-      "domain": "imports",
-      "section": "Summary & How-To",
-      "content": "Title: SuperMemo XML/ZIP Import\nDomain: imports\nSummary: Ingests SuperMemo 15/16/18 XML element exports, preserving tree hierarchy, extract chains, repetition dates, and A-Factors.\nHow to use: Export your SuperMemo collection as XML, then import via Settings → Import → SuperMemo XML.\nRationale: SuperMemo is the historical pioneer of incremental reading; Plethora provides a modern cross-platform home for SuperMemo collections with zero data loss.\nAliases: supermemo import, sm18 import, supermemo xml, element tree import\nSettings: import.supermemo.preserveHierarchy",
-      "aliases": [
-        "supermemo import",
-        "sm18 import",
-        "supermemo xml",
-        "element tree import"
-      ],
-      "tags": [
-        "imports",
-        "import.supermemo.preserveHierarchy",
-        "supermemo import",
-        "sm18 import",
-        "supermemo xml",
-        "element tree import"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Imported Queue",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/imports/supermemo-zip.md"
-    },
-    {
-      "id": "import.supermemo_zip#rules",
-      "docId": "import.supermemo_zip",
-      "title": "SuperMemo XML/ZIP Import › Behavioral Rules",
-      "domain": "imports",
-      "section": "Exact Behavioral Rules",
-      "content": "1. Translates SuperMemo repetition records (reps, lapses, interval, A-Factor, U-Factor) to the native SM-18 engine tables.\n2. Extracts embedded references (`#Title:`, `#Author:`, `#Source:`) into document provenance metadata.\n3. Automatically sets priority scores from SuperMemo percentage ranks (0.00% to 100.00%).",
-      "aliases": [
-        "supermemo import",
-        "sm18 import",
-        "supermemo xml",
-        "element tree import"
-      ],
-      "tags": [
-        "imports",
-        "rules"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Imported Queue",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/imports/supermemo-zip.md"
-    },
-    {
-      "id": "import.supermemo_zip#rationale",
-      "docId": "import.supermemo_zip",
-      "title": "SuperMemo XML/ZIP Import › Purpose & Rationale",
-      "domain": "imports",
-      "section": "Rationale",
-      "content": "Long-time SuperMemo power users maintain knowledge bases spanning decades. Preserving their learning investments allows them to study on modern macOS, Linux, and mobile devices.",
-      "aliases": [
-        "supermemo import",
-        "sm18 import",
-        "supermemo xml",
-        "element tree import"
-      ],
-      "tags": [
-        "imports",
-        "rationale",
-        "why"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Imported Queue",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/imports/supermemo-zip.md"
     },
     {
       "id": "import.url_scraping#summary",
@@ -6430,7 +6274,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "RSS in Reading Queue › Purpose & Rationale",
       "domain": "media",
       "section": "Rationale",
-      "content": "Adopts the SuperMemo principle of processing all information streams through a single unified priority queue.",
+      "content": "Adopts the core incremental reading principle of processing all information streams through a single unified priority queue.",
       "aliases": [
         "rss queue",
         "feed interleaving",
@@ -7205,10 +7049,10 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "queue.extract_chain#summary",
       "docId": "queue.extract_chain",
-      "title": "SuperMemo IR Extract Chain",
+      "title": "Incremental Reading Extract Chain",
       "domain": "queue",
       "section": "Summary & How-To",
-      "content": "Title: SuperMemo IR Extract Chain\nDomain: queue\nSummary: Hierarchical extract lineage preserving parent document provenance, priority inheritance, and reading position across generations.\nHow to use: Select text in any document and press Cmd+E (or click Extract in the selection bar). A child extract is created and scheduled.\nRationale: Knowledge distillation proceeds in stages: full book → chapter extract → key paragraph → flashcard; extract chains keep the complete evolutionary history connected.\nAliases: extract lineage, incremental reading extracts, parent child extracts, provenance chain\nSettings: extracts.inheritTags, extracts.defaultPriorityDelta",
+      "content": "Title: Incremental Reading Extract Chain\nDomain: queue\nSummary: Hierarchical extract lineage preserving parent document provenance, priority inheritance, and reading position across generations.\nHow to use: Select text in any document and press Cmd+E (or click Extract in the selection bar). A child extract is created and scheduled.\nRationale: Knowledge distillation proceeds in stages: full book → chapter extract → key paragraph → flashcard; extract chains keep the complete evolutionary history connected.\nAliases: extract lineage, incremental reading extracts, parent child extracts, provenance chain\nSettings: extracts.inheritTags, extracts.defaultPriorityDelta",
       "aliases": [
         "extract lineage",
         "incremental reading extracts",
@@ -7243,7 +7087,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "queue.extract_chain#rules",
       "docId": "queue.extract_chain",
-      "title": "SuperMemo IR Extract Chain › Behavioral Rules",
+      "title": "Incremental Reading Extract Chain › Behavioral Rules",
       "domain": "queue",
       "section": "Exact Behavioral Rules",
       "content": "1. Extracts store `parentId`, `documentId`, `sourceOffset`, and `quoteText`.\n2. Modifying a parent document does not alter or corrupt previously spawned extract text.\n3. Deleting a parent document prompts whether to orphan, archive, or delete descendant extracts.",
@@ -7276,7 +7120,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "queue.extract_chain#rationale",
       "docId": "queue.extract_chain",
-      "title": "SuperMemo IR Extract Chain › Purpose & Rationale",
+      "title": "Incremental Reading Extract Chain › Purpose & Rationale",
       "domain": "queue",
       "section": "Rationale",
       "content": "Prevents context loss. When reviewing a flashcard or extract months later, the learner can instantly jump back into the full source context to re-ground understanding.",
@@ -7563,7 +7407,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "0-100 Priority Scoring › Behavioral Rules",
       "domain": "queue",
       "section": "Exact Behavioral Rules",
-      "content": "1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.\n2. In SuperMemo-style queue generation, items with higher priority receive shorter initial intervals and higher selection probability.\n3. During queue overload, the SM-20 Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.",
+      "content": "1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.\n2. In priority queue generation, items with higher priority receive shorter initial intervals and higher selection probability.\n3. During queue overload, the Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.",
       "aliases": [
         "priority ranking",
         "importance score",
@@ -7596,7 +7440,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "0-100 Priority Scoring › Purpose & Rationale",
       "domain": "queue",
       "section": "Rationale",
-      "content": "Adopts Dr. Piotr Wozniak's priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.",
+      "content": "Adopts continuous priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.",
       "aliases": [
         "priority ranking",
         "importance score",
@@ -8675,7 +8519,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Selection Action Bar › Purpose & Rationale",
       "domain": "reading",
       "section": "Rationale",
-      "content": "In SuperMemo-style incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.",
+      "content": "In incremental reading, extracting high-value nuggets is the central habit. An instant, anchored action bar minimizes friction.",
       "aliases": [
         "text selection",
         "extract bar",
@@ -9536,12 +9380,117 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "filePath": "docs/product/features/review/zen-mode.md"
     },
     {
+      "id": "scheduler.adaptive#summary",
+      "docId": "scheduler.adaptive",
+      "title": "Plethora Adaptive Algorithm (3D SInc)",
+      "domain": "scheduling",
+      "section": "Summary & How-To",
+      "content": "Title: Plethora Adaptive Algorithm (3D SInc)\nDomain: scheduling\nSummary: Complete 212KB Rust implementation of the Plethora Adaptive scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select Plethora Adaptive.\nRationale: Plethora Adaptive features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.\nAliases: plethora adaptive, adaptive, sinc matrix, adaptive algorithm\nSettings: scheduler.algorithm, scheduler.adaptive.forgettingIndex",
+      "aliases": [
+        "plethora adaptive",
+        "adaptive",
+        "sinc matrix",
+        "adaptive algorithm"
+      ],
+      "tags": [
+        "scheduling",
+        "scheduler.algorithm",
+        "scheduler.adaptive.forgettingIndex",
+        "plethora adaptive",
+        "adaptive",
+        "sinc matrix",
+        "adaptive algorithm"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Configure Adaptive Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/adaptive-algorithm.md"
+    },
+    {
+      "id": "scheduler.adaptive#rules",
+      "docId": "scheduler.adaptive",
+      "title": "Plethora Adaptive Algorithm (3D SInc) › Behavioral Rules",
+      "domain": "scheduling",
+      "section": "Exact Behavioral Rules",
+      "content": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
+      "aliases": [
+        "plethora adaptive",
+        "adaptive",
+        "sinc matrix",
+        "adaptive algorithm"
+      ],
+      "tags": [
+        "scheduling",
+        "rules"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Configure Adaptive Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/adaptive-algorithm.md"
+    },
+    {
+      "id": "scheduler.adaptive#rationale",
+      "docId": "scheduler.adaptive",
+      "title": "Plethora Adaptive Algorithm (3D SInc) › Purpose & Rationale",
+      "domain": "scheduling",
+      "section": "Rationale",
+      "content": "Accounts for the spacing effect and retrievability at the exact moment of repetition: reviewing when $R=0.9$ yields a different stability increase than reviewing when $R=0.6$.",
+      "aliases": [
+        "plethora adaptive",
+        "adaptive",
+        "sinc matrix",
+        "adaptive algorithm"
+      ],
+      "tags": [
+        "scheduling",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Configure Adaptive Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/adaptive-algorithm.md"
+    },
+    {
       "id": "scheduler.fsrs#summary",
       "docId": "scheduler.fsrs",
       "title": "FSRS-6 Spaced Repetition",
       "domain": "scheduling",
       "section": "Summary & How-To",
-      "content": "Title: FSRS-6 Spaced Repetition\nDomain: scheduling\nSummary: Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).\nRationale: FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy SM-2 while maintaining target retention.\nAliases: fsrs, fsrs-6, modern srs, target retention, memory stability\nSettings: scheduler.algorithm, scheduler.fsrs.requestRetention, scheduler.fsrs.maximumIntervalDays",
+      "content": "Title: FSRS-6 Spaced Repetition\nDomain: scheduling\nSummary: Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).\nRationale: FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy heuristic schedulers while maintaining target retention.\nAliases: fsrs, fsrs-6, modern srs, target retention, memory stability\nSettings: scheduler.algorithm, scheduler.fsrs.requestRetention, scheduler.fsrs.maximumIntervalDays",
       "aliases": [
         "fsrs",
         "fsrs-6",
@@ -9616,7 +9565,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "FSRS-6 Spaced Repetition › Purpose & Rationale",
       "domain": "scheduling",
       "section": "Rationale",
-      "content": "Legacy algorithms like SM-2 use arbitrary heuristics. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
+      "content": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
       "aliases": [
         "fsrs",
         "fsrs-6",
@@ -9644,6 +9593,216 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         }
       ],
       "filePath": "docs/product/features/scheduling/fsrs-algorithm.md"
+    },
+    {
+      "id": "scheduler.postpone#summary",
+      "docId": "scheduler.postpone",
+      "title": "Postpone Engine",
+      "domain": "scheduling",
+      "section": "Summary & How-To",
+      "content": "Title: Postpone Engine\nDomain: scheduling\nSummary: Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.\nHow to use: When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.\nRationale: Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.\nAliases: postpone engine, backlog manager, auto postpone, review delay\nSettings: scheduler.postpone.maxItemsPerDay, scheduler.postpone.protectHighPriority",
+      "aliases": [
+        "postpone engine",
+        "backlog manager",
+        "auto postpone",
+        "review delay"
+      ],
+      "tags": [
+        "scheduling",
+        "scheduler.postpone.maxItemsPerDay",
+        "scheduler.postpone.protectHighPriority",
+        "postpone engine",
+        "backlog manager",
+        "auto postpone",
+        "review delay"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "action.queue.open",
+          "label": "View Postpone Status",
+          "shortcut": "Alt+Q"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/postpone-engine.md"
+    },
+    {
+      "id": "scheduler.postpone#rules",
+      "docId": "scheduler.postpone",
+      "title": "Postpone Engine › Behavioral Rules",
+      "domain": "scheduling",
+      "section": "Exact Behavioral Rules",
+      "content": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
+      "aliases": [
+        "postpone engine",
+        "backlog manager",
+        "auto postpone",
+        "review delay"
+      ],
+      "tags": [
+        "scheduling",
+        "rules"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "action.queue.open",
+          "label": "View Postpone Status",
+          "shortcut": "Alt+Q"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/postpone-engine.md"
+    },
+    {
+      "id": "scheduler.postpone#rationale",
+      "docId": "scheduler.postpone",
+      "title": "Postpone Engine › Purpose & Rationale",
+      "domain": "scheduling",
+      "section": "Rationale",
+      "content": "Adopts the fundamental workload balancing postulate: \"It is better to review the top 20% of your knowledge base thoroughly than to fail 100% of it due to despair.\"",
+      "aliases": [
+        "postpone engine",
+        "backlog manager",
+        "auto postpone",
+        "review delay"
+      ],
+      "tags": [
+        "scheduling",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "action.queue.open",
+          "label": "View Postpone Status",
+          "shortcut": "Alt+Q"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/postpone-engine.md"
+    },
+    {
+      "id": "scheduler.precision.arena#summary",
+      "docId": "scheduler.precision.arena",
+      "title": "Algorithm Arena",
+      "domain": "scheduling",
+      "section": "Summary & How-To",
+      "content": "Title: Algorithm Arena\nDomain: scheduling\nSummary: Head-to-head algorithm arena comparing FSRS-6, Plethora Adaptive, and Plethora Precision recommendations with live coach advice.\nHow to use: Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.\nRationale: Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.\nAliases: algorithm arena, arena, srs comparison, algorithm coach\nSettings: review.arena.enabled, review.arena.coachMode",
+      "aliases": [
+        "algorithm arena",
+        "arena",
+        "srs comparison",
+        "algorithm coach"
+      ],
+      "tags": [
+        "scheduling",
+        "review.arena.enabled",
+        "review.arena.coachMode",
+        "algorithm arena",
+        "arena",
+        "srs comparison",
+        "algorithm coach"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Open Algorithm Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/precision-arena.md"
+    },
+    {
+      "id": "scheduler.precision.arena#rules",
+      "docId": "scheduler.precision.arena",
+      "title": "Algorithm Arena › Behavioral Rules",
+      "domain": "scheduling",
+      "section": "Exact Behavioral Rules",
+      "content": "1. Every review grades all enabled engines simultaneously in shadow mode.\n2. The user can either let their primary engine decide or click a specific engine badge to override that repetition.\n3. Historical accuracy (Brier score and log loss) is tracked and plotted in Analytics.",
+      "aliases": [
+        "algorithm arena",
+        "arena",
+        "srs comparison",
+        "algorithm coach"
+      ],
+      "tags": [
+        "scheduling",
+        "rules"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Open Algorithm Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/precision-arena.md"
+    },
+    {
+      "id": "scheduler.precision.arena#rationale",
+      "docId": "scheduler.precision.arena",
+      "title": "Algorithm Arena › Purpose & Rationale",
+      "domain": "scheduling",
+      "section": "Rationale",
+      "content": "Removes the dogma around algorithm superiority by presenting transparent empirical data for your own learning material.",
+      "aliases": [
+        "algorithm arena",
+        "arena",
+        "srs comparison",
+        "algorithm coach"
+      ],
+      "tags": [
+        "scheduling",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [
+        {
+          "id": "settings.learning.algorithm",
+          "label": "Open Algorithm Settings",
+          "shortcut": "Alt+,"
+        }
+      ],
+      "filePath": "docs/product/features/scheduling/precision-arena.md"
     },
     {
       "id": "scheduler.load_balancing#summary",
@@ -9854,321 +10013,6 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         }
       ],
       "filePath": "docs/product/features/scheduling/scoped-parameters.md"
-    },
-    {
-      "id": "scheduler.sm18#summary",
-      "docId": "scheduler.sm18",
-      "title": "SuperMemo 18 Algorithm (3D SInc)",
-      "domain": "scheduling",
-      "section": "Summary & How-To",
-      "content": "Title: SuperMemo 18 Algorithm (3D SInc)\nDomain: scheduling\nSummary: Complete 212KB Rust implementation of SuperMemo 18 with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select SuperMemo 18.\nRationale: SuperMemo 18 is the culmination of 30+ years of memory research by Dr. Piotr Wozniak, featuring a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability.\nAliases: supermemo 18, sm18, sinc matrix, wozniak algorithm\nSettings: scheduler.algorithm, scheduler.sm18.forgettingIndex",
-      "aliases": [
-        "supermemo 18",
-        "sm18",
-        "sinc matrix",
-        "wozniak algorithm"
-      ],
-      "tags": [
-        "scheduling",
-        "scheduler.algorithm",
-        "scheduler.sm18.forgettingIndex",
-        "supermemo 18",
-        "sm18",
-        "sinc matrix",
-        "wozniak algorithm"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Configure SM-18 Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm18-algorithm.md"
-    },
-    {
-      "id": "scheduler.sm18#rules",
-      "docId": "scheduler.sm18",
-      "title": "SuperMemo 18 Algorithm (3D SInc) › Behavioral Rules",
-      "domain": "scheduling",
-      "section": "Exact Behavioral Rules",
-      "content": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
-      "aliases": [
-        "supermemo 18",
-        "sm18",
-        "sinc matrix",
-        "wozniak algorithm"
-      ],
-      "tags": [
-        "scheduling",
-        "rules"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Configure SM-18 Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm18-algorithm.md"
-    },
-    {
-      "id": "scheduler.sm18#rationale",
-      "docId": "scheduler.sm18",
-      "title": "SuperMemo 18 Algorithm (3D SInc) › Purpose & Rationale",
-      "domain": "scheduling",
-      "section": "Rationale",
-      "content": "Accounts for the spacing effect and retrievability at the exact moment of repetition: reviewing when $R=0.9$ yields a different stability increase than reviewing when $R=0.6$.",
-      "aliases": [
-        "supermemo 18",
-        "sm18",
-        "sinc matrix",
-        "wozniak algorithm"
-      ],
-      "tags": [
-        "scheduling",
-        "rationale",
-        "why"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Configure SM-18 Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm18-algorithm.md"
-    },
-    {
-      "id": "scheduler.sm20.arena#summary",
-      "docId": "scheduler.sm20.arena",
-      "title": "SM-20 Algorithm Arena",
-      "domain": "scheduling",
-      "section": "Summary & How-To",
-      "content": "Title: SM-20 Algorithm Arena\nDomain: scheduling\nSummary: Head-to-head algorithm arena comparing FSRS-6, SM-18, and SM-20 recommendations with live coach advice.\nHow to use: Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.\nRationale: Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.\nAliases: algorithm arena, sm20 arena, srs comparison, algorithm coach\nSettings: review.arena.enabled, review.arena.coachMode",
-      "aliases": [
-        "algorithm arena",
-        "sm20 arena",
-        "srs comparison",
-        "algorithm coach"
-      ],
-      "tags": [
-        "scheduling",
-        "review.arena.enabled",
-        "review.arena.coachMode",
-        "algorithm arena",
-        "sm20 arena",
-        "srs comparison",
-        "algorithm coach"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Open Algorithm Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-arena.md"
-    },
-    {
-      "id": "scheduler.sm20.arena#rules",
-      "docId": "scheduler.sm20.arena",
-      "title": "SM-20 Algorithm Arena › Behavioral Rules",
-      "domain": "scheduling",
-      "section": "Exact Behavioral Rules",
-      "content": "1. Every review grades all enabled engines simultaneously in shadow mode.\n2. The user can either let their primary engine decide or click a specific engine badge to override that repetition.\n3. Historical accuracy (Brier score and log loss) is tracked and plotted in Analytics.",
-      "aliases": [
-        "algorithm arena",
-        "sm20 arena",
-        "srs comparison",
-        "algorithm coach"
-      ],
-      "tags": [
-        "scheduling",
-        "rules"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Open Algorithm Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-arena.md"
-    },
-    {
-      "id": "scheduler.sm20.arena#rationale",
-      "docId": "scheduler.sm20.arena",
-      "title": "SM-20 Algorithm Arena › Purpose & Rationale",
-      "domain": "scheduling",
-      "section": "Rationale",
-      "content": "Removes the dogma around algorithm superiority by presenting transparent empirical data for your own learning material.",
-      "aliases": [
-        "algorithm arena",
-        "sm20 arena",
-        "srs comparison",
-        "algorithm coach"
-      ],
-      "tags": [
-        "scheduling",
-        "rationale",
-        "why"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "settings.learning.algorithm",
-          "label": "Open Algorithm Settings",
-          "shortcut": "Alt+,"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-arena.md"
-    },
-    {
-      "id": "scheduler.sm20.postpone#summary",
-      "docId": "scheduler.sm20.postpone",
-      "title": "SM-20 Postpone Engine",
-      "domain": "scheduling",
-      "section": "Summary & How-To",
-      "content": "Title: SM-20 Postpone Engine\nDomain: scheduling\nSummary: Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.\nHow to use: When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.\nRationale: Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.\nAliases: postpone engine, backlog manager, sm20 postpone, review delay\nSettings: scheduler.postpone.maxItemsPerDay, scheduler.postpone.protectHighPriority",
-      "aliases": [
-        "postpone engine",
-        "backlog manager",
-        "sm20 postpone",
-        "review delay"
-      ],
-      "tags": [
-        "scheduling",
-        "scheduler.postpone.maxItemsPerDay",
-        "scheduler.postpone.protectHighPriority",
-        "postpone engine",
-        "backlog manager",
-        "sm20 postpone",
-        "review delay"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Postpone Status",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-postpone.md"
-    },
-    {
-      "id": "scheduler.sm20.postpone#rules",
-      "docId": "scheduler.sm20.postpone",
-      "title": "SM-20 Postpone Engine › Behavioral Rules",
-      "domain": "scheduling",
-      "section": "Exact Behavioral Rules",
-      "content": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
-      "aliases": [
-        "postpone engine",
-        "backlog manager",
-        "sm20 postpone",
-        "review delay"
-      ],
-      "tags": [
-        "scheduling",
-        "rules"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Postpone Status",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-postpone.md"
-    },
-    {
-      "id": "scheduler.sm20.postpone#rationale",
-      "docId": "scheduler.sm20.postpone",
-      "title": "SM-20 Postpone Engine › Purpose & Rationale",
-      "domain": "scheduling",
-      "section": "Rationale",
-      "content": "Adopts SuperMemo's fundamental postulate: \"It is better to review the top 20% of your knowledge base thoroughly than to fail 100% of it due to despair.\"",
-      "aliases": [
-        "postpone engine",
-        "backlog manager",
-        "sm20 postpone",
-        "review delay"
-      ],
-      "tags": [
-        "scheduling",
-        "rationale",
-        "why"
-      ],
-      "platforms": [
-        "desktop-macos",
-        "desktop-windows",
-        "desktop-linux",
-        "mobile-android",
-        "mobile-ios"
-      ],
-      "actions": [
-        {
-          "id": "action.queue.open",
-          "label": "View Postpone Status",
-          "shortcut": "Alt+Q"
-        }
-      ],
-      "filePath": "docs/product/features/scheduling/sm20-postpone.md"
     },
     {
       "id": "palette.command_center#summary",

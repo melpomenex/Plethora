@@ -23,8 +23,8 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import type { LearningItem } from "../../api/review";
-import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/sm18";
-import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/sm20";
+import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/adaptiveScheduler";
+import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/precisionScheduler";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
 

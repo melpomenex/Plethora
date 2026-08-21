@@ -83,7 +83,7 @@ export async function getLearningItem(itemId: string): Promise<LearningItem | nu
 }
 
 /**
- * Set a learning item's user-set priority (supermemo-faithful-queue Phase 3).
+ * Set a learning item's user-set priority on the 0-100 scale.
  * The slider is the authoritative 0-100 importance rank; the backend derives
  * the score. This is independent of FSRS urgency, which still drives *when*
  * the card is scheduled.

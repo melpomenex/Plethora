@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DocumentsView } from "../DocumentsView";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import type { Document } from "../../../types/document";
 
 const modalMock = vi.hoisted(() => ({
@@ -106,6 +107,19 @@ vi.mock("../../../lib/pwa", () => ({
     pixelRatio: 1,
     screenWidth: 1200,
     screenHeight: 800,
+  }),
+}));
+
+// jsdom cannot measure the scroll container, so the windowed table body would
+// mount zero rows. Render every row so compact-row layout contracts are
+// testable deterministically.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 68,
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({ index, key: index, start: index * 68, size: 68 })),
+    measureElement: () => {},
+    scrollToIndex: () => {},
   }),
 }));
 
@@ -359,4 +373,76 @@ describe("DocumentsView", () => {
     });
   });
 
+});
+
+describe("compact mobile document row layout contract", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    mockStore.loadDocuments.mockClear();
+    // CompactLibraryView (and its mobile rows) is gated behind this setting.
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, interface: { ...state.settings.interface, compactDocumentsView: true } },
+    }));
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, interface: { ...state.settings.interface, compactDocumentsView: false } },
+    }));
+  });
+
+  function getCompactRowActionRow(openButton: HTMLElement) {
+    // Row hierarchy: ... > div.mt-2.flex.items-center.justify-between.gap-2 > [tag editor, Open / Read]
+    const row = openButton.parentElement;
+    expect(row?.className).toContain("justify-between");
+    return row!;
+  }
+
+  it("keeps Open / Read beside a shrink-owned tag region on an extremely long tag", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const openButtons = screen.getAllByRole("button", { name: "Open / Read" });
+    expect(openButtons.length).toBeGreaterThan(0);
+
+    for (const button of openButtons) {
+      const actionRow = getCompactRowActionRow(button);
+      const tagRegion = actionRow.firstElementChild as HTMLElement | null;
+      // Flex ownership: the tag region may shrink; the action keeps its width.
+      expect(tagRegion?.className).toContain("min-w-0");
+      expect(button.className).toContain("shrink-0");
+    }
+  });
+
+  it("condenses the mobile tag preview and truncates long translated tags", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    // doc-1 has four tags; the compact mobile row previews one chip + "+3".
+    const trigger = screen.getAllByLabelText("Edit tags (4)")[0];
+    const wrapper = trigger.parentElement!;
+    expect(wrapper.className).toContain("min-w-0");
+
+    // Trigger is shrink-safe so truncation can engage under constrained width.
+    expect(trigger.className).toContain("max-w-full");
+    expect(trigger.className).toContain("min-w-0");
+    expect(trigger.className).toContain("overflow-hidden");
+
+    const chip = Array.from(wrapper.querySelectorAll("span")).find((span) =>
+      span.textContent === "History"
+    );
+    expect(chip?.className).toContain("truncate");
+    expect(chip?.className).toContain("sm:max-w-[8rem]");
+
+    expect(screen.getByText("+3")).toBeTruthy();
+  });
+
+  it("renders a single-tag document without a +N indicator", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    // doc-2 has exactly one tag ("Science"): one chip, no remainder.
+    const scienceChip = screen.getAllByText("Science").filter(
+      (el) => el.tagName === "SPAN" && el.className.includes("truncate")
+    );
+    expect(scienceChip.length).toBeGreaterThan(0);
+    expect(screen.queryByText("+0")).toBeNull();
+  });
 });

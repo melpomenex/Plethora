@@ -1,16 +1,16 @@
-//! Priority as a *position* in one global queue — the SuperMemo model.
+//! Priority as a *position* in one global queue.
 //!
-//! SuperMemo does not store "importance = 50". It keeps every element in a
+//! Plethora does not store raw static importance. It keeps every element in a
 //! single sorted priority queue and derives the displayed percentage from the
-//! element's position (`FUN_00cb1630` position→priority, `FUN_00cb21c0` the
-//! inverse). Two elements never share a slot, and a percentage means "this far
-//! into the collection *right now*" — so it drifts as the collection grows.
+//! element's position in the active queue. Two elements never share a slot, and a
+//! percentage means "this far into the collection *right now*" — so it drifts
+//! dynamically as the collection grows.
 //!
-//! We get the same semantics without renumbering rows on every edit:
+//! We achieve continuous rank semantics without renumbering rows on every edit:
 //!
 //! * `priority_score REAL` (already on documents / extracts / learning_items)
-//!   is reinterpreted as an **order key**, not an importance value. Its
-//!   absolute magnitude is meaningless; only its rank matters.
+//!   acts as an **order key**, not an importance value. Its absolute magnitude
+//!   is meaningless; only its relative rank matters.
 //! * Setting the slider to X% resolves to the rank X% of the way up the queue
 //!   and stores the **midpoint of that gap** — one row written, order preserved,
 //!   nothing else renumbered.
@@ -18,10 +18,9 @@
 //!   ([`percentile_for_score`]), never from the stored number.
 //!
 //! Direction convention: the order key ascends with importance (higher score =
-//! more important), matching the slider and every existing consumer of
-//! `priority_score`. SuperMemo's *display* runs the other way (1% = top of the
-//! queue); [`position_for_score`] converts, so position 1 is the most
-//! important element.
+//! more important), matching the slider and every consumer of `priority_score`.
+//! The queue display position converts so that position 1 represents the highest
+//! priority element.
 
 use sqlx::{Pool, Row, Sqlite};
 
@@ -101,8 +100,8 @@ pub fn percentile_for_rank(rank: usize, size: usize) -> f64 {
     (rank.min(size - 1) as f64 / (size - 1) as f64) * 100.0
 }
 
-/// The 1-based queue position to display, SuperMemo-style: position 1 is the
-/// most important element.
+/// The 1-based queue position to display: position 1 is the most
+/// important element.
 pub fn position_for_rank(rank: usize, size: usize) -> usize {
     size.saturating_sub(rank).max(1)
 }

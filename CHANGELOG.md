@@ -146,8 +146,8 @@
 
 ### Added
 
-- **Neural review ("Go neural")** — an optional exploratory mode built on SuperMemo's spreading activation. While reading in Scroll Mode, click "Go neural" to build a fresh review sequence that spreads outward from the current document, card, or extract through five kinds of connections: concept groups (your tags), inter-element references, descendants, semantic similarity (via your RAG embeddings), and parent/siblings. Closer connections surface earlier; the queue refills automatically as you work through it. Exit returns you to exactly where you were — neural review never touches your priority queue or scheduling.
-- **SuperMemo priority queue** — every document, extract, and card now sits in one ranked priority queue, just like SuperMemo. Priority is a *position*, not a stored value: setting 70% moves an item to the 70% mark of your collection, and the percentage shifts naturally as your library grows. Cards gain the same 0–100 priority control as documents, and the priority popup shows each element's live rank ("Position X of N"). Bulk-setting many items to the same percentage arranges them in order rather than creating ties.
+- **Neural review ("Go neural")** — an optional exploratory mode built on spreading activation. While reading in Scroll Mode, click "Go neural" to build a fresh review sequence that spreads outward from the current document, card, or extract through five kinds of connections: concept groups (your tags), inter-element references, descendants, semantic similarity (via your RAG embeddings), and parent/siblings. Closer connections surface earlier; the queue refills automatically as you work through it. Exit returns you to exactly where you were — neural review never touches your priority queue or scheduling.
+- **Hierarchical priority queue** — every document, extract, and card now sits in one ranked priority queue. Priority is a *position*, not a stored value: setting 70% moves an item to the 70% mark of your collection, and the percentage shifts naturally as your library grows. Cards gain the same 0–100 priority control as documents, and the priority popup shows each element's live rank ("Position X of N"). Bulk-setting many items to the same percentage arranges them in order rather than creating ties.
 - **Auto-postpone** — when outstanding material exceeds a session's capacity, the lowest-priority surplus is postponed automatically, with settings for the capacity, priority threshold, and difficulty bias.
 - **Card search in the Documents view** — searching now returns matching flashcards in a "Cards" result group alongside documents, using the same query grammar (`text`, `tag:`). `tag:` matching is now substring-based, so `tag:occlusion` finds `image-occlusion`.
 - **Maintained "Browser Extension" deck** — cards imported from the browser extension are now surfaced in the Deck Manager through an auto-maintained deck, with provenance tags preserved when moving cards between decks.
@@ -628,8 +628,7 @@
 
 - **Image saving with local assets** — Added local-asset protocol fallbacks so saving images that reference local file assets no longer silently fails in the Image Registry.
 - **Linux window state** — Restored window title, size, and settings persistence in `tauri.linux.conf.json`.
-- **RSS scroll mode navigation and layout** — Improved navigation and layout in RSS scroll mode.
-- **Consistent algorithm labels** — Standardized SuperMemo algorithm labels to the compact "SM-N" shorthand across settings, deck stats, and all six locales to match the existing FSRS label style.
+- **Consistent algorithm labels** — Standardized algorithm labels across settings, deck stats, and all six locales to match the existing FSRS label style.
 
 ## [1.76.0] - 2026-07-12
 
@@ -930,7 +929,7 @@
 ### Fixed & Improved
 - **Desktop notifications work again on macOS** — The `tauri-plugin-notification` plugin had been commented out (deferred from an old Windows-crash debug), so macOS never showed the system permission dialog and all notification commands were silent stubs. The plugin is now registered, permission check/request use the real plugin API, and send commands route through the plugin builder. Frontend return types (`{ granted: boolean }`) already matched, so no frontend changes were needed.
 - **AnkiConnect integration no longer returns the wrong shape** — All five AnkiConnect API functions (`testAnkiConnection`, `getAnkiDecks`, `getAnkiModels`, `createAnkiNote`, `createAnkiNotes`) returned the raw `{ result, error }` wrapper instead of extracting `data.result`, causing `ankiDecks.map is not a function` and `createAnkiNote` always returning `0`. They now return `data.result` (with `?? 0` / `|| []` fallbacks) and surface AnkiConnect errors via console.
-- **No more "pool timed out" errors when bulk-deleting cards** — The SQLite connection pool was capped at 5 connections with a 30s acquire timeout, which could be exhausted when a bulk delete (e.g. removing an imported SuperMemo collection) ran alongside Yjs/localStorage/file sync. The pool is now sized at 20 connections with a 60s timeout, and pool-init failures give a clearer "check if another process has the DB locked" message.
+- **No more "pool timed out" errors when bulk-deleting cards** — The SQLite connection pool was capped at 5 connections with a 30s acquire timeout, which could be exhausted when a bulk delete (e.g. removing an imported collection) ran alongside Yjs/localStorage/file sync. The pool is now sized at 20 connections with a 60s timeout, and pool-init failures give a clearer "check if another process has the DB locked" message.
 - **Type safety of the new sync settings** — Added the `yjs` field to the store's local `SyncSettings` interface (which shadowed the one in `types/settings.ts`), fixing a `tsc` break that landed with the sync toggle. `tsc --noEmit` is clean again.
 
 ## [1.59.1] - 2026-07-01
@@ -1134,7 +1133,7 @@
 - **Whole-library RAG chat** — Ask questions across your entire collection and get answers grounded in your actual documents, with citations back to the sources. Index your library once (Settings → Embeddings & RAG → Index Collection), then switch the assistant to "Library" scope (globe icon) or select "🌐 Whole Library (RAG)" in Document Q&A to chat with everything at once. Answers cite the retrieved passages by `[1] [2] [3]` marker. Supports cloud embedding providers (OpenAI, Cohere, OpenRouter) or fully local via Ollama — your choice. Chunking, content-hash staleness (only re-embeds changed chunks), and token-aware splitting handle long/dense documents automatically.
 - **Source context on review cards** — Every flashcard now shows where it came from. A collapsible "From: *Document title*" panel appears on review cards; expand it to see the source extract snippet. Toggle it off in settings if you prefer the pure Anki-style view. Closes the "atomic card with no context" gap RemNote is known for.
 - **Audio read-aloud review mode** — Hands-free review via TTS. Enable the speaker toggle in the review header and the app reads the question, flips the card, reads the answer, and auto-advances — perfect for commute, cooking, or exercise. Configurable auto-flip delay and default rating; uses your existing TTS provider (fal/groq/pocket or Web Speech).
-- **Extract priority inheritance** — True SuperMemo-style incremental reading. Extracts now inherit their parent document's priority and surface in the reading queue in priority order, so a high-priority article's extracts rank ahead of a low-priority one's. Reprioritizing a document cascades to its extracts (unless you've manually overridden one).
+- **Extract priority inheritance** — Incremental reading priority inheritance. Extracts now inherit their parent document's priority and surface in the reading queue in priority order, so a high-priority article's extracts rank ahead of a low-priority one's. Reprioritizing a document cascades to its extracts (unless you've manually overridden one).
 - **Extract Forget / Dismiss / Done lifecycle** — Complete the incremental-reading workflow. Forget resets an extract's memory state and returns it to the new queue; Dismiss removes it from review without deleting (restorable); Done graduates it ~5 years out as mastered. Available as buttons on each extract in scroll-mode review.
 - **Easy Days, Load Balancing, and Advance** — The FSRS Helper add-on's most-loved features, built in natively. Easy Days shifts reviews off chosen weekdays (weekend/vacation mode). Load Balancing redistributes your due pile across the next N days to flatten peaks. Advance pulls future-due items forward to today ("do now" cramming). All preserve FSRS memory state — they only shift due dates.
 - **Review forecast simulator** — A what-if planner on the Analytics page: drag the "new cards/day" slider and see your projected daily review load over the next 30–180 days, stacked against your real baseline. Spot pile-ups before they form and back off your add rate in advance.
@@ -1389,7 +1388,7 @@
 - **Lexical fallback for RSS items** — Graph builder supports RSS items in lexical fallback path when embeddings are unavailable
 
 ### Fixed
-- **16 failing Rust tests** — Corrected stale test assertions in FSRS/SM-20 algorithms, SuperMemo SM-18, Anki cloze unicode, ReviewRating mapping, database PRAGMA types, FK constraints, and migration table names
+- **16 failing Rust tests** — Corrected stale test assertions in FSRS/Precision algorithms, Adaptive, Anki cloze unicode, ReviewRating mapping, database PRAGMA types, FK constraints, and migration table names
 - **Cloze unicode indexing** — Fixed off-by-one char index for CJK cloze text and added bounds check to prevent panic on out-of-range indices
 - **NotebookLM cookie profiles** — Support standard cookie profiles and auto-connect on Linux
 - **Merge conflict cleanup** — Resolved stray conflict markers causing module import failures
@@ -2036,8 +2035,8 @@
 
 - **Algorithm-aware metrics** — the right sidebar metrics section now dynamically detects which spaced repetition algorithms are used by cards in the deck and shows tailored metrics for each:
   - **FSRS-6**: retention, avg difficulty, avg stability, target retention
-  - **SuperMemo 18 / 20**: retention, avg difficulty, avg stability
-  - **SM-2**: retention, avg difficulty, avg ease factor, avg interval
+  - **Adaptive / Precision**: retention, avg difficulty, avg stability
+  - **Classic**: retention, avg difficulty, avg ease factor, avg interval
   - Mixed-algorithm decks show a separate panel per algorithm with card counts
 
 ## [1.25.4] - 2026-04-27
@@ -2416,8 +2415,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **JSON deck registration from Documents imports** — importing study JSON decks from the Documents page now creates or reuses the matching study deck entry immediately, including drag-and-drop, JSON picker imports, and mixed local file imports.
-- **Study deck seeding for JSON imports** — deck auto-seeding now recognizes `study-json-import` tags in addition to `anki-import`, so JSON-imported decks are rediscovered correctly on first load.
-- **Review algorithm transparency consistency** — the transparency panel now labels the next review using the active global algorithm while still reading stored SuperMemo state from the card data for reps, lapses, and retrievability details.
+- **Review algorithm transparency consistency** — the transparency panel now labels the next review using the active global algorithm while still reading stored algorithm state from the card data for reps, lapses, and retrievability details.
 
 ## [1.20.2] - 2026-04-14
 
@@ -2456,12 +2454,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Algorithm-aware postpone system** — replaces the naive "add N days" postpone with a priority-weighted, SM-20-inspired postponement engine that considers item stability, difficulty, retrievability, and review count when computing interval increases.
+- **Algorithm-aware postpone system** — replaces the naive "add N days" postpone with a priority-weighted postponement engine that considers item stability, difficulty, retrievability, and review count when computing interval increases.
   - **Single-item smart postpone** — right-click any item (learning item or document) in the queue and choose "Postpone" to get an algorithm-computed interval increase based on the item's current state. Well-established items (high stability, low difficulty) receive larger increases; struggling items are preserved with smaller increases.
   - **Postpone All** — toolbar button to batch-postpone all eligible items in the queue. Shows a confirmation dialog with the count of items to be postponed and a summary after completion (items postponed, average increase, items skipped).
   - **Auto-postpone** — opt-in toggle in learning settings that prompts you to postpone outstanding items when you open the queue with overdue reviews.
   - **Eligibility gates** — items that are already well-established (high priority, high stability, many repetitions, long elapsed time) are automatically skipped during postponement to preserve their learning schedule.
-  - **Interval randomization** — optional noise distribution (matching the SM-20 formula) prevents all postponed items from clustering at the same future date.
+  - **Interval randomization** — optional noise distribution prevents all postponed items from clustering at the same future date.
   - **Simple mode** — alternative postpone mode using linear interpolation by priority, bypassing eligibility checks.
   - **Configurable settings** — full postpone settings panel in Learning Settings with controls for item/document increase percentages, min/max limits, caps, floors, eligibility thresholds, randomization, and auto-postpone toggle.
   - **Full i18n coverage** — all postpone UI strings translated across 6 locales (en, zh, es, de, fr, ja).
@@ -2494,8 +2492,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Minimap** — a 180×120px overview canvas in the bottom-left corner with a viewport rectangle and click-to-navigate. Toggleable via a toolbar button, visible by default when the graph has more than 50 nodes.
   - **Search-with-zoom** — typing in the search box auto-zooms the viewport to frame matching nodes after a 300ms debounce. A reset-view button appears during active search.
   - **Edge proximity blending** — overlapping edges render with reduced opacity to cut visual noise in dense regions.
-- **SuperMemo 20 scheduling** — added SM-20 as a first-class algorithm option across desktop and browser-backed review flows, with native Rust and TypeScript implementations based on the reverse-engineered SM-20 V2 interval-growth core.
-- **SuperMemo 20 transparency** — review transparency, inspector, preview-interval, item-detail, and zen-review surfaces now understand SM-20 state and display SM-20-specific stability, difficulty, retrievability, repetitions, lapses, and forget-curve behavior when SM-20 is active.
+- **Precision algorithm scheduling** — added Plethora Precision as a first-class algorithm option across desktop and browser-backed review flows, with native Rust and TypeScript implementations based on a 5-model ensemble with online weight learning.
+- **Precision transparency** — review transparency, inspector, preview-interval, item-detail, and zen-review surfaces now understand Precision state and display stability, difficulty, retrievability, repetitions, lapses, and forget-curve behavior when Precision is active.
 
 ### Changed
 
@@ -2537,18 +2535,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **SuperMemo 18 algorithm transparency** — review UI now adapts to the active algorithm. When SM18 is selected, the transparency panel, inspector, and zen-mode overlay show SM18-specific stats (stability, difficulty on 0-1 scale, retrievability via `R = 0.9^(t/S)`, reps, lapses) with correct formulas and labels, matching the existing FSRS-6 transparency experience.
+- **Adaptive algorithm transparency** — review UI now adapts to the active algorithm. When Adaptive is selected, the transparency panel, inspector, and zen-mode overlay show Adaptive-specific stats (stability, difficulty on 0-1 scale, retrievability via `R = 0.9^(t/S)`, reps, lapses) with correct formulas and labels, matching the existing FSRS-6 transparency experience.
 
 ### Changed
 
 - Review backends (Tauri and browser) now respect the algorithm setting passed from the frontend during review submission instead of always reading the stale `algorithm_type` stored on the card. The effective algorithm is also persisted back to the card for correct display.
 - FSRS-specific settings (retention slider, personal optimizer, scoped overrides) are hidden in Learning Settings when a non-FSRS algorithm is selected.
-- Item details popover scheduling section header now shows "FSRS-6" or "SuperMemo 18" based on the active algorithm.
+- Item details popover scheduling section header now shows "FSRS-6" or "Adaptive" based on the active algorithm.
 
 ### Fixed
 
 - Algorithm selection in settings had no effect on actual review scheduling — backends ignored the passed `algorithm` parameter and always dispatched to FSRS-6. All three backends (Tauri, browser, MCP) now correctly route to the user's chosen algorithm.
-- Cards created before the algorithm selector was added were permanently stuck on FSRS-6 even after switching to SM18 — the `algorithm_type` field was never updated.
+- Cards created before the algorithm selector was added were permanently stuck on FSRS-6 even after switching to Adaptive — the `algorithm_type` field was never updated.
 
 ### Added
 
@@ -3228,9 +3226,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Screenshot capture
 - Arxiv research paper import
 - Anki package (.apkg) import
-- SuperMemo ZIP export import
-- FSRS-5 spaced repetition algorithm
-- SM-2 alternative algorithm
+- JSON flashcard deck import
+- FSRS spaced repetition algorithm
+- Classic alternative algorithm
 - Multiple card types (Flashcards, Cloze, Q&A, Basic)
 - Full keyboard shortcuts (Space, 1-4)
 - Session statistics tracking

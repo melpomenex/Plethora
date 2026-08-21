@@ -967,7 +967,7 @@ export function AssistantPanel({
 
 /help - Show this help message
 /tools - List available tools
-/20rules - Formulate atomic flashcards following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (Minimum Information Principle, clozes, anti-interference)
+/20rules - Formulate atomic flashcards following the 20 Rules of Knowledge Formulation (Minimum Information Principle, clozes, anti-interference)
 /clear - Clear conversation
 
 **Available Tools:**
@@ -1236,7 +1236,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // sees correct turn ordering: system → [past turns...] → current user message
       const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
       const effectivePrompt = isTwentyRules
-        ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation.")
+        ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following the 20 Rules of Knowledge Formulation.")
         : prompt;
 
       const llmMessages: LLMMessage[] = [
@@ -2988,7 +2988,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
                 <button
                   onClick={() => {
-                    const prompt = "/20rules Formulate atomic flashcards from this X thread following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
+                    const prompt = "/20rules Formulate atomic flashcards from this X thread following the 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();

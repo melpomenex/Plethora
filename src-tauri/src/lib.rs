@@ -39,7 +39,6 @@ mod scheduler;
 mod segmentation;
 mod services;
 mod study_json_import;
-mod supermemo_import;
 mod sync;
 mod tas;
 mod threadreader;
@@ -1723,8 +1722,11 @@ pub fn run() {
             commands::restore_learning_item_state,
             commands::get_next_review_times,
             commands::preview_review_intervals,
+            commands::get_arena_stats,
             commands::get_sm20_arena_stats,
+            commands::optimize_arena_fsrs,
             commands::optimize_sm20_fsrs,
+            commands::optimize_precision_kernel,
             commands::optimize_sm20_m4,
             commands::get_review_streak,
             commands::record_recall_prompt,
@@ -1737,6 +1739,7 @@ pub fn run() {
             commands::get_all_review_results,
             commands::get_review_results_by_sessions,
             commands::get_categories_by_collection,
+            commands::calculate_classic_next,
             commands::calculate_sm2_next,
             commands::rate_document,
             commands::rate_document_engaging,
@@ -1748,7 +1751,9 @@ pub fn run() {
             commands::get_review_statistics,
             commands::get_due_workload_forecast,
             commands::optimize_algorithm_params,
+            commands::get_arena_optimization_status,
             commands::get_sm20_optimization_status,
+            commands::optimize_arena_locally,
             commands::optimize_sm20_locally,
             commands::get_default_engagement_preferences,
             commands::get_smart_start_position,
@@ -2088,8 +2093,6 @@ pub fn run() {
             anki::export_deck_as_apkg,
             anki::export_deck_as_csv,
             anki::export_all_decks_as_apkg,
-            supermemo_import::import_supermemo_package,
-            supermemo_import::validate_supermemo_package,
             // Study JSON import commands
             study_json_import::import_study_json_file,
             study_json_import::validate_study_json_file,

@@ -35,7 +35,7 @@ describe("classifyPaletteInput", () => {
   // 2. Direct Canonical Alias Lookups (Zero-LLM Direct Answers)
   const DIRECT_ALIAS_FIXTURES = [
     { query: "e-ink mode", expectedId: "platform.eink" },
-    { query: "sm18", expectedId: "scheduler.sm18" },
+    { query: "adaptive", expectedId: "scheduler.adaptive" },
     { query: "read aloud", expectedId: "tts.playback" },
     { query: "pdf reflow", expectedId: "reader.pdf.reflow" },
     { query: "sentence mining", expectedId: "language.sentence_mining" },
@@ -66,7 +66,7 @@ describe("classifyPaletteInput", () => {
     "how do I enable continuous scroll in PDF?",
     "how to adjust FSRS retention target?",
     "how can I import my Anki deck?",
-    "what is the 3D SInc matrix in SM-18?",
+    "what is the 3D SInc matrix in the Adaptive scheduler?",
     "what are the composition sliders in queue?",
     "where is the E-ink monochrome toggle?",
     "where can I find my reading goals?",

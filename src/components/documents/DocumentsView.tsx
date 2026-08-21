@@ -3247,7 +3247,11 @@ function CompactDocumentRow({
             <DueDateBadge doc={doc} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
-            <CompactTagEditor target={{ type: "document", id: doc.id, tags: doc.tags }} previewLimit={3} />
+            <CompactTagEditor
+              target={{ type: "document", id: doc.id, tags: doc.tags }}
+              previewLimit={1}
+              className="min-w-0 flex-1"
+            />
             <button
               type="button"
               onClick={(event) => {

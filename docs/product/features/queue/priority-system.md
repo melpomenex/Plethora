@@ -26,7 +26,7 @@ actions:
     shortcut: Alt+Q
 related:
   - queue.extract_chain
-  - scheduler.sm20.postpone
+  - scheduler.postpone
   - queue.reappearance
 ---
 
@@ -42,11 +42,11 @@ Provides a standardized, continuous priority metric that determines item samplin
 
 ## Exact Behavioral Rules
 1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.
-2. In SuperMemo-style queue generation, items with higher priority receive shorter initial intervals and higher selection probability.
-3. During queue overload, the SM-20 Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.
+2. In priority queue generation, items with higher priority receive shorter initial intervals and higher selection probability.
+3. During queue overload, the Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.
 
 ## Rationale
-Adopts Dr. Piotr Wozniak's priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.
+Adopts continuous priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.
 
 ## Settings & Defaults
 | Key | Default | Description |
