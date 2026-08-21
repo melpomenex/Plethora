@@ -197,5 +197,28 @@ export async function persistItemTags(target: ItemTagTarget, nextTags: string[])
     return nextTags;
   }
 
+  if (target.type === "image-asset") {
+    const { getImageAssetById, updateImageAssetMetadata } = await import("../../api/image-registry");
+    const asset = await getImageAssetById(target.id);
+    if (!asset) throw new Error("Image asset not found");
+    const container = extractOrganizationContainer(asset.metadata);
+    const organization = recordBrowserTagAuthority(container.organization, target.tags, nextTags);
+    const metadata = {
+      ...(asset.metadata || {}),
+      tags: nextTags,
+      ...(target.smartTagDetails && target.smartTagDetails.length
+        ? { smartTagDetails: target.smartTagDetails }
+        : {}),
+      ...(organization
+        ? withOrganizationContainer(asset.metadata, {
+            captureContext: container.captureContext,
+            organization,
+          })
+        : {}),
+    };
+    await updateImageAssetMetadata(target.id, metadata);
+    return nextTags;
+  }
+
   throw new Error(`Unsupported tag target type: ${(target as { type: string }).type}`);
 }

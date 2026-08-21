@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BROWSER_CAPTURE_LIMITS,
   browserOrganizationFingerprint,
+  buildImageAssetTarget,
   confidenceBand,
   isNeedsReview,
   normalizeBrowserCaptureContext,
@@ -44,5 +45,46 @@ describe("browser import organization contracts", () => {
       confidenceBand: "low",
       fingerprint: "test",
     })).toBe(true);
+  });
+});
+
+describe("image asset organization targets", () => {
+  it("builds a target from a browser-captured registry asset", () => {
+    const target = buildImageAssetTarget({
+      id: "asset-1",
+      file_name: "heart-diagram.png",
+      mime_type: "image/png",
+      metadata: {
+        browserCaptureContext: {
+          version: 1,
+          sourceUrl: "https://example.com/articles/anatomy",
+          domain: "example.com",
+          pageTitle: "Anatomy diagram",
+          captionAltText: "Figure 1: heart chambers",
+        },
+        captureProvenance: {
+          source: "browser_extension",
+          itemType: "image-registry",
+          sourceUrl: "https://example.com/articles/anatomy",
+          capturedAt: "2026-08-21T00:00:00Z",
+          schemaVersion: 1,
+        },
+        organization: { schemaVersion: 1, status: "queued", confidenceBand: "none", fingerprint: "browser-org-v1-abc" },
+      },
+    });
+    expect(target).not.toBeNull();
+    expect(target?.targetType).toBe("image-asset");
+    expect(target?.itemType).toBe("image");
+    expect(target?.title).toBe("heart-diagram.png");
+    expect(target?.content).toContain("Anatomy diagram");
+    expect(target?.content).toContain("Figure 1: heart chambers");
+    expect(target?.captureContext?.domain).toBe("example.com");
+    expect(target?.organization?.status).toBe("queued");
+    expect(target?.captureProvenance?.source).toBe("browser_extension");
+  });
+
+  it("returns null for assets without browser provenance", () => {
+    expect(buildImageAssetTarget({ id: "asset-2", file_name: "uploaded.png", mime_type: "image/png", metadata: {} })).toBeNull();
+    expect(buildImageAssetTarget({ id: "asset-3", file_name: "x.png", mime_type: "image/png" })).toBeNull();
   });
 });

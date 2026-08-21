@@ -17,8 +17,8 @@ export const BROWSER_CAPTURE_LIMITS = Object.freeze({
   totalBytes: 8 * 1024,
 });
 
-export type BrowserOrganizationTargetType = "document" | "extract" | "learning-item";
-export type BrowserImportItemType = "page" | "extract" | "qa" | "cloze" | "image-occlusion";
+export type BrowserOrganizationTargetType = "document" | "extract" | "learning-item" | "image-asset";
+export type BrowserImportItemType = "page" | "extract" | "qa" | "cloze" | "image-occlusion" | "image";
 export type BrowserOrganizationStatus =
   | "queued"
   | "running"
@@ -175,7 +175,7 @@ export function normalizeBrowserCaptureContext(
   }
 
   const withoutEmpty = Object.fromEntries(Object.entries(context).filter(([, value]) => {
-    if (value === undefined || value === "") return false;
+    if (value === undefined || value === "" || value === false) return false;
     if (Array.isArray(value) && value.length === 0) return false;
     return true;
   })) as BrowserCaptureContext;
@@ -414,5 +414,50 @@ export function buildLearningItemTarget(item: LearningItem, source?: Document, e
     sourceDocumentId: item.documentId || extract?.documentId,
     captureContext,
     organization: container.organization || extractContainer.organization,
+  };
+}
+
+/**
+ * Build a smart-organization target for a registry image asset captured by
+ * the browser extension. The asset's bounded metadata carries the capture
+ * context, provenance, and organization state written by the ingest endpoint.
+ */
+export function buildImageAssetTarget(
+  asset: {
+    id: string;
+    file_name?: string;
+    mime_type: string;
+    metadata?: Record<string, unknown>;
+  },
+): BrowserOrganizationTarget | null {
+  const container = extractOrganizationContainer(asset.metadata);
+  const metadata = asset.metadata || {};
+  const provenance = (metadata.captureProvenance ?? metadata.capture_provenance) as
+    | BrowserCaptureProvenance
+    | undefined;
+  const isBrowserImport =
+    Boolean(container.captureContext) ||
+    provenance?.source === "browser_extension" ||
+    Boolean(container.organization);
+  if (!isBrowserImport) return null;
+  const captureContext = container.captureContext;
+  const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  return {
+    targetType: "image-asset",
+    targetId: asset.id,
+    itemType: "image",
+    title: asset.file_name || captureContext?.pageTitle || "Registry image",
+    author: captureContext?.author,
+    fileType: asset.mime_type,
+    content: [asset.file_name, captureContext?.pageTitle, captureContext?.captionAltText]
+      .filter(Boolean)
+      .join("\n"),
+    headings: captureContext?.headingPath || [],
+    tags,
+    sourceTags: captureContext?.sourceTags || [],
+    sourceDocumentId: captureContext?.sourceDocumentId,
+    captureContext,
+    captureProvenance: provenance,
+    organization: container.organization,
   };
 }

@@ -8,7 +8,7 @@
  */
 
 /** The three persisted item kinds whose tags the app can mutate. */
-export type ItemTagType = "document" | "extract" | "learning-item";
+export type ItemTagType = "document" | "extract" | "learning-item" | "image-asset";
 
 /**
  * A stable identity for a persisted tag-bearing item. `id` is the entity id

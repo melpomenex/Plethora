@@ -6,6 +6,7 @@ import {
   updateLearningItemTags,
   type LearningItem as ApiLearningItem,
 } from "../../api/learning-items";
+import { getImageAssetById, listImageAssets, updateImageAssetMetadata } from "../../api/image-registry";
 import { isTauri } from "../tauri";
 import { runSmartTagging } from "../ai/tasks/definitions/smartTaggingTask";
 import { normalizeForComparison } from "./normalization";
@@ -13,6 +14,7 @@ import {
   BROWSER_CAPTURE_CONTEXT_VERSION,
   buildDocumentTarget,
   buildExtractTarget,
+  buildImageAssetTarget,
   buildLearningItemTarget,
   browserOrganizationFingerprint,
   confidenceBand,
@@ -90,6 +92,10 @@ export async function loadBrowserOrganizationTarget(
     return buildExtractTarget(asDocumentExtract(extract), source || sourceDocument || undefined);
   }
 
+  if (targetType === "image-asset") {
+    return loadImageAssetTarget(targetId);
+  }
+
   const item = await getLearningItem(targetId);
   if (!item) return null;
   const source = item.document_id ? await getDocument(item.document_id) : sourceDocument;
@@ -99,6 +105,11 @@ export async function loadBrowserOrganizationTarget(
     source || undefined,
     itemExtract ? asDocumentExtract(itemExtract) : undefined,
   );
+}
+
+async function loadImageAssetTarget(targetId: string): Promise<BrowserOrganizationTarget | null> {
+  const asset = await getImageAssetById(targetId);
+  return asset ? buildImageAssetTarget(asset) : null;
 }
 
 function libraryTagCandidates(): Array<{ name: string; itemCount: number }> {
@@ -215,6 +226,10 @@ async function persistTarget(
   details: BrowserOrganizationTagRecord[],
   organization: BrowserOrganizationMetadata,
 ): Promise<void> {
+  if (target.targetType === "image-asset") {
+    await persistImageAssetTarget(target, tags, details, organization);
+    return;
+  }
   if (target.targetType === "document") {
     const document = await getDocument(target.targetId);
     if (!document) return;
@@ -262,6 +277,28 @@ async function persistTarget(
     await updateLearningItemTags(item.id, tags, interactionMetadata);
   }
   publishItemTagsUpdated({ itemType: "learning-item", id: item.id, tags });
+}
+
+async function persistImageAssetTarget(
+  target: BrowserOrganizationTarget,
+  tags: string[],
+  details: BrowserOrganizationTagRecord[],
+  organization: BrowserOrganizationMetadata,
+): Promise<void> {
+  const asset = await getImageAssetById(target.targetId);
+  if (!asset) return;
+  const metadata = {
+    ...(asset.metadata || {}),
+    ...withOrganizationContainer(asset.metadata, {
+      captureContext: target.captureContext,
+      organization,
+    }),
+    ...(target.captureProvenance ? { captureProvenance: target.captureProvenance } : {}),
+    tags,
+    ...(details.length ? { smartTagDetails: details } : {}),
+  };
+  await updateImageAssetMetadata(target.targetId, metadata);
+  publishItemTagsUpdated({ itemType: "image-asset", id: target.targetId, tags });
 }
 
 export async function organizeBrowserTarget(target: BrowserOrganizationTarget): Promise<void> {
@@ -315,16 +352,18 @@ export async function organizeBrowserTarget(target: BrowserOrganizationTarget): 
 }
 
 export async function listBrowserOrganizationTargets(): Promise<BrowserOrganizationTarget[]> {
-  const [documentsRaw, extractsRaw, itemsRaw] = await Promise.all([
+  const [documentsRaw, extractsRaw, itemsRaw, assetsRaw] = await Promise.all([
     getDocuments(),
     getExtracts(),
     import("../../api/learning-items").then(({ getAllLearningItems }) => getAllLearningItems()),
+    listImageAssets(),
   ]);
   // Some web/test adapters have no learning-item list yet. Treat an absent or
   // malformed collection as empty so startup reconciliation stays best-effort.
   const documents = Array.isArray(documentsRaw) ? documentsRaw : [];
   const extracts = Array.isArray(extractsRaw) ? extractsRaw : [];
   const items = Array.isArray(itemsRaw) ? itemsRaw : [];
+  const assets = Array.isArray(assetsRaw) ? assetsRaw : [];
   const sourceById = new Map(documents.map((document) => [document.id, document]));
   const targets: BrowserOrganizationTarget[] = [];
   for (const document of documents) {
@@ -344,6 +383,10 @@ export async function listBrowserOrganizationTargets(): Promise<BrowserOrganizat
       source,
       extract ? asDocumentExtract(extract) : undefined,
     );
+    if (target) targets.push(target);
+  }
+  for (const asset of assets) {
+    const target = buildImageAssetTarget(asset);
     if (target) targets.push(target);
   }
   return targets;
