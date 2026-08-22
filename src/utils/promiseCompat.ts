@@ -13,7 +13,7 @@ export function installPromiseCompat(target: typeof globalThis = globalThis): vo
   const promiseCtor = target.Promise as PromiseCompatConstructor;
 
   if (typeof promiseCtor.try !== "function") {
-    promiseCtor.try = function <T>(fn: (...args: unknown[]) => T | PromiseLike<T>, ...args: unknown[]) {
+    const promiseTry = function <T>(fn: (...args: unknown[]) => T | PromiseLike<T>, ...args: unknown[]) {
       return new Promise<T>((resolve, reject) => {
         try {
           resolve(fn(...args));
@@ -22,10 +22,11 @@ export function installPromiseCompat(target: typeof globalThis = globalThis): vo
         }
       });
     };
+    try { Object.defineProperty(promiseCtor, "try", { configurable: true, value: promiseTry }); } catch { /* readonly WebKit */ }
   }
 
   if (typeof promiseCtor.withResolvers !== "function") {
-    promiseCtor.withResolvers = function <T>(): PromiseWithResolversShape<T> {
+    const withResolvers = function <T>(): PromiseWithResolversShape<T> {
       let resolve!: (value: T | PromiseLike<T>) => void;
       let reject!: (reason?: unknown) => void;
       const promise = new Promise<T>((res, rej) => {
@@ -34,5 +35,6 @@ export function installPromiseCompat(target: typeof globalThis = globalThis): vo
       });
       return { promise, resolve, reject };
     };
+    try { Object.defineProperty(promiseCtor, "withResolvers", { configurable: true, value: withResolvers }); } catch { /* readonly WebKit */ }
   }
 }

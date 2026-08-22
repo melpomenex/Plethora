@@ -32,12 +32,25 @@ if (typeof window !== 'undefined') {
   // Polyfill crypto.randomUUID for non-secure contexts (HTTP / Tailscale).
   // crypto.randomUUID() is only available in secure contexts (HTTPS or localhost).
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
-    crypto.randomUUID = function () {
+    const randomUUID = function () {
       const s = '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c: string) =>
         ((Number(c) ^ (Math.random() * 256)) & 15 >> (Number(c) >> 4)).toString(16)
       );
       return s as `${string}-${string}-${string}-${string}-${string}`;
     };
+
+    // WebKit can expose Crypto.randomUUID as a readonly native property even
+    // when it is absent. A plain assignment then throws during module
+    // evaluation, before ReactDOM.createRoot() is reached.
+    try {
+      Object.defineProperty(crypto, 'randomUUID', {
+        configurable: true,
+        value: randomUUID,
+      });
+    } catch {
+      // The native property may be non-configurable. In that case leave it
+      // alone; callers must feature-detect it rather than breaking startup.
+    }
   }
 
   // Defensive patch for Tauri v2 event plugin bug (fallback — primary fix is in lib.rs init script):
@@ -95,7 +108,7 @@ if (typeof window !== 'undefined') {
 }
 
 import React, { lazy, Suspense } from "react";
-import ReactDOM from "react-dom/client";
+import ReactDOM, { type Root } from "react-dom/client";
 import { loadSelectedFonts } from "./utils/fonts";
 import "./index.css";
 import "./styles/mobile.css";
@@ -103,58 +116,24 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
-import { isNativeMobile, isTauri } from "./lib/tauri";
+import { isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
-import { startReminderScheduler } from "./lib/feedback/reminderScheduler";
-import { startTranscriptionConfigMirror } from "./lib/transcriptionConfigMirror";
 
-import { MainLayout } from "./components/layout/MainLayout";
-import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
-import { Toast } from "./components/common/Toast";
-import { OnDeviceRunIndicator } from "./components/common/OnDeviceRunIndicator";
-import { Modal } from "./components/common/Modal";
-import { KindleImportDialogHost } from "./components/import/KindleImportDialogHost";
-import { StartupExperience } from "./components/startup/StartupExperience";
+const MainLayout = lazy(() => import("./components/layout/MainLayout").then(({ MainLayout: layout }) => ({ default: layout })));
+const DevPerformanceMonitor = lazy(() => import("./components/common/PerformanceMonitor").then(({ DevPerformanceMonitor: monitor }) => ({ default: monitor })));
+const Toast = lazy(() => import("./components/common/Toast").then(({ Toast: toast }) => ({ default: toast })));
+const OnDeviceRunIndicator = lazy(() => import("./components/common/OnDeviceRunIndicator").then(({ OnDeviceRunIndicator: indicator }) => ({ default: indicator })));
+const Modal = lazy(() => import("./components/common/Modal").then(({ Modal: modal }) => ({ default: modal })));
+const KindleImportDialogHost = lazy(() => import("./components/import/KindleImportDialogHost").then(({ KindleImportDialogHost: host }) => ({ default: host })));
+const StartupExperience = lazy(() => import("./components/startup/StartupExperience").then(({ StartupExperience: experience }) => ({ default: experience })));
 const CompanionHost = lazy(() => import("./components/companion/CompanionHost"));
-import { Analytics } from "@vercel/analytics/react";
+const Analytics = lazy(() => import("@vercel/analytics/react").then(({ Analytics: analytics }) => ({ default: analytics })));
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
 import { LanguageProfileProvider } from "./contexts/LanguageProfileContext";
-import {
-  usePaywallStore,
-  useSyncStore,
-  useBillingStore,
-  useEntitlementStore,
-  useAccountStore,
-  useInboxStore,
-  useLearningPathsStore,
-  useKnowledgeHealthStore,
-  useApiTokensStore,
-  useCardOptimizerStore,
-  useKnowledgeGapsStore,
-} from "./stores";
-
-if (typeof window !== "undefined") {
-  (window as unknown as { plethora: unknown }).plethora = {
-    stores: {
-      paywall: usePaywallStore,
-      sync: useSyncStore,
-      billing: useBillingStore,
-      entitlements: useEntitlementStore,
-      account: useAccountStore,
-      inbox: useInboxStore,
-      learningPaths: useLearningPathsStore,
-      knowledgeHealth: useKnowledgeHealthStore,
-      apiTokens: useApiTokensStore,
-      cardOptimizer: useCardOptimizerStore,
-      knowledgeGaps: useKnowledgeGapsStore,
-    },
-  };
-}
-
-import AuthCallback from "./routes/auth-callback";
-import ScreenshotOverlay from "./routes/screenshot-overlay";
+const AuthCallback = lazy(() => import("./routes/auth-callback").then(({ default: route }) => ({ default: route })));
+const ScreenshotOverlay = lazy(() => import("./routes/screenshot-overlay").then(({ default: route }) => ({ default: route })));
 
 
 function PageLoader() {
@@ -274,10 +253,6 @@ void installConsoleLogcatBridge();
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
 
-// Background Rust transcription flows cannot read WebView localStorage. Keep a
-// secret-free mirror of the selected provider/model/language in app_settings.
-startTranscriptionConfigMirror();
-
 // Dynamically load only the user's selected font from bundled @fontsource packages.
 // Inter is imported statically as the critical default (see utils/fonts.ts).
 try {
@@ -309,6 +284,43 @@ function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {
   });
 }
 
+// Mount React before optional startup integrations. These integrations are
+// deliberately best-effort, but a synchronous Tauri/WebKit failure in one of
+// them must never leave the static HTML boot frame on screen forever.
+const rootEl = document.getElementById("root") as HTMLElement;
+const bootstrapRoot = (window as Window & { __plethoraReactRoot?: Root }).__plethoraReactRoot;
+const reactRoot = bootstrapRoot ?? ReactDOM.createRoot(rootEl);
+if (!bootstrapRoot) {
+  reactRoot.render(<PageLoader />);
+  rootEl.setAttribute("data-plethora-mounted", "true");
+}
+
+// Expose the legacy debugging store registry without making every store part
+// of the pre-mount module graph. Nothing in the first screen needs this
+// registry; populate it after the first paint and keep the public shape intact.
+if (typeof window !== "undefined") {
+  (window as unknown as { plethora: { stores: Record<string, unknown> } }).plethora = { stores: {} };
+  runAfterFirstPaint(() => {
+    import("./stores")
+      .then((stores) => {
+        (window as unknown as { plethora: { stores: Record<string, unknown> } }).plethora.stores = {
+          paywall: stores.usePaywallStore,
+          sync: stores.useSyncStore,
+          billing: stores.useBillingStore,
+          entitlements: stores.useEntitlementStore,
+          account: stores.useAccountStore,
+          inbox: stores.useInboxStore,
+          learningPaths: stores.useLearningPathsStore,
+          knowledgeHealth: stores.useKnowledgeHealthStore,
+          apiTokens: stores.useApiTokensStore,
+          cardOptimizer: stores.useCardOptimizerStore,
+          knowledgeGaps: stores.useKnowledgeGapsStore,
+        };
+      })
+      .catch((error) => console.error("[main.tsx] Failed to populate store registry:", error));
+  });
+}
+
 // The browser-extension server runs in Rust, while the current AI settings UI
 // is backed by the persisted LLM provider registry in the WebView. Bridge the
 // selected provider after hydration on every native startup so HTTP AI routes
@@ -328,7 +340,18 @@ if (isTauri()) {
 // Keep the in-app reminder alive on every surface. The scheduler is deliberately
 // deferred until after the first paint so local boot remains responsive.
 runAfterFirstPaint(() => {
-  startReminderScheduler();
+  import("./lib/feedback/reminderScheduler")
+    .then(({ startReminderScheduler }) => startReminderScheduler())
+    .catch((error) => console.error("[feedback] scheduler failed to load:", error));
+});
+
+// Background Rust transcription flows cannot read WebView localStorage. Keep a
+// secret-free mirror of the selected provider/model/language in app_settings,
+// but do not let this optional bridge delay the first interactive render.
+runAfterFirstPaint(() => {
+  import("./lib/transcriptionConfigMirror")
+    .then(({ startTranscriptionConfigMirror }) => startTranscriptionConfigMirror())
+    .catch((error) => console.error("[transcription] config mirror failed to load:", error));
 });
 
 // Billing provider selection at startup (openspec change
@@ -336,9 +359,9 @@ runAfterFirstPaint(() => {
 // (native StoreKit 2); other platforms → dev-only mock. Also performs relaunch
 // reconciliation of any pending transaction JWS payloads.
 runAfterFirstPaint(() => {
-  void useBillingStore.getState().init().catch((error) => {
-    console.error('[billing] startup init failed:', error);
-  });
+  import("./stores/billingStore")
+    .then(({ useBillingStore }) => useBillingStore.getState().init())
+    .catch((error) => console.error('[billing] startup init failed:', error));
 });
 
 // One-time removal of real-time-sync residue (y-indexeddb databases, stale
@@ -448,8 +471,6 @@ if (isTauri()) {
     });
 }
 
-const rootEl = document.getElementById("root") as HTMLElement;
-const reactRoot = ReactDOM.createRoot(rootEl);
 reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -467,18 +488,20 @@ reactRoot.render(
                 <Route path="*" element={<MainLayout />} />
               </Routes>
             </Suspense>
-            <DevPerformanceMonitor />
-            <Toast />
-            {/* Optional ambient mascot companion — lazily loaded, renders
-                nothing unless the user enables it (Settings → Appearance). */}
-            <CompanionHost />
-            {/* Chunk progress + cancel for long on-device AI runs (Android). */}
-            <OnDeviceRunIndicator />
-            <Modal />
-            {/* Global Kindle clippings dialog — opened from any import entry
-                point (drag & drop, file picker, folder import, paste) via
-                openKindleImportDialog(path). See kindleImportDialogStore. */}
-            <KindleImportDialogHost />
+            <Suspense fallback={null}>
+              <DevPerformanceMonitor />
+              <Toast />
+              {/* Optional ambient mascot companion — lazily loaded, renders
+                  nothing unless the user enables it (Settings → Appearance). */}
+              <CompanionHost />
+              {/* Chunk progress + cancel for long on-device AI runs (Android). */}
+              <OnDeviceRunIndicator />
+              <Modal />
+              {/* Global Kindle clippings dialog — opened from any import entry
+                  point (drag & drop, file picker, folder import, paste) via
+                  openKindleImportDialog(path). See kindleImportDialogStore. */}
+              <KindleImportDialogHost />
+            </Suspense>
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
             {!isTauri() && <Analytics />}
             {/* Knowledge Peck branded startup overlay (openspec change
@@ -487,9 +510,11 @@ reactRoot.render(
                 last child so it covers boot above the app (z 9000). Arms
                 only on a genuine main-window launch; see
                 src/lib/startupAnimation/store.ts. */}
-            <StartupExperienceBoundary>
-              <StartupExperience />
-            </StartupExperienceBoundary>
+            <Suspense fallback={null}>
+              <StartupExperienceBoundary>
+                <StartupExperience />
+              </StartupExperienceBoundary>
+            </Suspense>
           </HashRouter>
           </BatteryProvider>
         </ThemeProvider>
@@ -498,9 +523,3 @@ reactRoot.render(
     </QueryClientProvider>
   </ErrorBoundary>
 );
-
-// Mark as mounted so the early error handler doesn't replace the UI for
-// runtime errors (it should only do that for bootstrap failures).
-requestAnimationFrame(() => {
-  rootEl?.setAttribute("data-plethora-mounted", "true");
-});

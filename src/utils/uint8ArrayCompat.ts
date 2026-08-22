@@ -17,7 +17,7 @@ export function installUint8ArrayCompat(target: typeof globalThis = globalThis):
   };
 
   if (ctor && typeof ctor.prototype.toHex !== "function") {
-    ctor.prototype.toHex = function toHex(this: Uint8Array): string {
+    const toHex = function toHex(this: Uint8Array): string {
       const len = this.length;
       const hex = new Array<string>(len);
       for (let i = 0; i < len; i++) {
@@ -25,12 +25,13 @@ export function installUint8ArrayCompat(target: typeof globalThis = globalThis):
       }
       return hex.join("");
     };
+    try { Object.defineProperty(ctor.prototype, "toHex", { configurable: true, value: toHex }); } catch { /* readonly WebKit */ }
   }
 
   // Polyfill Map.prototype.getOrInsertComputed for PDF.js v5 in Webview/Tauri
   const mapProto = (target.Map ? target.Map.prototype : null) as any;
   if (mapProto && typeof mapProto.getOrInsertComputed !== "function") {
-    mapProto.getOrInsertComputed = function getOrInsertComputed(
+    const getOrInsertComputed = function getOrInsertComputed(
       this: Map<any, any>,
       key: any,
       callback: (k: any, m: Map<any, any>) => any
@@ -42,6 +43,6 @@ export function installUint8ArrayCompat(target: typeof globalThis = globalThis):
       this.set(key, value);
       return value;
     };
+    try { Object.defineProperty(mapProto, "getOrInsertComputed", { configurable: true, value: getOrInsertComputed }); } catch { /* readonly WebKit */ }
   }
 }
-

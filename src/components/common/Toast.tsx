@@ -5,13 +5,6 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { create } from "zustand";
-import {
-  Check,
-  Info,
-  Warning,
-  WarningCircle,
-  X,
-} from "@phosphor-icons/react";
 import { playFeedback, vibrate } from "../../utils/soundService";
 
 /**
@@ -115,10 +108,10 @@ export const useToastStore = create<ToastStore>((set, _get) => ({
  * Toast icons
  */
 const ToastIcons = {
-  [ToastType.Success]: Check,
-  [ToastType.Error]: WarningCircle,
-  [ToastType.Warning]: Warning,
-  [ToastType.Info]: Info,
+  [ToastType.Success]: "✓",
+  [ToastType.Error]: "!",
+  [ToastType.Warning]: "⚠",
+  [ToastType.Info]: "i",
 };
 
 const ToastStyles = {
@@ -150,7 +143,7 @@ const ToastStyles = {
 function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: string) => void }) {
   const [isExiting, setIsExiting] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const Icon = ToastIcons[toast.type];
+  const icon = ToastIcons[toast.type];
   const styles = ToastStyles[toast.type];
 
   const handleRemove = useCallback(() => {
@@ -183,7 +176,9 @@ function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: strin
       />
 
       <div className="flex items-start gap-3">
-        <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${styles.icon}`} aria-hidden="true" />
+        <span className={`w-5 h-5 flex-shrink-0 mt-0.5 inline-flex items-center justify-center font-semibold ${styles.icon}`} aria-hidden="true">
+          {icon}
+        </span>
         <div className="flex-1 min-w-0 pr-6">
           <p className="text-sm font-medium text-foreground">{toast.title}</p>
           {toast.message && (
@@ -206,7 +201,7 @@ function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: strin
           className="absolute top-2 right-2 p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-md opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 transition-all focus-visible:ring-2 focus-visible:ring-current focus-visible:outline-none"
           aria-label="Dismiss notification"
         >
-          <X className="w-4 h-4" />
+          <span className="text-base leading-none" aria-hidden="true">×</span>
         </button>
       </div>
     </div>

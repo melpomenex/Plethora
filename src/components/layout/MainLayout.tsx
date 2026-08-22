@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTabsStore, normalizePane, useDocumentStore, useSettingsStore, useUIStore, type TabType } from "../../stores";
 import { useStartupStore } from "../../stores/startupStore";
 import { useStartupExperienceStore } from "../../lib/startupAnimation/store";
@@ -8,34 +8,35 @@ import { useI18n } from "../../lib/i18n";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
-import { Toolbar } from "../Toolbar";
+const Toolbar = lazy(() => import("../Toolbar").then(({ Toolbar: toolbar }) => ({ default: toolbar })));
 import { Tabs } from "../common/Tabs";
 import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, prefetchCommonTabs, resolveNearestAvailableTabType } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
-import { CommandCenter } from "../search/CommandCenter";
+const CommandCenter = lazy(() => import("../search/CommandCenter").then(({ CommandCenter: center }) => ({ default: center })));
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
 import { ToastType, useToast } from "../common/Toast";
 import { MobileLayoutWrapper } from "../mobile/MobileLayoutWrapper";
 import { useMobileShell } from "../../hooks/useMobileShell";
-import { ThemeBackdrop } from "../common/ThemeBackdrop";
-import { KeyboardShortcutsHelp } from "../common/KeyboardShortcutsHelp";
-import { ImageSaveOverlay } from "../viewer/ImageSaveOverlay";
-import { OcclusionComposerHost } from "../occlusion/OcclusionComposerHost";
-import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+const ThemeBackdrop = lazy(() => import("../common/ThemeBackdrop").then(({ ThemeBackdrop: backdrop }) => ({ default: backdrop })));
+const KeyboardShortcutsHelp = lazy(() => import("../common/KeyboardShortcutsHelp").then(({ KeyboardShortcutsHelp: help }) => ({ default: help })));
+const ImageSaveOverlay = lazy(() => import("../viewer/ImageSaveOverlay").then(({ ImageSaveOverlay: overlay }) => ({ default: overlay })));
+const OcclusionComposerHost = lazy(() => import("../occlusion/OcclusionComposerHost").then(({ OcclusionComposerHost: host }) => ({ default: host })));
+const WorkspaceSwitcher = lazy(() => import("./WorkspaceSwitcher").then(({ WorkspaceSwitcher: switcher }) => ({ default: switcher })));
 import { isTauri, invokeCommand, listen, whenBackendReady } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
 import { useModal } from "../common/Modal";
 import { checkForUpdates, setSkippedVersion } from "../../utils/updateChecker";
 import { emitFeedback } from "../../lib/feedback";
-import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
-import { TwitterImportDialog } from "../documents/TwitterImportDialog";
+const PasteExtractDialog = lazy(() => import("../extracts/PasteExtractDialog").then(({ PasteExtractDialog: dialog }) => ({ default: dialog })));
+const TwitterImportDialog = lazy(() => import("../documents/TwitterImportDialog").then(({ TwitterImportDialog: dialog }) => ({ default: dialog })));
 import { Desktop, ListChecks, SquaresFour, BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { syncActivePaneTabId } from "./activePaneSync";
 import { TOUR_ANCHORS, tourAnchor } from "../onboarding/tour/anchors";
-import { TourHost, type TourControl, type TourNavigationAdapter } from "../onboarding/tour/TourHost";
+const TourHost = lazy(() => import("../onboarding/tour/TourHost").then(({ TourHost: host }) => ({ default: host })));
+import type { TourControl, TourNavigationAdapter } from "../onboarding/tour/TourHost";
 import { useOnboardingAutoOpen } from "../onboarding/tour/useOnboardingAutoOpen";
 import { useShareTarget } from "../../hooks/useShareTarget";
-import { PaywallModal } from "../monetization/PaywallModal";
+const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
@@ -1330,13 +1331,17 @@ export function MainLayout() {
     if (toolbarPosition === "left") {
       return (
         <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
-          <ThemeBackdrop />
+          <Suspense fallback={null}>
+            <ThemeBackdrop />
+          </Suspense>
 
           <div className="relative z-10 flex w-full overflow-hidden">
             {/* Toolbar - Left side - Hidden on mobile */}
             {!isMobile && (
               <div className="flex-shrink-0 hidden md:block h-full">
-                <Toolbar position="left" />
+                <Suspense fallback={null}>
+                  <Toolbar position="left" />
+                </Suspense>
               </div>
             )}
 
@@ -1346,7 +1351,9 @@ export function MainLayout() {
             </div>
 
             {/* Global Command Center */}
-            <CommandCenter />
+            <Suspense fallback={null}>
+              <CommandCenter />
+            </Suspense>
           </div>
         </div>
       );
@@ -1356,7 +1363,9 @@ export function MainLayout() {
     if (toolbarPosition === "right") {
       return (
         <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
-          <ThemeBackdrop />
+          <Suspense fallback={null}>
+            <ThemeBackdrop />
+          </Suspense>
 
           <div className="relative z-10 flex w-full overflow-hidden">
             {/* Tabbed Interface - takes remaining space */}
@@ -1367,12 +1376,16 @@ export function MainLayout() {
             {/* Toolbar - Right side - Hidden on mobile */}
             {!isMobile && (
               <div className="flex-shrink-0 hidden md:block h-full">
-                <Toolbar position="right" />
+                <Suspense fallback={null}>
+                  <Toolbar position="right" />
+                </Suspense>
               </div>
             )}
 
             {/* Global Command Center */}
-            <CommandCenter />
+            <Suspense fallback={null}>
+              <CommandCenter />
+            </Suspense>
           </div>
         </div>
       );
@@ -1381,13 +1394,17 @@ export function MainLayout() {
     // Default: Toolbar on top
     return (
       <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex flex-col w-full overflow-hidden bg-background">
-        <ThemeBackdrop />
+        <Suspense fallback={null}>
+          <ThemeBackdrop />
+        </Suspense>
 
         <div className="relative z-10 flex flex-1 min-h-0 flex-col">
           {/* Toolbar - Fixed at top - Hidden on mobile */}
           {!isMobile && (
             <div className="flex-shrink-0 hidden md:block">
-              <Toolbar position="top" />
+              <Suspense fallback={null}>
+                <Toolbar position="top" />
+              </Suspense>
             </div>
           )}
 
@@ -1397,7 +1414,9 @@ export function MainLayout() {
           </div>
 
           {/* Global Command Center */}
-          <CommandCenter />
+          <Suspense fallback={null}>
+            <CommandCenter />
+          </Suspense>
         </div>
       </div>
     );
@@ -1411,23 +1430,25 @@ export function MainLayout() {
         actions={vimiumActions}
       >
         {renderLayout()}
-        <KeyboardShortcutsHelp
-          isOpen={isShortcutsHelpOpen}
-          onClose={() => setIsShortcutsHelpOpen(false)}
-        />
-        <PasteExtractDialog
-          isOpen={useUIStore((s) => s.pasteExtractDialogOpen)}
-          onClose={() => useUIStore.getState().setPasteExtractDialogOpen(false)}
-        />
-        <TwitterImportDialog
-          isOpen={useUIStore((s) => s.twitterImportDialogOpen)}
-          onClose={() => useUIStore.getState().setTwitterImportDialogOpen(false)}
-        />
-        <ImageSaveOverlay />
-        <OcclusionComposerHost />
-        <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
-        <PaywallModal />
-        <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
+        <Suspense fallback={null}>
+          <KeyboardShortcutsHelp
+            isOpen={isShortcutsHelpOpen}
+            onClose={() => setIsShortcutsHelpOpen(false)}
+          />
+          <PasteExtractDialog
+            isOpen={useUIStore((s) => s.pasteExtractDialogOpen)}
+            onClose={() => useUIStore.getState().setPasteExtractDialogOpen(false)}
+          />
+          <TwitterImportDialog
+            isOpen={useUIStore((s) => s.twitterImportDialogOpen)}
+            onClose={() => useUIStore.getState().setTwitterImportDialogOpen(false)}
+          />
+          <ImageSaveOverlay />
+          <OcclusionComposerHost />
+          <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
+          <PaywallModal />
+          <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
+        </Suspense>
       </VimiumNavigationProvider>
     </MobileLayoutWrapper>
   );
