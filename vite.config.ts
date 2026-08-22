@@ -8,7 +8,10 @@ import { parseBuildProfile } from "./src/lib/buildProfile";
 
 // @ts-expect-error process is a nodejs global
 const rawHost = process.env.TAURI_DEV_HOST;
-const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "0.0.0.0");
+// Simulator/desktop development can use loopback. Tauri supplies a public
+// address through TAURI_DEV_HOST for physical-device development, where the
+// dev server must be reachable from the device.
+const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "127.0.0.1");
 
 // Build profile (Change A §3.2): development | sideload | store. Consumed
 // read-only by src/lib/buildProfile.ts (Proposals B and D import from there).
@@ -134,7 +137,10 @@ export default defineConfig(async ({ mode }) => {
       sourcemap: false,
       // For PWA, we can use normal code splitting
       // For Tauri, inline everything to avoid CORS issues with dynamic imports
-      modulePreload: true,
+      // The iOS Tauri custom protocol does not reliably settle Vite's
+      // dependency-preload promise for a large dynamic entry. Let native
+      // module imports load their own dependencies after bootstrap instead.
+      modulePreload: isPWA,
       cssCodeSplit: true,
       rollupOptions: {
         // Externalize Tauri-specific modules that are only available in Tauri builds
@@ -209,17 +215,59 @@ export default defineConfig(async ({ mode }) => {
     },
     optimizeDeps: {
       force: false,
+      // The repository contains standalone browser-extension and WASM demo
+      // HTML files with stale /node_modules/.vite imports. They are not part
+      // of the Tauri app and can abort dependency optimization before the
+      // bootstrap module is served.
+      entries: ["index.html"],
       include: [
+        "@dqbd/tiktoken",
+        "@mozilla/readability",
+        "@phosphor-icons/react",
+        "@tanstack/react-query",
+        "@tanstack/react-virtual",
+        "@tauri-apps/api/app",
+        "@tauri-apps/api/core",
+        "@tauri-apps/api/event",
+        "@tauri-apps/api/path",
+        "@tauri-apps/api/webviewWindow",
+        "@tauri-apps/api/window",
+        "@tauri-apps/plugin-deep-link",
+        "@tauri-apps/plugin-dialog",
+        "@tauri-apps/plugin-fs",
+        "@tauri-apps/plugin-log",
+        "@tauri-apps/plugin-opener",
+        "@tauri-apps/plugin-os",
+        "@tauri-apps/plugin-process",
+        "@tauri-apps/plugin-updater",
+        "@vercel/analytics/react",
+        "class-variance-authority",
+        "clsx",
+        "defuddle",
+        "dompurify",
+        "epubjs",
+        "idb",
         "jszip",
+        "katex",
+        "pdfjs-dist",
+        "pdfjs-dist/build/pdf.worker.min.mjs",
+        "pdfjs-dist/web/pdf_viewer.mjs",
         "react",
         "react-dom",
-        "dompurify",
-        "zustand",
+        "react-dom/client",
         "react-markdown",
-        "katex",
+        "react-router-dom",
+        "react-youtube",
         "recharts",
-        "yjs",
         "sql.js",
+        "tailwind-merge",
+        "tesseract.js",
+        "three",
+        "ts-fsrs",
+        "uuid",
+        "zustand",
+        "zustand/middleware",
+        "zustand/react/shallow",
       ],
       esbuildOptions: {
         sourcemap: false,

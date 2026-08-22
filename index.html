@@ -212,6 +212,21 @@
         console.log("Error handler installed");
       })();
     </script>
-    <script type="module" src="src/main.tsx"></script>
+    <script type="module" src="src/main-bootstrap.ts"></script>
+    <script>
+      // Diagnostic only: if the module graph never starts, make that fact
+      // visible instead of leaving the static frame indistinguishable from a
+      // mounted startup overlay.
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (root && root.getAttribute("data-plethora-mounted") !== "true") {
+          var display = document.getElementById("error-display");
+          if (display) {
+            display.textContent = "Startup timeout: main module did not mount React within 5 seconds.";
+            display.style.display = "block";
+          }
+        }
+      }, 5000);
+    </script>
   </body>
 </html>
