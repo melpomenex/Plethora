@@ -21,7 +21,7 @@
 //! same approach `plethora-folder-import` uses.
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 use tauri::plugin::PluginHandle;
 use tauri::{
     plugin::{PluginApi, TauriPlugin},
@@ -73,7 +73,7 @@ fn not_android() -> Error {
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct AndroidTts {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "android")]
     handle: PluginHandle<Wry>,
 }
 

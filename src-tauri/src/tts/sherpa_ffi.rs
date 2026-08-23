@@ -16,7 +16,7 @@
 
 use libloading::{Library, Symbol};
 use std::ffi::{c_char, c_float, c_void, CStr, CString};
-use std::os::raw::c_int32_t;
+use std::os::raw::c_int as c_int32_t;
 use std::path::{Path, PathBuf};
 
 /// The sherpa-onnx major.minor series the FFI structs are pinned to. The
