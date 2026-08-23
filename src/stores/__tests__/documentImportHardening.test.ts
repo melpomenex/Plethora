@@ -50,6 +50,9 @@ function createMockDoc(id: string, title: string): Document {
     learningItemCount: 0,
     priorityRating: 0,
     prioritySlider: 0,
+    priorityScore: 0,
+    isArchived: false,
+    isFavorite: false,
   };
 }
 

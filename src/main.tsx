@@ -483,46 +483,10 @@ if (isTauri()) {
     });
 }
 
-// TEMPORARY diagnostic overlay (iOS sim layout bug investigation) — remove before commit.
-function ViewportDebugOverlay() {
-  const [info, setInfo] = useState(() => viewportDebugInfo());
-  useEffect(() => {
-    const update = () => setInfo(viewportDebugInfo());
-    window.addEventListener("resize", update);
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", update);
-    const t = window.setInterval(update, 1000);
-    return () => {
-      window.removeEventListener("resize", update);
-      vv?.removeEventListener("resize", update);
-      window.clearInterval(t);
-    };
-  }, []);
-  return (
-    <div style={{ position: "fixed", left: 4, top: 40, zIndex: 99999, background: "rgba(0,0,0,0.8)", color: "#0f0", font: "10px/1.35 monospace", padding: "4px 6px", borderRadius: 6, maxWidth: 300, whiteSpace: "pre-wrap", pointerEvents: "none" }}>
-      {info}
-    </div>
-  );
-}
-
-function viewportDebugInfo(): string {
-  const w = window as unknown as Record<string, unknown>;
-  const osInternals = w.__TAURI_OS_PLUGIN_INTERNALS__ as { platform?: string } | undefined;
-  return [
-    `iw=${window.innerWidth} ih=${window.innerHeight}`,
-    `sw=${window.screen.width} sh=${window.screen.height} dpr=${window.devicePixelRatio}`,
-    `vvw=${window.visualViewport?.width ?? "-"} scale=${window.visualViewport?.scale ?? "-"}`,
-    `docW=${document.documentElement.scrollWidth}`,
-    `tauri=${w.__TAURI_INTERNALS__ !== undefined} os=${osInternals?.platform ?? "-"}`,
-    `ua=${navigator.userAgent.slice(0, 90)}`,
-  ].join("\n");
-}
-
 reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <PresentationProvider>
-        <ViewportDebugOverlay />
         <LanguageProfileProvider>
         <ThemeProvider>
           <BatteryProvider>
