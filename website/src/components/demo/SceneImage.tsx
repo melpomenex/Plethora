@@ -46,6 +46,7 @@ export function SceneImage({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
     decodedScenes.has(cacheKey) ? 'ready' : 'loading',
   );
+  const [inLoadRange, setInLoadRange] = useState(loading === 'eager');
   const imageRef = useRef<HTMLImageElement>(null);
   const failureReportedRef = useRef(false);
 
@@ -59,14 +60,40 @@ export function SceneImage({
   useEffect(() => {
     failureReportedRef.current = false;
     setAttempt(0);
+    setInLoadRange(loading === 'eager');
     setStatus(decodedScenes.has(cacheKey) ? 'ready' : 'loading');
-  }, [cacheKey]);
+  }, [cacheKey, loading]);
 
   useEffect(() => {
-    if (status !== 'loading') return;
+    if (loading === 'eager') {
+      setInLoadRange(true);
+      return;
+    }
+
+    const image = imageRef.current;
+    if (!image) return;
+    if (!('IntersectionObserver' in window)) {
+      setInLoadRange(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setInLoadRange(true);
+        observer.disconnect();
+      },
+      { rootMargin: '800px 0px' },
+    );
+    observer.observe(image);
+    return () => observer.disconnect();
+  }, [attempt, cacheKey, loading]);
+
+  useEffect(() => {
+    if (status !== 'loading' || !inLoadRange) return;
     const timeout = window.setTimeout(failAsset, 3_500);
     return () => window.clearTimeout(timeout);
-  }, [attempt, cacheKey, failAsset, status]);
+  }, [attempt, cacheKey, failAsset, inLoadRange, status]);
 
   useEffect(() => {
     const image = imageRef.current;

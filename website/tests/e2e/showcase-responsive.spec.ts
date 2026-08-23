@@ -27,6 +27,20 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+test('lazy homepage scenes wait for the viewport before starting their failure timer', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#demo');
+  await page.locator('#demo').scrollIntoViewIfNeeded();
+  await waitForScene(page);
+
+  const finalScene = page.locator('[data-scene-image="connections.context"]:visible');
+  await page.waitForTimeout(4_000);
+  await expect(finalScene).toHaveAttribute('data-image-state', 'loading');
+
+  await finalScene.scrollIntoViewIfNeeded();
+  await expect(finalScene).toHaveAttribute('data-image-state', 'ready');
+});
+
 test('takeover, guided, and Explore states remain visually stable', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/demo?scene=review.question&layout=desktop');
