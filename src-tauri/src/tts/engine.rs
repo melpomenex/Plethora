@@ -15,9 +15,10 @@
 //! previous one by cancelling its flag first.
 
 use crate::models::hf::adapters::{RunContract, SherpaTtsFamily};
-use sherpa_ffi::{build_supertonic_config, SherpaCApi, SherpaOnnxGenerationConfig, EMPTY_C};
+use super::sherpa_ffi;
+use super::sherpa_ffi::{build_supertonic_config, SherpaCApi, SherpaOnnxGenerationConfig, EMPTY_C};
 use std::ffi::{c_char, c_float, c_void, CString};
-use std::os::raw::c_int32_t;
+use std::os::raw::c_int as c_int32_t;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -31,7 +32,8 @@ pub struct SynthesisOutput {
 }
 
 /// Info about the currently loaded model.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoadedModelInfo {
     pub model_id: String,
     pub family: SherpaTtsFamily,
@@ -161,9 +163,13 @@ impl SherpaTtsEngine {
                 reply: reply_tx,
             })
             .map_err(|_| "sherpa TTS worker terminated".to_string())?;
-        tokio::task::spawn_blocking(move || reply_rx.recv().map_err(|_| "worker dropped".to_string()))
-            .await
-            .map_err(|e| e.to_string())?
+        tokio::task::spawn_blocking(move || {
+            reply_rx
+                .recv()
+                .unwrap_or_else(|_| Err("worker dropped".to_string()))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     /// Synthesize one sentence chunk. Returns non-empty PCM samples at the
@@ -185,10 +191,13 @@ impl SherpaTtsEngine {
                 reply: reply_tx,
             })
             .map_err(|_| "sherpa TTS worker terminated".to_string())?;
-        let result =
-            tokio::task::spawn_blocking(move || reply_rx.recv().map_err(|_| "worker dropped".to_string()))
-                .await
-                .map_err(|e| e.to_string())?;
+        let result = tokio::task::spawn_blocking(move || {
+            reply_rx
+                .recv()
+                .unwrap_or_else(|_| Err("worker dropped".to_string()))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
         ACTIVE_SYNTHESIS.fetch_sub(1, Ordering::SeqCst);
         result
     }
@@ -204,9 +213,13 @@ impl SherpaTtsEngine {
         self.tx
             .send(TtsRequest::Unload { reply: reply_tx })
             .map_err(|_| "sherpa TTS worker terminated".to_string())?;
-        tokio::task::spawn_blocking(move || reply_rx.recv().map_err(|_| "worker dropped".to_string()))
-            .await
-            .map_err(|e| e.to_string())?
+        tokio::task::spawn_blocking(move || {
+            reply_rx
+                .recv()
+                .unwrap_or_else(|_| Err("worker dropped".to_string()))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }
 
