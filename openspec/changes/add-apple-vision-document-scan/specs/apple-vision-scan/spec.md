@@ -64,7 +64,7 @@ The system SHALL map Vision structure into a generic `VisionBlock` DTO and then 
 
 #### Scenario: Bad image
 - **WHEN** bytes cannot be decoded or the file is corrupt
-- **THEN** recognition fails with `OCRFailed` or `InputTooLarge` as appropriate
+- **THEN** recognition fails with `GenerationFailed` (native `ocr_failed`) or `InputTooLarge` as appropriate
 - **AND** `EnhancedFilePicker` shows its existing error banner
 - **AND** no half-written document is left as completed
 

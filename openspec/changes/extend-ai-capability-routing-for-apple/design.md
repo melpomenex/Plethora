@@ -93,8 +93,10 @@ If Apple status is not `.available`, the panel explains why **in the panel only*
 | `src/lib/ai/onDeviceAI.ts` | Android Nano only (existing) |
 | `src/lib/ai/apple/plugin.ts` | invoke helper `plugin:plethora-apple-intelligence` |
 | `src/lib/ai/apple/capabilities.ts` | `getAppleIntelligenceSnapshot()` — this change returns unsupported stubs |
+| `src/lib/ai/apple/foundation.ts` | B implements native FM wrappers (this change may leave a stub re-export) |
 | `src/lib/ai/providers/appleFoundationProvider.ts` | Stub `AIProvider` with `id: "ondevice-apple-foundation"`, all caps false |
-| `src/lib/ai/providers/fakes.ts` | `FakeLanguageProvider`, `FakeSpeechProvider`, `FakeVisionProvider`, `FakeSemanticSearchProvider` |
+| `src/lib/ai/providers/appleCoreAIProvider.ts` | Stub `AIProvider` with `id: "ondevice-apple-coreai"`, all caps false (H fills) |
+| `src/lib/ai/providers/fakes.ts` | `FakeLanguageProvider`, `FakeSpeechProvider`, `FakeVisionProvider`, `FakeSemanticSearchProvider`. Follow-on “FakeAppleFoundationProvider” / “FakeCoreAIProvider” SHALL be aliases or subclasses of `FakeLanguageProvider`, not a second `AIProvider` shape. |
 
 `onDeviceAI.ts` keeps exporting current symbols so Nano tests need not churn wholesale.
 
@@ -108,22 +110,26 @@ Mirror `plethora-storekit` / `plethora-android-genai`:
 - iOS Swift `AppleIntelligencePlugin: Plugin` with `capabilities` command only in this change
 - `permissions/default.toml` allowlisting reserved commands
 
-**Reserved commands** (implementations may reject `not_implemented` until their change). Names are frozen so B–H do not invent parallel RPCs:
+**Reserved commands** (implementations may reject `not_implemented` until their change). Names are frozen so B–H do not invent parallel RPCs. Progress is **events**, not extra commands (`apple-fm://…`, `apple-coreai://download`).
 
 ```
 apple_capabilities
-apple_fm_status, apple_fm_prompt, apple_fm_cancel, apple_fm_count_tokens
-apple_speech_status, apple_speech_transcribe_file, apple_speech_live_start,
-apple_speech_live_stop, apple_speech_cancel
-apple_vision_status, apple_vision_recognize_document
+apple_fm_availability, apple_fm_generate, apple_fm_generate_stream,
+apple_fm_cancel, apple_fm_count_tokens, apple_fm_warmup
+apple_speech_status, apple_speech_ensure_assets, apple_speech_transcribe_file,
+apple_speech_start_live, apple_speech_stop_live, apple_speech_cancel
+apple_vision_status, apple_vision_present_scanner, apple_vision_recognize_document,
+apple_vision_cancel
 apple_spotlight_status, apple_spotlight_donate, apple_spotlight_delete,
 apple_spotlight_delete_domain, apple_spotlight_query, apple_spotlight_rebuild
 apple_nl_status, apple_nl_request_assets, apple_nl_embed_texts
 apple_coreai_status, apple_coreai_catalog, apple_coreai_download_start,
 apple_coreai_download_cancel, apple_coreai_install_commit, apple_coreai_delete,
-apple_coreai_set_active, apple_coreai_prompt, apple_coreai_cancel,
-apple_coreai_count_tokens
+apple_coreai_set_active, apple_coreai_session_start, apple_coreai_prompt,
+apple_coreai_cancel, apple_coreai_count_tokens, apple_coreai_warmup
 ```
+
+Do **not** add `apple_fm_status` / `apple_fm_prompt`, `apple_speech_live_start` / `apple_speech_live_stop`, `apple_spotlight_stats`, `apple_coreai_download_progress`, or unlisted `apple_vision_*` names. Spotlight item count / generation live on `apple_spotlight_status`. Core AI download progress is the event channel `apple-coreai://download`. Speech asset download is `apple_speech_ensure_assets` (never a side effect of status).
 
 A lands `apple_capabilities` only. Others exist as stubs so permissions/CI compile.
 
@@ -133,19 +139,20 @@ A lands `apple_capabilities` only. Others exist as stubs so permissions/CI compi
 
 ```ts
 interface AppleIntelligenceSnapshot {
-  osSupported: boolean;          // iOS/macOS 26+
-  foundationModels: FeatureState; // available | downloadable | downloading | unavailable
+  // Host is an Apple OS the plugin is linked for (iOS/macOS), not “all features need 26”.
+  appleOs: boolean;
+  foundationModels: FeatureState; // min iOS/macOS 26 + Apple Intelligence
   foundationReason?: "device_not_eligible" | "apple_intelligence_disabled" | "model_not_ready" | "unsupported_os" | "platform_unsupported";
-  speech: FeatureState;
-  visionDocuments: FeatureState;
-  spotlightSemantic: FeatureState;
-  naturalLanguageEmbeddings: FeatureState;
-  coreAi: FeatureState;
+  speech: FeatureState;             // min 26; not Apple Intelligence
+  visionDocuments: FeatureState;    // min 26; not Apple Intelligence
+  spotlightSemantic: FeatureState;  // donate earlier; CSUserQuery semantic min 18
+  naturalLanguageEmbeddings: FeatureState; // min iOS 17 / macOS 14
+  coreAi: FeatureState;             // min 27; flag still gates routing
   checkedAt: number;
 }
 ```
 
-Frontend caches TTL 10s like Nano; does not cache `downloading`.
+Do **not** use a single `osSupported: iOS 26+` bit to hide NL or Spotlight. Each feature’s `FeatureState` / reason `unsupported_os` is relative to **that** API’s minimum. Frontend caches TTL 10s like Nano; does not cache `downloading`.
 
 ### 7. Error taxonomy extension
 
@@ -155,19 +162,34 @@ Add to `AI_ERROR_CATEGORIES`:
 - `FeatureDisabled` — Apple Intelligence off, user disabled on-device, flag off
 - `UnsupportedLanguage` — Speech/FM/Vision locale not supported
 
-Map native string codes in `apple/errors.ts` → `AIError`. Keep `ON_DEVICE_CODE_TO_CATEGORY` for Nano.
+Map native string codes in `src/lib/ai/apple/errors.ts` → `AIError`. Keep `ON_DEVICE_CODE_TO_CATEGORY` for Nano. Frozen native-reason mapping (B/E/F/H must not pick a different category for the same reason):
+
+| Native / derived reason | `AIErrorCategory` |
+|---|---|
+| `permission_denied` | `PermissionDenied` |
+| `apple_intelligence_disabled` | `FeatureDisabled` |
+| `unsupported_os` | `UnsupportedDevice` |
+| `device_not_eligible` / `deviceNotEligible` | `UnsupportedDevice` |
+| `model_not_ready` / `modelNotReady` | `ModelDownloading` |
+| `unsupported_language` | `UnsupportedLanguage` |
+| `platform_unsupported` / `not_implemented` | `CapabilityUnavailable` |
+| `ocr_failed` / vision recognize failed | `GenerationFailed` |
+| `vision_unavailable` | `CapabilityUnavailable` |
 
 ### 8. Platform capability IDs
 
 Add to `PLATFORM_CAPABILITY_IDS` (unavailable on android/web by default; desktop macOS runtime-gated in later changes via live snapshot, not a static false):
 
-- `on_device_ai_apple_foundation`
-- `apple_speech_transcription`
-- `apple_vision_scan`
+- `on_device_ai_apple_foundation` (generation surface; matches existing `on_device_ai_gemini_nano` pattern)
+- `apple_speech_transcription` (Record lecture / live STT; **not** `on_device_apple_speech`)
+- `import_document_scan` (Scan document picker/palette; same pattern as `import_screenshot`)
+- `import_photo_library` (Photo import source)
 - `apple_spotlight_search`
-- `apple_core_ai`
+- `on_device_ai_apple_coreai`
 
-Static registry cannot know Apple Intelligence eligibility; IDs mean “surface exists on this OS family.” Fine-grained `.available` still comes from snapshots. On iOS, IDs are **available** so commands can appear then disable with explanation; on Android they are `unsupported_platform`.
+Do **not** register `apple_core_ai`, `apple_spotlight_index`, `on_device_apple_speech`, or `apple_vision_scan`. NaturalLanguage embeddings have no separate palette ID in this change (indexer/settings use the NL snapshot).
+
+Static registry cannot know Apple Intelligence eligibility; IDs mean “surface exists on this OS family.” Fine-grained `.available` / `downloadable` / `ready` still comes from snapshots. On iOS, IDs are **available** so commands can appear then disable with explanation; on Android they are `unsupported_platform`. Follow-on changes MUST NOT redefine an ID to mean “model ready.”
 
 ### 9. Privacy indicator contract
 

@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Confirm `extend-ai-capability-routing-for-apple` plugin crate `src-tauri/plugins/plethora-apple-intelligence/` exists with non-Apple `platform_unsupported` stubs and reserved `apple_speech_*` names
 - [ ] 1.2 Confirm `AIErrorCategory` includes `PermissionDenied`, `FeatureDisabled`, `UnsupportedLanguage` in `src/lib/ai/errors.ts` (if A has not landed, coordinate — do not fork the union)
-- [ ] 1.3 Register platform capability `on_device_apple_speech` in `src/lib/platformCapabilities.ts` (iOS/macOS; unavailable Android/web) and extend `platformCapabilities.test.ts` without breaking the desktop/Android frozen snapshot
+- [ ] 1.3 Consume A’s platform capability `apple_speech_transcription` in `src/lib/platformCapabilities.ts` (do **not** register `on_device_apple_speech`). Extend tests without breaking the desktop/Android frozen snapshot.
 - [ ] 1.4 Allowlist plugin commands in `src-tauri/capabilities/default.json` if A did not already add `plethora-apple-intelligence:default`
 
 ## 2. Native SpeechAnalyzer bridge
@@ -39,7 +39,7 @@
 
 ## 5. Live lecture / voice note UX
 
-- [ ] 5.1 Add a capability-gated command palette entry (`CommandPalette.tsx` / `CommandCenter.tsx`) `record-lecture` with `capabilityId: "on_device_apple_speech"` that starts live capture into a new document
+- [ ] 5.1 Add a capability-gated command palette entry (`CommandPalette.tsx` / `CommandCenter.tsx`) `record-lecture` with `capabilityId: "apple_speech_transcription"` that starts live capture into a new document
 - [ ] 5.2 Persist partial segments during live capture; stop/cancel/fail leave recoverable text
 - [ ] 5.3 Update `scripts/ios-overrides/privacy-manifest.json` `NSMicrophoneUsageDescription` for lecture/voice notes + disclosed cloud STT; do not hand-edit `gen/apple` as source of truth
 - [ ] 5.4 Optional post-process actions after complete: summarize / tags / cards via existing `runTask` ids only, default off

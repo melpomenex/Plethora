@@ -88,7 +88,7 @@ Donation is a post-commit projector, same actor as embeddings:
 3. **Delete**: document `ON DELETE CASCADE` on `semantic_chunks` already drops chunks; projector must delete `plethora://document/<id>` and all `plethora://chunk/<id>` for that document. Extra sources already use `ai_learning_remove_source_chunks` / `removeSourceChunks()` — hook the same path.
 4. **Rebuild**: `ai_learning_reset_index` wipes SQLite index tables then reindexes. Projector **deletes the entire domain first**, then donates as backfill proceeds. User content unchanged (existing reset spec).
 5. **Logout / local library reset**: any path that wipes the local library or signs the user out of a device-local profile (account logout in `src/stores/accountStore.ts` / `src/lib/sync-client.ts` `logout()`, plus existing “reset local data” if present) **must** delete the Spotlight domain. Derived index must not outlive the SQLite library.
-6. **Corruption recovery**: persist a cheap projector generation (`spotlight_generation` integer in `ai_index_state` aggregate or a one-row `spotlight_index_meta` table — **not** on `documents`). On launch, compare donated-id count (plugin `apple_spotlight_stats`) vs SQLite URI set. Mismatch, plugin error `index_corrupted`, or OS “index unavailable” → delete domain + enqueue rebuild. During rebuild, search uses FTS.
+6. **Corruption recovery**: persist a cheap projector generation (`spotlight_generation` integer in `ai_index_state` aggregate or a one-row `spotlight_index_meta` table — **not** on `documents`). On launch, compare donated-id count from plugin `apple_spotlight_status` (item count + generation; **not** a separate `apple_spotlight_stats` command) vs SQLite URI set. Mismatch, plugin error `index_corrupted`, or OS “index unavailable” → `apple_spotlight_rebuild` (delete domain + enqueue indexer backfill) or the equivalent `apple_spotlight_delete_domain` + `enqueueAllAIDocuments`. During rebuild, search uses FTS.
 
 Concurrency: projector calls are serialized on the indexer worker (already single-consumer). Swift side: batch donate (Apple’s recommended batching); one heavy Spotlight batch at a time (D-Apple-14). Failures log **no content** (`src/lib/ai/diagnostics.ts` allowlist: counts, error category only).
 
@@ -100,7 +100,7 @@ Concurrency: projector calls are serialized on the indexer worker (already singl
 - `CommandCenter.tsx` / `GlobalSearch.tsx`: same result rows and navigation as today (open document, extract, card). Spotlight is a **ranker/candidate source**, not a new `SearchResultType`.
 - `SearchPage.tsx`: same merge; keep Ask Library / help article kinds unchanged.
 - Dedup by canonical id after parsing the URI. Prefer Spotlight score when both hit; never drop FTS-only hits (FTS remains recall floor).
-- Capability gate: `src/lib/platformCapabilities.ts` new id e.g. `apple_spotlight_index` available on ios/macos when plugin status says donated index usable; unavailable elsewhere.
+- Capability gate: A’s frozen id `apple_spotlight_search` (do **not** register `apple_spotlight_index`). Registry meaning is OS-family on iOS/macOS; whether the donated index is queryable still comes from `apple_spotlight_status`. Unavailable on Android/web.
 
 Help retrieval (`features/help/helpRetrieval`, Ask Plethora) stays **out** of this index (D-Apple-7).
 
@@ -115,6 +115,7 @@ Implemented in Swift `AppleSpotlight.swift`, forwarded from `plethora-apple-inte
 | `apple_spotlight_delete` | Delete by URI list |
 | `apple_spotlight_delete_domain` | Wipe domain (reset / logout / corruption) |
 | `apple_spotlight_query` | In-app query (CSUserQuery when `@available`; else error `unsupported_os` so TS uses FTS) |
+| `apple_spotlight_rebuild` | Delete domain then signal indexer backfill (corruption / user rebuild). Do not invent `apple_spotlight_stats`. |
 
 Non-Apple: every command `platform_unsupported`. Desktop macOS **does** implement if the plugin is linked for macOS Catalyst/app; if the current Tauri macOS target cannot link CoreSpotlight, status is `platform_unsupported` and FTS-only — do not crash.
 

@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add optional `includeSpotlight` (or equivalent) to `retrieveFromLibrary` in `src/api/ai-learning.ts` without breaking existing callers (`libraryTask.ts`, `src/lib/ai/tutor/session.ts`, `src/lib/ai/agent/sessionContext.ts`, `src/components/settings/AiIndexPanel.tsx`, `src/components/viewer/useRecallPrompts.ts`).
 - [ ] 1.2 Thread the flag through `ai_learning_retrieve` in `src-tauri/src/commands/ai_learning.rs` and types in `src-tauri/src/ai_learning/models.rs` (`RetrievalResponse` may add `spotlightHitCount`; do not remove `mode` `semantic` | `lexicalOnly`).
-- [ ] 1.3 Implement merge-by-`chunk_id`: Spotlight unique ids from C (`AppleSpotlight` / indexer hooks in `src-tauri/src/ai_learning/indexer.rs` — **read only**) resolve to SQLite `semantic_chunks` rows; unknown ids dropped; duplicate ids collapsed; k reapplied.
+- [ ] 1.3 Implement merge-by-`chunk_id` using C’s URI scheme: `plethora://chunk/<id>` loads that row; `plethora://document/<id>` expands to that document’s current SQLite chunks; extract/card URIs resolve via existing source mapping or drop; unknown/stale ids dropped; duplicate ids collapsed; k reapplied. Do **not** treat a raw Spotlight uniqueIdentifier as `semantic_chunks.id` without parsing the `plethora://` URI.
 - [ ] 1.4 Default `includeSpotlight` so non-Apple platforms and empty donation domains skip the Spotlight query with zero extra IPC.
 - [ ] 1.5 Rust unit tests: union by id, stale id drop, k cap, Spotlight-off ≡ current retrieve. Do not replace FTS5 lexical fallback.
 
@@ -15,7 +15,7 @@
 
 ## 3. SpotlightSearchTool (FM generator only)
 
-- [ ] 3.1 When routed `provider.id === "ondevice-apple-foundation"` and tools are available, register **only** SpotlightSearchTool on that session (TS SDK in `src/lib/ai/appleFoundation.ts` or a small `src/lib/ai/appleSpotlightTool.ts` owned by this change). When generator is Nano or cloud, register **zero** FM tools.
+- [ ] 3.1 When routed `provider.id === "ondevice-apple-foundation"` and tools are available, register **only** SpotlightSearchTool on that session (TS SDK in `src/lib/ai/apple/foundation.ts` or a small `src/lib/ai/apple/spotlightTool.ts` owned by this change). When generator is Nano or cloud, register **zero** FM tools.
 - [ ] 3.2 Validate tool arguments (non-empty query, max length, no paths/commands). Reject invalid args without native search.
 - [ ] 3.3 Insert tool results with `wrapUntrustedBlock`; neutralize `</untrusted_source>` via existing helper. Cap tool iterations (≤ 2 searches per ask).
 - [ ] 3.4 Map tool hits back to `chunkId` + SQLite text before citation validation. Do not treat tool titles as grounded quotes.

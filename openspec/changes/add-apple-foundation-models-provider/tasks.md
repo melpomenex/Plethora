@@ -10,7 +10,7 @@
 
 ## 2. TypeScript SDK and `AIProvider`
 
-- [ ] 2.1 Add `src/lib/ai/appleFoundation.ts`: invoke plugin commands, TTL-cache availability (do not cache `modelNotReady` forever; poll like Nano `downloading`), no document text in logs.
+- [ ] 2.1 Add `src/lib/ai/apple/foundation.ts`: invoke plugin commands via A’s `apple/plugin.ts`, TTL-cache availability (do not cache `modelNotReady` forever; poll like Nano `downloading`), no document text in logs.
 - [ ] 2.2 Add `src/lib/ai/providers/appleFoundationProvider.ts` exporting `APPLE_FOUNDATION_PROVIDER_ID = "ondevice-apple-foundation"` and `AppleFoundationProvider` implementing `AIProvider` from `src/lib/ai/providers/types.ts` (`getCapabilities`, `generateStream`, `countTokens`, `warmUp`, `cancel`).
 - [ ] 2.3 Map snapshot → `AIModelCapabilities`: `contextTokens` from native `contextSize`/`tokenCount` else **4096**; `structuredGeneration` when guided path live; `vision: false` in v1; `reasoning: false`; `embeddings: false`; `toolCalling: false` until D wires SpotlightSearchTool.
 - [ ] 2.4 Map native failures through A's categories in `src/lib/ai/errors.ts` without editing the union: `ModelDownloading`, `UnsupportedDevice`, `FeatureDisabled`, `UnsupportedLanguage`, `InputTooLarge`, `Cancelled`, `SafetyBlocked`, `GenerationFailed`, `InvalidStructuredOutput`.
@@ -22,7 +22,7 @@
 - [ ] 3.1 Add Swift `@Generable` types matching `smartTagging`, `learningMaterialProposal`, `libraryAnswer` (`src/lib/ai/schemas/smartTagging.ts`, `learningMaterial.ts`, `libraryAnswer.ts`) and `generatedFlashcards` matching `InternalOnDeviceFlashcard` in `src/lib/ai/cardValidator.ts`.
 - [ ] 3.2 Pass `AIRequest.systemInstruction` and `text` through unchanged. Do not add product prompt strings in Swift. Do not concatenate untrusted document text into `Instructions`.
 - [ ] 3.3 Smart tagging: existing `src/lib/ai/tasks/definitions/smartTaggingTask.ts` only. If `UseCase.contentTagging` is advertised, use it only when output still validates as `SmartTaggingOutput`; else default model + `smartTagging` schema. Keep Tier 1 `classifyDocumentBaseline` fallback in the task.
-- [ ] 3.4 Implement `runChunkedGeneration` in `src/lib/ai/appleFoundation.ts` using `chunkTextByTokens`: hierarchical map-reduce for text tasks; per-chunk then TS merge/dedupe for flashcards and Learn-this; **never** split `libraryAnswer` citation units (truncate chunk list / skip oversized chunk).
+- [ ] 3.4 Implement `runChunkedGeneration` in `src/lib/ai/apple/foundation.ts` using `chunkTextByTokens`: hierarchical map-reduce for text tasks; per-chunk then TS merge/dedupe for flashcards and Learn-this; **never** split `libraryAnswer` citation units (truncate chunk list / skip oversized chunk).
 - [ ] 3.5 After structured generate, TS validators remain authoritative (`validateSmartTaggingOutput`, `validateLearningMaterialProposal`, `validateLibraryAnswer`, `toGeneratedFlashcards`). Fail closed with `InvalidStructuredOutput` after the existing one repair retry in `runTask`.
 
 ## 4. UX, i18n, provenance, privacy
@@ -35,7 +35,7 @@
 
 ## 5. Tests (CI) and device matrix (manual)
 
-- [ ] 5.1 Add `src/lib/ai/providers/fakeAppleFoundationProvider.ts` (`FakeAppleFoundationProvider` implements `AIProvider`) with scriptable capabilities, structured payloads, cancel, and `InputTooLarge`.
+- [ ] 5.1 Extend A’s `src/lib/ai/providers/fakes.ts` with `FakeAppleFoundationProvider` as an alias/subclass of `FakeLanguageProvider` (scriptable capabilities, structured payloads, cancel, `InputTooLarge`). Do not add a parallel fake module with a different method set.
 - [ ] 5.2 Vitest: `src/lib/ai/__tests__/appleFoundationProvider.test.ts` — availability mapping table, 4096 fallback, native context when stubbed 26.4 fields present, over-budget reject, cancel-never-fallback (use existing `runTask` helpers), unsupported language.
 - [ ] 5.3 Vitest: guided schema round-trip — valid `smartTagging` / `learningMaterialProposal` / `libraryAnswer` / `generatedFlashcards` pass TS validators; malformed fail closed. Fixture prompts include `<untrusted_source>` injection strings that must not become instructions.
 - [ ] 5.4 Vitest: `chunkTextByTokens` map-reduce — long text produces multiple native calls then a reduce; `libraryAnswer` path does not slice a single chunk id.

@@ -246,7 +246,7 @@ Never SKU allowlists. Native `apple_coreai_status` returns:
 - `reason`: `flag_off` | `unsupported_os` | `platform_unsupported` | `framework_missing` | `no_model` | `insufficient_disk` | `insufficient_memory` | `checksum_mismatch` | `catalog_invalid` | `downloadable` | `downloading` | `ready` | …
 - `activeModel?: { modelId, version, contextTokens, sha256 }`
 
-`platformCapabilities.ts` id `on_device_ai_apple_coreai` is true only when status is `ready` (or `downloadable` for UI that should show install). Other platforms: `platform_unsupported` without invoking Apple frameworks.
+A’s frozen `platformCapabilities.ts` id `on_device_ai_apple_coreai` means the **OS-family surface exists** (available on iOS/macOS, `unsupported_platform` elsewhere). It is **not** “model ready.” Panel install vs generate still uses `apple_coreai_status` (`downloadable` / `ready` / `flag_off`). Other platforms: `platform_unsupported` without invoking Apple frameworks.
 
 Simulator: typically `framework_missing` or `unsupported`; tests inject fakes.
 

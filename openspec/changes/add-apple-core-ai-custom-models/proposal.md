@@ -33,14 +33,14 @@ Conversion of third-party weights into `.aimodel` is an **out-of-app** ops pipel
 - **Hard dependency:** `extend-ai-capability-routing-for-apple` (plugin crate, multi-provider registry, error categories, fakes, capability IDs).
 - **Soft dependency:** `add-apple-foundation-models-provider` for a shared session abstraction **shape**. This change specifies that shape and implements the Core AI side. B is **not** required to land Core AI types, and this change **must not** be scheduled in the same implementation phase as B.
 - **Native:** `src-tauri/plugins/plethora-apple-intelligence/` — new `CoreAIBridge.swift` only (plus reserved `apple_coreai_*` commands in `lib.rs` if A left stubs). Non-Apple OS: `platform_unsupported`.
-- **Frontend:** `src/lib/ai/providers/appleCoreAIProvider.ts`, `src/lib/ai/apple/languageSession.ts` (shared session types), `src/lib/ai/apple/coreAI.ts` (catalog/download SDK), settings flag, On-device panel section, `platformCapabilities.ts` id `on_device_ai_apple_coreai`.
+- **Frontend:** `src/lib/ai/providers/appleCoreAIProvider.ts` (fill A’s stub), `src/lib/ai/apple/languageSession.ts` (shared session types), `src/lib/ai/apple/coreAI.ts` (catalog/download SDK), On-device panel section. Platform id is A’s frozen `on_device_ai_apple_coreai` (OS-family; do not re-register). Flag `appleCoreAI` is owned by A (default false); this change consumes it.
 - **Ops (out of app):** conversion/signing pipeline producing `.aimodel` + catalog JSON; not a Tauri command in the client.
 - **Testing:** Vitest + Rust unit tests with catalog/download/session fakes; no Core AI in CI.
 - **Min OS:** app remains `IPHONEOS_DEPLOYMENT_TARGET = 14.0`. All Core AI types are `@available(iOS 27.0, macOS 27.0, *)` plus runtime checks.
 
 ## Owns
 
-`CoreAIBridge.swift`, Core AI TypeScript SDK/provider, catalog/download/disk/license types, `appleCoreAI` flag, Core AI panel section, Core AI fakes, `apple_coreai_*` command implementations.
+`CoreAIBridge.swift`, Core AI TypeScript SDK/provider, catalog/download/disk/license types, Core AI panel section, Core AI fakes, `apple_coreai_*` **implementations** of names A reserved. Does not own the `appleCoreAI` flag default or the platform capability id.
 
 ## Must NOT change
 
@@ -62,14 +62,16 @@ Conversion of third-party weights into `.aimodel` is an **out-of-app** ops pipel
 
 ## Parallelization Notes
 
-**Phase 4 only.** Do not land in the same PR/phase as B. Coordinate with A on reserved commands:
+**Phase 4 only.** Do not land in the same PR/phase as B. Implement only A-reserved commands (do not add `apple_coreai_download_progress` as a command):
 
 - `apple_coreai_status`
 - `apple_coreai_catalog`
-- `apple_coreai_download_start` / `apple_coreai_download_cancel` / `apple_coreai_download_progress` (events)
+- `apple_coreai_download_start` / `apple_coreai_download_cancel`
 - `apple_coreai_install_commit` / `apple_coreai_delete` / `apple_coreai_set_active`
 - `apple_coreai_session_start` / `apple_coreai_prompt` / `apple_coreai_cancel`
 - `apple_coreai_count_tokens` / `apple_coreai_warmup`
+
+Download progress is the event channel `apple-coreai://download` keyed by `downloadId`.
 
 ## Migration / Backward Compatibility
 

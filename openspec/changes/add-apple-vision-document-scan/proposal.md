@@ -9,7 +9,7 @@ iOS/macOS 26 `RecognizeDocumentsRequest` is on-device (not Apple Intelligence), 
 ## What Changes
 
 - Implement Swift `AppleVision` in `src-tauri/plugins/plethora-apple-intelligence/` with `apple_vision_*` commands. TypeScript SDK `src/lib/ai/appleVision.ts`.
-- Add import sources **`scan`** and **`photo`** to `ImportSource` in `EnhancedFilePicker.tsx`, shown only when platform capabilities `import_document_scan` / `import_photo_library` (names TBD in design; both iOS-gated) are available. Wire `handleFileSelect` + `renderImportMethod` cases — **do not invent a separate iOS-only menu**. Downstream: `src/routes/documents.tsx` `handleImportFromPicker` and `documentStore` ingest.
+- Add import sources **`scan`** and **`photo`** to `ImportSource` in `EnhancedFilePicker.tsx`, shown only when A’s platform capabilities `import_document_scan` / `import_photo_library` are available. Wire `handleFileSelect` + `renderImportMethod` cases — **do not invent a separate iOS-only menu**. Downstream: `src/routes/documents.tsx` `handleImportFromPicker` and `documentStore` ingest.
 - Map Vision structure → HTML/Markdown document body (titles, paragraphs, lists, tables **when Vision provides them**). Persist the captured/picked image via `ingest_image_asset` / repository `image_assets` and record the asset id on the document metadata for occlusion.
 - Capability-detect at runtime (`@available(iOS 26, *)` + request support). Do **not** promise handwriting OCR as a shipped capability; if Vision returns no structured text, save the image document and let the user edit. Optional later: plain text request as a fallback, still user-editable.
 - Update camera purpose string (and add Photos picker copy only if a permission is actually required; prefer `PHPickerViewController`, which does not need full library access).
@@ -26,12 +26,12 @@ iOS/macOS 26 `RecognizeDocumentsRequest` is on-device (not Apple Intelligence), 
 ### Modified Capabilities
 
 - `core_import`: additional sources on iOS when Vision is available; other platforms unchanged.
-- `apple-ai-capability-routing`: fills reserved `apple_vision_*` commands; registers `import_document_scan` / `import_photo_library`.
+- `apple-ai-capability-routing`: fills reserved `apple_vision_*` commands; consumes A’s `import_document_scan` / `import_photo_library` (does not register `apple_vision_scan`).
 - `apple-privacy-compliance`: camera (and if needed photo) purpose strings must match scan/photo workflows.
 
 ## Impact
 
-- **Hard dependency:** `extend-ai-capability-routing-for-apple` (plugin, `VisionUnavailable` / `OCRFailed` / new `PermissionDenied`, fakes, capability registry).
+- **Hard dependency:** `extend-ai-capability-routing-for-apple` (plugin, A’s `PermissionDenied` / `CapabilityUnavailable` / `GenerationFailed` mapping, fakes, capability registry).
 - **Soft:** Foundation Models provider for optional enrichment; image registry and occlusion composer already exist.
 - **Frontend:** `EnhancedFilePicker.tsx`, `src/routes/documents.tsx`, `documentStore.ts` (new ingest helpers), `platformCapabilities.ts` + tests (desktop/Android snapshot must stay frozen except new iOS-only ids), `CommandPalette.tsx` / `CommandCenter.tsx` capability-gated "Scan document" (`capabilityId` already supported).
 - **Native:** `AppleVision.swift`, plugin forwarding, payload size limits (mirror Android genai image bounds), VisionKit document camera UI presented from the plugin.

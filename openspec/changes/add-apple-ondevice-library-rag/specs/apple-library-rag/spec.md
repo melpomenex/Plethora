@@ -10,14 +10,15 @@ The system SHALL extend `retrieveFromLibrary` in `src/api/ai-learning.ts` (Rust 
 - **AND** no Spotlight IPC is required for correctness
 
 #### Scenario: Spotlight hits merge by chunk id
-- **WHEN** Spotlight returns unique ids that map 1:1 to `semantic_chunks.id` (C’s contract) and SQLite still has those rows
+- **WHEN** Spotlight returns C’s URIs (`plethora://chunk/<id>`, `plethora://document/<id>`, extract/card) and SQLite can resolve them to `semantic_chunks` rows (chunk URI = that id; document URI = expand to that document’s current chunks)
 - **THEN** the response union includes those chunks keyed by `chunkId`
 - **AND** duplicate ids from SQLite and Spotlight collapse to one row
 - **AND** k is enforced after the union
+- **AND** a document/extract/card URI is never used as a `libraryAnswer` `refId` unless it resolved to a chunk id
 
 #### Scenario: Stale Spotlight id
-- **WHEN** Spotlight returns an id with no matching `semantic_chunks` row
-- **THEN** that id is dropped
+- **WHEN** Spotlight returns a URI with no matching `semantic_chunks` row after parse/expand
+- **THEN** that hit is dropped
 - **AND** it is not cited in `libraryAnswer.sourceRefs`
 
 #### Scenario: Lexical fallback still works

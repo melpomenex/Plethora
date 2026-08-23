@@ -147,7 +147,7 @@ After import, offer the same actions as other documents: Smart Tag, Summarize, L
 
 ### 9. Concurrency and cancel
 
-D-Apple-14: at most one Vision batch (or Speech, or FM). Scanner UI cancel → `Cancelled`, no document row (or delete a pre-created draft). Bad image (decode fail, empty file): `OCRFailed` / `VisionUnavailable`, picker error banner (`EnhancedFilePicker` already has `error` state).
+D-Apple-14: at most one Vision batch (or Speech, or FM). Scanner UI cancel → `Cancelled`, no document row (or delete a pre-created draft). Bad image (decode fail, empty file): `GenerationFailed` (`ocr_failed`) / `CapabilityUnavailable` (`vision_unavailable`), picker error banner (`EnhancedFilePicker` already has `error` state).
 
 ### 10. Testing
 

@@ -8,7 +8,7 @@ Apple Foundation Models (`SystemLanguageModel`, iOS/iPadOS/macOS 26+) are the pl
 
 - Implement `AppleFoundationProvider` (`id: "ondevice-apple-foundation"`, `kind: "ondevice"`) against `src/lib/ai/providers/types.ts` `AIProvider`.
 - Add Swift `FoundationModelsBridge` in `src-tauri/plugins/plethora-apple-intelligence/` (crate and command names reserved by A) for availability, guided `@Generable` structured generation, streaming, cancellation, and token/context reporting.
-- Add TypeScript SDK `src/lib/ai/appleFoundation.ts` that invokes `plugin:plethora-apple-intelligence` (`apple_fm_*` commands only).
+- Add TypeScript SDK `src/lib/ai/apple/foundation.ts` that invokes `plugin:plethora-apple-intelligence` (`apple_fm_*` commands only, names frozen in change A).
 - Map `SystemLanguageModel.Availability` into `AIModelCapabilities` + A's error categories. Never hard-code SKUs.
 - Use guided generation matching existing TS schemas: `SmartTagging`, `LearningMaterialProposal`, `LibraryAnswer`, and on-device flashcards. Prompts stay in `src/lib/ai/tasks/`.
 - Chunk long inputs with existing `chunkTextByTokens` (`src/lib/ai/chunkTextByTokens.ts`) and map-reduce / merge+dedupe for long documents. Context window: native `contextSize` / `tokenCount` on iOS 26.4+ when present, else conservative **4096**.
@@ -35,14 +35,14 @@ Apple Foundation Models (`SystemLanguageModel`, iOS/iPadOS/macOS 26+) are the pl
 
 - **Swift:** `src-tauri/plugins/plethora-apple-intelligence/ios/Sources/FoundationModelsBridge.swift` (and availability DTO mapping in `AppleCapabilities.swift` if A split that file).
 - **Rust plugin surface:** additive `apple_fm_*` handlers in `src-tauri/plugins/plethora-apple-intelligence/src/lib.rs` behind modules A reserved; non-Apple `platform_unsupported`.
-- **TS:** `src/lib/ai/appleFoundation.ts`, `src/lib/ai/providers/appleFoundationProvider.ts`, tests under `src/lib/ai/__tests__/`, `FakeAppleFoundationProvider` in `src/lib/ai/providers/fakeAppleFoundationProvider.ts` (or A's `fakes.ts` if the class was reserved).
+- **TS:** `src/lib/ai/apple/foundation.ts`, `src/lib/ai/providers/appleFoundationProvider.ts`, tests under `src/lib/ai/__tests__/`, `FakeAppleFoundationProvider` as an alias/subclass of A’s `FakeLanguageProvider` in `src/lib/ai/providers/fakes.ts`.
 - **Settings/i18n:** On-device panel copy for Apple availability states; no new row in OpenRouter/Ollama lists (`src/components/settings/AIProviderSettings.tsx`).
 - **Capabilities allowlist:** `src-tauri/capabilities/default.json` permissions A reserved for `apple_fm_*`.
 - **Tests:** Vitest with `FakeAppleFoundationProvider`; Swift `@available` compile on iOS 14 deployment target; desktop/Android stubs.
 
 ## Owns
 
-- `FoundationModelsBridge.swift` and TS `appleFoundation.ts` / `AppleFoundationProvider`.
+- `FoundationModelsBridge.swift` and TS `src/lib/ai/apple/foundation.ts` / `AppleFoundationProvider`.
 - Guided `@Generable` types that round-trip `smartTagging`, `learningMaterialProposal`, `libraryAnswer`, and `generatedFlashcards`.
 - Availability → capability/error mapping, context budget, chunking/map-reduce helpers used **inside** the Apple adapter (not a second task layer).
 - `FakeAppleFoundationProvider` and Apple FM unit tests.

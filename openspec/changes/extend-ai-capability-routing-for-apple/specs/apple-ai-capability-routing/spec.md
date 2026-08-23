@@ -39,7 +39,7 @@ The workspace SHALL include `plethora-apple-intelligence` registered like other 
 - **AND** no native Apple API is called
 
 #### Scenario: Reserved commands fail closed
-- **WHEN** a reserved but unimplemented command such as `apple_fm_prompt` is invoked
+- **WHEN** a reserved but unimplemented command such as `apple_fm_generate` is invoked
 - **THEN** the plugin returns a typed `not_implemented` or `feature_unavailable` error
 - **AND** the TypeScript mapper produces `AIError` category `CapabilityUnavailable`
 
@@ -47,6 +47,12 @@ The workspace SHALL include `plethora-apple-intelligence` registered like other 
 - **WHEN** the iOS target is built with `IPHONEOS_DEPLOYMENT_TARGET = 14.0`
 - **THEN** the plugin compiles
 - **AND** iOS 26-only types are not referenced without availability guards
+
+#### Scenario: Per-API OS minima in the snapshot
+- **WHEN** `apple_capabilities` runs on iOS 18
+- **THEN** `naturalLanguageEmbeddings` and `spotlightSemantic` are not forced `unsupported_os` merely because Foundation Models requires 26
+- **AND** `foundationModels`, `speech`, and `visionDocuments` report `unsupported_os` (or equivalent) until iOS 26
+- **AND** `coreAi` reports `unsupported_os` until iOS 27
 
 ### Requirement: Extended AI error taxonomy
 
@@ -60,6 +66,11 @@ The workspace SHALL include `plethora-apple-intelligence` registered like other 
 - **WHEN** a native reason `apple_intelligence_disabled` is mapped
 - **THEN** the `AIError.category` is `FeatureDisabled`
 - **AND** UI copy can distinguish it from `UnsupportedDevice`
+
+#### Scenario: Unsupported OS maps to UnsupportedDevice
+- **WHEN** a native reason `unsupported_os` is mapped (iOS/macOS below the API’s minimum)
+- **THEN** the `AIError.category` is `UnsupportedDevice`
+- **AND** it is not mapped to `FeatureDisabled`
 
 #### Scenario: Permission denied
 - **WHEN** a mapped native code is `permission_denied`
@@ -95,12 +106,22 @@ The tree SHALL export deterministic fakes so later Apple changes can unit-test r
 
 ### Requirement: Platform capability IDs
 
-`platformCapabilities.ts` SHALL register Apple surface IDs. Android and web SHALL mark them unavailable. iOS SHALL mark them available at the OS-family level (runtime snapshot still gates actual inference).
+`platformCapabilities.ts` SHALL register Apple surface IDs. Android and web SHALL mark them unavailable. iOS SHALL mark them available at the OS-family level (runtime snapshot still gates actual inference). Frozen ids: `on_device_ai_apple_foundation`, `apple_speech_transcription`, `import_document_scan`, `import_photo_library`, `apple_spotlight_search`, `on_device_ai_apple_coreai`.
 
 #### Scenario: Command palette can gate scan/record later
-- **WHEN** `apple_vision_scan` is queried on Android
+- **WHEN** `import_document_scan` is queried on Android
 - **THEN** `isPlatformCapabilityAvailable` is false
 - **AND** on iOS it is true at the registry level
+
+#### Scenario: Speech palette id is frozen
+- **WHEN** Record lecture is gated
+- **THEN** the capability id is `apple_speech_transcription`
+- **AND** it is not `on_device_apple_speech`
+
+#### Scenario: Core AI id is OS-family, not model-ready
+- **WHEN** `on_device_ai_apple_coreai` is queried on iOS
+- **THEN** the registry marks it available at the OS-family level even if no `.aimodel` is installed
+- **AND** the id is not `apple_core_ai`
 
 ### Requirement: Feature flags
 

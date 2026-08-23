@@ -225,12 +225,14 @@ Add import source `scan` (and Photos `photo`) gated by platform capabilities. Vi
 
 ### D-Apple-13 — Errors
 
-Extend `AIErrorCategory` with `PermissionDenied`, `FeatureDisabled`, `UnsupportedLanguage`. Map:
+Extend `AIErrorCategory` with `PermissionDenied`, `FeatureDisabled`, `UnsupportedLanguage`. Frozen native-reason mapping lives in A (`extend-ai-capability-routing-for-apple` design §7). Summary:
 
-- Apple Intelligence off / device not eligible → `FeatureDisabled` or `UnsupportedDevice`
+- OS too old / device not eligible → `UnsupportedDevice`
+- Apple Intelligence off / flag off / PCC required → `FeatureDisabled`
 - `modelNotReady` → existing `ModelDownloading`
 - Speech/Vision permission → `PermissionDenied`
 - Locale unsupported → `UnsupportedLanguage`
+- Vision/OCR failure → existing `GenerationFailed` / `CapabilityUnavailable` (no `VisionUnavailable` / `OCRFailed` union members)
 - Keep cancelled-never-falls-back.
 
 ### D-Apple-14 — Concurrency
@@ -285,7 +287,9 @@ Hard vs soft:
 
 **Phase 1 (blocking):** A — routing, plugin skeleton, stubs, fakes, settings/availability, error categories, platform capability IDs.
 
-**Phase 2 (parallel after A lands):** B, C, E, F, G. These have distinct Swift files and TS SDKs. Coordinate only on plugin `lib.rs` command list and `capabilities/default.json` (A should reserve command names).
+**Frozen RPC / capability contracts** are owned by A (`openspec/changes/extend-ai-capability-routing-for-apple/design.md` reserved-command list and platform IDs). B–H consume those names; they do not invent `apple_fm_status`, `apple_vision_scan`, or `apple_core_ai`.
+
+**Phase 2 (parallel after A lands):** B, C, E, F, G. These have distinct Swift files and TS SDKs. Coordinate only on plugin `lib.rs` command list and `capabilities/default.json` (A reserves command names).
 
 **Phase 3:** D — after C (index donations exist) and preferably B (on-device generator). Can ship lexical Ask Library on Apple FM using existing SQLite retrieval even if Spotlight is late; Spotlight is an enhancer.
 

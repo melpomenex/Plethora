@@ -68,12 +68,15 @@ retrieveFromLibrary(query, {
 Merge algorithm (normative):
 
 1. Run existing `ai_learning_retrieve` (unchanged scoring for SQLite hits).
-2. If `includeSpotlight` and C’s projector has items: query in-app Spotlight / `CSUserQuery` for the same `query`, receiving unique ids that **must** parse as `semantic_chunks.id` (or documented prefix C defined).
-3. Load chunk rows for those ids from SQLite (canonical text, location, `document_id`). Discard ids that do not exist (stale Spotlight).
+2. If `includeSpotlight` and C’s projector has items: query in-app Spotlight / `CSUserQuery` for the same `query`. Hits use C’s frozen URI scheme (`plethora://document|chunk|extract|card/<id>`). **Ask Library does not treat every URI kind as a `chunkId`.**
+3. Resolve hits to `semantic_chunks` rows (canonical text, location, `document_id`):
+   - `plethora://chunk/<id>` → that `semantic_chunks.id` if the row exists; else drop (stale).
+   - `plethora://document/<id>` → **expand** to that document’s current `semantic_chunks` rows in SQLite (not Spotlight body text). If there are no chunks yet, drop the hit.
+   - `plethora://extract/<id>` / `plethora://card/<id>` → resolve through the existing indexer source mapping to chunk rows if any; else drop.
 4. Union by `chunkId`. If both sides return the same id, keep **one** row; `score` = max of the two; `mode` may become a diagnostic `hybrid` string only if existing clients tolerate it — otherwise keep SQLite `mode` and set a separate `spotlightHitCount` on the response.
 5. Re-apply k after union (stable sort: score desc, then chunkId).
 
-Do not put Spotlight snippet text into the index as canonical storage. Canonical text is always SQLite `semantic_chunks`.
+Do not put Spotlight snippet text into the index as canonical storage. Canonical text is always SQLite `semantic_chunks`. Do not invent a second URI scheme.
 
 *Alternative rejected:* New `retrieveFromLibraryApple()` used only on iOS. Call sites (`libraryTask`, tutor, agent, `AiIndexPanel`) would drift.
 

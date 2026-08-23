@@ -122,7 +122,7 @@ When Core Spotlight is unavailable (`platform_unsupported`, unsupported OS, empt
 
 ### Requirement: Native plugin module
 
-Spotlight SHALL live in `src-tauri/plugins/plethora-apple-intelligence/` Swift `AppleSpotlight` (commands `apple_spotlight_status`, `apple_spotlight_donate`, `apple_spotlight_delete`, `apple_spotlight_delete_domain`, `apple_spotlight_query`). iOS 18+ APIs SHALL be `@available`-guarded. Deployment target SHALL remain iOS 14. Non-Apple OS SHALL NOT link CoreSpotlight.
+Spotlight SHALL live in `src-tauri/plugins/plethora-apple-intelligence/` Swift `AppleSpotlight` (A-reserved commands `apple_spotlight_status`, `apple_spotlight_donate`, `apple_spotlight_delete`, `apple_spotlight_delete_domain`, `apple_spotlight_query`, `apple_spotlight_rebuild`). Item count and generation SHALL be fields on `apple_spotlight_status`, not a separate `apple_spotlight_stats` command. iOS 18+ APIs SHALL be `@available`-guarded. Deployment target SHALL remain iOS 14. Non-Apple OS SHALL NOT link CoreSpotlight. The platform capability id SHALL be `apple_spotlight_search`.
 
 #### Scenario: iOS 14 compile
 - **WHEN** the Apple project is built with `IPHONEOS_DEPLOYMENT_TARGET = 14.0`
