@@ -109,9 +109,10 @@ describe("speech and search policy", () => {
     expect(atob(b64).length).toBe(8);
   });
 
-  it("keeps AppSearch and entity extraction off by default", () => {
-    expect(useSettingsStore.getState().settings.features.androidAppSearchIndex).toBe(false);
-    expect(isAppSearchDerivedIndexEnabled()).toBe(false);
+  it("defaults AppSearch and Android speech on, entity extraction off", () => {
+    expect(useSettingsStore.getState().settings.features.androidAppSearchIndex).toBe(true);
+    expect(isAppSearchDerivedIndexEnabled()).toBe(true);
+    expect(useSettingsStore.getState().settings.audioTranscription.preferAndroidSpeech).toBe(true);
     expect(DEFAULT_ENTITY_EXTRACTION_ENABLED).toBe(false);
   });
 });

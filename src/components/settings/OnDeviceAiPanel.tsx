@@ -127,6 +127,20 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     onChange();
   };
 
+  const handleSpeechToggle = (enabled: boolean) => {
+    updateSettings({
+      audioTranscription: { ...settings.audioTranscription, preferAndroidSpeech: enabled },
+    });
+    onChange();
+  };
+
+  const handleAppSearchToggle = (enabled: boolean) => {
+    updateSettings({
+      features: { ...settings.features, androidAppSearchIndex: enabled },
+    });
+    onChange();
+  };
+
   const embedDetailKey = embedStatus
     ? `onDeviceAi.embeddingDetail.${STATUS_KEY[embedStatus.status]}`
     : "onDeviceAi.checking";
@@ -261,6 +275,38 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
             checked={settings.ai.allowCloudFallback === true}
             onChange={(e) => handleFallbackToggle(e.target.checked)}
             aria-label={t("onDeviceAi.allowCloudFallbackLabel")}
+          />
+          <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+        </label>
+      </SettingsRow>
+
+      <SettingsRow
+        label={t("onDeviceAi.androidSpeechLabel")}
+        description={t("onDeviceAi.androidSpeechDescription")}
+      >
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={settings.audioTranscription.preferAndroidSpeech !== false}
+            onChange={(e) => handleSpeechToggle(e.target.checked)}
+            aria-label={t("onDeviceAi.androidSpeechLabel")}
+          />
+          <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+        </label>
+      </SettingsRow>
+
+      <SettingsRow
+        label={t("onDeviceAi.appSearchLabel")}
+        description={t("onDeviceAi.appSearchDescription")}
+      >
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={settings.features.androidAppSearchIndex !== false}
+            onChange={(e) => handleAppSearchToggle(e.target.checked)}
+            aria-label={t("onDeviceAi.appSearchLabel")}
           />
           <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
         </label>

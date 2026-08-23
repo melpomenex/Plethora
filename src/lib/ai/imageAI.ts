@@ -6,7 +6,7 @@
  * validation/dedup, and occlusion clamping stay here as post-processing.
  */
 
-import { OnDeviceAiError } from "./onDeviceAI";
+import { describeOnDeviceImage, OnDeviceAiError } from "./onDeviceAI";
 import { parseDelimitedFlashcardsWithEvidence, deduplicateOnDeviceCards, toGeneratedFlashcards, type InternalOnDeviceFlashcard } from "./cardValidator";
 import type { GeneratedFlashcard } from "../../api/ai";
 import { fnv1aHash } from "./providers/types";
@@ -67,6 +67,19 @@ export async function describeImage(
   image: ImageInputPayload
 ): Promise<ImageDescriptionResult> {
   validateImagePayload(image);
+
+  try {
+    const native = (await describeOnDeviceImage(image.dataBase64)).trim();
+    if (native) {
+      return {
+        description: native,
+        suggestedTags: [],
+        provenance: "ondevice-image-description",
+      };
+    }
+  } catch {
+    // Image Description is optional; Prompt / cloud path below still runs.
+  }
 
   const res = await runTask(
     describeImageTask,

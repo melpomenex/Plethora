@@ -5,10 +5,11 @@ vi.mock("../onDeviceAI", async () => {
   return {
     ...actual,
     generateNativePrompt: vi.fn(),
+    describeOnDeviceImage: vi.fn(),
   };
 });
 
-import { generateNativePrompt } from "../onDeviceAI";
+import { generateNativePrompt, describeOnDeviceImage } from "../onDeviceAI";
 import {
   describeImage,
   generateImageCards,
@@ -40,7 +41,17 @@ describe("validateImagePayload", () => {
 });
 
 describe("describeImage", () => {
+  it("uses ML Kit Image Description when it returns text", async () => {
+    vi.mocked(describeOnDeviceImage).mockResolvedValue("A lecture slide about osmosis.");
+
+    const res = await describeImage({ mimeType: "image/jpeg", dataBase64: "aGVsbG8=" });
+    expect(res.description).toBe("A lecture slide about osmosis.");
+    expect(res.provenance).toBe("ondevice-image-description");
+    expect(generateNativePrompt).not.toHaveBeenCalled();
+  });
+
   it("parses TITLE, DESCRIPTION, and TAGS lines", async () => {
+    vi.mocked(describeOnDeviceImage).mockRejectedValue(new Error("unavailable"));
     vi.mocked(generateNativePrompt).mockResolvedValue({
       requestId: "imgdesc-1",
       text: "TITLE: Heart Diagram\nDESCRIPTION: A detailed diagram showing cardiac chambers.\nTAGS: heart, anatomy, diagram",

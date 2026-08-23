@@ -1162,7 +1162,7 @@ export const defaultSettings: Settings = {
   },
   audioTranscription: {
     provider: "local",
-    preferAndroidSpeech: false,
+    preferAndroidSpeech: true,
     autoTranscription: false,
     autoTranscribeLocalVideos: true,
     preferredModelId: "distil-small.en",
@@ -1248,7 +1248,7 @@ export const defaultSettings: Settings = {
     aiExtractWorthiness: true,
     aiSocraticTutor: true,
     aiAgent: true,
-    androidAppSearchIndex: false,
+    androidAppSearchIndex: true,
     // QA soak phase (overhaul-reader-selection-ux task 7.8, first half): the
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,
@@ -1348,7 +1348,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 8,
+      version: 9,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1407,6 +1407,18 @@ export const useSettingsStore = create<SettingsState>()(
           }
           if (root?.tts && typeof root.tts.paidTtsEnabled !== "boolean") {
             root.tts.paidTtsEnabled = false;
+          }
+        }
+        // v8 -> v9: Android on-device speech + AppSearch ship ON so a Pixel
+        // install uses them without hunting for hidden flags. Cloud fallback
+        // stays off. Existing testers who still have the old false defaults
+        // are flipped on once; later explicit opt-outs persist at version 9+.
+        if (version < 9) {
+          if (root?.audioTranscription) {
+            root.audioTranscription.preferAndroidSpeech = true;
+          }
+          if (root?.features) {
+            root.features.androidAppSearchIndex = true;
           }
         }
         return persisted as SettingsState;
