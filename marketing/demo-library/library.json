@@ -1,8 +1,9 @@
 {
   "storyId": "memory-sleep-cognition",
+  "fixtureId": "marketing-fixture-v2",
   "title": "Why we forget what we read",
   "theme": "memory, sleep, and learning",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "seed": {
     "rngSeed": 1890,
     "createdAt": "2026-08-23T12:00:00.000Z"
@@ -79,48 +80,178 @@
       }
     }
   ],
+  "files": [
+    {
+      "id": "11111111-0001-4000-8000-000000000001",
+      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "path": "sources/01-essay/encoding-versus-highlighting.html",
+      "mediaType": "text/html",
+      "role": "primary"
+    },
+    {
+      "id": "11111111-0002-4000-8000-000000000002",
+      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "path": "sources/02-lecture/lecture-transcript.md",
+      "mediaType": "text/markdown",
+      "role": "primary"
+    },
+    {
+      "id": "11111111-0003-4000-8000-000000000003",
+      "sourceId": "aaaaaaaa-0003-4000-8000-000000000003",
+      "path": "generated/spaced-retrieval-methods.pdf",
+      "mediaType": "application/pdf",
+      "role": "primary"
+    },
+    {
+      "id": "11111111-0004-4000-8000-000000000004",
+      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "path": "generated/william-james-habit-memory.epub",
+      "mediaType": "application/epub+zip",
+      "role": "primary"
+    },
+    {
+      "id": "11111111-0005-4000-8000-000000000005",
+      "sourceId": "aaaaaaaa-0005-4000-8000-000000000005",
+      "path": "sources/05-occlusion/encoding-retrieval.svg",
+      "mediaType": "image/svg+xml",
+      "role": "primary"
+    }
+  ],
+  "documents": [
+    {
+      "id": "aaaaaaaa-0001-4000-8000-000000000001",
+      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "fileId": "11111111-0001-4000-8000-000000000001",
+      "title": "Why highlighting feels like learning",
+      "fileType": "html",
+      "category": "Memory",
+      "tags": ["encoding", "memory"],
+      "priorityRating": 5,
+      "prioritySlider": 88,
+      "priorityScore": 88,
+      "isFavorite": true,
+      "nextReadingDate": "2026-08-23T12:00:00.000Z"
+    },
+    {
+      "id": "aaaaaaaa-0002-4000-8000-000000000002",
+      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "fileId": "11111111-0002-4000-8000-000000000002",
+      "title": "Sleep is not downtime for memory",
+      "fileType": "markdown",
+      "category": "Memory",
+      "tags": ["sleep", "lecture"],
+      "priorityRating": 4,
+      "prioritySlider": 72,
+      "priorityScore": 72,
+      "isFavorite": false,
+      "nextReadingDate": "2026-08-24T12:00:00.000Z"
+    },
+    {
+      "id": "aaaaaaaa-0003-4000-8000-000000000003",
+      "sourceId": "aaaaaaaa-0003-4000-8000-000000000003",
+      "fileId": "11111111-0003-4000-8000-000000000003",
+      "title": "Spaced retrieval: a one-page methods note",
+      "fileType": "pdf",
+      "category": "Methods",
+      "tags": ["spacing", "retrieval"],
+      "priorityRating": 4,
+      "prioritySlider": 61,
+      "priorityScore": 61,
+      "isFavorite": false,
+      "nextReadingDate": "2026-08-25T12:00:00.000Z"
+    },
+    {
+      "id": "aaaaaaaa-0004-4000-8000-000000000004",
+      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "fileId": "11111111-0004-4000-8000-000000000004",
+      "title": "Habit and memory (William James, 1890)",
+      "fileType": "epub",
+      "category": "Classics",
+      "tags": ["james", "public-domain"],
+      "priorityRating": 3,
+      "prioritySlider": 54,
+      "priorityScore": 54,
+      "isFavorite": true,
+      "nextReadingDate": "2026-08-27T12:00:00.000Z"
+    },
+    {
+      "id": "aaaaaaaa-0005-4000-8000-000000000005",
+      "sourceId": "aaaaaaaa-0005-4000-8000-000000000005",
+      "fileId": "11111111-0005-4000-8000-000000000005",
+      "title": "Encoding to retrieval",
+      "fileType": "image",
+      "category": "Memory",
+      "tags": ["occlusion", "retrieval"],
+      "priorityRating": 3,
+      "prioritySlider": 49,
+      "priorityScore": 49,
+      "isFavorite": false,
+      "nextReadingDate": "2026-08-29T12:00:00.000Z"
+    }
+  ],
+  "queue": [
+    { "documentId": "aaaaaaaa-0001-4000-8000-000000000001", "position": 1, "priorityScore": 88, "dueAt": "2026-08-23T12:00:00.000Z" },
+    { "documentId": "aaaaaaaa-0002-4000-8000-000000000002", "position": 2, "priorityScore": 72, "dueAt": "2026-08-24T12:00:00.000Z" },
+    { "documentId": "aaaaaaaa-0003-4000-8000-000000000003", "position": 3, "priorityScore": 61, "dueAt": "2026-08-25T12:00:00.000Z" },
+    { "documentId": "aaaaaaaa-0004-4000-8000-000000000004", "position": 4, "priorityScore": 54, "dueAt": "2026-08-27T12:00:00.000Z" },
+    { "documentId": "aaaaaaaa-0005-4000-8000-000000000005", "position": 5, "priorityScore": 49, "dueAt": "2026-08-29T12:00:00.000Z" }
+  ],
+  "readingProgress": [
+    { "documentId": "aaaaaaaa-0001-4000-8000-000000000001", "progressPercent": 24, "currentPage": 3, "currentScrollPercent": 41, "updatedAt": "2026-08-23T11:48:00.000Z" },
+    { "documentId": "aaaaaaaa-0002-4000-8000-000000000002", "progressPercent": 62, "currentPage": 1, "currentScrollPercent": 62, "updatedAt": "2026-08-22T19:20:00.000Z" },
+    { "documentId": "aaaaaaaa-0003-4000-8000-000000000003", "progressPercent": 100, "currentPage": 1, "currentScrollPercent": 100, "updatedAt": "2026-08-20T08:15:00.000Z" },
+    { "documentId": "aaaaaaaa-0004-4000-8000-000000000004", "progressPercent": 36, "currentPage": 2, "currentScrollPercent": 36, "updatedAt": "2026-08-19T17:05:00.000Z" },
+    { "documentId": "aaaaaaaa-0005-4000-8000-000000000005", "progressPercent": 0, "currentPage": 1, "currentScrollPercent": 0, "updatedAt": "2026-08-18T10:00:00.000Z" }
+  ],
   "notes": [
     {
       "id": "bbbbbbbb-0001-4000-8000-000000000001",
-      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
       "body": "A highlight is a queue, not a memory. Retrieval with the book closed is the test."
     },
     {
       "id": "bbbbbbbb-0002-4000-8000-000000000002",
-      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
       "body": "Sleep replay is biased toward effortful encoding, not toward yellow ink."
     },
     {
       "id": "bbbbbbbb-0003-4000-8000-000000000003",
-      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
       "body": "James: associates are hooks. Isolated rereading leaves nothing to fish with."
     }
   ],
   "extracts": [
     {
       "id": "cccccccc-0001-4000-8000-000000000001",
-      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
       "locator": "essay:fluency",
-      "text": "Recognition is cheap. Recall is the skill you actually wanted."
+      "text": "Recognition is cheap. Recall is the skill you actually wanted.",
+      "notes": "Turn this contrast into a retrieval prompt.",
+      "tags": ["encoding", "retrieval"]
     },
     {
       "id": "cccccccc-0002-4000-8000-000000000002",
-      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
       "locator": "lecture:ch-2",
-      "text": "Effort is a teaching signal to the overnight system. Fluency is not."
+      "text": "Effort is a teaching signal to the overnight system. Fluency is not.",
+      "notes": "Connect effort to overnight replay.",
+      "tags": ["sleep", "effort"]
     },
     {
       "id": "cccccccc-0003-4000-8000-000000000003",
-      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
       "locator": "james:hooks",
-      "text": "Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface."
+      "text": "Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface.",
+      "notes": "Association supplies retrieval routes.",
+      "tags": ["association", "public-domain"]
     }
   ],
-  "cards": [
+  "learningItems": [
     {
       "id": "dddddddd-0001-4000-8000-000000000001",
       "template": "basic",
-      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "extractId": "cccccccc-0001-4000-8000-000000000001",
       "fields": {
         "front": "Why does highlighting often fail as study?",
         "back": "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall."
@@ -129,7 +260,8 @@
     {
       "id": "dddddddd-0002-4000-8000-000000000002",
       "template": "cloze",
-      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "extractId": "cccccccc-0002-4000-8000-000000000002",
       "fields": {
         "text": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading."
       }
@@ -137,7 +269,7 @@
     {
       "id": "dddddddd-0003-4000-8000-000000000003",
       "template": "mcq",
-      "sourceId": "aaaaaaaa-0003-4000-8000-000000000003",
+      "documentId": "aaaaaaaa-0003-4000-8000-000000000003",
       "fields": {
         "stem": "A failed recall during spaced practice should be treated as:",
         "choices": ["Proof you should reread the chapter once more in full", "Information that the gap was useful and the item needs restudy", "Evidence that sleep erased the memory permanently", "A reason to switch highlighters"],
@@ -147,7 +279,7 @@
     {
       "id": "dddddddd-0004-4000-8000-000000000004",
       "template": "image-occlusion",
-      "sourceId": "aaaaaaaa-0005-4000-8000-000000000005",
+      "documentId": "aaaaaaaa-0005-4000-8000-000000000005",
       "fields": {
         "image": "sources/05-occlusion/encoding-retrieval.svg",
         "occlude": "occ-sleep",
@@ -157,49 +289,57 @@
     {
       "id": "dddddddd-0005-4000-8000-000000000005",
       "template": "qa",
-      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "extractId": "cccccccc-0003-4000-8000-000000000003",
       "fields": {
         "question": "According to James, what improves memory if not a native faculty?",
         "answer": "Habitual methods of recording facts — more associations, more hooks for retrieval."
       }
     }
   ],
-  "reviewLog": [
+  "reviewEvents": [
     {
       "id": "eeeeeeee-0001-4000-8000-000000000001",
-      "cardId": "dddddddd-0001-4000-8000-000000000001",
+      "learningItemId": "dddddddd-0001-4000-8000-000000000001",
       "ratedAt": "2026-08-01T09:00:00.000Z",
       "rating": 3,
       "scheduledDays": 3
     },
     {
       "id": "eeeeeeee-0002-4000-8000-000000000002",
-      "cardId": "dddddddd-0002-4000-8000-000000000002",
+      "learningItemId": "dddddddd-0002-4000-8000-000000000002",
       "ratedAt": "2026-08-04T09:00:00.000Z",
       "rating": 2,
       "scheduledDays": 1
     },
     {
       "id": "eeeeeeee-0003-4000-8000-000000000003",
-      "cardId": "dddddddd-0003-4000-8000-000000000003",
+      "learningItemId": "dddddddd-0003-4000-8000-000000000003",
       "ratedAt": "2026-08-05T09:00:00.000Z",
       "rating": 4,
       "scheduledDays": 7
     },
     {
       "id": "eeeeeeee-0004-4000-8000-000000000004",
-      "cardId": "dddddddd-0004-4000-8000-000000000004",
+      "learningItemId": "dddddddd-0004-4000-8000-000000000004",
       "ratedAt": "2026-08-08T09:00:00.000Z",
       "rating": 3,
       "scheduledDays": 4
     },
     {
       "id": "eeeeeeee-0005-4000-8000-000000000005",
-      "cardId": "dddddddd-0005-4000-8000-000000000005",
+      "learningItemId": "dddddddd-0005-4000-8000-000000000005",
       "ratedAt": "2026-08-12T09:00:00.000Z",
       "rating": 3,
       "scheduledDays": 6
     }
+  ],
+  "tags": [
+    { "id": "99999999-0001-4000-8000-000000000001", "name": "encoding", "color": "#6d4aff" },
+    { "id": "99999999-0002-4000-8000-000000000002", "name": "memory", "color": "#8f72ff" },
+    { "id": "99999999-0003-4000-8000-000000000003", "name": "retrieval", "color": "#3856b8" },
+    { "id": "99999999-0004-4000-8000-000000000004", "name": "sleep", "color": "#486486" },
+    { "id": "99999999-0005-4000-8000-000000000005", "name": "public-domain", "color": "#7a6b55" }
   ],
   "connections": [
     {

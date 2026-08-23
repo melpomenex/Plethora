@@ -1,6 +1,6 @@
 # Attribution
 
-Every file under `marketing/demo-library`, `marketing/screenshots`, `marketing/asset-manifest.json`, `website/public/images/product`, and `website/src/config/asset-manifest.json` must appear here. `scripts/marketing/check-freshness.mjs` fails on unlisted paths.
+Every production-consumable file under `marketing/demo-library`, `marketing/screenshots`, `marketing/generated`, `website/public/images/product`, and `website/public/images/showcase/v2` must appear here either directly or through a trailing-slash directory entry whose files are hash-inventoried by a manifest. `scripts/marketing/check-freshness.mjs` fails on unlisted paths. Files classified by `marketing/screenshots/quarantine.json` are deliberately excluded from production and do not gain approval by appearing on disk.
 
 No real emails, photographs of people, or third-party commercial covers are used.
 
@@ -13,6 +13,7 @@ No real emails, photographs of people, or third-party commercial covers are used
 | Lecture WAV | CC0-1.0 | Synthetic demo tone (not a human recording) |
 | Placeholder stills | CC0-1.0 | Generated label art, **not** product UI |
 | Encoded AVIF/WebP/PNG | same as source | `scripts/marketing/encode-product-images.mjs` |
+| Plethora product UI in showcase-v2 captures | Apache-2.0 | Real Plethora capture build; embedded corpus text retains its source license |
 
 ## Files
 
@@ -20,12 +21,18 @@ No real emails, photographs of people, or third-party commercial covers are used
 
 - `marketing/asset-manifest.json` — CC0-1.0 — generated manifest
 - `website/src/config/asset-manifest.json` — CC0-1.0 — copy of the marketing manifest
+- `marketing/showcase-scenes-v2.source.json` — Apache-2.0 — authored scene graph and accessibility descriptions
+- `marketing/showcase-v2-contract.ts` — Apache-2.0 — shared typed capture contract
+- `marketing/generated/showcase-scenes-v2.json` — Apache-2.0 — generated scene catalog
+- `website/src/config/showcase-scenes-v2.json` — Apache-2.0 — generated website copy of the scene catalog
+- `website/src/config/showcase-v2-active.json` — Apache-2.0 — reviewed active-set policy
 
 ### Demo library
 
 - `marketing/demo-library/README.md` — CC0-1.0 — original
 - `marketing/demo-library/library.json` — CC0-1.0 — original
 - `marketing/demo-library/schema/library.schema.json` — CC0-1.0 — original
+- `marketing/demo-library/TAURI_IMPORT.md` — CC0-1.0 — native disposable-profile procedure
 - `marketing/demo-library/sources/01-essay/encoding-versus-highlighting.html` — CC0-1.0 — original essay
 - `marketing/demo-library/sources/02-lecture/lecture-transcript.md` — CC0-1.0 — original transcript
 - `marketing/demo-library/sources/02-lecture/chapters.json` — CC0-1.0 — original
@@ -42,6 +49,17 @@ No real emails, photographs of people, or third-party commercial covers are used
 - `marketing/demo-library/generated/encoding-versus-highlighting.epub` — CC0-1.0 — original essay EPUB
 - `marketing/demo-library/generated/william-james-habit-memory.epub` — James 1890 public domain; packaging CC0-1.0
 - `marketing/demo-library/generated/lecture-demo.wav` — CC0-1.0 — labeled synthetic tone
+- `marketing/demo-library/generated/marketing-fixture-v2.json` — mixed CC0-1.0/public-domain corpus, deterministic generated fixture
+
+### Capture policy and approved showcase source
+
+- `marketing/screenshots/capture-policy.json` — Apache-2.0 — launch theme, build-ID, path, and omission policy
+- `marketing/screenshots/native-capture-protocol.md` — Apache-2.0 — native simulator/store capture protocol
+- `marketing/screenshots/quarantine.json` — Apache-2.0 — explicit non-production classifications
+- `marketing/screenshots/source/CAPTURE_LOG.md` — Apache-2.0 — source capture audit log
+- `marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/` — Apache-2.0 Plethora UI with CC0-1.0/public-domain fictional corpus — approved 16-scene source set and hash manifest
+
+Unapproved legacy PWA, placeholder, superseded showcase-run, and personal-device files remain covered only by quarantine rules. They are not licensed or approved for website production consumption by this inventory.
 
 ### Source stills (placeholders until RC capture)
 
@@ -58,6 +76,8 @@ No real emails, photographs of people, or third-party commercial covers are used
 - `marketing/screenshots/source/og_web_og-1200x630_light_placeholder-unreleased.png` — CC0-1.0 placeholder
 
 ### Website derivatives
+
+- `website/public/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/` — same as approved showcase source — generated AVIF/WebP/PNG set plus per-file SHA-256 manifest
 
 - `website/public/images/product/screenshot-library.png` — CC0-1.0 placeholder derivative
 - `website/public/images/product/screenshot-library.webp` — CC0-1.0 placeholder derivative

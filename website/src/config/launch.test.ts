@@ -11,6 +11,7 @@ describe('launch defaults', () => {
     assert.equal(DEFAULT_LAUNCH_FLAGS.downloadsEnabled, false);
     assert.equal(DEFAULT_LAUNCH_FLAGS.checkoutEnabled, false);
     assert.equal(DEFAULT_LAUNCH_FLAGS.analyticsEnabled, false);
+    assert.equal(DEFAULT_LAUNCH_FLAGS.showcaseV2Enabled, true);
     assert.equal(DEFAULT_LAUNCH_FLAGS.commercialStorefrontReady, false);
   });
 
@@ -20,7 +21,14 @@ describe('launch defaults', () => {
     assert.equal(flags.downloadsEnabled, false);
     assert.equal(flags.checkoutEnabled, false);
     assert.equal(flags.analyticsEnabled, false);
+    assert.equal(flags.showcaseV2Enabled, true);
     assert.equal(flags.commercialStorefrontReady, false);
+  });
+
+  it('keeps showcase v2 on with an explicit rollback flag', () => {
+    assert.equal(launchFlagsFromEnv({ PUBLIC_SHOWCASE_V2_ENABLED: 'true' }).showcaseV2Enabled, true);
+    assert.equal(launchFlagsFromEnv({ PUBLIC_SHOWCASE_V2_ENABLED: 'false' }).showcaseV2Enabled, false);
+    assert.equal(launchFlagsFromEnv({ PUBLIC_SHOWCASE_V2_ENABLED: '0' }).showcaseV2Enabled, false);
   });
 
   it('does not enable indexing unless PUBLIC_INDEXING is exactly index', () => {

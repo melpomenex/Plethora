@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
+  CalendarCheck,
   CheckCircle,
   Clock,
   Flame,
@@ -13,6 +14,7 @@ import { getQueueStats } from "../../api/queue";
 import { storeDueCountForSW } from "../../utils/pushSubscription";
 import { isPWA } from "../../lib/tauri";
 import { updateDueBadgeCount } from "../../lib/feedback";
+import type { LastReviewOutcome } from "../../stores/reviewStore";
 
 interface ReviewCompleteProps {
   reviewsCompleted: number;
@@ -22,6 +24,7 @@ interface ReviewCompleteProps {
     current_streak: number;
     longest_streak: number;
   } | null;
+  lastReviewOutcome?: LastReviewOutcome | null;
 }
 
 export function ReviewComplete({
@@ -29,6 +32,7 @@ export function ReviewComplete({
   correctCount,
   sessionStartTime,
   streak,
+  lastReviewOutcome,
 }: ReviewCompleteProps) {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -43,6 +47,9 @@ export function ReviewComplete({
     streak.current_streak > 1 &&
     streak.current_streak === streak.longest_streak
   );
+  const ratingLabel = lastReviewOutcome
+    ? ({ 1: "Again", 2: "Hard", 3: "Good", 4: "Easy" } as const)[lastReviewOutcome.rating]
+    : null;
 
   useEffect(() => {
     if (didPlaySoundsRef.current) return;
@@ -90,6 +97,26 @@ export function ReviewComplete({
       <p className="text-muted-foreground mb-8">
         {t("reviewComplete.subtitle")}
       </p>
+
+      {lastReviewOutcome && ratingLabel && (
+        <div
+          data-review-schedule-outcome="true"
+          className="mb-6 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-left"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+              <CalendarCheck className="h-5 w-5 text-primary" />
+              Scheduled
+            </span>
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+              {ratingLabel}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Next review in {lastReviewOutcome.intervalDays} {lastReviewOutcome.intervalDays === 1 ? "day" : "days"}
+          </p>
+        </div>
+      )}
 
       {/* Streak Achievement */}
       {streak && streak.current_streak > 0 && (
@@ -157,6 +184,16 @@ export function ReviewComplete({
 
       {/* Action Buttons */}
       <div className="flex flex-col gap-3">
+        <button
+          type="button"
+          data-showcase-action="view-connections"
+          onClick={() => window.dispatchEvent(new CustomEvent("plethora:open-tab", {
+            detail: { tabType: "knowledge-network" },
+          }))}
+          className="px-6 py-3 bg-card border border-border text-foreground rounded-lg hover:bg-muted transition-colors font-medium"
+        >
+          View connections
+        </button>
         <button
           onClick={() => navigate("/queue")}
           className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"

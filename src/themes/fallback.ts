@@ -99,6 +99,43 @@ export const milkyMatchaTheme: Theme = {
   },
 };
 
+/** Fixed light theme used only by explicit marketing capture builds. */
+export const plethoraLaunchTheme: Theme = {
+  ...milkyMatchaTheme,
+  id: 'plethora-purple',
+  name: 'Plethora Launch Purple',
+  description: 'Paper, violet, and ink launch palette for deterministic product captures',
+  colors: {
+    ...milkyMatchaTheme.colors,
+    background: '#f6f3ff',
+    onBackground: '#251c3a',
+    surface: '#fdfbff',
+    onSurface: '#251c3a',
+    surfaceVariant: '#eee8ff',
+    primary: '#6f4cff',
+    onPrimary: '#ffffff',
+    primaryContainer: '#e3d9ff',
+    onPrimaryContainer: '#2e1b64',
+    secondary: '#8c6bd8',
+    onSecondary: '#ffffff',
+    outline: '#d6ccec',
+    outlineVariant: '#c1b3df',
+    toolbar: '#f6f3ff',
+    sidebar: '#f0ebfb',
+    card: '#ffffff',
+    input: '#ffffff',
+    border: '#d6ccec',
+    text: '#251c3a',
+    textSecondary: '#695d7d',
+    link: '#6541df',
+    modeAccent: '#6f4cff',
+  },
+  typography: {
+    ...milkyMatchaTheme.typography,
+    fontFamily: 'system-ui',
+  },
+};
+
 export const superGameBroTheme: Theme = {
   id: 'super-game-bro',
   name: 'Super Game Bro',

@@ -306,6 +306,35 @@ if (!bootstrapRoot) {
   rootEl.setAttribute("data-plethora-mounted", "true");
 }
 
+// Marketing capture is an explicit dev/capture-build capability. Seed its
+// disposable database before MainLayout (and therefore all product queries)
+// mounts. A production URL query by itself never imports or runs the adapter.
+const captureBuildEnabled = import.meta.env.DEV || import.meta.env.VITE_MARKETING_CAPTURE_ENABLED === "1";
+const captureQuery = `${window.location.search}&${window.location.hash.includes("?")
+  ? window.location.hash.slice(window.location.hash.indexOf("?") + 1)
+  : ""}`;
+const hasCaptureIntent = /(?:^|[?&])(?:fixture|scene|layout)=/.test(captureQuery);
+const marketingCaptureActive = captureBuildEnabled && hasCaptureIntent;
+if (marketingCaptureActive) {
+  try {
+    const { prepareMarketingCapture } = await import("./lib/marketingCapture/browserAdapter");
+    const bootstrap = await prepareMarketingCapture();
+    if (!bootstrap) throw new Error("Marketing capture intent did not resolve to a request");
+    document.body.dataset.marketingScene = bootstrap.request.sceneId;
+    document.body.dataset.marketingLayout = bootstrap.request.layout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    document.body.dataset.marketingReady = "error";
+    document.body.dataset.marketingError = message;
+    reactRoot.render(
+      <div role="alert" style={{ padding: 32, fontFamily: "system-ui", color: "#241b3a" }}>
+        Marketing capture bootstrap failed: {message}
+      </div>,
+    );
+    throw error;
+  }
+}
+
 // Expose the legacy debugging store registry without making every store part
 // of the pre-mount module graph. Nothing in the first screen needs this
 // registry; populate it after the first paint and keep the public shape intact.
@@ -514,7 +543,7 @@ reactRoot.render(
               <KindleImportDialogHost />
             </Suspense>
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
-            {!isTauri() && <Analytics />}
+            {!isTauri() && !marketingCaptureActive && <Analytics />}
             {/* Knowledge Peck branded startup overlay (openspec change
                 knowledge-peck-startup-animation). Statically imported — it
                 must render before lazy routes resolve — and mounted as the

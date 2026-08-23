@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "theme": {
+    "id": "plethora-purple",
+    "label": "Plethora launch purple",
+    "colorScheme": "light"
+  },
+  "buildId": {
+    "format": "<package-version>+<short-git-sha>",
+    "example": "2.7.0+21e95f1e247a"
+  },
+  "fixtureId": "marketing-fixture-v2",
+  "requiredGuidedPath": [
+    "library.ready",
+    "reader.open",
+    "reader.selected",
+    "remember.preview",
+    "review.question",
+    "review.answer",
+    "review.scheduled",
+    "connections.context"
+  ],
+  "optionalScenes": {
+    "explain.grounded": {
+      "status": "catalogued-not-required",
+      "reason": "The real explanation UI has no deterministic pre-authored injection path. It remains available for a future capture build, but may not be substituted with a mocked result."
+    }
+  }
+}

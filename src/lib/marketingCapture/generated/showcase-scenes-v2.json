@@ -1,0 +1,511 @@
+{
+  "guidedPath": [
+    "library.ready",
+    "reader.open",
+    "reader.selected",
+    "remember.preview",
+    "review.question",
+    "review.answer",
+    "review.scheduled",
+    "connections.context"
+  ],
+  "layouts": {
+    "desktop": {
+      "dpr": 1,
+      "height": 900,
+      "width": 1440
+    },
+    "mobile": {
+      "dpr": 1,
+      "height": 844,
+      "width": 390
+    }
+  },
+  "metadata": {
+    "catalogId": "plethora-showcase-scenes-v2",
+    "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+    "fixtureId": "marketing-fixture-v2",
+    "fixtureVersion": "2.0.0",
+    "locale": "en-US",
+    "logicalTime": "2026-08-23T12:00:00.000Z",
+    "schemaVersion": 1,
+    "theme": "plethora-purple"
+  },
+  "scenes": [
+    {
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "actions": [
+        {
+          "id": "open-featured",
+          "label": "Open / Read",
+          "nextSceneId": "reader.open",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"open-featured\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Collect",
+      "fallbackSceneId": "library.ready",
+      "id": "library.ready",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=library.ready&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=library.ready&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "A populated library keeps the essay beside the rest of the reading desk.",
+      "predecessor": null,
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Why highlighting feels like learning",
+        "Sleep is not downtime for memory"
+      ],
+      "successors": [
+        "reader.open"
+      ],
+      "surface": "library",
+      "transition": "focus"
+    },
+    {
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "actions": [
+        {
+          "id": "select-passage",
+          "label": "Select passage",
+          "nextSceneId": "reader.selected",
+          "recommended": true,
+          "selector": "[data-showcase-region=\"select-passage\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Read",
+      "fallbackSceneId": "reader.open",
+      "id": "reader.open",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=reader.open&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=reader.open&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "The essay reopens where recognition and recall diverge.",
+      "predecessor": "library.ready",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Why highlighting feels like learning",
+        "Recognition is cheap"
+      ],
+      "successors": [
+        "reader.selected"
+      ],
+      "surface": "reader",
+      "transition": "crossfade"
+    },
+    {
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "actions": [
+        {
+          "id": "explain-selection",
+          "label": "Explain",
+          "nextSceneId": "explain.grounded",
+          "recommended": false,
+          "selector": "[data-showcase-action=\"explain-selection\"]"
+        },
+        {
+          "id": "remember-selection",
+          "label": "Learn this",
+          "nextSceneId": "remember.preview",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"remember-selection\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Understand",
+      "fallbackSceneId": "reader.open",
+      "id": "reader.selected",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=reader.selected&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=reader.selected&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "A deliberate selection exposes only actions the real reader supports.",
+      "predecessor": "reader.open",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Recognition is cheap",
+        "Explain",
+        "Learn this"
+      ],
+      "successors": [
+        "explain.grounded",
+        "remember.preview"
+      ],
+      "surface": "reader",
+      "transition": "focus"
+    },
+    {
+      "accessibleDescription": "Optional grounded explanation scene, omitted until the real UI supports deterministic injection.",
+      "actions": [],
+      "captureSupported": false,
+      "chapter": "Understand",
+      "fallbackSceneId": "reader.selected",
+      "id": "explain.grounded",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=explain.grounded&layout=desktop",
+          "layout": "desktop",
+          "required": false,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=explain.grounded&layout=mobile",
+          "layout": "mobile",
+          "required": false,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "A future pre-authored explanation can remain grounded in the selected passage.",
+      "predecessor": "reader.selected",
+      "required": false,
+      "requiredLayouts": [],
+      "sentinels": [
+        "Recognition is cheap"
+      ],
+      "successors": [
+        "remember.preview"
+      ],
+      "surface": "reader",
+      "transition": "focus"
+    },
+    {
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "actions": [
+        {
+          "id": "save-card",
+          "label": "Add card",
+          "nextSceneId": "review.question",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"save-card\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Remember",
+      "fallbackSceneId": "reader.selected",
+      "id": "remember.preview",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=remember.preview&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=remember.preview&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "The selected claim becomes a concise retrieval prompt.",
+      "predecessor": "reader.selected",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Why does highlighting often fail as study?",
+        "Add 1 card"
+      ],
+      "successors": [
+        "review.question"
+      ],
+      "surface": "reader",
+      "transition": "focus"
+    },
+    {
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "actions": [
+        {
+          "id": "reveal-answer",
+          "label": "Show Answer",
+          "nextSceneId": "review.answer",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"reveal-answer\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Remember",
+      "fallbackSceneId": "review.question",
+      "id": "review.question",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.question&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.question&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "Later, the card returns as a question before its answer is visible.",
+      "predecessor": "remember.preview",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Why does highlighting often fail as study?",
+        "Show Answer"
+      ],
+      "successors": [
+        "review.answer"
+      ],
+      "surface": "review",
+      "transition": "crossfade"
+    },
+    {
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "actions": [
+        {
+          "id": "grade-good",
+          "label": "Good",
+          "nextSceneId": "review.scheduled",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"grade-good\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Remember",
+      "fallbackSceneId": "review.question",
+      "id": "review.answer",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.answer&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.answer&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "The answer appears with the real grading controls.",
+      "predecessor": "review.question",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "It tags importance without encoding",
+        "Good"
+      ],
+      "successors": [
+        "review.scheduled"
+      ],
+      "surface": "review",
+      "transition": "crossfade"
+    },
+    {
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "actions": [
+        {
+          "id": "view-connections",
+          "label": "View connections",
+          "nextSceneId": "connections.context",
+          "recommended": true,
+          "selector": "[data-showcase-action=\"view-connections\"]"
+        }
+      ],
+      "captureSupported": true,
+      "chapter": "Return",
+      "fallbackSceneId": "review.answer",
+      "id": "review.scheduled",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.scheduled&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=review.scheduled&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "A deliberate grade schedules the next review.",
+      "predecessor": "review.answer",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Review Complete!",
+        "Scheduled",
+        "Good",
+        "Next review in 3 days"
+      ],
+      "successors": [
+        "connections.context"
+      ],
+      "surface": "review",
+      "transition": "focus"
+    },
+    {
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "actions": [],
+      "captureSupported": true,
+      "chapter": "Return",
+      "fallbackSceneId": "connections.context",
+      "id": "connections.context",
+      "layouts": [
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=connections.context&layout=desktop",
+          "layout": "desktop",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 900,
+            "width": 1440
+          }
+        },
+        {
+          "captureRoute": "/#/?fixture=marketing-fixture-v2&scene=connections.context&layout=mobile",
+          "layout": "mobile",
+          "required": true,
+          "viewport": {
+            "dpr": 1,
+            "height": 844,
+            "width": 390
+          }
+        }
+      ],
+      "narration": "The remembered claim returns with its neighboring ideas.",
+      "predecessor": "review.scheduled",
+      "required": true,
+      "requiredLayouts": [
+        "desktop",
+        "mobile"
+      ],
+      "sentinels": [
+        "Recognition is cheap",
+        "Effort is a teaching signal"
+      ],
+      "successors": [],
+      "surface": "connections",
+      "transition": "focus"
+    }
+  ]
+}

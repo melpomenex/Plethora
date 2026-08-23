@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = 4321;
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 4321);
 const baseURL = `http://127.0.0.1:${port}`;
 
 /**
@@ -27,9 +27,7 @@ export default defineConfig({
       ]
     : [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: process.env.CI
-      ? `npm run preview -- --host 127.0.0.1 --port ${port}`
-      : `npm run build && npm run preview -- --host 127.0.0.1 --port ${port}`,
+    command: `PUBLIC_SHOWCASE_V2_ENABLED=true npm run build && npm run preview -- --host 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

@@ -21,8 +21,6 @@ export type { ClaimStatus, ClaimSurface, ProductClaim } from './claims.ts';
 export { CLAIMS, publicClaimsFor, assertClaim, claimStatement, getClaim } from './claims.ts';
 export type { LegalPlaceholders } from './legal.ts';
 export { LEGAL, legalIsDraft } from './legal.ts';
-export type { DemoContentKind, DemoStage, DemoState } from './demo-contract.ts';
-export { DEMO_PRIMARY_PATH } from './demo-contract.ts';
 export type { WebsiteAnalyticsEvent } from './analytics.ts';
 export { trackWebsiteEvent } from './analytics.ts';
 export type { MarketingAsset, MarketingAssetManifest } from './assets.ts';

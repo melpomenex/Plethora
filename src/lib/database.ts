@@ -5,10 +5,11 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { PdfSelectionContext } from '../types/selection';
+import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 
 // Database version - increment when schema changes
 const DB_VERSION = 4;
-const DB_NAME = 'plethora';
+const DEFAULT_DB_NAME = 'plethora';
 // Legacy database name written by Incrementum releases. The one-shot
 // migration below copies its contents into the new database on first run;
 // the legacy database itself is NEVER deleted (rollback path).
@@ -49,7 +50,18 @@ let migrationPromise: Promise<void> | null = null;
  *   legacy database is confirmed absent); failures leave the flag unset so
  *   the next boot retries.
  */
-async function migrateLegacyLibraryDatabase(): Promise<void> {
+function configuredDatabaseName(): string {
+    const requested = (globalThis as typeof globalThis & {
+        __PLETHORA_CAPTURE_DATABASE__?: unknown;
+    }).__PLETHORA_CAPTURE_DATABASE__;
+    return isMarketingCaptureNamespace(requested) ? requested : DEFAULT_DB_NAME;
+}
+
+export function getActiveDatabaseName(): string {
+    return configuredDatabaseName();
+}
+
+async function migrateLegacyLibraryDatabase(targetDatabaseName: string): Promise<void> {
     if (typeof indexedDB === 'undefined') return;
     try {
         if (localStorage.getItem(DB_MIGRATION_FLAG) === '1') return;
@@ -68,7 +80,7 @@ async function migrateLegacyLibraryDatabase(): Promise<void> {
                 try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
                 return;
             }
-            if (names.has(DB_NAME)) {
+            if (names.has(targetDatabaseName)) {
                 // A Plethora database already exists — never merge over it.
                 try { localStorage.setItem(DB_MIGRATION_FLAG, '1'); } catch { /* blocked */ }
                 return;
@@ -158,11 +170,13 @@ async function migrateLegacyLibraryDatabase(): Promise<void> {
  * memory pressure, versionchange), it transparently reconnects.
  */
 export async function openDatabase(): Promise<IDBDatabase> {
+    const databaseName = configuredDatabaseName();
     if (db) {
         // Probe the connection — if the browser closed it externally,
         // objectStoreNames will throw or be empty.
         try {
-            if (db.objectStoreNames.length > 0) return db;
+            if (db.name === databaseName && db.objectStoreNames.length > 0) return db;
+            db.close();
         } catch {
             // dead
         }
@@ -173,7 +187,7 @@ export async function openDatabase(): Promise<IDBDatabase> {
     // runs between the schema open below and any caller access. It is gated
     // by `db != null` internally.
     const opened = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        const request = indexedDB.open(databaseName, DB_VERSION);
 
         request.onerror = () => {
             const err = request.error;
@@ -252,12 +266,14 @@ export async function openDatabase(): Promise<IDBDatabase> {
 
     // Run the one-shot legacy library migration now that the target schema
     // exists (the migration writes only into empty stores).
-    if (!migrationPromise) {
-        migrationPromise = migrateLegacyLibraryDatabase().catch((err) => {
-            console.warn('[brand-migration] library database migration failed', err);
-        });
+    if (!isMarketingCaptureNamespace(databaseName)) {
+        if (!migrationPromise) {
+            migrationPromise = migrateLegacyLibraryDatabase(databaseName).catch((err) => {
+                console.warn('[brand-migration] library database migration failed', err);
+            });
+        }
+        await migrationPromise;
     }
-    await migrationPromise;
 
     // The migration may have been interrupted by the browser closing the
     // connection; re-probe before handing the database to callers.
@@ -1093,6 +1109,67 @@ export async function bulkPutLearningItems(items: LearningItem[]): Promise<void>
             tx.onerror = () => reject(tx.error);
         });
     });
+}
+
+export interface MarketingCaptureFixtureTransaction {
+    documents: Document[];
+    extracts: Extract[];
+    learningItems: LearningItem[];
+    files: StoredFile[];
+    metadata: unknown;
+    auxiliary: Record<string, unknown>;
+}
+
+/**
+ * Replace a disposable marketing capture database in one transaction.
+ * The namespace guard is deliberately inside the repository boundary so no
+ * caller can accidentally repurpose this destructive operation for user data.
+ */
+export async function replaceMarketingCaptureFixture(
+    fixture: MarketingCaptureFixtureTransaction,
+): Promise<void> {
+    const databaseName = configuredDatabaseName();
+    if (!isMarketingCaptureNamespace(databaseName)) {
+        throw new Error('Refusing to replace fixture outside a validated marketing capture namespace');
+    }
+
+    return withRetry((database) => new Promise<void>((resolve, reject) => {
+        if (database.name !== databaseName) {
+            reject(new Error('Active IndexedDB connection does not match the capture namespace'));
+            return;
+        }
+        const storeNames = [
+            STORES.documents,
+            STORES.extracts,
+            STORES.learningItems,
+            STORES.files,
+            STORES.syncState,
+        ];
+        const tx = database.transaction(storeNames, 'readwrite');
+        const documents = tx.objectStore(STORES.documents);
+        const extracts = tx.objectStore(STORES.extracts);
+        const learningItems = tx.objectStore(STORES.learningItems);
+        const files = tx.objectStore(STORES.files);
+        const syncState = tx.objectStore(STORES.syncState);
+
+        documents.clear();
+        extracts.clear();
+        learningItems.clear();
+        files.clear();
+        syncState.clear();
+        fixture.documents.forEach((record) => documents.put(record));
+        fixture.extracts.forEach((record) => extracts.put(record));
+        fixture.learningItems.forEach((record) => learningItems.put(record));
+        fixture.files.forEach((record) => files.put(record));
+        syncState.put({ key: 'marketing_fixture_v2:metadata', value: fixture.metadata });
+        Object.entries(fixture.auxiliary).forEach(([key, value]) => {
+            syncState.put({ key: `marketing_fixture_v2:${key}`, value });
+        });
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Marketing fixture transaction failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('Marketing fixture transaction aborted'));
+    }));
 }
 
 export interface ImageAsset {

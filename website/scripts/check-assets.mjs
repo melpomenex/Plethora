@@ -12,7 +12,15 @@ import { dirname, join, resolve } from 'node:path';
 const websiteRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(websiteRoot, '..');
 const freshness = join(repoRoot, 'scripts/marketing/check-freshness.mjs');
+const showcase = join(websiteRoot, 'scripts/check-showcase-assets.mjs');
 const indexing = process.env.PUBLIC_INDEXING === 'index' ? 'index' : 'noindex';
+
+const showcaseResult = spawnSync(process.execPath, [showcase], {
+  cwd: repoRoot,
+  stdio: 'inherit',
+  env: process.env,
+});
+if (showcaseResult.status !== 0) process.exit(showcaseResult.status ?? 1);
 
 if (!existsSync(freshness)) {
   console.log(

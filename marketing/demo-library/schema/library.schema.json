@@ -1,34 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://useplethora.com/schemas/marketing-demo-library.json",
-  "title": "PlethoraMarketingDemoLibrary",
+  "$id": "https://useplethora.com/schemas/marketing-demo-library-v2.json",
+  "title": "PlethoraMarketingFixtureV2Source",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "storyId",
+    "fixtureId",
     "title",
     "theme",
     "version",
     "seed",
     "sources",
+    "files",
+    "documents",
+    "queue",
+    "readingProgress",
     "notes",
     "extracts",
-    "cards",
-    "reviewLog",
+    "learningItems",
+    "reviewEvents",
+    "tags",
     "connections"
   ],
   "properties": {
     "storyId": { "type": "string", "const": "memory-sleep-cognition" },
-    "title": { "type": "string" },
-    "theme": { "type": "string" },
-    "version": { "type": "string" },
+    "fixtureId": { "type": "string", "const": "marketing-fixture-v2" },
+    "title": { "type": "string", "minLength": 1 },
+    "theme": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "const": "2.0.0" },
     "seed": {
       "type": "object",
       "additionalProperties": false,
       "required": ["rngSeed", "createdAt"],
       "properties": {
         "rngSeed": { "type": "integer" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "$ref": "#/$defs/dateTime" }
       }
     },
     "sources": {
@@ -37,76 +44,165 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "kind", "title", "license", "paths"],
+        "required": ["id", "kind", "title", "license", "attribution", "paths"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "kind": {
-            "type": "string",
-            "enum": ["essay", "lecture", "pdf", "pd-excerpt", "occlusion-diagram", "notes-cards-graph"]
-          },
-          "title": { "type": "string" },
-          "license": { "type": "string" },
-          "attribution": { "type": "string" },
+          "id": { "$ref": "#/$defs/uuid" },
+          "kind": { "type": "string", "enum": ["essay", "lecture", "pdf", "pd-excerpt", "occlusion-diagram", "notes-cards-graph"] },
+          "title": { "type": "string", "minLength": 1 },
+          "license": { "type": "string", "enum": ["CC0-1.0", "Public-Domain"] },
+          "attribution": { "type": "string", "minLength": 1 },
           "paths": {
             "type": "object",
-            "additionalProperties": { "type": "string" }
+            "minProperties": 1,
+            "additionalProperties": { "$ref": "#/$defs/localPath" }
           }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sourceId", "path", "mediaType", "role"],
+        "properties": {
+          "id": { "$ref": "#/$defs/uuid" },
+          "sourceId": { "$ref": "#/$defs/uuid" },
+          "path": { "$ref": "#/$defs/localPath" },
+          "mediaType": { "type": "string", "enum": ["application/epub+zip", "application/pdf", "text/html", "text/markdown", "image/svg+xml", "audio/wav"] },
+          "role": { "type": "string", "const": "primary" }
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sourceId", "fileId", "title", "fileType", "category", "tags", "priorityRating", "prioritySlider", "priorityScore", "isFavorite", "nextReadingDate"],
+        "properties": {
+          "id": { "$ref": "#/$defs/uuid" },
+          "sourceId": { "$ref": "#/$defs/uuid" },
+          "fileId": { "$ref": "#/$defs/uuid" },
+          "title": { "type": "string", "minLength": 1 },
+          "fileType": { "type": "string", "enum": ["pdf", "epub", "markdown", "html", "audio", "image"] },
+          "category": { "type": "string", "minLength": 1 },
+          "tags": { "$ref": "#/$defs/stringList" },
+          "priorityRating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "prioritySlider": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "priorityScore": { "type": "number", "minimum": 0, "maximum": 100 },
+          "isFavorite": { "type": "boolean" },
+          "nextReadingDate": { "$ref": "#/$defs/dateTime" }
+        }
+      }
+    },
+    "queue": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["documentId", "position", "priorityScore", "dueAt"],
+        "properties": {
+          "documentId": { "$ref": "#/$defs/uuid" },
+          "position": { "type": "integer", "minimum": 1 },
+          "priorityScore": { "type": "number", "minimum": 0, "maximum": 100 },
+          "dueAt": { "$ref": "#/$defs/dateTime" }
+        }
+      }
+    },
+    "readingProgress": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["documentId", "progressPercent", "currentPage", "currentScrollPercent", "updatedAt"],
+        "properties": {
+          "documentId": { "$ref": "#/$defs/uuid" },
+          "progressPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "currentPage": { "type": "integer", "minimum": 1 },
+          "currentScrollPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "updatedAt": { "$ref": "#/$defs/dateTime" }
         }
       }
     },
     "notes": {
       "type": "array",
+      "minItems": 3,
       "items": {
         "type": "object",
-        "required": ["id", "sourceId", "body"],
+        "additionalProperties": false,
+        "required": ["id", "documentId", "body"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "sourceId": { "type": "string", "format": "uuid" },
-          "body": { "type": "string" }
+          "id": { "$ref": "#/$defs/uuid" },
+          "documentId": { "$ref": "#/$defs/uuid" },
+          "body": { "type": "string", "minLength": 1 }
         }
       }
     },
     "extracts": {
       "type": "array",
+      "minItems": 3,
       "items": {
         "type": "object",
-        "required": ["id", "sourceId", "text"],
+        "additionalProperties": false,
+        "required": ["id", "documentId", "locator", "text", "notes", "tags"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "sourceId": { "type": "string", "format": "uuid" },
-          "locator": { "type": "string" },
-          "text": { "type": "string" }
+          "id": { "$ref": "#/$defs/uuid" },
+          "documentId": { "$ref": "#/$defs/uuid" },
+          "locator": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "notes": { "type": "string", "minLength": 1 },
+          "tags": { "$ref": "#/$defs/stringList" }
         }
       }
     },
-    "cards": {
+    "learningItems": {
       "type": "array",
       "minItems": 5,
       "items": {
         "type": "object",
-        "required": ["id", "template", "sourceId"],
+        "additionalProperties": false,
+        "required": ["id", "template", "documentId", "fields"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "template": {
-            "type": "string",
-            "enum": ["basic", "cloze", "mcq", "image-occlusion", "qa"]
-          },
-          "sourceId": { "type": "string", "format": "uuid" },
-          "fields": { "type": "object" }
+          "id": { "$ref": "#/$defs/uuid" },
+          "template": { "type": "string", "enum": ["basic", "cloze", "mcq", "image-occlusion", "qa"] },
+          "documentId": { "$ref": "#/$defs/uuid" },
+          "extractId": { "$ref": "#/$defs/uuid" },
+          "fields": { "type": "object", "minProperties": 1 }
         }
       }
     },
-    "reviewLog": {
+    "reviewEvents": {
       "type": "array",
+      "minItems": 5,
       "items": {
         "type": "object",
-        "required": ["id", "cardId", "ratedAt", "rating", "scheduledDays"],
+        "additionalProperties": false,
+        "required": ["id", "learningItemId", "ratedAt", "rating", "scheduledDays"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "cardId": { "type": "string", "format": "uuid" },
-          "ratedAt": { "type": "string", "format": "date-time" },
+          "id": { "$ref": "#/$defs/uuid" },
+          "learningItemId": { "$ref": "#/$defs/uuid" },
+          "ratedAt": { "$ref": "#/$defs/dateTime" },
           "rating": { "type": "integer", "minimum": 1, "maximum": 4 },
-          "scheduledDays": { "type": "number" }
+          "scheduledDays": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "color"],
+        "properties": {
+          "id": { "$ref": "#/$defs/uuid" },
+          "name": { "type": "string", "minLength": 1 },
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
         }
       }
     },
@@ -115,14 +211,30 @@
       "minItems": 3,
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["id", "fromId", "toId", "label"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "fromId": { "type": "string" },
-          "toId": { "type": "string" },
-          "label": { "type": "string" }
+          "id": { "$ref": "#/$defs/uuid" },
+          "fromId": { "$ref": "#/$defs/uuid" },
+          "toId": { "$ref": "#/$defs/uuid" },
+          "label": { "type": "string", "minLength": 1 }
         }
       }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "localPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(sources|generated)/[A-Za-z0-9_./-]+$"
+    },
+    "stringList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
     }
   }
 }

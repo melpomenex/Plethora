@@ -9,6 +9,7 @@ export interface LaunchFlags {
   checkoutEnabled: boolean;
   analyticsEnabled: boolean;
   demoEnabled: boolean;
+  showcaseV2Enabled: boolean;
   /** When true, public pages still render but store/download buttons are inert with an explanation. */
   commercialStorefrontReady: boolean;
 }
@@ -19,6 +20,7 @@ export const DEFAULT_LAUNCH_FLAGS: LaunchFlags = {
   checkoutEnabled: false,
   analyticsEnabled: false,
   demoEnabled: true,
+  showcaseV2Enabled: true,
   commercialStorefrontReady: false,
 };
 
@@ -50,6 +52,7 @@ export function launchFlagsFromEnv(env: LaunchEnv = {}): LaunchFlags {
     checkoutEnabled: parseBoolFlag(read('PUBLIC_CHECKOUT_ENABLED'), false),
     analyticsEnabled: parseBoolFlag(read('PUBLIC_ANALYTICS_ENABLED'), false),
     demoEnabled: parseBoolFlag(read('PUBLIC_DEMO_ENABLED'), true),
+    showcaseV2Enabled: parseBoolFlag(read('PUBLIC_SHOWCASE_V2_ENABLED'), true),
     commercialStorefrontReady: parseBoolFlag(read('PUBLIC_COMMERCIAL_STOREFRONT_READY'), false),
   };
 }

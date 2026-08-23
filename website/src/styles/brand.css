@@ -194,7 +194,7 @@ body {
 
 .home-hero h1 {
   font-family: var(--font-display);
-  font-size: var(--step-6);
+  font-size: clamp(3rem, 4vw, 3.6rem);
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1.15;
@@ -626,10 +626,14 @@ html.is-document-hidden .peck-passage {
     max-width: none;
   }
 
-  .device-desk,
+  .device-desk {
+    display: none;
+  }
+
   .device-phone {
+    position: static;
+    width: min(62vw, 12rem);
     transform: none;
-    width: 100%;
   }
 
   .format-strip li {

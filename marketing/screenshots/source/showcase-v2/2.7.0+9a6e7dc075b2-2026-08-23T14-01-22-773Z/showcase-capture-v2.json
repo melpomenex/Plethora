@@ -1,0 +1,737 @@
+{
+  "captures": [
+    {
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "library.ready--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Open / Read",
+          "id": "open-featured",
+          "nextSceneId": "reader.open",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.204167,
+            "x": 0.053472,
+            "y": 0.767847
+          },
+          "selector": "[data-showcase-action=\"open-featured\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "library.ready",
+      "sourceHash": "2d60585ea1cbb857d048329897846b7d9160c5baf6a924374d6bcf38600395f1",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "library.ready--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Open / Read",
+          "id": "open-featured",
+          "nextSceneId": "reader.open",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.651282,
+            "x": 0.069231,
+            "y": 0.587715
+          },
+          "selector": "[data-showcase-action=\"open-featured\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "library.ready",
+      "sourceHash": "1088430413876a45bfdac80b5439687168897a056b66a9c73d6cd21fcda0bf4e",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.open--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Select passage",
+          "id": "select-passage",
+          "nextSceneId": "reader.selected",
+          "rect": {
+            "height": 0.021111,
+            "width": 0.292687,
+            "x": 0.320953,
+            "y": 0.589896
+          },
+          "selector": "[data-showcase-region=\"select-passage\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.open",
+      "sourceHash": "55f4af7e7b7ecde6c5a92fe78220e6f2b6a7195af969002fb003010819310057",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.open--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Select passage",
+          "id": "select-passage",
+          "nextSceneId": "reader.selected",
+          "rect": {
+            "height": 0.052836,
+            "width": 0.785617,
+            "x": 0.061538,
+            "y": 0.475378
+          },
+          "selector": "[data-showcase-region=\"select-passage\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.open",
+      "sourceHash": "3f4455d8989f8d76be772dbf8138a941a54ea59dcb44c9fd7f871a79343723e9",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.selected--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Explain",
+          "id": "explain-selection",
+          "nextSceneId": "explain.grounded",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.067632,
+            "x": 0.308203,
+            "y": 0.526667
+          },
+          "selector": "[data-showcase-action=\"explain-selection\"]"
+        },
+        {
+          "actionLabel": "Learn this",
+          "id": "remember-selection",
+          "nextSceneId": "remember.preview",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.079937,
+            "x": 0.375836,
+            "y": 0.526667
+          },
+          "selector": "[data-showcase-action=\"remember-selection\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.selected",
+      "sourceHash": "8f2d76f967efb6c1844c16a9ff3b46c721584ee2f77e2d73123517976776f7c0",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.selected--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Explain",
+          "id": "explain-selection",
+          "nextSceneId": "explain.grounded",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.24972,
+            "x": 0.376442,
+            "y": 0.543839
+          },
+          "selector": "[data-showcase-action=\"explain-selection\"]"
+        },
+        {
+          "actionLabel": "Learn this",
+          "id": "remember-selection",
+          "nextSceneId": "remember.preview",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.295152,
+            "x": 0.626162,
+            "y": 0.543839
+          },
+          "selector": "[data-showcase-action=\"remember-selection\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.selected",
+      "sourceHash": "6c80d45219b261bb8c6fc44faa9d9851299dc9b09cc952e994f452663b6573d6",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "remember.preview--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Add card",
+          "id": "save-card",
+          "nextSceneId": "review.question",
+          "rect": {
+            "height": 0.041111,
+            "width": 0.443056,
+            "x": 0.278472,
+            "y": 0.584167
+          },
+          "selector": "[data-showcase-action=\"save-card\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "remember.preview",
+      "sourceHash": "96562c4021998292a80788971d6e8405f865f98318c17582170fe509e45d4c91",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "remember.preview--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Add card",
+          "id": "save-card",
+          "nextSceneId": "review.question",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.917949,
+            "x": 0.041026,
+            "y": 0.853081
+          },
+          "selector": "[data-showcase-action=\"save-card\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "remember.preview",
+      "sourceHash": "0bdc7521882d8073c4452ddd6013893e3dc90a12436b8f69251d12488c2f5dd1",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.question--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Show Answer",
+          "id": "reveal-answer",
+          "nextSceneId": "review.answer",
+          "rect": {
+            "height": 0.057778,
+            "width": 0.121734,
+            "x": 0.33635,
+            "y": 0.768472
+          },
+          "selector": "[data-showcase-action=\"reveal-answer\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.question",
+      "sourceHash": "7ea9246f58ad80487e89ac57f36df3ff02c51265d04c69bdce0e9ea6b19be423",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.question--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Show Answer",
+          "id": "reveal-answer",
+          "nextSceneId": "review.answer",
+          "rect": {
+            "height": 0.061611,
+            "width": 0.449479,
+            "x": 0.27524,
+            "y": 0.664692
+          },
+          "selector": "[data-showcase-action=\"reveal-answer\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.question",
+      "sourceHash": "01cbd7842cedead3e1d19484dc92e24a361a16be5e38e97bd33191e78922ca7f",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.answer--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Good",
+          "id": "grade-good",
+          "nextSceneId": "review.scheduled",
+          "rect": {
+            "height": 0.111111,
+            "width": 0.110417,
+            "x": 0.401389,
+            "y": 0.822222
+          },
+          "selector": "[data-showcase-action=\"grade-good\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.answer",
+      "sourceHash": "a7f5b7fbe4f57e2c8347800631b1b9055b112bd854c87a71c0e6e4681e2a8914",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.answer--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Good",
+          "id": "grade-good",
+          "nextSceneId": "review.scheduled",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.217949,
+            "x": 0.507692,
+            "y": 0.454976
+          },
+          "selector": "[data-showcase-action=\"grade-good\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.answer",
+      "sourceHash": "6d69de3f6a9f6dd2c27867b69885fb1224f68f9be63faa6f478706e27fb41c23",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.scheduled--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "View connections",
+          "id": "view-connections",
+          "nextSceneId": "connections.context",
+          "rect": {
+            "height": 0.055556,
+            "width": 0.311111,
+            "x": 0.361111,
+            "y": 0.708333
+          },
+          "selector": "[data-showcase-action=\"view-connections\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.scheduled",
+      "sourceHash": "4970dab7f69f4b03d34801af8d9147e4104a77235990b889e643dd1081a0aa2c",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.scheduled--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "View connections",
+          "id": "view-connections",
+          "nextSceneId": "connections.context",
+          "rect": {
+            "height": 0.059242,
+            "width": 0.876923,
+            "x": 0.061538,
+            "y": 0.658768
+          },
+          "selector": "[data-showcase-action=\"view-connections\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.scheduled",
+      "sourceHash": "83a10400a562f9ac1687ac09f01411363643a432159152db968f5ceb5b910733",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "connections.context--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "connections.context",
+      "sourceHash": "51e3985f9ec02c455d0d1737448dbfbf14cfe4d5bb61df17dd1afe8d70a09a09",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "connections.context--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "connections.context",
+      "sourceHash": "db4c36b757fd14ec213a4599815d1f331bd8e3b18ac57247dfae65d6cbdaf151",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    }
+  ],
+  "metadata": {
+    "appVersion": "2.7.0",
+    "buildId": "2.7.0+9a6e7dc075b2",
+    "captureTime": "2026-08-23T14:01:22.773Z",
+    "catalogId": "plethora-showcase-scenes-v2",
+    "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+    "fixtureId": "marketing-fixture-v2",
+    "fixtureVersion": "2.0.0",
+    "gitSha": "9a6e7dc075b2",
+    "locale": "en-US",
+    "platform": "browser-pwa",
+    "schemaVersion": 2,
+    "sourceType": "playwright-css-viewport",
+    "theme": "plethora-purple"
+  }
+}

@@ -1,0 +1,769 @@
+{
+  "media": [
+    {
+      "byteSize": 4154,
+      "path": "generated/encoding-versus-highlighting.epub",
+      "sha256": "db807a1a1d4a6b5b9ef538cb515141b5944c9c61b52286d20170cb9de4005902"
+    },
+    {
+      "byteSize": 64044,
+      "path": "generated/lecture-demo.wav",
+      "sha256": "5484bb4c7c0029608e881045fa2761ed68067a75516b9791211526d408ce83d0"
+    },
+    {
+      "byteSize": 1993,
+      "path": "generated/spaced-retrieval-methods.pdf",
+      "sha256": "3d5f16c2b1bcef86c180025a3114ff9fdd7a0aed274da80b55e056d76d48af84"
+    },
+    {
+      "byteSize": 2258,
+      "path": "generated/william-james-habit-memory.epub",
+      "sha256": "e89058990e0d8d1b8ef317b0596fae8b07c20c2c87cdaa3f7312f1254c7dad86"
+    },
+    {
+      "byteSize": 7625,
+      "path": "sources/01-essay/encoding-versus-highlighting.html",
+      "sha256": "4e10cb3f4e8211de23847b74b56d87c39e139620be823544528ed7a7ada7a3c9"
+    },
+    {
+      "byteSize": 561,
+      "path": "sources/02-lecture/chapters.json",
+      "sha256": "8288af44779e3555067c1e1a8af9bd21373687459590518ec73beb2c9e523ad3"
+    },
+    {
+      "byteSize": 2889,
+      "path": "sources/02-lecture/lecture-transcript.md",
+      "sha256": "30873762e93d62753ab6fe179d62eaacfb09cea8f29eb6cc3b4ba176b06edb62"
+    },
+    {
+      "byteSize": 1824,
+      "path": "sources/04-pd-excerpt/william-james-habit-memory.html",
+      "sha256": "6f1ff5ea1fc953e36d776e06895041334546759bd6b862d3a61bceb680ff5e94"
+    },
+    {
+      "byteSize": 3105,
+      "path": "sources/04-pd-excerpt/william-james-habit-memory.md",
+      "sha256": "7c7785df4ad5070eeb19061c742dfb005d66779bf7c25c4a1888eec3ce67c573"
+    },
+    {
+      "byteSize": 3102,
+      "path": "sources/05-occlusion/encoding-retrieval.svg",
+      "sha256": "7419bccfc1210d7200c8dc46cc142b0c3f32d72dadaaacba42793ec23c9d61f9"
+    },
+    {
+      "byteSize": 598,
+      "path": "sources/05-occlusion/occlusion-regions.json",
+      "sha256": "284b8c1c57ebf699cc65ad7101507bc27f6b8fe39b0984c899df399952c22347"
+    },
+    {
+      "byteSize": 1871,
+      "path": "sources/06-notes-cards-graph/cards.json",
+      "sha256": "45ed262f174f337b887f38600ab1c1cf9a89f1240b6bdc594f7a0f4ff7c9e0c2"
+    },
+    {
+      "byteSize": 620,
+      "path": "sources/06-notes-cards-graph/connections.json",
+      "sha256": "93035ab4576de2c80981836fb3964e4f39fe4491b14f83c4c7f670391f005c34"
+    },
+    {
+      "byteSize": 728,
+      "path": "sources/06-notes-cards-graph/extracts.json",
+      "sha256": "d37ea244a52b81942e108c3808b843aa6d5c370b5b9e33f0401b469d190c15aa"
+    },
+    {
+      "byteSize": 787,
+      "path": "sources/06-notes-cards-graph/notes.md",
+      "sha256": "4ef43753d4c08e02dd8e8f3a8b47866a6807f7eab375b4746dddfc80f586f5de"
+    },
+    {
+      "byteSize": 983,
+      "path": "sources/06-notes-cards-graph/review-log.json",
+      "sha256": "e74fd42d3b19ba7d36496079f203aaa73f7a9481542d67e5e21d116a825af131"
+    }
+  ],
+  "metadata": {
+    "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+    "fixtureId": "marketing-fixture-v2",
+    "fixtureVersion": "2.0.0",
+    "logicalTime": "2026-08-23T12:00:00.000Z",
+    "rngSeed": 1890,
+    "schemaVersion": 2,
+    "sourceHash": "45f0c1d0b2a3f7eca3a35baaaa2b34371e256061c9d93e822301392f18c6c5a6",
+    "sourcePath": "marketing/demo-library/library.json",
+    "storyId": "memory-sleep-cognition"
+  },
+  "records": {
+    "connections": [
+      {
+        "fromId": "cccccccc-0001-4000-8000-000000000001",
+        "id": "ffffffff-0001-4000-8000-000000000001",
+        "label": "fluency is not overnight encoding",
+        "toId": "cccccccc-0002-4000-8000-000000000002"
+      },
+      {
+        "fromId": "aaaaaaaa-0003-4000-8000-000000000003",
+        "id": "ffffffff-0002-4000-8000-000000000002",
+        "label": "spacing uses the night",
+        "toId": "aaaaaaaa-0002-4000-8000-000000000002"
+      },
+      {
+        "fromId": "aaaaaaaa-0004-4000-8000-000000000004",
+        "id": "ffffffff-0003-4000-8000-000000000003",
+        "label": "hooks vs yellow ink",
+        "toId": "aaaaaaaa-0001-4000-8000-000000000001"
+      }
+    ],
+    "documents": [
+      {
+        "category": "Memory",
+        "content": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\" />\n  <title>Why highlighting feels like learning</title>\n  <meta name=\"license\" content=\"CC0-1.0\" />\n  <meta name=\"author\" content=\"Plethora demo library (original)\" />\n</head>\n<body>\n<article>\n  <h1>Why highlighting feels like learning</h1>\n  <p class=\"deck\">Encoding is work. Color is comfort. The gap between the two is why so many careful readers still forget the page they just finished.</p>\n\n  <p>Open a used textbook and you can date the owner by the palette. Neon yellow for the first anxious week. Pink for definitions. Green for “I might need this later.” The marks look like evidence of study. They are usually evidence of hope. Highlighting is a ritual that soothes the fear of losing a sentence without forcing the mind to do anything with it. The hand moves. The page looks claimed. Memory, which does not care about ownership, stays unconvinced.</p>\n\n  <p>Learning scientists have a blunt name for the difference. <em>Encoding</em> is the set of operations that turn a fleeting experience into a trace you can find again. It is not storage in the sense of filing a photocopy. It is reconstruction: you notice a structure, you say it in your own words, you attach it to something you already know, you test whether you can produce it with the book closed. Highlighting skips most of those operations. It tags a region of the page as important while leaving the importance unearned. Later, when you reread the yellow, you recognize the words and mistake recognition for recall. Recognition is cheap. Recall is the skill you actually wanted.</p>\n\n  <p>This is not an argument against attention. A reader who never marks a page can drift just as easily. The problem is the substitution. Highlighting is treated as the work, when it is at best a pointer to work you still have to do. The pointer is useful if you return, extract, question, and connect. It is harmful if it becomes the entire session. Many of us were trained to “study” by making the book look studied. We confuse a painted surface with a changed mind.</p>\n\n  <h2>The illusion of fluency</h2>\n  <p>Rereading a highlighted paragraph produces a smooth feeling. The sentences are familiar. You nod. You could almost finish them. Fluency is a metacognitive cue, and it is often a liar. The brain reads ease as evidence of knowledge, even when the ease comes from the page still being in front of you. Close the book and the smoothness vanishes. That vanishing is information. It tells you the trace was never built, only rehearsed in the presence of the cue.</p>\n\n  <p>Sleep makes the gap more honest. Overnight, the hippocampus and neocortex replay fragments of the day. What gets replayed is not everything you underlined. It is what you struggled with, what you retrieved, what you linked to a question you cared about. A yellow stripe does not survive that filter unless you did something with it. This is why a lecture that felt clear at 11 p.m. can feel hollow at 8 a.m. Clarity in the room was the instructor holding the structure for you. Encoding would have been you holding it yourself.</p>\n\n  <p>Spaced retrieval is the unglamorous alternative. You read a section. You look away. You try to say the claim, the mechanism, the exception. You fail a little. You check. You fail less. You wait a day and try again. The waits are not wasted time; they are the point. Forgetting is not the enemy of memory. Unchecked forgetting is. A well-timed gap forces the system to search, and the search is what deepens the trace. Highlighting compresses the gap to zero. It is study without the search.</p>\n\n  <h2>What a mark can still be</h2>\n  <p>A mark is honest when it is a promise. “I will turn this sentence into a question.” “I will draw the causal chain.” “I will occlude this diagram and rebuild it.” The mark is then a queue, not a trophy. Incremental reading systems treat the queue as first-class: a library is not a graveyard of files, it is a set of unfinished acts. The unfinished act is the unit of learning. Files are only the raw material.</p>\n\n  <p>Image occlusion makes the contrast visible. A diagram of encoding and retrieval looks complete when every box is labeled. Completeness is another fluency cue. Cover the labels and you discover whether you understood the arrows or merely admired them. The blank region is a question with a spatial shape. Answering it is encoding. Looking at the original figure is not.</p>\n\n  <p>William James, writing when psychology was still arguing with philosophy, already saw habit as the flywheel that keeps a life on its rails. Memory is a habit of retrieval as much as a store of traces. You do not own a fact until producing it has become a little easier than it was yesterday. Easier, not effortless. Effortless is the highlighter’s dream and the examiner’s ambush.</p>\n\n  <h2>Sleep, spacing, and the next morning</h2>\n  <p>The lecture in this demo library makes the same claim from another angle: the night is a second pass, not a pause. Replay during slow-wave sleep is biased toward effort. A comfortable reread does not earn a slot in that reel. A failed recall, followed by a short restudy of the miss, does. Pair that with a delay that includes sleep and you are no longer measuring whether the page looked pretty. You are measuring whether a trace survived selection. The one-page methods note in this library is deliberately dull because dull procedures are what you can repeat. Expanding gaps, scoring idea units instead of wording, treating a miss as information — none of that photographs well. It is still the work.</p>\n  <p>James, in the public-domain excerpt we keep beside the essay, called associates “hooks.” An isolated sentence has nothing to fish with. Highlighting an isolated sentence adds ink without adding hooks. The graph in this library is small on purpose: three labeled connections, not a hairball. Fluency is not overnight encoding. Spacing uses the night. Hooks beat yellow ink. If a connection cannot be said in a short clause, it is decoration. The review log is fake but consistent so screenshots do not drift. Ratings and intervals are fixtures, not telemetry from a person.</p>\n\n  <h2>A small practice</h2>\n  <p>Read with a pencil, not a rainbow. After each section, write one sentence that the author would accept as a fair summary and one sentence the author did not write: a connection, a doubt, a prediction. Turn the summary into a question. Schedule the question. When you review, speak the answer before you uncover it. If you cannot, you have found the real work. Sleep, then try again. The page will look less decorated. Your recall will look more like knowledge.</p>\n\n  <p>None of this requires a particular app. It requires refusing the comfort of a painted paragraph. Tools help when they make the next honest act cheaper than the fake one: extract instead of tint, question instead of reread, connect instead of collect. The collection instinct is strong because it feels like progress you can see. Memory is progress you can only prove later, in the dark, without the book. That is an uncomfortable standard. It is also the only one that matches what we say we wanted when we sat down to read.</p>\n\n  <p>If you remember only one claim from this essay, let it be this: a highlight is not a memory. It is a sticky note on a door you still have to open. Open it. Ask. Wait. Ask again. Let sleep do the quiet rehearsal you cannot rush. Then the next book will meet a mind that already knows how to keep what it cares about.</p>\n</article>\n</body>\n</html>\n",
+        "content_hash": "4e10cb3f4e8211de23847b74b56d87c39e139620be823544528ed7a7ada7a3c9",
+        "current_page": 3,
+        "current_scroll_percent": 41,
+        "date_added": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T11:48:00.000Z",
+        "difficulty": 0,
+        "extract_count": 1,
+        "file_path": "browser-file://encoding-versus-highlighting.html",
+        "file_type": "html",
+        "id": "aaaaaaaa-0001-4000-8000-000000000001",
+        "is_archived": false,
+        "is_favorite": true,
+        "learning_item_count": 1,
+        "metadata": {
+          "attribution": "Original Plethora demo essay.",
+          "fileId": "11111111-0001-4000-8000-000000000001",
+          "fixtureId": "marketing-fixture-v2",
+          "license": "CC0-1.0"
+        },
+        "next_reading_date": "2026-08-23T12:00:00.000Z",
+        "priority_rating": 5,
+        "priority_score": 88,
+        "priority_slider": 88,
+        "progress_percent": 24,
+        "reading_count": 1,
+        "reps": 0,
+        "stability": 0,
+        "sync_version": 0,
+        "tags": [
+          "encoding",
+          "memory"
+        ],
+        "title": "Why highlighting feels like learning",
+        "total_time_spent": 288
+      },
+      {
+        "category": "Memory",
+        "content": "# Sleep is not downtime for memory\n\n**Demo lecture transcript** (original, CC0-1.0).  \nAudio file `lecture-demo.wav` is a **synthetic labeled tone**, not a recording of a person. The transcript is the canonical lecture text.\n\nChapters follow `chapters.json` timestamps on the demo tone (short by design).\n\n## Chapter 1 — The day is encoding; the night is selection\n\nGood evening. The claim I want to leave you with is simple and easy to misuse: sleep is not the absence of learning. It is a second pass.\n\nDuring the day you encounter more than you can keep. Lectures, pages, conversations, diagrams. Encoding begins while you are awake — you notice, you rephrase, you fail a retrieval and try again — but the brain does not finalize the catalog in real time. It keeps a temporary index, especially in hippocampal circuits, that can point back to cortical patterns. That index is fragile. It is also generous. It remembers more than you will still have next week. Night is when generosity becomes taste.\n\n## Chapter 2 — Replay is biased toward effort\n\nReplay during slow-wave sleep is not a tape of the day. It is a highlight reel of what was hard, what was rewarded, what was retrieved, what was tagged as incomplete. This is why highlighting a paragraph and then sleeping on it does almost nothing, while struggling to reconstruct the same paragraph and then sleeping can do a lot. Effort is a teaching signal to the overnight system. Fluency is not.\n\nIf you have ever understood a proof in the evening and lost the thread in the morning, you did not “fail to sleep well” in the moral sense. You outsourced the structure to the page or the lecturer. Overnight replay had little to reconstruct. The feeling of understanding was real. The trace was not.\n\n## Chapter 3 — Spacing borrows the night\n\nSpaced retrieval is sometimes taught as a calendar trick: wait two days, then five. The deeper reason is that each successful wait asks the overnight system to keep a pointer alive and then proves, in daylight, that the pointer still works. You are not merely repeating. You are checking whether selection happened.\n\nA methods one-pager on spaced retrieval will tell you to use expanding gaps and to treat a failed recall as information, not shame. Pair that with sleep hygiene that is boring on purpose: a stable window, darkness, no victory lap of rereading at 1 a.m. Cramming until you feel fluent and then collapsing into bed trains recognition and calls it mastery.\n\n## Chapter 4 — What to do after a lecture\n\nClose the notes. Write three questions the lecturer actually answered. Write one question they did not. Tomorrow, answer them without looking. Then look. Then sleep again. That loop is the lecture, continued. The room was only the first encoding.\n\nThank you. Remember the uncomfortable standard: if you cannot produce it in the morning, you did not yet keep it.\n",
+        "content_hash": "30873762e93d62753ab6fe179d62eaacfb09cea8f29eb6cc3b4ba176b06edb62",
+        "current_page": 1,
+        "current_scroll_percent": 62,
+        "date_added": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-22T19:20:00.000Z",
+        "difficulty": 0,
+        "extract_count": 1,
+        "file_path": "browser-file://lecture-transcript.md",
+        "file_type": "markdown",
+        "id": "aaaaaaaa-0002-4000-8000-000000000002",
+        "is_archived": false,
+        "is_favorite": false,
+        "learning_item_count": 1,
+        "metadata": {
+          "attribution": "Original transcript; synthetic WAV labeled as demo tone (not a person).",
+          "fileId": "11111111-0002-4000-8000-000000000002",
+          "fixtureId": "marketing-fixture-v2",
+          "license": "CC0-1.0"
+        },
+        "next_reading_date": "2026-08-24T12:00:00.000Z",
+        "priority_rating": 4,
+        "priority_score": 72,
+        "priority_slider": 72,
+        "progress_percent": 62,
+        "reading_count": 1,
+        "reps": 0,
+        "stability": 0,
+        "sync_version": 0,
+        "tags": [
+          "lecture",
+          "sleep"
+        ],
+        "title": "Sleep is not downtime for memory",
+        "total_time_spent": 744
+      },
+      {
+        "category": "Methods",
+        "content": "Spaced retrieval: a one-page methods note",
+        "content_hash": "f6d843ee99fb00b5f4a7b54dfd84990e7caf6f23d25ce26909055d27c3a9f4fc",
+        "current_page": 1,
+        "current_scroll_percent": 100,
+        "date_added": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-20T08:15:00.000Z",
+        "difficulty": 0,
+        "extract_count": 0,
+        "file_path": "browser-file://spaced-retrieval-methods.pdf",
+        "file_type": "pdf",
+        "id": "aaaaaaaa-0003-4000-8000-000000000003",
+        "is_archived": false,
+        "is_favorite": false,
+        "learning_item_count": 1,
+        "metadata": {
+          "attribution": "Original methods one-pager.",
+          "fileId": "11111111-0003-4000-8000-000000000003",
+          "fixtureId": "marketing-fixture-v2",
+          "license": "CC0-1.0"
+        },
+        "next_reading_date": "2026-08-25T12:00:00.000Z",
+        "priority_rating": 4,
+        "priority_score": 61,
+        "priority_slider": 61,
+        "progress_percent": 100,
+        "reading_count": 1,
+        "reps": 0,
+        "stability": 0,
+        "sync_version": 0,
+        "tags": [
+          "retrieval",
+          "spacing"
+        ],
+        "title": "Spaced retrieval: a one-page methods note",
+        "total_time_spent": 1200
+      },
+      {
+        "category": "Classics",
+        "content": "# Habit and memory (excerpt)\n\n**Source:** William James, *The Principles of Psychology* (1890), public domain.  \n**Digitization:** Project Gutenberg (typical copies: eBook #57680 / historically circulating HTML transcriptions of the 1890 Holt edition).  \n**This file:** excerpted and lightly punctuated for a demo reader; wording of quoted paragraphs follows the 1890 text. No commercial cover art.\n\n## From Chapter IV — Habit\n\nThe philosopher, however, will probably find himself compelled to admit that there is no more real difference between the two kinds of habit, when we come down to the physical facts, than there is between a lock that is opened by a key and one that is opened by a combination. In both cases the movement is determined by previous happenings in the same brain or lock.\n\nHabit is thus the enormous fly-wheel of society, its most precious conservative agent. It alone is what keeps us all within the bounds of ordinance, and saves the children of fortune from the envious uprisings of the poor. It alone prevents the hardest and most repulsive walks of life from being deserted by those brought up to tread therein.\n\nThe great thing, then, in all education, is to make our nervous system our ally instead of our enemy. It is to fund and capitalize our acquisitions, and live at ease upon the interest of the fund. For this we must make automatic and habitual, as early as possible, as many useful actions as we can, and guard against the growing into ways that are likely to be disadvantageous to us, as we should guard against the plague.\n\n## From Chapter XVI — Memory\n\nThe stream of thought flows on; but most of its segments fall into the bottomless abyss of oblivion. Of some, no memory survives the instant of their passage. Of others, it is confined to a few moments, hours, or days. Others, again, leave vestiges which are indestructible, and by means of which they may be recalled as long as life endures. Can we explain these differences?\n\nThe only hypothesis that seems to make them intelligible is that of the **retention of the sinking processes** in some physical form. The vanishing of the conscious state is not equivalent to the vanishing of its neural conditions. These latter persist, and their persistence is the condition of the state's possible revival.\n\nAll improvement of memory consists, then, in the improvement of one's **habitual methods of recording facts**. Not in the improvement of a native faculty of memory, but in that of one's methods of thinking and ways of recording.\n\nA thing merely read or heard, without being associated with anything else, has little chance of being recalled. The more other facts a fact is associated with in the mind, the better possession of it our memory retains. Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface.\n\n## Demo note\n\nJames is here as a public-domain witness, not as a product endorsement. The marketing story pairs his “hooks” with modern encoding and retrieval practice. Names of living people, emails, and photographs do not appear.\n",
+        "content_hash": "7c7785df4ad5070eeb19061c742dfb005d66779bf7c25c4a1888eec3ce67c573",
+        "current_page": 2,
+        "current_scroll_percent": 36,
+        "date_added": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-19T17:05:00.000Z",
+        "difficulty": 0,
+        "extract_count": 1,
+        "file_path": "browser-file://william-james-habit-memory.epub",
+        "file_type": "epub",
+        "id": "aaaaaaaa-0004-4000-8000-000000000004",
+        "is_archived": false,
+        "is_favorite": true,
+        "learning_item_count": 1,
+        "metadata": {
+          "attribution": "William James, The Principles of Psychology (1890), public domain. Gutenberg-style transcription excerpted for demo use.",
+          "fileId": "11111111-0004-4000-8000-000000000004",
+          "fixtureId": "marketing-fixture-v2",
+          "license": "CC0-1.0"
+        },
+        "next_reading_date": "2026-08-27T12:00:00.000Z",
+        "priority_rating": 3,
+        "priority_score": 54,
+        "priority_slider": 54,
+        "progress_percent": 36,
+        "reading_count": 1,
+        "reps": 0,
+        "stability": 0,
+        "sync_version": 0,
+        "tags": [
+          "james",
+          "public-domain"
+        ],
+        "title": "Habit and memory (William James, 1890)",
+        "total_time_spent": 432
+      },
+      {
+        "category": "Memory",
+        "content": "Encoding to retrieval",
+        "content_hash": "ff92ac248cb1f715bfb5f2ecc205b95273627fdf6b91899cdcc71b80c028663d",
+        "current_page": 1,
+        "current_scroll_percent": 0,
+        "date_added": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-18T10:00:00.000Z",
+        "difficulty": 0,
+        "extract_count": 0,
+        "file_path": "browser-file://encoding-retrieval.svg",
+        "file_type": "image",
+        "id": "aaaaaaaa-0005-4000-8000-000000000005",
+        "is_archived": false,
+        "is_favorite": false,
+        "learning_item_count": 1,
+        "metadata": {
+          "attribution": "Original SVG diagram (no people, no third-party marks).",
+          "fileId": "11111111-0005-4000-8000-000000000005",
+          "fixtureId": "marketing-fixture-v2",
+          "license": "CC0-1.0"
+        },
+        "next_reading_date": "2026-08-29T12:00:00.000Z",
+        "priority_rating": 3,
+        "priority_score": 49,
+        "priority_slider": 49,
+        "progress_percent": 0,
+        "reading_count": 0,
+        "reps": 0,
+        "stability": 0,
+        "sync_version": 0,
+        "tags": [
+          "occlusion",
+          "retrieval"
+        ],
+        "title": "Encoding to retrieval",
+        "total_time_spent": 0
+      }
+    ],
+    "extracts": [
+      {
+        "category": "Memory",
+        "content": "Recognition is cheap. Recall is the skill you actually wanted.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "document_id": "aaaaaaaa-0001-4000-8000-000000000001",
+        "highlight_color": "#8f72ff",
+        "id": "cccccccc-0001-4000-8000-000000000001",
+        "max_disclosure_level": 3,
+        "next_review_date": "2026-08-23T12:00:00.000Z",
+        "notes": "Turn this contrast into a retrieval prompt.",
+        "progressive_disclosure_level": 0,
+        "reps": 0,
+        "review_count": 0,
+        "selection_context": {
+          "fixtureLocator": "essay:fluency"
+        },
+        "sync_version": 0,
+        "tags": [
+          "encoding",
+          "retrieval"
+        ]
+      },
+      {
+        "category": "Memory",
+        "content": "Effort is a teaching signal to the overnight system. Fluency is not.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "document_id": "aaaaaaaa-0002-4000-8000-000000000002",
+        "highlight_color": "#8f72ff",
+        "id": "cccccccc-0002-4000-8000-000000000002",
+        "max_disclosure_level": 3,
+        "next_review_date": "2026-08-23T12:00:00.000Z",
+        "notes": "Connect effort to overnight replay.",
+        "progressive_disclosure_level": 0,
+        "reps": 0,
+        "review_count": 0,
+        "selection_context": {
+          "fixtureLocator": "lecture:ch-2"
+        },
+        "sync_version": 0,
+        "tags": [
+          "effort",
+          "sleep"
+        ]
+      },
+      {
+        "category": "Memory",
+        "content": "Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "document_id": "aaaaaaaa-0004-4000-8000-000000000004",
+        "highlight_color": "#8f72ff",
+        "id": "cccccccc-0003-4000-8000-000000000003",
+        "max_disclosure_level": 3,
+        "next_review_date": "2026-08-23T12:00:00.000Z",
+        "notes": "Association supplies retrieval routes.",
+        "progressive_disclosure_level": 0,
+        "reps": 0,
+        "review_count": 0,
+        "selection_context": {
+          "fixtureLocator": "james:hooks"
+        },
+        "sync_version": 0,
+        "tags": [
+          "association",
+          "public-domain"
+        ]
+      }
+    ],
+    "files": [
+      {
+        "byte_size": 7625,
+        "bytes_base64": "PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CiAgPG1ldGEgY2hhcnNldD0idXRmLTgiIC8+CiAgPHRpdGxlPldoeSBoaWdobGlnaHRpbmcgZmVlbHMgbGlrZSBsZWFybmluZzwvdGl0bGU+CiAgPG1ldGEgbmFtZT0ibGljZW5zZSIgY29udGVudD0iQ0MwLTEuMCIgLz4KICA8bWV0YSBuYW1lPSJhdXRob3IiIGNvbnRlbnQ9IlBsZXRob3JhIGRlbW8gbGlicmFyeSAob3JpZ2luYWwpIiAvPgo8L2hlYWQ+Cjxib2R5Pgo8YXJ0aWNsZT4KICA8aDE+V2h5IGhpZ2hsaWdodGluZyBmZWVscyBsaWtlIGxlYXJuaW5nPC9oMT4KICA8cCBjbGFzcz0iZGVjayI+RW5jb2RpbmcgaXMgd29yay4gQ29sb3IgaXMgY29tZm9ydC4gVGhlIGdhcCBiZXR3ZWVuIHRoZSB0d28gaXMgd2h5IHNvIG1hbnkgY2FyZWZ1bCByZWFkZXJzIHN0aWxsIGZvcmdldCB0aGUgcGFnZSB0aGV5IGp1c3QgZmluaXNoZWQuPC9wPgoKICA8cD5PcGVuIGEgdXNlZCB0ZXh0Ym9vayBhbmQgeW91IGNhbiBkYXRlIHRoZSBvd25lciBieSB0aGUgcGFsZXR0ZS4gTmVvbiB5ZWxsb3cgZm9yIHRoZSBmaXJzdCBhbnhpb3VzIHdlZWsuIFBpbmsgZm9yIGRlZmluaXRpb25zLiBHcmVlbiBmb3Ig4oCcSSBtaWdodCBuZWVkIHRoaXMgbGF0ZXIu4oCdIFRoZSBtYXJrcyBsb29rIGxpa2UgZXZpZGVuY2Ugb2Ygc3R1ZHkuIFRoZXkgYXJlIHVzdWFsbHkgZXZpZGVuY2Ugb2YgaG9wZS4gSGlnaGxpZ2h0aW5nIGlzIGEgcml0dWFsIHRoYXQgc29vdGhlcyB0aGUgZmVhciBvZiBsb3NpbmcgYSBzZW50ZW5jZSB3aXRob3V0IGZvcmNpbmcgdGhlIG1pbmQgdG8gZG8gYW55dGhpbmcgd2l0aCBpdC4gVGhlIGhhbmQgbW92ZXMuIFRoZSBwYWdlIGxvb2tzIGNsYWltZWQuIE1lbW9yeSwgd2hpY2ggZG9lcyBub3QgY2FyZSBhYm91dCBvd25lcnNoaXAsIHN0YXlzIHVuY29udmluY2VkLjwvcD4KCiAgPHA+TGVhcm5pbmcgc2NpZW50aXN0cyBoYXZlIGEgYmx1bnQgbmFtZSBmb3IgdGhlIGRpZmZlcmVuY2UuIDxlbT5FbmNvZGluZzwvZW0+IGlzIHRoZSBzZXQgb2Ygb3BlcmF0aW9ucyB0aGF0IHR1cm4gYSBmbGVldGluZyBleHBlcmllbmNlIGludG8gYSB0cmFjZSB5b3UgY2FuIGZpbmQgYWdhaW4uIEl0IGlzIG5vdCBzdG9yYWdlIGluIHRoZSBzZW5zZSBvZiBmaWxpbmcgYSBwaG90b2NvcHkuIEl0IGlzIHJlY29uc3RydWN0aW9uOiB5b3Ugbm90aWNlIGEgc3RydWN0dXJlLCB5b3Ugc2F5IGl0IGluIHlvdXIgb3duIHdvcmRzLCB5b3UgYXR0YWNoIGl0IHRvIHNvbWV0aGluZyB5b3UgYWxyZWFkeSBrbm93LCB5b3UgdGVzdCB3aGV0aGVyIHlvdSBjYW4gcHJvZHVjZSBpdCB3aXRoIHRoZSBib29rIGNsb3NlZC4gSGlnaGxpZ2h0aW5nIHNraXBzIG1vc3Qgb2YgdGhvc2Ugb3BlcmF0aW9ucy4gSXQgdGFncyBhIHJlZ2lvbiBvZiB0aGUgcGFnZSBhcyBpbXBvcnRhbnQgd2hpbGUgbGVhdmluZyB0aGUgaW1wb3J0YW5jZSB1bmVhcm5lZC4gTGF0ZXIsIHdoZW4geW91IHJlcmVhZCB0aGUgeWVsbG93LCB5b3UgcmVjb2duaXplIHRoZSB3b3JkcyBhbmQgbWlzdGFrZSByZWNvZ25pdGlvbiBmb3IgcmVjYWxsLiBSZWNvZ25pdGlvbiBpcyBjaGVhcC4gUmVjYWxsIGlzIHRoZSBza2lsbCB5b3UgYWN0dWFsbHkgd2FudGVkLjwvcD4KCiAgPHA+VGhpcyBpcyBub3QgYW4gYXJndW1lbnQgYWdhaW5zdCBhdHRlbnRpb24uIEEgcmVhZGVyIHdobyBuZXZlciBtYXJrcyBhIHBhZ2UgY2FuIGRyaWZ0IGp1c3QgYXMgZWFzaWx5LiBUaGUgcHJvYmxlbSBpcyB0aGUgc3Vic3RpdHV0aW9uLiBIaWdobGlnaHRpbmcgaXMgdHJlYXRlZCBhcyB0aGUgd29yaywgd2hlbiBpdCBpcyBhdCBiZXN0IGEgcG9pbnRlciB0byB3b3JrIHlvdSBzdGlsbCBoYXZlIHRvIGRvLiBUaGUgcG9pbnRlciBpcyB1c2VmdWwgaWYgeW91IHJldHVybiwgZXh0cmFjdCwgcXVlc3Rpb24sIGFuZCBjb25uZWN0LiBJdCBpcyBoYXJtZnVsIGlmIGl0IGJlY29tZXMgdGhlIGVudGlyZSBzZXNzaW9uLiBNYW55IG9mIHVzIHdlcmUgdHJhaW5lZCB0byDigJxzdHVkeeKAnSBieSBtYWtpbmcgdGhlIGJvb2sgbG9vayBzdHVkaWVkLiBXZSBjb25mdXNlIGEgcGFpbnRlZCBzdXJmYWNlIHdpdGggYSBjaGFuZ2VkIG1pbmQuPC9wPgoKICA8aDI+VGhlIGlsbHVzaW9uIG9mIGZsdWVuY3k8L2gyPgogIDxwPlJlcmVhZGluZyBhIGhpZ2hsaWdodGVkIHBhcmFncmFwaCBwcm9kdWNlcyBhIHNtb290aCBmZWVsaW5nLiBUaGUgc2VudGVuY2VzIGFyZSBmYW1pbGlhci4gWW91IG5vZC4gWW91IGNvdWxkIGFsbW9zdCBmaW5pc2ggdGhlbS4gRmx1ZW5jeSBpcyBhIG1ldGFjb2duaXRpdmUgY3VlLCBhbmQgaXQgaXMgb2Z0ZW4gYSBsaWFyLiBUaGUgYnJhaW4gcmVhZHMgZWFzZSBhcyBldmlkZW5jZSBvZiBrbm93bGVkZ2UsIGV2ZW4gd2hlbiB0aGUgZWFzZSBjb21lcyBmcm9tIHRoZSBwYWdlIHN0aWxsIGJlaW5nIGluIGZyb250IG9mIHlvdS4gQ2xvc2UgdGhlIGJvb2sgYW5kIHRoZSBzbW9vdGhuZXNzIHZhbmlzaGVzLiBUaGF0IHZhbmlzaGluZyBpcyBpbmZvcm1hdGlvbi4gSXQgdGVsbHMgeW91IHRoZSB0cmFjZSB3YXMgbmV2ZXIgYnVpbHQsIG9ubHkgcmVoZWFyc2VkIGluIHRoZSBwcmVzZW5jZSBvZiB0aGUgY3VlLjwvcD4KCiAgPHA+U2xlZXAgbWFrZXMgdGhlIGdhcCBtb3JlIGhvbmVzdC4gT3Zlcm5pZ2h0LCB0aGUgaGlwcG9jYW1wdXMgYW5kIG5lb2NvcnRleCByZXBsYXkgZnJhZ21lbnRzIG9mIHRoZSBkYXkuIFdoYXQgZ2V0cyByZXBsYXllZCBpcyBub3QgZXZlcnl0aGluZyB5b3UgdW5kZXJsaW5lZC4gSXQgaXMgd2hhdCB5b3Ugc3RydWdnbGVkIHdpdGgsIHdoYXQgeW91IHJldHJpZXZlZCwgd2hhdCB5b3UgbGlua2VkIHRvIGEgcXVlc3Rpb24geW91IGNhcmVkIGFib3V0LiBBIHllbGxvdyBzdHJpcGUgZG9lcyBub3Qgc3Vydml2ZSB0aGF0IGZpbHRlciB1bmxlc3MgeW91IGRpZCBzb21ldGhpbmcgd2l0aCBpdC4gVGhpcyBpcyB3aHkgYSBsZWN0dXJlIHRoYXQgZmVsdCBjbGVhciBhdCAxMSBwLm0uIGNhbiBmZWVsIGhvbGxvdyBhdCA4IGEubS4gQ2xhcml0eSBpbiB0aGUgcm9vbSB3YXMgdGhlIGluc3RydWN0b3IgaG9sZGluZyB0aGUgc3RydWN0dXJlIGZvciB5b3UuIEVuY29kaW5nIHdvdWxkIGhhdmUgYmVlbiB5b3UgaG9sZGluZyBpdCB5b3Vyc2VsZi48L3A+CgogIDxwPlNwYWNlZCByZXRyaWV2YWwgaXMgdGhlIHVuZ2xhbW9yb3VzIGFsdGVybmF0aXZlLiBZb3UgcmVhZCBhIHNlY3Rpb24uIFlvdSBsb29rIGF3YXkuIFlvdSB0cnkgdG8gc2F5IHRoZSBjbGFpbSwgdGhlIG1lY2hhbmlzbSwgdGhlIGV4Y2VwdGlvbi4gWW91IGZhaWwgYSBsaXR0bGUuIFlvdSBjaGVjay4gWW91IGZhaWwgbGVzcy4gWW91IHdhaXQgYSBkYXkgYW5kIHRyeSBhZ2Fpbi4gVGhlIHdhaXRzIGFyZSBub3Qgd2FzdGVkIHRpbWU7IHRoZXkgYXJlIHRoZSBwb2ludC4gRm9yZ2V0dGluZyBpcyBub3QgdGhlIGVuZW15IG9mIG1lbW9yeS4gVW5jaGVja2VkIGZvcmdldHRpbmcgaXMuIEEgd2VsbC10aW1lZCBnYXAgZm9yY2VzIHRoZSBzeXN0ZW0gdG8gc2VhcmNoLCBhbmQgdGhlIHNlYXJjaCBpcyB3aGF0IGRlZXBlbnMgdGhlIHRyYWNlLiBIaWdobGlnaHRpbmcgY29tcHJlc3NlcyB0aGUgZ2FwIHRvIHplcm8uIEl0IGlzIHN0dWR5IHdpdGhvdXQgdGhlIHNlYXJjaC48L3A+CgogIDxoMj5XaGF0IGEgbWFyayBjYW4gc3RpbGwgYmU8L2gyPgogIDxwPkEgbWFyayBpcyBob25lc3Qgd2hlbiBpdCBpcyBhIHByb21pc2UuIOKAnEkgd2lsbCB0dXJuIHRoaXMgc2VudGVuY2UgaW50byBhIHF1ZXN0aW9uLuKAnSDigJxJIHdpbGwgZHJhdyB0aGUgY2F1c2FsIGNoYWluLuKAnSDigJxJIHdpbGwgb2NjbHVkZSB0aGlzIGRpYWdyYW0gYW5kIHJlYnVpbGQgaXQu4oCdIFRoZSBtYXJrIGlzIHRoZW4gYSBxdWV1ZSwgbm90IGEgdHJvcGh5LiBJbmNyZW1lbnRhbCByZWFkaW5nIHN5c3RlbXMgdHJlYXQgdGhlIHF1ZXVlIGFzIGZpcnN0LWNsYXNzOiBhIGxpYnJhcnkgaXMgbm90IGEgZ3JhdmV5YXJkIG9mIGZpbGVzLCBpdCBpcyBhIHNldCBvZiB1bmZpbmlzaGVkIGFjdHMuIFRoZSB1bmZpbmlzaGVkIGFjdCBpcyB0aGUgdW5pdCBvZiBsZWFybmluZy4gRmlsZXMgYXJlIG9ubHkgdGhlIHJhdyBtYXRlcmlhbC48L3A+CgogIDxwPkltYWdlIG9jY2x1c2lvbiBtYWtlcyB0aGUgY29udHJhc3QgdmlzaWJsZS4gQSBkaWFncmFtIG9mIGVuY29kaW5nIGFuZCByZXRyaWV2YWwgbG9va3MgY29tcGxldGUgd2hlbiBldmVyeSBib3ggaXMgbGFiZWxlZC4gQ29tcGxldGVuZXNzIGlzIGFub3RoZXIgZmx1ZW5jeSBjdWUuIENvdmVyIHRoZSBsYWJlbHMgYW5kIHlvdSBkaXNjb3ZlciB3aGV0aGVyIHlvdSB1bmRlcnN0b29kIHRoZSBhcnJvd3Mgb3IgbWVyZWx5IGFkbWlyZWQgdGhlbS4gVGhlIGJsYW5rIHJlZ2lvbiBpcyBhIHF1ZXN0aW9uIHdpdGggYSBzcGF0aWFsIHNoYXBlLiBBbnN3ZXJpbmcgaXQgaXMgZW5jb2RpbmcuIExvb2tpbmcgYXQgdGhlIG9yaWdpbmFsIGZpZ3VyZSBpcyBub3QuPC9wPgoKICA8cD5XaWxsaWFtIEphbWVzLCB3cml0aW5nIHdoZW4gcHN5Y2hvbG9neSB3YXMgc3RpbGwgYXJndWluZyB3aXRoIHBoaWxvc29waHksIGFscmVhZHkgc2F3IGhhYml0IGFzIHRoZSBmbHl3aGVlbCB0aGF0IGtlZXBzIGEgbGlmZSBvbiBpdHMgcmFpbHMuIE1lbW9yeSBpcyBhIGhhYml0IG9mIHJldHJpZXZhbCBhcyBtdWNoIGFzIGEgc3RvcmUgb2YgdHJhY2VzLiBZb3UgZG8gbm90IG93biBhIGZhY3QgdW50aWwgcHJvZHVjaW5nIGl0IGhhcyBiZWNvbWUgYSBsaXR0bGUgZWFzaWVyIHRoYW4gaXQgd2FzIHllc3RlcmRheS4gRWFzaWVyLCBub3QgZWZmb3J0bGVzcy4gRWZmb3J0bGVzcyBpcyB0aGUgaGlnaGxpZ2h0ZXLigJlzIGRyZWFtIGFuZCB0aGUgZXhhbWluZXLigJlzIGFtYnVzaC48L3A+CgogIDxoMj5TbGVlcCwgc3BhY2luZywgYW5kIHRoZSBuZXh0IG1vcm5pbmc8L2gyPgogIDxwPlRoZSBsZWN0dXJlIGluIHRoaXMgZGVtbyBsaWJyYXJ5IG1ha2VzIHRoZSBzYW1lIGNsYWltIGZyb20gYW5vdGhlciBhbmdsZTogdGhlIG5pZ2h0IGlzIGEgc2Vjb25kIHBhc3MsIG5vdCBhIHBhdXNlLiBSZXBsYXkgZHVyaW5nIHNsb3ctd2F2ZSBzbGVlcCBpcyBiaWFzZWQgdG93YXJkIGVmZm9ydC4gQSBjb21mb3J0YWJsZSByZXJlYWQgZG9lcyBub3QgZWFybiBhIHNsb3QgaW4gdGhhdCByZWVsLiBBIGZhaWxlZCByZWNhbGwsIGZvbGxvd2VkIGJ5IGEgc2hvcnQgcmVzdHVkeSBvZiB0aGUgbWlzcywgZG9lcy4gUGFpciB0aGF0IHdpdGggYSBkZWxheSB0aGF0IGluY2x1ZGVzIHNsZWVwIGFuZCB5b3UgYXJlIG5vIGxvbmdlciBtZWFzdXJpbmcgd2hldGhlciB0aGUgcGFnZSBsb29rZWQgcHJldHR5LiBZb3UgYXJlIG1lYXN1cmluZyB3aGV0aGVyIGEgdHJhY2Ugc3Vydml2ZWQgc2VsZWN0aW9uLiBUaGUgb25lLXBhZ2UgbWV0aG9kcyBub3RlIGluIHRoaXMgbGlicmFyeSBpcyBkZWxpYmVyYXRlbHkgZHVsbCBiZWNhdXNlIGR1bGwgcHJvY2VkdXJlcyBhcmUgd2hhdCB5b3UgY2FuIHJlcGVhdC4gRXhwYW5kaW5nIGdhcHMsIHNjb3JpbmcgaWRlYSB1bml0cyBpbnN0ZWFkIG9mIHdvcmRpbmcsIHRyZWF0aW5nIGEgbWlzcyBhcyBpbmZvcm1hdGlvbiDigJQgbm9uZSBvZiB0aGF0IHBob3RvZ3JhcGhzIHdlbGwuIEl0IGlzIHN0aWxsIHRoZSB3b3JrLjwvcD4KICA8cD5KYW1lcywgaW4gdGhlIHB1YmxpYy1kb21haW4gZXhjZXJwdCB3ZSBrZWVwIGJlc2lkZSB0aGUgZXNzYXksIGNhbGxlZCBhc3NvY2lhdGVzIOKAnGhvb2tzLuKAnSBBbiBpc29sYXRlZCBzZW50ZW5jZSBoYXMgbm90aGluZyB0byBmaXNoIHdpdGguIEhpZ2hsaWdodGluZyBhbiBpc29sYXRlZCBzZW50ZW5jZSBhZGRzIGluayB3aXRob3V0IGFkZGluZyBob29rcy4gVGhlIGdyYXBoIGluIHRoaXMgbGlicmFyeSBpcyBzbWFsbCBvbiBwdXJwb3NlOiB0aHJlZSBsYWJlbGVkIGNvbm5lY3Rpb25zLCBub3QgYSBoYWlyYmFsbC4gRmx1ZW5jeSBpcyBub3Qgb3Zlcm5pZ2h0IGVuY29kaW5nLiBTcGFjaW5nIHVzZXMgdGhlIG5pZ2h0LiBIb29rcyBiZWF0IHllbGxvdyBpbmsuIElmIGEgY29ubmVjdGlvbiBjYW5ub3QgYmUgc2FpZCBpbiBhIHNob3J0IGNsYXVzZSwgaXQgaXMgZGVjb3JhdGlvbi4gVGhlIHJldmlldyBsb2cgaXMgZmFrZSBidXQgY29uc2lzdGVudCBzbyBzY3JlZW5zaG90cyBkbyBub3QgZHJpZnQuIFJhdGluZ3MgYW5kIGludGVydmFscyBhcmUgZml4dHVyZXMsIG5vdCB0ZWxlbWV0cnkgZnJvbSBhIHBlcnNvbi48L3A+CgogIDxoMj5BIHNtYWxsIHByYWN0aWNlPC9oMj4KICA8cD5SZWFkIHdpdGggYSBwZW5jaWwsIG5vdCBhIHJhaW5ib3cuIEFmdGVyIGVhY2ggc2VjdGlvbiwgd3JpdGUgb25lIHNlbnRlbmNlIHRoYXQgdGhlIGF1dGhvciB3b3VsZCBhY2NlcHQgYXMgYSBmYWlyIHN1bW1hcnkgYW5kIG9uZSBzZW50ZW5jZSB0aGUgYXV0aG9yIGRpZCBub3Qgd3JpdGU6IGEgY29ubmVjdGlvbiwgYSBkb3VidCwgYSBwcmVkaWN0aW9uLiBUdXJuIHRoZSBzdW1tYXJ5IGludG8gYSBxdWVzdGlvbi4gU2NoZWR1bGUgdGhlIHF1ZXN0aW9uLiBXaGVuIHlvdSByZXZpZXcsIHNwZWFrIHRoZSBhbnN3ZXIgYmVmb3JlIHlvdSB1bmNvdmVyIGl0LiBJZiB5b3UgY2Fubm90LCB5b3UgaGF2ZSBmb3VuZCB0aGUgcmVhbCB3b3JrLiBTbGVlcCwgdGhlbiB0cnkgYWdhaW4uIFRoZSBwYWdlIHdpbGwgbG9vayBsZXNzIGRlY29yYXRlZC4gWW91ciByZWNhbGwgd2lsbCBsb29rIG1vcmUgbGlrZSBrbm93bGVkZ2UuPC9wPgoKICA8cD5Ob25lIG9mIHRoaXMgcmVxdWlyZXMgYSBwYXJ0aWN1bGFyIGFwcC4gSXQgcmVxdWlyZXMgcmVmdXNpbmcgdGhlIGNvbWZvcnQgb2YgYSBwYWludGVkIHBhcmFncmFwaC4gVG9vbHMgaGVscCB3aGVuIHRoZXkgbWFrZSB0aGUgbmV4dCBob25lc3QgYWN0IGNoZWFwZXIgdGhhbiB0aGUgZmFrZSBvbmU6IGV4dHJhY3QgaW5zdGVhZCBvZiB0aW50LCBxdWVzdGlvbiBpbnN0ZWFkIG9mIHJlcmVhZCwgY29ubmVjdCBpbnN0ZWFkIG9mIGNvbGxlY3QuIFRoZSBjb2xsZWN0aW9uIGluc3RpbmN0IGlzIHN0cm9uZyBiZWNhdXNlIGl0IGZlZWxzIGxpa2UgcHJvZ3Jlc3MgeW91IGNhbiBzZWUuIE1lbW9yeSBpcyBwcm9ncmVzcyB5b3UgY2FuIG9ubHkgcHJvdmUgbGF0ZXIsIGluIHRoZSBkYXJrLCB3aXRob3V0IHRoZSBib29rLiBUaGF0IGlzIGFuIHVuY29tZm9ydGFibGUgc3RhbmRhcmQuIEl0IGlzIGFsc28gdGhlIG9ubHkgb25lIHRoYXQgbWF0Y2hlcyB3aGF0IHdlIHNheSB3ZSB3YW50ZWQgd2hlbiB3ZSBzYXQgZG93biB0byByZWFkLjwvcD4KCiAgPHA+SWYgeW91IHJlbWVtYmVyIG9ubHkgb25lIGNsYWltIGZyb20gdGhpcyBlc3NheSwgbGV0IGl0IGJlIHRoaXM6IGEgaGlnaGxpZ2h0IGlzIG5vdCBhIG1lbW9yeS4gSXQgaXMgYSBzdGlja3kgbm90ZSBvbiBhIGRvb3IgeW91IHN0aWxsIGhhdmUgdG8gb3Blbi4gT3BlbiBpdC4gQXNrLiBXYWl0LiBBc2sgYWdhaW4uIExldCBzbGVlcCBkbyB0aGUgcXVpZXQgcmVoZWFyc2FsIHlvdSBjYW5ub3QgcnVzaC4gVGhlbiB0aGUgbmV4dCBib29rIHdpbGwgbWVldCBhIG1pbmQgdGhhdCBhbHJlYWR5IGtub3dzIGhvdyB0byBrZWVwIHdoYXQgaXQgY2FyZXMgYWJvdXQuPC9wPgo8L2FydGljbGU+CjwvYm9keT4KPC9odG1sPgo=",
+        "content_type": "text/html",
+        "created_at": "2026-08-23T12:00:00.000Z",
+        "filename": "encoding-versus-highlighting.html",
+        "id": "browser-file://encoding-versus-highlighting.html",
+        "sha256": "4e10cb3f4e8211de23847b74b56d87c39e139620be823544528ed7a7ada7a3c9",
+        "source_file_id": "11111111-0001-4000-8000-000000000001"
+      },
+      {
+        "byte_size": 2889,
+        "bytes_base64": "IyBTbGVlcCBpcyBub3QgZG93bnRpbWUgZm9yIG1lbW9yeQoKKipEZW1vIGxlY3R1cmUgdHJhbnNjcmlwdCoqIChvcmlnaW5hbCwgQ0MwLTEuMCkuICAKQXVkaW8gZmlsZSBgbGVjdHVyZS1kZW1vLndhdmAgaXMgYSAqKnN5bnRoZXRpYyBsYWJlbGVkIHRvbmUqKiwgbm90IGEgcmVjb3JkaW5nIG9mIGEgcGVyc29uLiBUaGUgdHJhbnNjcmlwdCBpcyB0aGUgY2Fub25pY2FsIGxlY3R1cmUgdGV4dC4KCkNoYXB0ZXJzIGZvbGxvdyBgY2hhcHRlcnMuanNvbmAgdGltZXN0YW1wcyBvbiB0aGUgZGVtbyB0b25lIChzaG9ydCBieSBkZXNpZ24pLgoKIyMgQ2hhcHRlciAxIOKAlCBUaGUgZGF5IGlzIGVuY29kaW5nOyB0aGUgbmlnaHQgaXMgc2VsZWN0aW9uCgpHb29kIGV2ZW5pbmcuIFRoZSBjbGFpbSBJIHdhbnQgdG8gbGVhdmUgeW91IHdpdGggaXMgc2ltcGxlIGFuZCBlYXN5IHRvIG1pc3VzZTogc2xlZXAgaXMgbm90IHRoZSBhYnNlbmNlIG9mIGxlYXJuaW5nLiBJdCBpcyBhIHNlY29uZCBwYXNzLgoKRHVyaW5nIHRoZSBkYXkgeW91IGVuY291bnRlciBtb3JlIHRoYW4geW91IGNhbiBrZWVwLiBMZWN0dXJlcywgcGFnZXMsIGNvbnZlcnNhdGlvbnMsIGRpYWdyYW1zLiBFbmNvZGluZyBiZWdpbnMgd2hpbGUgeW91IGFyZSBhd2FrZSDigJQgeW91IG5vdGljZSwgeW91IHJlcGhyYXNlLCB5b3UgZmFpbCBhIHJldHJpZXZhbCBhbmQgdHJ5IGFnYWluIOKAlCBidXQgdGhlIGJyYWluIGRvZXMgbm90IGZpbmFsaXplIHRoZSBjYXRhbG9nIGluIHJlYWwgdGltZS4gSXQga2VlcHMgYSB0ZW1wb3JhcnkgaW5kZXgsIGVzcGVjaWFsbHkgaW4gaGlwcG9jYW1wYWwgY2lyY3VpdHMsIHRoYXQgY2FuIHBvaW50IGJhY2sgdG8gY29ydGljYWwgcGF0dGVybnMuIFRoYXQgaW5kZXggaXMgZnJhZ2lsZS4gSXQgaXMgYWxzbyBnZW5lcm91cy4gSXQgcmVtZW1iZXJzIG1vcmUgdGhhbiB5b3Ugd2lsbCBzdGlsbCBoYXZlIG5leHQgd2Vlay4gTmlnaHQgaXMgd2hlbiBnZW5lcm9zaXR5IGJlY29tZXMgdGFzdGUuCgojIyBDaGFwdGVyIDIg4oCUIFJlcGxheSBpcyBiaWFzZWQgdG93YXJkIGVmZm9ydAoKUmVwbGF5IGR1cmluZyBzbG93LXdhdmUgc2xlZXAgaXMgbm90IGEgdGFwZSBvZiB0aGUgZGF5LiBJdCBpcyBhIGhpZ2hsaWdodCByZWVsIG9mIHdoYXQgd2FzIGhhcmQsIHdoYXQgd2FzIHJld2FyZGVkLCB3aGF0IHdhcyByZXRyaWV2ZWQsIHdoYXQgd2FzIHRhZ2dlZCBhcyBpbmNvbXBsZXRlLiBUaGlzIGlzIHdoeSBoaWdobGlnaHRpbmcgYSBwYXJhZ3JhcGggYW5kIHRoZW4gc2xlZXBpbmcgb24gaXQgZG9lcyBhbG1vc3Qgbm90aGluZywgd2hpbGUgc3RydWdnbGluZyB0byByZWNvbnN0cnVjdCB0aGUgc2FtZSBwYXJhZ3JhcGggYW5kIHRoZW4gc2xlZXBpbmcgY2FuIGRvIGEgbG90LiBFZmZvcnQgaXMgYSB0ZWFjaGluZyBzaWduYWwgdG8gdGhlIG92ZXJuaWdodCBzeXN0ZW0uIEZsdWVuY3kgaXMgbm90LgoKSWYgeW91IGhhdmUgZXZlciB1bmRlcnN0b29kIGEgcHJvb2YgaW4gdGhlIGV2ZW5pbmcgYW5kIGxvc3QgdGhlIHRocmVhZCBpbiB0aGUgbW9ybmluZywgeW91IGRpZCBub3Qg4oCcZmFpbCB0byBzbGVlcCB3ZWxs4oCdIGluIHRoZSBtb3JhbCBzZW5zZS4gWW91IG91dHNvdXJjZWQgdGhlIHN0cnVjdHVyZSB0byB0aGUgcGFnZSBvciB0aGUgbGVjdHVyZXIuIE92ZXJuaWdodCByZXBsYXkgaGFkIGxpdHRsZSB0byByZWNvbnN0cnVjdC4gVGhlIGZlZWxpbmcgb2YgdW5kZXJzdGFuZGluZyB3YXMgcmVhbC4gVGhlIHRyYWNlIHdhcyBub3QuCgojIyBDaGFwdGVyIDMg4oCUIFNwYWNpbmcgYm9ycm93cyB0aGUgbmlnaHQKClNwYWNlZCByZXRyaWV2YWwgaXMgc29tZXRpbWVzIHRhdWdodCBhcyBhIGNhbGVuZGFyIHRyaWNrOiB3YWl0IHR3byBkYXlzLCB0aGVuIGZpdmUuIFRoZSBkZWVwZXIgcmVhc29uIGlzIHRoYXQgZWFjaCBzdWNjZXNzZnVsIHdhaXQgYXNrcyB0aGUgb3Zlcm5pZ2h0IHN5c3RlbSB0byBrZWVwIGEgcG9pbnRlciBhbGl2ZSBhbmQgdGhlbiBwcm92ZXMsIGluIGRheWxpZ2h0LCB0aGF0IHRoZSBwb2ludGVyIHN0aWxsIHdvcmtzLiBZb3UgYXJlIG5vdCBtZXJlbHkgcmVwZWF0aW5nLiBZb3UgYXJlIGNoZWNraW5nIHdoZXRoZXIgc2VsZWN0aW9uIGhhcHBlbmVkLgoKQSBtZXRob2RzIG9uZS1wYWdlciBvbiBzcGFjZWQgcmV0cmlldmFsIHdpbGwgdGVsbCB5b3UgdG8gdXNlIGV4cGFuZGluZyBnYXBzIGFuZCB0byB0cmVhdCBhIGZhaWxlZCByZWNhbGwgYXMgaW5mb3JtYXRpb24sIG5vdCBzaGFtZS4gUGFpciB0aGF0IHdpdGggc2xlZXAgaHlnaWVuZSB0aGF0IGlzIGJvcmluZyBvbiBwdXJwb3NlOiBhIHN0YWJsZSB3aW5kb3csIGRhcmtuZXNzLCBubyB2aWN0b3J5IGxhcCBvZiByZXJlYWRpbmcgYXQgMSBhLm0uIENyYW1taW5nIHVudGlsIHlvdSBmZWVsIGZsdWVudCBhbmQgdGhlbiBjb2xsYXBzaW5nIGludG8gYmVkIHRyYWlucyByZWNvZ25pdGlvbiBhbmQgY2FsbHMgaXQgbWFzdGVyeS4KCiMjIENoYXB0ZXIgNCDigJQgV2hhdCB0byBkbyBhZnRlciBhIGxlY3R1cmUKCkNsb3NlIHRoZSBub3Rlcy4gV3JpdGUgdGhyZWUgcXVlc3Rpb25zIHRoZSBsZWN0dXJlciBhY3R1YWxseSBhbnN3ZXJlZC4gV3JpdGUgb25lIHF1ZXN0aW9uIHRoZXkgZGlkIG5vdC4gVG9tb3Jyb3csIGFuc3dlciB0aGVtIHdpdGhvdXQgbG9va2luZy4gVGhlbiBsb29rLiBUaGVuIHNsZWVwIGFnYWluLiBUaGF0IGxvb3AgaXMgdGhlIGxlY3R1cmUsIGNvbnRpbnVlZC4gVGhlIHJvb20gd2FzIG9ubHkgdGhlIGZpcnN0IGVuY29kaW5nLgoKVGhhbmsgeW91LiBSZW1lbWJlciB0aGUgdW5jb21mb3J0YWJsZSBzdGFuZGFyZDogaWYgeW91IGNhbm5vdCBwcm9kdWNlIGl0IGluIHRoZSBtb3JuaW5nLCB5b3UgZGlkIG5vdCB5ZXQga2VlcCBpdC4K",
+        "content_type": "text/markdown",
+        "created_at": "2026-08-23T12:00:00.000Z",
+        "filename": "lecture-transcript.md",
+        "id": "browser-file://lecture-transcript.md",
+        "sha256": "30873762e93d62753ab6fe179d62eaacfb09cea8f29eb6cc3b4ba176b06edb62",
+        "source_file_id": "11111111-0002-4000-8000-000000000002"
+      },
+      {
+        "byte_size": 1993,
+        "bytes_base64": "JVBERi0xLjQKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4gZW5kb2JqCjIgMCBvYmogPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4gZW5kb2JqCjMgMCBvYmogPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgL0YyIDYgMCBSID4+ID4+ID4+IGVuZG9iago0IDAgb2JqIDw8IC9MZW5ndGggMTM0NSA+PgpzdHJlYW0KQlQgL0YyIDE4IFRmIDcyIDcyMCBUZCAoU3BhY2VkIHJldHJpZXZhbDogYSBvbmUtcGFnZSBtZXRob2RzIG5vdGUpIFRqIEVUCkJUIC9GMSAxMCBUZiA3MiA2OTggVGQgKE9yaWdpbmFsIFBsZXRob3JhIGRlbW8gUERGLiBMaWNlbnNlOiBDQzAtMS4wLiBObyB0aGlyZC1wYXJ0eSBmaWd1cmVzLikgVGogRVQKQlQgL0YyIDEyIFRmIDcyIDY3MCBUZCAoQWltKSBUaiBFVApCVCAvRjEgMTEgVGYgNzIgNjUyIFRkIChNZWFzdXJlIHdoZXRoZXIgYSBjbG9zZWQtYm9vayByZXRyaWV2YWwgYXR0ZW1wdCwgZm9sbG93ZWQgYnkgcmVzdHVkeSBvZiBtaXNzZXMsKSBUaiBFVApCVCAvRjEgMTEgVGYgNzIgNjM2IFRkIChiZWF0cyBhbiBlcXVhbC10aW1lIHJlcmVhZCBvZiB0aGUgc2FtZSBwYXNzYWdlIGFmdGVyIDI0IGhvdXJzIGluY2x1ZGluZyBzbGVlcC4pIFRqIEVUCkJUIC9GMiAxMiBUZiA3MiA2MDggVGQgKFByb2NlZHVyZSkgVGogRVQKQlQgL0YxIDExIFRmIDcyIDU5MCBUZCAoMS4gU3R1ZHkgYSA0MDAtd29yZCBwYXNzYWdlIG9uY2UgXChubyBoaWdobGlnaHRpbmcgYXMgdGhlIHN0dWR5IG1ldGhvZFwpLikgVGogRVQKQlQgL0YxIDExIFRmIDcyIDU3NCBUZCAoMi4gSW1tZWRpYXRlIGZyZWUgcmVjYWxsIFwoMiBtaW51dGVzXCkuIFNjb3JlIGlkZWEgdW5pdHMsIG5vdCB3b3JkaW5nLikgVGogRVQKQlQgL0YxIDExIFRmIDcyIDU1OCBUZCAoMy4gUmVzdHVkeSBvbmx5IG1pc3NlZCBpZGVhIHVuaXRzIGZvciAzIG1pbnV0ZXMuKSBUaiBFVApCVCAvRjEgMTEgVGYgNzIgNTQyIFRkICg0LiBTbGVlcCBpbiBhIGhhYml0dWFsIHdpbmRvdy4gTm8gYWRkaXRpb25hbCBleHBvc3VyZS4pIFRqIEVUCkJUIC9GMSAxMSBUZiA3MiA1MjYgVGQgKDUuIERlbGF5ZWQgZnJlZSByZWNhbGwgYXQgKzI0IGguIFByaW1hcnkgb3V0Y29tZTogaWRlYS11bml0IGNvdW50LikgVGogRVQKQlQgL0YyIDEyIFRmIDcyIDQ5OCBUZCAoQ29tcGFyYXRvcikgVGogRVQKQlQgL0YxIDExIFRmIDcyIDQ4MCBUZCAoRXF1YWwgdG90YWwgdGltZSBzcGVudCByZXJlYWRpbmcgdGhlIHBhc3NhZ2UuIFNhbWUgZGVsYXkgYW5kIHNjb3JpbmcuKSBUaiBFVApCVCAvRjIgMTIgVGYgNzIgNDUyIFRkIChOb3RlcykgVGogRVQKQlQgL0YxIDExIFRmIDcyIDQzNCBUZCAoRmFpbGVkIHJlY2FsbCBpcyBkYXRhOiBzaG9ydGVuIHRoZSBuZXh0IGdhcC4gRmx1ZW5jeSBkdXJpbmcgcmVyZWFkIGlzIG5vdCBzY29yZWQuKSBUaiBFVApCVCAvRjEgMTEgVGYgNzIgNDE4IFRkIChUaGlzIHBhZ2UgaXMgaW5zdHJ1Y3Rpb25hbCBmaWN0aW9uIGZvciBzY3JlZW5zaG90cywgbm90IGEgcHVibGlzaGVkIGV4cGVyaW1lbnQuKSBUaiBFVAplbmRzdHJlYW0gZW5kb2JqCjUgMCBvYmogPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+IGVuZG9iago2IDAgb2JqIDw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL1RpbWVzLVJvbWFuID4+IGVuZG9iagp4cmVmCjAgNwowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDAgMDAwMDAgbiAKMDAwMDAwMDA0OSAwMDAwMCBuIAowMDAwMDAwMTA2IDAwMDAwIG4gCjAwMDAwMDAyNDIgMDAwMDAgbiAKMDAwMDAwMTYzOSAwMDAwMCBuIAowMDAwMDAxNzA5IDAwMDAwIG4gCnRyYWlsZXIgPDwgL1NpemUgNyAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTc4MQolJUVPRg==",
+        "content_type": "application/pdf",
+        "created_at": "2026-08-23T12:00:00.000Z",
+        "filename": "spaced-retrieval-methods.pdf",
+        "id": "browser-file://spaced-retrieval-methods.pdf",
+        "sha256": "3d5f16c2b1bcef86c180025a3114ff9fdd7a0aed274da80b55e056d76d48af84",
+        "source_file_id": "11111111-0003-4000-8000-000000000003"
+      },
+      {
+        "byte_size": 2258,
+        "bytes_base64": "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",
+        "content_type": "application/epub+zip",
+        "created_at": "2026-08-23T12:00:00.000Z",
+        "filename": "william-james-habit-memory.epub",
+        "id": "browser-file://william-james-habit-memory.epub",
+        "sha256": "e89058990e0d8d1b8ef317b0596fae8b07c20c2c87cdaa3f7312f1254c7dad86",
+        "source_file_id": "11111111-0004-4000-8000-000000000004"
+      },
+      {
+        "byte_size": 3102,
+        "bytes_base64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NjAiIGhlaWdodD0iNTQwIiB2aWV3Qm94PSIwIDAgOTYwIDU0MCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPgogIDx0aXRsZSBpZD0idGl0bGUiPkVuY29kaW5nIHRvIHJldHJpZXZhbDwvdGl0bGU+CiAgPGRlc2MgaWQ9ImRlc2MiPk9yaWdpbmFsIGRpYWdyYW0gZm9yIGltYWdlLW9jY2x1c2lvbiBjYXJkcy4gTm8gcGhvdG9ncmFwaHMgb2YgcGVvcGxlLiBCb3hlcyBhcmUgbGFiZWxlZCBmb3IgY292ZXJpbmcgZHVyaW5nIHJldmlldy48L2Rlc2M+CiAgPHJlY3Qgd2lkdGg9Ijk2MCIgaGVpZ2h0PSI1NDAiIGZpbGw9IiNGNEYxRUEiLz4KICA8dGV4dCB4PSI0OCIgeT0iNDgiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzFBMTkxNiI+RW5jb2RpbmcgkiBzZWxlY3Rpb24gKHNsZWVwKSCSIHJldHJpZXZhbDwvdGV4dD4KICA8dGV4dCB4PSI0OCIgeT0iNzQiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzVDNTg1MiI+T3JpZ2luYWwgUGxldGhvcmEgZGVtbyBkaWFncmFtILcgQ0MwLTEuMDwvdGV4dD4KCiAgPGcgaWQ9ImJveC1zdGltdWx1cyI+CiAgICA8cmVjdCB4PSI0OCIgeT0iMTIwIiB3aWR0aD0iMjAwIiBoZWlnaHQ9Ijg4IiByeD0iNCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMUExOTE2IiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9IjE0OCIgeT0iMTU4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiMxQTE5MTYiPlN0aW11bHVzPC90ZXh0PgogICAgPHRleHQgeD0iMTQ4IiB5PSIxODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzVDNTg1MiI+cGFnZSwgbGVjdHVyZSwgZmlndXJlPC90ZXh0PgogIDwvZz4KICA8ZyBpZD0iYm94LWVuY29kaW5nIj4KICAgIDxyZWN0IHg9IjMxMiIgeT0iMTIwIiB3aWR0aD0iMjAwIiBoZWlnaHQ9Ijg4IiByeD0iNCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMUExOTE2IiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9IjQxMiIgeT0iMTU4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiMxQTE5MTYiPkVuY29kaW5nPC90ZXh0PgogICAgPHRleHQgeD0iNDEyIiB5PSIxODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzVDNTg1MiI+ZWZmb3J0LCBwYXJhcGhyYXNlPC90ZXh0PgogIDwvZz4KICA8ZyBpZD0iYm94LXNsZWVwIj4KICAgIDxyZWN0IHg9IjU3NiIgeT0iMTIwIiB3aWR0aD0iMjAwIiBoZWlnaHQ9Ijg4IiByeD0iNCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMUExOTE2IiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9IjY3NiIgeT0iMTU4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiMxQTE5MTYiPlNsZWVwIHJlcGxheTwvdGV4dD4KICAgIDx0ZXh0IHg9IjY3NiIgeT0iMTgyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM1QzU4NTIiPnNlbGVjdGlvbiwgbm90IGEgdGFwZTwvdGV4dD4KICA8L2c+CiAgPGcgaWQ9ImJveC1yZXRyaWV2YWwiPgogICAgPHJlY3QgeD0iMzEyIiB5PSIzMjAiIHdpZHRoPSIyMDAiIGhlaWdodD0iODgiIHJ4PSI0IiBmaWxsPSIjZmZmIiBzdHJva2U9IiMxQTE5MTYiIHN0cm9rZS13aWR0aD0iMiIvPgogICAgPHRleHQgeD0iNDEyIiB5PSIzNTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzFBMTkxNiI+UmV0cmlldmFsPC90ZXh0PgogICAgPHRleHQgeD0iNDEyIiB5PSIzODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLCBzZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzVDNTg1MiI+cHJvZHVjZSwgdGhlbiBjaGVjazwvdGV4dD4KICA8L2c+CiAgPGcgaWQ9ImJveC1mbHVlbmN5Ij4KICAgIDxyZWN0IHg9IjU3NiIgeT0iMzIwIiB3aWR0aD0iMzM2IiBoZWlnaHQ9Ijg4IiByeD0iNCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMUExOTE2IiBzdHJva2Utd2lkdGg9IjIiLz4KICAgIDx0ZXh0IHg9Ijc0NCIgeT0iMzU4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiMxQTE5MTYiPkZsdWVuY3kgdHJhcDwvdGV4dD4KICAgIDx0ZXh0IHg9Ijc0NCIgeT0iMzgyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iR2VvcmdpYSwgc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM1QzU4NTIiPnJlcmVhZGluZyBgIHJlY2FsbDwvdGV4dD4KICA8L2c+CgogIDxwYXRoIGQ9Ik0yNDggMTY0IEgzMTIiIHN0cm9rZT0iIzFBMTkxNiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBtYXJrZXItZW5kPSJ1cmwoI2Fycm93KSIvPgogIDxwYXRoIGQ9Ik01MTIgMTY0IEg1NzYiIHN0cm9rZT0iIzFBMTkxNiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+CiAgPHBhdGggZD0iTTY3NiAyMDggVjI3NiBINDEyIFYzMjAiIHN0cm9rZT0iIzFBMTkxNiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+CiAgPHBhdGggZD0iTTUxMiAzNjQgSDU3NiIgc3Ryb2tlPSIjMUExOTE2IiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiLz4KCiAgPGRlZnM+CiAgICA8bWFya2VyIGlkPSJhcnJvdyIgbWFya2VyV2lkdGg9IjgiIG1hcmtlckhlaWdodD0iOCIgcmVmWD0iNiIgcmVmWT0iNCIgb3JpZW50PSJhdXRvIj4KICAgICAgPHBhdGggZD0iTTAgMCBMOCA0IEwwIDggeiIgZmlsbD0iIzFBMTkxNiIvPgogICAgPC9tYXJrZXI+CiAgPC9kZWZzPgo8L3N2Zz4K",
+        "content_type": "image/svg+xml",
+        "created_at": "2026-08-23T12:00:00.000Z",
+        "filename": "encoding-retrieval.svg",
+        "id": "browser-file://encoding-retrieval.svg",
+        "sha256": "7419bccfc1210d7200c8dc46cc142b0c3f32d72dadaaacba42793ec23c9d61f9",
+        "source_file_id": "11111111-0005-4000-8000-000000000005"
+      }
+    ],
+    "learningItems": [
+      {
+        "algorithm_type": "fsrs",
+        "answer": "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "difficulty": 0.3,
+        "document_id": "aaaaaaaa-0001-4000-8000-000000000001",
+        "due_date": "2026-08-23T12:00:00.000Z",
+        "ease_factor": 2.5,
+        "extract_id": "cccccccc-0001-4000-8000-000000000001",
+        "id": "dddddddd-0001-4000-8000-000000000001",
+        "interaction_metadata": {
+          "fixtureFields": {
+            "back": "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall.",
+            "front": "Why does highlighting often fail as study?"
+          },
+          "fixtureTemplate": "basic"
+        },
+        "interval": 1,
+        "is_suspended": false,
+        "item_type": "qa",
+        "lapses": 0,
+        "last_review_date": "2026-08-01T09:00:00.000Z",
+        "memory_state": {
+          "difficulty": 5,
+          "stability": 1
+        },
+        "question": "Why does highlighting often fail as study?",
+        "review_count": 1,
+        "state": "review",
+        "sync_version": 0,
+        "tags": [
+          "encoding",
+          "memory"
+        ]
+      },
+      {
+        "algorithm_type": "fsrs",
+        "answer": "Overnight replay is biased toward effort, not toward fluent rereading.",
+        "cloze_text": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "difficulty": 0.35,
+        "document_id": "aaaaaaaa-0002-4000-8000-000000000002",
+        "due_date": "2026-08-23T12:00:00.000Z",
+        "ease_factor": 2.5,
+        "extract_id": "cccccccc-0002-4000-8000-000000000002",
+        "id": "dddddddd-0002-4000-8000-000000000002",
+        "interaction_metadata": {
+          "fixtureFields": {
+            "text": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading."
+          },
+          "fixtureTemplate": "cloze"
+        },
+        "interval": 2,
+        "is_suspended": false,
+        "item_type": "cloze",
+        "lapses": 0,
+        "last_review_date": "2026-08-04T09:00:00.000Z",
+        "memory_state": {
+          "difficulty": 5.25,
+          "stability": 2
+        },
+        "question": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading.",
+        "review_count": 1,
+        "state": "review",
+        "sync_version": 0,
+        "tags": [
+          "lecture",
+          "sleep"
+        ]
+      },
+      {
+        "algorithm_type": "fsrs",
+        "answer": "Information that the gap was useful and the item needs restudy",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "difficulty": 0.4,
+        "document_id": "aaaaaaaa-0003-4000-8000-000000000003",
+        "due_date": "2026-08-23T12:00:00.000Z",
+        "ease_factor": 2.5,
+        "id": "dddddddd-0003-4000-8000-000000000003",
+        "interaction_metadata": {
+          "fixtureFields": {
+            "answerIndex": 1,
+            "choices": [
+              "Proof you should reread the chapter once more in full",
+              "Information that the gap was useful and the item needs restudy",
+              "Evidence that sleep erased the memory permanently",
+              "A reason to switch highlighters"
+            ],
+            "stem": "A failed recall during spaced practice should be treated as:"
+          },
+          "fixtureTemplate": "mcq"
+        },
+        "interval": 3,
+        "is_suspended": false,
+        "item_type": "qa",
+        "lapses": 0,
+        "last_review_date": "2026-08-05T09:00:00.000Z",
+        "memory_state": {
+          "difficulty": 5.5,
+          "stability": 3
+        },
+        "question": "A failed recall during spaced practice should be treated as:",
+        "review_count": 1,
+        "state": "review",
+        "sync_version": 0,
+        "tags": [
+          "retrieval",
+          "spacing"
+        ]
+      },
+      {
+        "algorithm_type": "fsrs",
+        "answer": "",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "difficulty": 0.45,
+        "document_id": "aaaaaaaa-0005-4000-8000-000000000005",
+        "due_date": "2026-08-23T12:00:00.000Z",
+        "ease_factor": 2.5,
+        "id": "dddddddd-0004-4000-8000-000000000004",
+        "interaction_metadata": {
+          "fixtureFields": {
+            "image": "sources/05-occlusion/encoding-retrieval.svg",
+            "occlude": "occ-sleep",
+            "prompt": "Name the overnight process that selects among daytime traces."
+          },
+          "fixtureTemplate": "image-occlusion"
+        },
+        "interval": 4,
+        "is_suspended": false,
+        "item_type": "qa",
+        "lapses": 0,
+        "last_review_date": "2026-08-08T09:00:00.000Z",
+        "memory_state": {
+          "difficulty": 5.75,
+          "stability": 4
+        },
+        "question": "Name the overnight process that selects among daytime traces.",
+        "review_count": 1,
+        "state": "review",
+        "sync_version": 0,
+        "tags": [
+          "occlusion",
+          "retrieval"
+        ]
+      },
+      {
+        "algorithm_type": "fsrs",
+        "answer": "Habitual methods of recording facts — more associations, more hooks for retrieval.",
+        "date_created": "2026-08-23T12:00:00.000Z",
+        "date_modified": "2026-08-23T12:00:00.000Z",
+        "difficulty": 0.5,
+        "document_id": "aaaaaaaa-0004-4000-8000-000000000004",
+        "due_date": "2026-08-23T12:00:00.000Z",
+        "ease_factor": 2.5,
+        "extract_id": "cccccccc-0003-4000-8000-000000000003",
+        "id": "dddddddd-0005-4000-8000-000000000005",
+        "interaction_metadata": {
+          "fixtureFields": {
+            "answer": "Habitual methods of recording facts — more associations, more hooks for retrieval.",
+            "question": "According to James, what improves memory if not a native faculty?"
+          },
+          "fixtureTemplate": "qa"
+        },
+        "interval": 5,
+        "is_suspended": false,
+        "item_type": "qa",
+        "lapses": 0,
+        "last_review_date": "2026-08-12T09:00:00.000Z",
+        "memory_state": {
+          "difficulty": 6,
+          "stability": 5
+        },
+        "question": "According to James, what improves memory if not a native faculty?",
+        "review_count": 1,
+        "state": "review",
+        "sync_version": 0,
+        "tags": [
+          "james",
+          "public-domain"
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "body": "A highlight is a queue, not a memory. Retrieval with the book closed is the test.",
+        "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
+        "id": "bbbbbbbb-0001-4000-8000-000000000001"
+      },
+      {
+        "body": "Sleep replay is biased toward effortful encoding, not toward yellow ink.",
+        "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
+        "id": "bbbbbbbb-0002-4000-8000-000000000002"
+      },
+      {
+        "body": "James: associates are hooks. Isolated rereading leaves nothing to fish with.",
+        "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
+        "id": "bbbbbbbb-0003-4000-8000-000000000003"
+      }
+    ],
+    "queue": [
+      {
+        "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
+        "dueAt": "2026-08-23T12:00:00.000Z",
+        "position": 1,
+        "priorityScore": 88
+      },
+      {
+        "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
+        "dueAt": "2026-08-24T12:00:00.000Z",
+        "position": 2,
+        "priorityScore": 72
+      },
+      {
+        "documentId": "aaaaaaaa-0003-4000-8000-000000000003",
+        "dueAt": "2026-08-25T12:00:00.000Z",
+        "position": 3,
+        "priorityScore": 61
+      },
+      {
+        "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
+        "dueAt": "2026-08-27T12:00:00.000Z",
+        "position": 4,
+        "priorityScore": 54
+      },
+      {
+        "documentId": "aaaaaaaa-0005-4000-8000-000000000005",
+        "dueAt": "2026-08-29T12:00:00.000Z",
+        "position": 5,
+        "priorityScore": 49
+      }
+    ],
+    "readingProgress": [
+      {
+        "currentPage": 3,
+        "currentScrollPercent": 41,
+        "documentId": "aaaaaaaa-0001-4000-8000-000000000001",
+        "progressPercent": 24,
+        "updatedAt": "2026-08-23T11:48:00.000Z"
+      },
+      {
+        "currentPage": 1,
+        "currentScrollPercent": 62,
+        "documentId": "aaaaaaaa-0002-4000-8000-000000000002",
+        "progressPercent": 62,
+        "updatedAt": "2026-08-22T19:20:00.000Z"
+      },
+      {
+        "currentPage": 1,
+        "currentScrollPercent": 100,
+        "documentId": "aaaaaaaa-0003-4000-8000-000000000003",
+        "progressPercent": 100,
+        "updatedAt": "2026-08-20T08:15:00.000Z"
+      },
+      {
+        "currentPage": 2,
+        "currentScrollPercent": 36,
+        "documentId": "aaaaaaaa-0004-4000-8000-000000000004",
+        "progressPercent": 36,
+        "updatedAt": "2026-08-19T17:05:00.000Z"
+      },
+      {
+        "currentPage": 1,
+        "currentScrollPercent": 0,
+        "documentId": "aaaaaaaa-0005-4000-8000-000000000005",
+        "progressPercent": 0,
+        "updatedAt": "2026-08-18T10:00:00.000Z"
+      }
+    ],
+    "reviewEvents": [
+      {
+        "id": "eeeeeeee-0001-4000-8000-000000000001",
+        "learningItemId": "dddddddd-0001-4000-8000-000000000001",
+        "ratedAt": "2026-08-01T09:00:00.000Z",
+        "rating": 3,
+        "scheduledDays": 3
+      },
+      {
+        "id": "eeeeeeee-0002-4000-8000-000000000002",
+        "learningItemId": "dddddddd-0002-4000-8000-000000000002",
+        "ratedAt": "2026-08-04T09:00:00.000Z",
+        "rating": 2,
+        "scheduledDays": 1
+      },
+      {
+        "id": "eeeeeeee-0003-4000-8000-000000000003",
+        "learningItemId": "dddddddd-0003-4000-8000-000000000003",
+        "ratedAt": "2026-08-05T09:00:00.000Z",
+        "rating": 4,
+        "scheduledDays": 7
+      },
+      {
+        "id": "eeeeeeee-0004-4000-8000-000000000004",
+        "learningItemId": "dddddddd-0004-4000-8000-000000000004",
+        "ratedAt": "2026-08-08T09:00:00.000Z",
+        "rating": 3,
+        "scheduledDays": 4
+      },
+      {
+        "id": "eeeeeeee-0005-4000-8000-000000000005",
+        "learningItemId": "dddddddd-0005-4000-8000-000000000005",
+        "ratedAt": "2026-08-12T09:00:00.000Z",
+        "rating": 3,
+        "scheduledDays": 6
+      }
+    ],
+    "tags": [
+      {
+        "color": "#6d4aff",
+        "id": "99999999-0001-4000-8000-000000000001",
+        "name": "encoding"
+      },
+      {
+        "color": "#8f72ff",
+        "id": "99999999-0002-4000-8000-000000000002",
+        "name": "memory"
+      },
+      {
+        "color": "#7a6b55",
+        "id": "99999999-0005-4000-8000-000000000005",
+        "name": "public-domain"
+      },
+      {
+        "color": "#3856b8",
+        "id": "99999999-0003-4000-8000-000000000003",
+        "name": "retrieval"
+      },
+      {
+        "color": "#486486",
+        "id": "99999999-0004-4000-8000-000000000004",
+        "name": "sleep"
+      }
+    ]
+  }
+}

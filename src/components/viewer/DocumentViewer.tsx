@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowClockwise,
   Brain,
@@ -156,6 +157,7 @@ import { createScrollDismissGate, isSuppressedSelection } from "./touchSelection
 import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
 import type { CapturedSelection, SelectionSurface } from "./selectionInteraction/machine";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
+import { placeAnchoredBar, type BarPlacement } from "./selectionInteraction/geometry";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -171,6 +173,7 @@ import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntim
 import { InlineDocumentTitle } from "./InlineDocumentTitle";
 import { ItemStatsButton } from "../stats/ItemStatsButton";
 import type { SectionNode } from "../../utils/sectionIndex";
+import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 
 const READER_FOCUS_EVENT = "plethora-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "plethora-reader-focus-mode";
@@ -195,6 +198,50 @@ const MARKDOWN_MIN_WIDTH_CH = 80;
 const MARKDOWN_MAX_WIDTH_CH = 180;
 const MARKDOWN_DEFAULT_WIDTH_CH = 120;
 const MARKDOWN_LEGACY_DEFAULT_WIDTH_CH = 82;
+const MARKETING_CAPTURE_CARD = {
+  question: "Why does highlighting often fail as study?",
+  answer: "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall.",
+  tags: ["encoding", "memory"],
+} as const;
+
+function findMarketingCaptureTextRange(doc: Document, targetText: string): Range | null {
+  const root = doc.body;
+  if (!root || !targetText) return null;
+  const walker = doc.createTreeWalker(root, 4); // NodeFilter.SHOW_TEXT
+  const nodes: Text[] = [];
+  let combined = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const textNode = node as Text;
+    nodes.push(textNode);
+    combined += textNode.data;
+  }
+  const start = combined.indexOf(targetText);
+  if (start < 0) return null;
+  const end = start + targetText.length;
+  let offset = 0;
+  let startNode: Text | null = null;
+  let endNode: Text | null = null;
+  let startOffset = 0;
+  let endOffset = 0;
+  for (const node of nodes) {
+    const nextOffset = offset + node.data.length;
+    if (!startNode && start >= offset && start < nextOffset) {
+      startNode = node;
+      startOffset = start - offset;
+    }
+    if (endNode === null && end > offset && end <= nextOffset) {
+      endNode = node;
+      endOffset = end - offset;
+      break;
+    }
+    offset = nextOffset;
+  }
+  if (!startNode || !endNode) return null;
+  const range = doc.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  return range;
+}
 
 const DOCUMENT_TYPES: DocumentType[] = ["pdf", "epub", "markdown", "html", "youtube", "video", "audio", "image"];
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus"]);
@@ -357,6 +404,8 @@ interface DocumentViewerProps {
    * render the audio player instead of the reading surface when set.
    */
   listenToEdition?: boolean;
+  captureReader?: MarketingSceneApplication["reader"];
+  captureCardPreview?: MarketingSceneApplication["cardPreview"];
 }
 
 type ViewerSearchDirection = "next" | "prev";
@@ -428,6 +477,8 @@ export function DocumentViewer({
   onEnded,
   onArchive,
   listenToEdition,
+  captureReader,
+  captureCardPreview,
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
@@ -599,6 +650,17 @@ export function DocumentViewer({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeElement, setIframeElement] = useState<HTMLIFrameElement | null>(null);
+  const [marketingCapturePlacement, setMarketingCapturePlacement] = useState<BarPlacement | null>(null);
+  const [marketingCaptureRegion, setMarketingCaptureRegion] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const marketingCaptureAppliedRef = useRef<{
+    frame: HTMLIFrameElement;
+    key: string;
+  } | null>(null);
   const setIframeRef = useCallback((element: HTMLIFrameElement | null) => {
     iframeRef.current = element;
     setIframeElement((current) => current === element ? current : element);
@@ -1184,7 +1246,110 @@ export function DocumentViewer({
   const [learnThisRequest, setLearnThisRequest] = useState<{
     text: string;
     passage: string;
+    extractId?: string;
+    staticCandidates?: Array<{
+      question: string;
+      answer: string;
+      cardType?: "qa";
+      tags?: string[];
+    }>;
+    staticProvenance?: { provider: string; model?: string; modelClass: string };
   } | null>(null);
+  const openMarketingLearnThis = useCallback(() => {
+    if (!captureReader?.selection) return;
+    const candidate = captureCardPreview ?? MARKETING_CAPTURE_CARD;
+    setLearnThisRequest({
+      text: captureReader.selection.text,
+      passage: captureReader.selection.text,
+      extractId: captureCardPreview?.sourceExtractId ?? captureReader.selection.extractId,
+      staticCandidates: [{
+        question: candidate.question,
+        answer: candidate.answer,
+        cardType: "qa",
+        tags: [...candidate.tags],
+      }],
+      staticProvenance: { provider: "Plethora fixture", modelClass: "pre-authored" },
+    });
+  }, [captureCardPreview, captureReader]);
+
+  useEffect(() => {
+    if (!captureReader || docType !== "html" || !iframeElement || !isHtmlFrameReady) return;
+    const applicationKey = `${documentId}:${captureReader.targetText}:${captureReader.selection ? "selected" : "open"}:${captureCardPreview ? "preview" : "reader"}`;
+    if (
+      marketingCaptureAppliedRef.current?.frame === iframeElement &&
+      marketingCaptureAppliedRef.current.key === applicationKey
+    ) return;
+    marketingCaptureAppliedRef.current = { frame: iframeElement, key: applicationKey };
+    const frameDoc = iframeElement.contentDocument;
+    const frameWindow = iframeElement.contentWindow;
+    if (!frameDoc || !frameWindow) return;
+    const range = findMarketingCaptureTextRange(frameDoc, captureReader.targetText);
+    if (!range) {
+      document.body.dataset.marketingReaderReady = "error";
+      document.body.dataset.marketingError = `Reader target not found: ${captureReader.targetText}`;
+      return;
+    }
+
+    if (captureReader.selection) {
+      const selection = frameWindow.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range.cloneRange());
+    }
+
+    let settleTimer = 0;
+    let secondFrame = 0;
+    let firstFrame = 0;
+    // Let the normal reader restoration path finish first, then deliberately
+    // position the exact text range. The app may restore saved progress just
+    // after iframe load; positioning earlier would be overwritten on mobile.
+    settleTimer = window.setTimeout(() => {
+      const initialRect = range.getBoundingClientRect();
+      const scrollingElement = frameDoc.scrollingElement ?? frameDoc.documentElement;
+      const viewportHeight = scrollingElement.clientHeight || frameWindow.innerHeight;
+      const targetScrollTop = Math.max(
+        0,
+        scrollingElement.scrollTop + initialRect.top - (viewportHeight - initialRect.height) / 2,
+      );
+      // The reader stylesheet enables smooth scrolling for human navigation.
+      // Disable it for capture so readiness cannot race an in-flight animation.
+      (scrollingElement as HTMLElement).style.setProperty("scroll-behavior", "auto", "important");
+      frameDoc.documentElement.style.setProperty("scroll-behavior", "auto", "important");
+      frameDoc.body?.style.setProperty("scroll-behavior", "auto", "important");
+      scrollingElement.scrollTop = targetScrollTop;
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+        const localRect = range.getBoundingClientRect();
+        const frameRect = iframeElement.getBoundingClientRect();
+        const viewportRect = {
+          left: frameRect.left + localRect.left,
+          top: frameRect.top + localRect.top,
+          width: Math.max(1, localRect.width),
+          height: Math.max(1, localRect.height),
+        };
+        setMarketingCaptureRegion(viewportRect);
+        setMarketingCapturePlacement(
+          captureReader.selection && !captureCardPreview
+            ? placeAnchoredBar(
+                viewportRect,
+                { width: 720, height: 54 },
+                { width: window.innerWidth, height: window.innerHeight },
+                { top: 8, right: 8, bottom: 8, left: 8 },
+                { preferBelow: window.innerWidth < 768 },
+              )
+            : null,
+        );
+        if (captureCardPreview) openMarketingLearnThis();
+        document.body.dataset.marketingReaderReady = "1";
+        });
+      });
+    }, 1_000);
+
+    return () => {
+      window.clearTimeout(settleTimer);
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [captureCardPreview, captureReader, docType, documentId, iframeElement, isHtmlFrameReady, openMarketingLearnThis]);
   const aiAvailability = useAiAvailability("prompt");
   // Phase-1 flag (default off): "Learn this" structured proposals.
   const aiLearnThisEnabled = useSettingsStore((s) => s.settings.features.aiLearnThis);
@@ -8620,24 +8785,37 @@ export function DocumentViewer({
           the user's most-used actions. No scrim; if it appears while the user
           is still deciding, touching a handle again instantly hides it. The
           full menu sheet is opened deliberately via ⋯. */}
+      {marketingCaptureRegion && createPortal(
+        <span
+          data-showcase-region="select-passage"
+          aria-hidden="true"
+          className="pointer-events-none fixed z-[9997] block"
+          style={marketingCaptureRegion}
+        />,
+        document.body,
+      )}
       <SelectionActionBar
         placement={
-          selectionV2Active &&
-          selectionController.phase === "ready" &&
-          !contextMenuState?.visible
-            ? selectionController.placement
-            : null
+          marketingCapturePlacement ?? (
+            selectionV2Active &&
+            selectionController.phase === "ready" &&
+            !contextMenuState?.visible
+              ? selectionController.placement
+              : null
+          )
         }
         onAction={handleSelectionBarAction}
         onOverflow={handleSelectionBarOverflow}
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
-        aiAvailable={aiAvailability.available}
+        aiAvailable={captureReader?.selection ? true : aiAvailability.available}
         canReadAloud={
           viewMode === "document" &&
           (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html")
         }
         onMeasure={selectionController.registerBarSize}
         readerContainerRef={containerRef}
+        showLearnThis={Boolean(captureReader?.selection && !captureCardPreview)}
+        onLearnThis={openMarketingLearnThis}
       />
 
       {/* Mobile: bottom sheet of actions for the current text selection. */}
@@ -8698,6 +8876,9 @@ export function DocumentViewer({
         documentId={currentDocument?.id}
         documentTitle={currentDocument?.title}
         selectionContext={selectionContext ?? undefined}
+        extractId={learnThisRequest?.extractId}
+        staticCandidates={learnThisRequest?.staticCandidates}
+        staticProvenance={learnThisRequest?.staticProvenance}
         onClose={() => setLearnThisRequest(null)}
       />
 

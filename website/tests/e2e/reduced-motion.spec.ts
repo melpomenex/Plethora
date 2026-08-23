@@ -22,3 +22,13 @@ test('reduced motion disables infinite mascot animation', async ({ page }) => {
 
   expect(infinite).toBe(false);
 });
+
+test('reduced motion keeps showcase outcomes without pulsing or spatial transitions', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/demo');
+  const hotspot = page.getByRole('button', { name: 'Open / Read', exact: true });
+  await expect(hotspot).toBeVisible();
+  await expect(hotspot).toHaveCSS('animation-name', 'none');
+  await hotspot.click();
+  await expect(page.locator('[data-showcase-simulator]')).toHaveAttribute('data-stage', 'reader.open');
+});

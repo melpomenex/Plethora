@@ -1,95 +1,109 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  DEMO_CONTENT_KINDS,
-  DEMO_HAPPY_PATH,
-  INITIAL_DEMO_STATE,
-  clampDemoState,
-  parseDemoSearch,
-  restartDemo,
-  transition,
-  type DemoEvent,
+  SHOWCASE,
+  getShowcaseAsset,
+  getShowcaseScene,
+} from './showcase.ts';
+import {
+  canonicalShowcaseSearch,
+  clampShowcaseState,
+  createShowcaseState,
+  guidedProgress,
+  parseShowcaseSearch,
+  resolveSceneForLayout,
+  transitionShowcase,
 } from './machine.ts';
 
-describe('demo machine', () => {
-  it('advances every happy-path stage', () => {
-    let state = { ...INITIAL_DEMO_STATE };
-    for (let i = 0; i < DEMO_HAPPY_PATH.length - 1; i += 1) {
-      const from = DEMO_HAPPY_PATH[i]!;
-      const to = DEMO_HAPPY_PATH[i + 1]!;
-      assert.equal(state.stage, from);
-      const event: DemoEvent =
-        from === 'review-rate' ? { type: 'rate', rating: 3 } : { type: 'advance' };
-      state = transition(state, event);
-      assert.equal(state.stage, to);
+describe('showcase machine', () => {
+  it('completes every declared guided transition', () => {
+    let state = createShowcaseState({ mode: 'guided' });
+    for (let index = 0; index < SHOWCASE.guidedPath.length - 1; index += 1) {
+      const from = SHOWCASE.guidedPath[index]!;
+      const to = SHOWCASE.guidedPath[index + 1]!;
+      assert.equal(state.sceneId, from);
+      const action = getShowcaseScene(from)?.actions.find((candidate) => candidate.recommended);
+      assert.ok(action);
+      state = transitionShowcase(state, { type: 'action', actionId: action.id });
+      assert.equal(state.sceneId, to);
     }
-    assert.equal(state.stage, 'complete');
-    assert.equal(transition(state, { type: 'advance' }).stage, 'complete');
+    assert.equal(state.completion, true);
+    assert.deepEqual(guidedProgress(state), { current: 8, total: 8 });
   });
 
-  it('opens each library kind onto item', () => {
-    for (const kind of DEMO_CONTENT_KINDS) {
-      const next = transition(INITIAL_DEMO_STATE, { type: 'select-kind', kind });
-      assert.equal(next.stage, 'item');
-      assert.equal(next.contentKind, kind);
-    }
-  });
-
-  it('uses labeled events on passage, remember, and reveal', () => {
-    let state = transition(INITIAL_DEMO_STATE, { type: 'advance' }); // item
-    state = transition(state, { type: 'advance' }); // reader
-    state = transition(state, { type: 'advance' }); // passage
-    state = transition(state, { type: 'select-passage' });
-    assert.equal(state.stage, 'explain');
-    state = transition(state, { type: 'advance' }); // remember-confirm
-    state = transition(state, { type: 'remember' });
-    assert.equal(state.stage, 'card');
-    state = transition(state, { type: 'advance' }); // review-prompt
-    state = transition(state, { type: 'reveal' });
-    assert.equal(state.stage, 'review-reveal');
-  });
-
-  it('restarts to library and keeps the current kind', () => {
-    const mid = transition(INITIAL_DEMO_STATE, { type: 'select-kind', kind: 'podcast' });
-    const done = restartDemo(mid);
-    assert.equal(done.stage, 'library');
-    assert.equal(done.contentKind, 'podcast');
-    assert.equal(done.rating, undefined);
-  });
-
-  it('clamps invalid hydrations onto library', () => {
-    assert.equal(clampDemoState({ contentKind: 'novel', stage: 'reader' }).stage, 'library');
-    assert.equal(clampDemoState({ contentKind: 'article', stage: 'connect' }).stage, 'library');
-    assert.equal(
-      clampDemoState({ contentKind: 'article', stage: 'reader', passageId: 'missing' }).stage,
-      'library',
+  it('keeps unmapped and illegal actions inert', () => {
+    const state = createShowcaseState({ mode: 'guided' });
+    assert.deepEqual(transitionShowcase(state, { type: 'action', actionId: 'unknown' }), state);
+    const narrative = createShowcaseState({ mode: 'narrative' });
+    assert.deepEqual(
+      transitionShowcase(narrative, { type: 'action', actionId: 'open-featured' }),
+      narrative,
     );
-    const valid = clampDemoState({ contentKind: 'book', stage: 'reader' });
-    assert.equal(valid.stage, 'reader');
-    assert.equal(valid.contentKind, 'book');
   });
 
-  it('clamps illegal events onto library', () => {
-    assert.equal(transition(INITIAL_DEMO_STATE, { type: 'remember' }).stage, 'library');
-    assert.equal(transition(INITIAL_DEMO_STATE, { type: 'reveal' }).stage, 'library');
-    assert.equal(transition(INITIAL_DEMO_STATE, { type: 'rate', rating: 3 }).stage, 'library');
-    assert.equal(transition(INITIAL_DEMO_STATE, { type: 'select-passage' }).stage, 'library');
-    const reader = transition(transition(INITIAL_DEMO_STATE, { type: 'advance' }), { type: 'advance' });
-    assert.equal(reader.stage, 'reader');
-    const clamped = transition(reader, { type: 'select-kind', kind: 'pdf' });
-    assert.equal(clamped.stage, 'library');
-    assert.equal(clamped.contentKind, 'pdf');
-  });
-
-  it('parses search params through hydrate', () => {
-    const parsed = parseDemoSearch('?kind=video&stage=reader');
-    const state = transition(INITIAL_DEMO_STATE, { type: 'hydrate', ...parsed });
-    assert.equal(state.contentKind, 'video');
-    assert.equal(state.stage, 'reader');
-    const bad = transition(INITIAL_DEMO_STATE, {
-      type: 'hydrate',
-      ...parseDemoSearch('?kind=article&stage=nope'),
+  it('explains the intentionally omitted explanation destination', () => {
+    const selected = createShowcaseState({
+      search: '?scene=reader.selected&layout=desktop',
+      mode: 'explore',
     });
-    assert.equal(bad.stage, 'library');
+    const next = transitionShowcase(selected, { type: 'action', actionId: 'explain-selection' });
+    assert.equal(next.sceneId, 'reader.selected');
+    assert.match(next.notice ?? '', /live provider/);
+  });
+
+  it('uses actual history for Back and preserves layout on Restart', () => {
+    let state = createShowcaseState({ mode: 'guided', defaultLayout: 'mobile' });
+    state = transitionShowcase(state, { type: 'action', actionId: 'open-featured' });
+    state = transitionShowcase(state, { type: 'action', actionId: 'select-passage' });
+    assert.deepEqual(state.pathHistory, ['library.ready', 'reader.open']);
+    state = transitionShowcase(state, { type: 'back' });
+    assert.equal(state.sceneId, 'reader.open');
+    state = transitionShowcase(state, { type: 'restart' });
+    assert.equal(state.sceneId, 'library.ready');
+    assert.equal(state.layout, 'mobile');
+    assert.deepEqual(state.pathHistory, []);
+  });
+
+  it('preserves the logical scene across layouts', () => {
+    const state = createShowcaseState({
+      search: '?scene=review.question&layout=desktop',
+      mode: 'guided',
+    });
+    const next = transitionShowcase(state, { type: 'set-layout', layout: 'mobile' });
+    assert.equal(next.sceneId, 'review.question');
+    assert.equal(next.layout, 'mobile');
+    assert.ok(getShowcaseAsset(next.sceneId, next.layout));
+  });
+
+  it('clamps deep links and never exposes arbitrary asset paths', () => {
+    assert.deepEqual(parseShowcaseSearch('?scene=review.answer&layout=mobile&asset=/etc/passwd'), {
+      scene: 'review.answer',
+      layout: 'mobile',
+    });
+    const valid = createShowcaseState({
+      search: '?scene=review.answer&layout=mobile',
+      mode: 'guided',
+    });
+    assert.equal(valid.sceneId, 'review.answer');
+    assert.equal(valid.layout, 'mobile');
+
+    const invalid = createShowcaseState({
+      search: '?scene=../../secret&layout=watch',
+      mode: 'guided',
+    });
+    assert.equal(invalid.sceneId, 'library.ready');
+    assert.equal(invalid.layout, 'desktop');
+    assert.equal(canonicalShowcaseSearch(invalid), '?scene=library.ready&layout=desktop');
+  });
+
+  it('uses the catalog fallback for non-captured scenes and filters invalid history', () => {
+    assert.equal(resolveSceneForLayout('explain.grounded', 'mobile'), 'reader.selected');
+    const clamped = clampShowcaseState({
+      mode: 'guided',
+      sceneId: 'review.answer',
+      layout: 'desktop',
+      pathHistory: ['library.ready', 'missing', 'reader.open'],
+    });
+    assert.deepEqual(clamped.pathHistory, ['library.ready', 'reader.open']);
   });
 });

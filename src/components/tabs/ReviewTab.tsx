@@ -12,6 +12,7 @@ export function ReviewTab() {
     queue,
     currentCard,
     reviewTabMode,
+    reviewsCompleted,
     setReviewTabMode
   } = useReviewStore(
     useShallow((state) => ({
@@ -20,6 +21,7 @@ export function ReviewTab() {
       queue: state.queue,
       currentCard: state.currentCard,
       reviewTabMode: state.reviewTabMode,
+      reviewsCompleted: state.reviewsCompleted,
       setReviewTabMode: state.setReviewTabMode,
     }))
   );
@@ -40,10 +42,10 @@ export function ReviewTab() {
   useEffect(() => {
     if (queue.length > 0 && currentCard) {
       setReviewTabMode("session");
-    } else if (queue.length === 0 && reviewTabMode === "session") {
+    } else if (queue.length === 0 && reviewTabMode === "session" && reviewsCompleted === 0) {
       setReviewTabMode("home");
     }
-  }, [queue.length, currentCard, reviewTabMode, setReviewTabMode]);
+  }, [queue.length, currentCard, reviewTabMode, reviewsCompleted, setReviewTabMode]);
 
   useEffect(() => {
     return () => {

@@ -9,10 +9,15 @@ export const CONTRACT_EVENT_NAMES = [
   'download_click',
   'pricing_interval_select',
   'pricing_plan_cta',
-  'demo_start',
-  'demo_stage',
-  'demo_complete',
-  'demo_restart',
+  'showcase_impression',
+  'showcase_chapter',
+  'showcase_takeover',
+  'showcase_action',
+  'showcase_layout_switch',
+  'showcase_complete',
+  'showcase_restart',
+  'showcase_exit',
+  'showcase_asset_failure',
   'docs_view',
   'checkout_start',
   'checkout_complete',
@@ -39,10 +44,15 @@ describe('analytics event contract', () => {
       { name: 'download_click', platform: 'windows', availability: 'disabled' },
       { name: 'pricing_interval_select', interval: 'month' },
       { name: 'pricing_plan_cta', plan: 'pro', enabled: false },
-      { name: 'demo_start', kind: 'article' },
-      { name: 'demo_stage', stage: 'library', kind: 'article' },
-      { name: 'demo_complete', kind: 'article' },
-      { name: 'demo_restart' },
+      { name: 'showcase_impression', sceneId: 'library.ready', layout: 'desktop', surface: 'homepage' },
+      { name: 'showcase_chapter', chapterId: 'Read', sceneId: 'reader.open', layout: 'desktop' },
+      { name: 'showcase_takeover', sceneId: 'review.question', layout: 'desktop' },
+      { name: 'showcase_action', sceneId: 'review.question', actionId: 'reveal-answer', layout: 'desktop' },
+      { name: 'showcase_layout_switch', sceneId: 'review.answer', fromLayout: 'desktop', toLayout: 'mobile' },
+      { name: 'showcase_complete', sceneId: 'connections.context', layout: 'mobile' },
+      { name: 'showcase_restart', layout: 'mobile' },
+      { name: 'showcase_exit', sceneId: 'review.answer', layout: 'mobile' },
+      { name: 'showcase_asset_failure', sceneId: 'reader.open', layout: 'desktop' },
       { name: 'docs_view', path: '/docs' },
       { name: 'checkout_start', plan: 'pro', interval: 'year' },
       { name: 'checkout_complete', plan: 'pro' },
@@ -54,8 +64,8 @@ describe('analytics event contract', () => {
   });
 
   it('forbids text and html payload fields', () => {
-    assertSafeAnalyticsPayload({ name: 'demo_stage', stage: 'reader', kind: 'article' });
-    assert.throws(() => assertSafeAnalyticsPayload({ name: 'demo_stage', text: 'passage' }));
-    assert.throws(() => assertSafeAnalyticsPayload({ name: 'demo_stage', html: '<p>' }));
+    assertSafeAnalyticsPayload({ name: 'showcase_action', sceneId: 'reader.open', actionId: 'select-passage' });
+    assert.throws(() => assertSafeAnalyticsPayload({ name: 'showcase_action', text: 'passage' }));
+    assert.throws(() => assertSafeAnalyticsPayload({ name: 'showcase_action', html: '<p>' }));
   });
 });

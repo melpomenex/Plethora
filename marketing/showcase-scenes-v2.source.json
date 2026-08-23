@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "plethora-showcase-scenes-v2",
+  "fixtureId": "marketing-fixture-v2",
+  "fixtureVersion": "2.0.0",
+  "layouts": {
+    "desktop": { "width": 1440, "height": 900, "dpr": 1 },
+    "mobile": { "width": 390, "height": 844, "dpr": 1 }
+  },
+  "guidedPath": [
+    "library.ready",
+    "reader.open",
+    "reader.selected",
+    "remember.preview",
+    "review.question",
+    "review.answer",
+    "review.scheduled",
+    "connections.context"
+  ],
+  "scenes": [
+    {
+      "id": "library.ready",
+      "chapter": "Collect",
+      "surface": "library",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": null,
+      "successors": ["reader.open"],
+      "fallbackSceneId": "library.ready",
+      "transition": "focus",
+      "narration": "A populated library keeps the essay beside the rest of the reading desk.",
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "sentinels": ["Why highlighting feels like learning", "Sleep is not downtime for memory"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "open-featured", "label": "Open / Read", "nextSceneId": "reader.open", "selector": "[data-showcase-action=\"open-featured\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "reader.open",
+      "chapter": "Read",
+      "surface": "reader",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "library.ready",
+      "successors": ["reader.selected"],
+      "fallbackSceneId": "reader.open",
+      "transition": "crossfade",
+      "narration": "The essay reopens where recognition and recall diverge.",
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "sentinels": ["Why highlighting feels like learning", "Recognition is cheap"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "select-passage", "label": "Select passage", "nextSceneId": "reader.selected", "selector": "[data-showcase-region=\"select-passage\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "reader.selected",
+      "chapter": "Understand",
+      "surface": "reader",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "reader.open",
+      "successors": ["explain.grounded", "remember.preview"],
+      "fallbackSceneId": "reader.open",
+      "transition": "focus",
+      "narration": "A deliberate selection exposes only actions the real reader supports.",
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "sentinels": ["Recognition is cheap", "Explain", "Learn this"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "explain-selection", "label": "Explain", "nextSceneId": "explain.grounded", "selector": "[data-showcase-action=\"explain-selection\"]", "recommended": false },
+        { "id": "remember-selection", "label": "Learn this", "nextSceneId": "remember.preview", "selector": "[data-showcase-action=\"remember-selection\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "explain.grounded",
+      "chapter": "Understand",
+      "surface": "reader",
+      "required": false,
+      "captureSupported": false,
+      "predecessor": "reader.selected",
+      "successors": ["remember.preview"],
+      "fallbackSceneId": "reader.selected",
+      "transition": "focus",
+      "narration": "A future pre-authored explanation can remain grounded in the selected passage.",
+      "accessibleDescription": "Optional grounded explanation scene, omitted until the real UI supports deterministic injection.",
+      "sentinels": ["Recognition is cheap"],
+      "requiredLayouts": [],
+      "actions": []
+    },
+    {
+      "id": "remember.preview",
+      "chapter": "Remember",
+      "surface": "reader",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "reader.selected",
+      "successors": ["review.question"],
+      "fallbackSceneId": "reader.selected",
+      "transition": "focus",
+      "narration": "The selected claim becomes a concise retrieval prompt.",
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "sentinels": ["Why does highlighting often fail as study?", "Add 1 card"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "save-card", "label": "Add card", "nextSceneId": "review.question", "selector": "[data-showcase-action=\"save-card\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "review.question",
+      "chapter": "Remember",
+      "surface": "review",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "remember.preview",
+      "successors": ["review.answer"],
+      "fallbackSceneId": "review.question",
+      "transition": "crossfade",
+      "narration": "Later, the card returns as a question before its answer is visible.",
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "sentinels": ["Why does highlighting often fail as study?", "Show Answer"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "reveal-answer", "label": "Show Answer", "nextSceneId": "review.answer", "selector": "[data-showcase-action=\"reveal-answer\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "review.answer",
+      "chapter": "Remember",
+      "surface": "review",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "review.question",
+      "successors": ["review.scheduled"],
+      "fallbackSceneId": "review.question",
+      "transition": "crossfade",
+      "narration": "The answer appears with the real grading controls.",
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "sentinels": ["It tags importance without encoding", "Good"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "grade-good", "label": "Good", "nextSceneId": "review.scheduled", "selector": "[data-showcase-action=\"grade-good\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "review.scheduled",
+      "chapter": "Return",
+      "surface": "review",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "review.answer",
+      "successors": ["connections.context"],
+      "fallbackSceneId": "review.answer",
+      "transition": "focus",
+      "narration": "A deliberate grade schedules the next review.",
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "sentinels": ["Review Complete!", "Scheduled", "Good", "Next review in 3 days"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": [
+        { "id": "view-connections", "label": "View connections", "nextSceneId": "connections.context", "selector": "[data-showcase-action=\"view-connections\"]", "recommended": true }
+      ]
+    },
+    {
+      "id": "connections.context",
+      "chapter": "Return",
+      "surface": "connections",
+      "required": true,
+      "captureSupported": true,
+      "predecessor": "review.scheduled",
+      "successors": [],
+      "fallbackSceneId": "connections.context",
+      "transition": "focus",
+      "narration": "The remembered claim returns with its neighboring ideas.",
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "sentinels": ["Recognition is cheap", "Effort is a teaching signal"],
+      "requiredLayouts": ["desktop", "mobile"],
+      "actions": []
+    }
+  ]
+}

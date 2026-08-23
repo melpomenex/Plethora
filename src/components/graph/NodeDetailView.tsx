@@ -38,6 +38,7 @@ export interface NodeDetailViewProps {
     tags?: string[];
   }) => Promise<void> | void;
   onDelete?: (nodeId: string) => void;
+  initialExpandedGroups?: string[];
 }
 
 const NODE_CONFIG = {
@@ -105,10 +106,13 @@ export function NodeDetailView({
   onEdit,
   onSaveDetails,
   onDelete,
+  initialExpandedGroups = [],
 }: NodeDetailViewProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<"connections" | "metadata">("connections");
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(initialExpandedGroups),
+  );
   const [showActions, setShowActions] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);

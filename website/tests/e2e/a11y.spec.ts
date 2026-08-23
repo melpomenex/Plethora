@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { test, expect } from '@playwright/test';
 
-const axeRoutes = ['/', '/pricing', '/downloads', '/privacy', '/features'];
+const axeRoutes = ['/', '/demo', '/pricing', '/downloads', '/privacy', '/features'];
 
 test.describe('axe WCAG 2.2 AA', () => {
   for (const path of axeRoutes) {

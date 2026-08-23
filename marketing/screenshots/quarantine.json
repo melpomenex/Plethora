@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "reason": "Only generated marketing-fixture-v2 scene captures with matching provenance may enter the active showcase manifest.",
+  "rules": [
+    {
+      "pattern": "marketing/screenshots/source/*_placeholder-unreleased.png",
+      "classification": "placeholder"
+    },
+    {
+      "pattern": "marketing/screenshots/source/*_pwa.png",
+      "classification": "legacy-or-unverified"
+    },
+    {
+      "pattern": "marketing/screenshots/source/*_device.png",
+      "classification": "unsafe-or-personal-device"
+    },
+    {
+      "pattern": "marketing/screenshots/source/*-device.png",
+      "classification": "unsafe-or-personal-device"
+    },
+    {
+      "pattern": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T13-53-36-896Z/*",
+      "classification": "unapproved-capture-set"
+    },
+    {
+      "pattern": "website/public/images/product/screenshot-*",
+      "classification": "legacy-empty-or-mislabeled-website-image"
+    },
+    {
+      "pattern": "website/src/config/asset-manifest.json",
+      "classification": "legacy-manifest-not-approved-for-showcase-v2"
+    }
+  ],
+  "allow": [
+    "marketing/screenshots/source/reader_iphone_iphone-14-390x844_light_pwa.png"
+  ],
+  "allowDisposition": "reference-only"
+}

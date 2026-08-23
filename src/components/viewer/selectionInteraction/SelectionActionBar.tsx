@@ -14,7 +14,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Copy, DotsThree, Lightbulb, Question, TextAlignLeft,
-  SpeakerHigh,
+  GraduationCap, SpeakerHigh,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
@@ -42,6 +42,9 @@ export interface SelectionActionBarProps {
   readerContainerRef?: React.RefObject<HTMLElement | null>;
   /** Measured size flows back into the controller's placement math. */
   onMeasure?: (size: { width: number; height: number }) => void;
+  /** Capture-build path to the real Learn-this proposal UI. */
+  onLearnThis?: () => void;
+  showLearnThis?: boolean;
 }
 
 function Chip({
@@ -49,15 +52,18 @@ function Chip({
   icon,
   onClick,
   reducedMotion,
+  showcaseAction,
 }: {
   label: string;
   icon: ReactNode;
   onClick: () => void;
   reducedMotion: boolean;
+  showcaseAction?: string;
 }) {
   return (
     <button
       type="button"
+      data-showcase-action={showcaseAction}
       // 44px targets; the row scrolls horizontally instead of shrinking.
       className={`flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium text-foreground active:bg-muted ${
         reducedMotion ? "" : "transition-colors"
@@ -80,6 +86,8 @@ export function SelectionActionBar({
   canReadAloud = false,
   readerContainerRef,
   onMeasure,
+  onLearnThis,
+  showLearnThis = false,
 }: SelectionActionBarProps) {
   const { t } = useI18n();
   const { reducedMotion } = usePresentation();
@@ -130,7 +138,17 @@ export function SelectionActionBar({
             label={t("selectionSheet.explain")}
             icon={<Lightbulb className="h-4 w-4" weight="bold" />}
             onClick={() => onAction("explain")}
+            showcaseAction="explain-selection"
           />
+          {showLearnThis && onLearnThis && (
+            <Chip
+              reducedMotion={reducedMotion}
+              label={t("aiLearning.learnThis")}
+              icon={<GraduationCap className="h-4 w-4" weight="bold" />}
+              onClick={onLearnThis}
+              showcaseAction="remember-selection"
+            />
+          )}
           <Chip
             reducedMotion={reducedMotion}
             label={t("selectionBar.ask")}

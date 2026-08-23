@@ -3504,6 +3504,18 @@ function LibraryDashboard({
   const rowRef1 = useRef<HTMLDivElement>(null);
   const rowRef2 = useRef<HTMLDivElement>(null);
 
+  useLayoutEffect(() => {
+    const request = globalThis.__PLETHORA_MARKETING_CAPTURE__?.request;
+    if (request?.sceneId !== "library.ready" || request.layout !== "mobile") return;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector('[data-showcase-action="open-featured"]')?.scrollIntoView({
+        block: "center",
+        inline: "center",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [documents.length]);
+
   // Stats
   const totalItems = documents.length;
   const inProgress = documents.filter(
@@ -3627,6 +3639,7 @@ function LibraryDashboard({
         scrollRef={rowRef1}
         onScrollLeft={() => scrollRow(rowRef1, "left")}
         onScrollRight={() => scrollRow(rowRef1, "right")}
+        markFeaturedOpenAction
       />
 
       {/* Recently Added */}
@@ -3668,6 +3681,7 @@ interface HorizontalSectionProps {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScrollLeft: () => void;
   onScrollRight: () => void;
+  markFeaturedOpenAction?: boolean;
 }
 
 function HorizontalSection({
@@ -3686,6 +3700,7 @@ function HorizontalSection({
   scrollRef,
   onScrollLeft,
   onScrollRight,
+  markFeaturedOpenAction = false,
 }: HorizontalSectionProps) {
   // Convert vertical wheel scrolling to horizontal scroll
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -3735,6 +3750,9 @@ function HorizontalSection({
             onReadAlong={onReadAlong}
             onOpenPopup={onOpenPopup ? () => onOpenPopup(doc) : undefined}
             isMobile={isMobile}
+            showcaseOpenAction={
+              markFeaturedOpenAction && doc.id === "aaaaaaaa-0001-4000-8000-000000000001"
+            }
           />
         ))}
       </div>
@@ -3755,6 +3773,7 @@ function LibraryCard({
   onReadAlong,
   onOpenPopup,
   isMobile,
+  showcaseOpenAction,
 }: {
   doc: Document;
   selected: boolean;
@@ -3767,6 +3786,7 @@ function LibraryCard({
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   onOpenPopup?: () => void;
   isMobile: boolean;
+  showcaseOpenAction: boolean;
 }) {
   const modal = useModal();
   const { t } = useI18n();
@@ -3964,6 +3984,19 @@ function LibraryCard({
           {doc.tags.length > 0 && (
             <CompactTagEditor target={{ type: "document", id: doc.id, tags: doc.tags }} previewLimit={2} className="mt-0.5" />
           )}
+          <button
+            type="button"
+            data-showcase-action={showcaseOpenAction ? "open-featured" : undefined}
+            aria-label={`Open ${doc.title}`}
+            className="mt-1 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-border bg-background/70 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen();
+            }}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Open / Read
+          </button>
         </div>
       </div>
 

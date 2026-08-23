@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "approved": true,
+  "catalogId": "plethora-showcase-scenes-v2",
+  "assetManifestPath": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/asset-manifest-v2.json",
+  "assetBasePath": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2",
+  "fixtureId": "marketing-fixture-v2",
+  "fixtureVersion": "2.0.0",
+  "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+  "buildId": "2.7.0+9a6e7dc075b2",
+  "gitSha": "9a6e7dc075b2",
+  "theme": "plethora-purple",
+  "sourceType": "playwright-css-viewport",
+  "sourceSet": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z",
+  "placeholder": false
+}

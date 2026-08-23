@@ -1,0 +1,1243 @@
+{
+  "assets": [
+    {
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "library.ready--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--720.avif",
+            "sha256": "4e7403f36b73e68b01f0ca1e8f1dc56b468ca25e9387f6af601cdaba2cfc2b84",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--1440.avif",
+            "sha256": "047064ff7e7d83645eb6119656d724756764149b53788e36fbba1f200a093c58",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--720.png",
+            "sha256": "d6a16aa1f99110365b2cf4c8ecdd81f5d2e60cfe8a19089e81b9f1701d062fb9",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--1440.png",
+            "sha256": "fcf38c9be49dc6506420f3e6740d3afc883623d418dce3aba71827ea083f29bf",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--720.webp",
+            "sha256": "1c86dca79cdf0469cfccf85308d68d7278321bb914bb4e4f1bdd338e3fed65d5",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--desktop--1440.webp",
+            "sha256": "bbe3ab691a624982a6c5c2e140aa6c5821a7cad08cc074a222e6c27a31558076",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Open / Read",
+          "id": "open-featured",
+          "nextSceneId": "reader.open",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.204167,
+            "x": 0.053472,
+            "y": 0.767847
+          },
+          "selector": "[data-showcase-action=\"open-featured\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "library.ready",
+      "sourceHash": "2d60585ea1cbb857d048329897846b7d9160c5baf6a924374d6bcf38600395f1",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/library.ready--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "Plethora library with five licensed demo documents and a prioritized next action.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "library.ready--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--mobile--390.avif",
+            "sha256": "5d7ef50ec2f5d73ba10f2e4c23832b9793b02a139518df36c31fd67f10a62768",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--mobile--390.png",
+            "sha256": "1c3a9da686e699fabc0325a3d03d35d4b6a8cb9318b357db65d074f264067064",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/library.ready--mobile--390.webp",
+            "sha256": "d78a02f1fe723eb839964114af5b63c49de6b8e867c4fc68d826bdf416f53c77",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Open / Read",
+          "id": "open-featured",
+          "nextSceneId": "reader.open",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.651282,
+            "x": 0.069231,
+            "y": 0.587715
+          },
+          "selector": "[data-showcase-action=\"open-featured\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "library.ready",
+      "sourceHash": "1088430413876a45bfdac80b5439687168897a056b66a9c73d6cd21fcda0bf4e",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/library.ready--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.open--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--720.avif",
+            "sha256": "24152b3565aab3091a7e4f8c693f6399e5967e546b9687cdc9af4f0bea48e9a5",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--1440.avif",
+            "sha256": "fabf0f4f65a00fade020fe434a5182590c06c10ca48e249e8a21737a50e92453",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--720.png",
+            "sha256": "088ead0c092b0d702b3415abf982d468ce95b06ed0ebed8347774a7f4398c133",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--1440.png",
+            "sha256": "2989f3488e8d919fda28d2eb28f0bd1991f6dab992e2b72a9f00643123f3ffd1",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--720.webp",
+            "sha256": "d08d0029019215196d468d848f091d731109e39e4b92f7bdca094d1700888936",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--desktop--1440.webp",
+            "sha256": "c8dc21df2e9ed9b25809f9ea2b78451a359d14e9c59aa2b78f5a87f7ce52d91b",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Select passage",
+          "id": "select-passage",
+          "nextSceneId": "reader.selected",
+          "rect": {
+            "height": 0.021111,
+            "width": 0.292687,
+            "x": 0.320953,
+            "y": 0.589896
+          },
+          "selector": "[data-showcase-region=\"select-passage\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.open",
+      "sourceHash": "55f4af7e7b7ecde6c5a92fe78220e6f2b6a7195af969002fb003010819310057",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/reader.open--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.open--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--mobile--390.avif",
+            "sha256": "f937353f66952e9efbd5a4a86e7eef0e9e9e37dd0ba4e352cf13f9439075b5ce",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--mobile--390.png",
+            "sha256": "a193f5dc0fba2454f562b011c2fb8e0ad54521c5e1560dba0149d2248f9e6b7f",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.open--mobile--390.webp",
+            "sha256": "e37792e90735c839d3d17b7f10d5640d5fff083ae07b98fdd08f65683003853b",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Select passage",
+          "id": "select-passage",
+          "nextSceneId": "reader.selected",
+          "rect": {
+            "height": 0.052836,
+            "width": 0.785617,
+            "x": 0.061538,
+            "y": 0.475378
+          },
+          "selector": "[data-showcase-region=\"select-passage\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.open",
+      "sourceHash": "3f4455d8989f8d76be772dbf8138a941a54ea59dcb44c9fd7f871a79343723e9",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/reader.open--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.selected--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--720.avif",
+            "sha256": "12ae64db8ae9c76174f221ad5c000f0931b58798b5bb2bb75247d6fc598c97a3",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--1440.avif",
+            "sha256": "4b14f244bb1eb367d06516b09663b0bcabdc8a1ecb067a32062e99e0bafc25fc",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--720.png",
+            "sha256": "a2b5587372ac9806d7aea70c36332624aee4799d64e6f2d9bce84b9a01fab2cd",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--1440.png",
+            "sha256": "990b0a69fcb0b2836417a556e6a5fe304ec9b26ed7620fb015b3f5e55b8c384e",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--720.webp",
+            "sha256": "032b2e8776f6f3aabac74d92f938f6d891333efb9cc65ad610c94b0192609d5e",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--desktop--1440.webp",
+            "sha256": "1d6470605f44337f5af7bac3eac7aaf0d7f5dc224c017e1bbffd04ee206d5689",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Explain",
+          "id": "explain-selection",
+          "nextSceneId": "explain.grounded",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.067632,
+            "x": 0.308203,
+            "y": 0.526667
+          },
+          "selector": "[data-showcase-action=\"explain-selection\"]"
+        },
+        {
+          "actionLabel": "Learn this",
+          "id": "remember-selection",
+          "nextSceneId": "remember.preview",
+          "rect": {
+            "height": 0.048889,
+            "width": 0.079937,
+            "x": 0.375836,
+            "y": 0.526667
+          },
+          "selector": "[data-showcase-action=\"remember-selection\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.selected",
+      "sourceHash": "8f2d76f967efb6c1844c16a9ff3b46c721584ee2f77e2d73123517976776f7c0",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/reader.selected--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The key passage is selected with Explain and Learn this actions visible.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "reader.selected--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--mobile--390.avif",
+            "sha256": "54ad46da1e767a6b2ef372dd44b8728ac93ec8d2963f40446a7e9408c7411f48",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--mobile--390.png",
+            "sha256": "17172a39e1b2c1a27104fc4ae36c3f1422b91d31b18aa4e2baaa20a382547d94",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/reader.selected--mobile--390.webp",
+            "sha256": "e2160c5e9a0fcebe7bb3d4648cba009be50aa1a57881370a943075e90cc7a5c5",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Explain",
+          "id": "explain-selection",
+          "nextSceneId": "explain.grounded",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.24972,
+            "x": 0.376442,
+            "y": 0.543839
+          },
+          "selector": "[data-showcase-action=\"explain-selection\"]"
+        },
+        {
+          "actionLabel": "Learn this",
+          "id": "remember-selection",
+          "nextSceneId": "remember.preview",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.295152,
+            "x": 0.626162,
+            "y": 0.543839
+          },
+          "selector": "[data-showcase-action=\"remember-selection\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "reader.selected",
+      "sourceHash": "6c80d45219b261bb8c6fc44faa9d9851299dc9b09cc952e994f452663b6573d6",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/reader.selected--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "remember.preview--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--720.avif",
+            "sha256": "cfc053ab1284eeff54bbc53e63a0ed640b7a2847d2898a54b8d421e3568e064f",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--1440.avif",
+            "sha256": "c0f995ec1f4df41c9e967f0739da3ba905611e5b282964788caa33fb9f84dcc4",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--720.png",
+            "sha256": "6b33bde864b4f1217d9a8ead53ac41237903768aa61f44e43f16ffa05fdfa032",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--1440.png",
+            "sha256": "aab60803f9524f7b03dd6b83447c3746f80d8af12b0eef18ea9874f0282e4ba9",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--720.webp",
+            "sha256": "92b2f9d502854349da9cb69b4447e545b831fa575316d312b91d76cea3a67464",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--desktop--1440.webp",
+            "sha256": "fd78598db5dce3f8ca6fd9b9468972d573e4a0e21fa2cdadc1f621dd32d7b38a",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Add card",
+          "id": "save-card",
+          "nextSceneId": "review.question",
+          "rect": {
+            "height": 0.041111,
+            "width": 0.443056,
+            "x": 0.278472,
+            "y": 0.584167
+          },
+          "selector": "[data-showcase-action=\"save-card\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "remember.preview",
+      "sourceHash": "96562c4021998292a80788971d6e8405f865f98318c17582170fe509e45d4c91",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/remember.preview--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A card preview asks why highlighting often fails as study and shows its grounded answer.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "remember.preview--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--mobile--390.avif",
+            "sha256": "abccf3ac4e48c2bc84c2d27f0ba9c45ff1de8b462ad5b79a7c66e5bee62b0745",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--mobile--390.png",
+            "sha256": "10b0d70a6867bb58ca055c11e2434256a539b615a006b6ef7f100e0f9e2eb816",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/remember.preview--mobile--390.webp",
+            "sha256": "f9bf720d19cfcf7664b71b6033cd74a73fb0a6c68d4624e518cc86dcc60d6f04",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Add card",
+          "id": "save-card",
+          "nextSceneId": "review.question",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.917949,
+            "x": 0.041026,
+            "y": 0.853081
+          },
+          "selector": "[data-showcase-action=\"save-card\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "remember.preview",
+      "sourceHash": "0bdc7521882d8073c4452ddd6013893e3dc90a12436b8f69251d12488c2f5dd1",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/remember.preview--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.question--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--720.avif",
+            "sha256": "9d6f24650f6d92621f3594fa1a7e5f743b34aaa759ad7127da89cfea3e983e1f",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--1440.avif",
+            "sha256": "b467dec35a4c1ad8ef53e8f67181dac625063dd9fe3e5502d7bb5c456e4a2c9d",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--720.png",
+            "sha256": "5aac3b76fb5b88bae4a06e35b2b5e15d45d0a36838b8c17f5801118278241667",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--1440.png",
+            "sha256": "55b26ac1a64457044ff7d3328e09dcbb50621b95ec480b5123f5d678a08b6802",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--720.webp",
+            "sha256": "5be7af233b2e4edbcf35c6e270694c381d193325c22b564e0ab3ed0dc0bf5dfd",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--desktop--1440.webp",
+            "sha256": "e5931e6ee1622dce8b41cada1666d82af0633eb6346ddc22d197f4ab9503aa42",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Show Answer",
+          "id": "reveal-answer",
+          "nextSceneId": "review.answer",
+          "rect": {
+            "height": 0.057778,
+            "width": 0.121734,
+            "x": 0.33635,
+            "y": 0.768472
+          },
+          "selector": "[data-showcase-action=\"reveal-answer\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.question",
+      "sourceHash": "7ea9246f58ad80487e89ac57f36df3ff02c51265d04c69bdce0e9ea6b19be423",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.question--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A due review card shows only the question and a Show Answer control.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.question--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--mobile--390.avif",
+            "sha256": "03cde4f535f836362ae9586dc69d0a679229bdd3947a7366c476b6f4a2b811c0",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--mobile--390.png",
+            "sha256": "88300ae19b3e5e306692986f0cbc6488edaa0112e0b15388a8449970af543c9a",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.question--mobile--390.webp",
+            "sha256": "5b36672e085b4a5492c8a628de98529045cc93b111e3ed1408ad4c74342c4dd2",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Show Answer",
+          "id": "reveal-answer",
+          "nextSceneId": "review.answer",
+          "rect": {
+            "height": 0.061611,
+            "width": 0.449479,
+            "x": 0.27524,
+            "y": 0.664692
+          },
+          "selector": "[data-showcase-action=\"reveal-answer\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.question",
+      "sourceHash": "01cbd7842cedead3e1d19484dc92e24a361a16be5e38e97bd33191e78922ca7f",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.question--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.answer--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--720.avif",
+            "sha256": "146cdf6360741313d7da2ba58e39daee782ea2bf4236e96999883611821a91c4",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--1440.avif",
+            "sha256": "5195b70f049eb26de50d8cb67ee42d896f3c23e4bded30d9d11b4b3af3f0b4db",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--720.png",
+            "sha256": "653dcda6417fd63e33888df965dbf2bbc8147f3a7f645f35b9c411500e36d413",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--1440.png",
+            "sha256": "82e36065b7aed315e2da9a00f6e869f5a98b66acde989050bc1960594bbf61d3",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--720.webp",
+            "sha256": "632bca99c74ee80f59c7b001e7991d0046c499b0416e8d3a7a99c0c149998111",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--desktop--1440.webp",
+            "sha256": "62e10bbedb9290ab2ba83e380bacd6c93048be7531d6062a288a63f632a8aeee",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Good",
+          "id": "grade-good",
+          "nextSceneId": "review.scheduled",
+          "rect": {
+            "height": 0.111111,
+            "width": 0.110417,
+            "x": 0.401389,
+            "y": 0.822222
+          },
+          "selector": "[data-showcase-action=\"grade-good\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.answer",
+      "sourceHash": "a7f5b7fbe4f57e2c8347800631b1b9055b112bd854c87a71c0e6e4681e2a8914",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.answer--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "The review answer explains encoding and shows Again, Hard, Good, and Easy grades.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.answer--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--mobile--390.avif",
+            "sha256": "5fb677e98f05235ef239938769c63f1fa7e846e69e09073236c81461d76feb46",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--mobile--390.png",
+            "sha256": "9a7e3348b4ca893dc12c9365536fea4c79a3cd981cf9fc541d88210b23277f22",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.answer--mobile--390.webp",
+            "sha256": "e9d28c8075bb0163d39c3930a3ca7c513da0b3be0a046c65939a289eb3161b8a",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "Good",
+          "id": "grade-good",
+          "nextSceneId": "review.scheduled",
+          "rect": {
+            "height": 0.052133,
+            "width": 0.217949,
+            "x": 0.507692,
+            "y": 0.454976
+          },
+          "selector": "[data-showcase-action=\"grade-good\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.answer",
+      "sourceHash": "6d69de3f6a9f6dd2c27867b69885fb1224f68f9be63faa6f478706e27fb41c23",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.answer--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.scheduled--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--720.avif",
+            "sha256": "3ed41953dd9d5d377bfdb52c66e912742e7311f475bfd9453c302035d59344b2",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--1440.avif",
+            "sha256": "d6d36feee52e9487ba08f36c68a1c73b0253aaa06773742e906da2a48ae8309d",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--720.png",
+            "sha256": "9ef5200016caa573e0c9459774b4b75440d184fd0930fd1433411a881ba789b7",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--1440.png",
+            "sha256": "5172a9936a2819d1dd2a07303c44c43cdc1386d64191292623032e8ee3642480",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--720.webp",
+            "sha256": "bb25700cd396a5047bf007a3fabe4c01d8c03f9ad5e840118a5a221fab9f6d9d",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--desktop--1440.webp",
+            "sha256": "1a691cf31055ded45d33185406f024524eeecdc6724e886a9838401999978ba7",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "View connections",
+          "id": "view-connections",
+          "nextSceneId": "connections.context",
+          "rect": {
+            "height": 0.055556,
+            "width": 0.311111,
+            "x": 0.361111,
+            "y": 0.708333
+          },
+          "selector": "[data-showcase-action=\"view-connections\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.scheduled",
+      "sourceHash": "4970dab7f69f4b03d34801af8d9147e4104a77235990b889e643dd1081a0aa2c",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.scheduled--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "Plethora confirms the card was graded Good and is scheduled to return.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "review.scheduled--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--mobile--390.avif",
+            "sha256": "0f7af9a59f1f685174b9110ce3309ecca7733cea1ea911aabef5115b8b597bbe",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--mobile--390.png",
+            "sha256": "ac8f253644c100276c0c1bfc16a76514423d772241c63b92598805ef34a81103",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/review.scheduled--mobile--390.webp",
+            "sha256": "5ffddc57ad4209f9e497c0db95ff2ef3a8ef9c2b52f6f8eb261fa90b6101a540",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [
+        {
+          "actionLabel": "View connections",
+          "id": "view-connections",
+          "nextSceneId": "connections.context",
+          "rect": {
+            "height": 0.059242,
+            "width": 0.876923,
+            "x": 0.061538,
+            "y": 0.658768
+          },
+          "selector": "[data-showcase-action=\"view-connections\"]"
+        }
+      ],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "review.scheduled",
+      "sourceHash": "83a10400a562f9ac1687ac09f01411363643a432159152db968f5ceb5b910733",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/review.scheduled--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "connections.context--desktop.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--720.avif",
+            "sha256": "661fe2ccb1a3d6c4165050af05e82b3241db91429d01b6fa4cce715a6992502f",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--1440.avif",
+            "sha256": "0d947110d7a506ad93ce9920bc17112eb58ea6595c4a9a1db41f45f86dcd0e76",
+            "width": 1440
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--720.png",
+            "sha256": "00055a55f239f5b39551f93a25933753eaeeca0a9786bc3ec6073499895e4174",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--1440.png",
+            "sha256": "9766570734570b795cc2ed910c08ac46525e0daff087276ebbc69a5ecac757db",
+            "width": 1440
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--720.webp",
+            "sha256": "d96861ea540062c9e263cb7e9d291ea3ac03790012f19a283b3b53aef3901e0f",
+            "width": 720
+          },
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--desktop--1440.webp",
+            "sha256": "9193afaee972197632ddb717e64e891210040d2a8aa2453446a13b7c6c3387dd",
+            "width": 1440
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [],
+      "intrinsicSize": {
+        "height": 900,
+        "width": 1440
+      },
+      "layout": "desktop",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "connections.context",
+      "sourceHash": "51e3985f9ec02c455d0d1737448dbfbf14cfe4d5bb61df17dd1afe8d70a09a09",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/connections.context--desktop.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 900,
+        "width": 1440
+      }
+    },
+    {
+      "accessibleDescription": "A connection view links the recognition passage with the sleep and effort note.",
+      "appVersion": "2.7.0",
+      "captureTime": "2026-08-23T14:01:22.773Z",
+      "filename": "connections.context--mobile.png",
+      "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+      "fixtureVersion": "2.0.0",
+      "formats": {
+        "avif": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--mobile--390.avif",
+            "sha256": "d14a5a56c29091e2b914e10f2a8065f503681ce039c82b0f0e2ce2cc9e788f4e",
+            "width": 390
+          }
+        ],
+        "png": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--mobile--390.png",
+            "sha256": "bdb6e323135368295869b6d714a1c9938e1d04fd99cda4207ab51622e95c9a53",
+            "width": 390
+          }
+        ],
+        "webp": [
+          {
+            "path": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2/connections.context--mobile--390.webp",
+            "sha256": "ed768b9f01d55f0441cb5f69d1505d1b58bb5b115f6e001363d6ba569d2c32b3",
+            "width": 390
+          }
+        ]
+      },
+      "gitSha": "9a6e7dc075b2",
+      "hotspots": [],
+      "intrinsicSize": {
+        "height": 844,
+        "width": 390
+      },
+      "layout": "mobile",
+      "locale": "en-US",
+      "platform": "browser-pwa",
+      "safeArea": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "sceneId": "connections.context",
+      "sourceHash": "db4c36b757fd14ec213a4599815d1f331bd8e3b18ac57247dfae65d6cbdaf151",
+      "sourcePath": "marketing/screenshots/source/showcase-v2/2.7.0+9a6e7dc075b2-2026-08-23T14-01-22-773Z/connections.context--mobile.png",
+      "sourceType": "playwright-css-viewport",
+      "theme": "plethora-purple",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "width": 390
+      }
+    }
+  ],
+  "metadata": {
+    "appVersion": "2.7.0",
+    "assetBasePath": "/images/showcase/v2/2.0.0-2.7.0+9a6e7dc075b2",
+    "buildId": "2.7.0+9a6e7dc075b2",
+    "captureTime": "2026-08-23T14:01:22.773Z",
+    "catalogId": "plethora-showcase-scenes-v2",
+    "encodedAt": "2026-08-23T14:02:57.598Z",
+    "fixtureHash": "4209a6f4744e950a245d582b4113471d3c7ea4e18fbe49de63b2a3f5f302b974",
+    "fixtureId": "marketing-fixture-v2",
+    "fixtureVersion": "2.0.0",
+    "gitSha": "9a6e7dc075b2",
+    "locale": "en-US",
+    "platform": "browser-pwa",
+    "schemaVersion": 2,
+    "sourceType": "playwright-css-viewport",
+    "theme": "plethora-purple"
+  }
+}

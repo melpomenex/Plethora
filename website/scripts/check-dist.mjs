@@ -13,6 +13,9 @@ const dist = join(websiteRoot, 'dist');
 const indexing = process.env.PUBLIC_INDEXING === 'index' ? 'index' : 'noindex';
 const analyticsEnabled = process.env.PUBLIC_ANALYTICS_ENABLED === 'true';
 const JS_BUDGET_BYTES = 180 * 1024;
+const showcaseBudgets = JSON.parse(
+  readFileSync(join(websiteRoot, 'scripts/showcase-budgets.json'), 'utf8'),
+);
 
 function fail(message) {
   console.error(`check:dist: ${message}`);
@@ -78,6 +81,22 @@ if (!homeHtmlPath) {
     fail(`homepage initial JS gzip ${totalGzip} exceeds ${JS_BUDGET_BYTES}`);
   } else {
     console.log(`check:dist: homepage initial JS gzip ${totalGzip} / ${JS_BUDGET_BYTES}`);
+  }
+}
+
+const showcaseChunks = walk(join(dist, '_astro')).filter(
+  (file) => /DemoIsland\.[^.]+\.js$/.test(file),
+);
+if (showcaseChunks.length !== 1) {
+  fail(`expected one lazy DemoIsland chunk, found ${showcaseChunks.length}`);
+} else {
+  const showcaseGzip = gzipSync(readFileSync(showcaseChunks[0])).length;
+  if (showcaseGzip > showcaseBudgets.maxIslandGzipBytes) {
+    fail(`DemoIsland gzip ${showcaseGzip} exceeds ${showcaseBudgets.maxIslandGzipBytes}`);
+  } else {
+    console.log(
+      `check:dist: DemoIsland gzip ${showcaseGzip} / ${showcaseBudgets.maxIslandGzipBytes}`,
+    );
   }
 }
 
@@ -164,7 +183,9 @@ for (const file of htmlFiles) {
 }
 
 function resolveInternal(fromFile, href) {
-  const [pathPart, hash] = href.split('#');
+  href = href.replaceAll('&amp;', '&');
+  const [pathWithQuery, hash] = href.split('#');
+  const pathPart = pathWithQuery.split('?')[0];
   if (!pathPart || pathPart.startsWith('mailto:') || pathPart.startsWith('tel:')) return { ok: true };
   if (/^https?:\/\//i.test(pathPart)) {
     try {
