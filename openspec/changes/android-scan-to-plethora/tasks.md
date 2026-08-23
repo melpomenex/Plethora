@@ -1,6 +1,6 @@
-- [ ] 1. Scaffold `plethora-android-vision`; scanner intent; copy JPEGs into image registry APIs.
-- [ ] 2. OCR pipeline (reuse Latin plugin command where possible; add scripts behind size budget).
-- [ ] 3. Document create + page metadata map; temp URI cleanup.
+- [x] 1. Scaffold `plethora-android-vision`; scanner intent; copy JPEGs into image registry APIs.
+- [x] 2. OCR pipeline (reuse Latin plugin command where possible; add scripts behind size budget).
+- [x] 3. Document create + page metadata map; temp URI cleanup.
 - [x] 4. Palette “Scan document”; permission rationale; TalkBack.
 - [x] 5. Enrichment is a follow-up action only.
 - [x] 6. Fakes + import tests; camera-denied path.

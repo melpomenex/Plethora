@@ -1,7 +1,7 @@
-- [ ] 1. Scaffold `plethora-android-speech` plugin; RECORD_AUDIO only for live commands.
+- [x] 1. Scaffold `plethora-android-speech` plugin; RECORD_AUDIO only for live commands.
 - [x] 2. Status/download per Basic vs Advanced; capability descriptors.
 - [x] 3. Live + file APIs; PCM convert; streaming events compatible with `transcription://segment`.
 - [x] 4. Persist audio first; incremental finals; crash recovery test.
 - [x] 5. Wire SpeechProvider into existing transcription settings (user override).
-- [ ] 6. Lecture UI: record, partial text, cancel, save document; no auto card generation.
+- [x] 6. Lecture UI: record, partial text, cancel, save document; no auto card generation.
 - [x] 7. Tests: fakes, permission denied, codec rejection; document alpha API risk.

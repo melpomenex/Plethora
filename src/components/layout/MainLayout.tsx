@@ -22,6 +22,7 @@ const KeyboardShortcutsHelp = lazy(() => import("../common/KeyboardShortcutsHelp
 const ImageSaveOverlay = lazy(() => import("../viewer/ImageSaveOverlay").then(({ ImageSaveOverlay: overlay }) => ({ default: overlay })));
 const OcclusionComposerHost = lazy(() => import("../occlusion/OcclusionComposerHost").then(({ OcclusionComposerHost: host }) => ({ default: host })));
 import { AppleIntelligenceHost } from "../apple/AppleIntelligenceHost";
+const LectureCaptureHost = lazy(() => import("../common/LectureCaptureHost").then(({ LectureCaptureHost: host }) => ({ default: host })));
 const WorkspaceSwitcher = lazy(() => import("./WorkspaceSwitcher").then(({ WorkspaceSwitcher: switcher }) => ({ default: switcher })));
 import { isTauri, invokeCommand, listen, whenBackendReady } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
@@ -1447,6 +1448,7 @@ export function MainLayout() {
           <ImageSaveOverlay />
           <OcclusionComposerHost />
           <AppleIntelligenceHost />
+          <LectureCaptureHost />
           <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
           <PaywallModal />
           <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />

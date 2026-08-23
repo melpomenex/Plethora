@@ -1302,6 +1302,8 @@ export const zh: Dict = {
   "commandPalette.scanDocumentDesc": "将页面收入资料库",
   "commandPalette.translateSelection": "翻译所选内容",
   "commandPalette.translateSelectionDesc": "在本机翻译当前所选内容",
+  "commandPalette.recordLecture": "录制讲座",
+  "commandPalette.recordLectureDesc": "先保存音频，再在本机转写",
   "commandPalette.importTwitterVideo": "导入 X / Twitter 视频",
   "commandPalette.createFlashcard": "创建闪卡",
   "commandPalette.createFlashcardDesc": "打开闪卡工作室来制作一张闪卡",
@@ -5665,5 +5667,14 @@ export const zh: Dict = {
   "companion.settingsTitle": "Plethora 伙伴",
   "companion.settingsDesc": "可选的 ambient 小鸟伙伴",
   "onDeviceAi.allowCloudFallbackLabel": "允许云端回退",
-  "onDeviceAi.allowCloudFallbackDescription": "若端侧 AI 失败，再用已配置的云端服务重试。默认关闭，避免内容在未告知的情况下离开设备。"
+  "onDeviceAi.allowCloudFallbackDescription": "若端侧 AI 失败，再用已配置的云端服务重试。默认关闭，避免内容在未告知的情况下离开设备。",
+  "onDeviceAi.lectureStart": "开始录音",
+  "onDeviceAi.lectureStop": "停止并保存",
+  "onDeviceAi.lectureSaved": "讲座已保存。",
+  "onDeviceAi.lectureSavedIncomplete": "录音已保存。转写未完成。",
+  "onDeviceAi.licensedPacks": "已授权的端侧包",
+  "onDeviceAi.licensedPacksDescription": "可选模型。安装时不会捆绑。可随时取消或删除。",
+  "onDeviceAi.packSize": "{size} MB",
+  "onDeviceAi.packDelete": "删除",
+  "onDeviceAi.packCancel": "取消下载"
 };

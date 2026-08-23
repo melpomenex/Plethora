@@ -1,10 +1,13 @@
 import type { PlatformCapabilityDescriptor } from "./types";
 
 export interface ScanPage {
-  imageAssetId: string;
+  imageAssetId?: string;
   width: number;
   height: number;
   ocrText?: string;
+  mimeType?: string;
+  data?: string;
+  sourceUri?: string;
 }
 
 export interface ScanImport {

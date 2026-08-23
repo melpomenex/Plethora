@@ -1,7 +1,7 @@
 - [x] 1. DeviceInfo + tier classifier + unit tests (no native LLM yet).
 - [x] 2. License/provenance registry schema.
 - [ ] 3. Spike LiteRT-LM hello-path on a supported device/emulator; document memory.
-- [ ] 4. Play AI pack gradle **on-demand** skeleton behind flag; no install-time large pack.
+- [x] 4. Play AI pack gradle **on-demand** skeleton behind flag; no install-time large pack.
 - [x] 5. `LocalModelProvider` implementing `AIProvider` when a licensed model exists.
-- [ ] 6. Download UX (size/progress/cancel/delete).
+- [x] 6. Download UX (size/progress/cancel/delete).
 - [x] 7. Decision record for whether EmbeddingGemma migrates to AI packs (default: **not in v1**, keep B downloader).

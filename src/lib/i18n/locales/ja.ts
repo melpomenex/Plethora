@@ -1014,6 +1014,8 @@ export const ja: Dict = {
   "commandPalette.scanDocumentDesc": "ページをライブラリに取り込む",
   "commandPalette.translateSelection": "選択範囲を翻訳",
   "commandPalette.translateSelectionDesc": "現在の選択範囲をこの端末で翻訳",
+  "commandPalette.recordLecture": "講義を録音",
+  "commandPalette.recordLectureDesc": "まず音声を保存し、この端末で文字起こしします",
   "commandPalette.importTwitterVideo": "X / Twitter 動画をインポート",
   "commandPalette.createFlashcard": "フラッシュカードを作成",
   "commandPalette.createFlashcardDesc": "カードスタジオを開いて新しくフラッシュカードの下書きを作成",
@@ -5749,5 +5751,14 @@ export const ja: Dict = {
   "companion.settingsTitle": "Plethora コンパニオン",
   "companion.settingsDesc": "任意の常駐バードコンパニオン",
   "onDeviceAi.allowCloudFallbackLabel": "クラウドへのフォールバックを許可",
-  "onDeviceAi.allowCloudFallbackDescription": "オンデバイスAIが失敗した場合、設定済みのクラウドプロバイダーで再試行します。既定はオフで、内容が黙って端末外に出ることはありません。"
+  "onDeviceAi.allowCloudFallbackDescription": "オンデバイスAIが失敗した場合、設定済みのクラウドプロバイダーで再試行します。既定はオフで、内容が黙って端末外に出ることはありません。",
+  "onDeviceAi.lectureStart": "録音を開始",
+  "onDeviceAi.lectureStop": "停止して保存",
+  "onDeviceAi.lectureSaved": "講義を保存しました。",
+  "onDeviceAi.lectureSavedIncomplete": "録音を保存しました。文字起こしは未完了です。",
+  "onDeviceAi.licensedPacks": "ライセンス済みオンデバイスパック",
+  "onDeviceAi.licensedPacksDescription": "任意モデルです。インストール時には同梱しません。いつでもキャンセルまたは削除できます。",
+  "onDeviceAi.packSize": "{size} MB",
+  "onDeviceAi.packDelete": "削除",
+  "onDeviceAi.packCancel": "ダウンロードをキャンセル"
 };
