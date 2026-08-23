@@ -4,7 +4,7 @@
   "version": "2.7.0",
   "identifier": "com.plethora.app",
   "build": {
-    "beforeDevCommand": "",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:15173",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
@@ -60,7 +60,7 @@
       "icons/icon.png"
     ],
     "publisher": "Plethora",
-    "copyright": "Copyright © 2025-2026 Plethora",
+    "copyright": "Copyright \u00a9 2025-2026 Plethora",
     "category": "Education",
     "shortDescription": "Plethora - Spaced repetition and incremental reading for effective learning",
     "longDescription": "Plethora is a powerful learning application that combines spaced repetition, incremental reading, and AI-powered flashcard generation to help you learn more effectively.",
@@ -89,11 +89,15 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["plethora"]
+        "schemes": [
+          "plethora"
+        ]
       },
       "mobile": [
         {
-          "scheme": ["plethora"],
+          "scheme": [
+            "plethora"
+          ],
           "appLink": false
         }
       ]
