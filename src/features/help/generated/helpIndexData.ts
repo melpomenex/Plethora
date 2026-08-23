@@ -14,10 +14,10 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:bdd0f10baac178ab69a8fcafdd095a3e4d1fbb1d44b012376e1cbf7ade4f5dfd",
-  "generatedAt": "2026-08-21T18:32:48.216Z",
-  "totalDocs": 74,
-  "totalChunks": 223,
+  "corpusHash": "sha256:649da429d9ba62e1521efca2fe234fc3c72844861cca143333889cf7dde0daa2",
+  "generatedAt": "2026-08-23T01:42:17.807Z",
+  "totalDocs": 75,
+  "totalChunks": 226,
   "aliasMap": {
     "incremental reading philosophy & workflow": "concepts.incremental_reading",
     "incremental reading": "concepts.incremental_reading",
@@ -174,6 +174,10 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "high contrast": "platform.eink",
     "boox mode": "platform.eink",
     "e-paper": "platform.eink",
+    "ios feature availability": "platform.mobile_ios",
+    "ios capabilities": "platform.mobile_ios",
+    "ios feature matrix": "platform.mobile_ios",
+    "platform gating": "platform.mobile_ios",
     "queue composition sliders": "queue.composition",
     "queue mix": "queue.composition",
     "content balance": "queue.composition",
@@ -1775,6 +1779,37 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Rationale": "Standard modern web applications look washed out and suffer massive refresh lag on E-ink screens. Plethora treats E-ink as a first-class citizen.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `appearance.displayMode` | `\"standard\"` | Display rendering mode (`standard` or `eink`) |\n| `appearance.einkContrastBoost` | `true` | Apply extra font sharpening and black-level clamp |",
         "Platform Behavior": "- **Android E-ink Devices (Boox, Meebook)**: Fully integrates with native refresh APIs.\n- **Desktop E-ink Monitors (Dasung, Paperlike)**: Crisp monochrome rendering with zero flicker."
+      }
+    },
+    {
+      "id": "platform.mobile_ios",
+      "title": "iOS Feature Availability",
+      "domain": "platform",
+      "status": "implemented",
+      "platforms": [
+        "mobile-ios"
+      ],
+      "summary": "Platform capability registry governing which destinations, commands, and settings are available on iOS — hidden-vs-marked-unavailable semantics, test-enforced against the registry.",
+      "how_to": "All surfaces listed below are driven by src/lib/platformCapabilities.ts. The matrix is regenerated from the registry and verified by test on every change.",
+      "why": "iOS v1 principle — if an iOS user can see a feature, it works on iOS. Desktop-only or Android-only mechanics are hidden or clearly marked unavailable, never broken controls.",
+      "aliases": [
+        "ios capabilities",
+        "ios feature matrix",
+        "platform gating"
+      ],
+      "related": [
+        "platform.mobile_android",
+        "platform.eink",
+        "platform.desktop"
+      ],
+      "filePath": "docs/product/features/platform/ios-capabilities.md",
+      "sections": {
+        "intro": "# iOS Feature Availability",
+        "Purpose": "Central registry (`src/lib/platformCapabilities.ts`) classifying every\nuser-visible destination, command, and settings surface per platform, with\niOS as the first fully-populated column. Unknown capability ids fail closed\nwith a dev warning. APK-install-class surfaces (self-update / sideload\ninstall) are additionally unavailable on **every** platform under the\n`store` build profile (`BUILD_PROFILE=store`).",
+        "User-Facing Behavior": "- Core workflow (Import → Read → Extract → Remember → Review) is **protected**:\n  the five `core_*` capabilities are guaranteed available on iOS phone and\n  tablet form factors (test-enforced).\n- Hidden on iOS (no discoverability value): Android on-device TTS adapter,\n  screenshot capture import source, browser-extension sync server, NotebookLM\n  CLI workspace, app self-update row, APK install, desktop DOM capture.\n- Marked unavailable (discoverability matters): overflow-sheet destinations\n  whose capability is unavailable render as a disabled row with an i18n'd\n  reason string (`platform.unavailable.*`).\n- Deep links and restored sessions to a hidden surface land on the nearest\n  available surface (e.g. NotebookLM → Document Q&A → Documents → Dashboard).\n- The iOS Share Extension inbox (staged pending-share drain + retry notice)\n  is available on iOS and Android (`share_extension_inbox`).",
+        "Exact Behavioral Rules": "1. A registry entry without a platform column means available on that\n   platform — desktop and Android behavior is frozen by a regression\n   snapshot test.\n2. Unknown capability id → fail closed + dev-mode console error.\n3. `apkInstallClass` capabilities are unavailable on all platforms when\n   `BUILD_PROFILE === \"store\"`.\n4. The doc matrix below is generated from the registry and verified by\n   `iosCapabilitiesDoc.test.ts`; edit the registry, then regenerate.",
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `platform.unavailable.*` (i18n) | — | Reason strings for marked-unavailable surfaces, all six locales. |",
+        "Platform Behavior": "- **iOS**: matrix below applies; protected core workflow fully available.\n- **Android / Desktop / Web**: unchanged shipped behavior (snapshot-enforced),\n  with the sanctioned §2 fixes (screenshot source hidden on mobile,\n  NotebookLM/extension-server desktop-only).\n\n<!-- BEGIN GENERATED MATRIX -->\n| Capability id | Kind | iOS | Android | Desktop | Web/PWA |\n| --- | --- | --- | --- | --- | --- |\n| `core_import` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_read` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_extract` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_remember` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_review` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `tab_dashboard` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_queue` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_review` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_documents` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_settings` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_extracts` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_image_registry` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_doc_qa` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_rss` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_newsletter` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_analytics` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_podcast` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_audiobook` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_knowledge_sphere` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_notebooklm` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `tts_android_adapter` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `app_updater` | apk-install-class | `❌ unsupported_platform` | ✅ | ✅ | `❌ unsupported_platform` |\n| `import_screenshot` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | ✅ |\n| `browser_extension_server` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `notebooklm_cli` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apk_install` | apk-install-class | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `desktop_capture_dom` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `share_extension_inbox` |  | ✅ | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n<!-- END GENERATED MATRIX -->"
       }
     },
     {
@@ -6938,6 +6973,75 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         }
       ],
       "filePath": "docs/product/features/platform/eink-mode.md"
+    },
+    {
+      "id": "platform.mobile_ios#summary",
+      "docId": "platform.mobile_ios",
+      "title": "iOS Feature Availability",
+      "domain": "platform",
+      "section": "Summary & How-To",
+      "content": "Title: iOS Feature Availability\nDomain: platform\nSummary: Platform capability registry governing which destinations, commands, and settings are available on iOS — hidden-vs-marked-unavailable semantics, test-enforced against the registry.\nHow to use: All surfaces listed below are driven by src/lib/platformCapabilities.ts. The matrix is regenerated from the registry and verified by test on every change.\nRationale: iOS v1 principle — if an iOS user can see a feature, it works on iOS. Desktop-only or Android-only mechanics are hidden or clearly marked unavailable, never broken controls.\nAliases: ios capabilities, ios feature matrix, platform gating",
+      "aliases": [
+        "ios capabilities",
+        "ios feature matrix",
+        "platform gating"
+      ],
+      "tags": [
+        "platform",
+        "ios capabilities",
+        "ios feature matrix",
+        "platform gating"
+      ],
+      "platforms": [
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/ios-capabilities.md"
+    },
+    {
+      "id": "platform.mobile_ios#rules",
+      "docId": "platform.mobile_ios",
+      "title": "iOS Feature Availability › Behavioral Rules",
+      "domain": "platform",
+      "section": "Exact Behavioral Rules",
+      "content": "1. A registry entry without a platform column means available on that\n   platform — desktop and Android behavior is frozen by a regression\n   snapshot test.\n2. Unknown capability id → fail closed + dev-mode console error.\n3. `apkInstallClass` capabilities are unavailable on all platforms when\n   `BUILD_PROFILE === \"store\"`.\n4. The doc matrix below is generated from the registry and verified by\n   `iosCapabilitiesDoc.test.ts`; edit the registry, then regenerate.",
+      "aliases": [
+        "ios capabilities",
+        "ios feature matrix",
+        "platform gating"
+      ],
+      "tags": [
+        "platform",
+        "rules"
+      ],
+      "platforms": [
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/ios-capabilities.md"
+    },
+    {
+      "id": "platform.mobile_ios#rationale",
+      "docId": "platform.mobile_ios",
+      "title": "iOS Feature Availability › Purpose & Rationale",
+      "domain": "platform",
+      "section": "Rationale",
+      "content": "Central registry (`src/lib/platformCapabilities.ts`) classifying every\nuser-visible destination, command, and settings surface per platform, with\niOS as the first fully-populated column. Unknown capability ids fail closed\nwith a dev warning. APK-install-class surfaces (self-update / sideload\ninstall) are additionally unavailable on **every** platform under the\n`store` build profile (`BUILD_PROFILE=store`).",
+      "aliases": [
+        "ios capabilities",
+        "ios feature matrix",
+        "platform gating"
+      ],
+      "tags": [
+        "platform",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/ios-capabilities.md"
     },
     {
       "id": "queue.composition#summary",
