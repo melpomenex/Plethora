@@ -18,6 +18,7 @@
 import { invokeCommand } from "../lib/tauri";
 import type { EmbeddingSettings } from "../types/settings";
 import { useSettingsStore } from "../stores/settingsStore";
+import { mergeSpotlightIntoRetrieval } from "../lib/ai/apple/spotlight";
 
 /** Maps to `EmbeddingConfigInput` on the backend. */
 export interface EmbeddingConfig {
@@ -110,6 +111,7 @@ export interface RetrievalResponse {
   results: RetrievalResult[];
   mode: "semantic" | "lexicalOnly";
   candidatesScanned: number;
+  spotlightHitCount?: number;
 }
 
 export interface EmbeddingModelUsage {
@@ -233,15 +235,16 @@ export function resetAIIndex(): Promise<number> {
  * no embedding backend is available or the index has no current-version
  * embeddings (mode `lexicalOnly` instead of an error).
  */
-export function retrieveFromLibrary(
+export async function retrieveFromLibrary(
   query: string,
   options: {
     k?: number;
     filters?: RetrievalFilters;
     config?: EmbeddingConfig;
+    includeSpotlight?: boolean;
   } = {}
 ): Promise<RetrievalResponse> {
-  return invokeCommand("ai_learning_retrieve", {
+  const sqlite = await invokeCommand<RetrievalResponse>("ai_learning_retrieve", {
     query,
     k: options.k ?? null,
     filters: options.filters ?? null,
@@ -249,6 +252,8 @@ export function retrieveFromLibrary(
     paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
     paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });
+  if (options.includeSpotlight === false) return sqlite;
+  return mergeSpotlightIntoRetrieval(query, sqlite);
 }
 
 /**
