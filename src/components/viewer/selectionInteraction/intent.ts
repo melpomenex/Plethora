@@ -27,7 +27,7 @@ export type SelectionIntent =
   | { kind: "none" };
 
 /** How the gesture that produced a READY selection was performed. */
-export type GestureOrigin = "touch" | "double-click" | "mouse" | "keyboard" | "commit";
+export type GestureOrigin = "touch" | "double-click" | "double-tap" | "mouse" | "keyboard" | "commit";
 
 const NONE: SelectionIntent = { kind: "none" };
 const PHRASE: SelectionIntent = { kind: "phrase" };

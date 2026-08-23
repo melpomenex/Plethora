@@ -487,4 +487,47 @@ describe("useSelectionInteraction", () => {
     });
     expect(result.current.readySelection?.gestureOrigin).toBe("commit");
   });
+
+  it("double-tap on paragraph selects the entire paragraph and transitions to ready with double-tap origin", () => {
+    const { para } = makeContent("paragraph content to extract");
+    const onReady = vi.fn();
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "markdown", documentId: "d1", enabled: true, onReady }),
+    );
+
+    const makeTouch = (clientX = 50, clientY = 50) => ({
+      clientX,
+      clientY,
+      identifier: 1,
+      target: para,
+    });
+
+    const fireTouchStart = (x: number, y: number) => {
+      const event = new Event("touchstart", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", {
+        value: [makeTouch(x, y)],
+      });
+      para.dispatchEvent(event);
+    };
+
+    // First tap
+    act(() => {
+      fireTouchStart(50, 50);
+      touchEnd(para);
+      vi.advanceTimersByTime(100);
+    });
+
+    // Second tap on the same paragraph within 350ms
+    act(() => {
+      fireTouchStart(52, 51);
+      touchEnd(para);
+    });
+
+    advanceSettle();
+
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.text).toBe(para.textContent?.trim());
+    expect(result.current.readySelection?.gestureOrigin).toBe("double-tap");
+    expect(onReady).toHaveBeenCalled();
+  });
 });
