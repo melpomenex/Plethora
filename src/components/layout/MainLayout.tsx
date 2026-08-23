@@ -16,6 +16,7 @@ const CommandCenter = lazy(() => import("../search/CommandCenter").then(({ Comma
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
 import { ToastType, useToast } from "../common/Toast";
 import { MobileLayoutWrapper } from "../mobile/MobileLayoutWrapper";
+import { MarketingCaptureHost } from "../dev/MarketingCaptureHost";
 import { useMobileShell } from "../../hooks/useMobileShell";
 const ThemeBackdrop = lazy(() => import("../common/ThemeBackdrop").then(({ ThemeBackdrop: backdrop }) => ({ default: backdrop })));
 const KeyboardShortcutsHelp = lazy(() => import("../common/KeyboardShortcutsHelp").then(({ KeyboardShortcutsHelp: help }) => ({ default: help })));
@@ -1453,6 +1454,7 @@ export function MainLayout() {
           <PaywallModal />
           <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
         </Suspense>
+        <MarketingCaptureHost />
       </VimiumNavigationProvider>
     </MobileLayoutWrapper>
   );

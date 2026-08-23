@@ -265,8 +265,7 @@ void installConsoleLogcatBridge();
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
 
-// Dynamically load only the user's selected font from bundled @fontsource packages.
-// Inter is imported statically as the critical default (see utils/fonts.ts).
+// Dynamically load only a user-selected webfont. Default UI is system-ui.
 try {
   const raw = migratedGetItem("plethora-settings");
   const parsed = raw ? JSON.parse(raw) : null;
@@ -275,7 +274,7 @@ try {
     void loadSelectedFonts([fontFamily]);
   }
 } catch {
-  // Settings not yet available or parse error — Inter is already loaded statically.
+  // Settings not yet available — CSS falls through to system-ui.
 }
 
 function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {

@@ -10,23 +10,28 @@ demo/
 └── books/          # Sample ebook files (.epub, .pdf)
 ```
 
+Git does **not** ship books or decks. First-run import is a no-op until you add files.
+
+## Marketing seed (opt-in)
+
+The useplethora.com library lives in `marketing/demo-library/`. Copy it into this folder only when capturing screenshots:
+
+```bash
+MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs
+MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs --reset --reset-only
+```
+
+Without `MARKETING_SEED=1` the seed script refuses to write. Production users are unchanged.
+
+See `scripts/marketing/README.md`.
+
 ## Adding Demo Content
 
 1. **Anki Decks (.apkg)**: Place .apkg files in the `apkg/` subdirectory.
-   - These will be automatically imported as learning items
-   - Users can try the flashcard system immediately
-
 2. **Ebooks (.epub, .pdf)**: Place ebook files in the `books/` subdirectory.
-   - These will be automatically added to the document library
-   - Users can try reading and highlighting features
 
 ## Environment Variables
 
 - `DEMO_CONTENT_DIR`: Override the default demo content directory path
 - `SKIP_DEMO_IMPORT`: Set to `1` to disable demo content auto-import
-
-## Notes
-
-- Demo content is only imported on first run when the database is empty
-- Users can re-import demo content from settings
-- Users can remove demo content from settings at any time
+- `MARKETING_SEED`: Set to `1` to allow the marketing seed script to write here

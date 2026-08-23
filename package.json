@@ -73,7 +73,15 @@
     "bench": "vitest bench --run --config vitest.bench.config.ts --outputJson=.bench/results.json --passWithNoTests",
     "bench:memory": "node scripts/memory-bench/driver.js",
     "bench:memory:check": "node scripts/memory-bench/driver.js && node scripts/check-memory-budget.mjs",
-    "bench:check": "npm run bench && node scripts/check-perf-budget.mjs && node scripts/check-bundle-budget.mjs"
+    "bench:check": "npm run bench && node scripts/check-perf-budget.mjs && node scripts/check-bundle-budget.mjs",
+    "website:dev": "npm --prefix website run dev",
+    "website:build": "npm --prefix website run build",
+    "website:check": "npm --prefix website run check",
+    "marketing:corpus": "node scripts/marketing/build-corpus.mjs",
+    "marketing:seed": "MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs",
+    "marketing:capture": "node scripts/marketing/capture-screenshots.mjs",
+    "marketing:encode": "node scripts/marketing/encode-product-images.mjs",
+    "marketing:freshness": "node scripts/marketing/check-freshness.mjs"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.18",

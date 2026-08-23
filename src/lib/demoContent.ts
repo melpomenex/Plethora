@@ -14,6 +14,7 @@ export const DEMO_CONTENT_CONFIG = {
 
   // Skip demo import (can be set via environment variable)
   skipImport: import.meta.env.VITE_SKIP_DEMO_IMPORT === '1' || import.meta.env.VITE_SKIP_DEMO_IMPORT === 'true',
+  // Marketing library is copied into demo/ only by scripts/marketing/seed-demo-library.mjs when MARKETING_SEED=1.
 };
 
 /**

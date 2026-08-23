@@ -1,6 +1,3 @@
-
-import "@fontsource/inter"; // Critical default font — always loaded
-
 const SYSTEM_FONTS = new Set(["system-ui", "serif", "sans-serif", "monospace"]);
 const loadedFonts = new Set<string>();
 
