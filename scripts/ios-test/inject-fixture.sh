@@ -6,12 +6,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-FIXTURE_NAME="${1:-sample-note.md}"
-FIXTURE_SRC="$REPO_ROOT/tests/ios/fixtures/$FIXTURE_NAME"
-
-if [ ! -f "$FIXTURE_SRC" ]; then
-  # Fall back to src-tauri fixtures
-  FIXTURE_SRC="$REPO_ROOT/src-tauri/tests/fixtures/documents/text/$FIXTURE_NAME"
+if [ -f "${1:-}" ]; then
+  FIXTURE_SRC="$1"
+  FIXTURE_NAME="$(basename "$1")"
+else
+  FIXTURE_NAME="${1:-sample-note.md}"
+  FIXTURE_SRC="$REPO_ROOT/tests/ios/fixtures/$FIXTURE_NAME"
+  if [ ! -f "$FIXTURE_SRC" ]; then
+    FIXTURE_SRC="$REPO_ROOT/src-tauri/tests/fixtures/documents/text/$FIXTURE_NAME"
+  fi
 fi
 
 if [ ! -f "$FIXTURE_SRC" ]; then
