@@ -50,7 +50,7 @@ requirements.txt
 # Non-Vercel directories
 whisper.cpp/
 browser_extension/
-demo/
+/demo/
 mobile-screenshots/
 vendor/
 yjs-sync/
@@ -71,4 +71,3 @@ xcom.py
 *.log
 android_logcat.log
 macos_app.log
-
