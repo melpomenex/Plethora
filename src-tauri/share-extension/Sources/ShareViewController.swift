@@ -195,7 +195,7 @@ final class ShareViewController: UIViewController {
         let semaphore = DispatchSemaphore(value: 0)
         _ = provider.loadFileRepresentation(
             forTypeIdentifier: typeIdentifier,
-            completionHandler: { url, _, _ in
+            completionHandler: { url, _ in
                 if let url = url {
                     boxed = (filename: filename, sourceURL: url)
                 }

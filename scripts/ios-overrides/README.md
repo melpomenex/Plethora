@@ -18,7 +18,8 @@ author JSON here and re-run the script.
 
 | Key | Meaning |
 |---|---|
-| `targetName` | xcodegen target name. Also becomes the extension's `CFBundleDisplayName` (what the share sheet shows), so it is `"Plethora"` per the change spec. |
+| `targetName` | Unique xcodegen target name (currently `plethora-share-extension`). It must not collide with the host app target. |
+| `displayName` | Extension `CFBundleDisplayName` shown in the share sheet (currently `Plethora`). |
 | `bundleIdSuffix` | Bundle id = `com.plethora.app.<suffix>` → `com.plethora.app.ShareExtension`. |
 | `appGroup` | App Group id. Added to BOTH the extension entitlements and the **main app target's** entitlements by the overrides script (E's §4.3 flows through this same field — there is no separate main-target entitlements file). |
 | `deploymentTarget` | `IPHONEOS_DEPLOYMENT_TARGET` for the extension target. |
