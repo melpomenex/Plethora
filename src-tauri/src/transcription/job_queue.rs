@@ -94,6 +94,10 @@ impl JobQueue {
             .execute(repo.pool())
             .await?;
 
+        if job.model_id == "apple-speech" {
+            return Self::process_apple_job(job, repo, app_handle).await;
+        }
+
         // 2. Prepare audio (convert to WAV)
         let wav_path = engine
             .prepare_audio(std::path::Path::new(&job.audio_path))
@@ -208,6 +212,66 @@ impl JobQueue {
         // 7. Cleanup WAV
         let _ = std::fs::remove_file(wav_path);
 
+        Ok(())
+    }
+
+    async fn process_apple_job(
+        job: &TranscriptionJob,
+        repo: &Repository,
+        app_handle: &AppHandle,
+    ) -> Result<()> {
+        let result = plethora_apple_intelligence::transcribe_file_via_app(
+            app_handle,
+            &job.audio_path,
+            &job.language,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let transcript_id: i64 =
+            sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+                .bind(&job.book_id)
+                .bind(&job.chapter_id)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap_or(0);
+
+        for seg in &result.segments {
+            let _ = sqlx::query(
+                "INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(transcript_id)
+            .bind(seg.start_ms)
+            .bind(seg.end_ms)
+            .bind(&seg.text)
+            .bind(1.0_f32)
+            .execute(repo.pool())
+            .await;
+        }
+        if result.segments.is_empty() && !result.text.is_empty() {
+            let _ = sqlx::query(
+                "INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, 0, 0, ?, 1.0)",
+            )
+            .bind(transcript_id)
+            .bind(&result.text)
+            .execute(repo.pool())
+            .await;
+        }
+
+        sqlx::query(
+            "UPDATE transcripts SET status = 'completed', model_used = 'apple-speech-transcriber' WHERE book_id = ? AND chapter_id = ?",
+        )
+        .bind(&job.book_id)
+        .bind(&job.chapter_id)
+        .execute(repo.pool())
+        .await?;
+
+        if !result.text.is_empty() {
+            let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
+                .bind(&result.text)
+                .bind(&job.book_id)
+                .execute(repo.pool())
+                .await;
+        }
         Ok(())
     }
 }

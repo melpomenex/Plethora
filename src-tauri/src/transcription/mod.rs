@@ -249,10 +249,12 @@ pub async fn get_transcription_queue(
 
 #[command]
 pub async fn cancel_transcription_job(
+    app: AppHandle,
     state: State<'_, TranscriptionState>,
     repo: State<'_, Repository>,
     id: String,
 ) -> Result<()> {
+    let _ = plethora_apple_intelligence::speech_cancel_via_app(&app);
     repo.cancel_transcription_job(&id)
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;

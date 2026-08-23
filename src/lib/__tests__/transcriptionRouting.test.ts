@@ -95,6 +95,28 @@ describe("document transcription routing", () => {
     );
     expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
   });
+
+  it("routes Apple Speech to the local queue without Groq", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), provider: "apple" },
+      [parakeet],
+      "desktop",
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    await routeDocumentTranscription(
+      { id: "doc-1", filePath: "/audio/book.mp3" },
+      resolution,
+      "en",
+    );
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "doc-1",
+      "/audio/book.mp3",
+      "apple",
+      "apple-speech",
+      "en",
+    );
+    expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
+  });
 });
 
 describe("podcast transcription routing", () => {

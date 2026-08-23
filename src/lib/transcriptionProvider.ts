@@ -1,7 +1,7 @@
 import type { ModelProfile } from "../api/transcription";
 
 export interface TranscriptionAudioSettings {
-  provider: "local" | "groq";
+  provider: "local" | "groq" | "apple";
   preferredModelId?: string;
   language: string;
   groq: {
@@ -23,7 +23,7 @@ export type TranscriptionPlatform = "desktop" | "native-mobile";
 export type Resolution =
   | {
       ok: true;
-      provider: "local" | "groq";
+      provider: "local" | "groq" | "apple";
       modelId: string;
       modelLabel: string;
       substitution?: "mobile-no-local";
@@ -64,13 +64,38 @@ function bestInstalledProfile(profiles: ModelProfile[]): ModelProfile | undefine
     )[0];
 }
 
+function appleResolution(): Extract<Resolution, { ok: true }> {
+  return {
+    ok: true,
+    provider: "apple",
+    modelId: "apple-speech",
+    modelLabel: "Apple Speech",
+  };
+}
+
 export function resolveTranscription(
   audioSettings: TranscriptionAudioSettings,
   profiles: ModelProfile[],
   platform: TranscriptionPlatform,
+  options: { appleReady?: boolean } = {},
 ): Resolution {
+  if (audioSettings.provider === "apple") {
+    if (options.appleReady === false) {
+      // Explicit Apple with no engine: same Groq substitution as mobile-local.
+    } else {
+      return appleResolution();
+    }
+  }
+  if (
+    options.appleReady &&
+    platform === "native-mobile" &&
+    audioSettings.provider === "local"
+  ) {
+    return appleResolution();
+  }
+  const appleUnavailable = audioSettings.provider === "apple" && options.appleReady === false;
   const mobileSubstitution =
-    platform === "native-mobile" && audioSettings.provider === "local";
+    (platform === "native-mobile" && audioSettings.provider === "local") || appleUnavailable;
   const provider = mobileSubstitution ? "groq" : audioSettings.provider;
 
   if (provider === "groq") {
@@ -138,7 +163,12 @@ export function describeResolution(resolution: Resolution): string {
     return "No transcription model is selected.";
   }
 
-  const providerLabel = resolution.provider === "groq" ? "Groq" : "Local STT";
+  const providerLabel =
+    resolution.provider === "groq"
+      ? "Groq"
+      : resolution.provider === "apple"
+        ? "Apple Speech"
+        : "Local STT";
   const engine = `${providerLabel} · ${resolution.modelLabel}`;
   return resolution.substitution === "mobile-no-local"
     ? `${engine}. Local transcription is unavailable on mobile, so Groq is being used instead.`

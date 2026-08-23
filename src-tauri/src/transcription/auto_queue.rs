@@ -414,7 +414,7 @@ fn offset_segment(mut segment: TranscriptSegment, offset_ms: i64) -> TranscriptS
 }
 
 fn ensure_local_provider(provider: &str) -> anyhow::Result<()> {
-    if provider != "local" {
+    if provider != "local" && provider != "apple" {
         return Err(anyhow::anyhow!(
             "Provider mismatch: the local transcription queue cannot execute provider '{}'.",
             provider

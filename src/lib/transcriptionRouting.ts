@@ -24,7 +24,7 @@ export async function routeDocumentTranscription(
   await enqueueAutoTranscription(
     document.id,
     document.filePath,
-    "local",
+    resolution.provider === "apple" ? "apple" : "local",
     resolution.modelId,
     language || "en",
   );

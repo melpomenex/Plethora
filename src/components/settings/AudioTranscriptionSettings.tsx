@@ -52,8 +52,10 @@ import { useToast } from "../common/Toast";
 import { resolveTranscription } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { transcribeAudiobookWithGroq } from "../../api/audiobooks";
+import { isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
+import { isAppleSpeechReady } from "../../lib/ai/apple/speech";
 
-type Provider = 'local' | 'groq';
+type Provider = 'local' | 'groq' | 'apple';
 
 interface UntranscribedMediaDocument {
   id: string;
@@ -76,10 +78,15 @@ export function AudioTranscriptionSettings() {
   // through Groq cloud (which provides word-level synced transcripts). Gate the
   // Local STT tab + model download UI on actually being a desktop build.
   const isDesktop = isTauri() && !isNativeMobile();
-  const [activeTab, setActiveTab] = useState<Provider>(
-    // On mobile, force the Groq tab (local transcription is unavailable).
-    !isDesktop ? 'groq' : audioSettings.provider,
-  );
+  const appleOs = isAppleOsPlatform();
+  const [appleReady, setAppleReady] = useState(false);
+  const [activeTab, setActiveTab] = useState<Provider>(() => {
+    if (appleOs || isNativeMobile()) {
+      return audioSettings.provider === "groq" ? "groq" : "apple";
+    }
+    if (!isDesktop) return "groq";
+    return audioSettings.provider === "apple" ? "local" : audioSettings.provider;
+  });
   const [enqueuingAll, setEnqueuingAll] = useState(false);
   
   // Local state for form inputs
@@ -107,7 +114,10 @@ export function AudioTranscriptionSettings() {
     if (isDesktop) {
       queueStore.fetchQueue().catch(() => undefined);
     }
-  }, [fetchProfiles, isDesktop]);
+    if (appleOs || isNativeMobile()) {
+      void isAppleSpeechReady().then(setAppleReady).catch(() => setAppleReady(false));
+    }
+  }, [fetchProfiles, isDesktop, appleOs]);
 
 
 
@@ -233,7 +243,7 @@ export function AudioTranscriptionSettings() {
       {/* Web/PWA Notice - Only show in browser. Uses opacity-modified base
           colors rather than -50/-950 palette steps, which are light-theme-only
           and render as unreadable gray-on-gray under dark themes. */}
-      {!isDesktop && (
+      {!isDesktop && !appleOs && !isNativeMobile() && (
         <div className={cn(
           "rounded-xl border p-4 flex items-start gap-3 transition-all duration-300",
           isPWA() 
@@ -268,11 +278,11 @@ export function AudioTranscriptionSettings() {
         </div>
       )}
 
-      {/* Provider Selection Tabs. Local STT is desktop-only (hidden on mobile):
-          the Whisper/sherpa-onnx sidecar + FFmpeg pipeline doesn't run on
-          Android/iOS, so mobile transcription must use Groq cloud. */}
-      {isDesktop && (
+      {/* Provider Selection Tabs. Whisper/sherpa local STT is desktop-only.
+          Apple Speech is the on-device mobile path; Groq remains opt-in cloud. */}
+      {(isDesktop || appleOs || isNativeMobile()) && (
         <div className="flex gap-2 p-1 bg-muted rounded-xl">
+          {isDesktop && (
           <button
             onClick={() => handleProviderChange('local')}
             className={cn(
@@ -285,6 +295,21 @@ export function AudioTranscriptionSettings() {
             <Sliders className="w-4 h-4" />
             Local STT
           </button>
+          )}
+          {(appleOs || isNativeMobile()) && (
+          <button
+            onClick={() => handleProviderChange('apple')}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all",
+              activeTab === 'apple'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+            )}
+          >
+            <Microphone className="w-4 h-4" />
+            Apple Speech
+          </button>
+          )}
           <button
             onClick={() => handleProviderChange('groq')}
             className={cn(
@@ -303,17 +328,26 @@ export function AudioTranscriptionSettings() {
         </div>
       )}
 
-      {/* Mobile notice: local transcription unavailable. */}
-      {!isDesktop && (
+      {activeTab === "apple" && (
+        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-2">
+          <p className="font-medium text-foreground">{t("onDeviceAi.appleSpeechLabel")}</p>
+          <p className="text-muted-foreground">
+            {appleReady
+              ? "Speech stays on this device. Audio is not sent to Groq unless you switch to the cloud tab."
+              : "Apple Speech is not ready on this device. Use Groq if you have a key, or wait until speech assets are available."}
+          </p>
+        </div>
+      )}
+
+      {/* Web/PWA: Groq is the only option besides Apple on native mobile. */}
+      {!isDesktop && !appleOs && !isNativeMobile() && (
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm">
           <p className="font-medium text-foreground">
             {t("settings.audioTranscription")} — {t("settings.audioGroqCloud")}
           </p>
           <p className="mt-1 text-muted-foreground">
-            Local transcription (Whisper/sherpa-onnx) is desktop-only. On mobile,
-            Groq cloud transcription is used — it transcribes podcasts and audio
-            with <strong>word-by-word timestamps</strong> so the transcript
-            highlights each word in sync with playback. Add a free Groq API key below.
+            Local transcription (Whisper/sherpa-onnx) is desktop-only. On the web,
+            Groq cloud transcription is used when configured.
           </p>
         </div>
       )}
@@ -600,7 +634,7 @@ export function AudioTranscriptionSettings() {
       )}
 
       {/* Groq Cloud Settings - Shown on both desktop and web */}
-      {(activeTab === 'groq' || !isDesktop) && (
+      {(activeTab === 'groq') && (
         <div className="space-y-8">
           {/* Groq Introduction — themed with Plethora tokens (bg-card /
               border-border / bg-primary) so it matches neighboring cards in
