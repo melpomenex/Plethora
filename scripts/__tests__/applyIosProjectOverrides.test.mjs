@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import {
   applyIosProjectOverrides,
@@ -225,6 +226,7 @@ test("applyIosProjectOverrides consumes share-extension.target.json when present
     join(fixture.overridesDir, "share-extension.target.json"),
     JSON.stringify({
       targetName: "plethora-share-extension",
+      displayName: "Plethora",
       bundleIdSuffix: "share",
       appGroup: "group.com.plethora.app.shared",
       deploymentTarget: "14.0",
@@ -244,7 +246,12 @@ test("applyIosProjectOverrides consumes share-extension.target.json when present
   assert.match(yml, /BEGIN ios-share-extension/);
   assert.match(yml, /plethora-share-extension/);
   assert.match(yml, /app-extension/);
+  assert.equal((yml.match(/^targets:$/gm) ?? []).length, 1, "must retain one targets map");
+  assert.match(yml, /- target: plethora-share-extension\n\s+embed: true/);
+  assert.match(yml, /- sdk: MediaPlayer\.framework/);
+  assert.match(yml, /CFBundleDisplayName: Plethora/);
   assert.match(yml, /PRODUCT_BUNDLE_IDENTIFIER: com\.plethora\.app\.share/);
+  assert.match(yml, /CURRENT_PROJECT_VERSION: 2\.7\.0/);
 
   const ent = readFileSync(
     join(fixture.appleDir, "plethora-tauri_iOS", "plethora-tauri_iOS.entitlements"),
@@ -257,6 +264,9 @@ test("applyIosProjectOverrides consumes share-extension.target.json when present
     "utf8"
   );
   assert.match(extPlist, /com\.apple\.share-services/);
+  assert.match(extPlist, /PRODUCT_BUNDLE_IDENTIFIER/);
+  assert.match(extPlist, /CFBundleName/);
+  assert.doesNotThrow(() => execFileSync("plutil", ["-lint", join(fixture.appleDir, "plethora-share-extension", "Info.plist")]));
 
   // Idempotent with the data file present too.
   const second = runApply(fixture);

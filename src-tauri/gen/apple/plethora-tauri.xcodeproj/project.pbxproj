@@ -9,18 +9,46 @@
 /* Begin PBXBuildFile section */
 		199445FA1C2CEE68337850A5 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = BDD25F31E3B76765C8AB7DBA /* main.mm */; };
 		1B36FB7775DF7758DBA8AB2C /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBA9056B39E18B8B553FCA5F /* Security.framework */; };
+		27669300889788767B4233C8 /* plethora-share-extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2EC20E65F231A996F8C499EF /* plethora-share-extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2E05EBCFFA47B1333F33ED14 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29090428B818FC95D90601F7 /* WebKit.framework */; };
 		3673B86572DC114CDE835B29 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 13EF7E1FF26A703F43EE57E0 /* assets */; };
 		3BC69855D1E9BBC9FDB5C7F8 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C267AAE102379AED1004BFDC /* UIKit.framework */; };
 		3F4C495BCE3DADFEE33BE419 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0ADE419BD1665082B6C2C7C0 /* LaunchScreen.storyboard */; };
 		6437DC94B5FF886DEE892F35 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 28E996361B23997221F7A51F /* QuartzCore.framework */; };
 		6DDED4090C05EF44A4E88B89 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 989EEFD7BEDD1672E000D9C5 /* Assets.xcassets */; };
+		83359F25F64CF097B7927CD0 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C250149803BDA40E9D4F0A /* ShareViewController.swift */; };
 		90C5E6D2A0D8316880797790 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1E0544BAB5028010F3648BA /* CoreGraphics.framework */; };
 		ABAC8BCCD4CE77FA3073DFC8 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FA233851F362C4412EAF388C /* Metal.framework */; };
+		AFBBF7C15C0180203CE244BA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BA6F7922586F846D56DD02FD /* PrivacyInfo.xcprivacy */; };
 		BA7A0EBC6D9F3E703749C119 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = D96D0E8DF240026ACC598891 /* libapp.a */; };
+		E35A2CA0A9A0C4CD9008C0D0 /* ShareStagingWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1514D72C2C88522366B61D /* ShareStagingWriter.swift */; };
 		E40BCC04EFB1CD88F4D92A0E /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C07A5D693E86815D3675A86 /* MetalKit.framework */; };
-		F0A1B2C3D4E5F60718293A4B /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708192A3B4C /* MediaPlayer.framework */; };
+		EC30BF9080420ACABFE3E575 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7D9EFAFDC9D61394C91B1585 /* MediaPlayer.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		87F80CBC83E3EB256B40016C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 69BBA172C48FBD6B9D36B313 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 49249975B7F88C9136ABF8F5;
+			remoteInfo = "plethora-share-extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E5A2082EA4C23D94915DAAA9 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				27669300889788767B4233C8 /* plethora-share-extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		011BA033824EA89698B01799 /* language_knowledge.rs */ = {isa = PBXFileReference; path = language_knowledge.rs; sourceTree = "<group>"; };
@@ -48,6 +76,7 @@
 		149B694642C33FEBDCF4A4A2 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		1522CD36FA08B58A11D80519 /* processor.rs */ = {isa = PBXFileReference; path = processor.rs; sourceTree = "<group>"; };
 		15B915619B0FA61A21AD04C4 /* document_bulk.rs */ = {isa = PBXFileReference; path = document_bulk.rs; sourceTree = "<group>"; };
+		160EF8A7EFB283DF2E68DD05 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		184E6FAD919C97B2372B3B37 /* oauth.rs */ = {isa = PBXFileReference; path = oauth.rs; sourceTree = "<group>"; };
 		190303276F786A6CB80AB257 /* mcp.rs */ = {isa = PBXFileReference; path = mcp.rs; sourceTree = "<group>"; };
 		1A63B21A15EFFEDB684AFC31 /* image_asset.rs */ = {isa = PBXFileReference; path = image_asset.rs; sourceTree = "<group>"; };
@@ -83,9 +112,12 @@
 		2DB67238373D7FF3F9E40DB0 /* neural_queue.rs */ = {isa = PBXFileReference; path = neural_queue.rs; sourceTree = "<group>"; };
 		2DFDE270B9C6BB504C53E057 /* twitter.rs */ = {isa = PBXFileReference; path = twitter.rs; sourceTree = "<group>"; };
 		2E9542ADE1D0D33FB63CFF40 /* reading_goal.rs */ = {isa = PBXFileReference; path = reading_goal.rs; sourceTree = "<group>"; };
+		2EC20E65F231A996F8C499EF /* plethora-share-extension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "plethora-share-extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2FF3BFD016F7748ED6A4CAA4 /* headers_footers.rs */ = {isa = PBXFileReference; path = headers_footers.rs; sourceTree = "<group>"; };
 		2FF74607E9535812D9C73962 /* anki.rs */ = {isa = PBXFileReference; path = anki.rs; sourceTree = "<group>"; };
 		304717B47AF2693BAA3A0110 /* jitter.rs */ = {isa = PBXFileReference; path = jitter.rs; sourceTree = "<group>"; };
+		31BA5E1FA61897E3EF6F6C12 /* build_profile.rs */ = {isa = PBXFileReference; path = build_profile.rs; sourceTree = "<group>"; };
+		324DB88D3A63BB31893DAA81 /* engine.rs */ = {isa = PBXFileReference; path = engine.rs; sourceTree = "<group>"; };
 		32EDFFE2D349AAE2CDCA9C59 /* models.rs */ = {isa = PBXFileReference; path = models.rs; sourceTree = "<group>"; };
 		337D34BC97ACD31E38245FBA /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		37A2A1112ED9589261D36E4F /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
@@ -111,6 +143,7 @@
 		48296E28447884A3296714AC /* security_tests.rs */ = {isa = PBXFileReference; path = security_tests.rs; sourceTree = "<group>"; };
 		4836C287869FDA5C99630B4F /* system_info.rs */ = {isa = PBXFileReference; path = system_info.rs; sourceTree = "<group>"; };
 		4A1091B916F4F3C48997640B /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		4A1514D72C2C88522366B61D /* ShareStagingWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareStagingWriter.swift; sourceTree = "<group>"; };
 		4AC43FB73FF125FC2064816B /* semantic_graph.rs */ = {isa = PBXFileReference; path = semantic_graph.rs; sourceTree = "<group>"; };
 		4B0581B5D5FC182A8C991F2C /* pdf.rs */ = {isa = PBXFileReference; path = pdf.rs; sourceTree = "<group>"; };
 		4B80B1AF72B3A67C4A71BFD3 /* media_control.rs */ = {isa = PBXFileReference; path = media_control.rs; sourceTree = "<group>"; };
@@ -134,7 +167,6 @@
 		5988D224D8EE095C6EA5AC1A /* auto_queue.rs */ = {isa = PBXFileReference; path = auto_queue.rs; sourceTree = "<group>"; };
 		5A8B8665CA6CB08E23A845A0 /* runtime.rs */ = {isa = PBXFileReference; path = runtime.rs; sourceTree = "<group>"; };
 		5C07A5D693E86815D3675A86 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
-		F1A2B3C4D5E6F708192A3B4C /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		5C51BBD8242242532078B0D6 /* tests.rs */ = {isa = PBXFileReference; path = tests.rs; sourceTree = "<group>"; };
 		5D061606197B030AAA3E9D31 /* gating.rs */ = {isa = PBXFileReference; path = gating.rs; sourceTree = "<group>"; };
 		5DB4ADEACD8C8B5D0F67E9EE /* optimizer.rs */ = {isa = PBXFileReference; path = optimizer.rs; sourceTree = "<group>"; };
@@ -166,6 +198,7 @@
 		73ADD3EE85280AA301C3FAB1 /* pdf_reflow_cache.rs */ = {isa = PBXFileReference; path = pdf_reflow_cache.rs; sourceTree = "<group>"; };
 		74C6C5BC2B93FB98CC92FF2C /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		75D378202BE1599F60071196 /* player_ok_android_vr.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = player_ok_android_vr.json; sourceTree = "<group>"; };
+		7667A7B9D6EBE2B0CBA09C78 /* wav.rs */ = {isa = PBXFileReference; path = wav.rs; sourceTree = "<group>"; };
 		767C40B23DCF234793770FFA /* memory_scenario.rs */ = {isa = PBXFileReference; path = memory_scenario.rs; sourceTree = "<group>"; };
 		77F30E71FE67DE87B6B07193 /* maturity.rs */ = {isa = PBXFileReference; path = maturity.rs; sourceTree = "<group>"; };
 		78652199FB21F3EEF234254B /* arena.rs */ = {isa = PBXFileReference; path = arena.rs; sourceTree = "<group>"; };
@@ -176,6 +209,7 @@
 		7B454002A01EA7541022E7E7 /* repository.rs */ = {isa = PBXFileReference; path = repository.rs; sourceTree = "<group>"; };
 		7C3192E141B5DB0211DA9372 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		7D8C31A852E5686470C83831 /* screenshot.rs */ = {isa = PBXFileReference; path = screenshot.rs; sourceTree = "<group>"; };
+		7D9EFAFDC9D61394C91B1585 /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		7E49EA6B2A25412F9B64DF40 /* engine.rs */ = {isa = PBXFileReference; path = engine.rs; sourceTree = "<group>"; };
 		8013AB94ED874C7ACECD3CDA /* postpone.rs */ = {isa = PBXFileReference; path = postpone.rs; sourceTree = "<group>"; };
 		80B0A231185EBFD93B3B5308 /* ai_provenance_repository.rs */ = {isa = PBXFileReference; path = ai_provenance_repository.rs; sourceTree = "<group>"; };
@@ -243,10 +277,12 @@
 		B910D7F98C52ED1B6A196254 /* language_lexicon.rs */ = {isa = PBXFileReference; path = language_lexicon.rs; sourceTree = "<group>"; };
 		B964AD462F6A6941551C8E9A /* queue.rs */ = {isa = PBXFileReference; path = queue.rs; sourceTree = "<group>"; };
 		B99B943ED73C7FE05FC1469E /* backup.rs */ = {isa = PBXFileReference; path = backup.rs; sourceTree = "<group>"; };
+		BA6F7922586F846D56DD02FD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BAE899FA4CF1BF17047D2BBC /* words.rs */ = {isa = PBXFileReference; path = words.rs; sourceTree = "<group>"; };
 		BC5B04F811327D13DE00CE8B /* postpone.rs */ = {isa = PBXFileReference; path = postpone.rs; sourceTree = "<group>"; };
 		BDD25F31E3B76765C8AB7DBA /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		BFD46BF81E050C79C9675662 /* language_profile.rs */ = {isa = PBXFileReference; path = language_profile.rs; sourceTree = "<group>"; };
+		C08E008E80798478A33AA610 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		C0DB8EAAACD348687C22DA0E /* circular.rs */ = {isa = PBXFileReference; path = circular.rs; sourceTree = "<group>"; };
 		C19FC00531CFBAD8B44B1D16 /* test_support.rs */ = {isa = PBXFileReference; path = test_support.rs; sourceTree = "<group>"; };
 		C267AAE102379AED1004BFDC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
@@ -258,6 +294,7 @@
 		C7233E703576E80540BE359C /* transcription_queue.rs */ = {isa = PBXFileReference; path = transcription_queue.rs; sourceTree = "<group>"; };
 		C85B7F6B997C7035D9049D03 /* normalization.rs */ = {isa = PBXFileReference; path = normalization.rs; sourceTree = "<group>"; };
 		CA928B3EF6286857B2B784C5 /* feedspot_curated_feeds.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = feedspot_curated_feeds.json; sourceTree = "<group>"; };
+		CCB43AEAB068F91A2A08E5DD /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
 		CDB3E78018E477A784589DAE /* prompts.rs */ = {isa = PBXFileReference; path = prompts.rs; sourceTree = "<group>"; };
 		CE57C049770650650563B10A /* semantic_search.rs */ = {isa = PBXFileReference; path = semantic_search.rs; sourceTree = "<group>"; };
 		D363DE1D0765C82F4193D3E4 /* answer_assessment.rs */ = {isa = PBXFileReference; path = answer_assessment.rs; sourceTree = "<group>"; };
@@ -282,6 +319,7 @@
 		DD2600FE8C4B2BE0A45DC910 /* item_stats_repository.rs */ = {isa = PBXFileReference; path = item_stats_repository.rs; sourceTree = "<group>"; };
 		DDA3B220B4611A565923D6CD /* media_server.rs */ = {isa = PBXFileReference; path = media_server.rs; sourceTree = "<group>"; };
 		E0A87345E6204CAC56B9ED00 /* priority_rank.rs */ = {isa = PBXFileReference; path = priority_rank.rs; sourceTree = "<group>"; };
+		E0C250149803BDA40E9D4F0A /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E0C63E5C01F643B25A598583 /* security.rs */ = {isa = PBXFileReference; path = security.rs; sourceTree = "<group>"; };
 		E158509FC65887308B4E54F7 /* model.rs */ = {isa = PBXFileReference; path = model.rs; sourceTree = "<group>"; };
 		E1E0544BAB5028010F3648BA /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
@@ -291,6 +329,7 @@
 		E5F54AD29A4003DD50E49F59 /* queue_bulk.rs */ = {isa = PBXFileReference; path = queue_bulk.rs; sourceTree = "<group>"; };
 		E6293F0FDC94AF147837FCC2 /* demo.rs */ = {isa = PBXFileReference; path = demo.rs; sourceTree = "<group>"; };
 		E66B2289ABB3AD568BCD12CF /* kernel.rs */ = {isa = PBXFileReference; path = kernel.rs; sourceTree = "<group>"; };
+		E6FCE8ABA68A6ED9F5665579 /* sherpa_ffi.rs */ = {isa = PBXFileReference; path = sherpa_ffi.rs; sourceTree = "<group>"; };
 		E80120D2F8A4B79D691C9875 /* tas.rs */ = {isa = PBXFileReference; path = tas.rs; sourceTree = "<group>"; };
 		E804E6E68E405628ED98B125 /* document_repository.rs */ = {isa = PBXFileReference; path = document_repository.rs; sourceTree = "<group>"; };
 		EA8A2F03C8005E1E46090AE7 /* security.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = security.md; sourceTree = "<group>"; };
@@ -311,6 +350,7 @@
 		F35627F005E7265A6D02FF4F /* llm.rs */ = {isa = PBXFileReference; path = llm.rs; sourceTree = "<group>"; };
 		F4D4FC629CEA98A8A2970BEE /* provider_wrapper.rs */ = {isa = PBXFileReference; path = provider_wrapper.rs; sourceTree = "<group>"; };
 		F51D33E842E724C1A69FE0EB /* adaptive.rs */ = {isa = PBXFileReference; path = adaptive.rs; sourceTree = "<group>"; };
+		F52740ECEC676D48530E1C0F /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		F55C56416FE99A49F4DC4AC8 /* connection.rs */ = {isa = PBXFileReference; path = connection.rs; sourceTree = "<group>"; };
 		F58440BC12A2C2CB012DB284 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		F6D025F33177935557399875 /* web_proxy.rs */ = {isa = PBXFileReference; path = web_proxy.rs; sourceTree = "<group>"; };
@@ -335,11 +375,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EC30BF9080420ACABFE3E575 /* MediaPlayer.framework in Frameworks */,
 				BA7A0EBC6D9F3E703749C119 /* libapp.a in Frameworks */,
 				90C5E6D2A0D8316880797790 /* CoreGraphics.framework in Frameworks */,
 				ABAC8BCCD4CE77FA3073DFC8 /* Metal.framework in Frameworks */,
 				E40BCC04EFB1CD88F4D92A0E /* MetalKit.framework in Frameworks */,
-				F0A1B2C3D4E5F60718293A4B /* MediaPlayer.framework in Frameworks */,
 				6437DC94B5FF886DEE892F35 /* QuartzCore.framework in Frameworks */,
 				1B36FB7775DF7758DBA8AB2C /* Security.framework in Frameworks */,
 				3BC69855D1E9BBC9FDB5C7F8 /* UIKit.framework in Frameworks */,
@@ -353,6 +393,7 @@
 		00166ABFDBE8FDB8F827234C /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				2EC20E65F231A996F8C499EF /* plethora-share-extension.appex */,
 				050D0A016BAC3069B46C4D58 /* plethora-tauri_iOS.app */,
 			);
 			name = Products;
@@ -368,6 +409,18 @@
 			path = services;
 			sourceTree = "<group>";
 		};
+		040805B68B68E56C83323EB7 /* tts */ = {
+			isa = PBXGroup;
+			children = (
+				CCB43AEAB068F91A2A08E5DD /* commands.rs */,
+				324DB88D3A63BB31893DAA81 /* engine.rs */,
+				160EF8A7EFB283DF2E68DD05 /* mod.rs */,
+				E6FCE8ABA68A6ED9F5665579 /* sherpa_ffi.rs */,
+				7667A7B9D6EBE2B0CBA09C78 /* wav.rs */,
+			);
+			path = tts;
+			sourceTree = "<group>";
+		};
 		1253719754A4164D7DB6B57F /* fixtures */ = {
 			isa = PBXGroup;
 			children = (
@@ -375,6 +428,16 @@
 				75D378202BE1599F60071196 /* player_ok_android_vr.json */,
 			);
 			path = fixtures;
+			sourceTree = "<group>";
+		};
+		14361A1FD63D76FA43EE47C7 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				4A1514D72C2C88522366B61D /* ShareStagingWriter.swift */,
+				E0C250149803BDA40E9D4F0A /* ShareViewController.swift */,
+			);
+			name = Sources;
+			path = "../../share-extension/Sources";
 			sourceTree = "<group>";
 		};
 		186B12C450BE6444425AB24B /* plethora-tauri */ = {
@@ -428,6 +491,7 @@
 				2FF74607E9535812D9C73962 /* anki.rs */,
 				714CA45E32755EC63CD9654F /* battery.rs */,
 				B7C25E416147AE15475233B5 /* browser_sync_server.rs */,
+				31BA5E1FA61897E3EF6F6C12 /* build_profile.rs */,
 				FBEAA002ADD5445576D45E93 /* cloud_sync.rs */,
 				E6293F0FDC94AF147837FCC2 /* demo.rs */,
 				D79819A1C0ACC51009566C83 /* epub_server.rs */,
@@ -479,6 +543,7 @@
 				EDD4DE5A68919297CAEA1DA4 /* sync */,
 				1D14FDC3F9BC2EF2DAFEF78D /* tas */,
 				B5CD9CF961275FC4AFED1665 /* transcription */,
+				040805B68B68E56C83323EB7 /* tts */,
 				493BC19C0A82B3B3CE17CDC6 /* utils */,
 				BE9A5325B4003A2142344AE7 /* youtube */,
 			);
@@ -611,6 +676,14 @@
 			path = hf;
 			sourceTree = "<group>";
 		};
+		51586FC992F2D776D9738270 /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				C08E008E80798478A33AA610 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
 		5345FE244D2BC02125E2C529 /* commands */ = {
 			isa = PBXGroup;
 			children = (
@@ -726,6 +799,23 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		6FD428D27FBC3ECB7094AC89 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				51586FC992F2D776D9738270 /* debug */,
+				72981CAADA470C3B9D4FBB1D /* release */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		72981CAADA470C3B9D4FBB1D /* release */ = {
+			isa = PBXGroup;
+			children = (
+				F52740ECEC676D48530E1C0F /* libapp.a */,
+			);
+			path = release;
+			sourceTree = "<group>";
+		};
 		814EDB9FBAB8D48BC822FF32 = {
 			isa = PBXGroup;
 			children = (
@@ -735,6 +825,7 @@
 				C919F6F9A3F2BBA6A9555CD5 /* Externals */,
 				A7A71FCB4F90D4F350DD81E6 /* plethora-tauri_iOS */,
 				634DCB9A89EE7AA9155FD6B6 /* Sources */,
+				14361A1FD63D76FA43EE47C7 /* Sources */,
 				1F7586EC730564DF3EA472EF /* src */,
 				FA18639E57F8EA399127E6B7 /* Frameworks */,
 				00166ABFDBE8FDB8F827234C /* Products */,
@@ -797,6 +888,7 @@
 			children = (
 				7ADABF14E2673B158BCE55CB /* Info.plist */,
 				F12F40FB1656C68FFCFD374E /* plethora-tauri_iOS.entitlements */,
+				BA6F7922586F846D56DD02FD /* PrivacyInfo.xcprivacy */,
 			);
 			path = "plethora-tauri_iOS";
 			sourceTree = "<group>";
@@ -876,6 +968,7 @@
 		C919F6F9A3F2BBA6A9555CD5 /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				6FD428D27FBC3ECB7094AC89 /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -966,6 +1059,7 @@
 			children = (
 				E1E0544BAB5028010F3648BA /* CoreGraphics.framework */,
 				D96D0E8DF240026ACC598891 /* libapp.a */,
+				7D9EFAFDC9D61394C91B1585 /* MediaPlayer.framework */,
 				FA233851F362C4412EAF388C /* Metal.framework */,
 				5C07A5D693E86815D3675A86 /* MetalKit.framework */,
 				28E996361B23997221F7A51F /* QuartzCore.framework */,
@@ -989,9 +1083,33 @@
 			path = cloud;
 			sourceTree = "<group>";
 		};
+		"TEMP_628C40CF-B9C3-4488-A2CD-746C629A5A8C" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		49249975B7F88C9136ABF8F5 /* plethora-share-extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 08D6120548937743CF091B11 /* Build configuration list for PBXNativeTarget "plethora-share-extension" */;
+			buildPhases = (
+				596178B2C4AD86318E9612F9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "plethora-share-extension";
+			packageProductDependencies = (
+			);
+			productName = "plethora-share-extension";
+			productReference = 2EC20E65F231A996F8C499EF /* plethora-share-extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		F9C3D4C3CEF09FDE4EBFDD74 /* plethora-tauri_iOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 4C320AD946A88FB8FDF86309 /* Build configuration list for PBXNativeTarget "plethora-tauri_iOS" */;
@@ -1000,10 +1118,12 @@
 				A250535043CFD6FD05FAB622 /* Sources */,
 				D9312844696724EB6D4BE1CA /* Resources */,
 				54D0EDC54D941378172E82F0 /* Frameworks */,
+				E5A2082EA4C23D94915DAAA9 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1D57F61944B4C6DD8F6A4ED /* PBXTargetDependency */,
 			);
 			name = "plethora-tauri_iOS";
 			packageProductDependencies = (
@@ -1038,6 +1158,7 @@
 			projectRoot = "";
 			targets = (
 				F9C3D4C3CEF09FDE4EBFDD74 /* plethora-tauri_iOS */,
+				49249975B7F88C9136ABF8F5 /* plethora-share-extension */,
 			);
 		};
 /* End PBXProject section */
@@ -1049,6 +1170,7 @@
 			files = (
 				6DDED4090C05EF44A4E88B89 /* Assets.xcassets in Resources */,
 				3F4C495BCE3DADFEE33BE419 /* LaunchScreen.storyboard in Resources */,
+				AFBBF7C15C0180203CE244BA /* PrivacyInfo.xcprivacy in Resources */,
 				3673B86572DC114CDE835B29 /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1080,6 +1202,15 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		596178B2C4AD86318E9612F9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E35A2CA0A9A0C4CD9008C0D0 /* ShareStagingWriter.swift in Sources */,
+				83359F25F64CF097B7927CD0 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A250535043CFD6FD05FAB622 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1090,7 +1221,34 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A1D57F61944B4C6DD8F6A4ED /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 49249975B7F88C9136ABF8F5 /* plethora-share-extension */;
+			targetProxy = 87F80CBC83E3EB256B40016C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		6DDB5C132894A40279833E55 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "plethora-share-extension/plethora-share-extension.entitlements";
+				CURRENT_PROJECT_VERSION = 2.7.0;
+				INFOPLIST_FILE = "plethora-share-extension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.plethora.app.ShareExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = debug;
+		};
 		854A9D60DF34432E7A8E30C4 /* release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1136,7 +1294,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1144,6 +1302,25 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		8656F0804A88277538DD8FBB /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "plethora-share-extension/plethora-share-extension.entitlements";
+				CURRENT_PROJECT_VERSION = 2.7.0;
+				INFOPLIST_FILE = "plethora-share-extension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.plethora.app.ShareExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = release;
 		};
@@ -1157,6 +1334,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "plethora-tauri_iOS/plethora-tauri_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1164,6 +1342,7 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "plethora-tauri_iOS/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1171,7 +1350,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.plethora.app;
-				PRODUCT_NAME = "Plethora";
+				PRODUCT_NAME = Plethora;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -1229,7 +1408,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1251,6 +1430,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "plethora-tauri_iOS/plethora-tauri_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1258,6 +1438,7 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = "plethora-tauri_iOS/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1265,7 +1446,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.plethora.app;
-				PRODUCT_NAME = "Plethora";
+				PRODUCT_NAME = Plethora;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -1275,6 +1456,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		08D6120548937743CF091B11 /* Build configuration list for PBXNativeTarget "plethora-share-extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6DDB5C132894A40279833E55 /* debug */,
+				8656F0804A88277538DD8FBB /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
 		3ED0301AF5B5967B00FEA366 /* Build configuration list for PBXProject "plethora-tauri" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

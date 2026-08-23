@@ -4,7 +4,8 @@
     "consumer": "scripts/apply-ios-project-overrides.js",
     "note": "Self-describing Proposal E data file. Unknown keys (underscore-prefixed and documentation-only fields like sizeLimits) are ignored by the consumer; keep enforced size limits in sync with ShareStagingWriter.sizeLimits."
   },
-  "targetName": "Plethora",
+  "targetName": "plethora-share-extension",
+  "displayName": "Plethora",
   "bundleIdSuffix": "ShareExtension",
   "appGroup": "group.com.plethora.app",
   "deploymentTarget": "14.0",
