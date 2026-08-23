@@ -283,8 +283,29 @@ Image-occlusion auto-regions remain **experimental** (existing `aiOcclusionFreef
 2. **Whether Basic ML Kit Speech is exempt from GenAI foreground rules** — docs apply the restriction to GenAI APIs as a whole. Spec E treats Basic as foreground-restricted until a device experiment proves otherwise.
 3. **AppSearch LocalStorage APK size vs benefit** — C is justified as derived hybrid search, but the implementation fleet may **disable AppSearch behind a flag** if LocalStorage binary size is unacceptable; SQLite path remains complete.
 4. **Entity extraction quality on academic prose** — G ships infrastructure + a quality gate; auto-apply only if fixtures pass, else metadata-only/off.
+5. **Galaxy S25-class Prompt vs specialized split** — Google’s Prompt device tables omit some devices that still get Summarization/Image Description. Runtime `FeatureStatus` is authoritative (captured in B).
 
 All other product questions are decided in the OpenSpecs (privacy defaults, enrichment tiers, plugin split, schema reuse, no system-surface search).
+
+### Swarm deltas folded after investigation agents returned
+
+Investigation agents confirmed the plan’s core: **extend `ai-task-architecture`**, keep `plethora-android-genai`, treat AppSearch as optional derived index, keep help vs library corpora separate. Concrete code bugs they found that B/A/F must fix:
+
+| Finding | Owner |
+|---|---|
+| `OnDeviceProvider` hardcodes `embeddings: false` | B |
+| `multiImage` advertised without `images[]` wire | B |
+| Kotlin error codes missing from TS union | A+B (already specified) |
+| `allowCloudFallback` has no settings toggle | A |
+| Ollama uses `kind: "cloud"` | A (privacy chrome, not a new stack) |
+| Image Description artifact `1.0.0-beta1` | B |
+| Document Scanner typically needs **no app CAMERA permission** | F |
+| AppSearch `displayedBySystem` only affects PlatformStorage | C (LocalStorage v1) |
+| No live lecture STT in current product (proposal 18 non-goal) | E is an **Android additive**; persist audio independently; do not break file-queue transcription |
+| MediaPipe LLM Inference is **maintenance-only** | H uses LiteRT-LM |
+| Google AI Edge SDK (`aicore`) is **deprecated** vs Prompt API | B must not migrate backward |
+| CI does not run genai Gradle tests or the full AI vitest suite | Agent T |
+| Keep genai / tts / folder-import **unmerged**; add speech/vision/nlp/search as siblings, not a mega-plugin | all native agents |
 
 ---
 

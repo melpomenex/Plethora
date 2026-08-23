@@ -12,8 +12,11 @@
 ## 3. Specialized APIs
 
 - [ ] 3.1 Confirm Summarization language routing still matches expand-android spec (EN/JA/KO vs Prompt).
-- [ ] 3.2 Spike Image Description Maven coordinate; if stable, add compile flag + command + capability bit; else document skip in `android-build-notes.md`.
+- [ ] 3.2 Add Image Description via `com.google.mlkit:genai-image-description:1.0.0-beta1` behind a compile flag + independent capability bit; EN-only short alt text. Do not use it for study cards.
 - [ ] 3.3 Do not add Proofreading/Rewriting clients.
+- [ ] 3.4 Stop advertising `multiImage` until `images[]` is actually sent; or implement the wire format.
+- [ ] 3.5 Map `OnDeviceProvider` `embeddings` from the native snapshot (today it is hardcoded `false`).
+- [ ] 3.6 Route Summarization/Image Description independently of Prompt so devices on the specialized allowlist but not Prompt (e.g. Galaxy S25 per Google tables) still get cheap APIs.
 
 ## 4. Version re-pin
 

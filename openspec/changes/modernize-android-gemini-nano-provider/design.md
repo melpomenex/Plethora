@@ -18,7 +18,7 @@ runTask(generateFlashcards)
 |---|---|---|
 | Cards, cloze, tags, concepts, Q&A, explain, study summary | Prompt + structured (`@Generable` already in `GenAiSchemas.kt`) | Flexibility + existing schemas |
 | Bullet article summary EN/JA/KO | GenAI Summarization | Specialized quality for 1–3 bullets |
-| Short image alt/metadata | GenAI Image Description (add if coordinate stable) | Cheap, dedicated |
+| Short image alt/metadata | GenAI Image Description (`genai-image-description:1.0.0-beta1`) | Cheap, EN-only short captions |
 | Study image cards / occlusion suggestions | Prompt + image (already compiled) | Need custom schema |
 | Proofreading / rewriting | **Do not use** | Chat-message APIs, not textbooks |
 
@@ -55,6 +55,12 @@ Keep `ondevice_ai_capabilities`. Add optional `imageDescription` feature state i
 `OnDeviceProvider.getCapabilities()` must include mapping of new errors. `runAiAction` already prefers on-device when `preferOnDevice` and status available.
 
 **GIVEN** Nano ready and policy prefers on-device **WHEN** flashcards requested **THEN** no OpenRouter call is initiated by the routing layer.
+
+**Device split:** specialized GenAI device lists are **broader** than Prompt (e.g. Galaxy S25 appears on Summarization/Image Description tables, not on Prompt tables). Routing MUST use per-feature `FeatureStatus`, never “Android with Nano” as a single bit.
+
+**Honesty bugs to fix (do not ship more over-claims):**
+- `OnDeviceProvider` currently hardcodes `embeddings: false` while Kotlin can report embeddings ready — align with the snapshot so `ai_learning` can route OnDeviceLive.
+- `MULTI_IMAGE_COMPILED` advertises `multiImage: true` but the request envelope has only one `ImagePart`. Until `images[]` is wired, report `multiImage: false`.
 
 ## TypeScript / native contracts
 

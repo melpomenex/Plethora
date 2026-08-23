@@ -2,7 +2,8 @@
 
 - [ ] 1.1 Add `Busy`, `QuotaExceeded`, `BatteryQuotaExceeded`, `ForegroundRequired`, `PermissionDenied`, `ModelDownloadRequired`, `ResourceExhausted` to `AI_ERROR_CATEGORIES` and export mapping tables for the known Kotlin codes (even before B wires them).
 - [ ] 1.2 Change `allowCloudFallback()` to `=== true`. Add/adjust unit tests so `undefined` and `false` never allow paid fallback.
-- [ ] 1.3 Document the `preferOnDevice` × `allowCloudFallback` policy mapping in `provider.ts` comments; do not add a conflicting third boolean.
+- [ ] 1.3 Document the `preferOnDevice` × `allowCloudFallback` policy mapping in `provider.ts` comments; do not add a conflicting third boolean. Surface `allowCloudFallback` in `OnDeviceAiPanel` (today the flag exists but has **no settings toggle**; consent is only the billing/disclosure path).
+- [ ] 1.3b Do not invent a second `kind` enum in this change, but document that Ollama/local OpenAI-compatible currently sit under `CloudProvider.kind === "cloud"` — privacy chrome must use `sendsTextOffDevice` / keyless-local checks, not `kind`.
 - [ ] 1.4 Update `errors.test.ts` and `providerFallback.test.ts`.
 
 ## 2. Capability surface types and fakes
