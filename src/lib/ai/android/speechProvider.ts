@@ -7,10 +7,6 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 
 const PLUGIN = "plethora-android-speech";
 
-/**
- * Persist the recording to app-private storage before STT.
- * Live recognition is best-effort and must not replace this path.
- */
 export function requirePersistedSpeechSource(sourceUri: string): string {
   const trimmed = sourceUri.trim();
   if (!trimmed) {

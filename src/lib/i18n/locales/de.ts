@@ -1024,6 +1024,8 @@ export const de: Dict = {
   "commandPalette.scanDocumentDesc": "Seiten in die Bibliothek aufnehmen",
   "commandPalette.translateSelection": "Auswahl übersetzen",
   "commandPalette.translateSelectionDesc": "Die aktuelle Auswahl auf diesem Gerät übersetzen",
+  "commandPalette.recordLecture": "Vorlesung aufnehmen",
+  "commandPalette.recordLectureDesc": "Audio zuerst speichern, dann auf diesem Gerät transkribieren",
   "commandPalette.importTwitterVideo": "X-/Twitter-Video importieren",
   "commandPalette.createFlashcard": "Karteikarte erstellen",
   "commandPalette.createFlashcardDesc": "KI-Karteikarten-Studio öffnen, um einen Entwurf zu erstellen",
@@ -5842,5 +5844,14 @@ export const de: Dict = {
   "companion.settingsTitle": "Plethora-Begleiter",
   "companion.settingsDesc": "Optionaler ambienter Vogel-Begleiter",
   "onDeviceAi.allowCloudFallbackLabel": "Cloud-Fallback erlauben",
-  "onDeviceAi.allowCloudFallbackDescription": "Wenn die On-Device-KI fehlschlägt, mit einem konfigurierten Cloud-Anbieter erneut versuchen. Standardmäßig aus, damit Inhalte nicht still das Gerät verlassen."
+  "onDeviceAi.allowCloudFallbackDescription": "Wenn die On-Device-KI fehlschlägt, mit einem konfigurierten Cloud-Anbieter erneut versuchen. Standardmäßig aus, damit Inhalte nicht still das Gerät verlassen.",
+  "onDeviceAi.lectureStart": "Aufnahme starten",
+  "onDeviceAi.lectureStop": "Stoppen und speichern",
+  "onDeviceAi.lectureSaved": "Vorlesung gespeichert.",
+  "onDeviceAi.lectureSavedIncomplete": "Aufnahme gespeichert. Die Transkription ist unvollständig.",
+  "onDeviceAi.licensedPacks": "Lizenzierte On-Device-Pakete",
+  "onDeviceAi.licensedPacksDescription": "Optionale Modelle. Nie bei der Installation gebündelt. Jederzeit abbrechen oder löschen.",
+  "onDeviceAi.packSize": "{size} MB",
+  "onDeviceAi.packDelete": "Löschen",
+  "onDeviceAi.packCancel": "Download abbrechen"
 };

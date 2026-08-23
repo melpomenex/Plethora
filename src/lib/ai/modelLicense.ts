@@ -24,6 +24,7 @@ export const EMBEDDING_GEMMA_LICENSE: ModelLicenseRecord = {
   displayName: "EmbeddingGemma",
   license: "apache-2.0",
   installTime: false,
+  sizeBytes: 184_000_000,
   allowedOnTier: ["embed", "gen"],
 };
 

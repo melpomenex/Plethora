@@ -1029,6 +1029,8 @@ export const es: Dict = {
   "commandPalette.scanDocumentDesc": "Capturar páginas en la biblioteca",
   "commandPalette.translateSelection": "Traducir selección",
   "commandPalette.translateSelectionDesc": "Traducir la selección actual en este dispositivo",
+  "commandPalette.recordLecture": "Grabar clase",
+  "commandPalette.recordLectureDesc": "Guardar el audio primero y transcribirlo en este dispositivo",
   "commandPalette.importTwitterVideo": "Importar video de X/Twitter",
   "commandPalette.createFlashcard": "Crear tarjeta",
   "commandPalette.createFlashcardDesc": "Abrir el Estudio de tarjetas para diseñar una tarjeta",
@@ -5834,5 +5836,14 @@ export const es: Dict = {
   "companion.settingsTitle": "Acompañante de Plethora",
   "companion.settingsDesc": "Acompañante aviar ambiental opcional",
   "onDeviceAi.allowCloudFallbackLabel": "Permitir reserva en la nube",
-  "onDeviceAi.allowCloudFallbackDescription": "Si la IA en el dispositivo falla, reintentar con un proveedor en la nube configurado. Desactivado por defecto para que el contenido no salga del dispositivo en silencio."
+  "onDeviceAi.allowCloudFallbackDescription": "Si la IA en el dispositivo falla, reintentar con un proveedor en la nube configurado. Desactivado por defecto para que el contenido no salga del dispositivo en silencio.",
+  "onDeviceAi.lectureStart": "Empezar a grabar",
+  "onDeviceAi.lectureStop": "Detener y guardar",
+  "onDeviceAi.lectureSaved": "Clase guardada.",
+  "onDeviceAi.lectureSavedIncomplete": "Grabación guardada. La transcripción está incompleta.",
+  "onDeviceAi.licensedPacks": "Paquetes con licencia en el dispositivo",
+  "onDeviceAi.licensedPacksDescription": "Modelos opcionales. Nunca incluidos en la instalación. Cancela o elimina cuando quieras.",
+  "onDeviceAi.packSize": "{size} MB",
+  "onDeviceAi.packDelete": "Eliminar",
+  "onDeviceAi.packCancel": "Cancelar descarga"
 };

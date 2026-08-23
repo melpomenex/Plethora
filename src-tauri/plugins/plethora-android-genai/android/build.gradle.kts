@@ -95,3 +95,6 @@ dependencies {
     // Tauri Android runtime (Plugin/Invoke/JSObject/annotations).
     implementation(project(":tauri-android"))
 }
+
+// Opt-in Play Feature Delivery skeleton. Default off (no install-time gen pack).
+apply(from = "play-ai-packs.gradle.kts")

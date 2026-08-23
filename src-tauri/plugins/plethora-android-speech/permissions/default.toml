@@ -1,0 +1,10 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+ML Kit Speech Recognition (alpha) — persist-audio-first
+"""
+permissions = [
+  "allow-speech-status",
+  "allow-transcribe-audio"
+]

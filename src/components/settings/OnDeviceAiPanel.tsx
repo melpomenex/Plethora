@@ -20,6 +20,7 @@ import {
 } from "../../lib/ai/apple/capabilities";
 import type { AppleIntelligenceSnapshot } from "../../lib/ai/apple/types";
 import { OnDeviceProcessingBadge } from "../common/OnDeviceProcessingBadge";
+import { listLicensedModels } from "../../lib/ai/modelLicense";
 import { ToastType, useToastStore } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 
@@ -263,6 +264,35 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
           />
           <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
         </label>
+      </SettingsRow>
+
+      <SettingsRow
+        label={t("onDeviceAi.licensedPacks")}
+        description={t("onDeviceAi.licensedPacksDescription")}
+      >
+        <ul className="space-y-2 text-sm text-muted-foreground">
+          {listLicensedModels().map((pack) => (
+            <li key={pack.id} className="flex items-center justify-between gap-2">
+              <span>
+                {pack.displayName}
+                {pack.sizeBytes
+                  ? ` · ${t("onDeviceAi.packSize", { size: Math.round(pack.sizeBytes / 1_000_000) })}`
+                  : ""}
+              </span>
+              {pack.id === "embeddinggemma" &&
+                (embedStatus?.status === "downloadable" || embedStatus?.status === "unavailable") && (
+                  <button
+                    type="button"
+                    onClick={() => void handleEmbedDownload()}
+                    disabled={embedDownloading}
+                    className="px-2 py-1 text-xs font-medium rounded-lg bg-primary text-primary-foreground"
+                  >
+                    {t("onDeviceAi.download")}
+                  </button>
+                )}
+            </li>
+          ))}
+        </ul>
       </SettingsRow>
     </SettingsSection>
   );

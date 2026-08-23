@@ -1,0 +1,3 @@
+-keep class com.plethora.androidnlp.** { *; }
+-keep @app.tauri.annotation.TauriPlugin class *
+-keep @app.tauri.annotation.Command class *

@@ -1032,6 +1032,8 @@ export const fr: Dict = {
   "commandPalette.scanDocumentDesc": "Capturer des pages dans la bibliothèque",
   "commandPalette.translateSelection": "Traduire la sélection",
   "commandPalette.translateSelectionDesc": "Traduire la sélection actuelle sur cet appareil",
+  "commandPalette.recordLecture": "Enregistrer un cours",
+  "commandPalette.recordLectureDesc": "Enregistrer l’audio d’abord, puis transcrire sur cet appareil",
   "commandPalette.importTwitterVideo": "Importer une vidéo X/Twitter",
   "commandPalette.createFlashcard": "Créer une carte mémoire",
   "commandPalette.createFlashcardDesc": "Ouvrir le Studio de cartes pour concevoir une carte",
@@ -5837,5 +5839,14 @@ export const fr: Dict = {
   "companion.settingsTitle": "Compagnon Plethora",
   "companion.settingsDesc": "Compagnon oiseau ambiant optionnel",
   "onDeviceAi.allowCloudFallbackLabel": "Autoriser le repli cloud",
-  "onDeviceAi.allowCloudFallbackDescription": "Si l’IA sur l’appareil échoue, réessayer avec un fournisseur cloud configuré. Désactivé par défaut pour que le contenu ne quitte pas l’appareil en silence."
+  "onDeviceAi.allowCloudFallbackDescription": "Si l’IA sur l’appareil échoue, réessayer avec un fournisseur cloud configuré. Désactivé par défaut pour que le contenu ne quitte pas l’appareil en silence.",
+  "onDeviceAi.lectureStart": "Démarrer l’enregistrement",
+  "onDeviceAi.lectureStop": "Arrêter et enregistrer",
+  "onDeviceAi.lectureSaved": "Cours enregistré.",
+  "onDeviceAi.lectureSavedIncomplete": "Enregistrement sauvé. La transcription est incomplète.",
+  "onDeviceAi.licensedPacks": "Packs on-device sous licence",
+  "onDeviceAi.licensedPacksDescription": "Modèles facultatifs. Jamais inclus à l’installation. Annulez ou supprimez à tout moment.",
+  "onDeviceAi.packSize": "{size} Mo",
+  "onDeviceAi.packDelete": "Supprimer",
+  "onDeviceAi.packCancel": "Annuler le téléchargement"
 };
