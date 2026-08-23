@@ -2,8 +2,6 @@ name: Testing Build (Windows + macOS)
 
 # Build artifacts on the `testing` branch without creating a release.
 on:
-  push:
-    branches: [testing]
   workflow_dispatch:
 
 permissions:
