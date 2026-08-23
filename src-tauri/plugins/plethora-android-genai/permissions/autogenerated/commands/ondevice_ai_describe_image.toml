@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ondevice-ai-describe-image"
+description = "Enables the ondevice_ai_describe_image command without any pre-configured scope."
+commands.allow = ["ondevice_ai_describe_image"]
+
+[[permission]]
+identifier = "deny-ondevice-ai-describe-image"
+description = "Denies the ondevice_ai_describe_image command without any pre-configured scope."
+commands.deny = ["ondevice_ai_describe_image"]

@@ -866,6 +866,10 @@ pub fn run() {
         // frontend falls back to the configured cloud provider unchanged.
         .plugin(plethora_android_genai::init())
         .plugin(plethora_apple_intelligence::init())
+        .plugin(plethora_android_speech::init())
+        .plugin(plethora_android_vision::init())
+        .plugin(plethora_android_nlp::init())
+        .plugin(plethora_android_search::init())
         // StoreKit 2 billing (iOS): native product query, purchase with
         // appAccountToken, verified entitlements, restore, and the
         // Transaction.updates listener. On non-iOS targets every command

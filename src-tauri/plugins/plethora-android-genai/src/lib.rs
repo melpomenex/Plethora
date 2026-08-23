@@ -121,6 +121,10 @@ pub struct OnDeviceCapabilitySnapshot {
     pub prompt: FeatureState,
     pub summarization: FeatureState,
     pub image_prompt: FeatureState,
+    /// Optional Image Description specialized API. Independent of Prompt.
+    /// Older plugin builds omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_description: Option<FeatureState>,
     pub structured_output_compiled: bool,
     pub structured_output: bool,
     pub system_instructions: bool,
@@ -150,7 +154,8 @@ impl OnDeviceCapabilitySnapshot {
         Self {
             prompt: unsupported.clone(),
             summarization: unsupported.clone(),
-            image_prompt: unsupported,
+            image_prompt: unsupported.clone(),
+            image_description: Some(unsupported),
             structured_output_compiled: false,
             structured_output: false,
             system_instructions: false,
@@ -180,6 +185,7 @@ pub enum OnDeviceFeature {
     Prompt,
     Summarization,
     ImagePrompt,
+    ImageDescription,
 }
 
 impl OnDeviceFeature {
@@ -190,6 +196,7 @@ impl OnDeviceFeature {
             Self::Prompt => "prompt",
             Self::Summarization => "summarization",
             Self::ImagePrompt => "image-prompt",
+            Self::ImageDescription => "image-description",
         }
     }
 }
@@ -398,6 +405,18 @@ pub struct OcrLabelsResult {
     pub source_height: u32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescribeImageRequest {
+    pub base64_image: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescribeImageResult {
+    pub text: String,
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -875,6 +894,27 @@ mod commands {
         }
     }
 
+    /// Short English alt text via ML Kit Image Description. Not used for study cards.
+    #[tauri::command]
+    pub async fn ondevice_ai_describe_image(
+        state: State<'_, AndroidGenAi>,
+        request: DescribeImageRequest,
+    ) -> Result<DescribeImageResult, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = serde_json::json!({ "base64Image": request.base64_image });
+            state
+                .handle
+                .run_mobile_plugin::<DescribeImageResult>("describeImage", payload)
+                .map_err(map_invoke_error)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
     /// Report the on-device embedding model state (design D10 / task 4.5).
     /// Never starts a download and never returns `Err` — an unreachable
     /// bridge is an `unavailable` status with a reason, like
@@ -966,7 +1006,7 @@ mod commands {
 pub use commands::{
     ondevice_ai_cancel, ondevice_ai_cancel_prompt_request, ondevice_ai_capabilities,
     ondevice_ai_count_tokens, ondevice_ai_download, ondevice_ai_embed_download,
-    ondevice_ai_embed_status, ondevice_ai_embed_texts, ondevice_ai_generate, ondevice_ai_ocr_labels,
+    ondevice_ai_embed_status, ondevice_ai_describe_image, ondevice_ai_embed_texts, ondevice_ai_generate, ondevice_ai_ocr_labels,
     ondevice_ai_prompt, ondevice_ai_start_prompt_stream, ondevice_ai_status,
     ondevice_ai_summarize, ondevice_ai_warm_up,
 };
@@ -991,6 +1031,7 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::ondevice_ai_cancel_prompt_request,
             commands::ondevice_ai_cancel,
             commands::ondevice_ai_ocr_labels,
+            commands::ondevice_ai_describe_image,
             commands::ondevice_ai_embed_status,
             commands::ondevice_ai_embed_download,
             commands::ondevice_ai_embed_texts
@@ -1044,6 +1085,7 @@ mod tests {
             prompt: FeatureState { status: "available".into(), reason: None },
             summarization: FeatureState::unavailable("model_unavailable"),
             image_prompt: FeatureState { status: "available".into(), reason: None },
+            image_description: Some(FeatureState { status: "available".into(), reason: None }),
             structured_output_compiled: true,
             structured_output: false,
             system_instructions: true,

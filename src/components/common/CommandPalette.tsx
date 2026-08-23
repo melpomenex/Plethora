@@ -425,7 +425,23 @@ export function getDefaultCommands(): Command[] {
       description: t("commandPalette.scanDocumentDesc"),
       icon: <Camera className="w-4 h-4" />,
       category: CommandCategory.Documents,
-      action: () => {
+      action: async () => {
+        try {
+          const { scanDocumentIntoLibrary } = await import("../../lib/ai/android/visionProvider");
+          await scanDocumentIntoLibrary();
+          return;
+        } catch (error) {
+          const { isOnDeviceAiSupportedPlatform } = await import("../../lib/ai/onDeviceAI");
+          if (isOnDeviceAiSupportedPlatform()) {
+            const { useToastStore, ToastType } = await import("./Toast");
+            useToastStore.getState().addToast({
+              type: ToastType.Info,
+              title: t("commandPalette.scanDocument"),
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return;
+          }
+        }
         window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent("import-document-scan"));
@@ -461,6 +477,28 @@ export function getDefaultCommands(): Command[] {
         }, 100);
       },
       keywords: ["record", "lecture", "speech", "transcribe"],
+    }),
+    createCommand({
+      id: "translate-selection",
+      label: t("commandPalette.translateSelection"),
+      description: t("commandPalette.translateSelectionDesc"),
+      icon: <TextT className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("translate-selection"));
+      },
+      keywords: ["translate", "language", "mlkit"],
+    }),
+    createCommand({
+      id: "record-lecture-android",
+      label: t("commandPalette.recordLecture"),
+      description: t("commandPalette.recordLectureDesc"),
+      icon: <Microphone className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("plethora:record-lecture"));
+      },
+      keywords: ["lecture", "record", "transcribe", "speech", "mic"],
     }),
     createCommand({
       id: "tag-untagged-documents",

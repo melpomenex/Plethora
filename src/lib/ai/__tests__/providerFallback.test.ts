@@ -62,6 +62,26 @@ describe("runAiAction fallback consent (ai-billing-safety #14)", () => {
     useToastStore.setState({ toasts: [] });
   });
 
+  it("does NOT fall back when allowCloudFallback is undefined", async () => {
+    useSettingsStore.setState((s) => ({
+      settings: {
+        ...s.settings,
+        ai: {
+          ...s.settings.ai,
+          preferOnDevice: true,
+          allowCloudFallback: undefined as unknown as boolean,
+        },
+      },
+    }));
+    installCloudProvider();
+    const cloud = vi.fn(async () => "cloud-result");
+
+    await expect(
+      runAiAction({ onDevice: onDeviceFailure, cloud }, "Test action")
+    ).rejects.toThrow("on-device failed");
+    expect(cloud).not.toHaveBeenCalled();
+  });
+
   it("does NOT fall back to the cloud provider when allowCloudFallback is off", async () => {
     setCloudFallback(false);
     installCloudProvider();

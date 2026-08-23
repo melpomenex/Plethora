@@ -47,6 +47,10 @@ const STRICT_JSON_PREAMBLE =
   "exactly matching this shape. Emit COMPACT JSON on a single line: no indentation and " +
   "no redundant whitespace — pretty-printing wastes the output budget and gets truncated:";
 
+function taskLayerProviderKind(kind: AIProvider["kind"]): "ondevice" | "cloud" {
+  return kind === "cloud" ? "cloud" : "ondevice";
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // In-flight coalescing (design D7)
 // ──────────────────────────────────────────────────────────────────────────
@@ -225,7 +229,7 @@ async function executeTask<I, O>(
       modelClass: route.servedModelClass,
       requestedModelClass: route.requestedModelClass,
       providerId: provider.id,
-      providerKind: provider.kind,
+      providerKind: taskLayerProviderKind(provider.kind),
       capabilityHash,
       retrievalCount: options.retrieval?.count ?? 0,
       chunkIds: options.retrieval?.chunkIds ?? [],
@@ -246,7 +250,7 @@ async function executeTask<I, O>(
       output: value as O,
       text: response.text,
       providerId: provider.id,
-      providerKind: provider.kind,
+      providerKind: taskLayerProviderKind(provider.kind),
       requestedModelClass: route.requestedModelClass,
       servedModelClass: route.servedModelClass,
       fallbackPath: route.fallbackPath,
@@ -568,7 +572,9 @@ function recordFailure<I, O>(
     modelClass: route?.servedModelClass,
     requestedModelClass: route?.requestedModelClass,
     providerId: route?.provider.id,
-    providerKind: route?.provider.kind,
+    providerKind: route?.provider.kind
+      ? taskLayerProviderKind(route.provider.kind)
+      : undefined,
     capabilityHash,
     retrievalCount: options.retrieval?.count ?? 0,
     chunkIds: options.retrieval?.chunkIds ?? [],

@@ -1,0 +1,13 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Optional AppSearch derived index; SQLite remains source of truth
+"""
+permissions = [
+  "allow-search-status",
+  "allow-retrieve",
+  "allow-upsert-document",
+  "allow-delete-document",
+  "allow-rebuild-index"
+]

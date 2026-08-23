@@ -47,12 +47,18 @@ export function prefersOnDevice(): boolean {
 }
 
 /**
- * Whether an on-device failure may automatically retry on a configured cloud
- * provider (design D27: cloud transmission is never silent/forced — this is
- * the single switch the "on-device only" preference turns off).
+ * Policy mapping (do not add a third overlapping boolean):
+ *
+ * | preferOnDevice | allowCloudFallback | Meaning |
+ * | true           | false              | Use Nano when ready; on-device failure does not auto-retry paid cloud |
+ * | true           | true               | Prefer Nano; explicit paid-cloud retry allowed |
+ * | false          | *                  | Use the configured provider (`CloudProvider`, including keyless Ollama) |
+ *
+ * `CloudProvider.kind` is `"cloud"` even for Ollama/localhost. Privacy chrome
+ * MUST use `providerAllowsKeylessAccess` / `sendsTextOffDevice`, not `kind`.
  */
 export function allowCloudFallback(): boolean {
-  return useSettingsStore.getState().settings.ai.allowCloudFallback !== false;
+  return useSettingsStore.getState().settings.ai.allowCloudFallback === true;
 }
 
 /**

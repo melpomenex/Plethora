@@ -199,6 +199,7 @@ export interface GroqTranscriptionSettings {
 // Audio Transcription Settings
 export interface AudioTranscriptionSettings {
   provider: "local" | "groq" | "apple";
+  preferAndroidSpeech?: boolean;
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
   preferredModelId?: string;

@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "ondevice_ai_cancel_prompt_request",
     "ondevice_ai_cancel",
     "ondevice_ai_ocr_labels",
+    "ondevice_ai_describe_image",
     "ondevice_ai_embed_status",
     "ondevice_ai_embed_download",
     "ondevice_ai_embed_texts",

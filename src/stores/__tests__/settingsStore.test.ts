@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.version).toBe(8);
+    expect(stored.version).toBe(9);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -163,6 +163,7 @@ describe("settingsStore AI learning feature flags", () => {
       aiExtractWorthiness: true,
       aiSocraticTutor: true,
       aiAgent: true,
+      androidAppSearchIndex: true,
     });
     // Existing flags keep their defaults.
     expect(defaultSettings.features.appleFoundationModels).toBe(true);
@@ -221,6 +222,25 @@ describe("settingsStore AI learning feature flags", () => {
     expect(features.aiExtractWorthiness).toBe(true);
     expect(features.aiSocraticTutor).toBe(true);
     expect(features.aiAgent).toBe(true);
+    expect(features.androidAppSearchIndex).toBe(true);
+  });
+
+  it("turns Android speech and AppSearch on when migrating from persist v8", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          audioTranscription: { preferAndroidSpeech: false },
+          features: { androidAppSearchIndex: false },
+        },
+      },
+      version: 8,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().settings.audioTranscription.preferAndroidSpeech).toBe(true);
+    expect(useSettingsStore.getState().settings.features.androidAppSearchIndex).toBe(true);
+    expect(useSettingsStore.getState().settings.ai.allowCloudFallback).toBe(false);
   });
 });
 

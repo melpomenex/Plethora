@@ -28,6 +28,9 @@ android {
         // ships in the APK, while the ~184 MB model artifacts are downloaded
         // on explicit user action and never bundled.
         buildConfigField("boolean", "EMBEDDING_COMPILED", "true")
+        // ML Kit Image Description (specialized, EN-only short alt). Independent
+        // of Prompt — Galaxy S25-class devices may expose this without Prompt.
+        buildConfigField("boolean", "IMAGE_DESCRIPTION_COMPILED", "true")
     }
 
     buildFeatures {
@@ -68,6 +71,7 @@ dependencies {
     // output spike; beta2 remains the documented build-verified fallback.
     implementation("com.google.mlkit:genai-summarization:1.0.0-beta1")
     implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
+    implementation("com.google.mlkit:genai-image-description:1.0.0-beta1")
     // Structured output: the @Generable/@Guide annotations and the
     // GenerableProvider/GenerableDetail types the generated schema providers
     // implement live in genai-schema (RUNTIME retention + runtime reflection),
@@ -95,3 +99,6 @@ dependencies {
     // Tauri Android runtime (Plugin/Invoke/JSObject/annotations).
     implementation(project(":tauri-android"))
 }
+
+// Opt-in Play Feature Delivery skeleton. Default off (no install-time gen pack).
+apply(from = "play-ai-packs.gradle.kts")

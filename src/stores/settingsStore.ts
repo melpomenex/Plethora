@@ -502,6 +502,8 @@ interface GroqTranscriptionSettings {
  */
 interface AudioTranscriptionSettings {
   provider: "local" | "groq" | "apple";
+  /** When true, ML Kit Speech may run; existing whisper/sherpa/Groq stay default. */
+  preferAndroidSpeech: boolean;
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
   preferredModelId?: string;
@@ -685,6 +687,11 @@ interface FeatureFlags {
   aiSocraticTutor: boolean;
   /** Phase 7: constrained library agent (read-only + proposals) */
   aiAgent: boolean;
+  /**
+   * Optional Android AppSearch derived index (OpenSpec C). Default off —
+   * SQLite / ai_learning remains the source of truth.
+   */
+  androidAppSearchIndex: boolean;
   /**
    * Selection-interaction controller v2 (OpenSpec
    * `overhaul-reader-selection-ux`): stability-gated selection UI, anchored
@@ -1155,6 +1162,7 @@ export const defaultSettings: Settings = {
   },
   audioTranscription: {
     provider: "local",
+    preferAndroidSpeech: true,
     autoTranscription: false,
     autoTranscribeLocalVideos: true,
     preferredModelId: "distil-small.en",
@@ -1240,6 +1248,7 @@ export const defaultSettings: Settings = {
     aiExtractWorthiness: true,
     aiSocraticTutor: true,
     aiAgent: true,
+    androidAppSearchIndex: true,
     // QA soak phase (overhaul-reader-selection-ux task 7.8, first half): the
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,
@@ -1339,7 +1348,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 8,
+      version: 9,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1398,6 +1407,18 @@ export const useSettingsStore = create<SettingsState>()(
           }
           if (root?.tts && typeof root.tts.paidTtsEnabled !== "boolean") {
             root.tts.paidTtsEnabled = false;
+          }
+        }
+        // v8 -> v9: Android on-device speech + AppSearch ship ON so a Pixel
+        // install uses them without hunting for hidden flags. Cloud fallback
+        // stays off. Existing testers who still have the old false defaults
+        // are flipped on once; later explicit opt-outs persist at version 9+.
+        if (version < 9) {
+          if (root?.audioTranscription) {
+            root.audioTranscription.preferAndroidSpeech = true;
+          }
+          if (root?.features) {
+            root.features.androidAppSearchIndex = true;
           }
         }
         return persisted as SettingsState;

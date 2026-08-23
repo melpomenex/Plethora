@@ -31,9 +31,5 @@
   `scripts/perf-baselines.json` in the same PR, saying why in the PR
   description — same protocol as `scripts/bundle-budgets.json`. A result with
   no baseline is only a warning that prints the exact JSON line to paste.
-- CI runs the gate in the `performance` job of
-  `.github/workflows/ci-regression.yml` (warn-only until baselines are
-  recorded from `main` runs, then enforcing); `.bench/results.json` is
-  uploaded as the `bench-results` artifact for re-recording baselines.
 - Script unit tests: `npm run test:scripts` (`node --test` on
-  `scripts/__tests__/*.test.ts`).
+  `scripts/__tests__/*.test.ts`). GitHub Actions is not used as a gate.
