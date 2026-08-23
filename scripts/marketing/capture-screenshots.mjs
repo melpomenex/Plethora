@@ -54,12 +54,13 @@ try {
   for (const { scene, layout } of requiredCaptures) {
     console.log(`Capturing ${scene.id}/${layout.layout}`);
     const { width, height, dpr } = layout.viewport;
+    const captureColorScheme = process.env.MARKETING_CAPTURE_COLOR_SCHEME || "light";
     const context = await browser.newContext({
       viewport: { width, height },
       deviceScaleFactor: dpr,
       locale: catalog.metadata.locale,
       timezoneId: "UTC",
-      colorScheme: "light",
+      colorScheme: captureColorScheme,
       reducedMotion: "reduce",
     });
     try {
