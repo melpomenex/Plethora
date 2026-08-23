@@ -16,14 +16,14 @@ mod commands;
 mod database;
 mod demo;
 mod entitlements;
-mod error;
+pub mod error;
 mod generator;
 mod integrations;
 mod kindle_clippings;
 mod legacy_data;
 mod mcp;
 mod media_control;
-mod models;
+pub mod models;
 mod notebooklm;
 mod notifications;
 mod ocr;
@@ -35,7 +35,7 @@ mod plethora_auth;
 mod plethora_cloud;
 mod pocket_tts;
 mod podcast;
-mod processor;
+pub mod processor;
 mod scheduler;
 mod segmentation;
 mod tts;
@@ -372,6 +372,36 @@ fn greet(name: &str) -> String {
 async fn wait_for_backend_ready(state: tauri::State<'_, BackendReadyState>) -> Result<(), String> {
     state.wait().await;
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HealthCheckResponse {
+    status: &'static str,
+    timestamp: u64,
+    platform: &'static str,
+}
+
+#[tauri::command]
+fn ping_health() -> HealthCheckResponse {
+    HealthCheckResponse {
+        status: "ok",
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        platform: if cfg!(target_os = "ios") {
+            "ios"
+        } else if cfg!(target_os = "android") {
+            "android"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "linux"
+        },
+    }
 }
 
 #[cfg(test)]
@@ -1490,6 +1520,9 @@ pub fn run() {
                     }
                 });
 
+                // Sweep any stale staging import files older than 24h
+                commands::document::sweep_stale_staging_files(&app_handle);
+
                 // Repository state was managed earlier in setup (right after it
                 // was created), so there is nothing to manage here.
 
@@ -1554,6 +1587,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             wait_for_backend_ready,
+            ping_health,
             commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,
             updater_bundle_type,

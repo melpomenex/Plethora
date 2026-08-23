@@ -1,0 +1,12 @@
+appId: com.plethora.app
+---
+- launchApp
+- tapOn:
+    id: "nav-tab-documents"
+- assertVisible:
+    id: "btn-import-document"
+- tapOn:
+    id: "btn-import-document"
+- runScript: "../../scripts/ios-test/inject-fixture.sh sample-note.md"
+- assertVisible:
+    id: "nav-tab-documents"

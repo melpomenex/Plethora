@@ -1,0 +1,25 @@
+appId: com.plethora.app
+---
+- launchApp
+- tapOn:
+    id: "nav-tab-dashboard"
+- tapOn:
+    id: "nav-tab-documents"
+- tapOn:
+    id: "nav-tab-queue"
+- tapOn:
+    id: "nav-tab-review"
+- tapOn:
+    id: "nav-tab-settings"
+- tapOn:
+    id: "nav-tab-dashboard"
+- tapOn:
+    id: "nav-tab-documents"
+- tapOn:
+    id: "nav-tab-queue"
+- tapOn:
+    id: "nav-tab-review"
+- tapOn:
+    id: "nav-tab-settings"
+- assertVisible:
+    id: "nav-tab-settings"

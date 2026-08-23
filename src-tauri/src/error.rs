@@ -1,6 +1,57 @@
 //! Error types for Incrementum
 use thiserror::Error;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportErrorCode {
+    UnsupportedType,
+    FileNotFound,
+    PermissionDenied,
+    StagingFailed,
+    InvalidDocument,
+    EncryptedDocument,
+    ExtractFailed,
+    DuplicateDocument,
+    StorageFull,
+    PersistFailed,
+    Cancelled,
+    Interrupted,
+    Internal,
+}
+
+impl std::fmt::Display for ImportErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedType => write!(f, "unsupported_type"),
+            Self::FileNotFound => write!(f, "file_not_found"),
+            Self::PermissionDenied => write!(f, "permission_denied"),
+            Self::StagingFailed => write!(f, "staging_failed"),
+            Self::InvalidDocument => write!(f, "invalid_document"),
+            Self::EncryptedDocument => write!(f, "encrypted_document"),
+            Self::ExtractFailed => write!(f, "extract_failed"),
+            Self::DuplicateDocument => write!(f, "duplicate_document"),
+            Self::StorageFull => write!(f, "storage_full"),
+            Self::PersistFailed => write!(f, "persist_failed"),
+            Self::Cancelled => write!(f, "cancelled"),
+            Self::Interrupted => write!(f, "interrupted"),
+            Self::Internal => write!(f, "internal"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImportError {
+    pub code: ImportErrorCode,
+    pub message: String,
+    pub file_name: Option<String>,
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum PlethoraError {
     #[error("Database error: {0}")]
@@ -20,6 +71,10 @@ pub enum PlethoraError {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    /// Document import failure carrying a typed `ImportErrorCode`.
+    #[error("Import error: {0}")]
+    Import(ImportError),
 
     /// A billable (paid/cloud) operation was attempted without the explicit
     /// consent flag (ai-billing-safety #14). Serialized as
@@ -101,6 +156,18 @@ impl serde::Serialize for PlethoraError {
     {
         use serde::ser::SerializeMap;
 
+        match self {
+            Self::Import(e) => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("type", "import_error")?;
+                map.serialize_entry("code", &e.code.to_string())?;
+                map.serialize_entry("message", &e.message)?;
+                map.serialize_entry("fileName", &e.file_name)?;
+                return map.end();
+            }
+            _ => {}
+        }
+
         let (type_name, message) = match self {
             Self::Database(e) => ("database", e.to_string()),
             Self::Io(e) => ("io", e.to_string()),
@@ -108,6 +175,7 @@ impl serde::Serialize for PlethoraError {
             Self::Fsrs(e) => ("fsrs", e.to_string()),
             Self::NotFound(msg) => ("not_found", msg.clone()),
             Self::InvalidInput(msg) => ("invalid_input", msg.clone()),
+            Self::Import(e) => ("import_error", e.message.clone()),
             Self::PaidOperationNotConsented(msg) => ("paid_operation_not_consented", msg.clone()),
             Self::Validation(msg) => ("validation", msg.clone()),
             Self::ArenaPreviewStale(msg) => ("arena_preview_stale", msg.clone()),
