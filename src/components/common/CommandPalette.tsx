@@ -19,8 +19,11 @@ import {
   Sparkle,
   Tag,
   TextT,
+  Camera,
+  Microphone,
 } from "@phosphor-icons/react";
 import { useI18n, t } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   isPlatformCapabilityAvailable,
   type PlatformCapabilityId,
@@ -398,7 +401,7 @@ export function createCommand(config: {
  * Default commands for Incrementum
  */
 export function getDefaultCommands(): Command[] {
-  return [
+  const commands: Command[] = [
     createCommand({
       id: "new-document",
       capabilityId: "core_import",
@@ -414,6 +417,50 @@ export function getDefaultCommands(): Command[] {
       },
       keywords: ["create", "add", "import", "file", "pdf", "epub"],
       shortcut: "⌘N",
+    }),
+    createCommand({
+      id: "scan-document",
+      capabilityId: "import_document_scan",
+      label: t("commandPalette.scanDocument"),
+      description: t("commandPalette.scanDocumentDesc"),
+      icon: <Camera className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("import-document-scan"));
+        }, 100);
+      },
+      keywords: ["scan", "camera", "ocr", "document"],
+    }),
+    createCommand({
+      id: "ask-my-library",
+      label: t("aiLibrary.askLibrary"),
+      description: t("commandPalette.askLibraryDesc"),
+      icon: <MagnifyingGlass className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/search" }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("ask-library"));
+        }, 100);
+      },
+      keywords: ["ask", "library", "rag", "search"],
+    }),
+    createCommand({
+      id: "record-lecture",
+      capabilityId: "apple_speech_transcription",
+      label: t("commandPalette.recordLecture"),
+      description: t("commandPalette.recordLectureDesc"),
+      icon: <Microphone className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("record-lecture"));
+        }, 100);
+      },
+      keywords: ["record", "lecture", "speech", "transcribe"],
     }),
     createCommand({
       id: "tag-untagged-documents",
@@ -636,7 +683,9 @@ export function getDefaultCommands(): Command[] {
       keywords: ["keyboard", "shortcuts", "hotkeys", "help"],
       shortcut: "?",
     }),
-  ].filter(
-    (cmd) => !cmd.capabilityId || isPlatformCapabilityAvailable(cmd.capabilityId)
-  );
+  ];
+  const libraryRag = useSettingsStore.getState().settings.features.aiLibraryRag;
+  return commands
+    .filter((cmd) => libraryRag || cmd.id !== "ask-my-library")
+    .filter((cmd) => !cmd.capabilityId || isPlatformCapabilityAvailable(cmd.capabilityId));
 }
