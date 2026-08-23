@@ -1,0 +1,12 @@
+{
+  "audioPath": "lecture-demo.wav",
+  "audioKind": "synthetic-demo-tone",
+  "sampleRate": 8000,
+  "durationMs": 4000,
+  "chapters": [
+    { "id": "lecture-ch-1", "title": "The day is encoding; the night is selection", "startMs": 0, "endMs": 1000 },
+    { "id": "lecture-ch-2", "title": "Replay is biased toward effort", "startMs": 1000, "endMs": 2000 },
+    { "id": "lecture-ch-3", "title": "Spacing borrows the night", "startMs": 2000, "endMs": 3000 },
+    { "id": "lecture-ch-4", "title": "What to do after a lecture", "startMs": 3000, "endMs": 4000 }
+  ]
+}

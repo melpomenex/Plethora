@@ -1,0 +1,18 @@
+{
+  "description": "Grep-friendly phrases that MUST NOT appear in indexed public copy unless the matching claim is public. Changelog historical quotes may use data-historical-quote.",
+  "exemptionAttribute": "data-historical-quote",
+  "phrases": [
+    "readsync.org",
+    "Incrementum",
+    "plethora.app",
+    "zero-knowledge",
+    "end-to-end encrypted sync",
+    "military-grade",
+    "AnkiConnect sync",
+    "on the App Store",
+    "on Google Play",
+    "used by N readers",
+    "$9.99",
+    "$79.99"
+  ]
+}

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Encoding to retrieval</title>
+  <desc id="desc">Original diagram for image-occlusion cards. No photographs of people. Boxes are labeled for covering during review.</desc>
+  <rect width="960" height="540" fill="#F4F1EA"/>
+  <text x="48" y="48" font-family="Georgia, serif" font-size="22" fill="#1A1916">Encoding ’ selection (sleep) ’ retrieval</text>
+  <text x="48" y="74" font-family="Georgia, serif" font-size="14" fill="#5C5852">Original Plethora demo diagram · CC0-1.0</text>
+
+  <g id="box-stimulus">
+    <rect x="48" y="120" width="200" height="88" rx="4" fill="#fff" stroke="#1A1916" stroke-width="2"/>
+    <text x="148" y="158" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#1A1916">Stimulus</text>
+    <text x="148" y="182" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5C5852">page, lecture, figure</text>
+  </g>
+  <g id="box-encoding">
+    <rect x="312" y="120" width="200" height="88" rx="4" fill="#fff" stroke="#1A1916" stroke-width="2"/>
+    <text x="412" y="158" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#1A1916">Encoding</text>
+    <text x="412" y="182" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5C5852">effort, paraphrase</text>
+  </g>
+  <g id="box-sleep">
+    <rect x="576" y="120" width="200" height="88" rx="4" fill="#fff" stroke="#1A1916" stroke-width="2"/>
+    <text x="676" y="158" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#1A1916">Sleep replay</text>
+    <text x="676" y="182" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5C5852">selection, not a tape</text>
+  </g>
+  <g id="box-retrieval">
+    <rect x="312" y="320" width="200" height="88" rx="4" fill="#fff" stroke="#1A1916" stroke-width="2"/>
+    <text x="412" y="358" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#1A1916">Retrieval</text>
+    <text x="412" y="382" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5C5852">produce, then check</text>
+  </g>
+  <g id="box-fluency">
+    <rect x="576" y="320" width="336" height="88" rx="4" fill="#fff" stroke="#1A1916" stroke-width="2"/>
+    <text x="744" y="358" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#1A1916">Fluency trap</text>
+    <text x="744" y="382" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5C5852">rereading ` recall</text>
+  </g>
+
+  <path d="M248 164 H312" stroke="#1A1916" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M512 164 H576" stroke="#1A1916" stroke-width="2" fill="none"/>
+  <path d="M676 208 V276 H412 V320" stroke="#1A1916" stroke-width="2" fill="none"/>
+  <path d="M512 364 H576" stroke="#1A1916" stroke-width="2" fill="none"/>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#1A1916"/>
+    </marker>
+  </defs>
+</svg>

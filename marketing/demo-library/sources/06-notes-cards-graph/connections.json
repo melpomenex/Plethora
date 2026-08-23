@@ -1,0 +1,20 @@
+[
+  {
+    "id": "ffffffff-0001-4000-8000-000000000001",
+    "fromId": "cccccccc-0001-4000-8000-000000000001",
+    "toId": "cccccccc-0002-4000-8000-000000000002",
+    "label": "fluency is not overnight encoding"
+  },
+  {
+    "id": "ffffffff-0002-4000-8000-000000000002",
+    "fromId": "aaaaaaaa-0003-4000-8000-000000000003",
+    "toId": "aaaaaaaa-0002-4000-8000-000000000002",
+    "label": "spacing uses the night"
+  },
+  {
+    "id": "ffffffff-0003-4000-8000-000000000003",
+    "fromId": "aaaaaaaa-0004-4000-8000-000000000004",
+    "toId": "aaaaaaaa-0001-4000-8000-000000000001",
+    "label": "hooks vs yellow ink"
+  }
+]

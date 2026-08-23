@@ -1,0 +1,28 @@
+---
+import DraftBanner from '../components/commercial/DraftBanner.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL } from '../config/legal.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('refunds');
+const draft = !LEGAL.refundPolicyFinal || LEGAL.legalEntityName === null;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial legal-scaffold">
+    {draft && <DraftBanner />}
+    <PageIntro slug="refunds" />
+    <h2>Status</h2>
+    <p>
+      A final refund policy depends on the legal entity, storefront rules, and counsel. None of
+      those are published here.
+    </p>
+    <h2>What we will not invent</h2>
+    <p>
+      This page does not name a statutory refund window, a company address, or tax information.
+      Tax field: {LEGAL.taxInformation ?? 'not published'}.
+    </p>
+  </article>
+</BaseLayout>

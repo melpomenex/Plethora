@@ -1,0 +1,40 @@
+---
+import { loadAssetManifest } from '../../lib/load-asset-manifest.ts';
+
+const manifest = loadAssetManifest();
+const usable = manifest.assets.filter((asset) => !asset.placeholder && asset.publicPath);
+const desk =
+  usable.find((asset) => asset.id === 'screenshot-desktop-collage') ??
+  usable.find((asset) => asset.viewport.includes('1440'));
+const phone =
+  usable.find((asset) => asset.id === 'screenshot-reader') ??
+  usable.find((asset) => asset.id === 'screenshot-library') ??
+  usable.find((asset) => asset.viewport.includes('390'));
+---
+
+<div class="device-collage" aria-label="Product screenshots">
+  {
+    desk ? (
+      <figure class="device-frame device-desk">
+        <img src={desk.publicPath} alt={desk.alt} width={desk.width ?? 1440} height={desk.height ?? 900} />
+      </figure>
+    ) : (
+      <figure class="device-frame device-desk" data-placeholder="true">
+        <span class="placeholder-label">screenshot pending</span>
+      </figure>
+    )
+  }
+  {
+    phone ? (
+      <figure class="device-frame device-phone">
+        <div class="phone-bezel">
+          <img src={phone.publicPath} alt={phone.alt} width={phone.width ?? 390} height={phone.height ?? 844} />
+        </div>
+      </figure>
+    ) : (
+      <figure class="device-frame device-phone" data-placeholder="true">
+        <span class="placeholder-label">screenshot pending</span>
+      </figure>
+    )
+  }
+</div>

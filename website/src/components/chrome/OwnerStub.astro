@@ -1,0 +1,20 @@
+---
+import { SITE_ROUTES } from '../../config/routes.ts';
+
+interface Props {
+  path: string;
+}
+
+const { path } = Astro.props;
+const route = SITE_ROUTES.find((item) => item.path === path);
+const owner = route?.owner ?? 'E';
+const label = route?.navLabel ?? path;
+---
+
+<section class="owner-stub" data-owner={owner}>
+  <h1>{label}</h1>
+  <p>
+    Placeholder route for OpenSpec change {owner}. Copy and commercial facts land in that change.
+    Checkout, downloads, and indexing stay gated by `website/src/config`.
+  </p>
+</section>

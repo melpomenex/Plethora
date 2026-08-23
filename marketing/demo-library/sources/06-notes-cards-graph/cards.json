@@ -1,0 +1,53 @@
+[
+  {
+    "id": "dddddddd-0001-4000-8000-000000000001",
+    "template": "basic",
+    "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+    "fields": {
+      "front": "Why does highlighting often fail as study?",
+      "back": "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall."
+    }
+  },
+  {
+    "id": "dddddddd-0002-4000-8000-000000000002",
+    "template": "cloze",
+    "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+    "fields": {
+      "text": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading."
+    }
+  },
+  {
+    "id": "dddddddd-0003-4000-8000-000000000003",
+    "template": "mcq",
+    "sourceId": "aaaaaaaa-0003-4000-8000-000000000003",
+    "fields": {
+      "stem": "A failed recall during spaced practice should be treated as:",
+      "choices": [
+        "Proof you should reread the chapter once more in full",
+        "Information that the gap was useful and the item needs restudy",
+        "Evidence that sleep erased the memory permanently",
+        "A reason to switch highlighters"
+      ],
+      "answerIndex": 1
+    }
+  },
+  {
+    "id": "dddddddd-0004-4000-8000-000000000004",
+    "template": "image-occlusion",
+    "sourceId": "aaaaaaaa-0005-4000-8000-000000000005",
+    "fields": {
+      "image": "sources/05-occlusion/encoding-retrieval.svg",
+      "occlude": "occ-sleep",
+      "prompt": "Name the overnight process that selects among daytime traces."
+    }
+  },
+  {
+    "id": "dddddddd-0005-4000-8000-000000000005",
+    "template": "qa",
+    "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+    "fields": {
+      "question": "According to James, what improves memory if not a native faculty?",
+      "answer": "Habitual methods of recording facts — more associations, more hooks for retrieval."
+    }
+  }
+]

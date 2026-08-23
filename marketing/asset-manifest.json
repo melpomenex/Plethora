@@ -1,0 +1,207 @@
+{
+  "storyId": "memory-sleep-cognition",
+  "generatedAt": "2026-08-23T12:00:00.000Z",
+  "assets": [
+    {
+      "id": "screenshot-library",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/library_iphone_iphone-14-390x844_light_pwa.png",
+      "publicPath": "/images/product/screenshot-library.webp",
+      "alt": "Plethora library showing the memory, sleep, and learning demo shelf: essay, lecture, methods PDF, and James excerpt.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-library.avif",
+        "webp": "/images/product/screenshot-library.webp",
+        "png": "/images/product/screenshot-library.png"
+      }
+    },
+    {
+      "id": "screenshot-reader",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/reader_iphone_iphone-14-390x844_light_pwa.png",
+      "publicPath": "/images/product/screenshot-reader.webp",
+      "alt": "Reader open on the highlighting essay with a passage extract queued for encoding.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-reader.avif",
+        "webp": "/images/product/screenshot-reader.webp",
+        "png": "/images/product/screenshot-reader.png"
+      }
+    },
+    {
+      "id": "screenshot-explain",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/explain_iphone_iphone-14-390x844_light_pwa.png",
+      "publicPath": "/images/product/screenshot-explain.webp",
+      "alt": "Grounded explanation of encoding versus recognition, citing the open demo passage.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-explain.avif",
+        "webp": "/images/product/screenshot-explain.webp",
+        "png": "/images/product/screenshot-explain.png"
+      }
+    },
+    {
+      "id": "screenshot-card",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/card_iphone_iphone-14-390x844_light_pwa.png",
+      "publicPath": "/images/product/screenshot-card.webp",
+      "alt": "Flashcard from the demo deck: why highlighting fails as encoding.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-card.avif",
+        "webp": "/images/product/screenshot-card.webp",
+        "png": "/images/product/screenshot-card.png"
+      }
+    },
+    {
+      "id": "screenshot-review",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/review_iphone_iphone-14-390x844_light_pwa.png",
+      "publicPath": "/images/product/screenshot-review.webp",
+      "alt": "Review session rating a sleep-and-memory card after a spaced gap.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-review.avif",
+        "webp": "/images/product/screenshot-review.webp",
+        "png": "/images/product/screenshot-review.png"
+      }
+    },
+    {
+      "id": "screenshot-desktop-collage",
+      "kind": "device-frame",
+      "sourcePath": "marketing/screenshots/source/desktop-collage_desktop_desktop-1440x900_light_pwa.png",
+      "publicPath": "/images/product/screenshot-desktop-collage.webp",
+      "alt": "Desktop Plethora window with the demo library and reader side by side.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "desktop-1440x900",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 1440,
+      "height": 900,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-desktop-collage.avif",
+        "webp": "/images/product/screenshot-desktop-collage.webp",
+        "png": "/images/product/screenshot-desktop-collage.png"
+      }
+    },
+    {
+      "id": "screenshot-ios-frame",
+      "kind": "device-frame",
+      "sourcePath": "marketing/screenshots/source/ios-frame_iphone_iphone-14-pro-430x932_light_pwa.png",
+      "publicPath": "/images/product/screenshot-ios-frame.webp",
+      "alt": "iPhone frame of Plethora showing the memory-and-sleep library.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-pro-430x932",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 430,
+      "height": 932,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-ios-frame.avif",
+        "webp": "/images/product/screenshot-ios-frame.webp",
+        "png": "/images/product/screenshot-ios-frame.png"
+      }
+    },
+    {
+      "id": "screenshot-android-frame",
+      "kind": "device-frame",
+      "sourcePath": "marketing/screenshots/source/android-frame_android_android-412x915_light_pwa.png",
+      "publicPath": "/images/product/screenshot-android-frame.webp",
+      "alt": "Android frame of Plethora showing the same demo library.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "android-412x915",
+      "theme": "light",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 412,
+      "height": 915,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-android-frame.avif",
+        "webp": "/images/product/screenshot-android-frame.webp",
+        "png": "/images/product/screenshot-android-frame.png"
+      }
+    },
+    {
+      "id": "screenshot-eink",
+      "kind": "screenshot",
+      "sourcePath": "marketing/screenshots/source/eink-reader_iphone_iphone-14-390x844_eink_pwa.png",
+      "publicPath": "/images/product/screenshot-eink.webp",
+      "alt": "E-ink display mode reading the James public-domain excerpt.",
+      "license": "CC0-1.0",
+      "attribution": "Captured from Plethora UI with marketing demo library.",
+      "viewport": "iphone-14-390x844",
+      "theme": "eink",
+      "buildId": "pwa",
+      "placeholder": false,
+      "width": 390,
+      "height": 844,
+      "fallbacks": {
+        "avif": "/images/product/screenshot-eink.avif",
+        "webp": "/images/product/screenshot-eink.webp",
+        "png": "/images/product/screenshot-eink.png"
+      }
+    },
+    {
+      "id": "og-default",
+      "kind": "og",
+      "sourcePath": "marketing/screenshots/source/og_web_og-1200x630_light_placeholder-unreleased.png",
+      "publicPath": "/images/product/og-default.webp",
+      "alt": "Open Graph card: Everything you read. Remembered. Memory, sleep, and learning story.",
+      "license": "CC0-1.0",
+      "attribution": "Labeled placeholder (not product UI). Replace from RC capture protocol.",
+      "viewport": "og-1200x630",
+      "theme": "light",
+      "buildId": "placeholder-unreleased",
+      "placeholder": true,
+      "width": 1200,
+      "height": 630,
+      "fallbacks": {
+        "avif": "/images/product/og-default.avif",
+        "webp": "/images/product/og-default.webp",
+        "png": "/images/product/og-default.png"
+      }
+    }
+  ],
+  "blockers": []
+}

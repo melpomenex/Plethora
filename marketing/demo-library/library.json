@@ -1,0 +1,224 @@
+{
+  "storyId": "memory-sleep-cognition",
+  "title": "Why we forget what we read",
+  "theme": "memory, sleep, and learning",
+  "version": "1.0.0",
+  "seed": {
+    "rngSeed": 1890,
+    "createdAt": "2026-08-23T12:00:00.000Z"
+  },
+  "sources": [
+    {
+      "id": "aaaaaaaa-0001-4000-8000-000000000001",
+      "kind": "essay",
+      "title": "Why highlighting feels like learning",
+      "license": "CC0-1.0",
+      "attribution": "Original Plethora demo essay.",
+      "paths": {
+        "html": "sources/01-essay/encoding-versus-highlighting.html",
+        "epub": "generated/encoding-versus-highlighting.epub"
+      }
+    },
+    {
+      "id": "aaaaaaaa-0002-4000-8000-000000000002",
+      "kind": "lecture",
+      "title": "Sleep is not downtime for memory",
+      "license": "CC0-1.0",
+      "attribution": "Original transcript; synthetic WAV labeled as demo tone (not a person).",
+      "paths": {
+        "transcript": "sources/02-lecture/lecture-transcript.md",
+        "chapters": "sources/02-lecture/chapters.json",
+        "audio": "generated/lecture-demo.wav"
+      }
+    },
+    {
+      "id": "aaaaaaaa-0003-4000-8000-000000000003",
+      "kind": "pdf",
+      "title": "Spaced retrieval: a one-page methods note",
+      "license": "CC0-1.0",
+      "attribution": "Original methods one-pager.",
+      "paths": {
+        "pdf": "generated/spaced-retrieval-methods.pdf"
+      }
+    },
+    {
+      "id": "aaaaaaaa-0004-4000-8000-000000000004",
+      "kind": "pd-excerpt",
+      "title": "Habit and memory (William James, 1890)",
+      "license": "CC0-1.0",
+      "attribution": "William James, The Principles of Psychology (1890), public domain. Gutenberg-style transcription excerpted for demo use.",
+      "paths": {
+        "markdown": "sources/04-pd-excerpt/william-james-habit-memory.md",
+        "html": "sources/04-pd-excerpt/william-james-habit-memory.html",
+        "epub": "generated/william-james-habit-memory.epub"
+      }
+    },
+    {
+      "id": "aaaaaaaa-0005-4000-8000-000000000005",
+      "kind": "occlusion-diagram",
+      "title": "Encoding to retrieval",
+      "license": "CC0-1.0",
+      "attribution": "Original SVG diagram (no people, no third-party marks).",
+      "paths": {
+        "svg": "sources/05-occlusion/encoding-retrieval.svg",
+        "regions": "sources/05-occlusion/occlusion-regions.json"
+      }
+    },
+    {
+      "id": "aaaaaaaa-0006-4000-8000-000000000006",
+      "kind": "notes-cards-graph",
+      "title": "Notes, cards, review log, connections",
+      "license": "CC0-1.0",
+      "attribution": "Original fictional study notes; not a real user.",
+      "paths": {
+        "notes": "sources/06-notes-cards-graph/notes.md",
+        "extracts": "sources/06-notes-cards-graph/extracts.json",
+        "cards": "sources/06-notes-cards-graph/cards.json",
+        "reviewLog": "sources/06-notes-cards-graph/review-log.json",
+        "connections": "sources/06-notes-cards-graph/connections.json"
+      }
+    }
+  ],
+  "notes": [
+    {
+      "id": "bbbbbbbb-0001-4000-8000-000000000001",
+      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "body": "A highlight is a queue, not a memory. Retrieval with the book closed is the test."
+    },
+    {
+      "id": "bbbbbbbb-0002-4000-8000-000000000002",
+      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "body": "Sleep replay is biased toward effortful encoding, not toward yellow ink."
+    },
+    {
+      "id": "bbbbbbbb-0003-4000-8000-000000000003",
+      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "body": "James: associates are hooks. Isolated rereading leaves nothing to fish with."
+    }
+  ],
+  "extracts": [
+    {
+      "id": "cccccccc-0001-4000-8000-000000000001",
+      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "locator": "essay:fluency",
+      "text": "Recognition is cheap. Recall is the skill you actually wanted."
+    },
+    {
+      "id": "cccccccc-0002-4000-8000-000000000002",
+      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "locator": "lecture:ch-2",
+      "text": "Effort is a teaching signal to the overnight system. Fluency is not."
+    },
+    {
+      "id": "cccccccc-0003-4000-8000-000000000003",
+      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "locator": "james:hooks",
+      "text": "Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface."
+    }
+  ],
+  "cards": [
+    {
+      "id": "dddddddd-0001-4000-8000-000000000001",
+      "template": "basic",
+      "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "fields": {
+        "front": "Why does highlighting often fail as study?",
+        "back": "It tags importance without encoding: little paraphrase, retrieval, or association. Later recognition of yellow text is mistaken for recall."
+      }
+    },
+    {
+      "id": "dddddddd-0002-4000-8000-000000000002",
+      "template": "cloze",
+      "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "fields": {
+        "text": "Overnight {{c1::replay}} is biased toward {{c2::effort}}, not toward fluent rereading."
+      }
+    },
+    {
+      "id": "dddddddd-0003-4000-8000-000000000003",
+      "template": "mcq",
+      "sourceId": "aaaaaaaa-0003-4000-8000-000000000003",
+      "fields": {
+        "stem": "A failed recall during spaced practice should be treated as:",
+        "choices": ["Proof you should reread the chapter once more in full", "Information that the gap was useful and the item needs restudy", "Evidence that sleep erased the memory permanently", "A reason to switch highlighters"],
+        "answerIndex": 1
+      }
+    },
+    {
+      "id": "dddddddd-0004-4000-8000-000000000004",
+      "template": "image-occlusion",
+      "sourceId": "aaaaaaaa-0005-4000-8000-000000000005",
+      "fields": {
+        "image": "sources/05-occlusion/encoding-retrieval.svg",
+        "occlude": "occ-sleep",
+        "prompt": "Name the overnight process that selects among daytime traces."
+      }
+    },
+    {
+      "id": "dddddddd-0005-4000-8000-000000000005",
+      "template": "qa",
+      "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "fields": {
+        "question": "According to James, what improves memory if not a native faculty?",
+        "answer": "Habitual methods of recording facts — more associations, more hooks for retrieval."
+      }
+    }
+  ],
+  "reviewLog": [
+    {
+      "id": "eeeeeeee-0001-4000-8000-000000000001",
+      "cardId": "dddddddd-0001-4000-8000-000000000001",
+      "ratedAt": "2026-08-01T09:00:00.000Z",
+      "rating": 3,
+      "scheduledDays": 3
+    },
+    {
+      "id": "eeeeeeee-0002-4000-8000-000000000002",
+      "cardId": "dddddddd-0002-4000-8000-000000000002",
+      "ratedAt": "2026-08-04T09:00:00.000Z",
+      "rating": 2,
+      "scheduledDays": 1
+    },
+    {
+      "id": "eeeeeeee-0003-4000-8000-000000000003",
+      "cardId": "dddddddd-0003-4000-8000-000000000003",
+      "ratedAt": "2026-08-05T09:00:00.000Z",
+      "rating": 4,
+      "scheduledDays": 7
+    },
+    {
+      "id": "eeeeeeee-0004-4000-8000-000000000004",
+      "cardId": "dddddddd-0004-4000-8000-000000000004",
+      "ratedAt": "2026-08-08T09:00:00.000Z",
+      "rating": 3,
+      "scheduledDays": 4
+    },
+    {
+      "id": "eeeeeeee-0005-4000-8000-000000000005",
+      "cardId": "dddddddd-0005-4000-8000-000000000005",
+      "ratedAt": "2026-08-12T09:00:00.000Z",
+      "rating": 3,
+      "scheduledDays": 6
+    }
+  ],
+  "connections": [
+    {
+      "id": "ffffffff-0001-4000-8000-000000000001",
+      "fromId": "cccccccc-0001-4000-8000-000000000001",
+      "toId": "cccccccc-0002-4000-8000-000000000002",
+      "label": "fluency is not overnight encoding"
+    },
+    {
+      "id": "ffffffff-0002-4000-8000-000000000002",
+      "fromId": "aaaaaaaa-0003-4000-8000-000000000003",
+      "toId": "aaaaaaaa-0002-4000-8000-000000000002",
+      "label": "spacing uses the night"
+    },
+    {
+      "id": "ffffffff-0003-4000-8000-000000000003",
+      "fromId": "aaaaaaaa-0004-4000-8000-000000000004",
+      "toId": "aaaaaaaa-0001-4000-8000-000000000001",
+      "label": "hooks vs yellow ink"
+    }
+  ]
+}

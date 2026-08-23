@@ -1,0 +1,36 @@
+---
+import HomeCapture from '../components/home/HomeCapture.astro';
+import HomeClose from '../components/home/HomeClose.astro';
+import HomeConnect from '../components/home/HomeConnect.astro';
+import HomeDemoSlot from '../components/home/HomeDemoSlot.astro';
+import HomeHero from '../components/home/HomeHero.astro';
+import HomePlatforms from '../components/home/HomePlatforms.astro';
+import HomePricingTeaser from '../components/home/HomePricingTeaser.astro';
+import HomeProblem from '../components/home/HomeProblem.astro';
+import HomeRead from '../components/home/HomeRead.astro';
+import HomeRemember from '../components/home/HomeRemember.astro';
+import HomeTrust from '../components/home/HomeTrust.astro';
+import HomeUnderstand from '../components/home/HomeUnderstand.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { COPY } from '../config/copy.ts';
+---
+
+<BaseLayout title={`${COPY.productName}: ${COPY.primaryPromise}`}>
+  <article class="home">
+    <HomeHero />
+    <div class="home-demo-frame">
+      <p class="home-demo-kicker">Interactive demo</p>
+      <HomeDemoSlot />
+    </div>
+    <HomeProblem />
+    <HomeCapture />
+    <HomeRead />
+    <HomeUnderstand />
+    <HomeRemember />
+    <HomeConnect />
+    <HomeTrust />
+    <HomePlatforms />
+    <HomePricingTeaser />
+    <HomeClose />
+  </article>
+</BaseLayout>

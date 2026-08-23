@@ -1,0 +1,14 @@
+---
+import { COPY } from '../../config/copy.ts';
+import HomeCtas from './HomeCtas.astro';
+import HomeDeviceCollage from './HomeDeviceCollage.astro';
+---
+
+<section id="hero" class="home-hero wrap" aria-labelledby="hero-heading">
+  <div>
+    <h1 id="hero-heading">{COPY.primaryPromise}</h1>
+    <p class="lede">{COPY.supportingLine}</p>
+    <HomeCtas surface="hero" />
+  </div>
+  <HomeDeviceCollage />
+</section>

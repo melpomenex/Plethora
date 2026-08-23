@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://useplethora.com/schemas/marketing-demo-library.json",
+  "title": "PlethoraMarketingDemoLibrary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "storyId",
+    "title",
+    "theme",
+    "version",
+    "seed",
+    "sources",
+    "notes",
+    "extracts",
+    "cards",
+    "reviewLog",
+    "connections"
+  ],
+  "properties": {
+    "storyId": { "type": "string", "const": "memory-sleep-cognition" },
+    "title": { "type": "string" },
+    "theme": { "type": "string" },
+    "version": { "type": "string" },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rngSeed", "createdAt"],
+      "properties": {
+        "rngSeed": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "title", "license", "paths"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": {
+            "type": "string",
+            "enum": ["essay", "lecture", "pdf", "pd-excerpt", "occlusion-diagram", "notes-cards-graph"]
+          },
+          "title": { "type": "string" },
+          "license": { "type": "string" },
+          "attribution": { "type": "string" },
+          "paths": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "sourceId", "body"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sourceId": { "type": "string", "format": "uuid" },
+          "body": { "type": "string" }
+        }
+      }
+    },
+    "extracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "sourceId", "text"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sourceId": { "type": "string", "format": "uuid" },
+          "locator": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "cards": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "template", "sourceId"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "template": {
+            "type": "string",
+            "enum": ["basic", "cloze", "mcq", "image-occlusion", "qa"]
+          },
+          "sourceId": { "type": "string", "format": "uuid" },
+          "fields": { "type": "object" }
+        }
+      }
+    },
+    "reviewLog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "cardId", "ratedAt", "rating", "scheduledDays"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "cardId": { "type": "string", "format": "uuid" },
+          "ratedAt": { "type": "string", "format": "date-time" },
+          "rating": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "scheduledDays": { "type": "number" }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "fromId", "toId", "label"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "fromId": { "type": "string" },
+          "toId": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    }
+  }
+}

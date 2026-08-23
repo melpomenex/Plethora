@@ -1,0 +1,20 @@
+[
+  {
+    "id": "cccccccc-0001-4000-8000-000000000001",
+    "sourceId": "aaaaaaaa-0001-4000-8000-000000000001",
+    "locator": "essay:fluency",
+    "text": "Recognition is cheap. Recall is the skill you actually wanted."
+  },
+  {
+    "id": "cccccccc-0002-4000-8000-000000000002",
+    "sourceId": "aaaaaaaa-0002-4000-8000-000000000002",
+    "locator": "lecture:ch-2",
+    "text": "Effort is a teaching signal to the overnight system. Fluency is not."
+  },
+  {
+    "id": "cccccccc-0003-4000-8000-000000000003",
+    "sourceId": "aaaaaaaa-0004-4000-8000-000000000004",
+    "locator": "james:hooks",
+    "text": "Each of its associates becomes a hook to which it hangs, a means to fish it up by when sunk beneath the surface."
+  }
+]

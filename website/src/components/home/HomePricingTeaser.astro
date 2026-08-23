@@ -1,0 +1,38 @@
+---
+import { PLANS } from '../../config/plans.ts';
+
+const free = PLANS.find((plan) => plan.id === 'free');
+const pro = PLANS.find((plan) => plan.id === 'pro');
+const month = pro?.intervalPrices?.month;
+const year = pro?.intervalPrices?.year;
+---
+
+<section id="pricing" class="home-section wrap" aria-labelledby="pricing-heading">
+  <h2 id="pricing-heading">Free to read. Pro when you want more machine.</h2>
+  <p data-claim-pending="true">
+    Reading stays on the local floor. Pro is the intended paid layer for sync, hosted
+    intelligence, and cloud compute. Checkout is not live.
+  </p>
+  <div class="plan-split">
+    <div>
+      <h3>{free?.name ?? 'Free'}</h3>
+      <p>Local reading and review on your device.</p>
+    </div>
+    <div>
+      <h3>{pro?.name ?? 'Plethora Pro'}</h3>
+      {
+        month && year && (
+          <p class="price">
+            ${month.amount}/month
+            <br />
+            about ${year.amount}/year
+          </p>
+        )
+      }
+      <p>Storefronts set local prices. These figures are display direction only.</p>
+    </div>
+  </div>
+  <p>
+    <a href="/pricing">Full pricing</a>
+  </p>
+</section>

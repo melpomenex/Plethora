@@ -1,0 +1,33 @@
+---
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL } from '../config/legal.ts';
+import { unpublishedContactMessage } from '../lib/legal-copy.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('support');
+const email = LEGAL.supportEmail;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial">
+    <PageIntro slug="support" />
+    {
+      email ? (
+        <p>
+          Email <a href={`mailto:${email}`}>{email}</a>
+        </p>
+      ) : (
+        <p class="contact-unpublished" data-contact="unpublished">
+          {unpublishedContactMessage()}
+        </p>
+      )
+    }
+    <p>
+      <a href="/docs">Browse curated docs</a>
+      {' · '}
+      <a href="/downloads">Downloads</a>
+    </p>
+  </article>
+</BaseLayout>

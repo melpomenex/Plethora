@@ -1,0 +1,155 @@
+---
+import ClaimText from '../components/commercial/ClaimText.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import SoftwareApplicationJsonLd from '../components/commercial/SoftwareApplicationJsonLd.astro';
+import { ENTITLEMENT_IDS } from '../config/entitlementIds.ts';
+import { loadLaunchFlags } from '../config/launch.ts';
+import {
+  FREE_PLAN_FEATURE_IDS,
+  PLAN_PACKAGING_NOTE,
+  PLAN_TRIAL,
+  PLANS,
+  planCtaState,
+} from '../config/plans.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import { INTENDED_PRO_PACKAGING } from '../lib/pro-packaging.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('pricing');
+const flags = loadLaunchFlags();
+const free = PLANS.find((plan) => plan.id === 'free')!;
+const pro = PLANS.find((plan) => plan.id === 'pro')!;
+const freeCta = planCtaState(free, flags);
+const proCta = planCtaState(pro, flags);
+const month = pro.intervalPrices?.month;
+const year = pro.intervalPrices?.year;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <SoftwareApplicationJsonLd />
+  <article class="commercial">
+    <PageIntro slug="pricing" />
+
+    <div class="plan-grid">
+      <section class="plan-card" data-plan="free">
+        <h2>{free.name}</h2>
+        <p class="price-display">$0</p>
+        <p>Local reading and review. No account required for that floor.</p>
+        {
+          freeCta.enabled && freeCta.href ? (
+            <a href={freeCta.href} data-plan-cta="free">
+              {freeCta.label}
+            </a>
+          ) : (
+            <button type="button" class="cta-disabled" disabled data-checkout-disabled="true" data-plan-cta="free">
+              {freeCta.label}
+            </button>
+          )
+        }
+      </section>
+      <section class="plan-card" data-plan="pro">
+        <h2>{pro.name}</h2>
+        <div class="interval-toggle" data-pricing-interval>
+          <button type="button" data-interval="month" aria-pressed="true">Monthly</button>
+          <button type="button" data-interval="year" aria-pressed="false">Yearly</button>
+        </div>
+        {
+          month && (
+            <p class="price-display" data-price-month>
+              ${month.amount} / month USD
+            </p>
+          )
+        }
+        {
+          year && (
+            <p class="price-display" data-price-year hidden>
+              About ${year.amount} / year USD
+            </p>
+          )
+        }
+        {
+          (month?.storefrontLocalized || year?.storefrontLocalized) && (
+            <p class="price-footnote" data-storefront-localized>
+              Display prices only. Apple, Google, and other storefronts set local prices. This is not a live charge.
+            </p>
+          )
+        }
+        {
+          proCta.enabled && proCta.href ? (
+            <a href={proCta.href} data-plan-cta="pro">
+              {proCta.label}
+            </a>
+          ) : (
+            <button type="button" class="cta-disabled" disabled data-checkout-disabled="true" data-plan-cta="pro">
+              {proCta.label}
+            </button>
+          )
+        }
+      </section>
+    </div>
+
+    {
+      PLAN_TRIAL.enabled && (
+        <p data-trial-slot>
+          Trial: {PLAN_TRIAL.days} days
+        </p>
+      )
+    }
+
+    <p class="packaging-note">{PLAN_PACKAGING_NOTE}</p>
+
+    <table class="pricing-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Free</th>
+          <th>Pro</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          FREE_PLAN_FEATURE_IDS.map((id) => (
+            <tr data-feature-row={id}>
+              <td>
+                <ClaimText id={id} />
+                <span class="claim-meta">{id}</span>
+              </td>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+          ))
+        }
+        {
+          ENTITLEMENT_IDS.map((id) => (
+            <tr data-feature-row={id} data-packaging-intent="true">
+              <td>
+                {INTENDED_PRO_PACKAGING[id] ?? id}
+                <span class="claim-meta">{id}</span>
+              </td>
+              <td>Local fallback only</td>
+              <td>Intended at launch</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </article>
+</BaseLayout>
+
+<script>
+  const root = document.querySelector('[data-pricing-interval]');
+  if (root) {
+    const buttons = root.querySelectorAll<HTMLButtonElement>('[data-interval]');
+    const month = document.querySelector<HTMLElement>('[data-price-month]');
+    const year = document.querySelector<HTMLElement>('[data-price-year]');
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const interval = button.dataset.interval;
+        buttons.forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+        if (month) month.hidden = interval !== 'month';
+        if (year) year.hidden = interval !== 'year';
+      });
+    });
+  }
+</script>

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "eeeeeeee-0001-4000-8000-000000000001",
+    "cardId": "dddddddd-0001-4000-8000-000000000001",
+    "ratedAt": "2026-08-01T09:00:00.000Z",
+    "rating": 3,
+    "scheduledDays": 3
+  },
+  {
+    "id": "eeeeeeee-0002-4000-8000-000000000002",
+    "cardId": "dddddddd-0002-4000-8000-000000000002",
+    "ratedAt": "2026-08-04T09:00:00.000Z",
+    "rating": 2,
+    "scheduledDays": 1
+  },
+  {
+    "id": "eeeeeeee-0003-4000-8000-000000000003",
+    "cardId": "dddddddd-0003-4000-8000-000000000003",
+    "ratedAt": "2026-08-05T09:00:00.000Z",
+    "rating": 4,
+    "scheduledDays": 7
+  },
+  {
+    "id": "eeeeeeee-0004-4000-8000-000000000004",
+    "cardId": "dddddddd-0004-4000-8000-000000000004",
+    "ratedAt": "2026-08-08T09:00:00.000Z",
+    "rating": 3,
+    "scheduledDays": 4
+  },
+  {
+    "id": "eeeeeeee-0005-4000-8000-000000000005",
+    "cardId": "dddddddd-0005-4000-8000-000000000005",
+    "ratedAt": "2026-08-12T09:00:00.000Z",
+    "rating": 3,
+    "scheduledDays": 6
+  }
+]

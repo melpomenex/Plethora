@@ -1,0 +1,49 @@
+---
+import peckUrl from '../../assets/brand/knowledge-peck.svg?url';
+---
+
+<figure
+  class="peck-scene"
+  data-motion-scene
+  data-peck-scene
+  aria-label="Knowledge Peck turning a passage into a card"
+>
+  <blockquote class="peck-passage">
+    Sleep is not downtime. It is when the day becomes something you can keep.
+  </blockquote>
+  <div class="peck-card">
+    <p>Sleep consolidates memory.</p>
+    <p>Recall this tomorrow.</p>
+  </div>
+  <div class="peck-bird">
+    <img src={peckUrl} width="220" height="220" alt="" />
+  </div>
+</figure>
+
+<script>
+  function syncMotion() {
+    const hidden = document.hidden;
+    document.documentElement.classList.toggle('is-document-hidden', hidden);
+    for (const scene of document.querySelectorAll('[data-motion-scene]')) {
+      scene.classList.toggle('is-paused', hidden);
+    }
+  }
+
+  const scenes = document.querySelectorAll('[data-motion-scene]');
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        entry.target.classList.toggle('is-in-view', entry.isIntersecting);
+        if (!entry.isIntersecting) {
+          entry.target.classList.add('is-paused');
+        } else if (!document.hidden) {
+          entry.target.classList.remove('is-paused');
+        }
+      }
+    },
+    { threshold: 0.2 },
+  );
+  for (const scene of scenes) io.observe(scene);
+  document.addEventListener('visibilitychange', syncMotion);
+  syncMotion();
+</script>

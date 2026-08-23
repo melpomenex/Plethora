@@ -1,0 +1,8 @@
+---
+import { loadLaunchFlags } from '../../config/launch.ts';
+import { softwareApplicationJsonLd } from '../../lib/software-application-jsonld.ts';
+
+const jsonLd = softwareApplicationJsonLd(loadLaunchFlags());
+---
+
+<script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />

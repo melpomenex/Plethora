@@ -1,0 +1,37 @@
+---
+import { DOWNLOADS, type DownloadAvailability } from '../../config/downloads.ts';
+import { PLATFORM_IDS, type PlatformId } from '../../config/platforms.ts';
+
+const labels: Record<PlatformId, string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  linux: 'Linux',
+  ios: 'iOS',
+  android: 'Android',
+};
+
+function availabilityCopy(item: DownloadAvailability): string {
+  if (item.status === 'live' || item.status === 'store') return 'Available';
+  return item.message;
+}
+---
+
+<section id="platforms" class="home-section wrap" aria-labelledby="platforms-heading">
+  <h2 id="platforms-heading">Desktop and mobile, when the builds exist.</h2>
+  <p>Availability comes from the download manifest. Nothing here invents a store URL.</p>
+  <ul class="platform-list">
+    {
+      PLATFORM_IDS.map((id) => {
+        const item = DOWNLOADS.platforms[id];
+        return (
+          <li>
+            <strong>{labels[id]}</strong>
+            <span class="avail" data-status={item.status}>
+              {availabilityCopy(item)}
+            </span>
+          </li>
+        );
+      })
+    }
+  </ul>
+</section>

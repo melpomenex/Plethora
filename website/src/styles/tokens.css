@@ -1,0 +1,68 @@
+/**
+ * useplethora.com visual tokens (change B).
+ * Paper/ink is the page. Violet is the mark, not the wallpaper.
+ * Mascot hexes match src/__tests__/brandInventory.test.ts.
+ */
+
+:root {
+  color-scheme: light;
+
+  --paper: #f3f0e8;
+  --paper-2: #e7e1d2;
+  --paper-3: #ddd6c6;
+  --ink: #1c1916;
+  --ink-soft: #3f3a34;
+  --muted: #5e574e;
+  --line: #cfc7b8;
+  --line-strong: #b7ae9d;
+
+  --plethora-violet-400: #8b5cf6;
+  --plethora-violet-500: #7c3aed;
+  --plethora-violet-800: #5b21b6;
+  --plethora-beak: #f59e0b;
+  --plethora-beak-icon: #6d28d9;
+  --plethora-pupil: #1e1b4b;
+  --plethora-boot: #0a0a0a;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4.5rem;
+  --space-9: 7rem;
+
+  --wrap: 72rem;
+  --wrap-narrow: 40rem;
+  --gutter: 1.25rem;
+
+  --step-0: 1rem;
+  --step-1: 1.125rem;
+  --step-2: 1.333rem;
+  --step-3: 1.777rem;
+  --step-4: 2.369rem;
+  --step-5: clamp(2.4rem, 4vw + 1rem, 3.157rem);
+  --step-6: clamp(2.8rem, 6vw + 1rem, 4.2rem);
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: 'Source Serif 4', 'Source Serif Fallback', 'Iowan Old Style', Georgia, serif;
+
+  --radius: 2px;
+  --shadow-frame: 0.4rem 0.85rem 1.8rem rgb(28 25 22 / 0.14);
+
+  --z-skip: 40;
+  --z-header: 20;
+  --z-demo: 2;
+}
+
+/* No default-dark-AI theme. Optional graphite close band only if contrast holds. */
+.band-graphite {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.band-graphite a {
+  color: var(--paper);
+}

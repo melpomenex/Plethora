@@ -1,0 +1,206 @@
+.demo-island {
+  --demo-ink: #1c1917;
+  --demo-paper: #f7f4ef;
+  --demo-muted: #57534e;
+  --demo-line: #d6d3d1;
+  --demo-accent: #5b21b6;
+  position: relative;
+  color: var(--demo-ink);
+  font-family: Charter, 'Iowan Old Style', 'Source Serif 4', Georgia, serif;
+}
+
+.demo-island button {
+  font: inherit;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.demo-island button:focus {
+  outline: none;
+}
+
+.demo-island button:focus-visible {
+  outline: 2px solid var(--demo-ink);
+  outline-offset: 2px;
+}
+
+.demo-caption,
+.demo-keyboard,
+.demo-muted {
+  color: var(--demo-muted);
+}
+
+.demo-keyboard {
+  margin: 0.5rem 0 1rem;
+}
+
+.demo-chrome-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.demo-toggle {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.demo-btn {
+  border: 1px solid var(--demo-line);
+  background: #fff;
+  color: var(--demo-ink);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+
+.demo-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.demo-btn-primary {
+  background: var(--demo-ink);
+  color: var(--demo-paper);
+  border-color: var(--demo-ink);
+}
+
+.demo-phone {
+  width: min(23.5rem, 100%);
+  margin-inline: auto;
+  border: 1px solid var(--demo-line);
+  border-radius: 1.75rem;
+  background: #111;
+  padding: 0.55rem;
+  box-shadow: 0 12px 40px rgb(28 25 23 / 0.12);
+}
+
+.demo-status,
+.demo-android-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #f5f5f4;
+  font-size: 0.72rem;
+  padding: 0.35rem 0.85rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.demo-phone-body {
+  background: var(--demo-paper);
+  min-height: 28rem;
+  border-radius: 0.85rem;
+  padding: 0.9rem;
+}
+
+.demo-home-indicator {
+  width: 7rem;
+  height: 0.28rem;
+  margin: 0.45rem auto 0.2rem;
+  border-radius: 999px;
+  background: #e7e5e4;
+}
+
+.demo-android-nav span {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid #e7e5e4;
+}
+
+.demo-android-nav span:nth-child(2) {
+  border-radius: 999px;
+}
+
+.demo-screen {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.demo-screen-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.demo-grid {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.demo-card-btn,
+.demo-hit {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--demo-line);
+  background: #fff;
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.demo-kind {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--demo-accent);
+}
+
+.demo-hit-label {
+  font-size: 0.85rem;
+  color: var(--demo-muted);
+}
+
+.demo-media {
+  border-left: 2px solid var(--demo-accent);
+  padding-left: 0.6rem;
+  margin: 0;
+}
+
+.demo-grades,
+.demo-choices {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-grade {
+  width: 100%;
+}
+
+.demo-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.demo-script-heading {
+  font-size: 1rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.demo-script {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--demo-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-island *,
+  .demo-island *::before,
+  .demo-island *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

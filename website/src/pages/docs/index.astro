@@ -1,0 +1,36 @@
+---
+import { getCollection } from 'astro:content';
+import PageIntro from '../../components/commercial/PageIntro.astro';
+import { assertClaim } from '../../config/claims.ts';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { pageMeta } from '../../lib/page-meta.ts';
+import '../../styles/commercial.css';
+
+const meta = await pageMeta('docs');
+const docs = (await getCollection('docs', ({ data }) => data.published)).sort((a, b) =>
+  a.data.title.localeCompare(b.data.title),
+);
+for (const doc of docs) {
+  for (const id of doc.data.claimIds) {
+    assertClaim(id);
+  }
+}
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial">
+    <PageIntro slug="docs" />
+    <ul class="docs-list">
+      {
+        docs.map((doc) => (
+          <li class="claim-card">
+            <h2>
+              <a href={`/docs/${doc.id}`}>{doc.data.title}</a>
+            </h2>
+            <p>{doc.data.description}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </article>
+</BaseLayout>

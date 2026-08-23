@@ -1,0 +1,32 @@
+---
+import ClaimText from '../components/commercial/ClaimText.astro';
+import DraftBanner from '../components/commercial/DraftBanner.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL, legalIsDraft } from '../config/legal.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('privacy');
+const draft = legalIsDraft(LEGAL) || !LEGAL.privacyFinal || LEGAL.legalEntityName === null;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial legal-scaffold">
+    {draft && <DraftBanner />}
+    <PageIntro slug="privacy" />
+    <h2>What we can say</h2>
+    <p><ClaimText id="local-first-library" /></p>
+    <p><ClaimText id="local-backups-export" /></p>
+    <p><ClaimText id="byo-ai" /></p>
+    <h2>What this page does not claim</h2>
+    <p>
+      This page does not invent a company name, mailing address, or privacy mailbox. It does not
+      describe multi-device encryption as a shipping product.
+    </p>
+    <p>
+      Entity: {LEGAL.legalEntityName ?? 'not published'}. Privacy contact:
+      {LEGAL.privacyEmail ?? 'not published'}.
+    </p>
+  </article>
+</BaseLayout>

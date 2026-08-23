@@ -1,0 +1,142 @@
+.commercial h1 {
+  font-size: clamp(1.75rem, 3vw, 2.4rem);
+  margin: 0 0 0.75rem;
+}
+
+.commercial .lede {
+  max-width: 40rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.journey-groups,
+.journey-steps,
+.docs-list,
+.download-list,
+.plan-grid {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2rem;
+}
+
+.journey-groups {
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.plan-grid {
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.claim-card,
+.plan-card,
+.download-card,
+.step-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.claim-card h3,
+.plan-card h2,
+.download-card h2,
+.step-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.claim-card ul,
+.download-card ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.claim-meta {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.pricing-table th,
+.pricing-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.55rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.interval-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.interval-toggle button {
+  font: inherit;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+}
+
+.interval-toggle button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.price-display {
+  font-size: 1.35rem;
+  margin: 0.25rem 0;
+}
+
+.price-footnote,
+.packaging-note,
+.contact-unpublished {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cta-disabled,
+.download-control[aria-disabled='true'] {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: not-allowed;
+  font: inherit;
+}
+
+.draft-banner {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ink);
+  background: #fff;
+}
+
+.download-card[data-recommended='true'] {
+  outline: 2px solid var(--ink);
+}
+
+.legal-scaffold h2 {
+  margin-top: 2rem;
+  font-size: 1.1rem;
+}
+
+.changelog-body {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-x: auto;
+}

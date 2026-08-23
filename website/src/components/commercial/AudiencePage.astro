@@ -1,0 +1,22 @@
+---
+import PageIntro from './PageIntro.astro';
+import SoftwareApplicationJsonLd from './SoftwareApplicationJsonLd.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { pageMeta } from '../../lib/page-meta.ts';
+import '../../styles/commercial.css';
+
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+const meta = await pageMeta(slug);
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <SoftwareApplicationJsonLd />
+  <article class="commercial">
+    <PageIntro slug={slug} />
+    <slot />
+  </article>
+</BaseLayout>

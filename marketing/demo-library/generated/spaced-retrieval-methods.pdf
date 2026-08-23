@@ -1,0 +1,38 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 1345 >>
+stream
+BT /F2 18 Tf 72 720 Td (Spaced retrieval: a one-page methods note) Tj ET
+BT /F1 10 Tf 72 698 Td (Original Plethora demo PDF. License: CC0-1.0. No third-party figures.) Tj ET
+BT /F2 12 Tf 72 670 Td (Aim) Tj ET
+BT /F1 11 Tf 72 652 Td (Measure whether a closed-book retrieval attempt, followed by restudy of misses,) Tj ET
+BT /F1 11 Tf 72 636 Td (beats an equal-time reread of the same passage after 24 hours including sleep.) Tj ET
+BT /F2 12 Tf 72 608 Td (Procedure) Tj ET
+BT /F1 11 Tf 72 590 Td (1. Study a 400-word passage once \(no highlighting as the study method\).) Tj ET
+BT /F1 11 Tf 72 574 Td (2. Immediate free recall \(2 minutes\). Score idea units, not wording.) Tj ET
+BT /F1 11 Tf 72 558 Td (3. Restudy only missed idea units for 3 minutes.) Tj ET
+BT /F1 11 Tf 72 542 Td (4. Sleep in a habitual window. No additional exposure.) Tj ET
+BT /F1 11 Tf 72 526 Td (5. Delayed free recall at +24 h. Primary outcome: idea-unit count.) Tj ET
+BT /F2 12 Tf 72 498 Td (Comparator) Tj ET
+BT /F1 11 Tf 72 480 Td (Equal total time spent rereading the passage. Same delay and scoring.) Tj ET
+BT /F2 12 Tf 72 452 Td (Notes) Tj ET
+BT /F1 11 Tf 72 434 Td (Failed recall is data: shorten the next gap. Fluency during reread is not scored.) Tj ET
+BT /F1 11 Tf 72 418 Td (This page is instructional fiction for screenshots, not a published experiment.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001639 00000 n 
+0000001709 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1781
+%%EOF

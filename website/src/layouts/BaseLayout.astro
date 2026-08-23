@@ -1,0 +1,53 @@
+---
+import ConsentSlot from '../components/chrome/ConsentSlot.astro';
+import SiteFooter from '../components/chrome/SiteFooter.astro';
+import SiteHeader from '../components/chrome/SiteHeader.astro';
+import SkipLink from '../components/chrome/SkipLink.astro';
+import { canonicalUrl, loadLaunchFlags } from '../config/launch.ts';
+import { COPY } from '../config/copy.ts';
+import { routeByPath } from '../config/routes.ts';
+import '../styles/fonts.css';
+import '../styles/tokens.css';
+import '../styles/global.css';
+import '../styles/brand.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Page-level override. Launch noindex still wins when indexing is off. */
+  noindex?: boolean;
+}
+
+const flags = loadLaunchFlags();
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+const route = routeByPath(path);
+const title = Astro.props.title ?? route?.title ?? COPY.productName;
+const description = Astro.props.description ?? route?.description ?? COPY.primaryPromise;
+const canonical = canonicalUrl(path);
+const noindex = flags.indexing === 'noindex' || Astro.props.noindex === true;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content={COPY.productName} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+  </head>
+  <body>
+    <SkipLink />
+    <SiteHeader />
+    <main id="main" class="site-main" tabindex="-1" data-testid="site-main">
+      <slot />
+    </main>
+    <SiteFooter />
+    <ConsentSlot />
+  </body>
+</html>

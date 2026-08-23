@@ -1,0 +1,6 @@
+/books/*
+!/books/.gitkeep
+/apkg/*
+!/apkg/.gitkeep
+/audio/
+.marketing-seed.json

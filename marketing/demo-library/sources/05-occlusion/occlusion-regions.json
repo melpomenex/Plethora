@@ -1,0 +1,12 @@
+{
+  "diagramPath": "encoding-retrieval.svg",
+  "width": 960,
+  "height": 540,
+  "regions": [
+    { "id": "occ-stimulus", "label": "Stimulus", "x": 48, "y": 120, "width": 200, "height": 88 },
+    { "id": "occ-encoding", "label": "Encoding", "x": 312, "y": 120, "width": 200, "height": 88 },
+    { "id": "occ-sleep", "label": "Sleep replay", "x": 576, "y": 120, "width": 200, "height": 88 },
+    { "id": "occ-retrieval", "label": "Retrieval", "x": 312, "y": 320, "width": 200, "height": 88 },
+    { "id": "occ-fluency", "label": "Fluency trap", "x": 576, "y": 320, "width": 336, "height": 88 }
+  ]
+}

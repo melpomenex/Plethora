@@ -1,0 +1,37 @@
+---
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { parseChangelog } from '../lib/changelog.ts';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('changelog');
+const changelogPath = fileURLToPath(new URL('../../../CHANGELOG.md', import.meta.url));
+const markdown = readFileSync(changelogPath, 'utf8');
+const entries = parseChangelog(markdown, { minVersion: '2.5.0', limit: 8 });
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial">
+    <PageIntro slug="changelog" />
+    <p class="packaging-note" data-rename-note>
+      The public product is Plethora on useplethora.com. Historical notes below may quote a previous
+      project name when that is what shipped in that release.
+    </p>
+    {
+      entries.map((entry) => (
+        <section class="claim-card" data-changelog-version={entry.version}>
+          <h2>
+            {entry.version}
+            {entry.date ? ` — ${entry.date}` : ''}
+          </h2>
+          <pre class="changelog-body" data-historical-quote>
+            {entry.body}
+          </pre>
+        </section>
+      ))
+    }
+  </article>
+</BaseLayout>

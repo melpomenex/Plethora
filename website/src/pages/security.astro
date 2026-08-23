@@ -1,0 +1,26 @@
+---
+import ClaimText from '../components/commercial/ClaimText.astro';
+import DraftBanner from '../components/commercial/DraftBanner.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL, legalIsDraft } from '../config/legal.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('security');
+const draft = legalIsDraft(LEGAL) || LEGAL.legalEntityName === null;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial legal-scaffold">
+    {draft && <DraftBanner />}
+    <PageIntro slug="security" />
+    <h2>Verified statements</h2>
+    <p><ClaimText id="local-first-library" /></p>
+    <p><ClaimText id="local-backups-export" /></p>
+    <h2>Out of scope until verified</h2>
+    <p>
+      Public security copy does not describe multi-device encrypted sync as a shipping product.
+    </p>
+  </article>
+</BaseLayout>

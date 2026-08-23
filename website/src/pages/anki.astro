@@ -1,0 +1,13 @@
+---
+import AudiencePage from '../components/commercial/AudiencePage.astro';
+import ClaimText from '../components/commercial/ClaimText.astro';
+---
+
+<AudiencePage slug="anki">
+  <p data-anki-scope="apkg">
+    <ClaimText id="anki-apkg" />
+    Import and export are package files only. This page does not claim live two-way Anki protocol
+    synchronization.
+  </p>
+  <p><ClaimText id="local-flashcards" /> <ClaimText id="srs-fsrs" /></p>
+</AudiencePage>

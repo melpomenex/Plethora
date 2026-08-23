@@ -1,0 +1,113 @@
+name: Website quality gates
+
+on:
+  push:
+    paths:
+      - 'website/**'
+      - 'marketing/**'
+      - 'scripts/marketing/**'
+      - 'openspec/changes/**useplethora**'
+      - '.github/workflows/website.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'marketing/**'
+      - 'scripts/marketing/**'
+      - 'openspec/changes/**useplethora**'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Astro check, tests, Playwright
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: website/.nvmrc
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Astro check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          PUBLIC_INDEXING: noindex
+          PUBLIC_ANALYTICS_ENABLED: 'false'
+
+      - name: Dist gates
+        run: npm run check:dist
+        env:
+          PUBLIC_INDEXING: noindex
+
+      - name: Asset freshness
+        run: npm run check:assets
+        env:
+          PUBLIC_INDEXING: noindex
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Playwright
+        run: npx playwright test
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: website/playwright-report
+          retention-days: 7
+
+  lighthouse:
+    name: Lighthouse (main, non-blocking)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: quality
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: website/.nvmrc
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Lighthouse CI
+        run: npx --yes @lhci/cli autorun --config=./lighthouserc.cjs

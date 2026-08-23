@@ -1,0 +1,123 @@
+{
+  "caption": "Interactive prototype of Plethora’s flow; screenshots from the app appear above as they are produced.",
+  "items": [
+    {
+      "kind": "article",
+      "title": "Sleep replays the day you want to keep",
+      "subtitle": "Essay · 8 min",
+      "author": "Plethora Lab notes",
+      "body": [
+        "Memory does not finish when you close the book. During slow-wave sleep, the hippocampus replays traces laid down while you were awake.",
+        "That replay is not a luxury. Interrupt it and last night’s reading stays fragile. Protect it and the same pages become something you can use tomorrow."
+      ],
+      "passage": {
+        "id": "sleep-replay",
+        "text": "During slow-wave sleep, the hippocampus replays traces laid down while you were awake.",
+        "hitLabel": "Select this passage"
+      },
+      "explain": "Grounded in this essay: slow-wave sleep replays waking traces. The claim here is about consolidation timing, not a live model summary.",
+      "card": {
+        "type": "qa",
+        "front": "When does the hippocampus replay the day’s traces?",
+        "back": "During slow-wave sleep."
+      },
+      "scheduleDays": { "1": "10 minutes", "2": "1 day", "3": "4 days", "4": "7 days", "5": "14 days" }
+    },
+    {
+      "kind": "book",
+      "title": "The Overnight Mind",
+      "subtitle": "Chapter 2 · original field notes",
+      "author": "M. Hale",
+      "body": [
+        "We treated sleep as downtime because we could not watch it work. The overnight mind is not idle; it files.",
+        "Spacing what you reread across nights beats stacking another hour onto a tired afternoon."
+      ],
+      "passage": {
+        "id": "overnight-chapter",
+        "text": "The overnight mind is not idle; it files.",
+        "hitLabel": "Select this sentence"
+      },
+      "explain": "From this chapter: overnight rest is filing, not a blank. Spacing rereads across nights beats one long cram.",
+      "card": {
+        "type": "cloze",
+        "front": "The overnight mind is not idle; it […].",
+        "back": "files"
+      },
+      "scheduleDays": { "1": "10 minutes", "2": "1 day", "3": "4 days", "4": "7 days", "5": "14 days" }
+    },
+    {
+      "kind": "pdf",
+      "title": "Spaced practice lab notes",
+      "subtitle": "PDF · 3 pages",
+      "author": "Learning methods desk",
+      "body": [
+        "Page 1 — Protocol: 12 minutes of encoding, then a night of sleep, then a short retrieval probe.",
+        "Page 2 — Result: probes after sleep beat same-day probes on the same item set.",
+        "Page 3 — Caveat: the gain is for recall, not for rereading speed."
+      ],
+      "passage": {
+        "id": "spacing-figure",
+        "text": "Probes after sleep beat same-day probes on the same item set.",
+        "hitLabel": "Select this finding"
+      },
+      "explain": "The PDF’s result page states a sleep-spaced probe beat a same-day probe. This panel restates that sentence; it does not invent extra statistics.",
+      "card": {
+        "type": "basic",
+        "front": "In these lab notes, when did retrieval probes win?",
+        "back": "After a night of sleep, not on the same day."
+      },
+      "scheduleDays": { "1": "10 minutes", "2": "1 day", "3": "4 days", "4": "7 days", "5": "14 days" }
+    },
+    {
+      "kind": "podcast",
+      "title": "Memory Lab",
+      "subtitle": "Episode 14 · 18 min",
+      "author": "Host: R. Chen",
+      "body": [
+        "A studio conversation about why a walk after studying is not the same as a night of sleep.",
+        "Key moment at 4:12 — the guest describes sleep spindles as a replay cue, not a metaphor."
+      ],
+      "mediaCaption": "4:12 — sleep spindles as a replay cue",
+      "passage": {
+        "id": "moment-4m12s",
+        "text": "Sleep spindles are a replay cue, not a metaphor.",
+        "hitLabel": "Mark this moment"
+      },
+      "explain": "At 4:12 the guest treats spindles as a replay cue. The explain panel repeats that timestamped line so the card stays tied to the episode.",
+      "card": {
+        "type": "qa",
+        "front": "What does the guest call sleep spindles at 4:12?",
+        "back": "A replay cue, not a metaphor."
+      },
+      "scheduleDays": { "1": "10 minutes", "2": "1 day", "3": "4 days", "4": "7 days", "5": "14 days" }
+    },
+    {
+      "kind": "video",
+      "title": "Encoding while you sleep",
+      "subtitle": "Lecture clip · 6 min",
+      "author": "Open seminar",
+      "body": [
+        "A short lecture on encoding versus consolidation, with a chalkboard diagram of night-time replay.",
+        "Key moment: the lecturer pauses on “you cannot cram a night.”"
+      ],
+      "mediaCaption": "2:05 — “You cannot cram a night.”",
+      "passage": {
+        "id": "moment-encoding",
+        "text": "You cannot cram a night.",
+        "hitLabel": "Mark this moment"
+      },
+      "explain": "The lecture’s key moment is the line about not cramming a night. The card asks for that line, not a generated recap of the whole talk.",
+      "card": {
+        "type": "mcq",
+        "front": "The lecturer’s key line is:",
+        "back": "You cannot cram a night.",
+        "choices": [
+          "You cannot cram a night.",
+          "Reread until sunrise.",
+          "Skip slow-wave sleep if you took notes."
+        ]
+      },
+      "scheduleDays": { "1": "10 minutes", "2": "1 day", "3": "4 days", "4": "7 days", "5": "14 days" }
+    }
+  ]
+}

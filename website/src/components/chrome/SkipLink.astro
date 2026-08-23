@@ -1,0 +1,9 @@
+---
+interface Props {
+  href?: string;
+}
+
+const target = Astro.props.href ?? '#main';
+---
+
+<a class="skip-link" data-testid="skip-link" href={target}>Skip to content</a>

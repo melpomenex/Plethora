@@ -1,0 +1,29 @@
+---
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL } from '../config/legal.ts';
+import { unpublishedContactMessage } from '../lib/legal-copy.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('contact');
+const email = LEGAL.supportEmail ?? LEGAL.privacyEmail;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial">
+    <PageIntro slug="contact" />
+    {
+      email ? (
+        <p>
+          Email <a href={`mailto:${email}`}>{email}</a>
+        </p>
+      ) : (
+        <p class="contact-unpublished" data-contact="unpublished">
+          {unpublishedContactMessage()}
+        </p>
+      )
+    }
+    <p>Mailing address: {LEGAL.mailingAddress ?? 'not published'}.</p>
+  </article>
+</BaseLayout>

@@ -1,0 +1,12 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { COPY } from '../config/copy.ts';
+---
+
+<BaseLayout title={`Page not found — ${COPY.productName}`} description="This page does not exist.">
+  <section>
+    <h1>Page not found</h1>
+    <p>That URL is not part of the Plethora site.</p>
+    <p><a href="/">Back to home</a></p>
+  </section>
+</BaseLayout>

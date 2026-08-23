@@ -1,0 +1,31 @@
+---
+import { loadLaunchFlags } from '../../config/launch.ts';
+
+interface Props {
+  surface: string;
+}
+
+const flags = loadLaunchFlags();
+const soon = !flags.downloadsEnabled;
+const surface = Astro.props.surface;
+---
+
+<div class="cta-row">
+  <a
+    class:list={['btn', 'btn-primary', { 'is-soon': soon }]}
+    href="/downloads"
+    data-cta="get-plethora"
+    data-cta-mode={soon ? 'coming-soon' : 'enabled'}
+    data-surface={surface}
+  >
+    Get Plethora
+  </a>
+  <a class="btn btn-ghost" href="#demo" data-cta="try-demo" data-surface={surface}>
+    Try the interactive demo
+  </a>
+  {
+    soon && (
+      <span class="cta-note">Downloads are not published yet. This opens the downloads page.</span>
+    )
+  }
+</div>

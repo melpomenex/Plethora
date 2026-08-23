@@ -1,0 +1,30 @@
+---
+import { getCollection, render } from 'astro:content';
+import { assertClaim } from '../../config/claims.ts';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import '../../styles/commercial.css';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs', ({ data }) => data.published);
+  return docs.map((doc) => ({
+    params: { slug: doc.id },
+    props: { doc },
+  }));
+}
+
+const { doc } = Astro.props;
+for (const id of doc.data.claimIds) {
+  assertClaim(id);
+}
+const { Content } = await render(doc);
+---
+
+<BaseLayout title={`${doc.data.title} — Plethora`} description={doc.data.description} noindex={doc.data.noindex}>
+  <article class="commercial">
+    <p><a href="/docs">All docs</a></p>
+    <h1>{doc.data.title}</h1>
+    <div class="lede">
+      <Content />
+    </div>
+  </article>
+</BaseLayout>

@@ -1,0 +1,57 @@
+---
+import ClaimText from '../components/commercial/ClaimText.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import SoftwareApplicationJsonLd from '../components/commercial/SoftwareApplicationJsonLd.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('features');
+
+const groups = [
+  {
+    name: 'Capture',
+    claimIds: ['local-reading-formats', 'anki-apkg', 'local-first-library'],
+  },
+  {
+    name: 'Read',
+    claimIds: ['local-reading-formats', 'saved-position', 'eink', 'local-tts'],
+  },
+  {
+    name: 'Understand',
+    claimIds: ['dictionary-peek', 'byo-ai'],
+  },
+  {
+    name: 'Connect',
+    claimIds: ['local-extracts', 'incremental-reading'],
+  },
+  {
+    name: 'Remember',
+    claimIds: ['local-flashcards', 'srs-fsrs', 'image-occlusion', 'local-backups-export'],
+  },
+];
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <SoftwareApplicationJsonLd />
+  <article class="commercial">
+    <PageIntro slug="features" />
+    <div class="journey-groups">
+      {
+        groups.map((group) => (
+          <section class="claim-card" data-journey-group={group.name}>
+            <h2>{group.name}</h2>
+            <ul>
+              {group.claimIds.map((id) => (
+                <li>
+                  <ClaimText id={id} />
+                  <span class="claim-meta">{id}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
+  </article>
+</BaseLayout>

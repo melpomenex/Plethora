@@ -1,0 +1,60 @@
+---
+import { COPY } from '../../config/copy.ts';
+import { LEGAL, legalIsDraft } from '../../config/legal.ts';
+import { SITE_ROUTES } from '../../config/routes.ts';
+
+const draft = legalIsDraft(LEGAL);
+const legalLinks = SITE_ROUTES.filter((route) =>
+  ['/privacy', '/security', '/terms', '/refunds', '/support', '/contact', '/changelog'].includes(
+    route.path,
+  ),
+);
+const audienceLinks = SITE_ROUTES.filter((route) =>
+  [
+    '/students',
+    '/readers',
+    '/researchers',
+    '/spaced-repetition',
+    '/incremental-reading',
+    '/read-it-later',
+    '/anki',
+  ].includes(route.path),
+);
+---
+
+<footer class="site-footer" data-testid="site-footer">
+  <p>
+    <strong>{COPY.productName}</strong>
+    {' · '}
+    <span>{COPY.domain}</span>
+    {
+      draft && (
+        <span class="draft-badge" data-legal-draft="true">
+          Draft
+        </span>
+      )
+    }
+  </p>
+  <nav aria-label="Legal">
+    <ul class="site-nav">
+      {
+        legalLinks.map((route) => (
+          <li>
+            <a href={route.path}>{route.navLabel}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+  <nav aria-label="Audience">
+    <ul class="site-nav">
+      {
+        audienceLinks.map((route) => (
+          <li>
+            <a href={route.path}>{route.navLabel}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+</footer>

@@ -1,0 +1,11 @@
+---
+import { assertClaim } from '../../config/claims.ts';
+
+interface Props {
+  id: string;
+}
+
+const claim = assertClaim(Astro.props.id);
+---
+
+<span data-claim-id={claim.id}>{claim.statement}</span>

@@ -1,0 +1,232 @@
+{
+  "claims": [
+    {
+      "id": "local-reading-formats",
+      "statement": "Plethora reads PDF, EPUB, HTML, and Markdown on your device.",
+      "status": "shipping",
+      "evidencePaths": [
+        "docs/IMPLEMENTATION_STATUS.md",
+        "docs/product/features/reading/epub-reader.md",
+        "docs/product/features/reading/html-reader.md",
+        "docs/product/features/reading/markdown-reader.md"
+      ],
+      "allowedSurfaces": ["homepage", "features", "pricing", "audience", "demo"],
+      "public": true,
+      "platforms": ["windows", "macos", "linux", "android"]
+    },
+    {
+      "id": "incremental-reading",
+      "statement": "Incremental reading lets you work through a library in spaced extracts instead of one-pass binge reading.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/concepts/incremental-reading.md"],
+      "allowedSurfaces": ["homepage", "features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "srs-fsrs",
+      "statement": "Reviews can be scheduled with adaptive spaced repetition, including FSRS.",
+      "status": "shipping",
+      "evidencePaths": [
+        "docs/product/features/scheduling/fsrs-algorithm.md",
+        "docs/product/features/scheduling/adaptive-algorithm.md"
+      ],
+      "allowedSurfaces": ["homepage", "features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "image-occlusion",
+      "statement": "Image occlusion cards hide regions of a figure until you recall them.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/review/image-occlusion.md"],
+      "allowedSurfaces": ["features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "eink",
+      "statement": "An e-ink mode is available for compatible reading surfaces.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/platform/eink-mode.md"],
+      "allowedSurfaces": ["features", "pricing"],
+      "public": true
+    },
+    {
+      "id": "byo-ai",
+      "statement": "You can point explanations and generation at providers you choose, including local runtimes and your own keys.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/ai/ask-library-rag.md"],
+      "allowedSurfaces": ["features", "pricing", "trust"],
+      "public": true,
+      "notes": "Outputs depend on the provider the user configures. Do not claim a hosted Plethora model."
+    },
+    {
+      "id": "anki-apkg",
+      "statement": "Anki decks can be imported and exported as .apkg packages.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/imports/anki-apkg.md"],
+      "allowedSurfaces": ["features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "desktop-win-mac-linux",
+      "statement": "Desktop apps exist for Windows, macOS, and Linux.",
+      "status": "shipping",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md", "docs/product/features/platform/desktop-native.md"],
+      "allowedSurfaces": ["downloads", "features", "pricing"],
+      "public": true,
+      "platforms": ["windows", "macos", "linux"],
+      "notes": "macOS builds may still be self-signed until commercial notarization is complete. Store and installer URLs are not public yet."
+    },
+    {
+      "id": "local-extracts",
+      "statement": "Passages can be saved as extracts and returned to later.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/concepts/incremental-reading.md"],
+      "allowedSurfaces": ["homepage", "features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "local-flashcards",
+      "statement": "Flashcards, including cloze and Q&A, can be created and reviewed locally.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/review/flashcard-studio.md"],
+      "allowedSurfaces": ["homepage", "features", "pricing", "audience"],
+      "public": true
+    },
+    {
+      "id": "local-backups-export",
+      "statement": "Libraries can be backed up and exported locally, including .plethora archives.",
+      "status": "shipping",
+      "evidencePaths": ["docs/PRIVACY_ARCHITECTURE.md"],
+      "allowedSurfaces": ["features", "pricing", "trust"],
+      "public": true
+    },
+    {
+      "id": "dictionary-peek",
+      "statement": "A dictionary peek is available while reading.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/language/dictionary-peek.md"],
+      "allowedSurfaces": ["features", "pricing"],
+      "public": true
+    },
+    {
+      "id": "local-tts",
+      "statement": "System and local text-to-speech can read documents where the platform supports it.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/tts/playback-engines.md"],
+      "allowedSurfaces": ["features", "pricing"],
+      "public": true
+    },
+    {
+      "id": "saved-position",
+      "statement": "Reading position is restored when you return to a document.",
+      "status": "shipping",
+      "evidencePaths": ["docs/product/features/reading/position-restore.md"],
+      "allowedSurfaces": ["features", "pricing"],
+      "public": true
+    },
+    {
+      "id": "local-first-library",
+      "statement": "Your library lives on your device first; reading does not require a Plethora account.",
+      "status": "shipping",
+      "evidencePaths": ["docs/PRIVACY_ARCHITECTURE.md"],
+      "allowedSurfaces": ["features", "pricing", "trust", "audience"],
+      "public": true
+    },
+    {
+      "id": "cloud-sync-e2ee",
+      "statement": "Cross-device end-to-end encrypted Plethora sync",
+      "status": "blocked-external",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md", "openspec/planning/useplethora-commercial-website-program.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "Sync engine is not a shipping product. Do not market zero-knowledge multi-device sync."
+    },
+    {
+      "id": "cross-device-e2ee-sync",
+      "statement": "Cross-device Plethora E2EE sync",
+      "status": "blocked-external",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "Alias of cloud-sync-e2ee. Do not market as shipping."
+    },
+    {
+      "id": "pro-gating-current",
+      "statement": "The current app paywalls Pro capabilities at feature call sites",
+      "status": "mocked",
+      "evidencePaths": ["openspec/planning/useplethora-commercial-website-program.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "CapabilityGate is unused at reader/TTS/graph/transcription call sites."
+    },
+    {
+      "id": "anki-connect-live",
+      "statement": "Live AnkiConnect synchronization",
+      "status": "planned",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "Package import/export (.apkg) is separate. Do not claim live sync."
+    },
+    {
+      "id": "ankiconnect-live-sync",
+      "statement": "Live AnkiConnect sync",
+      "status": "planned",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "Alias of anki-connect-live."
+    },
+    {
+      "id": "ios-app-store",
+      "statement": "Plethora is available on the App Store",
+      "status": "blocked-external",
+      "evidencePaths": ["docs/IMPLEMENTATION_STATUS.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "platforms": ["ios"]
+    },
+    {
+      "id": "android-play",
+      "statement": "Plethora is available on Google Play",
+      "status": "blocked-external",
+      "evidencePaths": ["openspec/planning/useplethora-commercial-website-program.md"],
+      "allowedSurfaces": [],
+      "public": false,
+      "platforms": ["android"]
+    },
+    {
+      "id": "web-checkout",
+      "statement": "Web checkout for Plethora Pro",
+      "status": "blocked-external",
+      "evidencePaths": ["openspec/planning/useplethora-commercial-website-program.md"],
+      "allowedSurfaces": [],
+      "public": false
+    },
+    {
+      "id": "store-price-999",
+      "statement": "Plethora Pro costs $9.99 per month",
+      "status": "mocked",
+      "evidencePaths": ["src/lib/billing/"],
+      "allowedSurfaces": [],
+      "public": false,
+      "notes": "StoreKit fixture prices. Never display."
+    },
+    {
+      "id": "zero-knowledge",
+      "statement": "Plethora offers zero-knowledge multi-device encryption",
+      "status": "blocked-external",
+      "evidencePaths": ["docs/PRIVACY_ARCHITECTURE.md"],
+      "allowedSurfaces": [],
+      "public": false
+    },
+    {
+      "id": "fake-user-counts",
+      "statement": "Used by N readers",
+      "status": "mocked",
+      "evidencePaths": [],
+      "allowedSurfaces": [],
+      "public": false
+    }
+  ]
+}

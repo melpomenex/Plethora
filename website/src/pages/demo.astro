@@ -1,0 +1,30 @@
+---
+import DemoIsland from '../components/demo/DemoIsland.tsx';
+import { DEMO_STORY_STEPS, DEMO_REGION_NAME } from '../components/demo/story.ts';
+import { loadLaunchFlags } from '../config/launch.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const flags = loadLaunchFlags();
+---
+
+<BaseLayout>
+  <noscript>
+    <section aria-label={DEMO_REGION_NAME}>
+      <h1>Interactive product demo</h1>
+      <p>
+        Interactive prototype of Plethora’s flow; screenshots from the app appear
+        above as they are produced.
+      </p>
+      <ol>
+        {DEMO_STORY_STEPS.map((step) => <li>{step}</li>)}
+      </ol>
+    </section>
+  </noscript>
+  {
+    flags.demoEnabled ? (
+      <DemoIsland client:load search={Astro.url.search} />
+    ) : (
+      <p>The interactive demo is turned off.</p>
+    )
+  }
+</BaseLayout>

@@ -1,0 +1,138 @@
+---
+import PageIntro from '../components/commercial/PageIntro.astro';
+import SoftwareApplicationJsonLd from '../components/commercial/SoftwareApplicationJsonLd.astro';
+import { allDownloadControls, PLATFORM_LABELS } from '../config/downloads.ts';
+import { loadLaunchFlags } from '../config/launch.ts';
+import { PLATFORM_IDS, type PlatformId } from '../config/platforms.ts';
+import { DOWNLOADS } from '../config/downloads.ts';
+import { assertClaim } from '../config/claims.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('downloads');
+const flags = loadLaunchFlags();
+const desktop = assertClaim('desktop-win-mac-linux');
+const controls = allDownloadControls();
+
+function statusLabel(status: string) {
+  if (status === 'coming-soon') return 'Coming soon';
+  if (status === 'disabled') return 'Unavailable';
+  if (status === 'store') return 'Store';
+  return 'Download';
+}
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <SoftwareApplicationJsonLd />
+  <article class="commercial">
+    <PageIntro slug="downloads" />
+    <p class="lede">
+      {desktop.statement}
+      {desktop.notes ? ` ${desktop.notes}` : ''}
+    </p>
+    {
+      !flags.downloadsEnabled && (
+        <p class="packaging-note" data-downloads-gated>
+          Public download flags are off. Buttons stay visible so the page is not an empty trap.
+        </p>
+      )
+    }
+
+    <p>
+      <strong>Recommended for this device:</strong>
+      <span data-recommended-label>All downloads</span>
+    </p>
+
+    <div class="download-list">
+      {
+        controls.map((control) => {
+          const { availability, platform, label, liveHref } = control;
+          const enabled =
+            flags.downloadsEnabled &&
+            (availability.status === 'live' || availability.status === 'store') &&
+            liveHref;
+          const message =
+            availability.status === 'coming-soon' || availability.status === 'disabled'
+              ? availability.message
+              : statusLabel(availability.status);
+          const arch =
+            availability.status === 'live' ? availability.arch : undefined;
+          return (
+            <section class="download-card" id={`download-${platform}`} data-platform={platform} data-download-status={availability.status}>
+              <h2>{label}</h2>
+              {
+                enabled && liveHref ? (
+                  <a href={liveHref} data-download-link={platform}>
+                    {statusLabel(availability.status)}
+                  </a>
+                ) : (
+                  <a
+                    href="#"
+                    role="button"
+                    class="download-control"
+                    aria-disabled="true"
+                    data-download-disabled={platform}
+                    onclick="return false"
+                  >
+                    {statusLabel(availability.status)}
+                  </a>
+                )
+              }
+              <p id={`${platform}-message`}>{message}</p>
+              {
+                arch && arch.length > 0 && (
+                  <p class="claim-meta">Architectures: {arch.join(', ')}</p>
+                )
+              }
+              <h3>System requirements</h3>
+              <ul>
+                {DOWNLOADS.systemRequirements[platform].map((line) => (
+                  <li>{line}</li>
+                ))}
+              </ul>
+            </section>
+          );
+        })
+      }
+    </div>
+
+    <p id="downloads-all">
+      <strong>All downloads</strong>
+    </p>
+    <ul>
+      {PLATFORM_IDS.map((id: PlatformId) => (
+        <li>
+          <a href={`#download-${id}`}>{PLATFORM_LABELS[id]}</a>
+        </li>
+      ))}
+    </ul>
+  </article>
+</BaseLayout>
+
+<script>
+  const cards = document.querySelectorAll<HTMLElement>('[data-platform]');
+  const label = document.querySelector('[data-recommended-label]');
+
+  const detect = (): string | null => {
+    const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+    const haystack = `${uaData?.platform ?? ''} ${navigator.platform} ${navigator.userAgent}`.toLowerCase();
+    if (haystack.includes('android')) return 'android';
+    if (haystack.includes('iphone') || haystack.includes('ipad') || haystack.includes('ios')) return 'ios';
+    if (haystack.includes('mac')) return 'macos';
+    if (haystack.includes('win')) return 'windows';
+    if (haystack.includes('linux')) return 'linux';
+    return null;
+  };
+
+  const recommended = detect();
+  if (recommended && label) {
+    const card = document.querySelector(`[data-platform="${recommended}"]`);
+    const title = card?.querySelector('h2')?.textContent ?? recommended;
+    label.textContent = title;
+    card?.setAttribute('data-recommended', 'true');
+    cards.forEach((item) => {
+      if (item !== card) item.setAttribute('data-recommended', 'false');
+    });
+  }
+</script>

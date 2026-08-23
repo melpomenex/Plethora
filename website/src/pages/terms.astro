@@ -1,0 +1,30 @@
+---
+import DraftBanner from '../components/commercial/DraftBanner.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import { LEGAL } from '../config/legal.ts';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('terms');
+const draft = !LEGAL.termsFinal || LEGAL.legalEntityName === null;
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <article class="commercial legal-scaffold">
+    {draft && <DraftBanner />}
+    <PageIntro slug="terms" />
+    <h2>Parties</h2>
+    <p>
+      Legal entity: {LEGAL.legalEntityName ?? '{{LEGAL_ENTITY}} (not published)'}. Jurisdiction:
+      {LEGAL.jurisdiction ?? 'not published'}.
+    </p>
+    <h2>Software</h2>
+    <p>
+      Plethora is a local-first application. These terms are a draft scaffold and are not offered as
+      a contract.
+    </p>
+    <h2>Accounts and payment</h2>
+    <p>Web checkout is not live. This page does not describe a paid contract.</p>
+  </article>
+</BaseLayout>

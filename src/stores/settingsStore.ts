@@ -961,7 +961,7 @@ export const defaultSettings: Settings = {
   appearance: {
     theme: "system",
     fontSize: 14,
-    fontFamily: "Inter",
+    fontFamily: "system-ui",
   },
   interface: {
     showSidebar: true,

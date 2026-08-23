@@ -1,0 +1,13 @@
+---
+import { legalDraftMessage } from '../../lib/legal-copy.ts';
+
+interface Props {
+  message?: string;
+}
+
+const message = Astro.props.message ?? legalDraftMessage();
+---
+
+<aside class="draft-banner" data-legal-draft="true" role="status">
+  {message}
+</aside>

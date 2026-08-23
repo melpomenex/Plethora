@@ -1,0 +1,14 @@
+---
+const formats = ['Books', 'PDFs', 'Articles', 'Audio', 'Video', 'Notes'];
+---
+
+<section id="capture" class="home-section wrap" aria-labelledby="capture-heading">
+  <h2 id="capture-heading">One library. Whatever you read next.</h2>
+  <p data-claim-pending="true">
+    The walkthrough follows one essay on sleep and memory. Capture is where that essay lands
+    beside the rest of a working library, not in another single-purpose inbox.
+  </p>
+  <ul class="format-strip">
+    {formats.map((name) => <li>{name}</li>)}
+  </ul>
+</section>

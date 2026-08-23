@@ -1,0 +1,39 @@
+---
+import ClaimText from '../components/commercial/ClaimText.astro';
+import PageIntro from '../components/commercial/PageIntro.astro';
+import SoftwareApplicationJsonLd from '../components/commercial/SoftwareApplicationJsonLd.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { pageMeta } from '../lib/page-meta.ts';
+import '../styles/commercial.css';
+
+const meta = await pageMeta('how-it-works');
+
+const steps = [
+  { name: 'Capture', claimId: 'local-reading-formats' },
+  { name: 'Read', claimId: 'incremental-reading' },
+  { name: 'Understand', claimId: 'byo-ai' },
+  { name: 'Connect', claimId: 'local-extracts' },
+  { name: 'Remember', claimId: 'srs-fsrs' },
+];
+---
+
+<BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
+  <SoftwareApplicationJsonLd />
+  <article class="commercial">
+    <PageIntro slug="how-it-works" />
+    <ol class="journey-steps">
+      {
+        steps.map((step, index) => (
+          <li class="step-card" data-journey-step={step.name}>
+            <h2>
+              {index + 1}. {step.name}
+            </h2>
+            <p><ClaimText id={step.claimId} /></p>
+            <span class="claim-meta">{step.claimId}</span>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="lede">Flashcards sit on that same path: <ClaimText id="local-flashcards" /></p>
+  </article>
+</BaseLayout>

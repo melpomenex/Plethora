@@ -1,0 +1,31 @@
+---
+/**
+ * HomeDemoSlot — owned by change D (`build-useplethora-interactive-product-demo`).
+ * Mounts the lazy demo island. Homepage narrative around this slot is owned by B.
+ */
+import DemoIsland from '../demo/DemoIsland.tsx';
+import { DEMO_STORY_STEPS, DEMO_REGION_NAME } from '../demo/story.ts';
+import { loadLaunchFlags } from '../../config/launch.ts';
+
+const flags = loadLaunchFlags();
+---
+
+<section id="demo" class="home-demo-slot" data-home-demo-slot data-testid="home-demo-slot" data-owner="D">
+  <noscript>
+    <h2>{DEMO_REGION_NAME}</h2>
+    <p>
+      Interactive prototype of Plethora’s flow; screenshots from the app appear
+      above as they are produced.
+    </p>
+    <ol>
+      {DEMO_STORY_STEPS.map((step) => <li>{step}</li>)}
+    </ol>
+  </noscript>
+  {
+    flags.demoEnabled ? (
+      <DemoIsland client:visible />
+    ) : (
+      <p>The interactive demo is turned off.</p>
+    )
+  }
+</section>
