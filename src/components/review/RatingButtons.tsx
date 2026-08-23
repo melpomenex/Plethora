@@ -99,6 +99,7 @@ export function RatingButtons({
               <button
                 key={entry.grade}
                 data-review-rating={entry.grade}
+                data-showcase-action={entry.rating === 3 ? "grade-good" : undefined}
                 data-suggested={isSuggested ? "true" : undefined}
                 onClick={() => onSelectRating(entry.rating, entry.grade)}
                 disabled={disabled}
@@ -215,6 +216,7 @@ export function RatingButtons({
             <button
               key={rating.value}
               data-review-rating={rating.value}
+              data-showcase-action={rating.value === 3 ? "grade-good" : undefined}
               data-suggested={suggestedRating === rating.value ? "true" : undefined}
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}

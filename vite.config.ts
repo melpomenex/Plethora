@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wasm from "vite-plugin-wasm";
 import path from "path";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { scanForForbiddenStoreArtifacts } from "./src/lib/storeProfileGuard";
 import { parseBuildProfile } from "./src/lib/buildProfile";
 
@@ -17,6 +19,16 @@ const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "127.0.0.1");
 // read-only by src/lib/buildProfile.ts (Proposals B and D import from there).
 // @ts-expect-error process is a nodejs global
 const buildProfile = parseBuildProfile(process.env.PLETHORA_BUILD_PROFILE);
+const appVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version as string;
+let gitSha = process.env.VITE_GIT_SHA?.trim();
+if (!gitSha) {
+  try {
+    gitSha = execFileSync("git", ["rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    gitSha = "unknown";
+  }
+}
+const appBuildId = process.env.VITE_MARKETING_BUILD_ID?.trim() || `${appVersion}+${gitSha}`;
 
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }) => {
@@ -83,6 +95,9 @@ export default defineConfig(async ({ mode }) => {
     define: {
       __PWA_MODE__: JSON.stringify(isPWA),
       __PLETHORA_BUILD_PROFILE__: JSON.stringify(buildProfile),
+      __PLETHORA_APP_VERSION__: JSON.stringify(appVersion),
+      __PLETHORA_GIT_SHA__: JSON.stringify(gitSha),
+      __PLETHORA_BUILD_ID__: JSON.stringify(appBuildId),
     },
 
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

@@ -1,71 +1,117 @@
-# Capture screenshots (marketing)
+# Showcase-v2 browser capture protocol
 
-Production stills must come from the **real Plethora UI** plus the memory/sleep/learning demo library. Do not Photoshop fictional chrome. Do not draw controls the app does not have. Do not use `src-tauri/src/screenshot.rs`. Do not update `src/visual/__snapshots__`.
+Website product scenes must come from the real Plethora UI and the compiled,
+licensed `marketing-fixture-v2`. Do not draw missing controls, mutate stores
+after mount, reuse personal databases, or update app visual-test snapshots.
 
-## Prerequisites
+## Pinned launch contract
 
-```bash
-MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs
-```
+- Theme: `plethora-purple`, light color scheme.
+- Build ID: `<package-version>+<12-character-git-sha>`.
+- Locale/timezone: `en-US`, UTC.
+- Fixture: version `2.0.0` with its generated SHA-256 and fixed logical time.
+- Layouts: desktop `1440×900` at DPR 1 and mobile `390×844` at DPR 1.
+- Required path: `library.ready`, `reader.open`, `reader.selected`,
+  `remember.preview`, `review.question`, `review.answer`, `review.scheduled`,
+  `connections.context`.
+- `explain.grounded`: catalogued but optional until the real explanation UI has
+  deterministic pre-authored result injection. A mock is not an acceptable
+  substitute.
 
-Record:
+The canonical values live in `marketing/screenshots/capture-policy.json`, and
+the compiled graph lives in `marketing/generated/showcase-scenes-v2.json`.
 
-| Field | How |
-|---|---|
-| `MARKETING_BUILD_ID` | App version + git SHA of the RC (example `2.7.0-abcdef1`) |
-| Theme | Built-in light / dark, plus e-ink (`plethora-display-mode=eink`) |
-| F-31 | Note whether chrome is still green (`#6daa2c`) vs purple brand |
-
-## Viewports
-
-| Surface | Platform | Size |
-|---|---|---|
-| Phone library / reader / explain / card / review | iPhone CSS | 390×844 |
-| iOS frame | iPhone 14 Pro CSS | 430×932 |
-| Android frame | mid Android CSS | 412×915 |
-| Desktop collage | desktop | 1440×900 |
-| E-ink reader | phone CSS | 390×844 |
-| Store sizes | device/RC | 6.9" / 6.5" / iPad 13" — **human**, not this Playwright config |
-
-Themes: `light`, `dark`, `eink`. File name:
-
-`{surface}_{platform}_{viewport}_{theme}_{buildId}.png`
-
-## Automated (Playwright)
-
-If a **web** demo host is running with the seeded library:
+## Regenerate fixture and scenes
 
 ```bash
-MARKETING_CAPTURE_URL=http://127.0.0.1:5199 \
-MARKETING_SEED=1 \
-MARKETING_BUILD_ID=2.7.0-sha \
-node scripts/marketing/capture-screenshots.mjs
+npm run marketing:fixture
+npm run marketing:scenes
+npm run test:scripts
 ```
 
-Query params (DEV only, no default-user behavior): `marketing-capture=<surface>&marketing-seed=1`.
+Commit or review compiler output before capture. The fixture hash in both
+generated files must match. Scene actions must use stable selectors rendered by
+real product controls; hotspot rectangles are measured from those controls.
 
-This environment often **cannot drive Tauri**. When capture fails, the script writes **labeled placeholders** (the word PLACEHOLDER, not fake UI).
+## Start the explicit capture host
 
-Then encode:
+Development builds enable the capture adapter. A production build enables it
+only with `VITE_MARKETING_CAPTURE_ENABLED=1`; a URL query alone never activates
+fixture import.
 
 ```bash
-node scripts/marketing/encode-product-images.mjs
+npm run dev:pwa -- --host 127.0.0.1
 ```
 
-## Human / device steps (remaining)
+The adapter deletes and recreates only the validated
+`plethora-marketing-capture-v2-<fixture-hash-prefix>` IndexedDB namespace. It
+commits the fixture before `MainLayout` mounts and verifies persisted documents,
+extracts, learning items, files, queue records, sizes, and file hashes.
 
-1. Launch the RC **desktop** app with `MARKETING_SEED=1` already applied to `demo/books`.
-2. Capture library, reader+extract, explain, card, review at 1440×900 (macOS chrome as actually shown — do not fake Windows).
-3. Repeat light and dark.
-4. Capture e-ink if available; otherwise leave `screenshot-eink` as a labeled placeholder (`required: false`).
-5. On iPhone 14-class and a mid Android device, capture the same five surfaces at native resolution for store listings.
-6. Drop PNGs into `marketing/screenshots/source/`, update `buildId`, re-run encode.
-7. Confirm `marketing/asset-manifest.json` `placeholder: false` for required ids and `blockers` is empty before `PUBLIC_INDEXING=index`.
-
-## Reset seed
+## Capture the atomic source set
 
 ```bash
-MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs --reset --reset-only
+MARKETING_CAPTURE_URL=http://127.0.0.1:5173 npm run marketing:capture
 ```
 
-Normal app installs never set `MARKETING_SEED`, so `demo/books` stays empty in git.
+For each required scene/layout, the runner verifies:
+
+- requested fixture, scene, layout, theme, locale, app build, and persisted
+  fixture hash;
+- expected text sentinels and stable real controls;
+- no skeletons, loaders, error UI, placeholder labels, or unexpected titles;
+- fonts and visible images decoded, stable animation frames, and no page error;
+- requests remain on the capture origin; and
+- normalized hotspots match one visible product control each.
+
+The runner uses a staging directory and publishes it under
+`marketing/screenshots/source/showcase-v2/<build-and-time>/` only after all 16
+captures pass. A failed run writes no usable partial capture directory.
+
+## Manual source review
+
+Open all 16 PNGs and compare them with the named scene checklist. Confirm the
+real app chrome, fictional licensed titles/content, expected action controls,
+selection/review/schedule state, desktop/mobile legibility, no account or
+personal data, and no loading/empty UI. Review `showcase-capture-v2.json` for
+matching source hashes and provenance. Classify rejected runs in
+`marketing/screenshots/quarantine.json`; do not delete unrelated device work.
+
+## Encode without overwriting
+
+```bash
+MARKETING_CAPTURE_SET=marketing/screenshots/source/showcase-v2/<approved-run> npm run marketing:encode
+```
+
+The encoder rechecks all sources, then writes AVIF/WebP/PNG derivatives and
+`asset-manifest-v2.json` to a new fixture/build-versioned directory under
+`website/public/images/showcase/v2/`. It refuses to overwrite an existing set.
+
+Update `website/src/config/showcase-v2-active.json` only after review. Then run:
+
+```bash
+cd website
+npm test
+npm run check
+PUBLIC_SHOWCASE_V2_ENABLED=true npm run build
+PUBLIC_SHOWCASE_V2_ENABLED=true npm run check:assets
+PUBLIC_SHOWCASE_V2_ENABLED=true npm run check:dist
+npm run test:e2e
+```
+
+`check:assets` validates active approval, provenance, complete layout coverage,
+path containment, descriptions, dimensions, per-file hashes, and byte budgets.
+
+## Rollback and native/store captures
+
+Set `PUBLIC_SHOWCASE_V2_ENABLED=false` for the server-rendered Reading Desk
+poster and ordered narrative. Asset rollback means pointing the active policy
+to a previously reviewed immutable manifest and rebuilding; never edit a
+versioned derivative directory in place.
+
+Store screenshots require an installed native release candidate and the
+disposable simulator/device procedure in
+`marketing/screenshots/native-capture-protocol.md`. Native simulator/device
+assets have distinct source types and manifests. They must never enter the
+website CSS-viewport asset directory, and browser captures must never be
+submitted as store screenshots.

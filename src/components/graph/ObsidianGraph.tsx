@@ -498,7 +498,46 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   const frameCountRef = useRef(0);
   const animatingTransformRef = useRef(false);
   const targetTransformRef = useRef<{ x: number; y: number; k: number } | null>(null);
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+  const transformAnimationFrameRef = useRef<number | null>(null);
   const _searchFitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const animateToTransform = useCallback((target: { x: number; y: number; k: number }) => {
+    if (transformAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(transformAnimationFrameRef.current);
+    }
+    const start = { ...transformRef.current };
+    const startedAt = performance.now();
+    animatingTransformRef.current = true;
+    targetTransformRef.current = target;
+
+    const animate = (time: number) => {
+      const progress = Math.min(1, (time - startedAt) / 300);
+      const eased = easeOutCubic(progress);
+      const next = {
+        x: start.x + (target.x - start.x) * eased,
+        y: start.y + (target.y - start.y) * eased,
+        k: start.k + (target.k - start.k) * eased,
+      };
+      transformRef.current = next;
+      setTransform(next);
+      if (progress < 1) {
+        transformAnimationFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        transformAnimationFrameRef.current = null;
+        animatingTransformRef.current = false;
+        targetTransformRef.current = null;
+      }
+    };
+    transformAnimationFrameRef.current = requestAnimationFrame(animate);
+  }, []);
+
+  useEffect(() => () => {
+    if (transformAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(transformAnimationFrameRef.current);
+    }
+  }, []);
 
   const clusterIndex = useMemo(() => buildClusterIndex(data.edges, data.nodes), [data.edges, data.nodes]);
 
@@ -654,9 +693,8 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     const newX = (canvas.width - (maxX + minX) * newK) / 2;
     const newY = (canvas.height - (maxY + minY) * newK) / 2;
 
-    targetTransformRef.current = { x: newX, y: newY, k: newK };
-    animatingTransformRef.current = true;
-  }, [simulationNodes]);
+    animateToTransform({ x: newX, y: newY, k: newK });
+  }, [animateToTransform, simulationNodes]);
 
   // Sync linkDistance from prop
   useEffect(() => {
@@ -741,9 +779,9 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
 
     // Re-enable physics when switching back to force layout
     return () => {
-      setPhysicsEnabled(true);
+      setPhysicsEnabled(enablePhysics);
     };
-  }, [layoutProp, simulationNodes]);
+  }, [enablePhysics, layoutProp, simulationNodes]);
 
   // Expose fitToView for parent via imperative handle
   useImperativeHandle(ref, () => ({ fitToView }), [fitToView]);
@@ -1095,41 +1133,6 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     mctx.fillRect(vx, vy, vw, vh);
   }, [simulationNodes, transform, theme, visibleSet]);
 
-  // ── Animated transform (for search fit) ────────────────────────
-
-  useEffect(() => {
-    if (!animatingTransformRef.current || !targetTransformRef.current) return;
-
-    const target = targetTransformRef.current;
-    const start = { ...transform };
-    const duration = 300;
-    let startTime: number | null = null;
-
-    let animId: number;
-    const animate = (time: number) => {
-      if (startTime === null) startTime = time;
-      const elapsed = time - startTime;
-      const t = Math.min(1, elapsed / duration);
-      const e = easeOutCubic(t);
-
-      setTransform({
-        x: start.x + (target.x - start.x) * e,
-        y: start.y + (target.y - start.y) * e,
-        k: start.k + (target.k - start.k) * e,
-      });
-
-      if (t < 1) {
-        animId = requestAnimationFrame(animate);
-      } else {
-        animatingTransformRef.current = false;
-        targetTransformRef.current = null;
-      }
-    };
-
-    animId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animId);
-  }, [transform]); // Re-run when transform updates during animation
-
   // Animation/Render loop (demand-driven)
   useEffect(() => {
     let animationId: number;
@@ -1153,8 +1156,8 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
 
   // Wake up physics simulation when clusters are expanded/collapsed or data changes
   useEffect(() => {
-    setPhysicsEnabled(true);
-  }, [expandedClusters, data]);
+    setPhysicsEnabled(enablePhysics);
+  }, [enablePhysics, expandedClusters, data]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1323,9 +1326,8 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     const newX = cw / 2 - graphX * newK;
     const newY = ch / 2 - graphY * newK;
 
-    targetTransformRef.current = { x: newX, y: newY, k: newK };
-    animatingTransformRef.current = true;
-  }, [simulationNodes, transform]);
+    animateToTransform({ x: newX, y: newY, k: newK });
+  }, [animateToTransform, simulationNodes, transform.k]);
 
   // Reset view
   const resetView = useCallback(() => {

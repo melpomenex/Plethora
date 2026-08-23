@@ -48,6 +48,7 @@ import {
 export const RECALL_TICK_MS = 30_000;
 
 const DISMISSAL_STORAGE_KEY = "plethora-recall-dismissed-until";
+const systemNow = () => new Date();
 
 export interface ActiveRecallPrompt {
   promptId: string;
@@ -150,7 +151,10 @@ export function useRecallPrompts(
     setOutcome = setRecallPromptOutcome,
     retrieveChunks = defaultRetrieveChunks,
     readDocumentText = defaultReadDocumentText,
-    now = () => new Date(),
+    // Keep the default clock referentially stable. An inline default function
+    // changes identity on every hook invocation, which re-runs the
+    // document-reset effect below and can create an infinite render loop.
+    now = systemNow,
     tickMs = RECALL_TICK_MS,
   } = deps;
 

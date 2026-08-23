@@ -11,7 +11,7 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // defeat the lazy import("../themes/builtin") below — Rollup merges a module
 // that is both statically and dynamically imported into the static importer's
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
-import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme } from "../themes/fallback";
+import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme } from "../themes/fallback";
 import { makeOpaque } from "../themes/color";
 import { resolveModeAccent } from "../themes/modeAccent";
 import { loadGoogleFont } from "../utils/fonts";
@@ -252,12 +252,13 @@ function saveLastThemeId(themeId: ThemeId): void {
 }
 
 export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
+  const captureThemeActive = document.documentElement.dataset.marketingTheme === plethoraLaunchTheme.id;
   // Start with just the default fallback themes eagerly available. The full
   // built-in catalog is lazy-loaded below (loadBuiltinCatalog) so the large
   // themes/builtin module ships in its own chunk instead of the initial bundle.
   const [themes, setThemes] = useState<Theme[]>(() => {
     const customThemes = loadCustomThemes();
-    const initialBuiltins = [biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme];
+    const initialBuiltins = [biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme];
     // De-duplicate in case a custom theme shadows a fallback id.
     const seen = new Set(initialBuiltins.map((t) => t.id));
     const merged = [...initialBuiltins, ...customThemes.filter((t) => !seen.has(t.id))];
@@ -265,7 +266,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   });
 
   const [currentThemeId, setCurrentThemeId] = useState<ThemeId>(() => {
-    return defaultTheme || loadLastThemeId();
+    return captureThemeActive ? plethoraLaunchTheme.id : (defaultTheme || loadLastThemeId());
   });
 
   // A theme that is being live-previewed (applied to the DOM but not yet
@@ -278,7 +279,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
   // populated with the full set once the catalog loads.
   const builtinThemeIdsRef = useRef<Set<string>>(
-    new Set([biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id])
+    new Set([biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id, plethoraLaunchTheme.id])
   );
 
   const currentTheme = themes.find((t) => t.id === currentThemeId) || themes[0];
@@ -319,7 +320,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     applyThemeToDOM(appliedTheme, savedFontFamily);
     if (savedFontFamily) loadGoogleFont(savedFontFamily);
     // Never persist a previewed theme as "last selected".
-    if (previewThemeId === null) saveLastThemeId(currentThemeId);
+    if (previewThemeId === null && !captureThemeActive) saveLastThemeId(currentThemeId);
 
     // Apply native platform vibrancy if supported
     invokeCommand<boolean>("apply_theme_vibrancy", { themeId: appliedTheme.id, colors: appliedTheme.colors })
@@ -335,7 +336,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
         console.error("Failed to apply vibrancy:", err);
         document.documentElement.removeAttribute("data-vibrancy-active");
       });
-  }, [appliedTheme, previewThemeId, currentThemeId]);
+  }, [appliedTheme, previewThemeId, currentThemeId, captureThemeActive]);
 
   const setTheme = (themeId: ThemeId) => {
     const theme = themes.find((t) => t.id === themeId);

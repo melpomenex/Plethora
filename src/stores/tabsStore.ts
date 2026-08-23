@@ -5,6 +5,7 @@ import { generateId } from "../utils/id";
 import { useUIStore } from "./uiStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
+import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
 
 export type TabType =
   | "continue-reading"
@@ -205,6 +206,11 @@ export interface TabsState {
 }
 
 const STORAGE_KEY = "plethora-tabs";
+
+function tabsStorageKey(): string {
+  const captureNamespace = (globalThis as typeof globalThis & { __PLETHORA_CAPTURE_DATABASE__?: unknown }).__PLETHORA_CAPTURE_DATABASE__;
+  return isMarketingCaptureNamespace(captureNamespace) ? `${captureNamespace}:tabs` : STORAGE_KEY;
+}
 const TAB_SAVE_DEBOUNCE_MS = 180;
 
 /** Shared empty set, so a workspace that never evicts keeps one identity. */
@@ -1628,7 +1634,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         uiState,
       };
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(tabsStorageKey(), JSON.stringify(data));
     } catch (error) {
       console.error("Failed to save tabs:", error);
     }
@@ -1639,7 +1645,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       // Gate on the restoreSession setting
       if (!useSettingsStore.getState().settings.general.restoreSession) return false;
 
-      const stored = migratedGetItem(STORAGE_KEY);
+      const stored = migratedGetItem(tabsStorageKey());
       if (!stored) return false;
 
       const data = JSON.parse(stored);

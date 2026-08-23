@@ -24,6 +24,7 @@ import { getUser } from "../lib/sync-client";
 import { resolveFsrsParamsForScope } from "../utils/fsrsScope";
 import { filterByDecks } from "../utils/studyDecks";
 import { featureFlags } from "../lib/featureFlags";
+import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -35,7 +36,9 @@ const getReviewSessionKey = () => {
   const user = getUser();
   const collectionId = useCollectionStore.getState().activeCollectionId ?? "default";
   const userKey = user?.id ?? "demo";
-  return `review-session:${userKey}:${collectionId}`;
+  const captureNamespace = (globalThis as typeof globalThis & { __PLETHORA_CAPTURE_DATABASE__?: unknown }).__PLETHORA_CAPTURE_DATABASE__;
+  const prefix = isMarketingCaptureNamespace(captureNamespace) ? `${captureNamespace}:` : "";
+  return `${prefix}review-session:${userKey}:${collectionId}`;
 };
 
 const loadStoredSession = (): StoredReviewSession | null => {
@@ -89,6 +92,13 @@ export interface PendingArenaReview {
   error?: string;
 }
 
+export interface LastReviewOutcome {
+  itemId: string;
+  rating: ReviewRating;
+  intervalDays: number;
+  dueDate: string;
+}
+
 interface ReviewState {
   // Data
   queue: ReviewSessionItem[];
@@ -98,6 +108,7 @@ interface ReviewState {
   reviewPhase: ReviewPhase;
   pendingArenaReview: PendingArenaReview | null;
   arenaPreviewError: string | null;
+  lastReviewOutcome: LastReviewOutcome | null;
 
   // UI State
   isLoading: boolean;
@@ -232,6 +243,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   reviewPhase: "question",
   pendingArenaReview: null,
   arenaPreviewError: null,
+  lastReviewOutcome: null,
   isLoading: false,
   isAnswerShown: false,
   isSubmitting: false,
@@ -306,6 +318,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         reviewPhase: "question",
         pendingArenaReview: null,
         arenaPreviewError: null,
+        lastReviewOutcome: null,
         canUndoLastReview: false,
         lastUndoError: null,
       });
@@ -448,6 +461,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     });
 
     try {
+      let updatedLearningItem: LearningItem | null = null;
       if (reviewMode === "normal") {
         const studyDeckState = useStudyDeckStore.getState();
         const activeDeckId = studyDeckState.activeDeckIds[0] ?? null;
@@ -484,7 +498,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
             };
           }
         }
-        await submitReview(currentCard.id, rating, timeTaken, state.sessionId, {
+        updatedLearningItem = await submitReview(currentCard.id, rating, timeTaken, state.sessionId, {
           desiredRetention: fsrsParams.desiredRetention,
           fsrsWeights: fsrsParams.personalizedWeights,
           algorithm: settings.learning.algorithm,
@@ -531,6 +545,12 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         arenaPreviewError: null,
         canUndoLastReview: true,
         lastUndoError: null,
+        lastReviewOutcome: {
+          itemId: currentCard.id,
+          rating,
+          intervalDays: updatedLearningItem?.interval ?? learningCard.interval,
+          dueDate: updatedLearningItem?.due_date ?? learningCard.due_date,
+        },
         reviewEventLog: [
           ...latest.reviewEventLog,
           {
@@ -744,6 +764,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       reviewPhase: "question",
       pendingArenaReview: null,
       sessionStartTime: Date.now(),
+      lastReviewOutcome: null,
     });
 
     setTimeout(() => {
@@ -824,6 +845,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       lastUndoError: null,
       pendingReviewMetadata: null,
       reviewEventLog: [],
+      lastReviewOutcome: null,
       reviewTabMode: "home",
     });
     clearStoredSession();
@@ -888,6 +910,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         reviewPhase: "question",
         pendingArenaReview: null,
         arenaPreviewError: null,
+        lastReviewOutcome: null,
         canUndoLastReview: false,
         lastUndoError: null,
         pendingReviewMetadata: null,
@@ -1003,6 +1026,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         sessionStartTime: snapshot.sessionStartTime,
         canUndoLastReview: false,
         lastUndoError: null,
+        lastReviewOutcome: null,
       });
 
       saveStoredSession({

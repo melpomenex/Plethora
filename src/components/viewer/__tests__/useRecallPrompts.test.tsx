@@ -76,6 +76,17 @@ async function tick() {
 }
 
 describe("useRecallPrompts controller", () => {
+  it("keeps the default clock stable across renders", () => {
+    const d = deps();
+    delete d.now;
+    const { result, rerender } = renderHook(() =>
+      useRecallPrompts(options({ enabled: false }), d)
+    );
+
+    rerender();
+    expect(result.current.phase).toBe("idle");
+  });
+
   it("never starts the loop when the mode is off (kill switch)", async () => {
     const d = deps();
     renderHook(() => useRecallPrompts(options({ mode: "off" }), d));

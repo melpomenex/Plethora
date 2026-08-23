@@ -89,6 +89,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     streak,
     previewIntervals,
     pendingArenaReview,
+    lastReviewOutcome,
     getEstimatedTimeRemaining,
     loadQueue,
     showAnswer,
@@ -115,6 +116,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       streak: state.streak,
       previewIntervals: state.previewIntervals,
       pendingArenaReview: state.pendingArenaReview,
+      lastReviewOutcome: state.lastReviewOutcome,
       getEstimatedTimeRemaining: state.getEstimatedTimeRemaining,
       loadQueue: state.loadQueue,
       showAnswer: state.showAnswer,
@@ -725,7 +727,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     );
   }
 
-  if (queue.length === 0) {
+  if (queue.length === 0 && reviewsCompleted === 0) {
     return (
       <div ref={containerRef} className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -764,6 +766,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           correctCount={correctCount}
           sessionStartTime={sessionStartTime}
           streak={streak || undefined}
+          lastReviewOutcome={lastReviewOutcome}
         />
         <button
           onClick={requestExit}

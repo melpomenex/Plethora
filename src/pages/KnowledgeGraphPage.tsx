@@ -38,16 +38,32 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
+import type { MarketingSceneApplication } from "../lib/marketingCapture/sceneApplicators";
 
 type ViewMode = "graph" | "universe";
 
-export function KnowledgeGraphPage() {
+export interface KnowledgeGraphPageProps {
+  captureConnection?: MarketingSceneApplication["connectionContext"];
+}
+
+function deterministicCoordinate(id: string, axis: "x" | "y", span: number, offset: number): number {
+  let hash = axis === "x" ? 2_166_136_261 : 3_747_613_931;
+  for (const character of id) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return offset + ((hash >>> 0) / 0xffff_ffff) * span;
+}
+
+export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProps = {}) {
   const { t } = useI18n();
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(
+    captureConnection ? `extract-${captureConnection.fromId}` : null,
+  );
   const [viewMode, setViewMode] = useState<ViewMode>("graph");
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(!captureConnection);
   const [searchQuery, setSearchQuery] = useState("");
   const graphRef = useRef<ObsidianGraphHandle>(null);
   const searchFitTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,15 +89,16 @@ export function KnowledgeGraphPage() {
     setIsLoading(true);
 
     try {
-      const documents = await invokeCommand<any[]>("get_documents", { collectionId: activeCollectionId ?? null });
+      const collectionId = captureConnection ? null : activeCollectionId;
+      const documents = await invokeCommand<any[]>("get_documents", { collectionId: collectionId ?? null });
       const extracts = await invokeCommand<any[]>("get_extracts", { documentId: null });
       const learningItems = await invokeCommand<any[]>("get_all_learning_items");
 
       const inActiveCollection = (documentId?: string | null) => {
-        if (!activeCollectionId) return true;
+        if (!collectionId) return true;
         if (!documentId) return true;
         const doc = documents.find((d: any) => d.id === documentId);
-        return doc ? doc.collectionId === activeCollectionId : true;
+        return doc ? doc.collectionId === collectionId : true;
       };
 
       const nodes: GraphNode[] = [];
@@ -94,8 +111,8 @@ export function KnowledgeGraphPage() {
           type: GraphNodeType.Document,
           label: doc.title || "Untitled Document",
           description: doc.description || `${doc.fileType?.toUpperCase() || "Unknown"} document`,
-          x: Math.random() * 800 + 100,
-          y: Math.random() * 600 + 100,
+          x: deterministicCoordinate(`doc-${doc.id}`, "x", 800, 100),
+          y: deterministicCoordinate(`doc-${doc.id}`, "y", 600, 100),
           radius: 24,
           category: doc.category,
           tags: doc.tags,
@@ -112,8 +129,8 @@ export function KnowledgeGraphPage() {
           type: GraphNodeType.Extract,
           label: content.length > 40 ? content.substring(0, 37) + "..." : content,
           description: content,
-          x: Math.random() * 800 + 100,
-          y: Math.random() * 600 + 100,
+          x: deterministicCoordinate(`extract-${extract.id}`, "x", 800, 100),
+          y: deterministicCoordinate(`extract-${extract.id}`, "y", 600, 100),
           radius: 16,
           metadata: { documentId: extract.documentId, position: extract.position },
           color: "#22c55e",
@@ -135,8 +152,8 @@ export function KnowledgeGraphPage() {
           type: GraphNodeType.Flashcard,
           label: question.length > 30 ? question.substring(0, 27) + "..." : question || "Flashcard",
           description: question,
-          x: Math.random() * 800 + 100,
-          y: Math.random() * 600 + 100,
+          x: deterministicCoordinate(`card-${item.id}`, "x", 800, 100),
+          y: deterministicCoordinate(`card-${item.id}`, "y", 600, 100),
           radius: 12,
           metadata: { documentId: item.documentId, extractId: item.extractId, interval: item.interval },
           color: "#a855f7",
@@ -159,6 +176,26 @@ export function KnowledgeGraphPage() {
         }
       });
 
+      if (captureConnection) {
+        const source = `extract-${captureConnection.fromId}`;
+        const target = `extract-${captureConnection.toId}`;
+        const sourceNode = nodes.find((node) => node.id === source);
+        const targetNode = nodes.find((node) => node.id === target);
+        if (!sourceNode || !targetNode) {
+          throw new Error(`Capture connection ${captureConnection.connectionId} does not resolve to graph nodes`);
+        }
+        // Keep the selected idea and its related extract legible in the graph
+        // area that remains visible beside the real detail panel.
+        Object.assign(sourceNode, { x: 700, y: 300 });
+        Object.assign(targetNode, { x: 500, y: 470 });
+        edges.push({
+          id: `connection-${captureConnection.connectionId}`,
+          source,
+          target,
+          type: "related",
+        });
+      }
+
       setGraphData({ nodes, edges });
       
       // Smart default: if dataset is large (>500 nodes), exclude Flashcards by default to prevent a "hairball"
@@ -175,7 +212,7 @@ export function KnowledgeGraphPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeCollectionId]);
+  }, [activeCollectionId, captureConnection]);
 
   useEffect(() => {
     loadGraphData();
@@ -185,6 +222,24 @@ export function KnowledgeGraphPage() {
   const filteredData = useMemo(() => {
     return applyGraphFilters(graphData.nodes, graphData.edges, filters);
   }, [graphData, filters]);
+
+  useEffect(() => {
+    if (!captureConnection || filteredData.nodes.length === 0) return;
+    let readyTimer = 0;
+    const fitTimer = window.setTimeout(() => {
+      graphRef.current?.fitToView();
+      // ObsidianGraph deliberately eases viewport changes. Hold the capture
+      // handshake until that real transition has settled on the circular
+      // layout, otherwise a screenshot can catch the nodes at the origin.
+      readyTimer = window.setTimeout(() => {
+        document.body.dataset.marketingConnectionsReady = "1";
+      }, 900);
+    }, 100);
+    return () => {
+      window.clearTimeout(fitTimer);
+      window.clearTimeout(readyTimer);
+    };
+  }, [captureConnection, filteredData.nodes]);
 
   // Search-with-zoom: auto-fit viewport when search results change
   useEffect(() => {
@@ -620,7 +675,7 @@ export function KnowledgeGraphPage() {
               onNodeDoubleClick={handleNodeDoubleClick}
               onNodeContextMenu={handleNodeContextMenu}
               selectedNode={selectedNode || undefined}
-              enablePhysics={true}
+              enablePhysics={!captureConnection}
               showLabels={true}
               layout={layout}
               linkDistance={graphLinkDistance}
@@ -673,6 +728,7 @@ export function KnowledgeGraphPage() {
           onEdit={handleNodeEditFallback}
           onSaveDetails={handleSaveNodeDetails}
           onDelete={handleNodeDelete}
+          initialExpandedGroups={captureConnection ? ["related"] : undefined}
         />
       )}
 

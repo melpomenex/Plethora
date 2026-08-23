@@ -510,6 +510,7 @@ export function LearnThisProposalSheet({
                 </button>
               )}
               <button
+                data-showcase-action="save-card"
                 className="flex-1 rounded-lg bg-primary px-3 py-2 text-[14px] text-primary-foreground disabled:opacity-50"
                 disabled={acceptedRows.length === 0}
                 onClick={accept}

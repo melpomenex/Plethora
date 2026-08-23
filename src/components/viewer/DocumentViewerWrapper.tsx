@@ -30,6 +30,7 @@ import { LanguageTutorHost } from "../language/LanguageTutorHost";
 import { LanguagePracticeOverlay } from "../language/LanguagePracticeOverlay";
 import { LanguageReadingAssistOverlay } from "../language/LanguageReadingAssistOverlay";
 import type { SourceAnchor } from "../../types/languageLexicon";
+import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 
@@ -48,6 +49,9 @@ interface DocumentViewerWithAssistantProps {
   hideRatingOrbs?: boolean;
   /** Render the document in the Audio Edition player (AudiobooksTab Listen). */
   listenToEdition?: boolean;
+  /** Deterministic real-reader state used only by the explicit marketing capture host. */
+  captureReader?: MarketingSceneApplication["reader"];
+  captureCardPreview?: MarketingSceneApplication["cardPreview"];
 }
 
 export function DocumentViewer({
@@ -61,6 +65,8 @@ export function DocumentViewer({
   openedFrom,
   hideRatingOrbs,
   listenToEdition,
+  captureReader,
+  captureCardPreview,
 }: DocumentViewerWithAssistantProps) {
   const isActiveTab = useIsActiveTab();
 
@@ -495,6 +501,8 @@ export function DocumentViewer({
         onMediaSectionsChange={handleMediaSectionsChange}
         openedFrom={openedFrom}
         hideRatingOrbs={hideRatingOrbs}
+        captureReader={captureReader}
+        captureCardPreview={captureCardPreview}
         />
         <LanguageReaderHostPanel
           documentId={documentId}
