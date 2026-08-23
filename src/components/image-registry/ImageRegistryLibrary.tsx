@@ -2,17 +2,21 @@ import {
   ArrowsVertical,
   CalendarBlank,
   Camera,
+  CaretDown,
   Check,
   ClipboardText,
+  DotsThree,
   FrameCorners,
   Images,
   Lightning,
   Link,
   MagnifyingGlass,
   PencilSimple,
+  Plus,
   Sparkle,
   Trash,
   X,
+  type Icon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { describeImage, generateImageCards } from "../../lib/ai/imageAI";
@@ -66,6 +70,7 @@ export function ImageRegistryLibrary({
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const toolbarMenuRef = useRef<HTMLDivElement>(null);
 
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
@@ -77,6 +82,27 @@ export function ImageRegistryLibrary({
   const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+  const [openToolbarMenu, setOpenToolbarMenu] = useState<"add" | "actions" | null>(null);
+
+  useEffect(() => {
+    if (!openToolbarMenu) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!toolbarMenuRef.current?.contains(event.target as Node)) {
+        setOpenToolbarMenu(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenToolbarMenu(null);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openToolbarMenu]);
 
   const assetTags = useCallback((asset: { metadata?: Record<string, unknown> }): string[] => {
     const tags = asset.metadata?.tags;
@@ -271,7 +297,6 @@ export function ImageRegistryLibrary({
     const baseNameEnd = lastDot > 0 ? lastDot : renameValue.length;
     input.setSelectionRange(0, baseNameEnd);
     // Only run when entering edit mode, not on every renameValue keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renamingAssetId]);
 
   const commitRenameAsset = useCallback(async (assetId: string, currentName: string) => {
@@ -420,6 +445,23 @@ export function ImageRegistryLibrary({
     }
   };
 
+  const handleDescribePreview = async () => {
+    if (!previewAsset || isBusy) return;
+    setIsBusy(true);
+    try {
+      const parts = previewAsset.data_url.split(",");
+      const mimeMatch = /data:(image\/\w+);base64/.exec(parts[0]);
+      const mimeType = (mimeMatch?.[1] as "image/jpeg" | "image/png" | "image/webp") || "image/png";
+      const dataBase64 = parts[1] || "";
+      const res = await describeImage({ mimeType, dataBase64 });
+      toast.info(res.suggestedTitle || "Image Analysis", res.description);
+    } catch (error) {
+      toast.error("AI Analysis Failed", error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   // Drag-and-drop ingest: image files go through the canonical
   // ingestImageFile pipeline (with its type/size validation) and land
   // selected; non-image drops are ignored quietly — no error pages.
@@ -459,28 +501,23 @@ export function ImageRegistryLibrary({
       }}
       onDrop={handleDrop}
     >
-      <div className="border-b border-border/70 bg-gradient-to-r from-primary/6 via-background to-secondary/10 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="rounded-2xl bg-primary/12 p-2 text-primary">
-                <Images className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  {title || t("imageRegistry.title")}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {subtitle || t("imageRegistry.subtitle")}
-                </p>
-              </div>
+      <div className="relative z-30 border-b border-border/70 bg-gradient-to-r from-primary/6 via-background to-secondary/10 px-3 py-3 sm:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="shrink-0 rounded-xl bg-primary/12 p-2 text-primary">
+              <Images className="h-5 w-5" />
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              {t("imageRegistry.pasteHint")}
-            </p>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                {title || t("imageRegistry.title")}
+              </h2>
+              <p className="hidden truncate text-xs text-muted-foreground sm:block sm:text-sm">
+                {subtitle || t("imageRegistry.subtitle")}
+              </p>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div ref={toolbarMenuRef} className="flex shrink-0 items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -497,118 +534,114 @@ export function ImageRegistryLibrary({
               className="hidden"
               onChange={handleFileInputChange}
             />
-            <button
-              type="button"
-              onClick={() => cameraInputRef.current?.click()}
-              disabled={isBusy}
-              className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-60"
-            >
-              <Camera className="h-4 w-4" />
-              Snap Photo
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isBusy}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-            >
-              <Images className="h-4 w-4" />
-              {t("imageRegistry.upload")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePasteImage()}
-              disabled={isBusy}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-            >
-              <ClipboardText className="h-4 w-4" />
-              {t("imageRegistry.paste")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleGenerateCardsAndAddToDeck()}
-              disabled={isBusy || !previewAsset}
-              title="Generate flashcards from snapped image and add to deck"
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-60"
-            >
-              <Lightning className="h-4 w-4" />
-              Generate Cards to Deck
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDeleteSelected()}
-              disabled={isBusy || selectedIds.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-destructive/30 bg-background px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
-            >
-              <Trash className="h-4 w-4" />
-              {t("imageRegistry.deleteSelected")}
-            </button>
-            <button
-              type="button"
-              data-testid="create-occlusion-card"
-              onClick={() => {
-                if (selectedIds.length === 1) dispatchOcclusionRequest(selectedIds[0]);
-              }}
-              disabled={isBusy || selectedIds.length !== 1}
-              title={t("imageRegistry.createOcclusionCardDesc")}
-              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-            >
-              <FrameCorners className="h-4 w-4" />
-              {t("imageRegistry.createOcclusionCard")}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!previewAsset || isBusy) return;
-                setIsBusy(true);
-                try {
-                  const parts = previewAsset.data_url.split(",");
-                  const mimeMatch = /data:(image\/\w+);base64/.exec(parts[0]);
-                  const mimeType = (mimeMatch?.[1] as "image/jpeg" | "image/png" | "image/webp") || "image/png";
-                  const dataBase64 = parts[1] || "";
-                  const res = await describeImage({ mimeType, dataBase64 });
-                  toast.info(res.suggestedTitle || "Image Analysis", res.description);
-                } catch (error) {
-                  toast.error("AI Analysis Failed", error instanceof Error ? error.message : String(error));
-                } finally {
-                  setIsBusy(false);
-                }
-              }}
-              disabled={isBusy || !previewAsset}
-              title="Describe Image with AI"
-              className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-60"
-            >
-              <Sparkle className="h-4 w-4" />
-              AI Describe Image
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Add images"
+                aria-haspopup="menu"
+                aria-expanded={openToolbarMenu === "add"}
+                onClick={() => setOpenToolbarMenu((current) => current === "add" ? null : "add")}
+                disabled={isBusy}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 active:translate-y-px disabled:opacity-60"
+              >
+                <Plus className="h-4 w-4" weight="bold" />
+                <span className="hidden min-[360px]:inline sm:hidden">Add</span>
+                <span className="hidden sm:inline">Add images</span>
+                <CaretDown className="hidden h-3.5 w-3.5 sm:block" />
+              </button>
+              {openToolbarMenu === "add" ? (
+                <div role="menu" aria-label="Add images" className="absolute right-0 top-[calc(100%+0.5rem)] w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-2xl">
+                  <ToolbarMenuButton icon={Camera} label="Snap photo" description="Use your device camera" onClick={() => {
+                    setOpenToolbarMenu(null);
+                    cameraInputRef.current?.click();
+                  }} />
+                  <ToolbarMenuButton icon={Images} label={t("imageRegistry.upload")} description="Choose one or more files" onClick={() => {
+                    setOpenToolbarMenu(null);
+                    fileInputRef.current?.click();
+                  }} />
+                  <ToolbarMenuButton icon={ClipboardText} label={t("imageRegistry.paste")} description="Import the image on your clipboard" onClick={() => {
+                    setOpenToolbarMenu(null);
+                    void handlePasteImage();
+                  }} />
+                  <p className="mx-2 mt-1 border-t border-border/70 px-1 pb-1 pt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    {t("imageRegistry.pasteHint")}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Image actions"
+                aria-haspopup="menu"
+                aria-expanded={openToolbarMenu === "actions"}
+                onClick={() => setOpenToolbarMenu((current) => current === "actions" ? null : "actions")}
+                className="relative inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted active:translate-y-px"
+              >
+                <DotsThree className="h-5 w-5" weight="bold" />
+                <span className="hidden sm:inline">Actions</span>
+                {selectedIds.length > 0 ? (
+                  <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-5 text-primary-foreground tabular-nums">
+                    {selectedIds.length}
+                  </span>
+                ) : null}
+              </button>
+              {openToolbarMenu === "actions" ? (
+                <div role="menu" aria-label="Image actions" className="absolute right-0 top-[calc(100%+0.5rem)] w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-2xl">
+                  <div className="px-3 pb-2 pt-1.5 text-xs font-medium text-muted-foreground">
+                    {selectedIds.length > 0
+                      ? t("imageRegistry.selectedCount", { count: selectedIds.length })
+                      : "Select an image to use these actions"}
+                  </div>
+                  <ToolbarMenuButton icon={Lightning} label="Generate cards" description="Create flashcards from the preview" disabled={isBusy || !previewAsset} accent="success" onClick={() => {
+                    setOpenToolbarMenu(null);
+                    void handleGenerateCardsAndAddToDeck();
+                  }} />
+                  <ToolbarMenuButton icon={Sparkle} label="Describe with AI" description="Analyse the preview image" disabled={isBusy || !previewAsset} onClick={() => {
+                    setOpenToolbarMenu(null);
+                    void handleDescribePreview();
+                  }} />
+                  <ToolbarMenuButton testId="create-occlusion-card" icon={FrameCorners} label={t("imageRegistry.createOcclusionCard")} description="Requires exactly one selected image" disabled={isBusy || selectedIds.length !== 1} onClick={() => {
+                    setOpenToolbarMenu(null);
+                    if (selectedIds.length === 1) dispatchOcclusionRequest(selectedIds[0]);
+                  }} />
+                  <div className="my-1 border-t border-border/70" />
+                  <ToolbarMenuButton icon={Trash} label={t("imageRegistry.deleteSelected")} description="Remove selected images" disabled={isBusy || selectedIds.length === 0} accent="danger" onClick={() => {
+                    setOpenToolbarMenu(null);
+                    void handleDeleteSelected();
+                  }} />
+                </div>
+              ) : null}
+            </div>
             {showCloseButton && onClose && (
               <button
                 type="button"
+                aria-label={t("common.close")}
                 onClick={onClose}
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-foreground transition-colors hover:bg-muted"
               >
                 <X className="h-4 w-4" />
-                {t("common.close")}
               </button>
             )}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-border/70 px-5 py-3">
-        <label className="relative min-w-[240px] flex-1">
+      <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2.5 sm:px-5">
+        <label className="relative min-w-0 flex-1">
           <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder={t("imageRegistry.searchPlaceholder")}
-            className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-4 text-sm text-foreground outline-none transition-colors focus:border-primary"
+            className="h-10 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
           />
         </label>
 
-        <label className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground">
+        <label className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-border bg-background px-2.5 text-sm text-foreground">
           <ArrowsVertical className="h-4 w-4 text-muted-foreground" />
-          <span className="text-muted-foreground">{t("imageRegistry.sortBy")}</span>
+          <span className="hidden text-muted-foreground md:inline">{t("imageRegistry.sortBy")}</span>
           <select
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as SortMode)}
@@ -621,15 +654,15 @@ export function ImageRegistryLibrary({
           </select>
         </label>
 
-        <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+        <div className="hidden rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground sm:block">
           {t("imageRegistry.selectedCount", { count: selectedIds.length })}
         </div>
       </div>
 
       <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-h-0 overflow-y-auto p-5">
+        <div className="min-h-0 overflow-y-auto p-3 sm:p-5">
           {sortedAssets.length === 0 ? (
-            <div className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-[24px] border border-dashed border-border bg-muted/20 px-6 text-center">
+            <div className="flex h-full min-h-[240px] flex-col items-center justify-center rounded-[20px] border border-dashed border-border bg-muted/20 px-6 text-center sm:min-h-[320px] sm:rounded-[24px]">
               <Images className="mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="text-lg font-semibold text-foreground">{t("imageRegistry.emptyTitle")}</h3>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">{t("imageRegistry.emptyDesc")}</p>
@@ -640,93 +673,96 @@ export function ImageRegistryLibrary({
                 const selected = selectedIds.includes(asset.id);
                 const highlighted = highlightedIds.includes(asset.id);
                 return (
-                  <button
+                  <article
                     key={asset.id}
-                    type="button"
-                    onClick={() => {
-                      setPreviewAssetId(asset.id);
-                      commitSelectedIds((prev) =>
-                        prev.includes(asset.id) ? prev.filter((id) => id !== asset.id) : [...prev, asset.id]
-                      );
-                    }}
                     className={cn(
-                      "group rounded-[22px] border bg-card text-left transition-all",
+                      "group relative rounded-[22px] border bg-card text-left transition-all",
                       selected ? "border-primary shadow-lg shadow-primary/10 ring-2 ring-primary/20" : "border-border hover:border-primary/40",
                       highlighted && "ring-2 ring-emerald-400/70"
                     )}
                   >
-                    <div className="relative aspect-square overflow-hidden rounded-t-[22px] bg-muted">
-                      <img
-                        src={asset.data_url}
-                        alt={asset.file_name || t("imageRegistry.assetAlt")}
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                      />
-                      <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-2">
-                        {asset.is_referenced ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white">
-                            <Link className="h-3 w-3" />
-                            {t("imageRegistry.inUse")}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
-                            {t("imageRegistry.available")}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label={`${selected ? t("imageRegistry.selected") : t("imageRegistry.select")} ${asset.file_name || t("imageRegistry.untitled")}`}
+                      onClick={() => {
+                        setPreviewAssetId(asset.id);
+                        commitSelectedIds((prev) =>
+                          prev.includes(asset.id) ? prev.filter((id) => id !== asset.id) : [...prev, asset.id]
+                        );
+                      }}
+                      className="block w-full overflow-hidden rounded-[21px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    >
+                      <div className="relative aspect-square overflow-hidden rounded-t-[21px] bg-muted">
+                        <img
+                          src={asset.data_url}
+                          alt={asset.file_name || t("imageRegistry.assetAlt")}
+                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                        />
+                        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-2">
+                          {asset.is_referenced ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white">
+                              <Link className="h-3 w-3" />
+                              {t("imageRegistry.inUse")}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
+                              {t("imageRegistry.available")}
+                            </span>
+                          )}
                           {selected && (
-                            <span className="rounded-full bg-primary p-1 text-primary-foreground">
+                            <span className="mr-9 rounded-full bg-primary p-1 text-primary-foreground">
                               <Check className="h-3 w-3" />
                             </span>
                           )}
-                          <button
-                            type="button"
-                            aria-label={t("imageRegistry.createOcclusionCard")}
-                            title={t("imageRegistry.createOcclusionCardDesc")}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              dispatchOcclusionRequest(asset.id);
-                            }}
-                            className="rounded-full bg-black/60 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
-                          >
-                            <FrameCorners className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      </div>
-                    </div>
-                    <div className="space-y-2 px-3 py-3">
-                      <div className="truncate text-sm font-medium text-foreground">
-                        {asset.file_name || t("imageRegistry.untitled")}
-                      </div>
-                      <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                        <span>{formatBytes(asset.byte_size)}</span>
-                        {asset.width && asset.height ? <span>{asset.width}×{asset.height}</span> : null}
-                      </div>
-                      {assetTags(asset).length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {assetTags(asset).slice(0, 4).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                            >
-                              #{tag}
-                            </span>
-                          ))}
-                          {assetTags(asset).length > 4 && (
-                            <span className="self-center text-[10px] text-muted-foreground">
-                              +{assetTags(asset).length - 4}
-                            </span>
-                          )}
                         </div>
-                      )}
-                    </div>
-                  </button>
+                      </div>
+                      <div className="space-y-2 px-3 py-3">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {asset.file_name || t("imageRegistry.untitled")}
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                          <span>{formatBytes(asset.byte_size)}</span>
+                          {asset.width && asset.height ? <span>{asset.width}×{asset.height}</span> : null}
+                        </div>
+                        {assetTags(asset).length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {assetTags(asset).slice(0, 4).map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                              >
+                                #{tag}
+                              </span>
+                            ))}
+                            {assetTags(asset).length > 4 && (
+                              <span className="self-center text-[10px] text-muted-foreground">
+                                +{assetTags(asset).length - 4}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t("imageRegistry.createOcclusionCard")}
+                      title={t("imageRegistry.createOcclusionCardDesc")}
+                      onClick={() => dispatchOcclusionRequest(asset.id)}
+                      className="absolute right-2 top-2 rounded-full bg-black/60 p-1.5 text-white opacity-100 transition hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
+                    >
+                      <FrameCorners className="h-3.5 w-3.5" />
+                    </button>
+                  </article>
                 );
               })}
             </div>
           )}
         </div>
 
-        <aside className="flex min-h-0 flex-col border-l border-border/70 bg-muted/20">
+        <aside className={cn(
+          "min-h-0 flex-col border-l border-border/70 bg-muted/20",
+          previewAsset ? "flex" : "hidden lg:flex",
+        )}>
           {previewAsset ? (
             <>
               <div className="border-b border-border/70 p-4">
@@ -909,6 +945,52 @@ export function ImageRegistryLibrary({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ToolbarMenuButton({
+  icon: MenuIcon,
+  label,
+  description,
+  onClick,
+  disabled = false,
+  accent = "default",
+  testId,
+}: {
+  icon: Icon;
+  label: string;
+  description: string;
+  onClick: () => void;
+  disabled?: boolean;
+  accent?: "default" | "success" | "danger";
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      data-testid={testId}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:pointer-events-none disabled:opacity-40",
+        accent === "success" && "text-emerald-600 dark:text-emerald-400",
+        accent === "danger" && "text-destructive",
+      )}
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/80">
+        <MenuIcon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className={cn(
+          "block truncate text-[11px] text-muted-foreground",
+          accent !== "default" && "text-current opacity-70",
+        )}>
+          {description}
+        </span>
+      </span>
+    </button>
   );
 }
 

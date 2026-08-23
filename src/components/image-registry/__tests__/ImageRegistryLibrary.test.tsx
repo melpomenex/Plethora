@@ -99,6 +99,27 @@ describe("ImageRegistryLibrary", () => {
 
     expect(onConfirmSelection).toHaveBeenCalledWith(["asset-new"]);
   });
+
+  it("groups registry commands into compact add and contextual action menus", async () => {
+    mockApi.listImageAssets.mockResolvedValue([]);
+
+    render(<ImageRegistryLibrary />);
+    await waitFor(() => expect(mockApi.listImageAssets).toHaveBeenCalled());
+
+    expect(screen.queryByRole("menu", { name: "Add images" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add images" }));
+
+    expect(screen.getByRole("menuitem", { name: /Snap photo/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Upload images/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Paste image/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Image actions" }));
+
+    expect(screen.getByRole("menuitem", { name: /Generate cards/ })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /Describe with AI/ })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /Delete selected/ })).toBeDisabled();
+  });
+
   // Ingested images get a generated name like `saved-image-1730412345.png`.
   describe("renaming an asset", () => {
     const referencedAsset = {
