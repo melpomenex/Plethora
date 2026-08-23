@@ -639,8 +639,18 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     };
 
     window.addEventListener("import-document", handleImportShortcut as EventListener);
-    return () =>
+    const handleScanShortcut = () => {
+      void import("../lib/ai/apple/importVisionDocument").then(({ importAppleDocumentScan }) =>
+        importAppleDocumentScan().then((doc) => {
+          if (onOpenDocument) onOpenDocument(doc);
+        }).catch(() => undefined),
+      );
+    };
+    window.addEventListener("import-document-scan", handleScanShortcut);
+    return () => {
       window.removeEventListener("import-document", handleImportShortcut as EventListener);
+      window.removeEventListener("import-document-scan", handleScanShortcut);
+    };
   }, [handleImport]);
 
   const handleDragDropFiles = useCallback(

@@ -12,6 +12,7 @@ import {
   Download,
   File,
   FolderOpen,
+  Images,
   Link,
   TextT,
   Upload,
@@ -21,7 +22,16 @@ import {
 import { validateUrl, validateArxivInput } from "../../utils/documentImport";
 import { isPlatformCapabilityAvailable } from "../../lib/platformCapabilities";
 
-export type ImportSource = "local" | "folder" | "url" | "arxiv" | "screenshot" | "anki" | "json";
+export type ImportSource =
+  | "local"
+  | "folder"
+  | "url"
+  | "arxiv"
+  | "screenshot"
+  | "scan"
+  | "photo"
+  | "anki"
+  | "json";
 
 interface ImportOption {
   id: ImportSource;
@@ -68,6 +78,20 @@ const importOptions: ImportOption[] = [
     supportedFormats: ["png", "jpg", "jpeg"],
   },
   {
+    id: "scan",
+    label: "Scan document",
+    icon: Camera,
+    description: "Capture pages with the camera and import recognized text",
+    supportedFormats: ["png", "jpg", "jpeg"],
+  },
+  {
+    id: "photo",
+    label: "Photo library",
+    icon: Images,
+    description: "Import a photo and recognize document text",
+    supportedFormats: ["png", "jpg", "jpeg", "heic"],
+  },
+  {
     id: "anki",
     label: "Anki Package",
     icon: Book,
@@ -101,11 +125,12 @@ export function EnhancedFilePicker({
   // §2.3: screenshot capture is desktop-only (nothing to capture inside a
   // mobile webview — screenshotCapture early-returns). Hidden via the
   // platform capability registry.
-  const availableImportOptions = importOptions.filter(
-    (option) =>
-      option.id !== "screenshot" ||
-      isPlatformCapabilityAvailable("import_screenshot")
-  );
+  const availableImportOptions = importOptions.filter((option) => {
+    if (option.id === "screenshot") return isPlatformCapabilityAvailable("import_screenshot");
+    if (option.id === "scan") return isPlatformCapabilityAvailable("import_document_scan");
+    if (option.id === "photo") return isPlatformCapabilityAvailable("import_photo_library");
+    return true;
+  });
 
   const handleSourceSelect = (source: ImportSource) => {
     setSelectedSource(source);
@@ -184,6 +209,18 @@ export function EnhancedFilePicker({
         await onImport("arxiv", { url: urlInput });
       } else if (selectedSource === "screenshot") {
         await onImport("screenshot", {});
+      } else if (selectedSource === "scan") {
+        const { applePresentScanner } = await import("../../lib/ai/apple/vision");
+        const recognized = await applePresentScanner();
+        await onImport("scan", recognized);
+      } else if (selectedSource === "photo") {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "heic", "webp"] }],
+        });
+        const path = Array.isArray(selected) ? selected[0] : selected;
+        if (path) await onImport("photo", { filePath: path });
       } else if (selectedSource === "anki" || selectedSource === "json") {
         const { open } = await import("@tauri-apps/plugin-dialog");
         const filterConfig = selectedSource === "anki"
@@ -282,6 +319,22 @@ export function EnhancedFilePicker({
           </div>
         );
 
+      case "scan":
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Capture document pages with the camera. Recognized text is imported; the original image is kept.
+            </p>
+          </div>
+        );
+      case "photo":
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Choose a photo. Document text is recognized when Vision is available.
+            </p>
+          </div>
+        );
       case "screenshot":
         return (
           <div className="space-y-4">
