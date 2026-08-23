@@ -1,11 +1,6 @@
 name: Mobile Build Plethora
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       upload_testflight:
