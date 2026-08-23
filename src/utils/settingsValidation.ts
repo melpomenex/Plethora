@@ -142,7 +142,7 @@ export const QASettingsSchema = z.object({
 
 // Audio Transcription Settings Schema
 export const AudioTranscriptionSettingsSchema = z.object({
-  provider: z.enum(['local', 'groq']).default('local'),
+  provider: z.enum(['local', 'groq', 'apple']).default('local'),
   autoTranscription: z.boolean().default(false),
   autoTranscribeLocalVideos: z.boolean().default(true),
   preferredModelId: z.string().default('distil-small.en'),

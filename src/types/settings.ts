@@ -198,7 +198,7 @@ export interface GroqTranscriptionSettings {
 
 // Audio Transcription Settings
 export interface AudioTranscriptionSettings {
-  provider: "local" | "groq";
+  provider: "local" | "groq" | "apple";
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
   preferredModelId?: string;

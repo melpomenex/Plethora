@@ -163,7 +163,7 @@ export const enqueueAutoTranscription = (
   // Local whisper.cpp profiles are exempt. Because this is a fire-and-forget
   // queue enqueue, a missing/declined disclosure rejects the enqueue.
   const gate =
-    provider === "local"
+    provider === "local" || provider === "apple"
       ? Promise.resolve(true)
       : ensureCloudAiDisclosure({ featureClass: "transcription", provider });
   return gate.then((disclosed) => {

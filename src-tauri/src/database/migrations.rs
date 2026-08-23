@@ -3801,6 +3801,12 @@ pub const MIGRATIONS: &[Migration] = &[
         UPDATE learning_items SET algorithm_type = 'classic_15' WHERE algorithm_type = 'sm15';
         "#,
     ),
+    Migration::new(
+        "104_transcript_segment_words_json",
+        r#"
+        ALTER TABLE transcript_segments ADD COLUMN words_json TEXT;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

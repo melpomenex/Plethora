@@ -97,6 +97,36 @@ describe("resolveTranscription", () => {
     });
   });
 
+  it("prefers Apple Speech on mobile when the engine is ready", () => {
+    expect(
+      resolveTranscription(settings(), [parakeet], "native-mobile", { appleReady: true })
+    ).toMatchObject({
+      ok: true,
+      provider: "apple",
+      modelId: "apple-speech",
+    });
+  });
+
+  it("honors an explicit apple provider", () => {
+    expect(
+      resolveTranscription(settings({ provider: "apple" }), [], "desktop")
+    ).toMatchObject({
+      ok: true,
+      provider: "apple",
+      modelId: "apple-speech",
+    });
+  });
+
+  it("substitutes Groq when explicit Apple is unready", () => {
+    expect(
+      resolveTranscription(settings({ provider: "apple" }), [], "native-mobile", { appleReady: false })
+    ).toMatchObject({
+      ok: true,
+      provider: "groq",
+      substitution: "mobile-no-local",
+    });
+  });
+
   it("discloses the native-mobile local-to-Groq substitution", () => {
     expect(resolveTranscription(settings(), [parakeet], "native-mobile")).toMatchObject({
       ok: true,
