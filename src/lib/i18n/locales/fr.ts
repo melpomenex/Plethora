@@ -5842,6 +5842,7 @@ export const fr: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "Si l’IA sur l’appareil échoue, réessayer avec un fournisseur cloud configuré. Désactivé par défaut pour que le contenu ne quitte pas l’appareil en silence.",
   "onDeviceAi.lectureStart": "Démarrer l’enregistrement",
   "onDeviceAi.lectureStop": "Arrêter et enregistrer",
+  "onDeviceAi.lectureListening": "Écoute…",
   "onDeviceAi.lectureSaved": "Cours enregistré.",
   "onDeviceAi.lectureSavedIncomplete": "Enregistrement sauvé. La transcription est incomplète.",
   "onDeviceAi.licensedPacks": "Packs on-device sous licence",

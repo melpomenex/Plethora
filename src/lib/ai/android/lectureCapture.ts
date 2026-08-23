@@ -27,13 +27,17 @@ export async function saveLectureDocument(options: {
   audioUri: string;
   transcript?: Transcript;
   speech?: SpeechProvider;
+  pcmBase64?: string;
 }): Promise<LectureCaptureResult> {
   const audioUri = requirePersistedSpeechSource(options.audioUri);
   let transcript = options.transcript;
   let incomplete = !transcript;
   if (!transcript && options.speech) {
     try {
-      transcript = await options.speech.transcribeAudio({ sourceUri: audioUri });
+      transcript = await options.speech.transcribeAudio({
+        sourceUri: audioUri,
+        pcmBase64: options.pcmBase64,
+      });
       incomplete = Boolean(transcript.incomplete);
     } catch {
       incomplete = true;

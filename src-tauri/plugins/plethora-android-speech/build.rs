@@ -1,6 +1,7 @@
 const COMMANDS: &[&str] = &[
     "speech_status",
     "transcribe_audio",
+    "download_speech_model",
 ];
 
 fn main() {

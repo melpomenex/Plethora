@@ -5,7 +5,7 @@ import { FakeSemanticRetriever } from "../__fixtures__/FakePlatformProviders";
 import { RAG_NAMESPACE_HELP, RAG_NAMESPACE_LIBRARY } from "../capabilities/search";
 import { classifyDeviceAiTier, mayOfferGenerativeAiPack } from "../deviceTiers";
 import { EMBEDDING_GEMMA_LICENSE, mayShipGenerativePack } from "../modelLicense";
-import { assertMlKitSpeechPcm, isMlKitSpeechPcm } from "../android/pcm";
+import { assertMlKitSpeechPcm, floatToPcm16leBase64, isMlKitSpeechPcm } from "../android/pcm";
 import { requirePersistedSpeechSource } from "../android/speechProvider";
 import { DEFAULT_ENTITY_EXTRACTION_ENABLED } from "../android/languageIdProvider";
 import { isAppSearchDerivedIndexEnabled } from "../android/appSearchRetriever";
@@ -105,6 +105,8 @@ describe("speech and search policy", () => {
     expect(() =>
       assertMlKitSpeechPcm({ sampleRateHz: 44100, channels: 2, encoding: "pcm16le" })
     ).toThrow(/codec_unsupported/);
+    const b64 = floatToPcm16leBase64(new Float32Array([0, 0.5, -0.5, 1]), 16_000);
+    expect(atob(b64).length).toBe(8);
   });
 
   it("keeps AppSearch and entity extraction off by default", () => {

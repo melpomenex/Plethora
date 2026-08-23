@@ -5847,6 +5847,7 @@ export const de: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "Wenn die On-Device-KI fehlschlägt, mit einem konfigurierten Cloud-Anbieter erneut versuchen. Standardmäßig aus, damit Inhalte nicht still das Gerät verlassen.",
   "onDeviceAi.lectureStart": "Aufnahme starten",
   "onDeviceAi.lectureStop": "Stoppen und speichern",
+  "onDeviceAi.lectureListening": "Zuhören…",
   "onDeviceAi.lectureSaved": "Vorlesung gespeichert.",
   "onDeviceAi.lectureSavedIncomplete": "Aufnahme gespeichert. Die Transkription ist unvollständig.",
   "onDeviceAi.licensedPacks": "Lizenzierte On-Device-Pakete",

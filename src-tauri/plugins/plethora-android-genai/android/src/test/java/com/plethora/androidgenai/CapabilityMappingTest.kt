@@ -48,7 +48,7 @@ class CapabilityMappingTest {
         assertTrue(flags.systemInstructions)
         assertFalse(flags.prefixCaching)
         assertTrue(flags.imageInput)
-        assertTrue(flags.multiImage)
+        assertFalse(flags.multiImage)
         assertTrue(flags.streaming)
     }
 

@@ -105,13 +105,34 @@ mod commands {
             Err(not_android())
         }
     }
+
+    #[tauri::command]
+    pub async fn download_speech_model(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("downloadSpeechModel", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
 }
 
 pub fn init() -> TauriPlugin<Wry> {
     tauri::plugin::Builder::<Wry>::new("plethora-android-speech")
         .invoke_handler(tauri::generate_handler![
             commands::speech_status,
-            commands::transcribe_audio
+            commands::transcribe_audio,
+            commands::download_speech_model
         ])
         .setup(|app, api| {
             let native = init_mobile(app.app_handle(), api)?;

@@ -11,6 +11,17 @@ Status: **spike notes only**. No generative LLM is shipped.
   log RSS before/after, then unload. Record numbers in this file when a
   licensed artifact exists.
 
+### Hello-path without a licensed file
+
+`LocalModelProvider` refuses generation unless `mayShipGenerativePack` is true
+for a registry row. A LiteRT-LM probe should:
+
+1. Resolve the licensed artifact path (empty → **no-op**, log `license_missing`, do not download).
+2. If present, load tokenizer, greedy-decode **one** token, log RSS delta, unload.
+3. Never ship an unlicensed multi-GB pack at install time.
+
+This environment has no licensed file and no device, so task 3 stays open.
+
 ## Play Feature Delivery
 
 `plugins/plethora-android-genai/android/play-ai-packs.gradle.kts` is an

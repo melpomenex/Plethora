@@ -5754,6 +5754,7 @@ export const ja: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "オンデバイスAIが失敗した場合、設定済みのクラウドプロバイダーで再試行します。既定はオフで、内容が黙って端末外に出ることはありません。",
   "onDeviceAi.lectureStart": "録音を開始",
   "onDeviceAi.lectureStop": "停止して保存",
+  "onDeviceAi.lectureListening": "聞き取り中…",
   "onDeviceAi.lectureSaved": "講義を保存しました。",
   "onDeviceAi.lectureSavedIncomplete": "録音を保存しました。文字起こしは未完了です。",
   "onDeviceAi.licensedPacks": "ライセンス済みオンデバイスパック",

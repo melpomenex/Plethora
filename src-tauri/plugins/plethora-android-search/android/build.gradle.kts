@@ -35,4 +35,5 @@ dependencies {
 
     implementation("androidx.appsearch:appsearch:1.1.0")
     implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
+    implementation("com.google.guava:guava:33.3.1-android")
 }

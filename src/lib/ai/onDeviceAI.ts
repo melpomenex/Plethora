@@ -314,6 +314,28 @@ export async function getOnDeviceOcrLabels(
   }
 }
 
+/**
+ * Short English alt text from ML Kit Image Description. Not used for study
+ * cards (`describeImageTask` stays on Prompt / cloud).
+ */
+export async function describeOnDeviceImage(base64Image: string): Promise<string> {
+  if (!isOnDeviceAiSupportedPlatform()) {
+    throw new OnDeviceAiError(
+      "platform_unsupported",
+      "On-device image description is only available in the Android build."
+    );
+  }
+  try {
+    const result = await invokeCommand<{ text: string }>(
+      `${PLUGIN}|ondevice_ai_describe_image`,
+      { request: { base64Image } }
+    );
+    return result.text;
+  } catch (error) {
+    throw toOnDeviceAiError(error);
+  }
+}
+
 function unsupportedCapabilitySnapshot(): OnDeviceCapabilitySnapshot {
   return unavailableCapabilitySnapshot("platform_unsupported");
 }

@@ -5670,6 +5670,7 @@ export const zh: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "若端侧 AI 失败，再用已配置的云端服务重试。默认关闭，避免内容在未告知的情况下离开设备。",
   "onDeviceAi.lectureStart": "开始录音",
   "onDeviceAi.lectureStop": "停止并保存",
+  "onDeviceAi.lectureListening": "正在听…",
   "onDeviceAi.lectureSaved": "讲座已保存。",
   "onDeviceAi.lectureSavedIncomplete": "录音已保存。转写未完成。",
   "onDeviceAi.licensedPacks": "已授权的端侧包",

@@ -5839,6 +5839,7 @@ export const es: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "Si la IA en el dispositivo falla, reintentar con un proveedor en la nube configurado. Desactivado por defecto para que el contenido no salga del dispositivo en silencio.",
   "onDeviceAi.lectureStart": "Empezar a grabar",
   "onDeviceAi.lectureStop": "Detener y guardar",
+  "onDeviceAi.lectureListening": "Escuchando…",
   "onDeviceAi.lectureSaved": "Clase guardada.",
   "onDeviceAi.lectureSavedIncomplete": "Grabación guardada. La transcripción está incompleta.",
   "onDeviceAi.licensedPacks": "Paquetes con licencia en el dispositivo",
