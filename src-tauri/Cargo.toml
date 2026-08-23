@@ -271,3 +271,10 @@ tower05 = { package = "tower", version = "0.5", features = ["util"] }
 burn-ndarray = { path = "../vendor/burn-ndarray-0.17.1" }
 macerator = { path = "../vendor/macerator-0.2.10" }
 systemstat = { git = "https://github.com/melpomenex/systemstat", branch = "fix-android-procfs" }
+# Local workaround for https://github.com/tauri-apps/wry/issues/1775:
+# WKURLSchemeTask did* calls from non-main threads synchronously wait on the
+# main run loop (callOnMainRunLoopAndWait); combined with tauri's
+# safe_block_on dev-server proxy this deadlocks the tokio worker pool and
+# freezes iOS simulator boots mid-module-waterfall. The patch dispatches the
+# did* sequence onto the GCD main queue asynchronously instead.
+wry = { path = "../vendor/wry-0.55.1" }

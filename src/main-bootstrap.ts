@@ -61,61 +61,72 @@ if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
 // Load the large application graph only after the tiny bootstrap has committed
 // its root. Tauri's production custom protocol can otherwise hold the initial
 // module on its dependency-preload promise before React has painted anything.
-const setStartupDiagnostic = (message: string) => {
-  const display = document.getElementById("error-display");
+//
+// main.tsx statically imports every module the old staged waterfall used to
+// warm up, so a single dynamic import is equivalent — with one request
+// waterfall instead of fifteen, each of which could wedge on the flaky iOS
+// dev-server path.
+const display = document.getElementById("error-display");
+
+const showStatus = (text: string) => {
   if (!display) return;
-  display.textContent = message;
+  display.textContent = text;
   display.style.display = "block";
 };
 
-const importWithStartupTimeout = async (name: string, load: () => Promise<unknown>) => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`startup stage timed out: ${name}`)), 5000);
-  });
-  try {
-    await Promise.race([load(), timeout]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-};
-
-const startupStages: Array<[string, () => Promise<unknown>]> = [
-  ["brandMigration", () => import("./lib/brandMigration")],
-  ["fonts", () => import("./utils/fonts")],
-  ["index.css", () => import("./index.css")],
-  ["mobile.css", () => import("./styles/mobile.css")],
-  ["router", () => import("react-router-dom")],
-  ["query", () => import("@tanstack/react-query")],
-  ["theme", () => import("./contexts/ThemeContext")],
-  ["pwa", () => import("./lib/pwa")],
-  ["tauri", () => import("./lib/tauri")],
-  ["networkDebug", () => import("./debug/networkDebug")],
-  ["logcatBridge", () => import("./lib/consoleLogcatBridge")],
-  ["battery", () => import("./contexts/BatteryContext")],
-  ["presentation", () => import("./contexts/PresentationContext")],
-  ["languageProfile", () => import("./contexts/LanguageProfileContext")],
-];
-
-const clearStartupDiagnostic = () => {
-  const display = document.getElementById("error-display");
+const hideStatus = () => {
   if (!display) return;
   display.textContent = "";
   display.style.display = "none";
 };
 
-void (async () => {
-  for (const [name, load] of startupStages) {
-    setStartupDiagnostic(`Startup stage: ${name}`);
-    await importWithStartupTimeout(name, load);
-  }
-  setStartupDiagnostic("Startup stage: main");
-  await importWithStartupTimeout("main", () => import("./main"));
-  // Startup succeeded — remove the diagnostic overlay so it cannot cover
-  // the live app surface.
-  clearStartupDiagnostic();
-})().catch((error) => {
-  console.error("[startup] main module failed to load:", error);
-  const reason = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
-  setStartupDiagnostic(`Startup module failed:\n${reason}`);
-});
+const BOOT_START = performance.now();
+let settled = false;
+
+// Progress heartbeat. Doubles as a liveness probe: if the elapsed counter
+// advances in screenshots, timers and painting work and only the import is
+// outstanding.
+const heartbeat = window.setInterval(() => {
+  if (settled) return;
+  const elapsed = Math.round((performance.now() - BOOT_START) / 1000);
+  showStatus(`Starting Plethora… (${elapsed}s)`);
+}, 1000);
+
+// Last-resort recovery: a wedged load can always be retried manually.
+window.setTimeout(() => {
+  if (settled || !display) return;
+  display.addEventListener("click", () => window.location.reload());
+  const hint = document.createElement("div");
+  hint.style.marginTop = "24px";
+  hint.textContent = "Tap anywhere to reload";
+  display.appendChild(hint);
+}, 60000);
+
+const loadMain = () => import("./main");
+
+const attempt = (retriesLeft: number): void => {
+  loadMain()
+    .then(() => {
+      settled = true;
+      window.clearInterval(heartbeat);
+      // Startup succeeded — remove the status overlay so it cannot cover the
+      // live app surface.
+      hideStatus();
+    })
+    .catch((error: unknown) => {
+      // One automatic retry: a transient WebKit/proxy hiccup during the large
+      // graph fetch must not surface as a fatal startup error.
+      if (retriesLeft > 0 && !settled) {
+        window.setTimeout(() => attempt(retriesLeft - 1), 1500);
+        return;
+      }
+      settled = true;
+      window.clearInterval(heartbeat);
+      console.error("[startup] main module failed to load:", error);
+      const reason =
+        error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
+      showStatus(`Startup failed:\n${reason}`);
+    });
+};
+
+attempt(1);
