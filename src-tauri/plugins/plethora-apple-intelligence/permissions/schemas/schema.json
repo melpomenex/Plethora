@@ -295,118 +295,466 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the storekit_app_account_token command without any pre-configured scope.",
+          "description": "Enables the apple_capabilities command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-app-account-token",
-          "markdownDescription": "Enables the storekit_app_account_token command without any pre-configured scope."
+          "const": "allow-apple-capabilities",
+          "markdownDescription": "Enables the apple_capabilities command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_app_account_token command without any pre-configured scope.",
+          "description": "Denies the apple_capabilities command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-app-account-token",
-          "markdownDescription": "Denies the storekit_app_account_token command without any pre-configured scope."
+          "const": "deny-apple-capabilities",
+          "markdownDescription": "Denies the apple_capabilities command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_current_entitlements command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_cancel command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-current-entitlements",
-          "markdownDescription": "Enables the storekit_current_entitlements command without any pre-configured scope."
+          "const": "allow-apple-coreai-cancel",
+          "markdownDescription": "Enables the apple_coreai_cancel command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_current_entitlements command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_cancel command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-current-entitlements",
-          "markdownDescription": "Denies the storekit_current_entitlements command without any pre-configured scope."
+          "const": "deny-apple-coreai-cancel",
+          "markdownDescription": "Denies the apple_coreai_cancel command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_get_products command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_catalog command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-get-products",
-          "markdownDescription": "Enables the storekit_get_products command without any pre-configured scope."
+          "const": "allow-apple-coreai-catalog",
+          "markdownDescription": "Enables the apple_coreai_catalog command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_get_products command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_catalog command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-get-products",
-          "markdownDescription": "Denies the storekit_get_products command without any pre-configured scope."
+          "const": "deny-apple-coreai-catalog",
+          "markdownDescription": "Denies the apple_coreai_catalog command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_manage_subscriptions command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_count_tokens command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-manage-subscriptions",
-          "markdownDescription": "Enables the storekit_manage_subscriptions command without any pre-configured scope."
+          "const": "allow-apple-coreai-count-tokens",
+          "markdownDescription": "Enables the apple_coreai_count_tokens command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_manage_subscriptions command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_count_tokens command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-manage-subscriptions",
-          "markdownDescription": "Denies the storekit_manage_subscriptions command without any pre-configured scope."
+          "const": "deny-apple-coreai-count-tokens",
+          "markdownDescription": "Denies the apple_coreai_count_tokens command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_purchase command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_delete command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-purchase",
-          "markdownDescription": "Enables the storekit_purchase command without any pre-configured scope."
+          "const": "allow-apple-coreai-delete",
+          "markdownDescription": "Enables the apple_coreai_delete command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_purchase command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_delete command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-purchase",
-          "markdownDescription": "Denies the storekit_purchase command without any pre-configured scope."
+          "const": "deny-apple-coreai-delete",
+          "markdownDescription": "Denies the apple_coreai_delete command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_restore command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_download_cancel command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-restore",
-          "markdownDescription": "Enables the storekit_restore command without any pre-configured scope."
+          "const": "allow-apple-coreai-download-cancel",
+          "markdownDescription": "Enables the apple_coreai_download_cancel command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_restore command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_download_cancel command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-restore",
-          "markdownDescription": "Denies the storekit_restore command without any pre-configured scope."
+          "const": "deny-apple-coreai-download-cancel",
+          "markdownDescription": "Denies the apple_coreai_download_cancel command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_set_app_account_token command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_download_start command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-set-app-account-token",
-          "markdownDescription": "Enables the storekit_set_app_account_token command without any pre-configured scope."
+          "const": "allow-apple-coreai-download-start",
+          "markdownDescription": "Enables the apple_coreai_download_start command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_set_app_account_token command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_download_start command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-set-app-account-token",
-          "markdownDescription": "Denies the storekit_set_app_account_token command without any pre-configured scope."
+          "const": "deny-apple-coreai-download-start",
+          "markdownDescription": "Denies the apple_coreai_download_start command without any pre-configured scope."
         },
         {
-          "description": "Enables the storekit_start_transaction_listener command without any pre-configured scope.",
+          "description": "Enables the apple_coreai_install_commit command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-storekit-start-transaction-listener",
-          "markdownDescription": "Enables the storekit_start_transaction_listener command without any pre-configured scope."
+          "const": "allow-apple-coreai-install-commit",
+          "markdownDescription": "Enables the apple_coreai_install_commit command without any pre-configured scope."
         },
         {
-          "description": "Denies the storekit_start_transaction_listener command without any pre-configured scope.",
+          "description": "Denies the apple_coreai_install_commit command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-storekit-start-transaction-listener",
-          "markdownDescription": "Denies the storekit_start_transaction_listener command without any pre-configured scope."
+          "const": "deny-apple-coreai-install-commit",
+          "markdownDescription": "Denies the apple_coreai_install_commit command without any pre-configured scope."
         },
         {
-          "description": "Allows the StoreKit 2 billing plugin's product/purchase/entitlement/restore\ncommands to be invoked from the frontend.\n\n#### This default permission set includes:\n\n- `allow-storekit-get-products`\n- `allow-storekit-purchase`\n- `allow-storekit-current-entitlements`\n- `allow-storekit-restore`\n- `allow-storekit-start-transaction-listener`\n- `allow-storekit-manage-subscriptions`\n- `allow-storekit-app-account-token`\n- `allow-storekit-set-app-account-token`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the apple_coreai_prompt command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-coreai-prompt",
+          "markdownDescription": "Enables the apple_coreai_prompt command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_coreai_prompt command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-coreai-prompt",
+          "markdownDescription": "Denies the apple_coreai_prompt command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_coreai_session_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-coreai-session-start",
+          "markdownDescription": "Enables the apple_coreai_session_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_coreai_session_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-coreai-session-start",
+          "markdownDescription": "Denies the apple_coreai_session_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_coreai_set_active command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-coreai-set-active",
+          "markdownDescription": "Enables the apple_coreai_set_active command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_coreai_set_active command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-coreai-set-active",
+          "markdownDescription": "Denies the apple_coreai_set_active command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_coreai_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-coreai-status",
+          "markdownDescription": "Enables the apple_coreai_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_coreai_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-coreai-status",
+          "markdownDescription": "Denies the apple_coreai_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_coreai_warmup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-coreai-warmup",
+          "markdownDescription": "Enables the apple_coreai_warmup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_coreai_warmup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-coreai-warmup",
+          "markdownDescription": "Denies the apple_coreai_warmup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_availability command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-availability",
+          "markdownDescription": "Enables the apple_fm_availability command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_availability command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-availability",
+          "markdownDescription": "Denies the apple_fm_availability command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-cancel",
+          "markdownDescription": "Enables the apple_fm_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-cancel",
+          "markdownDescription": "Denies the apple_fm_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_count_tokens command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-count-tokens",
+          "markdownDescription": "Enables the apple_fm_count_tokens command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_count_tokens command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-count-tokens",
+          "markdownDescription": "Denies the apple_fm_count_tokens command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_generate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-generate",
+          "markdownDescription": "Enables the apple_fm_generate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_generate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-generate",
+          "markdownDescription": "Denies the apple_fm_generate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_generate_stream command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-generate-stream",
+          "markdownDescription": "Enables the apple_fm_generate_stream command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_generate_stream command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-generate-stream",
+          "markdownDescription": "Denies the apple_fm_generate_stream command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_fm_warmup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-fm-warmup",
+          "markdownDescription": "Enables the apple_fm_warmup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_fm_warmup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-fm-warmup",
+          "markdownDescription": "Denies the apple_fm_warmup command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_nl_embed_texts command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-nl-embed-texts",
+          "markdownDescription": "Enables the apple_nl_embed_texts command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_nl_embed_texts command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-nl-embed-texts",
+          "markdownDescription": "Denies the apple_nl_embed_texts command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_nl_request_assets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-nl-request-assets",
+          "markdownDescription": "Enables the apple_nl_request_assets command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_nl_request_assets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-nl-request-assets",
+          "markdownDescription": "Denies the apple_nl_request_assets command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_nl_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-nl-status",
+          "markdownDescription": "Enables the apple_nl_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_nl_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-nl-status",
+          "markdownDescription": "Denies the apple_nl_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-cancel",
+          "markdownDescription": "Enables the apple_speech_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-cancel",
+          "markdownDescription": "Denies the apple_speech_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_ensure_assets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-ensure-assets",
+          "markdownDescription": "Enables the apple_speech_ensure_assets command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_ensure_assets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-ensure-assets",
+          "markdownDescription": "Denies the apple_speech_ensure_assets command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_start_live command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-start-live",
+          "markdownDescription": "Enables the apple_speech_start_live command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_start_live command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-start-live",
+          "markdownDescription": "Denies the apple_speech_start_live command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-status",
+          "markdownDescription": "Enables the apple_speech_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-status",
+          "markdownDescription": "Denies the apple_speech_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_stop_live command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-stop-live",
+          "markdownDescription": "Enables the apple_speech_stop_live command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_stop_live command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-stop-live",
+          "markdownDescription": "Denies the apple_speech_stop_live command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_speech_transcribe_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-speech-transcribe-file",
+          "markdownDescription": "Enables the apple_speech_transcribe_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_speech_transcribe_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-speech-transcribe-file",
+          "markdownDescription": "Denies the apple_speech_transcribe_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-delete",
+          "markdownDescription": "Enables the apple_spotlight_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-delete",
+          "markdownDescription": "Denies the apple_spotlight_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_delete_domain command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-delete-domain",
+          "markdownDescription": "Enables the apple_spotlight_delete_domain command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_delete_domain command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-delete-domain",
+          "markdownDescription": "Denies the apple_spotlight_delete_domain command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_donate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-donate",
+          "markdownDescription": "Enables the apple_spotlight_donate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_donate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-donate",
+          "markdownDescription": "Denies the apple_spotlight_donate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_query command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-query",
+          "markdownDescription": "Enables the apple_spotlight_query command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_query command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-query",
+          "markdownDescription": "Denies the apple_spotlight_query command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_rebuild command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-rebuild",
+          "markdownDescription": "Enables the apple_spotlight_rebuild command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_rebuild command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-rebuild",
+          "markdownDescription": "Denies the apple_spotlight_rebuild command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_spotlight_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-spotlight-status",
+          "markdownDescription": "Enables the apple_spotlight_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_spotlight_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-spotlight-status",
+          "markdownDescription": "Denies the apple_spotlight_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_vision_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-vision-cancel",
+          "markdownDescription": "Enables the apple_vision_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_vision_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-vision-cancel",
+          "markdownDescription": "Denies the apple_vision_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_vision_present_scanner command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-vision-present-scanner",
+          "markdownDescription": "Enables the apple_vision_present_scanner command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_vision_present_scanner command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-vision-present-scanner",
+          "markdownDescription": "Denies the apple_vision_present_scanner command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_vision_recognize_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-vision-recognize-document",
+          "markdownDescription": "Enables the apple_vision_recognize_document command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_vision_recognize_document command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-vision-recognize-document",
+          "markdownDescription": "Denies the apple_vision_recognize_document command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apple_vision_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-vision-status",
+          "markdownDescription": "Enables the apple_vision_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_vision_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-vision-status",
+          "markdownDescription": "Denies the apple_vision_status command without any pre-configured scope."
+        },
+        {
+          "description": "Allows the Apple on-device intelligence plugin commands. Off Apple OS the\nRust shims return platform_unsupported; on iOS Swift implements or stubs\neach reserved RPC.\n\n#### This default permission set includes:\n\n- `allow-apple-capabilities`\n- `allow-apple-fm-availability`\n- `allow-apple-fm-generate`\n- `allow-apple-fm-generate-stream`\n- `allow-apple-fm-cancel`\n- `allow-apple-fm-count-tokens`\n- `allow-apple-fm-warmup`\n- `allow-apple-speech-status`\n- `allow-apple-speech-ensure-assets`\n- `allow-apple-speech-transcribe-file`\n- `allow-apple-speech-start-live`\n- `allow-apple-speech-stop-live`\n- `allow-apple-speech-cancel`\n- `allow-apple-vision-status`\n- `allow-apple-vision-present-scanner`\n- `allow-apple-vision-recognize-document`\n- `allow-apple-vision-cancel`\n- `allow-apple-spotlight-status`\n- `allow-apple-spotlight-donate`\n- `allow-apple-spotlight-delete`\n- `allow-apple-spotlight-delete-domain`\n- `allow-apple-spotlight-query`\n- `allow-apple-spotlight-rebuild`\n- `allow-apple-nl-status`\n- `allow-apple-nl-request-assets`\n- `allow-apple-nl-embed-texts`\n- `allow-apple-coreai-status`\n- `allow-apple-coreai-catalog`\n- `allow-apple-coreai-download-start`\n- `allow-apple-coreai-download-cancel`\n- `allow-apple-coreai-install-commit`\n- `allow-apple-coreai-delete`\n- `allow-apple-coreai-set-active`\n- `allow-apple-coreai-session-start`\n- `allow-apple-coreai-prompt`\n- `allow-apple-coreai-cancel`\n- `allow-apple-coreai-count-tokens`\n- `allow-apple-coreai-warmup`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the StoreKit 2 billing plugin's product/purchase/entitlement/restore\ncommands to be invoked from the frontend.\n\n#### This default permission set includes:\n\n- `allow-storekit-get-products`\n- `allow-storekit-purchase`\n- `allow-storekit-current-entitlements`\n- `allow-storekit-restore`\n- `allow-storekit-start-transaction-listener`\n- `allow-storekit-manage-subscriptions`\n- `allow-storekit-app-account-token`\n- `allow-storekit-set-app-account-token`\n- `allow-register-listener`\n- `allow-remove-listener`"
-        },
-        {
-          "description": "Allows registering native plugin event listeners (transaction updates).",
-          "type": "string",
-          "const": "allow-register-listener",
-          "markdownDescription": "Allows registering native plugin event listeners (transaction updates)."
-        },
-        {
-          "description": "Allows removing native plugin event listeners.",
-          "type": "string",
-          "const": "allow-remove-listener",
-          "markdownDescription": "Allows removing native plugin event listeners."
+          "markdownDescription": "Allows the Apple on-device intelligence plugin commands. Off Apple OS the\nRust shims return platform_unsupported; on iOS Swift implements or stubs\neach reserved RPC.\n\n#### This default permission set includes:\n\n- `allow-apple-capabilities`\n- `allow-apple-fm-availability`\n- `allow-apple-fm-generate`\n- `allow-apple-fm-generate-stream`\n- `allow-apple-fm-cancel`\n- `allow-apple-fm-count-tokens`\n- `allow-apple-fm-warmup`\n- `allow-apple-speech-status`\n- `allow-apple-speech-ensure-assets`\n- `allow-apple-speech-transcribe-file`\n- `allow-apple-speech-start-live`\n- `allow-apple-speech-stop-live`\n- `allow-apple-speech-cancel`\n- `allow-apple-vision-status`\n- `allow-apple-vision-present-scanner`\n- `allow-apple-vision-recognize-document`\n- `allow-apple-vision-cancel`\n- `allow-apple-spotlight-status`\n- `allow-apple-spotlight-donate`\n- `allow-apple-spotlight-delete`\n- `allow-apple-spotlight-delete-domain`\n- `allow-apple-spotlight-query`\n- `allow-apple-spotlight-rebuild`\n- `allow-apple-nl-status`\n- `allow-apple-nl-request-assets`\n- `allow-apple-nl-embed-texts`\n- `allow-apple-coreai-status`\n- `allow-apple-coreai-catalog`\n- `allow-apple-coreai-download-start`\n- `allow-apple-coreai-download-cancel`\n- `allow-apple-coreai-install-commit`\n- `allow-apple-coreai-delete`\n- `allow-apple-coreai-set-active`\n- `allow-apple-coreai-session-start`\n- `allow-apple-coreai-prompt`\n- `allow-apple-coreai-cancel`\n- `allow-apple-coreai-count-tokens`\n- `allow-apple-coreai-warmup`"
         }
       ]
     }

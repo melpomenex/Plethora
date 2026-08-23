@@ -295,202 +295,46 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the ack_media_commands command without any pre-configured scope.",
+          "description": "Enables the identify_language command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-ack-media-commands",
-          "markdownDescription": "Enables the ack_media_commands command without any pre-configured scope."
+          "const": "allow-identify-language",
+          "markdownDescription": "Enables the identify_language command without any pre-configured scope."
         },
         {
-          "description": "Denies the ack_media_commands command without any pre-configured scope.",
+          "description": "Denies the identify_language command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-ack-media-commands",
-          "markdownDescription": "Denies the ack_media_commands command without any pre-configured scope."
+          "const": "deny-identify-language",
+          "markdownDescription": "Denies the identify_language command without any pre-configured scope."
         },
         {
-          "description": "Enables the cancel_download command without any pre-configured scope.",
+          "description": "Enables the language_id_status command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-cancel-download",
-          "markdownDescription": "Enables the cancel_download command without any pre-configured scope."
+          "const": "allow-language-id-status",
+          "markdownDescription": "Enables the language_id_status command without any pre-configured scope."
         },
         {
-          "description": "Denies the cancel_download command without any pre-configured scope.",
+          "description": "Denies the language_id_status command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-cancel-download",
-          "markdownDescription": "Denies the cancel_download command without any pre-configured scope."
+          "const": "deny-language-id-status",
+          "markdownDescription": "Denies the language_id_status command without any pre-configured scope."
         },
         {
-          "description": "Enables the delete_model command without any pre-configured scope.",
+          "description": "Enables the translate_sentence command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-delete-model",
-          "markdownDescription": "Enables the delete_model command without any pre-configured scope."
+          "const": "allow-translate-sentence",
+          "markdownDescription": "Enables the translate_sentence command without any pre-configured scope."
         },
         {
-          "description": "Denies the delete_model command without any pre-configured scope.",
+          "description": "Denies the translate_sentence command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-delete-model",
-          "markdownDescription": "Denies the delete_model command without any pre-configured scope."
+          "const": "deny-translate-sentence",
+          "markdownDescription": "Denies the translate_sentence command without any pre-configured scope."
         },
         {
-          "description": "Enables the discard_media_commands command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-discard-media-commands",
-          "markdownDescription": "Enables the discard_media_commands command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the discard_media_commands command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-discard-media-commands",
-          "markdownDescription": "Denies the discard_media_commands command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the download_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-download-model",
-          "markdownDescription": "Enables the download_model command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the download_model command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-download-model",
-          "markdownDescription": "Denies the download_model command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the drain_pending_media_commands command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-drain-pending-media-commands",
-          "markdownDescription": "Enables the drain_pending_media_commands command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the drain_pending_media_commands command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-drain-pending-media-commands",
-          "markdownDescription": "Denies the drain_pending_media_commands command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the initialize command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-initialize",
-          "markdownDescription": "Enables the initialize command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the initialize command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-initialize",
-          "markdownDescription": "Denies the initialize command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the list_models command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-list-models",
-          "markdownDescription": "Enables the list_models command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the list_models command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-list-models",
-          "markdownDescription": "Denies the list_models command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the list_voices command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-list-voices",
-          "markdownDescription": "Enables the list_voices command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the list_voices command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-list-voices",
-          "markdownDescription": "Denies the list_voices command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the pause command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-pause",
-          "markdownDescription": "Enables the pause command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the pause command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-pause",
-          "markdownDescription": "Denies the pause command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the resume command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-resume",
-          "markdownDescription": "Enables the resume command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the resume command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-resume",
-          "markdownDescription": "Denies the resume command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the speak command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-speak",
-          "markdownDescription": "Enables the speak command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the speak command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-speak",
-          "markdownDescription": "Denies the speak command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the start_media_session command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-start-media-session",
-          "markdownDescription": "Enables the start_media_session command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the start_media_session command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-start-media-session",
-          "markdownDescription": "Denies the start_media_session command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the stop command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-stop",
-          "markdownDescription": "Enables the stop command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the stop command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-stop",
-          "markdownDescription": "Denies the stop command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the stop_media_session command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-stop-media-session",
-          "markdownDescription": "Enables the stop_media_session command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the stop_media_session command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-stop-media-session",
-          "markdownDescription": "Denies the stop_media_session command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the update_media_metadata command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-update-media-metadata",
-          "markdownDescription": "Enables the update_media_metadata command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the update_media_metadata command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-update-media-metadata",
-          "markdownDescription": "Denies the update_media_metadata command without any pre-configured scope."
-        },
-        {
-          "description": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`",
+          "description": "ML Kit Language ID + Translate (local)\n\n#### This default permission set includes:\n\n- `allow-language-id-status`\n- `allow-identify-language`\n- `allow-translate-sentence`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`"
+          "markdownDescription": "ML Kit Language ID + Translate (local)\n\n#### This default permission set includes:\n\n- `allow-language-id-status`\n- `allow-identify-language`\n- `allow-translate-sentence`"
         }
       ]
     }

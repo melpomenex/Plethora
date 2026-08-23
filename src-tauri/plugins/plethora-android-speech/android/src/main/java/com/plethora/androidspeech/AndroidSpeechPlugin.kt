@@ -21,6 +21,8 @@ import com.google.mlkit.genai.speechrecognition.SpeechRecognizer
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerRequest
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
+import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
+import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -167,7 +169,7 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
                     return@execute
                 }
                 client = openClient(args.language)
-                when (client.checkStatus()) {
+                when (runBlocking { client.checkStatus() }) {
                     FeatureStatus.DOWNLOADABLE -> {
                         invoke.reject("ML Kit Speech model is downloadable.", "model_downloadable")
                         return@execute
@@ -186,7 +188,7 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
                     }
                 }
 
-                val audioSource = if (liveMic) {
+                val source = if (liveMic) {
                     AudioSource.fromMic()
                 } else {
                     val pcm = decodePcm(args.pcmBase64)
@@ -201,9 +203,9 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
                     AudioSource.fromPfd(readPfd)
                 }
 
-                val request = SpeechRecognizerRequest.builder()
-                    .setAudioSource(audioSource)
-                    .build()
+                val request = speechRecognizerRequest {
+                    audioSource = source
+                }
                 val responses = runBlocking { client.startRecognition(request).toList() }
                 val finals = ArrayList<String>()
                 for (response in responses) {
@@ -257,14 +259,14 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
 
     private fun openClient(language: String?): SpeechRecognizer {
         val tag = language?.trim().orEmpty().ifEmpty { "en-US" }.replace('_', '-')
-        val locale = try {
+        val loc = try {
             Locale.forLanguageTag(tag)
         } catch (_: Throwable) {
             Locale.US
         }
-        val options = SpeechRecognizerOptions.builder(activity)
-            .setLocale(locale)
-            .build()
+        val options = speechRecognizerOptions {
+            locale = loc
+        }
         return SpeechRecognition.getClient(options)
     }
 
@@ -275,7 +277,7 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
         return try {
             val client = openClient("en-US")
             try {
-                when (client.checkStatus()) {
+                when (runBlocking { client.checkStatus() }) {
                     FeatureStatus.AVAILABLE -> capability(true, true, "")
                     FeatureStatus.DOWNLOADABLE -> capability(true, false, "model_downloadable")
                     FeatureStatus.DOWNLOADING -> capability(true, false, "model_downloading")

@@ -29,8 +29,9 @@ export class AndroidAppSearchRetriever implements SemanticRetriever {
   async retrieve(_req: SemanticRetrieveRequest): Promise<RetrievalResult[]> {
     const cap = await this.getCapability();
     if (!cap.ready) return [];
-    return invokeAndroidPlugin<RetrievalResult[]>(PLUGIN, "retrieve", {
+    const res = await invokeAndroidPlugin<{ results?: RetrievalResult[] }>(PLUGIN, "retrieve", {
       request: { ..._req, enabled: true },
     });
+    return res.results ?? [];
   }
 }

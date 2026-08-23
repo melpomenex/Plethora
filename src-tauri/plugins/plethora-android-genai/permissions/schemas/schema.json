@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the ondevice_ai_count_tokens command without any pre-configured scope."
         },
         {
+          "description": "Enables the ondevice_ai_describe_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ondevice-ai-describe-image",
+          "markdownDescription": "Enables the ondevice_ai_describe_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ondevice_ai_describe_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ondevice-ai-describe-image",
+          "markdownDescription": "Denies the ondevice_ai_describe_image command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ondevice_ai_download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ondevice-ai-download",
@@ -475,10 +487,10 @@
           "markdownDescription": "Denies the ondevice_ai_warm_up command without any pre-configured scope."
         },
         {
-          "description": "Allows the android-genai plugin's on-device generative AI commands to be invoked\nfrom the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)\nfor capability detection, summarization, free-form prompting, and ML Kit OCR,\nplus the EmbeddingGemma embedding backend (status/download/embed commands,\ndesign D10); everywhere else the status commands report `platform_unsupported`\nand the inference commands return a typed error so callers fall back to a\ncloud provider or lexical-only mode.\n\n#### This default permission set includes:\n\n- `allow-ondevice-ai-status`\n- `allow-ondevice-ai-capabilities`\n- `allow-ondevice-ai-generate`\n- `allow-ondevice-ai-count-tokens`\n- `allow-ondevice-ai-warm-up`\n- `allow-ondevice-ai-summarize`\n- `allow-ondevice-ai-prompt`\n- `allow-ondevice-ai-download`\n- `allow-ondevice-ai-start-prompt-stream`\n- `allow-ondevice-ai-cancel-prompt-request`\n- `allow-ondevice-ai-cancel`\n- `allow-ondevice-ai-ocr-labels`\n- `allow-ondevice-ai-embed-status`\n- `allow-ondevice-ai-embed-download`\n- `allow-ondevice-ai-embed-texts`",
+          "description": "Allows the android-genai plugin's on-device generative AI commands to be invoked\nfrom the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)\nfor capability detection, summarization, free-form prompting, and ML Kit OCR,\nplus the EmbeddingGemma embedding backend (status/download/embed commands,\ndesign D10); everywhere else the status commands report `platform_unsupported`\nand the inference commands return a typed error so callers fall back to a\ncloud provider or lexical-only mode.\n\n#### This default permission set includes:\n\n- `allow-ondevice-ai-status`\n- `allow-ondevice-ai-capabilities`\n- `allow-ondevice-ai-generate`\n- `allow-ondevice-ai-count-tokens`\n- `allow-ondevice-ai-warm-up`\n- `allow-ondevice-ai-summarize`\n- `allow-ondevice-ai-prompt`\n- `allow-ondevice-ai-download`\n- `allow-ondevice-ai-start-prompt-stream`\n- `allow-ondevice-ai-cancel-prompt-request`\n- `allow-ondevice-ai-cancel`\n- `allow-ondevice-ai-ocr-labels`\n- `allow-ondevice-ai-describe-image`\n- `allow-ondevice-ai-embed-status`\n- `allow-ondevice-ai-embed-download`\n- `allow-ondevice-ai-embed-texts`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the android-genai plugin's on-device generative AI commands to be invoked\nfrom the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)\nfor capability detection, summarization, free-form prompting, and ML Kit OCR,\nplus the EmbeddingGemma embedding backend (status/download/embed commands,\ndesign D10); everywhere else the status commands report `platform_unsupported`\nand the inference commands return a typed error so callers fall back to a\ncloud provider or lexical-only mode.\n\n#### This default permission set includes:\n\n- `allow-ondevice-ai-status`\n- `allow-ondevice-ai-capabilities`\n- `allow-ondevice-ai-generate`\n- `allow-ondevice-ai-count-tokens`\n- `allow-ondevice-ai-warm-up`\n- `allow-ondevice-ai-summarize`\n- `allow-ondevice-ai-prompt`\n- `allow-ondevice-ai-download`\n- `allow-ondevice-ai-start-prompt-stream`\n- `allow-ondevice-ai-cancel-prompt-request`\n- `allow-ondevice-ai-cancel`\n- `allow-ondevice-ai-ocr-labels`\n- `allow-ondevice-ai-embed-status`\n- `allow-ondevice-ai-embed-download`\n- `allow-ondevice-ai-embed-texts`"
+          "markdownDescription": "Allows the android-genai plugin's on-device generative AI commands to be invoked\nfrom the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)\nfor capability detection, summarization, free-form prompting, and ML Kit OCR,\nplus the EmbeddingGemma embedding backend (status/download/embed commands,\ndesign D10); everywhere else the status commands report `platform_unsupported`\nand the inference commands return a typed error so callers fall back to a\ncloud provider or lexical-only mode.\n\n#### This default permission set includes:\n\n- `allow-ondevice-ai-status`\n- `allow-ondevice-ai-capabilities`\n- `allow-ondevice-ai-generate`\n- `allow-ondevice-ai-count-tokens`\n- `allow-ondevice-ai-warm-up`\n- `allow-ondevice-ai-summarize`\n- `allow-ondevice-ai-prompt`\n- `allow-ondevice-ai-download`\n- `allow-ondevice-ai-start-prompt-stream`\n- `allow-ondevice-ai-cancel-prompt-request`\n- `allow-ondevice-ai-cancel`\n- `allow-ondevice-ai-ocr-labels`\n- `allow-ondevice-ai-describe-image`\n- `allow-ondevice-ai-embed-status`\n- `allow-ondevice-ai-embed-download`\n- `allow-ondevice-ai-embed-texts`"
         }
       ]
     }
