@@ -20,6 +20,7 @@ pub mod embeddings_backend;
 pub mod indexer;
 pub mod models;
 pub mod retrieval;
+pub mod spotlight;
 
 /// Timed perf tests for the chunker and the cosine top-k kernel (task 4.11).
 #[cfg(test)]

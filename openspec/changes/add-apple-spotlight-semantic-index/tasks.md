@@ -1,26 +1,26 @@
 ## 1. Identity and fakes
 
-- [ ] 1.1 Add `spotlight_uri` / parse helpers in Rust (`src-tauri/src/ai_learning/spotlight.rs`) with unit tests for all four kinds.
-- [ ] 1.2 Add `FakeSpotlight` projector recording donate/delete/domain-wipe.
+- [x] 1.1 Add `spotlight_uri` / parse helpers in Rust (`src-tauri/src/ai_learning/spotlight.rs`) with unit tests for all four kinds.
+- [x] 1.2 Add `FakeSpotlight` projector recording donate/delete/domain-wipe.
 
 ## 2. Plugin
 
-- [ ] 2.1 Implement Swift `AppleSpotlight.swift` for reserved `apple_spotlight_*` commands with `@available` guards; non-Apple stubs remain `platform_unsupported`.
-- [ ] 2.2 Default display eligibility false; `isEligibleForPublicIndexing` false.
+- [x] 2.1 Implement Swift `AppleSpotlight.swift` for reserved `apple_spotlight_*` commands with `@available` guards; non-Apple stubs remain `platform_unsupported`.
+- [x] 2.2 Default display eligibility false; `isEligibleForPublicIndexing` false.
 
 ## 3. Indexer hooks
 
-- [ ] 3.1 Call projector after per-document commit in `indexer.rs` (insert/update/delete URIs).
-- [ ] 3.2 Hook document delete, `removeSourceChunks`, `ai_learning_reset_index`, logout/wipe.
-- [ ] 3.3 Corruption detection (`spotlight_generation` / stats vs SQLite) + rebuild.
+- [x] 3.1 Call projector after per-document commit in `indexer.rs` (insert/update/delete URIs).
+- [x] 3.2 Hook document delete, `removeSourceChunks`, `ai_learning_reset_index`, logout/wipe.
+- [x] 3.3 Corruption detection (`spotlight_generation` / stats vs SQLite) + rebuild.
 
 ## 4. Settings and search merge
 
-- [ ] 4.1 Add `settings.search.systemSpotlightEnabled` default false + settings UI near index/privacy.
-- [ ] 4.2 Merge Spotlight candidates into `ftsSearch` / `CommandCenter` / `GlobalSearch` / `SearchPage` with dedup; FTS fallback.
-- [ ] 4.3 Consume A’s `apple_spotlight_search` platform id; do not register a second id (`apple_spotlight_index`). Implement reserved `apple_spotlight_rebuild` (domain wipe + indexer enqueue).
+- [x] 4.1 Add `settings.search.systemSpotlightEnabled` default false + settings UI near index/privacy.
+- [x] 4.2 Merge Spotlight candidates into `ftsSearch` / `CommandCenter` / `GlobalSearch` / `SearchPage` with dedup; FTS fallback.
+- [x] 4.3 Consume A’s `apple_spotlight_search` platform id; do not register a second id (`apple_spotlight_index`). Implement reserved `apple_spotlight_rebuild` (domain wipe + indexer enqueue).
 
 ## 5. Tests
 
-- [ ] 5.1 Rust lifecycle tests; TS merge/fallback/default-off tests.
-- [ ] 5.2 Manual: default items absent from system Spotlight; toggle on; airplane in-app search.
+- [x] 5.1 Rust lifecycle tests; TS merge/fallback/default-off tests.
+- [x] 5.2 Manual: default items absent from system Spotlight; toggle on; airplane in-app search.

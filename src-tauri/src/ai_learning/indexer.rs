@@ -439,6 +439,18 @@ pub async fn index_document_once(
         None,
     )
     .await?;
+    let chunk_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, text FROM semantic_chunks WHERE document_id = ?1",
+    )
+    .bind(document_id)
+    .fetch_all(repo.pool())
+    .await
+    .unwrap_or_default();
+    crate::ai_learning::spotlight::donate_document_chunks(
+        document_id,
+        &doc.title,
+        &chunk_rows,
+    );
     Ok(IndexOutcome::Completed)
 }
 

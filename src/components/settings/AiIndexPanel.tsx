@@ -92,7 +92,7 @@ const STATE_BADGE_CLASS: Record<string, string> = {
 export function AiIndexPanel() {
   const { t } = useI18n();
   const { confirm: confirmModal } = useModal();
-  const { enabled, updateSettingsCategory, embeddingProvider, embeddingModel, embeddingSettings } =
+  const { enabled, updateSettingsCategory, embeddingProvider, embeddingModel, embeddingSettings, systemSpotlightEnabled, updateSettings } =
     useSettingsStore(
       useShallow((s) => ({
         enabled: s.settings.features.aiSemanticIndex,
@@ -105,6 +105,8 @@ export function AiIndexPanel() {
           s.settings.embedding.openrouterModel ||
           "",
         embeddingSettings: s.settings.embedding,
+        systemSpotlightEnabled: s.settings.search?.systemSpotlightEnabled === true,
+        updateSettings: s.updateSettings,
       }))
     );
   const documents = useDocumentStore((s) => s.documents);
@@ -449,6 +451,18 @@ export function AiIndexPanel() {
                   </span>
                 </div>
               ))}
+              <label className="flex items-center justify-between gap-2 cursor-pointer">
+                <span>{t("aiLibrary.systemSpotlight")}</span>
+                <input
+                  type="checkbox"
+                  checked={systemSpotlightEnabled}
+                  onChange={(e) =>
+                    updateSettings({
+                      search: { systemSpotlightEnabled: e.target.checked },
+                    })
+                  }
+                />
+              </label>
               <div className="flex items-center justify-between gap-2">
                 <span>{t("aiLibrary.indexMode")}</span>
                 <span
