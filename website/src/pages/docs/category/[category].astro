@@ -1,0 +1,101 @@
+---
+import { getPublishedDocs, getDocUrl } from '../../../lib/docs.ts';
+import { DOC_CATEGORIES, getCategory } from '../../../config/docs-taxonomy.ts';
+import WikiLayout from '../../../components/wiki/WikiLayout.astro';
+
+export async function getStaticPaths() {
+  return DOC_CATEGORIES.map((cat) => ({
+    params: { category: cat.id },
+    props: { category: cat },
+  }));
+}
+
+const { category } = Astro.props;
+const docs = await getPublishedDocs();
+const categoryDocs = docs.filter((d) => d.data.category === category.id);
+---
+
+<WikiLayout
+  title={`${category.title} Documentation`}
+  description={category.description}
+  category={category.id}
+>
+  <header class="wiki-article-header">
+    <h1>{category.title}</h1>
+    <p class="wiki-article-desc">{category.description}</p>
+    <div class="wiki-article-meta">
+      <span>{categoryDocs.length} articles in this category</span>
+    </div>
+  </header>
+
+  <div class="wiki-category-article-list">
+    {
+      categoryDocs.map((doc) => (
+        <article class="wiki-category-item-card">
+          <h2>
+            <a href={getDocUrl(doc)}>{doc.data.title}</a>
+          </h2>
+          <p>{doc.data.description}</p>
+          <div class="wiki-item-meta">
+            {doc.data.featureStatus && (
+              <span class:list={['wiki-badge', `wiki-badge-${doc.data.featureStatus}`]}>
+                {doc.data.featureStatus === 'shipping' ? 'Shipped' : doc.data.featureStatus}
+              </span>
+            )}
+            {doc.data.platforms && !doc.data.platforms.includes('all') && (
+              <span>Platforms: {doc.data.platforms.join(', ')}</span>
+            )}
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</WikiLayout>
+
+<style>
+  .wiki-category-article-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-top: var(--space-5);
+  }
+
+  .wiki-category-item-card {
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--line);
+    background: var(--surface-card);
+    border-radius: var(--radius);
+  }
+
+  .wiki-category-item-card h2 {
+    margin: 0 0 var(--space-2);
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .wiki-category-item-card h2 a {
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .wiki-category-item-card h2 a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  .wiki-category-item-card p {
+    margin: 0 0 var(--space-3);
+    font-size: 0.95rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .wiki-item-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+</style>

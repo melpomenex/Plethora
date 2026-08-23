@@ -1,0 +1,141 @@
+---
+interface Props {
+  type?: 'note' | 'tip' | 'important' | 'warning' | 'platform' | 'experimental';
+  title?: string;
+  platform?: string;
+}
+
+const { type = 'note', title, platform } = Astro.props;
+
+const defaultTitles: Record<string, string> = {
+  note: 'Note',
+  tip: 'Tip',
+  important: 'Important',
+  warning: 'Warning',
+  platform: platform ? `Platform: ${platform}` : 'Platform Specific',
+  experimental: 'Coming Soon / Experimental',
+};
+
+const displayTitle = title ?? defaultTitles[type] ?? 'Note';
+---
+
+<aside class:list={['wiki-callout', `wiki-callout-${type}`]} role="note">
+  <div class="wiki-callout-header">
+    <span class="wiki-callout-icon" aria-hidden="true">
+      {type === 'note' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+      )}
+      {type === 'tip' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+        </svg>
+      )}
+      {type === 'important' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+      )}
+      {type === 'warning' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      )}
+      {type === 'platform' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+          <line x1="8" x2="16" y1="21" y2="21"></line>
+          <line x1="12" x2="12" y1="17" y2="21"></line>
+        </svg>
+      )}
+      {type === 'experimental' && (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 2v7.31"></path>
+          <path d="M14 9.3V2"></path>
+          <path d="M8.5 2h7"></path>
+          <path d="M14 9.3a6.5 6.5 0 1 1-4 0"></path>
+          <path d="M5.52 16h12.96"></path>
+        </svg>
+      )}
+    </span>
+    <strong class="wiki-callout-title">{displayTitle}</strong>
+  </div>
+  <div class="wiki-callout-body">
+    <slot />
+  </div>
+</aside>
+
+<style>
+  .wiki-callout {
+    margin-block: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border-left: 3px solid var(--ink);
+    background: var(--surface-card);
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .wiki-callout-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    font-family: var(--font-ui);
+    font-size: 0.9rem;
+    letter-spacing: -0.01em;
+  }
+
+  .wiki-callout-icon {
+    display: inline-flex;
+    color: var(--ink);
+  }
+
+  .wiki-callout-title {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .wiki-callout-body {
+    color: var(--ink-soft);
+  }
+
+  .wiki-callout-body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .wiki-callout-note {
+    border-left-color: var(--plethora-violet-500);
+    background: var(--surface-callout-note);
+  }
+
+  .wiki-callout-tip {
+    border-left-color: #10b981;
+    background: var(--surface-callout-tip);
+  }
+
+  .wiki-callout-warning {
+    border-left-color: #f59e0b;
+    background: var(--surface-callout-warning);
+  }
+
+  .wiki-callout-important {
+    border-left-color: var(--plethora-violet-800);
+    background: var(--surface-callout-important);
+  }
+
+  .wiki-callout-platform {
+    border-left-color: #3b82f6;
+    background: var(--surface-callout-platform);
+  }
+
+  .wiki-callout-experimental {
+    border-left-color: #d97706;
+    background: var(--surface-callout-experimental);
+  }
+</style>

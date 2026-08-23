@@ -1,0 +1,124 @@
+---
+interface Props {
+  srcLight: string;
+  srcDark?: string;
+  alt: string;
+  width: number;
+  height: number;
+  loading?: 'lazy' | 'eager';
+  decoding?: 'async' | 'sync' | 'auto';
+  class?: string;
+  srcsetLight?: string;
+  srcsetDark?: string;
+  sizes?: string;
+}
+
+const {
+  srcLight,
+  srcDark,
+  alt,
+  width,
+  height,
+  loading = 'lazy',
+  decoding = 'async',
+  class: className = '',
+  srcsetLight,
+  srcsetDark,
+  sizes,
+} = Astro.props;
+
+const hasDarkVariant = Boolean(srcDark);
+---
+
+{
+  hasDarkVariant ? (
+    <span class:list={['theme-image-wrapper', className]}>
+      <img
+        src={srcLight}
+        srcset={srcsetLight}
+        sizes={sizes}
+        alt={alt}
+        width={width}
+        height={height}
+        loading={loading}
+        decoding={decoding}
+        class="theme-img-light"
+      />
+      <img
+        src={srcDark}
+        srcset={srcsetDark}
+        sizes={sizes}
+        alt={alt}
+        width={width}
+        height={height}
+        loading={loading}
+        decoding={decoding}
+        class="theme-img-dark"
+      />
+    </span>
+  ) : (
+    <img
+      src={srcLight}
+      srcset={srcsetLight}
+      sizes={sizes}
+      alt={alt}
+      width={width}
+      height={height}
+      loading={loading}
+      decoding={decoding}
+      class={className}
+    />
+  )
+}
+
+<style>
+  .theme-image-wrapper {
+    display: inline-block;
+    max-width: 100%;
+  }
+
+  .theme-img-dark {
+    display: none;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .theme-img-light {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* 1. Explicit dark theme on html */
+  :global(html[data-theme='dark']) .theme-img-dark,
+  :global(html[data-effective-theme='dark']) .theme-img-dark {
+    display: block !important;
+  }
+
+  :global(html[data-theme='dark']) .theme-img-light,
+  :global(html[data-effective-theme='dark']) .theme-img-light {
+    display: none !important;
+  }
+
+  /* 2. Explicit light theme on html */
+  :global(html[data-theme='light']) .theme-img-dark,
+  :global(html[data-effective-theme='light']) .theme-img-dark {
+    display: none !important;
+  }
+
+  :global(html[data-theme='light']) .theme-img-light,
+  :global(html[data-effective-theme='light']) .theme-img-light {
+    display: block !important;
+  }
+
+  /* 3. System preference when not explicitly light/dark */
+  @media (prefers-color-scheme: dark) {
+    :global(html:not([data-theme='light']):not([data-effective-theme='light'])) .theme-img-dark {
+      display: block;
+    }
+
+    :global(html:not([data-theme='light']):not([data-effective-theme='light'])) .theme-img-light {
+      display: none;
+    }
+  }
+</style>

@@ -1,0 +1,138 @@
+---
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+interface Props {
+  headings?: Heading[];
+}
+
+const { headings = [] } = Astro.props;
+const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+{
+  filtered.length > 0 && (
+    <aside class="wiki-toc" aria-label="Table of contents" data-testid="wiki-toc">
+      <div class="wiki-toc-inner">
+        <h2 class="wiki-toc-title">On this page</h2>
+        <ul class="wiki-toc-list">
+          {filtered.map((h) => (
+            <li class:list={[`wiki-toc-item`, `depth-${h.depth}`]}>
+              <a href={`#${h.slug}`} data-toc-target={h.slug}>
+                {h.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </aside>
+  )
+}
+
+<style>
+  .wiki-toc {
+    display: none;
+  }
+
+  @media (min-width: 1200px) {
+    .wiki-toc {
+      display: block;
+      width: 14rem;
+      flex-shrink: 0;
+    }
+
+    .wiki-toc-inner {
+      position: sticky;
+      top: 5.5rem;
+      max-height: calc(100vh - 7rem);
+      overflow-y: auto;
+      padding-left: var(--space-3);
+      border-left: 1px solid var(--line);
+    }
+
+    .wiki-toc-title {
+      margin: 0 0 var(--space-3);
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .wiki-toc-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.85rem;
+      line-height: 1.45;
+    }
+
+    .wiki-toc-item {
+      margin-bottom: 0.4rem;
+    }
+
+    .wiki-toc-item.depth-3 {
+      padding-left: 0.75rem;
+    }
+
+    .wiki-toc-item a {
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+
+    .wiki-toc-item a:hover {
+      color: var(--ink);
+    }
+
+    .wiki-toc-item a.active {
+      color: var(--accent);
+      font-weight: 600;
+    }
+  }
+</style>
+
+<script>
+  function setupTocScrollspy() {
+    const tocLinks = document.querySelectorAll<HTMLAnchorElement>('[data-toc-target]');
+    if (!tocLinks.length) return;
+
+    const targets = Array.from(tocLinks)
+      .map((link) => {
+        const id = link.dataset.tocTarget;
+        return id ? document.getElementById(id) : null;
+      })
+      .filter((el): el is HTMLElement => el !== null);
+
+    if (!targets.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const activeId = entry.target.id;
+            tocLinks.forEach((link) => {
+              const matches = link.dataset.tocTarget === activeId;
+              link.classList.toggle('active', matches);
+              if (matches) {
+                link.setAttribute('aria-current', 'location');
+              } else {
+                link.removeAttribute('aria-current');
+              }
+            });
+          }
+        });
+      },
+      { rootMargin: '0px 0px -70% 0px', threshold: 0.1 }
+    );
+
+    targets.forEach((target) => observer.observe(target));
+  }
+
+  setupTocScrollspy();
+  document.addEventListener('astro:page-load', setupTocScrollspy);
+</script>

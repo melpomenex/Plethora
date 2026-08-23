@@ -1,5 +1,5 @@
 /**
- * useplethora.com visual tokens (change B).
+ * useplethora.com visual tokens.
  * Paper/ink is the page. Violet is the mark, not the wallpaper.
  * Mascot hexes match src/__tests__/brandInventory.test.ts.
  */
@@ -7,6 +7,7 @@
 :root {
   color-scheme: light;
 
+  /* Paper and ink surfaces */
   --paper: #f3f0e8;
   --paper-2: #e7e1d2;
   --paper-3: #ddd6c6;
@@ -15,7 +16,17 @@
   --muted: #5e574e;
   --line: #cfc7b8;
   --line-strong: #b7ae9d;
+  --surface-card: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-code: #e8e2d4;
+  --surface-callout-note: #e9e4d6;
+  --surface-callout-tip: #e4ebe4;
+  --surface-callout-warning: #faeee0;
+  --surface-callout-important: #ede6f5;
+  --surface-callout-platform: #e5edf5;
+  --surface-callout-experimental: #fdf3d8;
 
+  /* Canonical mascot palette (constant across themes) */
   --plethora-violet-400: #8b5cf6;
   --plethora-violet-500: #7c3aed;
   --plethora-violet-800: #5b21b6;
@@ -24,6 +35,14 @@
   --plethora-pupil: #1e1b4b;
   --plethora-boot: #0a0a0a;
 
+  /* Accents, focus, and selections */
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --focus-ring: #7c3aed;
+  --selection-bg: #ddd6fe;
+  --selection-text: #1c1916;
+
+  /* Spatial scale */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -38,6 +57,7 @@
   --wrap-narrow: 40rem;
   --gutter: 1.25rem;
 
+  /* Typography scale */
   --step-0: 1rem;
   --step-1: 1.125rem;
   --step-2: 1.333rem;
@@ -57,7 +77,70 @@
   --z-demo: 2;
 }
 
-/* No default-dark-AI theme. Optional graphite close band only if contrast holds. */
+/* Explicit Dark Theme */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --paper: #121016;
+  --paper-2: #1a1622;
+  --paper-3: #251f30;
+  --ink: #f4efe6;
+  --ink-soft: #d8d0c2;
+  --muted: #9e94a8;
+  --line: #2e273a;
+  --line-strong: #423952;
+  --surface-card: #1c1826;
+  --surface-elevated: #241f32;
+  --surface-code: #181422;
+  --surface-callout-note: #1c1828;
+  --surface-callout-tip: #16241b;
+  --surface-callout-warning: #291e14;
+  --surface-callout-important: #221734;
+  --surface-callout-platform: #141f2c;
+  --surface-callout-experimental: #2a2212;
+
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --focus-ring: #a78bfa;
+  --selection-bg: #4c1d95;
+  --selection-text: #f4efe6;
+
+  --shadow-frame: 0.4rem 0.85rem 1.8rem rgb(0 0 0 / 0.5);
+}
+
+/* System dark preference when data-theme is 'system' or unset */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --paper: #121016;
+    --paper-2: #1a1622;
+    --paper-3: #251f30;
+    --ink: #f4efe6;
+    --ink-soft: #d8d0c2;
+    --muted: #9e94a8;
+    --line: #2e273a;
+    --line-strong: #423952;
+    --surface-card: #1c1826;
+    --surface-elevated: #241f32;
+    --surface-code: #181422;
+    --surface-callout-note: #1c1828;
+    --surface-callout-tip: #16241b;
+    --surface-callout-warning: #291e14;
+    --surface-callout-important: #221734;
+    --surface-callout-platform: #141f2c;
+    --surface-callout-experimental: #2a2212;
+
+    --accent: #a78bfa;
+    --accent-hover: #c4b5fd;
+    --focus-ring: #a78bfa;
+    --selection-bg: #4c1d95;
+    --selection-text: #f4efe6;
+
+    --shadow-frame: 0.4rem 0.85rem 1.8rem rgb(0 0 0 / 0.5);
+  }
+}
+
 .band-graphite {
   background: var(--ink);
   color: var(--paper);

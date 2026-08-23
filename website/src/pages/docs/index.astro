@@ -1,36 +1,250 @@
 ---
-import { getCollection } from 'astro:content';
-import PageIntro from '../../components/commercial/PageIntro.astro';
-import { assertClaim } from '../../config/claims.ts';
+import { getPublishedDocs, groupDocsByCategory, getDocUrl } from '../../lib/docs.ts';
+import { DOC_CATEGORIES } from '../../config/docs-taxonomy.ts';
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import WikiSearch from '../../components/wiki/WikiSearch.astro';
 import { pageMeta } from '../../lib/page-meta.ts';
-import '../../styles/commercial.css';
+import '../../styles/wiki.css';
 
 const meta = await pageMeta('docs');
-const docs = (await getCollection('docs', ({ data }) => data.published)).sort((a, b) =>
-  a.data.title.localeCompare(b.data.title),
-);
-for (const doc of docs) {
-  for (const id of doc.data.claimIds) {
-    assertClaim(id);
-  }
-}
+const docs = await getPublishedDocs();
+const grouped = groupDocsByCategory(docs);
+
+const featuredDocs = [
+  docs.find((d) => d.id === 'getting-started') ?? docs[0],
+  docs.find((d) => d.id === 'incremental-reading') ?? docs[1],
+  docs.find((d) => d.id === 'fsrs-algorithm') ?? docs[2],
+  docs.find((d) => d.id === 'flashcard-studio') ?? docs[3],
+].filter(Boolean);
 ---
 
 <BaseLayout title={meta.title} description={meta.description} noindex={meta.noindex}>
-  <article class="commercial">
-    <PageIntro slug="docs" />
-    <ul class="docs-list">
-      {
-        docs.map((doc) => (
-          <li class="claim-card">
-            <h2>
-              <a href={`/docs/${doc.id}`}>{doc.data.title}</a>
-            </h2>
-            <p>{doc.data.description}</p>
-          </li>
-        ))
-      }
-    </ul>
-  </article>
+  <div class="wiki-home-container" data-testid="wiki-home">
+    <header class="wiki-home-hero">
+      <h1>Plethora Documentation & Wiki</h1>
+      <p class="wiki-home-lede">
+        Guides, behavioral rules, and reference documentation for incremental reading, adaptive spaced repetition, and knowledge retention.
+      </p>
+      <div class="wiki-home-search-wrap">
+        <WikiSearch />
+      </div>
+    </header>
+
+    <section class="wiki-home-section">
+      <h2 class="wiki-home-section-title">Essential Reading</h2>
+      <div class="wiki-featured-grid">
+        {
+          featuredDocs.map((doc) => (
+            <a href={getDocUrl(doc)} class="wiki-featured-card">
+              <span class="wiki-featured-cat">
+                {DOC_CATEGORIES.find((c) => c.id === doc.data.category)?.title ?? doc.data.category}
+              </span>
+              <h3>{doc.data.title}</h3>
+              <p>{doc.data.description}</p>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="wiki-home-section">
+      <h2 class="wiki-home-section-title">Browse by Category</h2>
+      <div class="wiki-category-grid">
+        {
+          DOC_CATEGORIES.map((cat) => {
+            const catDocs = grouped.get(cat.id) || [];
+            return (
+              <div class="wiki-category-card">
+                <div class="wiki-category-header">
+                  <h3>
+                    <a href={`/docs/category/${cat.id}`}>{cat.title}</a>
+                  </h3>
+                  <span class="wiki-cat-count">{catDocs.length} articles</span>
+                </div>
+                <p class="wiki-cat-desc">{cat.description}</p>
+                <ul class="wiki-cat-sample-list">
+                  {catDocs.slice(0, 3).map((doc) => (
+                    <li>
+                      <a href={getDocUrl(doc)}>{doc.data.title}</a>
+                    </li>
+                  ))}
+                  {catDocs.length > 3 && (
+                    <li class="wiki-cat-more">
+                      <a href={`/docs/category/${cat.id}`}>+ {catDocs.length - 3} more articles ›</a>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            );
+          })
+        }
+      </div>
+    </section>
+  </div>
 </BaseLayout>
+
+<style>
+  .wiki-home-container {
+    width: min(var(--wrap), calc(100% - 2 * var(--gutter)));
+    margin-inline: auto;
+    padding-bottom: var(--space-8);
+  }
+
+  .wiki-home-hero {
+    padding-block: var(--space-6) var(--space-7);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-7);
+    text-align: center;
+  }
+
+  .wiki-home-hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2.2rem, 4vw, 3.2rem);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    margin: 0 0 var(--space-3);
+    color: var(--ink);
+  }
+
+  .wiki-home-lede {
+    font-size: var(--step-1);
+    color: var(--muted);
+    max-width: 42ch;
+    margin-inline: auto;
+    line-height: 1.5;
+  }
+
+  .wiki-home-search-wrap {
+    max-width: 32rem;
+    margin: var(--space-5) auto 0;
+  }
+
+  .wiki-home-section {
+    margin-bottom: var(--space-8);
+  }
+
+  .wiki-home-section-title {
+    font-family: var(--font-display);
+    font-size: var(--step-3);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space-5);
+    color: var(--ink);
+  }
+
+  .wiki-featured-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: var(--space-4);
+  }
+
+  .wiki-featured-card {
+    padding: var(--space-5);
+    border: 1px solid var(--line);
+    background: var(--surface-card);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .wiki-featured-card:hover {
+    border-color: var(--ink);
+    transform: translateY(-2px);
+  }
+
+  .wiki-featured-cat {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    display: block;
+    margin-bottom: var(--space-2);
+  }
+
+  .wiki-featured-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 var(--space-2);
+    color: var(--ink);
+  }
+
+  .wiki-featured-card p {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  .wiki-category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    gap: var(--space-5);
+  }
+
+  .wiki-category-card {
+    padding: var(--space-5);
+    border: 1px solid var(--line);
+    background: var(--surface-card);
+    border-radius: var(--radius);
+  }
+
+  .wiki-category-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .wiki-category-header h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+
+  .wiki-category-header h3 a {
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .wiki-category-header h3 a:hover {
+    color: var(--accent);
+  }
+
+  .wiki-cat-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0 0 var(--space-3);
+    line-height: 1.45;
+  }
+
+  .wiki-cat-sample-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    border-top: 1px solid var(--line);
+    padding-top: var(--space-3);
+  }
+
+  .wiki-cat-sample-list a {
+    color: var(--ink-soft);
+    text-decoration: none;
+  }
+
+  .wiki-cat-sample-list a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  .wiki-cat-more a {
+    color: var(--muted);
+    font-weight: 500;
+  }
+</style>

@@ -184,3 +184,4 @@ src-tauri/gen/apple/secrets/*
 # whenever a plugin with an ios/ dir is built)
 src-tauri/plugins/*/.tauri/
 src-tauri/plugins/*/android/.tauri/
+.env*

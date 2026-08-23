@@ -1,0 +1,81 @@
+---
+interface Props {
+  prev?: { title: string; url: string };
+  next?: { title: string; url: string };
+}
+
+const { prev, next } = Astro.props;
+---
+
+{
+  (prev || next) && (
+    <nav class="wiki-prev-next" aria-label="Previous and next documentation pages">
+      {prev ? (
+        <a href={prev.url} class="wiki-nav-card wiki-nav-prev">
+          <span class="wiki-nav-direction">‹ Previous</span>
+          <span class="wiki-nav-title">{prev.title}</span>
+        </a>
+      ) : (
+        <div class="wiki-nav-spacer" />
+      )}
+      {next ? (
+        <a href={next.url} class="wiki-nav-card wiki-nav-next">
+          <span class="wiki-nav-direction">Next ›</span>
+          <span class="wiki-nav-title">{next.title}</span>
+        </a>
+      ) : (
+        <div class="wiki-nav-spacer" />
+      )}
+    </nav>
+  )
+}
+
+<style>
+  .wiki-prev-next {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--line);
+  }
+
+  .wiki-nav-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    background: var(--surface-card);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .wiki-nav-card:hover {
+    border-color: var(--ink);
+  }
+
+  .wiki-nav-next {
+    text-align: right;
+  }
+
+  .wiki-nav-direction {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .wiki-nav-title {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .wiki-nav-spacer {
+    display: block;
+  }
+</style>

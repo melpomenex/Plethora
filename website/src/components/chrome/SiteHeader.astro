@@ -1,5 +1,6 @@
 ---
 import chirpUrl from '../../assets/brand/plethora-chirp.svg?url';
+import ThemeToggle from './ThemeToggle.astro';
 import { COPY } from '../../config/copy.ts';
 import { SITE_ROUTES } from '../../config/routes.ts';
 
@@ -12,17 +13,28 @@ const links = SITE_ROUTES.filter((route) => route.inPrimaryNav && route.path !==
     <img src={chirpUrl} width="32" height="32" alt="" />
     {COPY.productName}
   </a>
-  <nav class="site-nav" aria-label="Primary" data-testid="site-nav">
-    <ul>
-      {
-        links.map((route) => (
-          <li>
-            <a href={route.path} aria-current={current === route.path ? 'page' : undefined}>
-              {route.navLabel}
-            </a>
-          </li>
-        ))
-      }
-    </ul>
-  </nav>
+  <div class="site-header-actions">
+    <nav class="site-nav" aria-label="Primary" data-testid="site-nav">
+      <ul>
+        {
+          links.map((route) => (
+            <li>
+              <a href={route.path} aria-current={current === route.path ? 'page' : undefined}>
+                {route.navLabel}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+    <ThemeToggle />
+  </div>
 </header>
+
+<style>
+  .site-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+</style>

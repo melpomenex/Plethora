@@ -32,14 +32,60 @@ const noindex = flags.indexing === 'noindex' || Astro.props.noindex === true;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      (function () {
+        try {
+          const stored = localStorage.getItem('plethora-theme');
+          const theme = stored === 'light' || stored === 'dark' ? stored : 'system';
+          const isDark =
+            theme === 'dark' ||
+            (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.effectiveTheme = isDark ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'system';
+          document.documentElement.dataset.effectiveTheme = 'light';
+          document.documentElement.style.colorScheme = 'light';
+        }
+      })();
+    </script>
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="canonical" href={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content={COPY.productName} />
+    <meta name="theme-color" content="#f3f0e8" id="meta-theme-color" />
     {noindex && <meta name="robots" content="noindex, nofollow" />}
+    <script is:inline>
+      (function () {
+        function updateThemeColor() {
+          const isDark = document.documentElement.dataset.effectiveTheme === 'dark';
+          const meta = document.getElementById('meta-theme-color');
+          if (meta) {
+            meta.setAttribute('content', isDark ? '#121016' : '#f3f0e8');
+          }
+        }
+        updateThemeColor();
+        window.addEventListener('plethora-theme-change', updateThemeColor);
+        if (window.matchMedia) {
+          window
+            .matchMedia('(prefers-color-scheme: dark)')
+            .addEventListener('change', function (e) {
+              if (document.documentElement.dataset.theme === 'system') {
+                document.documentElement.dataset.effectiveTheme = e.matches ? 'dark' : 'light';
+                document.documentElement.style.colorScheme = e.matches ? 'dark' : 'light';
+                updateThemeColor();
+              }
+            });
+        }
+      })();
+    </script>
   </head>
   <body>
     <SkipLink />

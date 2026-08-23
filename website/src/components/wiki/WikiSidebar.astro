@@ -1,0 +1,171 @@
+---
+import { DOC_CATEGORIES, type DocCategoryKey } from '../../config/docs-taxonomy.ts';
+import { groupDocsByCategory, getDocUrl, type DocEntry } from '../../lib/docs.ts';
+
+interface Props {
+  docs: DocEntry[];
+  currentDocId?: string;
+  currentCategory?: string;
+}
+
+const { docs, currentDocId, currentCategory } = Astro.props;
+const grouped = groupDocsByCategory(docs);
+---
+
+<aside class="wiki-sidebar" aria-label="Documentation sidebar" data-testid="wiki-sidebar">
+  <div class="wiki-sidebar-inner">
+    <div class="wiki-sidebar-header">
+      <a href="/docs" class="wiki-home-link">
+        <strong>Plethora Wiki</strong>
+      </a>
+      <span class="wiki-doc-count">{docs.length} articles</span>
+    </div>
+    <nav class="wiki-sidebar-nav" aria-label="Documentation categories">
+      {
+        DOC_CATEGORIES.map((cat) => {
+          const catDocs = grouped.get(cat.id) || [];
+          if (catDocs.length === 0) return null;
+          const isCurrentCat = currentCategory === cat.id || catDocs.some((d) => d.id === currentDocId);
+
+          return (
+            <details class="wiki-nav-group" open={isCurrentCat}>
+              <summary class="wiki-nav-group-title">
+                <span>{cat.title}</span>
+                <span class="wiki-cat-count">{catDocs.length}</span>
+              </summary>
+              <ul class="wiki-nav-doc-list">
+                {catDocs.map((doc) => {
+                  const isCurrentDoc = doc.id === currentDocId;
+                  return (
+                    <li>
+                      <a
+                        href={getDocUrl(doc)}
+                        class:list={['wiki-nav-doc-link', { active: isCurrentDoc }]}
+                        aria-current={isCurrentDoc ? 'page' : undefined}
+                      >
+                        {doc.data.title}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          );
+        })
+      }
+    </nav>
+  </div>
+</aside>
+
+<style>
+  .wiki-sidebar {
+    width: 100%;
+  }
+
+  .wiki-sidebar-inner {
+    padding-bottom: var(--space-6);
+  }
+
+  .wiki-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .wiki-home-link {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .wiki-doc-count {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .wiki-sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .wiki-nav-group {
+    border-radius: var(--radius);
+  }
+
+  .wiki-nav-group-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.35rem 0.5rem;
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+    border-radius: var(--radius);
+    transition: background-color 0.15s ease;
+  }
+
+  .wiki-nav-group-title:hover {
+    background-color: var(--paper-2);
+  }
+
+  .wiki-cat-count {
+    font-size: 0.7rem;
+    font-weight: normal;
+    color: var(--muted);
+  }
+
+  .wiki-nav-doc-list {
+    margin: 0.25rem 0 0.5rem;
+    padding-left: 0.75rem;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .wiki-nav-doc-link {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-radius: var(--radius);
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .wiki-nav-doc-link:hover {
+    color: var(--ink);
+    background-color: var(--paper-2);
+  }
+
+  .wiki-nav-doc-link.active {
+    color: var(--accent);
+    font-weight: 600;
+    background-color: var(--surface-card);
+  }
+
+  @media (min-width: 1024px) {
+    .wiki-sidebar {
+      width: 17rem;
+      flex-shrink: 0;
+    }
+
+    .wiki-sidebar-inner {
+      position: sticky;
+      top: 5.5rem;
+      max-height: calc(100vh - 7rem);
+      overflow-y: auto;
+      padding-right: var(--space-4);
+      border-right: 1px solid var(--line);
+    }
+  }
+</style>

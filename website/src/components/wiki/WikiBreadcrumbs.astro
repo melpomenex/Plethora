@@ -1,0 +1,75 @@
+---
+import { getCategory } from '../../config/docs-taxonomy.ts';
+
+interface Props {
+  category?: string;
+  categoryTitle?: string;
+  title?: string;
+}
+
+const { category, categoryTitle, title } = Astro.props;
+const catInfo = category ? getCategory(category) : undefined;
+const resolvedCatTitle = categoryTitle ?? catInfo?.title ?? category;
+---
+
+<nav class="wiki-breadcrumbs" aria-label="Breadcrumbs">
+  <ol>
+    <li>
+      <a href="/docs">Docs</a>
+    </li>
+    {
+      category && (
+        <li>
+          <span class="sep" aria-hidden="true">›</span>
+          <a href={`/docs/category/${category}`}>{resolvedCatTitle}</a>
+        </li>
+      )
+    }
+    {
+      title && (
+        <li>
+          <span class="sep" aria-hidden="true">›</span>
+          <span class="current" aria-current="page">{title}</span>
+        </li>
+      )
+    }
+  </ol>
+</nav>
+
+<style>
+  .wiki-breadcrumbs {
+    margin-bottom: var(--space-4);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .wiki-breadcrumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .wiki-breadcrumbs a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .wiki-breadcrumbs a:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+
+  .wiki-breadcrumbs .sep {
+    user-select: none;
+    color: var(--line-strong);
+  }
+
+  .wiki-breadcrumbs .current {
+    color: var(--ink);
+    font-weight: 500;
+  }
+</style>

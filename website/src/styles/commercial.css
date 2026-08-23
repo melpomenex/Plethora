@@ -33,7 +33,8 @@
 .step-card {
   padding: 1rem 1.1rem;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-card);
+  color: var(--ink);
 }
 
 .claim-card h3,
@@ -83,7 +84,8 @@
   font: inherit;
   padding: 0.35rem 0.75rem;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-card);
+  color: var(--ink);
   cursor: pointer;
 }
 
@@ -121,7 +123,8 @@
   margin: 0 0 1.5rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--ink);
-  background: #fff;
+  background: var(--surface-card);
+  color: var(--ink);
 }
 
 .download-card[data-recommended='true'] {

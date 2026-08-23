@@ -1,8 +1,10 @@
 ---
 import { getCollection, render } from 'astro:content';
 import { assertClaim } from '../../config/claims.ts';
-import BaseLayout from '../../layouts/BaseLayout.astro';
-import '../../styles/commercial.css';
+import { getPublishedDocs, getPrevNextDocs } from '../../lib/docs.ts';
+import { getCategory } from '../../config/docs-taxonomy.ts';
+import WikiLayout from '../../components/wiki/WikiLayout.astro';
+import WikiPrevNext from '../../components/wiki/WikiPrevNext.astro';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs', ({ data }) => data.published);
@@ -16,15 +18,45 @@ const { doc } = Astro.props;
 for (const id of doc.data.claimIds) {
   assertClaim(id);
 }
-const { Content } = await render(doc);
+
+const allDocs = await getPublishedDocs();
+const { prev, next } = getPrevNextDocs(doc, allDocs);
+const { Content, headings } = await render(doc);
+
+const catInfo = getCategory(doc.data.category);
 ---
 
-<BaseLayout title={`${doc.data.title} — Plethora`} description={doc.data.description} noindex={doc.data.noindex}>
-  <article class="commercial">
-    <p><a href="/docs">All docs</a></p>
+<WikiLayout
+  title={doc.data.title}
+  description={doc.data.description}
+  category={doc.data.category}
+  currentDocId={doc.id}
+  headings={headings}
+  noindex={doc.data.noindex}
+>
+  <header class="wiki-article-header">
     <h1>{doc.data.title}</h1>
-    <div class="lede">
-      <Content />
+    <p class="wiki-article-desc">{doc.data.description}</p>
+    <div class="wiki-article-meta">
+      <span class="wiki-meta-item">
+        Category: <strong>{catInfo?.title ?? doc.data.category}</strong>
+      </span>
+      {doc.data.featureStatus && (
+        <span class:list={['wiki-badge', `wiki-badge-${doc.data.featureStatus}`]}>
+          {doc.data.featureStatus === 'shipping' ? 'Shipped' : doc.data.featureStatus}
+        </span>
+      )}
+      {doc.data.platforms && !doc.data.platforms.includes('all') && (
+        <span class="wiki-meta-item">
+          Platforms: {doc.data.platforms.join(', ')}
+        </span>
+      )}
     </div>
-  </article>
-</BaseLayout>
+  </header>
+
+  <div class="wiki-content">
+    <Content />
+  </div>
+
+  <WikiPrevNext prev={prev} next={next} />
+</WikiLayout>

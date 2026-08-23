@@ -1,0 +1,92 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import WikiSidebar from './WikiSidebar.astro';
+import WikiToc from './WikiToc.astro';
+import WikiBreadcrumbs from './WikiBreadcrumbs.astro';
+import WikiSearch from './WikiSearch.astro';
+import { getPublishedDocs, type DocEntry, type TocHeading } from '../../lib/docs.ts';
+import '../../styles/wiki.css';
+
+interface Props {
+  title: string;
+  description: string;
+  category?: string;
+  currentDocId?: string;
+  headings?: TocHeading[];
+  noindex?: boolean;
+}
+
+const { title, description, category, currentDocId, headings = [], noindex } = Astro.props;
+const docs = await getPublishedDocs();
+---
+
+<BaseLayout title={`${title} — Plethora Docs`} description={description} noindex={noindex}>
+  <div class="wiki-container" data-testid="wiki-container">
+    <div class="wiki-grid">
+      <div class="wiki-col-sidebar">
+        <WikiSearch />
+        <WikiSidebar docs={docs} currentDocId={currentDocId} currentCategory={category} />
+      </div>
+      <article class="wiki-col-main" data-testid="wiki-article">
+        <WikiBreadcrumbs category={category} title={currentDocId ? title : undefined} />
+        <slot />
+      </article>
+      <div class="wiki-col-toc">
+        <WikiToc headings={headings} />
+      </div>
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .wiki-container {
+    width: min(var(--wrap), calc(100% - 2 * var(--gutter)));
+    margin-inline: auto;
+    padding-bottom: var(--space-8);
+  }
+
+  .wiki-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .wiki-col-sidebar {
+    width: 100%;
+  }
+
+  .wiki-col-main {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .wiki-col-toc {
+    display: none;
+  }
+
+  @media (min-width: 1024px) {
+    .wiki-grid {
+      flex-direction: row;
+      align-items: flex-start;
+      gap: var(--space-6);
+    }
+
+    .wiki-col-sidebar {
+      width: 17rem;
+      flex-shrink: 0;
+    }
+
+    .wiki-col-main {
+      flex: 1 1 0%;
+      max-width: 48rem;
+    }
+  }
+
+  @media (min-width: 1200px) {
+    .wiki-col-toc {
+      display: block;
+      width: 14rem;
+      flex-shrink: 0;
+    }
+  }
+</style>

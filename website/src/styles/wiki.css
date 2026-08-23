@@ -1,0 +1,233 @@
+/**
+ * Plethora Wiki Editorial Typography & Components
+ */
+
+.wiki-article-header {
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.wiki-article-header h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: 0 0 var(--space-3);
+  color: var(--ink);
+}
+
+.wiki-article-desc {
+  font-size: var(--step-1);
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0 0 var(--space-3);
+}
+
+.wiki-article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.wiki-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+}
+
+.wiki-badge-shipping {
+  background: var(--surface-callout-tip);
+  border-color: #10b981;
+  color: #065f46;
+}
+
+:root[data-theme='dark'] .wiki-badge-shipping,
+:root[data-effective-theme='dark'] .wiki-badge-shipping {
+  color: #6ee7b7;
+}
+
+.wiki-content {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.wiki-content > * + * {
+  margin-top: var(--space-4);
+}
+
+.wiki-content h2 {
+  font-family: var(--font-display);
+  font-size: var(--step-3);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-3);
+  color: var(--ink);
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wiki-content h3 {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-2);
+  color: var(--ink);
+}
+
+.wiki-content p {
+  margin-bottom: var(--space-4);
+}
+
+.wiki-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.wiki-content a:hover {
+  color: var(--accent-hover);
+}
+
+.wiki-content ul,
+.wiki-content ol {
+  padding-left: 1.5rem;
+  margin-bottom: var(--space-4);
+}
+
+.wiki-content li {
+  margin-bottom: 0.35rem;
+}
+
+.wiki-content hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin-block: var(--space-6);
+}
+
+.wiki-content blockquote {
+  margin: var(--space-5) 0;
+  padding: var(--space-3) var(--space-5);
+  border-left: 3px solid var(--line-strong);
+  background: var(--paper-2);
+  font-style: italic;
+  color: var(--ink);
+}
+
+.wiki-content kbd,
+kbd {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+  background-color: var(--paper-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+}
+
+.wiki-content code:not(pre code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius);
+  background: var(--surface-code);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.wiki-content pre {
+  padding: var(--space-4);
+  background: var(--surface-code);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.wiki-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-block: var(--space-5);
+}
+
+.wiki-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.wiki-content th,
+.wiki-content td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.wiki-content th {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
+.wiki-content tr:hover td {
+  background: var(--paper-2);
+}
+
+/* Step list procedure */
+.wiki-steps {
+  margin: var(--space-5) 0;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: step-counter;
+}
+
+.wiki-steps li {
+  position: relative;
+  padding-left: 2.75rem;
+  margin-bottom: var(--space-4);
+  counter-increment: step-counter;
+}
+
+.wiki-steps li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
