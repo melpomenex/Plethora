@@ -20,11 +20,21 @@
 
 import type { Offset } from "./geometry";
 
+function isElement(target: EventTarget | null): target is Element {
+  return Boolean(
+    target &&
+      typeof target === "object" &&
+      "nodeType" in target &&
+      (target as Node).nodeType === 1 &&
+      typeof (target as Element).closest === "function",
+  );
+}
+
 /** Attribute marking the controller's own portaled UI (bar/sheet host). */
 export const SELECTION_INTERACTION_UI_ATTR = "data-selection-interaction-ui";
 
 export function isSelectionInteractionUi(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(`[${SELECTION_INTERACTION_UI_ATTR}]`) !== null;
+  return isElement(target) && target.closest(`[${SELECTION_INTERACTION_UI_ATTR}]`) !== null;
 }
 
 /** Selectors that identify reader content for event scoping. */
@@ -38,13 +48,105 @@ const CONTENT_SCOPERS = [
 ];
 
 export function isContentElement(target: EventTarget | null, extraRoots?: Set<Element>): boolean {
-  if (!(target instanceof Element)) return false;
+  if (!isElement(target)) return false;
   if (extraRoots) {
     for (const root of extraRoots) {
       if (root === target || root.contains(target)) return true;
     }
   }
+  // Inside a content iframe, document !== window.document; the entire iframe body is reader content
+  if (target.ownerDocument && typeof document !== "undefined" && target.ownerDocument !== document) {
+    return true;
+  }
   return target.closest(CONTENT_SCOPERS.join(",")) !== null;
+}
+
+/** Interactive element selectors that should NOT trigger automatic paragraph selection. */
+export const INTERACTIVE_SELECTORS = [
+  "a",
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "[role='button']",
+  "[role='link']",
+  "[data-selection-interaction-ui]",
+  ".no-select",
+];
+
+export function isInteractiveElement(target: EventTarget | null): boolean {
+  if (!isElement(target)) return false;
+  return target.closest(INTERACTIVE_SELECTORS.join(",")) !== null;
+}
+
+/** Selectors identifying block-level paragraph content units. */
+export const PARAGRAPH_SELECTORS = [
+  "p",
+  "blockquote",
+  "[data-pdf-reflow-block]",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+];
+
+/**
+ * Resolves the closest enclosing paragraph element from a touch/click target,
+ * excluding interactive controls and non-content areas.
+ */
+export function findParagraphElement(
+  target: EventTarget | null,
+  extraRoots?: Set<Element>,
+): HTMLElement | null {
+  if (!isElement(target)) return null;
+  if (isInteractiveElement(target)) return null;
+  if (!isContentElement(target, extraRoots)) return null;
+
+  const el = target.closest<HTMLElement>(PARAGRAPH_SELECTORS.join(","));
+  if (!el) return null;
+  if (!el.textContent?.trim()) return null;
+  return el;
+}
+
+/**
+ * Programmatically creates a DOM Range covering the entire text contents of a
+ * paragraph element and sets it as the active Selection in that document.
+ */
+export function selectParagraphElement(
+  paragraph: HTMLElement,
+  targetDoc: Document = document,
+): boolean {
+  const win = targetDoc.defaultView || (typeof window !== "undefined" ? window : null);
+  const selection =
+    win?.getSelection?.() ||
+    (typeof (targetDoc as unknown as { getSelection?: () => Selection }).getSelection === "function"
+      ? (targetDoc as unknown as { getSelection: () => Selection }).getSelection()
+      : null) ||
+    (typeof window !== "undefined" ? window.getSelection?.() : null);
+  if (!selection) return false;
+
+  try {
+    const range = targetDoc.createRange();
+    range.selectNodeContents(paragraph);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const DOUBLE_TAP_MAX_DELAY_MS = 350;
+export const DOUBLE_TAP_MAX_DISTANCE_PX = 30;
+
+interface TouchPoint {
+  time: number;
+  x: number;
+  y: number;
+  target: EventTarget | null;
 }
 
 /**
@@ -80,6 +182,11 @@ export interface SelectionAdapterHandlers {
    * auto-opens the dictionary peek (design D3).
    */
   onDoubleClick?: () => void;
+  /**
+   * Double-tap on a paragraph in reader content: flags the next settle's
+   * gesture origin as "double-tap" and triggers immediate UI activation.
+   */
+  onDoubleTap?: (paragraphElement: HTMLElement) => void;
   /** True when the event target belongs to controller-owned UI. */
   isOwnUi?: (target: EventTarget | null) => boolean;
 }
@@ -100,11 +207,50 @@ export function attachTopDocumentAdapter(
   const ownUi = (target: EventTarget | null) =>
     handlers.isOwnUi?.(target) || isSelectionInteractionUi(target);
 
+  let lastTouchPoint: TouchPoint | null = null;
+
   const handleSelectionChange = () => handlers.onSelectionChanged();
 
   const handleTouchStart = (e: Event) => {
     if (ownUi(e.target)) return;
-    handlers.onContentTouchStart(isContentElement(e.target, options.contentRoots?.()));
+    const inContent = isContentElement(e.target, options.contentRoots?.());
+
+    if (inContent && "touches" in e) {
+      const touchEvent = e as TouchEvent;
+      const touch = touchEvent.touches?.[0];
+      if (touch) {
+        const now = Date.now();
+        const prev = lastTouchPoint;
+        if (
+          prev &&
+          now - prev.time <= DOUBLE_TAP_MAX_DELAY_MS &&
+          Math.hypot(touch.clientX - prev.x, touch.clientY - prev.y) <= DOUBLE_TAP_MAX_DISTANCE_PX
+        ) {
+          const paragraph = findParagraphElement(e.target, options.contentRoots?.());
+          if (paragraph) {
+            if (e.cancelable) e.preventDefault();
+            const selected = selectParagraphElement(paragraph, document);
+            if (selected) {
+              lastTouchPoint = null;
+              handlers.onContentTouchStart(inContent);
+              handlers.onSelectionChanged();
+              handlers.onDoubleTap?.(paragraph);
+              return;
+            }
+          }
+        }
+        lastTouchPoint = {
+          time: now,
+          x: touch.clientX,
+          y: touch.clientY,
+          target: e.target,
+        };
+      }
+    } else {
+      lastTouchPoint = null;
+    }
+
+    handlers.onContentTouchStart(inContent);
   };
   const handleTouchEnd = () => handlers.onContentTouchEnd();
 
@@ -133,6 +279,14 @@ export function attachTopDocumentAdapter(
 
   const handleDblClick = (e: Event) => {
     if (ownUi(e.target)) return;
+    const paragraph = findParagraphElement(e.target, options.contentRoots?.());
+    if (paragraph) {
+      const selected = selectParagraphElement(paragraph, document);
+      if (selected) {
+        handlers.onSelectionChanged();
+        handlers.onDoubleTap?.(paragraph);
+      }
+    }
     handlers.onDoubleClick?.();
   };
 
@@ -175,9 +329,47 @@ export function attachContentDocumentBridge(
   handlers: SelectionAdapterHandlers,
 ): () => void {
   const { doc } = entry;
+  let lastBridgeTouchPoint: TouchPoint | null = null;
+
   const handleSelectionChange = () => handlers.onSelectionChanged();
   const handleTouchStart = (e: Event) => {
     if (isSelectionInteractionUi(e.target)) return;
+
+    if ("touches" in e) {
+      const touchEvent = e as TouchEvent;
+      const touch = touchEvent.touches?.[0];
+      if (touch) {
+        const now = Date.now();
+        const prev = lastBridgeTouchPoint;
+        if (
+          prev &&
+          now - prev.time <= DOUBLE_TAP_MAX_DELAY_MS &&
+          Math.hypot(touch.clientX - prev.x, touch.clientY - prev.y) <= DOUBLE_TAP_MAX_DISTANCE_PX
+        ) {
+          const paragraph = findParagraphElement(e.target);
+          if (paragraph) {
+            if (e.cancelable) e.preventDefault();
+            const selected = selectParagraphElement(paragraph, doc);
+            if (selected) {
+              lastBridgeTouchPoint = null;
+              handlers.onContentTouchStart(true);
+              handlers.onSelectionChanged();
+              handlers.onDoubleTap?.(paragraph);
+              return;
+            }
+          }
+        }
+        lastBridgeTouchPoint = {
+          time: now,
+          x: touch.clientX,
+          y: touch.clientY,
+          target: e.target,
+        };
+      }
+    } else {
+      lastBridgeTouchPoint = null;
+    }
+
     // Inside reader content by definition: a fresh gesture here clears the
     // dismissal guard (deliberate re-selection of suppressed text).
     handlers.onContentTouchStart(true);
@@ -186,6 +378,14 @@ export function attachContentDocumentBridge(
   const handleMouseUp = () => handlers.onPointerRelease();
   const handleDblClick = (e: Event) => {
     if (isSelectionInteractionUi(e.target)) return;
+    const paragraph = findParagraphElement(e.target);
+    if (paragraph) {
+      const selected = selectParagraphElement(paragraph, doc);
+      if (selected) {
+        handlers.onSelectionChanged();
+        handlers.onDoubleTap?.(paragraph);
+      }
+    }
     handlers.onDoubleClick?.();
   };
   const handleScroll = (e: Event) => {
@@ -220,3 +420,4 @@ export function attachContentDocumentBridge(
     doc.removeEventListener("scroll", handleScroll, { capture: true } as EventListenerOptions);
   };
 }
+

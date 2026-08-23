@@ -430,6 +430,11 @@ export function useSelectionInteraction(
         // the word selected by this double-click settle as "double-click" (the
         // only desktop origin that auto-opens the dictionary peek).
         lastGestureRef.current = { origin: "double-click", at: Date.now() };
+        armSettleTimer(true);
+      },
+      onDoubleTap: () => {
+        lastGestureRef.current = { origin: "double-tap", at: Date.now() };
+        armSettleTimer(true);
       },
       onContentScroll: (target, top, left) => {
         scheduleRevalidate(); // reposition at most once per frame…

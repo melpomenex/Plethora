@@ -4127,7 +4127,7 @@ export function QueueScrollPage() {
             />
           ) : renderedItem?.type === "rss" ? (
             <div key={renderedItem.id} className="h-full w-full overflow-y-auto">
-              <div ref={rssContentRef} className="max-w-3xl mx-auto px-8 py-12 reading-surface">
+              <div ref={rssContentRef} data-rss-content="true" className="max-w-3xl mx-auto px-8 py-12 reading-surface">
                 {/* RSS Article Header */}
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-6">
                   <div className="flex-1 min-w-0">
