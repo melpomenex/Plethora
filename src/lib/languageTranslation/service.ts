@@ -3,7 +3,8 @@ import { TranslationCache } from "./cache";
 import { createTranslationCacheKey, translationCacheIdentity, type TranslationCacheKey } from "./cacheKey";
 import { cancelledTranslationError, TranslationError, toTranslationError } from "./error";
 import { canonicalizeTranslationLanguageTag, type CanonicalTranslationRequest, type TranslationRequest } from "./request";
-import { TranslationProviderRegistry, type TranslationProviderSelection } from "./registry";
+import { TranslationProviderRegistry, createTranslationProviderRegistry, type TranslationProviderSelection } from "./registry";
+import { createMlKitTranslationProvider } from "./mlkitTranslate";
 import { type StoredTranslationResult, type TranslationResult } from "./result";
 import {
   DEFAULT_TRANSLATION_SETTINGS,
@@ -326,7 +327,11 @@ export class TranslationService {
 }
 
 export function createTranslationService(options: TranslationServiceOptions = {}): TranslationService {
-  return new TranslationService(options);
+  if (options.registry) return new TranslationService(options);
+  return new TranslationService({
+    ...options,
+    registry: createTranslationProviderRegistry([createMlKitTranslationProvider()]),
+  });
 }
 
 export { DEFAULT_TRANSLATION_SETTINGS };

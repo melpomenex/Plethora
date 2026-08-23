@@ -2,17 +2,6 @@ name: Windows Test Build
 
 # Only run on test branches - faster builds for debugging Windows issues
 on:
-  push:
-    branches:
-      - 'test/**'
-      - 'fix/**'
-      - 'windows/**'
-      - '*windows*'
-  pull_request:
-    branches:
-      - 'test/**'
-      - 'fix/**'
-      - 'windows/**'
   workflow_dispatch:
 
 permissions:

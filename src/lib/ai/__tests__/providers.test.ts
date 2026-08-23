@@ -69,17 +69,21 @@ describe("capabilitiesFromSnapshot", () => {
     expect(caps.textGeneration).toBe(true);
     expect(caps.structuredGeneration).toBe(true);
     expect(caps.vision).toBe(true);
-    expect(caps.multiImage).toBe(true);
+    expect(caps.multiImage).toBe(false);
     expect(caps.systemInstructions).toBe(true);
     expect(caps.streaming).toBe(true);
     expect(caps.prefixCaching).toBe(true);
     expect(caps.offlineAvailable).toBe(true);
     expect(caps.contextTokens).toBe(4096);
     expect(caps.downloadState).toBe("downloaded");
-    // Design D2: Nano declares neither reasoning nor tools/embeddings yet.
+    // Design D2: Nano declares neither reasoning nor tools.
     expect(caps.reasoning).toBe(false);
     expect(caps.toolCalling).toBe(false);
     expect(caps.embeddings).toBe(false);
+  });
+
+  it("maps embeddings from the native snapshot", () => {
+    expect(capabilitiesFromSnapshot(snapshot({ embeddings: true })).embeddings).toBe(true);
   });
 
   it("structuredGeneration requires the compiled schema path AND the runtime flag", () => {

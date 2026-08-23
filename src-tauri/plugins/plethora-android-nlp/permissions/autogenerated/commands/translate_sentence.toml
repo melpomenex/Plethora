@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-translate-sentence"
+description = "Enables the translate_sentence command without any pre-configured scope."
+commands.allow = ["translate_sentence"]
+
+[[permission]]
+identifier = "deny-translate-sentence"
+description = "Denies the translate_sentence command without any pre-configured scope."
+commands.deny = ["translate_sentence"]

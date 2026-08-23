@@ -29,6 +29,12 @@ class OcrImageArgs {
     var maxResults: Int? = null
 }
 
+/** Arguments for the `describeImage` plugin command (EN-only short alt text). */
+@InvokeArg
+class DescribeImageArgs {
+    var base64Image: String? = null
+}
+
 /** Default label cap: dense diagrams produce dozens of lines, Nano prompt
  * space is scarce, and more than this is noise for card authoring. */
 internal const val DEFAULT_MAX_OCR_LABELS = 24

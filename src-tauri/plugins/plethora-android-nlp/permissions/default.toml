@@ -1,0 +1,11 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+ML Kit Language ID + Translate (local)
+"""
+permissions = [
+  "allow-language-id-status",
+  "allow-identify-language",
+  "allow-translate-sentence"
+]

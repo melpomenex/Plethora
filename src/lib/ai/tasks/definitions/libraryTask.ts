@@ -41,6 +41,9 @@ import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../containment
 import { runTask } from "../runTask";
 import { registerTasks } from "../registry";
 import type { AITaskDefinition, AITaskResult } from "../types";
+import { DEFAULT_LIBRARY_RAG, type RagComposition } from "../../ragComposition";
+import { RAG_NAMESPACE_HELP, type SemanticRetriever } from "../../capabilities/search";
+import { AIError } from "../../errors";
 
 export const ASK_LIBRARY_TASK_ID = "ask-library";
 
@@ -225,6 +228,9 @@ export interface AskLibraryResult {
   candidatesScanned: number;
   /** The task-layer run (provider/modelClass provenance). */
   run: AITaskResult<LibraryAnswer>;
+  composition: RagComposition;
+  /** True when hits are shown without calling a generator. */
+  retrievalOnly: boolean;
 }
 
 export interface AskLibraryOptions {
@@ -247,21 +253,57 @@ export interface AskLibraryOptions {
   kind?: "ondevice" | "cloud";
   /** Injectable retrieval for tests. */
   retrieve?: typeof retrieveFromLibrary;
+  /** Retriever × generator pairing (OpenSpec D). Defaults to library + on-device. */
+  composition?: RagComposition;
+  /** Fake/native semantic retriever; used when composition.retrieverId is not ai_learning. */
+  retriever?: SemanticRetriever;
 }
 
 /**
  * Ask the library a question. Throws the task layer's typed `AIError`s;
  * retrieval failures propagate before generation (never answer ungrounded).
  */
+function citedFromBudgeted(budgeted: RetrievalResult[]): AskLibraryCitedSource[] {
+  return budgeted.map((r) => ({
+    chunkId: r.chunkId,
+    documentId: r.documentId,
+    documentTitle: r.documentTitle,
+    sourceType: r.sourceType,
+    sourceId: r.sourceId,
+    text: r.text,
+    headingPath: r.headingPath,
+    location: r.location,
+    score: r.score,
+  }));
+}
+
 export async function askLibrary(options: AskLibraryOptions): Promise<AskLibraryResult> {
+  const composition = options.composition ?? DEFAULT_LIBRARY_RAG;
+  if (composition.namespace === RAG_NAMESPACE_HELP && !options.retriever && !options.retrieve) {
+    throw new AIError(
+      "IndexUnavailable",
+      "Ask Plethora help retrieval must not use the library corpus.",
+      { code: "wrong_rag_namespace", taskId: ASK_LIBRARY_TASK_ID }
+    );
+  }
+
   const retrieve = options.retrieve ?? retrieveFromLibrary;
-  const sqlite = await retrieve(options.query, {
-    k: options.k ?? ASK_LIBRARY_K,
-    filters: options.filters,
-    config: options.config,
-    includeSpotlight: options.retrieve == null,
-  });
-  const retrieval = sqlite;
+  const retrieval = options.retriever
+    ? {
+        results: await options.retriever.retrieve({
+          query: options.query,
+          k: options.k ?? ASK_LIBRARY_K,
+          namespace: composition.namespace,
+        }),
+        mode: "semantic" as const,
+        candidatesScanned: 0,
+      }
+    : await retrieve(options.query, {
+        k: options.k ?? ASK_LIBRARY_K,
+        filters: options.filters,
+        config: options.config,
+        includeSpotlight: options.retrieve == null,
+      });
 
   const deduped = dedupeRetrievedChunks(retrieval.results);
   const budgeted = fitChunksToContextBudget(deduped);
@@ -281,6 +323,8 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
       droppedChunks: 0,
       mode: retrieval.mode,
       candidatesScanned: retrieval.candidatesScanned,
+      composition,
+      retrievalOnly: true,
       run: {
         taskId: askLibraryTask.id,
         output: {
@@ -292,6 +336,47 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
         text: "",
         providerId: "retrieval-only",
         providerKind: options.kind ?? "ondevice",
+        requestedModelClass: askLibraryTask.modelClass,
+        servedModelClass: askLibraryTask.modelClass,
+        fallbackPath: "none",
+        validationOutcome: "text",
+      },
+    };
+  }
+
+  if (composition.generatorKind === "none") {
+    const sources = citedFromBudgeted(budgeted);
+    const answerText = sources
+      .map((source, index) => `[${index + 1}] ${source.text}`)
+      .join("\n\n");
+    return {
+      answer: {
+        answer: answerText,
+        sourceRefs: sources.map((source) => ({
+          refId: source.chunkId,
+          quote: source.text,
+        })),
+        evidenceLevel: "weak",
+      },
+      sources,
+      droppedChunks: retrieval.results.length - budgeted.length,
+      mode: retrieval.mode,
+      candidatesScanned: retrieval.candidatesScanned,
+      composition,
+      retrievalOnly: true,
+      run: {
+        taskId: askLibraryTask.id,
+        output: {
+          answer: answerText,
+          sourceRefs: sources.map((source) => ({
+            refId: source.chunkId,
+            quote: source.text,
+          })),
+          evidenceLevel: "weak",
+        },
+        text: answerText,
+        providerId: "retrieval-only",
+        providerKind: "ondevice",
         requestedModelClass: askLibraryTask.modelClass,
         servedModelClass: askLibraryTask.modelClass,
         fallbackPath: "none",
@@ -344,6 +429,8 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
     droppedChunks: retrieval.results.length - budgeted.length,
     mode: retrieval.mode,
     candidatesScanned: retrieval.candidatesScanned,
+    composition,
+    retrievalOnly: false,
     run,
   };
 }

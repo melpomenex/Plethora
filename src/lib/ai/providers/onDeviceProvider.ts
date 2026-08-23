@@ -63,14 +63,15 @@ export function capabilitiesFromSnapshot(
       snapshot.structuredOutputCompiled === true &&
       snapshot.structuredOutput === true,
     vision: visionReady,
-    multiImage: visionReady && snapshot.multiImage === true,
+    // Honesty: the native envelope still accepts a single ImagePart. Do not
+    // advertise multi-image until `images[]` is wired through the bridge.
+    multiImage: false,
     systemInstructions: snapshot.systemInstructions === true,
     // Design D2: tool calling is false everywhere initially.
     toolCalling: false,
     // Gemini Nano exposes no reasoning mode; only a future provider may declare it.
     reasoning: false,
-    // On-device embeddings (EmbeddingGemma) land in Phase 3.
-    embeddings: false,
+    embeddings: snapshot.embeddings === true,
     contextTokens:
       typeof snapshot.tokenLimit === "number" && snapshot.tokenLimit > 0
         ? snapshot.tokenLimit

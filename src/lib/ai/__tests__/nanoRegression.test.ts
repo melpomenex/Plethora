@@ -193,7 +193,7 @@ describe("speculative foreground warmup", () => {
       nanoSnapshot({ prompt: { status: "downloadable", reason: "model_downloadable" } })
     );
     await expect(getOnDeviceProvider().warmUp()).rejects.toMatchObject({
-      category: "ModelDownloading",
+      category: "ModelDownloadRequired",
     });
   });
 });

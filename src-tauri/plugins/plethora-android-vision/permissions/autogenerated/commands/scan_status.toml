@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-scan-status"
+description = "Enables the scan_status command without any pre-configured scope."
+commands.allow = ["scan_status"]
+
+[[permission]]
+identifier = "deny-scan-status"
+description = "Denies the scan_status command without any pre-configured scope."
+commands.deny = ["scan_status"]

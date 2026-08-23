@@ -23,6 +23,7 @@ permissions = [
   "allow-ondevice-ai-cancel-prompt-request",
   "allow-ondevice-ai-cancel",
   "allow-ondevice-ai-ocr-labels",
+  "allow-ondevice-ai-describe-image",
   "allow-ondevice-ai-embed-status",
   "allow-ondevice-ai-embed-download",
   "allow-ondevice-ai-embed-texts"
