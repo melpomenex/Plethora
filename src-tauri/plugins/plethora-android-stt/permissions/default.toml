@@ -1,0 +1,16 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+On-device Android STT — sherpa-onnx long-form transcription (decode, VAD,
+recognizer job control, model management).
+"""
+permissions = [
+  "allow-stt-status",
+  "allow-stt-start-job",
+  "allow-stt-job-status",
+  "allow-stt-cancel-job",
+  "allow-stt-prepare-model",
+  "allow-stt-list-models",
+  "allow-stt-delete-model"
+]

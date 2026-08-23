@@ -48,6 +48,7 @@
     "plethora-android-genai:default",
     "plethora-apple-intelligence:default",
     "plethora-android-speech:default",
+    "plethora-android-stt:default",
     "plethora-android-vision:default",
     "plethora-android-nlp:default",
     "plethora-android-search:default",

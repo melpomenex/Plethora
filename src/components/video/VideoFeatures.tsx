@@ -457,7 +457,9 @@ function TranscriptView({ documentId, documentTitle, filePath, currentTime, onSe
   const [autoStatus, setAutoStatus] = useState<ReturnType<typeof getVideoTranscriptionStatus>>(null);
   const { settings, updateSettings } = useSettingsStore();
   const audioSettings = settings.audioTranscription;
-  const [selectedProvider, setSelectedProvider] = useState<'local' | 'groq'>(audioSettings.provider);
+  const [selectedProvider, setSelectedProvider] = useState<'local' | 'groq'>(
+    audioSettings.provider === 'groq' ? 'groq' : 'local',
+  );
   const [selectedModel, setSelectedModel] = useState<string>(audioSettings.preferredModelId || "distil-small.en");
   const [language, setLanguage] = useState<string>(audioSettings.language || "en");
   const toast = useToast();
@@ -513,8 +515,9 @@ function TranscriptView({ documentId, documentTitle, filePath, currentTime, onSe
   }, [audioSettings.language, language]);
 
   useEffect(() => {
-    if (audioSettings.provider !== selectedProvider) {
-      setSelectedProvider(audioSettings.provider);
+    const settingsProvider = audioSettings.provider === 'groq' ? 'groq' : 'local';
+    if (settingsProvider !== selectedProvider) {
+      setSelectedProvider(settingsProvider);
     }
   }, [audioSettings.provider, selectedProvider]);
 

@@ -72,7 +72,10 @@ function schedule(fn: () => void) {
 }
 
 function getProvider(): 'local' | 'groq' {
-  return useSettingsStore.getState().settings.audioTranscription.provider;
+  const provider = useSettingsStore.getState().settings.audioTranscription.provider;
+  // Video transcription only has local + Groq paths; apple/android-ondevice
+  // engines never reach this queue.
+  return provider === 'groq' ? 'groq' : 'local';
 }
 
 function getPreferredModelId(): string | null {

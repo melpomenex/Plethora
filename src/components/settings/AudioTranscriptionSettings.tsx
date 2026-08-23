@@ -85,7 +85,11 @@ export function AudioTranscriptionSettings() {
       return audioSettings.provider === "groq" ? "groq" : "apple";
     }
     if (!isDesktop) return "groq";
-    return audioSettings.provider === "apple" ? "local" : audioSettings.provider;
+    // The Android on-device engine is configured from the On-Device AI panel;
+    // its settings tab here only owns the desktop engines.
+    return audioSettings.provider === "apple" || audioSettings.provider === "android-ondevice"
+      ? "local"
+      : audioSettings.provider;
   });
   const [enqueuingAll, setEnqueuingAll] = useState(false);
   

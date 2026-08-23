@@ -81,7 +81,7 @@ import { resolveGenericAssistantContext, type ResolvedAssistantContext } from ".
 import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
 import { useIsActiveTab } from "../common/Tabs";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
-import { describeResolution, resolveTranscription } from "../../lib/transcriptionProvider";
+import { describeResolution, resolveTranscriptionWithReadiness } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { useTranscriptionResolution } from "../../hooks/useTranscriptionResolution";
 import { routePodcastTranscription } from "../../lib/transcriptionRouting";
@@ -966,7 +966,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
       await transcriptionStore.fetchProfiles();
       profiles = useTranscriptionStore.getState().profiles;
     }
-    const resolution = resolveTranscription(
+    const resolution = await resolveTranscriptionWithReadiness(
       settings.audioTranscription,
       profiles,
       isNativeMobile() ? "native-mobile" : "desktop",

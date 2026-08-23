@@ -2981,6 +2981,9 @@ export const en: Dict = {
   "viewer.directPlaybackFailed":
     "Direct playback failed. Falling back to buffered mode (may be slow).",
   "viewer.audiobookFinished": "Audiobook finished",
+  "viewer.flashcardNoPassage": "No synced passage to make a flashcard from yet.",
+  "viewer.flashcardCreated": "Flashcard created",
+  "viewer.flashcardFailed": "Failed to create flashcard",
   "viewer.reachedTheEnd": "You've reached the end",
   "viewer.nextPart": "Next part",
   "viewer.playingPart": "Playing part {current} of {total}",
@@ -6083,6 +6086,22 @@ export const en: Dict = {
   "onDeviceAi.embeddingDetail.downloadable": "A ~184 MB embedding model powers offline semantic search. It is downloaded only when you ask.",
   "onDeviceAi.embeddingDetail.downloading": "Downloading and verifying the embedding model. Search stays word-based until it finishes.",
   "onDeviceAi.embeddingDetail.unavailable": "On-device embeddings are not usable here. Word-based search still works.",
+
+  // On-device speech-to-text for imported audiobooks/podcasts (sherpa-onnx).
+  "onDeviceAi.sttLabel": "On-device transcription",
+  "onDeviceAi.sttReadyDescription": "Imported audiobooks and podcasts can be transcribed entirely on this device — private, offline, no API key.",
+  "onDeviceAi.sttNotReadyDescription": "Download a speech model to transcribe imported audiobooks and podcasts entirely on this device.",
+  "onDeviceAi.sttReady": "Speech model ready. On-device transcription is available.",
+  "onDeviceAi.sttDeleted": "Speech model deleted.",
+  "onDeviceAi.sttModelReady": "Ready",
+  "onDeviceAi.sttModelNotReady": "Not downloaded",
+  "onDeviceAi.sttSelectModel": "Use this model",
+  "onDeviceAi.sttDelete": "Delete",
+  "onDeviceAi.sttPacingLabel": "Transcription pacing",
+  "onDeviceAi.sttPacingDescription": "Capped keeps the device cooler and battery drain low. Full speed finishes faster but heats up on long books.",
+  "onDeviceAi.sttPacingCapped": "Capped (battery-friendly)",
+  "onDeviceAi.sttPacingFull": "Full speed",
+  "viewer.onDeviceTranscriptionFallback": "On-device transcription is unavailable, so Groq cloud is being used instead.",
 
   "flashcardStudio.onDeviceProvider": "On-device (Nano)",
   "flashcardStudio.onDeviceGenerated": "Generated {count} card(s) on-device with Gemini Nano.",

@@ -3807,6 +3807,23 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE transcript_segments ADD COLUMN words_json TEXT;
         "#,
     ),
+    // Migration 105: On-device transcription checkpoints (Android STT).
+    // Resume state for interrupted on-device jobs: the decode offset the job
+    // reached plus how many segments the orchestrator persisted, keyed by
+    // document. Additive and forward-compatible (spec:
+    // android-on-device-transcription, chunked processing with resume).
+    Migration::new(
+        "105_transcription_checkpoints",
+        r#"
+        CREATE TABLE IF NOT EXISTS transcription_checkpoints (
+            document_id TEXT PRIMARY KEY,
+            model_id TEXT NOT NULL,
+            decode_offset_ms INTEGER NOT NULL DEFAULT 0,
+            segment_cursor INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

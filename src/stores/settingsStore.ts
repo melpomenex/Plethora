@@ -501,7 +501,7 @@ interface GroqTranscriptionSettings {
  * Audio Transcription Settings
  */
 interface AudioTranscriptionSettings {
-  provider: "local" | "groq" | "apple";
+  provider: "local" | "groq" | "apple" | "android-ondevice";
   /** When true, ML Kit Speech may run; existing whisper/sherpa/Groq stay default. */
   preferAndroidSpeech: boolean;
   autoTranscription: boolean;
@@ -513,6 +513,13 @@ interface AudioTranscriptionSettings {
   confidenceScores: boolean;
   confidenceThreshold: number;
   groq: GroqTranscriptionSettings;
+  /** Android on-device engine preferences (sherpa-onnx STT plugin). */
+  androidOnDevice?: {
+    /** Explicit model choice; empty/undefined = auto per language. */
+    modelId?: string;
+    /** Thermal pacing: capped (2 threads, default) or full (4 threads). */
+    pacing: "capped" | "full";
+  };
 }
 
 /**
@@ -1181,6 +1188,12 @@ export const defaultSettings: Settings = {
         requestsMade: 0,
       },
     },
+    // Android on-device STT: ships dark — the resolver only picks it once a
+    // model is downloaded and the user enables it (or via on-device default).
+    androidOnDevice: {
+      modelId: "",
+      pacing: "capped",
+    },
   },
   smartQueue: {
     autoRefresh: false,
@@ -1348,7 +1361,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 9,
+      version: 10,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1419,6 +1432,15 @@ export const useSettingsStore = create<SettingsState>()(
           }
           if (root?.features) {
             root.features.androidAppSearchIndex = true;
+          }
+        }
+        // v9 -> v10 (android-on-device-transcription): the on-device STT
+        // engine gains settings (model + thermal pacing). Defaults keep
+        // current behavior — the resolver only routes to it after a model is
+        // downloaded, so nothing changes until the user opts in.
+        if (version < 10) {
+          if (root?.audioTranscription && !root.audioTranscription.androidOnDevice) {
+            root.audioTranscription.androidOnDevice = { modelId: "", pacing: "capped" };
           }
         }
         return persisted as SettingsState;

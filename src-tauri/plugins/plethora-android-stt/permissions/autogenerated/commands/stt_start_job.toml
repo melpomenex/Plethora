@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stt-start-job"
+description = "Enables the stt_start_job command without any pre-configured scope."
+commands.allow = ["stt_start_job"]
+
+[[permission]]
+identifier = "deny-stt-start-job"
+description = "Denies the stt_start_job command without any pre-configured scope."
+commands.deny = ["stt_start_job"]

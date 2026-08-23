@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stt-prepare-model"
+description = "Enables the stt_prepare_model command without any pre-configured scope."
+commands.allow = ["stt_prepare_model"]
+
+[[permission]]
+identifier = "deny-stt-prepare-model"
+description = "Denies the stt_prepare_model command without any pre-configured scope."
+commands.deny = ["stt_prepare_model"]

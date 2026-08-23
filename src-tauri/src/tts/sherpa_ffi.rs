@@ -467,8 +467,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path()).unwrap();
         // Contract is well-formed but the files do not exist on disk.
-        let err = build_supertonic_config(dir.path(), &supertonic_contract())
-            .expect_err("missing files must be rejected before load");
+        // (match instead of expect_err: the Ok type is not Debug.)
+        let err = match build_supertonic_config(dir.path(), &supertonic_contract()) {
+            Ok(_) => panic!("missing files must be rejected before load"),
+            Err(e) => e,
+        };
         assert!(err.contains("missing"), "{err}");
     }
 
@@ -488,7 +491,10 @@ mod tests {
             voice_bin_file: None,
             data_dir: None,
         };
-        let err = build_supertonic_config(dir.path(), &vits).expect_err("vits rejected in v1");
+        let err = match build_supertonic_config(dir.path(), &vits) {
+            Ok(_) => panic!("vits rejected in v1"),
+            Err(e) => e,
+        };
         assert!(err.contains("not a Supertonic"), "{err}");
     }
 

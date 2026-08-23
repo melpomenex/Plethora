@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.version).toBe(9);
+    expect(stored.version).toBe(10);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -241,6 +241,43 @@ describe("settingsStore AI learning feature flags", () => {
     expect(useSettingsStore.getState().settings.audioTranscription.preferAndroidSpeech).toBe(true);
     expect(useSettingsStore.getState().settings.features.androidAppSearchIndex).toBe(true);
     expect(useSettingsStore.getState().settings.ai.allowCloudFallback).toBe(false);
+  });
+
+  it("seeds androidOnDevice defaults (capped pacing) when migrating from persist v9", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          audioTranscription: { provider: "local", preferAndroidSpeech: true },
+        },
+      },
+      version: 9,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const audio = useSettingsStore.getState().settings.audioTranscription;
+    expect(audio.provider).toBe("local");
+    expect(audio.androidOnDevice).toEqual({ modelId: "", pacing: "capped" });
+  });
+
+  it("keeps an explicit android-ondevice provider through migration without flipping it", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          audioTranscription: {
+            provider: "android-ondevice",
+            androidOnDevice: { modelId: "parakeet-en-110m-int8", pacing: "full" },
+          },
+        },
+      },
+      version: 10,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const audio = useSettingsStore.getState().settings.audioTranscription;
+    expect(audio.provider).toBe("android-ondevice");
+    expect(audio.androidOnDevice).toEqual({ modelId: "parakeet-en-110m-int8", pacing: "full" });
   });
 });
 
