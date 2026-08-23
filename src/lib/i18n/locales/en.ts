@@ -6060,6 +6060,7 @@ export const en: Dict = {
   "onDeviceAi.allowCloudFallbackDescription": "If on-device AI fails, retry with a configured cloud provider. Off by default so content never leaves the device silently.",
   "onDeviceAi.lectureStart": "Start recording",
   "onDeviceAi.lectureStop": "Stop and save",
+  "onDeviceAi.lectureListening": "Listening…",
   "onDeviceAi.lectureSaved": "Lecture saved.",
   "onDeviceAi.lectureSavedIncomplete": "Recording saved. Transcription is incomplete.",
   "onDeviceAi.licensedPacks": "Licensed on-device packs",

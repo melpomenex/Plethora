@@ -6,3 +6,4 @@ Default ACL for `plethora-android-speech`.
 
 - `allow-speech-status`
 - `allow-transcribe-audio`
+- `allow-download-speech-model`

@@ -21,6 +21,13 @@ override, Kotlin sources — which `tauri android init` does not touch. An
 its `consumer-rules.pro` is applied by the app's own R8 pass, so duplicating
 either in `app/` would only create something to lose.
 
+## AppSearch derived index (flag default off)
+
+`androidx.appsearch:appsearch` + `appsearch-local-storage` 1.1.0 add on the
+order of **a few hundred KB** to the APK (not tens of MB). Measure a release
+APK with the flag still **off** before considering a default-on flip. SQLite /
+`ai_learning` remains source of truth. `displayedBySystem` stays false.
+
 ### Kotlin 2.x notes
 
 `android-tts` and `folder-import` both compiled clean under the previous 2.2.20

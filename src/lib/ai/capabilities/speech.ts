@@ -27,6 +27,8 @@ export interface TranscribeAudioRequest {
   sourceUri: string;
   language?: string;
   signal?: AbortSignal;
+  /** Raw 16 kHz mono PCM16LE (standard Base64). Required for Android ML Kit file STT. */
+  pcmBase64?: string;
 }
 
 export interface TranscribeLiveRequest {

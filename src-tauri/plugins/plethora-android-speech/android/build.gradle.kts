@@ -35,4 +35,5 @@ dependencies {
 
     // Alpha ML Kit Speech. Missing at runtime → feature_unavailable, not a crash.
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

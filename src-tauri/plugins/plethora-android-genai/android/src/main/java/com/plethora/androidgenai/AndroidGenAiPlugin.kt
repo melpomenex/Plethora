@@ -62,6 +62,10 @@ import com.google.mlkit.genai.summarization.Summarization
 import com.google.mlkit.genai.summarization.SummarizationRequest
 import com.google.mlkit.genai.summarization.Summarizer
 import com.google.mlkit.genai.summarization.SummarizerOptions
+import com.google.mlkit.genai.imagedescription.ImageDescription
+import com.google.mlkit.genai.imagedescription.ImageDescriber
+import com.google.mlkit.genai.imagedescription.ImageDescriberOptions
+import com.google.mlkit.genai.imagedescription.ImageDescriptionRequest
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -182,7 +186,7 @@ internal data class PromptCancelReceiptDto(
 
 @InvokeArg
 class DownloadArgs {
-    /** "all" | "prompt" | "summarization" | "image-prompt". */
+    /** "all" | "prompt" | "summarization" | "image-prompt" | "image-description". */
     var feature: String? = null
 }
 
@@ -281,6 +285,7 @@ internal data class CapabilitySnapshotDto(
     val prompt: FeatureStateDto,
     val summarization: FeatureStateDto,
     val imagePrompt: FeatureStateDto,
+    val imageDescription: FeatureStateDto,
     val features: PromptFeatureFlagsDto,
     /** ML Kit Text Recognition compiled into this build (design D18). */
     val ocr: Boolean = false,
@@ -298,6 +303,7 @@ internal data class CapabilitySnapshotDto(
         put("prompt", prompt.toJsObject())
         put("summarization", summarization.toJsObject())
         put("imagePrompt", imagePrompt.toJsObject())
+        put("imageDescription", imageDescription.toJsObject())
         put("structuredOutputCompiled", features.structuredOutputCompiled)
         put("structuredOutput", features.structuredOutput)
         put("systemInstructions", features.systemInstructions)
@@ -343,7 +349,8 @@ internal fun negotiatePromptFeatures(
     systemInstructions = promptAvailable && systemInstructionsAvailable,
     prefixCaching = promptAvailable && prefixCachingAvailable,
     imageInput = promptAvailable && imagePromptCompiled,
-    multiImage = promptAvailable && imagePromptCompiled && multiImageCompiled,
+    // Product contract: do not advertise multi-image until images[] is on the wire.
+    multiImage = false,
     streaming = promptAvailable && streamingCompiled
 )
 
@@ -748,6 +755,7 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
     private var summarizerBullets: Summarizer? = null
     private var promptModel: GenerativeModel? = null
     private var promptFutures: GenerativeModelFutures? = null
+    private var imageDescriberClient: ImageDescriber? = null
     @Volatile
     private var cachedTokenLimit: Int? = null
     private var closed = false
@@ -780,6 +788,16 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             promptModel = model
             GenerativeModelFutures.from(model).also { promptFutures = it }
         }
+    }
+
+    private fun imageDescriber(): ImageDescriber = synchronized(clientLock) {
+        check(!closed) { "plugin torn down" }
+        if (!BuildConfig.IMAGE_DESCRIPTION_COMPILED) {
+            error("image description is not compiled into this build")
+        }
+        imageDescriberClient ?: ImageDescription.getClient(
+            ImageDescriberOptions.builder(ctx).build()
+        ).also { imageDescriberClient = it }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -1042,6 +1060,12 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     // Image Prompt shares the base Prompt adapter/model.
                     prompt().download(NoopDownloadCallback).get()
                 }
+                if (
+                    BuildConfig.IMAGE_DESCRIPTION_COMPILED &&
+                    (feature == DOWNLOAD_ALL || feature == DOWNLOAD_IMAGE_DESCRIPTION)
+                ) {
+                    imageDescriber().downloadFeature(NoopDownloadCallback).get()
+                }
                 invoke.resolve()
             } catch (e: Throwable) {
                 Logger.error("genai", "downloadModel failed", e)
@@ -1181,6 +1205,60 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             } finally {
                 runCatching { recognizer?.close() }
                     .onFailure { Logger.error("genai", "recognizer close failed", it) }
+            }
+        }
+    }
+
+    /**
+     * Short English alt text via ML Kit Image Description. Not used for study
+     * cards — [describeImageTask] stays on Prompt / cloud.
+     */
+    @Command
+    fun describeImage(invoke: Invoke) {
+        val args = invoke.parseArgs(DescribeImageArgs::class.java)
+        val base64 = args.base64Image?.takeIf { it.isNotBlank() }
+        if (base64 == null) {
+            invoke.reject("base64Image is required", ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (!BuildConfig.IMAGE_DESCRIPTION_COMPILED) {
+            invoke.reject(
+                "image description is not included in this build",
+                ErrorCode.FEATURE_NOT_COMPILED
+            )
+            return
+        }
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(base64.trim())
+        } catch (e: IllegalArgumentException) {
+            invoke.reject("base64Image is not valid base64", ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (bytes.size > MAX_PROMPT_IMAGE_BYTES) {
+            invoke.reject(
+                "image payload exceeds the 5 MB limit (${bytes.size} bytes)",
+                ErrorCode.INVALID_ARGUMENT
+            )
+            return
+        }
+        inferenceExecutor.execute {
+            try {
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw PromptContractException(
+                        ErrorCode.INVALID_IMAGE,
+                        "image bytes could not be decoded"
+                    )
+                val request = ImageDescriptionRequest.builder(bitmap).build()
+                val description = imageDescriber().runInference(request).get().description?.trim().orEmpty()
+                if (description.isEmpty()) {
+                    invoke.reject("the model returned an empty description", ErrorCode.EMPTY_OUTPUT)
+                    return@execute
+                }
+                invoke.resolve(JSObject().put("text", description))
+            } catch (e: PromptContractException) {
+                invoke.reject(e.message, e.errorCode, e.metadata)
+            } catch (e: Throwable) {
+                rejectInference(invoke, "describeImage", e)
             }
         }
     }
@@ -1838,10 +1916,19 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             }
         } ?: false
 
+        val imageDescriptionState = if (BuildConfig.IMAGE_DESCRIPTION_COMPILED) {
+            readFeatureState("image-description") {
+                imageDescriber().checkFeatureStatus().get()
+            }
+        } else {
+            unavailableFeature(ErrorCode.FEATURE_NOT_COMPILED)
+        }
+
         return CapabilitySnapshotDto(
             prompt = promptState,
             summarization = summarizationState,
             imagePrompt = imagePromptState,
+            imageDescription = imageDescriptionState,
             features = negotiatePromptFeatures(
                 promptAvailable = promptAvailable,
                 structuredOutputCompiled = BuildConfig.STRUCTURED_OUTPUT_COMPILED,
@@ -1970,15 +2057,17 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
 
     private fun release() {
         streamRegistry.cancelAll().forEach { it.cancel(true) }
-        val (summarizerToClose, modelToClose) = synchronized(clientLock) {
+        val (summarizerToClose, modelToClose, describerToClose) = synchronized(clientLock) {
             if (closed) return
             closed = true
             val s = summarizerBullets
             val m = promptModel
+            val d = imageDescriberClient
             summarizerBullets = null
             promptModel = null
             promptFutures = null
-            s to m
+            imageDescriberClient = null
+            Triple(s, m, d)
         }
         // Closing releases the AICore session; a leaked one keeps the system
         // service warm for a process that is going away.
@@ -1986,6 +2075,8 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             .onFailure { Logger.error("genai", "summarizer close failed", it) }
         runCatching { modelToClose?.close() }
             .onFailure { Logger.error("genai", "prompt model close failed", it) }
+        runCatching { describerToClose?.close() }
+            .onFailure { Logger.error("genai", "image describer close failed", it) }
         closeEmbeddingSessionLocked()
         inferenceExecutor.shutdown()
         statusExecutor.shutdown()
@@ -2015,11 +2106,13 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         const val DOWNLOAD_PROMPT = "prompt"
         const val DOWNLOAD_SUMMARIZATION = "summarization"
         const val DOWNLOAD_IMAGE_PROMPT = "image-prompt"
+        const val DOWNLOAD_IMAGE_DESCRIPTION = "image-description"
         val DOWNLOAD_FEATURES = setOf(
             DOWNLOAD_ALL,
             DOWNLOAD_PROMPT,
             DOWNLOAD_SUMMARIZATION,
-            DOWNLOAD_IMAGE_PROMPT
+            DOWNLOAD_IMAGE_PROMPT,
+            DOWNLOAD_IMAGE_DESCRIPTION
         )
 
         /**

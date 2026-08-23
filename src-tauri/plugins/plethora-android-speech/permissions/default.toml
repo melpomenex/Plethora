@@ -6,5 +6,6 @@ ML Kit Speech Recognition (alpha) — persist-audio-first
 """
 permissions = [
   "allow-speech-status",
-  "allow-transcribe-audio"
+  "allow-transcribe-audio",
+  "allow-download-speech-model"
 ]

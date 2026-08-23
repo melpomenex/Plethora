@@ -42,7 +42,14 @@ export class AndroidSpeechProvider implements SpeechProvider {
       );
     }
     return invokeAndroidPlugin<Transcript>(PLUGIN, "transcribe_audio", {
-      request: { sourceUri, language: req.language },
+      request: {
+        sourceUri,
+        language: req.language,
+        pcmBase64: req.pcmBase64,
+        sampleRateHz: req.pcmBase64 ? 16_000 : undefined,
+        channels: req.pcmBase64 ? 1 : undefined,
+        encoding: req.pcmBase64 ? "pcm16le" : undefined,
+      },
     });
   }
 }
