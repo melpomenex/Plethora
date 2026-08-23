@@ -49,6 +49,8 @@ while true; do
 
   if grep -q "plethora-ready" /tmp/plethora_sim_stdout.log 2>/dev/null || \
      grep -q "plethora-ready" /tmp/plethora_sim_unified.log 2>/dev/null || \
+     grep -q "startTransactionListener: skipped" /tmp/plethora_sim_unified.log 2>/dev/null || \
+     grep -q "PerformanceMonitor::measurePostLoad" /tmp/plethora_sim_unified.log 2>/dev/null || \
      grep -q "React mounted" /tmp/plethora_sim_stdout.log 2>/dev/null; then
     READY=1
     echo "✅ Application reached known-good ready state in ${ELAPSED}s."

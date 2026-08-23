@@ -575,6 +575,15 @@ reactRoot.render(
 if (typeof document !== "undefined") {
   document.body.setAttribute("data-plethora-ready", "true");
   console.log("[startup] plethora-ready: true (React mounted)");
+  if (isTauri()) {
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        invoke("ping_health").catch((e) => {
+          console.warn("[startup] ping_health failed:", e);
+        });
+      })
+      .catch(() => {});
+  }
   let mainHeartbeat = 0;
   window.setInterval(() => {
     mainHeartbeat++;

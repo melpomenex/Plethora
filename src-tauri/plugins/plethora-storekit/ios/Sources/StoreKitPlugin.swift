@@ -58,6 +58,29 @@ public class StoreKitPlugin: Plugin {
 
   @objc public func getProducts(_ invoke: Invoke) throws {
     guard requireIOS15(invoke) else { return }
+    #if targetEnvironment(simulator)
+    let mockProducts: [JSObject] = [
+      [
+        "id": PlethoraProducts.proMonthly,
+        "displayName": "Plethora Pro (Monthly)",
+        "description": "Monthly Pro Subscription",
+        "displayPrice": "$9.99",
+        "price": 9.99,
+        "subscriptionPeriod": ["unit": "month", "value": 1],
+        "isFamilyShareable": false,
+      ],
+      [
+        "id": PlethoraProducts.proAnnual,
+        "displayName": "Plethora Pro (Annual)",
+        "description": "Annual Pro Subscription",
+        "displayPrice": "$99.99",
+        "price": 99.99,
+        "subscriptionPeriod": ["unit": "year", "value": 1],
+        "isFamilyShareable": false,
+      ],
+    ]
+    invoke.resolve(["products": mockProducts])
+    #else
     let args = try invoke.parseArgs(GetProductsArgs.self)
     let ids = (args.ids?.isEmpty == false) ? args.ids! : PlethoraProducts.all
 
@@ -73,6 +96,7 @@ public class StoreKitPlugin: Plugin {
         invoke.reject("PRODUCT_QUERY_FAILED: \(error)")
       }
     }
+    #endif
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -137,6 +161,9 @@ public class StoreKitPlugin: Plugin {
 
   @objc public func currentEntitlements(_ invoke: Invoke) throws {
     guard requireIOS15(invoke) else { return }
+    #if targetEnvironment(simulator)
+    invoke.resolve(["transactions": [] as [JSObject]])
+    #else
     Task {
       var verified: [JSObject] = []
       var unverifiedCount = 0
@@ -153,10 +180,17 @@ public class StoreKitPlugin: Plugin {
       }
       invoke.resolve(["transactions": verified])
     }
+    #endif
   }
 
   @objc public func restore(_ invoke: Invoke) throws {
     guard requireIOS15(invoke) else { return }
+    #if targetEnvironment(simulator)
+    invoke.resolve([
+      "restored": true,
+      "transactions": [] as [JSObject],
+    ])
+    #else
     Task {
       do {
         try await AppStore.sync()
@@ -177,12 +211,17 @@ public class StoreKitPlugin: Plugin {
         invoke.reject("RESTORE_FAILED: \(error)")
       }
     }
+    #endif
   }
 
   @objc public func startTransactionListener(_ invoke: Invoke) throws {
     guard requireIOS15(invoke) else { return }
     updatesTask?.cancel()
-    updatesTask = Task.detached { [weak self] in
+    #if targetEnvironment(simulator)
+    Self.log("startTransactionListener: skipped on simulator")
+    invoke.resolve()
+    #else
+    updatesTask = Task { @MainActor [weak self] in
       for await update in Transaction.updates {
         guard let self = self else { return }
         switch update {
@@ -199,6 +238,7 @@ public class StoreKitPlugin: Plugin {
       }
     }
     invoke.resolve()
+    #endif
   }
 
   @objc public func manageSubscriptions(_ invoke: Invoke) throws {

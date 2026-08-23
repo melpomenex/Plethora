@@ -16,6 +16,7 @@ echo "🔨 Building Plethora for iOS Simulator (aarch64-sim)..."
 cd "$REPO_ROOT"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  rm -rf "$REPO_ROOT/src-tauri/gen/apple/build/arm64-sim" "$REPO_ROOT/src-tauri/gen/apple/build/plethora-tauri_iOS.xcarchive"
   npm run tauri:ios:build:sim
 fi
 

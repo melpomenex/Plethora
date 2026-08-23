@@ -271,10 +271,14 @@ export class AppStoreBillingProvider implements BillingProvider {
    * to the server, then arm the transaction listener.
    */
   async reconcilePending(): Promise<void> {
-    await this.flushPendingReconciliation();
-    await this.startTransactionListener(() => {
-      /* updates are consumed via onTransactionUpdate registrations below */
-    });
+    try {
+      await this.flushPendingReconciliation();
+      await this.startTransactionListener(() => {
+        /* updates are consumed via onTransactionUpdate registrations below */
+      });
+    } catch (err) {
+      console.warn('[billing] reconcilePending failed non-fatally:', err);
+    }
   }
 
   /** Subscribe to native transaction updates (renewals, refunds, ask-to-buy). */

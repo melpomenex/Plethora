@@ -384,6 +384,9 @@ struct HealthCheckResponse {
 
 #[tauri::command]
 fn ping_health() -> HealthCheckResponse {
+    use std::io::Write;
+    println!("[plethora-ready] health ping received from webview");
+    let _ = std::io::stdout().flush();
     HealthCheckResponse {
         status: "ok",
         timestamp: std::time::SystemTime::now()
