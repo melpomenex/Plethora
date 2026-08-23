@@ -60,7 +60,7 @@ Features keep calling `runTask`. Swift must not define "summarize" / "generate c
 
 ### 2. One bridge file, namespaced commands, no StoreKit/folder-import
 
-Implement `FoundationModelsBridge.swift` inside `plethora-apple-intelligence`. Commands (A-reserved names; implement only these):
+Implement `FoundationModelsBridge.swift` inside `plethora-apple-intelligence`. Commands (A-reserved names; implement only these — do **not** revive `apple_fm_status` / `apple_fm_prompt`):
 
 - `apple_fm_availability`
 - `apple_fm_generate`
@@ -69,7 +69,7 @@ Implement `FoundationModelsBridge.swift` inside `plethora-apple-intelligence`. C
 - `apple_fm_count_tokens`
 - `apple_fm_warmup`
 
-TS: `src/lib/ai/appleFoundation.ts` invokes `plugin:plethora-apple-intelligence`. Non-Apple OS: typed `platform_unsupported` without linking FoundationModels.
+TS: `src/lib/ai/apple/foundation.ts` invokes `plugin:plethora-apple-intelligence` via A’s `src/lib/ai/apple/plugin.ts`. Non-Apple OS: typed `platform_unsupported` without linking FoundationModels.
 
 *Alternative rejected:* Separate crate per Apple API. Multiplies stubs/CI. Binding D-Apple-2.
 
@@ -83,7 +83,7 @@ Map `SystemLanguageModel.default.availability` (and equivalent disabled/not-enab
 | `modelNotReady` (downloading / not installed) | `textGeneration: false`, `downloadState: "downloading"` or `"downloadable"` | `ModelDownloading` |
 | `deviceNotEligible` | `textGeneration: false`, `downloadState: "unavailable"` | `UnsupportedDevice` |
 | Apple Intelligence off / not enabled | `textGeneration: false` | `FeatureDisabled` |
-| OS < 26 | `platform_unsupported` / `FeatureDisabled` | `UnsupportedDevice` or `FeatureDisabled` (pick one consistently; A’s mapping table wins if it already specified) |
+| OS < 26 | `unsupported_os` / `platform_unsupported` | `UnsupportedDevice` (A’s frozen mapping; not `FeatureDisabled`) |
 | Request locale not in Apple Intelligence language set | capabilities may still be true for *other* languages | `UnsupportedLanguage` for that request |
 | Non-Apple OS | no plugin call from desktop unit tests if A already short-circuits; else `platform_unsupported` | `CapabilityUnavailable` |
 
@@ -119,7 +119,7 @@ When `structured === true` and `schemaName` is set, the bridge uses `@Generable`
 - Final native requests that still exceed the budget are **not** started; return `InputTooLarge` / `context_too_large` with measured vs limit metadata (no user content in diagnostics).
 - Candidate splits use `chunkTextByTokens` from `src/lib/ai/chunkTextByTokens.ts` (paragraph → sentence → hard split). Do not introduce a second splitter.
 
-**Map-reduce for long docs** (inside `appleFoundation.ts`, not a new task ID):
+**Map-reduce for long docs** (inside `src/lib/ai/apple/foundation.ts`, not a new task ID):
 
 - **Plain text** (summarize/explain-style `outputKind: "text"`): hierarchical reduce — per-chunk generation then reduce concatenated intermediates until under budget or a bounded pass limit (mirror `onDeviceAI.ts` hierarchical summarize).
 - **Flashcards / learning material:** per-chunk structured generate, concatenate, then existing TS dedupe/caps (`deduplicateOnDeviceCards`, Learn-this caps in validators). Do not invent a Swift merger.
@@ -147,7 +147,7 @@ PCC as an explicit "Apple Private Cloud" provider is deferred (planning §6.1).
 
 ### 8. Testing: fake in CI, physical matrix out of band
 
-`FakeAppleFoundationProvider` implements `AIProvider`:
+`FakeAppleFoundationProvider` is an alias or subclass of change A’s `FakeLanguageProvider` in `src/lib/ai/providers/fakes.ts` (do not invent a second `AIProvider` interface). It implements `AIProvider`:
 
 - Scriptable `getCapabilities()` snapshots (available, modelNotReady, deviceNotEligible, FeatureDisabled, UnsupportedLanguage).
 - Scriptable `generateStream` returning valid/invalid structured payloads per schemaName.
@@ -197,7 +197,7 @@ Optional feature flag `appleFoundationModels`: when false, `getCapabilities().te
 
 1. Land A (plugin skeleton, errors, panel, routing hook, reserved commands).
 2. Add Swift `FoundationModelsBridge` behind `@available(iOS 26.0, macOS 26.0, *)` with desktop/Android stubs.
-3. Add `appleFoundation.ts` + `AppleFoundationProvider` + fake; unit tests.
+3. Add `src/lib/ai/apple/foundation.ts` + `AppleFoundationProvider` + fake; unit tests.
 4. Wire guided schemas; round-trip tests against TS validators.
 5. Chunking/map-reduce helper tests with over-budget fixtures (`seededRandom` not required; use fixed strings).
 6. i18n keys; panel states; provenance assertion in learn-this accept test with fake provider id.

@@ -1,9 +1,9 @@
 ## 1. Prerequisites and plugin seams
 
 - [ ] 1.1 Confirm `extend-ai-capability-routing-for-apple` crate and reserved `apple_vision_*` commands
-- [ ] 1.2 Register `import_document_scan` and `import_photo_library` in `src/lib/platformCapabilities.ts` (available iOS; unavailable Android/desktop/web unless macOS status is explicitly available)
+- [ ] 1.2 Consume A’s `import_document_scan` and `import_photo_library` in `src/lib/platformCapabilities.ts` (available iOS OS-family; unavailable Android/desktop/web unless macOS status is explicitly available). Do not register `apple_vision_scan`.
 - [ ] 1.3 Extend `src/lib/__tests__/platformCapabilities.test.ts` and the desktop/Android frozen snapshot with the new ids as **false** on those platforms
-- [ ] 1.4 Confirm `AIErrorCategory` can express `PermissionDenied`, `VisionUnavailable`, `OCRFailed`, `Cancelled`, `InputTooLarge`
+- [ ] 1.4 Map native vision/OCR failures through A’s categories (`PermissionDenied`, `CapabilityUnavailable` for `vision_unavailable`, `GenerationFailed` for `ocr_failed`, `Cancelled`, `InputTooLarge`). Do **not** add `VisionUnavailable` or `OCRFailed` to the `AIErrorCategory` union.
 
 ## 2. Native Vision / document camera
 

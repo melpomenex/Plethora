@@ -18,7 +18,7 @@
 
 - [ ] 3.1 Extend `AI_ERROR_CATEGORIES` and mappers; unit tests for new categories and cancelled-never-fallback.
 - [ ] 3.2 Add feature flags in `settingsStore.ts` with defaults from the design; persist tests.
-- [ ] 3.3 Register platform capability IDs in `platformCapabilities.ts` + matrix tests.
+- [ ] 3.3 Register platform capability IDs in `platformCapabilities.ts` + matrix tests (`on_device_ai_apple_foundation`, `apple_speech_transcription`, `import_document_scan`, `import_photo_library`, `apple_spotlight_search`, `on_device_ai_apple_coreai`).
 - [ ] 3.4 Add `src/lib/ai/providers/fakes.ts` (`FakeLanguageProvider`, `FakeSpeechProvider`, `FakeVisionProvider`, `FakeSemanticSearchProvider`) with unit tests.
 
 ## 4. Settings UX

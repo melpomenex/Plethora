@@ -6,7 +6,7 @@ iOS users still cannot (a) merge Apple Spotlight semantic candidates into librar
 
 ## What Changes
 
-- Extend `retrieveFromLibrary` / `ai_learning_retrieve` with an **optional** Spotlight candidate source (change C’s donations). Merge by `semantic_chunks.id` / `SearchResult.chunkId`. SQLite semantic + FTS5 lexical remain the default path.
+- Extend `retrieveFromLibrary` / `ai_learning_retrieve` with an **optional** Spotlight candidate source (change C’s donations). Merge by resolving C’s `plethora://` URIs to `semantic_chunks.id` (chunk URI direct; document URI expands to that document’s chunks). SQLite semantic + FTS5 lexical remain the default path.
 - Keep generation on the existing `ask-library` task and router (Nano / Apple FM / cloud independently from the retriever).
 - If the generator is Apple FM **and** FM tool calling is enabled, attach **only** `SpotlightSearchTool`: read-only, argument-validated, results wrapped as `<untrusted_source>` via `src/lib/ai/tasks/containment.ts`. No filesystem, deletes, or settings writes.
 - Add command palette command **Ask my library** (capability-gated), opening the existing Ask Library surface (`useAskLibrary` / `SearchPage` ask mode / assistant). Must not merge with `resultKind: "ask-plethora"` in `CommandCenter.tsx`.

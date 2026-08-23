@@ -18,7 +18,7 @@
 
 - [ ] 4.1 Add `settings.search.systemSpotlightEnabled` default false + settings UI near index/privacy.
 - [ ] 4.2 Merge Spotlight candidates into `ftsSearch` / `CommandCenter` / `GlobalSearch` / `SearchPage` with dedup; FTS fallback.
-- [ ] 4.3 Register `apple_spotlight_search` if A did not.
+- [ ] 4.3 Consume A’s `apple_spotlight_search` platform id; do not register a second id (`apple_spotlight_index`). Implement reserved `apple_spotlight_rebuild` (domain wipe + indexer enqueue).
 
 ## 5. Tests
 

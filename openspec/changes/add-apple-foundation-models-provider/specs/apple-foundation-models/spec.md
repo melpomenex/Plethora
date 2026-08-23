@@ -52,6 +52,7 @@ The system SHALL map Apple’s availability enum (and documented disabled / unsu
 #### Scenario: OS below Foundation Models
 - **WHEN** the process runs on iOS/iPadOS/macOS below 26.0
 - **THEN** availability is `unsupportedOs` / `platform_unsupported`
+- **AND** an attempted generate reports `UnsupportedDevice` (not `FeatureDisabled`)
 - **AND** 26+ types are not executed
 - **AND** the iOS 14 deployment target still links
 

@@ -78,7 +78,7 @@ The system SHALL transcribe a user-imported audio file on-device via SpeechAnaly
 The system SHALL capture microphone audio for lecture/voice-note modes with the same generic transcript persistence. Lecture vs voice note MAY differ in UX defaults only.
 
 #### Scenario: Live session stop
-- **WHEN** the user starts live capture (palette `record-lecture` or equivalent, gated by `on_device_apple_speech`) and then stops
+- **WHEN** the user starts live capture (palette `record-lecture` or equivalent, gated by `apple_speech_transcription`) and then stops
 - **THEN** a document and transcript exist with all flushed segments
 - **AND** microphone permission was requested at start, not at app launch
 

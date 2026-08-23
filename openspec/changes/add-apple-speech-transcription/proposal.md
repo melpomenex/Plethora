@@ -25,7 +25,7 @@ iOS/macOS 26 `SpeechAnalyzer` + `SpeechTranscriber` are on-device (not Apple Int
 ### Modified Capabilities
 
 - `transcription-provider-resolution`: `provider` union gains `apple`; native-mobile no longer unconditionally substitutes Groq for `local`.
-- `apple-ai-capability-routing`: fills reserved `apple_speech_*` commands; registers platform capability `on_device_apple_speech`.
+- `apple-ai-capability-routing`: fills reserved `apple_speech_*` commands; consumes platform capability `apple_speech_transcription` (A registers it; this change does **not** register `on_device_apple_speech`).
 
 ## Impact
 

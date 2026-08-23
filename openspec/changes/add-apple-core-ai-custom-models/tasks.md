@@ -1,8 +1,8 @@
 ## 1. Phase gate, flag, and compile constraints
 
 - [ ] 1.1 Confirm `extend-ai-capability-routing-for-apple` has landed (plugin crate `plethora-apple-intelligence`, reserved `apple_coreai_*` commands, multi-provider registry, fakes). Do **not** start if B (`add-apple-foundation-models-provider`) is still in the same implementation phase — wait until B is merged or explicitly parked
-- [ ] 1.2 Add `settings.features.appleCoreAI` (boolean, default `false`) in `settingsStore.ts` defaults, persist merge, and TypeScript types; document it as Phase 4 / iOS 27 Core AI
-- [ ] 1.3 Register platform capability id `on_device_ai_apple_coreai` in `platformCapabilities.ts` as detected, never assumed
+- [ ] 1.2 Consume A’s `settings.features.appleCoreAI` (boolean, default `false`). Do not add a second flag or change the default.
+- [ ] 1.3 Consume A’s platform capability id `on_device_ai_apple_coreai` with OS-family meaning. Do not register `apple_core_ai` and do not treat the id as “model ready.”
 - [ ] 1.4 Assert `IPHONEOS_DEPLOYMENT_TARGET` remains `14.0` in `src-tauri/gen/apple/project.yml` and `project.pbxproj`; add a script test or CI grep so this change cannot raise it
 - [ ] 1.5 Implement `CoreAIBridge.swift` with `@available(iOS 27.0, macOS 27.0, *)` and `#if canImport(CoreAI)` (or SDK-equivalent) so Xcode 26 / iOS 14 target still compile via stubs
 - [ ] 1.6 Weak-link Core AI; non-Apple `cfg` Rust commands return `platform_unsupported` with no Apple framework linkage
@@ -76,7 +76,7 @@
 
 ## 8. Fakes and CI tests
 
-- [ ] 8.1 Add `FakeCoreAIProvider` implementing `AIProvider` for routing/task tests
+- [ ] 8.1 Add `FakeCoreAIProvider` as an alias/subclass of A’s `FakeLanguageProvider` in `src/lib/ai/providers/fakes.ts` for routing/task tests
 - [ ] 8.2 Add fake catalog + fake download manager (no network)
 - [ ] 8.3 Vitest: flag off, unsupported OS, downloadable → downloading → downloaded, checksum failure, disk denial, FM-vs-Core-AI order, pin Core AI, preferOnDevice false, cancellation
 - [ ] 8.4 Rust tests: catalog verify, path layout, atomic commit, stub `platform_unsupported`
