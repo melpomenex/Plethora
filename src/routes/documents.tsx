@@ -98,6 +98,14 @@ export function Documents() {
             importedDoc = imported[0];
           }
         }
+      } else if (source === "scan") {
+        const { persistVisionDocument } = await import("../lib/ai/apple/importVisionDocument");
+        importedDoc = await persistVisionDocument(data);
+      } else if (source === "photo") {
+        const { importApplePhotoDocument, persistVisionDocument } = await import("../lib/ai/apple/importVisionDocument");
+        importedDoc = data.filePath
+          ? await importApplePhotoDocument(data.filePath)
+          : await persistVisionDocument(data, { filePath: data.filePath });
       } else if (source === 'folder') {
         const imported = await importFromFolder();
         if (imported.length > 0) {
