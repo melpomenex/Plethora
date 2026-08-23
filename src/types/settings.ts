@@ -198,7 +198,7 @@ export interface GroqTranscriptionSettings {
 
 // Audio Transcription Settings
 export interface AudioTranscriptionSettings {
-  provider: "local" | "groq" | "apple";
+  provider: "local" | "groq" | "apple" | "android-ondevice";
   preferAndroidSpeech?: boolean;
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
@@ -211,6 +211,13 @@ export interface AudioTranscriptionSettings {
   idleTranscriptionEnabled: boolean;
   idleThresholdMinutes: number;
   groq: GroqTranscriptionSettings;
+  /** Android on-device engine preferences (sherpa-onnx STT plugin). */
+  androidOnDevice?: {
+    /** Explicit model choice; empty/undefined = auto per language. */
+    modelId?: string;
+    /** Thermal pacing: capped (2 threads, default) or full (4 threads). */
+    pacing: "capped" | "full";
+  };
 }
 
 export type TTSRequestMode = "direct" | "proxy";

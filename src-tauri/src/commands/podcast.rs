@@ -1733,6 +1733,415 @@ pub async fn transcribe_audio_file_groq(
     Ok(all_segments.len() as i64)
 }
 
+// ---------------------------------------------------------------------------
+// On-device transcription (Android STT plugin, design.md D2)
+// ---------------------------------------------------------------------------
+
+/// Bridge to the Android STT plugin. Sync because `run_mobile_plugin` parks
+/// the calling thread until Kotlin resolves the Invoke. Faked in tests.
+pub trait OnDeviceSttBridge: Send + Sync {
+    fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
+    fn job_status(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
+    fn cancel_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
+}
+
+/// Running on-device jobs keyed by document id → plugin job id, so the UI can
+/// cancel an in-flight job (same shape as PodcastTranscriptionTokens).
+pub type OnDeviceSttJobs = Arc<Mutex<HashMap<String, String>>>;
+
+#[cfg(target_os = "android")]
+pub struct PluginSttBridge(pub plethora_android_stt::Native);
+
+#[cfg(target_os = "android")]
+impl OnDeviceSttBridge for PluginSttBridge {
+    fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        self.0.invoke("sttStartJob", request).map_err(|e| e.to_string())
+    }
+    fn job_status(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        self.0.invoke("sttJobStatus", request).map_err(|e| e.to_string())
+    }
+    fn cancel_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        self.0.invoke("sttCancelJob", request).map_err(|e| e.to_string())
+    }
+}
+
+/// Persisted-segment row returned by the plugin (absolute stream ms).
+struct OnDeviceSegment {
+    start_ms: i64,
+    end_ms: i64,
+    text: String,
+    words_json: Option<String>,
+}
+
+fn parse_plugin_segments(payload: &serde_json::Value) -> Vec<OnDeviceSegment> {
+    let mut out = Vec::new();
+    let Some(segments) = payload.get("segments").and_then(|v| v.as_array()) else {
+        return out;
+    };
+    for seg in segments {
+        let start_ms = seg.get("startMs").and_then(|v| v.as_i64()).unwrap_or(0);
+        let end_ms = seg.get("endMs").and_then(|v| v.as_i64()).unwrap_or(0);
+        let text = seg.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        if text.is_empty() || end_ms <= start_ms {
+            continue;
+        }
+        let words_json = seg
+            .get("words")
+            .filter(|w| w.is_array())
+            .and_then(|w| serde_json::to_string(w).ok());
+        out.push(OnDeviceSegment { start_ms, end_ms, text, words_json });
+    }
+    out
+}
+
+/// Testable core of `transcribe_audio_file_on_device`: start the plugin job,
+/// poll `sttJobStatus`, persist segments incrementally with a checkpoint after
+/// every poll, and mirror the Groq command's contract on completion/failure
+/// (existing segments always survive; combined text is assembled from the DB).
+#[allow(clippy::too_many_arguments)]
+async fn run_on_device_transcription_inner(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    jobs: Option<&OnDeviceSttJobs>,
+    document_id: &str,
+    file_path: &str,
+    language: Option<&str>,
+    model_id: Option<&str>,
+    pacing: Option<&str>,
+    title: Option<&str>,
+    bridge: Arc<dyn OnDeviceSttBridge>,
+    poll_interval: Duration,
+    emit: &(dyn Fn(&str, serde_json::Value) + Send + Sync),
+) -> Result<i64> {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(PlethoraError::NotFound(format!("Audio file not found: {}", file_path)));
+    }
+    emit(
+        "audiobook://transcription-progress",
+        serde_json::json!({ "documentId": document_id, "status": "processing", "progress": 5, "message": "Preparing on-device transcription…" }),
+    );
+
+    // Mark processing without replacing the row: existing segments are
+    // checkpoints from an interrupted run and must survive (Groq contract).
+    sqlx::query("INSERT INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, 'android-ondevice', ?, 'processing') ON CONFLICT(book_id, chapter_id) DO UPDATE SET model_used = 'android-ondevice', language = excluded.language, status = 'processing', error_message = NULL, updated_at = CURRENT_TIMESTAMP")
+        .bind(document_id)
+        .bind(document_id)
+        .bind(language.unwrap_or("en"))
+        .execute(pool)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to mark transcript processing: {}", e)))?;
+    let transcript_id: i64 =
+        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(document_id)
+            .bind(document_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to fetch transcript id: {}", e)))?;
+
+    // Resume state: the decode offset the last run checkpointed.
+    let checkpoint: Option<(String, i64, i64)> = sqlx::query_as(
+        "SELECT model_id, decode_offset_ms, segment_cursor FROM transcription_checkpoints WHERE document_id = ?",
+    )
+    .bind(document_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| PlethoraError::Internal(format!("Failed to read transcription checkpoint: {}", e)))?;
+    let resume_from_ms = checkpoint.as_ref().map(|(_, offset, _)| *offset).unwrap_or(0).max(0);
+
+    emit(
+        "audiobook://transcription-progress",
+        serde_json::json!({ "documentId": document_id, "status": "processing", "progress": 10, "message": "Starting on-device engine…" }),
+    );
+
+    let job_id = format!("stt-{}", uuid::Uuid::new_v4());
+    // The foreground-service notification shows the document title; look it
+    // up when the caller did not pass one.
+    let notification_title = match title {
+        Some(t) if !t.trim().is_empty() => t.to_string(),
+        _ => sqlx::query_scalar::<_, String>("SELECT title FROM documents WHERE id = ?")
+            .bind(document_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| "Transcription".to_string()),
+    };
+    let start_request = serde_json::json!({
+        "jobId": job_id,
+        "sourcePath": file_path,
+        "title": notification_title,
+        "language": language,
+        "modelId": model_id.unwrap_or(""),
+        "pacing": pacing.unwrap_or("capped"),
+        "resumeFromMs": resume_from_ms,
+    });
+    let start_bridge = Arc::clone(&bridge);
+    let start_result = tokio::task::spawn_blocking(move || start_bridge.start_job(start_request))
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("STT start task failed: {}", e)))?
+        .map_err(|e| PlethoraError::Internal(format!("On-device STT failed to start: {}", e)))?;
+    let resolved_model = start_result
+        .get("modelId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("android-ondevice")
+        .to_string();
+    if let Some(jobs) = jobs {
+        jobs.lock().unwrap().insert(document_id.to_string(), job_id.clone());
+    }
+
+    // Poll until a terminal state, persisting each batch of segments and the
+    // decode-position checkpoint as they arrive.
+    let mut cursor: i64 = 0;
+    let final_state: Result<i64> = loop {
+        tokio::time::sleep(poll_interval).await;
+        let status_bridge = Arc::clone(&bridge);
+        let status_request = serde_json::json!({ "jobId": job_id, "cursor": cursor });
+        let status = match tokio::task::spawn_blocking(move || status_bridge.job_status(status_request))
+            .await
+        {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                break Err(PlethoraError::Internal(format!("On-device STT status failed: {}", e)))
+            }
+            Err(e) => break Err(PlethoraError::Internal(format!("STT status task failed: {}", e))),
+        };
+        let state = status.get("status").and_then(|v| v.as_str()).unwrap_or("failed").to_string();
+        let progress_raw = status.get("progress").and_then(|v| v.as_i64()).unwrap_or(0);
+        let decode_offset_ms = status.get("decodeOffsetMs").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        // Persist completed segments incrementally.
+        let segments = parse_plugin_segments(&status);
+        if !segments.is_empty() {
+            let mut tx = pool
+                .begin()
+                .await
+                .map_err(|e| PlethoraError::Internal(format!("Failed to begin STT checkpoint: {}", e)))?;
+            for seg in &segments {
+                sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence, words_json) VALUES (?, ?, ?, ?, 1.0, ?)")
+                    .bind(transcript_id)
+                    .bind(seg.start_ms)
+                    .bind(seg.end_ms)
+                    .bind(&seg.text)
+                    .bind(seg.words_json.as_deref())
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| PlethoraError::Internal(format!("Failed to checkpoint STT segments: {}", e)))?;
+            }
+            tx.commit()
+                .await
+                .map_err(|e| PlethoraError::Internal(format!("Failed to commit STT checkpoint: {}", e)))?;
+        }
+        cursor = status.get("nextCursor").and_then(|v| v.as_i64()).unwrap_or(cursor);
+
+        // Checkpoint the decode position after the segments are durable.
+        let _ = sqlx::query(
+            "INSERT INTO transcription_checkpoints (document_id, model_id, decode_offset_ms, segment_cursor, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(document_id) DO UPDATE SET model_id = excluded.model_id, decode_offset_ms = excluded.decode_offset_ms, segment_cursor = excluded.segment_cursor, updated_at = excluded.updated_at",
+        )
+        .bind(document_id)
+        .bind(&resolved_model)
+        .bind(decode_offset_ms)
+        .bind(cursor)
+        .execute(pool)
+        .await;
+
+        let progress = 15 + ((progress_raw.clamp(0, 100) as f64) * 0.70) as i64;
+        emit(
+            "audiobook://transcription-progress",
+            serde_json::json!({ "documentId": document_id, "status": "processing", "progress": progress, "message": format!("Transcribing on device… {}%", progress_raw) }),
+        );
+
+        match state.as_str() {
+            "running" => continue,
+            "completed" => break Ok(0),
+            "cancelled" => {
+                // Spec: cancelled jobs keep every completed segment and the
+                // transcript row is marked cancelled (resumable on retry).
+                let _ = sqlx::query(
+                    "UPDATE transcripts SET status = 'cancelled', error_message = 'Cancelled' WHERE book_id = ? AND chapter_id = ?",
+                )
+                .bind(document_id)
+                .bind(document_id)
+                .execute(pool)
+                .await;
+                break Err(PlethoraError::Internal("transcription_cancelled".to_string()));
+            }
+            failed => {
+                let kind = status.get("errorKind").and_then(|v| v.as_str()).unwrap_or("inference_failed");
+                let message = status.get("error").and_then(|v| v.as_str()).unwrap_or("on-device transcription failed");
+                if kind == "service_timeout" {
+                    // Graceful FGS-timeout stop (design.md D6): leave the
+                    // transcript processing with the checkpoint intact so a
+                    // retry resumes from where decoding stopped.
+                    break Err(PlethoraError::Internal(format!(
+                        "On-device transcription was interrupted by the system service timeout; progress is saved and will resume on retry ({})",
+                        message
+                    )));
+                }
+                let hard_fail = kind == "codec_unsupported" || kind == "drm_protected";
+                let _ = sqlx::query(
+                    "UPDATE transcripts SET status = 'failed', error_message = ? WHERE book_id = ? AND chapter_id = ?",
+                )
+                .bind(format!("{}: {}", kind, message))
+                .bind(document_id)
+                .bind(document_id)
+                .execute(pool)
+                .await;
+                if hard_fail {
+                    // Undecodable input never gets further; drop the checkpoint
+                    // so a retry starts clean instead of re-seeking into it.
+                    let _ = sqlx::query("DELETE FROM transcription_checkpoints WHERE document_id = ?")
+                        .bind(document_id)
+                        .execute(pool)
+                        .await;
+                }
+                break Err(PlethoraError::Internal(format!(
+                    "On-device transcription failed ({}): {}",
+                    kind, message
+                )));
+            }
+        }
+    };
+
+    if let Some(jobs) = jobs {
+        jobs.lock().unwrap().remove(document_id);
+    }
+
+    final_state?;
+
+    // Combined full text is assembled from ALL persisted segments (including
+    // prior interrupted runs), then the transcript is completed.
+    let all_segments: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms, id",
+    )
+    .bind(transcript_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| PlethoraError::Internal(format!("Failed to assemble on-device transcript: {}", e)))?;
+    let full_text = all_segments
+        .iter()
+        .map(|(_, _, text)| text.trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !full_text.is_empty() {
+        let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
+            .bind(&full_text)
+            .bind(document_id)
+            .execute(pool)
+            .await;
+    }
+    let _ = sqlx::query(
+        "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
+    )
+    .bind(document_id)
+    .bind(document_id)
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("DELETE FROM transcription_checkpoints WHERE document_id = ?")
+        .bind(document_id)
+        .execute(pool)
+        .await;
+
+    emit(
+        "audiobook://transcription-complete",
+        serde_json::json!({ "documentId": document_id, "segmentCount": all_segments.len() }),
+    );
+    eprintln!(
+        "[audiobook-transcribe] on-device: DONE, {} segments for document {}",
+        all_segments.len(),
+        document_id
+    );
+    Ok(all_segments.len() as i64)
+}
+
+/// Transcribe an imported audiobook audio file entirely on device (Android
+/// sherpa-onnx engine). Mirrors `transcribe_audio_file_groq`: emits
+/// `audiobook://transcription-progress` keyed by documentId, persists timed
+/// segments incrementally with a checkpoint per poll, writes the combined
+/// text to `documents.content` on completion, and resumes interrupted runs
+/// from the checkpoint. Non-Android platforms reject with
+/// `platform_unsupported` (the Groq path stays the default there).
+#[tauri::command]
+pub async fn transcribe_audio_file_on_device(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+    jobs: State<'_, OnDeviceSttJobs>,
+    document_id: String,
+    file_path: String,
+    language: Option<String>,
+    model_id: Option<String>,
+    pacing: Option<String>,
+    title: Option<String>,
+) -> Result<i64> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (&app_handle, &repo, &jobs, &document_id, &file_path, &language, &model_id, &pacing, &title);
+        return Err(PlethoraError::Internal(
+            "platform_unsupported: on-device transcription is Android-only".to_string(),
+        ));
+    }
+    #[cfg(target_os = "android")]
+    {
+        let native = app_handle
+            .state::<plethora_android_stt::Native>()
+            .inner()
+            .clone();
+        let bridge: Arc<dyn OnDeviceSttBridge> = Arc::new(PluginSttBridge(native));
+        let emitter = app_handle.clone();
+        run_on_device_transcription_inner(
+            repo.pool(),
+            Some(&jobs),
+            &document_id,
+            &file_path,
+            language.as_deref(),
+            model_id.as_deref(),
+            pacing.as_deref(),
+            title.as_deref(),
+            bridge,
+            Duration::from_secs(1),
+            &move |event, payload| {
+                let _ = emitter.emit(event, payload);
+            },
+        )
+        .await
+    }
+}
+
+/// Cancel the running on-device transcription job for a document. The plugin
+/// stops promptly and every completed segment is preserved.
+#[tauri::command]
+pub async fn cancel_on_device_transcription(
+    app_handle: AppHandle,
+    jobs: State<'_, OnDeviceSttJobs>,
+    document_id: String,
+) -> Result<bool> {
+    let job_id = jobs.lock().unwrap().get(&document_id).cloned();
+    let Some(job_id) = job_id else {
+        return Ok(false);
+    };
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app_handle;
+        return Err(PlethoraError::Internal(
+            "platform_unsupported: on-device transcription is Android-only".to_string(),
+        ));
+    }
+    #[cfg(target_os = "android")]
+    {
+        let native = app_handle
+            .state::<plethora_android_stt::Native>()
+            .inner()
+            .clone();
+        let request = serde_json::json!({ "jobId": job_id });
+        let _ = tokio::task::spawn_blocking(move || PluginSttBridge(native).cancel_job(request))
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("STT cancel task failed: {}", e)))?
+            .map_err(|e| PlethoraError::Internal(format!("On-device STT cancel failed: {}", e)))?;
+        Ok(true)
+    }
+}
+
 /// Persist per-segment (and optional per-word) timings produced by Groq cloud
 /// transcription. Used by the mobile/Groq transcription path, which runs the
 /// transcription in the frontend (plain HTTP) and sends the results here for
@@ -2186,4 +2595,343 @@ pub async fn save_podcast_transcript(
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod on_device_tests {
+    use super::*;
+    use crate::database::Database;
+    use std::sync::Mutex;
+
+    /// Scripted bridge: start requests are captured; each job_status call
+    /// consumes the next scripted response.
+    struct MockSttBridge {
+        statuses: Mutex<Vec<serde_json::Value>>,
+        started: Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl OnDeviceSttBridge for MockSttBridge {
+        fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+            self.started.lock().unwrap().push(request);
+            Ok(serde_json::json!({ "jobId": "job-1", "modelId": "sense-voice-multi-int8" }))
+        }
+        fn job_status(&self, _request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+            self.statuses
+                .lock()
+                .unwrap()
+                .pop()
+                .map(Ok::<_, String>)
+                .unwrap_or_else(|| Ok(serde_json::json!({ "status": "completed", "progress": 100 })))
+        }
+        fn cancel_job(&self, _request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+            Ok(serde_json::json!({ "cancelled": true }))
+        }
+    }
+
+    async fn test_setup() -> (sqlx::Pool<sqlx::Sqlite>, String, String) {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        let repo = Repository::new(db.pool().clone());
+        let doc = repo
+            .create_document(&Document::new(
+                "Book".to_string(),
+                "/tmp/book.m4b".to_string(),
+                FileType::Audio,
+            ))
+            .await
+            .expect("doc");
+        let audio = std::env::temp_dir().join(format!("stt-test-{}.m4b", doc.id));
+        std::fs::write(&audio, b"fake audio").expect("write audio");
+        (db.pool().clone(), doc.id, audio.to_string_lossy().to_string())
+    }
+
+    fn running_with_segments(segments: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "status": "running", "progress": 40, "decodeOffsetMs": 1200, "nextCursor": 2, "segments": segments })
+    }
+
+    /// Terminal completed snapshot with one more segment.
+    fn completed_with_segments(next_cursor: i64, segments: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "status": "completed", "progress": 100, "decodeOffsetMs": 3000, "nextCursor": next_cursor, "segments": segments })
+    }
+
+    fn segments_payload() -> serde_json::Value {
+        serde_json::json!([
+            { "index": 0, "startMs": 0, "endMs": 900, "text": "Hello", "words": [ { "w": "Hello", "t": 0 } ] },
+            { "index": 1, "startMs": 1000, "endMs": 1900, "text": "world" },
+        ])
+    }
+
+    async fn run(
+        pool: &sqlx::Pool<sqlx::Sqlite>,
+        document_id: &str,
+        audio_path: &str,
+        bridge: Arc<dyn OnDeviceSttBridge>,
+    ) -> (Result<i64>, Vec<(String, serde_json::Value)>) {
+        let events: Arc<Mutex<Vec<(String, serde_json::Value)>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let result = run_on_device_transcription_inner(
+            pool,
+            None,
+            document_id,
+            audio_path,
+            Some("en"),
+            None,
+            Some("capped"),
+            Some("Book"),
+            bridge,
+            Duration::from_millis(1),
+            &move |event, payload| {
+                sink.lock().unwrap().push((event.to_string(), payload));
+            },
+        )
+        .await;
+        let events = events.lock().unwrap().clone();
+        (result, events)
+    }
+
+    #[tokio::test]
+    async fn completes_persists_segments_writes_content_and_clears_checkpoint() {
+        let (pool, doc_id, audio) = test_setup().await;
+        let bridge = Arc::new(MockSttBridge {
+            // job_status consumes these like a stack: running first, then
+            // the terminal completed snapshot.
+            statuses: Mutex::new(vec![
+                completed_with_segments(3, serde_json::json!([
+                    { "index": 2, "startMs": 2000, "endMs": 2900, "text": "and goodbye" }
+                ])),
+                running_with_segments(segments_payload()),
+            ]),
+            started: Mutex::new(Vec::new()),
+        });
+        let started_ref = Arc::clone(&bridge);
+        let (result, events) = run(&pool, &doc_id, &audio, bridge).await;
+        assert_eq!(result.expect("ok"), 3);
+
+        // The plugin job started with resume-from 0 and resolved a model.
+        let started = started_ref.started.lock().unwrap();
+        assert_eq!(started[0]["resumeFromMs"], 0);
+        assert_eq!(started[0]["pacing"], "capped");
+        drop(started);
+
+        // Segments + word timings persisted in order.
+        let rows: Vec<(i64, i64, String, Option<String>)> = sqlx::query_as(
+            "SELECT start_ms, end_ms, text, words_json FROM transcript_segments ts \
+             JOIN transcripts t ON t.id = ts.transcript_id \
+             WHERE t.book_id = ? ORDER BY start_ms",
+        )
+        .bind(&doc_id)
+        .fetch_all(&pool)
+        .await
+        .expect("segments");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].2, "Hello");
+        assert!(rows[0].3.as_deref().unwrap().contains("Hello"));
+
+        // Combined text lands on documents.content; status completed;
+        // checkpoint cleared.
+        let content: Option<String> =
+            sqlx::query_scalar("SELECT content FROM documents WHERE id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("content");
+        assert_eq!(content.as_deref(), Some("Hello world and goodbye"));
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("status");
+        assert_eq!(status, "completed");
+        let checkpoint: Option<i64> =
+            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
+                .bind(&doc_id)
+                .fetch_optional(&pool)
+                .await
+                .expect("checkpoint");
+        assert_eq!(checkpoint, None);
+
+        // Groq-compatible event payloads on the shared channel.
+        let progress_events: Vec<_> = events
+            .iter()
+            .filter(|(e, _)| e == "audiobook://transcription-progress")
+            .collect();
+        assert!(progress_events.len() >= 3);
+        assert_eq!(progress_events[0].1["documentId"], doc_id);
+        assert_eq!(progress_events[0].1["progress"], 5);
+        assert_eq!(progress_events[0].1["status"], "processing");
+        let complete: Vec<_> = events
+            .iter()
+            .filter(|(e, _)| e == "audiobook://transcription-complete")
+            .collect();
+        assert_eq!(complete.len(), 1);
+        assert_eq!(complete[0].1["segmentCount"], 3);
+        assert_eq!(complete[0].1["documentId"], doc_id);
+    }
+
+    #[tokio::test]
+    async fn resumes_from_checkpoint_and_preserves_prior_segments() {
+        let (pool, doc_id, audio) = test_setup().await;
+        // Prior interrupted run: processing transcript with two segments and
+        // a decode-position checkpoint.
+        sqlx::query("INSERT INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, 'android-ondevice', 'en', 'processing')")
+            .bind(&doc_id)
+            .bind(&doc_id)
+            .execute(&pool)
+            .await
+            .expect("transcript");
+        let transcript_id: i64 =
+            sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("tid");
+        for (start, end, text) in [(0, 900, "Hello"), (1000, 1900, "world")] {
+            sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text) VALUES (?, ?, ?, ?)")
+                .bind(transcript_id)
+                .bind(start)
+                .bind(end)
+                .bind(text)
+                .execute(&pool)
+                .await
+                .expect("seg");
+        }
+        sqlx::query("INSERT INTO transcription_checkpoints (document_id, model_id, decode_offset_ms, segment_cursor, updated_at) VALUES (?, 'sense-voice-multi-int8', 12000, 2, CURRENT_TIMESTAMP)")
+            .bind(&doc_id)
+            .execute(&pool)
+            .await
+            .expect("checkpoint");
+
+        let bridge = Arc::new(MockSttBridge {
+            statuses: Mutex::new(vec![completed_with_segments(1, serde_json::json!([
+                { "index": 0, "startMs": 12000, "endMs": 12800, "text": "Resumed text" }
+            ]))]),
+            started: Mutex::new(Vec::new()),
+        });
+        let started_ref = Arc::clone(&bridge);
+        let (result, _) = run(&pool, &doc_id, &audio, bridge).await;
+        assert_eq!(result.expect("ok"), 3);
+
+        // The new job MUST resume from the checkpointed decode offset.
+        assert_eq!(started_ref.started.lock().unwrap()[0]["resumeFromMs"], 12000);
+
+        // Prior segments survived and the combined text includes them.
+        let content: Option<String> =
+            sqlx::query_scalar("SELECT content FROM documents WHERE id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("content");
+        assert_eq!(content.as_deref(), Some("Hello world Resumed text"));
+    }
+
+    #[tokio::test]
+    async fn codec_failure_marks_failed_and_clears_checkpoint() {
+        let (pool, doc_id, audio) = test_setup().await;
+        let bridge = Arc::new(MockSttBridge {
+            statuses: Mutex::new(vec![serde_json::json!({
+                "status": "failed", "progress": 0, "decodeOffsetMs": 0, "nextCursor": 0,
+                "segments": [], "errorKind": "codec_unsupported", "error": "no decoder for audio/exotic"
+            })]),
+            started: Mutex::new(Vec::new()),
+        });
+        let (result, _) = run(&pool, &doc_id, &audio, bridge).await;
+        let err = result.expect_err("must fail");
+        assert!(err.to_string().contains("codec_unsupported"));
+        let (status, error): (String, Option<String>) =
+            sqlx::query_as("SELECT status, error_message FROM transcripts WHERE book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("status");
+        assert_eq!(status, "failed");
+        assert!(error.as_deref().unwrap().contains("codec_unsupported"));
+        let checkpoint: Option<i64> =
+            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
+                .bind(&doc_id)
+                .fetch_optional(&pool)
+                .await
+                .expect("checkpoint");
+        assert_eq!(checkpoint, None);
+    }
+
+    #[tokio::test]
+    async fn service_timeout_keeps_processing_for_resume() {
+        let (pool, doc_id, audio) = test_setup().await;
+        let bridge = Arc::new(MockSttBridge {
+            statuses: Mutex::new(vec![
+                serde_json::json!({
+                    "status": "failed", "progress": 50, "decodeOffsetMs": 5000, "nextCursor": 1,
+                    "segments": [ { "index": 0, "startMs": 0, "endMs": 900, "text": "Half" } ],
+                    "errorKind": "service_timeout", "error": "fgs timeout"
+                }),
+            ]),
+            started: Mutex::new(Vec::new()),
+        });
+        let (result, _) = run(&pool, &doc_id, &audio, bridge).await;
+        assert!(result.is_err());
+
+        // Status stays processing (resumable), segments persisted, checkpoint kept.
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("status");
+        assert_eq!(status, "processing");
+        let checkpoint: Option<i64> =
+            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
+                .bind(&doc_id)
+                .fetch_optional(&pool)
+                .await
+                .expect("checkpoint");
+        assert_eq!(checkpoint, Some(5000));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transcript_segments ts JOIN transcripts t ON t.id = ts.transcript_id WHERE t.book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_marks_cancelled_and_keeps_segments() {
+        let (pool, doc_id, audio) = test_setup().await;
+        let bridge = Arc::new(MockSttBridge {
+            statuses: Mutex::new(vec![serde_json::json!({
+                "status": "cancelled", "progress": 30, "decodeOffsetMs": 3000, "nextCursor": 1,
+                "segments": [ { "index": 0, "startMs": 0, "endMs": 900, "text": "Part" } ]
+            })]),
+            started: Mutex::new(Vec::new()),
+        });
+        let (result, _) = run(&pool, &doc_id, &audio, bridge).await;
+        assert!(result.is_err());
+        let (status, error): (String, Option<String>) =
+            sqlx::query_as("SELECT status, error_message FROM transcripts WHERE book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("status");
+        assert_eq!(status, "cancelled");
+        assert_eq!(error.as_deref(), Some("Cancelled"));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transcript_segments ts JOIN transcripts t ON t.id = ts.transcript_id WHERE t.book_id = ?")
+                .bind(&doc_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn missing_audio_file_rejects_not_found() {
+        let (pool, doc_id, _) = test_setup().await;
+        let bridge = Arc::new(MockSttBridge {
+            statuses: Mutex::new(Vec::new()),
+            started: Mutex::new(Vec::new()),
+        });
+        let (result, _) = run(&pool, &doc_id, "/nonexistent/audio.m4b", bridge).await;
+        assert!(matches!(result, Err(PlethoraError::NotFound(_))));
+    }
 }

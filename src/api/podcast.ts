@@ -479,6 +479,124 @@ export async function transcribePodcastEpisodeWithGroq(
 }
 
 /**
+ * Transcribe a podcast episode entirely on device (Android sherpa-onnx
+ * engine). Non-local episodes are downloaded through the existing
+ * episode-download path first — the transcription itself is fully offline
+ * and key-free. Emits the shared `podcast://transcription-*` events so the
+ * queue UI treats it like any other job, and persists segments + word
+ * timings via save_podcast_transcript_segments exactly like the Groq path.
+ */
+export async function transcribePodcastEpisodeOnDevice(
+  episodeId: string,
+  audioUrl: string,
+  language?: string,
+): Promise<void> {
+  const { emit } = await import("@tauri-apps/api/event");
+  const stt = await import("../lib/ai/android/androidStt");
+  await emit("podcast://transcription-progress", {
+    episodeId,
+    status: "processing",
+    progress: 10,
+    message: "Preparing on-device transcription…",
+  });
+
+  try {
+    // The on-device engine reads from disk: download non-local episodes via
+    // the existing episode-download path before the job starts.
+    let localPath = await getDownloadedEpisodePath(episodeId);
+    if (!localPath) {
+      await emit("podcast://transcription-progress", {
+        episodeId,
+        status: "processing",
+        progress: 15,
+        message: "Downloading episode…",
+      });
+      localPath = await downloadEpisodeAudio(episodeId, audioUrl);
+    }
+
+    const { modelId, pacing } = (() => {
+      try {
+        const raw = migratedGetItem("plethora-settings");
+        const parsed = raw ? JSON.parse(raw) : null;
+        const od = parsed?.state?.settings?.audioTranscription?.androidOnDevice;
+        return {
+          modelId: od?.modelId || "",
+          pacing: od?.pacing === "full" ? "full" : "capped",
+        };
+      } catch {
+        return { modelId: "", pacing: "capped" };
+      }
+    })();
+
+    const jobId = `stt-podcast-${episodeId}-${Date.now()}`;
+    await stt.startAndroidSttJob({
+      jobId,
+      sourcePath: localPath,
+      language: language ?? null,
+      modelId,
+      pacing,
+      resumeFromMs: 0,
+    });
+
+    let cursor = 0;
+    const collected: SaveSegmentInput[] = [];
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const status = await stt.getAndroidSttJobStatus(jobId, cursor);
+      for (const seg of status.segments) {
+        collected.push({
+          start_ms: seg.startMs,
+          end_ms: seg.endMs,
+          text: seg.text.trim(),
+          word_timings_json:
+            seg.words && seg.words.length > 0
+              ? JSON.stringify(
+                  seg.words.map((w) => ({ word: w.w, start_ms: w.t, end_ms: w.t })),
+                )
+              : null,
+        });
+      }
+      cursor = status.nextCursor;
+      await emit("podcast://transcription-progress", {
+        episodeId,
+        status: "processing",
+        progress: 20 + Math.round(status.progress * 0.6),
+        message: `Transcribing on device… ${status.progress}%`,
+      });
+      if (status.status === "running") continue;
+      if (status.status === "completed") break;
+      if (status.status === "cancelled") {
+        throw new Error("On-device transcription was cancelled.");
+      }
+      throw new Error(
+        `On-device transcription failed (${status.errorKind ?? "unknown"}): ${status.error ?? ""}`.trim(),
+      );
+    }
+
+    if (collected.length === 0) {
+      throw new Error("On-device transcription returned no segments.");
+    }
+
+    await emit("podcast://transcription-progress", {
+      episodeId,
+      status: "processing",
+      progress: 90,
+      message: "Saving transcript…",
+    });
+    await savePodcastTranscriptSegments(episodeId, collected);
+    await emit("podcast://transcription-complete", {
+      episodeId,
+      segmentCount: collected.length,
+      duration: null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await emit("podcast://transcription-error", { episodeId, error: message });
+    throw err;
+  }
+}
+
+/**
  * Probe the Content-Length of an audio URL via a Range request (follows the
  * resolved redirect). Returns null when the server doesn't report a length
  * (caller then assumes large → chunk). This is the size gate that decides

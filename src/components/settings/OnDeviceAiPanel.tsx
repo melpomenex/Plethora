@@ -15,6 +15,15 @@ import {
   type OnDeviceEmbeddingStatus,
 } from "../../lib/ai/onDeviceAI";
 import {
+  deleteAndroidSttModel,
+  getAndroidSttStatus,
+  invalidateAndroidSttReadiness,
+  listAndroidSttModels,
+  prepareAndroidSttModel,
+  type AndroidSttModel,
+  type AndroidSttStatus,
+} from "../../lib/ai/android/androidStt";
+import {
   getAppleIntelligenceSnapshot,
   isAppleOsPlatform,
 } from "../../lib/ai/apple/capabilities";
@@ -45,9 +54,26 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const [embedDownloading, setEmbedDownloading] = useState(false);
   const [embedPercent, setEmbedPercent] = useState<number | null>(null);
   const [appleSnap, setAppleSnap] = useState<AppleIntelligenceSnapshot | null>(null);
+  const [sttStatus, setSttStatus] = useState<AndroidSttStatus | null>(null);
+  const [sttModels, setSttModels] = useState<AndroidSttModel[]>([]);
+  const [sttDownloadingId, setSttDownloadingId] = useState<string | null>(null);
+  const [sttDownloadPercent, setSttDownloadPercent] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     setStatus(await isOnDeviceAiAvailable());
+  }, []);
+
+  const refreshStt = useCallback(async () => {
+    try {
+      const [nextStatus, nextModels] = await Promise.all([
+        getAndroidSttStatus(),
+        listAndroidSttModels(),
+      ]);
+      setSttStatus(nextStatus);
+      setSttModels(nextModels.models);
+    } catch {
+      // platform_unsupported or plugin missing — leave previous state.
+    }
   }, []);
 
   const refreshEmbedding = useCallback(async () => {
@@ -62,11 +88,12 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     if (android) {
       void refresh();
       void refreshEmbedding();
+      void refreshStt();
     }
     if (appleOs) {
       void refreshApple();
     }
-  }, [android, appleOs, refresh, refreshEmbedding, refreshApple]);
+  }, [android, appleOs, refresh, refreshEmbedding, refreshApple, refreshStt]);
 
   if (!android && !appleOs) return null;
 
@@ -115,6 +142,83 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
       setEmbedDownloading(false);
       setEmbedPercent(null);
     }
+  };
+
+  const handleSttDownload = async (model: AndroidSttModel) => {
+    setSttDownloadingId(model.id);
+    setSttDownloadPercent(null);
+    try {
+      await prepareAndroidSttModel(model.id, (progress) => {
+        const percent =
+          progress.totalBytes > 0
+            ? Math.floor((progress.bytes / progress.totalBytes) * 100)
+            : null;
+        setSttDownloadPercent(percent);
+      });
+      invalidateAndroidSttReadiness();
+      addToast({
+        type: ToastType.Success,
+        title: t("onDeviceAi.sttLabel"),
+        message: t("onDeviceAi.sttReady"),
+      });
+    } catch (error) {
+      addToast({
+        type: ToastType.Error,
+        title: t("onDeviceAi.downloadFailed"),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSttDownloadingId(null);
+      setSttDownloadPercent(null);
+      void refreshStt();
+    }
+  };
+
+  const handleSttDelete = async (model: AndroidSttModel) => {
+    try {
+      await deleteAndroidSttModel(model.id);
+      invalidateAndroidSttReadiness();
+      addToast({
+        type: ToastType.Info,
+        title: t("onDeviceAi.sttLabel"),
+        message: t("onDeviceAi.sttDeleted"),
+      });
+    } catch (error) {
+      addToast({
+        type: ToastType.Error,
+        title: t("onDeviceAi.sttLabel"),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      void refreshStt();
+    }
+  };
+
+  const handleSttModelSelect = (modelId: string) => {
+    updateSettings({
+      audioTranscription: {
+        ...settings.audioTranscription,
+        androidOnDevice: {
+          ...settings.audioTranscription.androidOnDevice,
+          modelId,
+          pacing: settings.audioTranscription.androidOnDevice?.pacing ?? "capped",
+        },
+      },
+    });
+    onChange();
+  };
+
+  const handleSttPacing = (pacing: "capped" | "full") => {
+    updateSettings({
+      audioTranscription: {
+        ...settings.audioTranscription,
+        androidOnDevice: {
+          modelId: settings.audioTranscription.androidOnDevice?.modelId ?? "",
+          pacing,
+        },
+      },
+    });
+    onChange();
   };
 
   const handleToggle = (enabled: boolean) => {
@@ -215,6 +319,83 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
                 </button>
               )}
             </div>
+          </SettingsRow>
+
+          {/* On-device speech-to-text (sherpa-onnx): capability + model rows. */}
+          <SettingsRow
+            label={t("onDeviceAi.sttLabel")}
+            description={
+              sttStatus
+                ? sttStatus.ready
+                  ? t("onDeviceAi.sttReadyDescription")
+                  : t("onDeviceAi.sttNotReadyDescription")
+                : t("onDeviceAi.checking")
+            }
+          >
+            <div className="flex items-center gap-3">
+              <OnDeviceProcessingBadge />
+            </div>
+          </SettingsRow>
+
+          {sttModels.map((model) => (
+            <SettingsRow
+              key={model.id}
+              label={model.name}
+              description={`${model.description} · ${Math.round(model.downloadBytes / 1_000_000)} MB`}
+            >
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <input
+                    type="radio"
+                    name="stt-model"
+                    checked={
+                      settings.audioTranscription.androidOnDevice?.modelId === model.id ||
+                      (!settings.audioTranscription.androidOnDevice?.modelId && model.default)
+                    }
+                    disabled={!model.ready}
+                    onChange={() => handleSttModelSelect(model.id)}
+                    aria-label={`${t("onDeviceAi.sttSelectModel")}: ${model.name}`}
+                  />
+                  {model.ready ? t("onDeviceAi.sttModelReady") : t("onDeviceAi.sttModelNotReady")}
+                </label>
+                {!model.ready && (
+                  <button
+                    onClick={() => void handleSttDownload(model)}
+                    disabled={sttDownloadingId !== null}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    {sttDownloadingId === model.id
+                      ? sttDownloadPercent != null
+                        ? `${t("onDeviceAi.downloadInProgress")} ${sttDownloadPercent}%`
+                        : t("onDeviceAi.downloadInProgress")
+                      : t("onDeviceAi.download")}
+                  </button>
+                )}
+                {model.ready && (
+                  <button
+                    onClick={() => void handleSttDelete(model)}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+                  >
+                    {t("onDeviceAi.sttDelete")}
+                  </button>
+                )}
+              </div>
+            </SettingsRow>
+          ))}
+
+          <SettingsRow
+            label={t("onDeviceAi.sttPacingLabel")}
+            description={t("onDeviceAi.sttPacingDescription")}
+          >
+            <select
+              className="px-2 py-1.5 text-sm rounded-lg border border-border bg-background"
+              value={settings.audioTranscription.androidOnDevice?.pacing ?? "capped"}
+              onChange={(e) => handleSttPacing(e.target.value === "full" ? "full" : "capped")}
+              aria-label={t("onDeviceAi.sttPacingLabel")}
+            >
+              <option value="capped">{t("onDeviceAi.sttPacingCapped")}</option>
+              <option value="full">{t("onDeviceAi.sttPacingFull")}</option>
+            </select>
           </SettingsRow>
         </>
       )}

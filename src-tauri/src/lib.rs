@@ -899,6 +899,12 @@ pub fn run() {
         // frontend falls back to the configured cloud provider unchanged.
         .plugin(plethora_android_genai::init())
         .plugin(plethora_apple_intelligence::init())
+        // On-device STT for Android: sherpa-onnx long-form transcription of
+        // imported audiobooks/podcasts (decode → VAD → OfflineRecognizer in a
+        // foreground service). Rust orchestrates persistence by polling job
+        // status; no PCM crosses the IPC. Non-Android commands reject with
+        // `platform_unsupported`; the Groq cloud path stays untouched.
+        .plugin(plethora_android_stt::init())
         .plugin(plethora_android_speech::init())
         .plugin(plethora_android_vision::init())
         .plugin(plethora_android_nlp::init())
@@ -1145,6 +1151,9 @@ pub fn run() {
                 app.manage(FocusTimer::new());
             app.manage(media_control::MediaControlBridge::default());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
+                // document_id -> plugin job id for running on-device STT jobs
+                // (cancel support for transcribe_audio_file_on_device).
+                app.manage(commands::podcast::OnDeviceSttJobs::default());
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
@@ -2328,6 +2337,8 @@ pub fn run() {
             commands::podcast::cleanup_mobile_audio_chunks,
             commands::podcast::transcribe_podcast_groq_chunks,
             commands::podcast::transcribe_audio_file_groq,
+            commands::podcast::transcribe_audio_file_on_device,
+            commands::podcast::cancel_on_device_transcription,
             commands::podcast::cancel_podcast_transcription,
             commands::podcast::set_feed_auto_transcribe,
             commands::podcast::download_podcast_episode,

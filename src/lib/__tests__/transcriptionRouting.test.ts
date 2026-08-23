@@ -10,17 +10,21 @@ import {
 const mocks = vi.hoisted(() => ({
   enqueue: vi.fn(),
   transcribeAudiobookWithGroq: vi.fn(),
+  transcribeAudiobookOnDevice: vi.fn(),
   transcribePodcastEpisode: vi.fn(),
   transcribePodcastEpisodeWithGroq: vi.fn(),
+  transcribePodcastEpisodeOnDevice: vi.fn(),
 }));
 
 vi.mock("../../api/transcription", () => ({ enqueueAutoTranscription: mocks.enqueue }));
 vi.mock("../../api/audiobooks", () => ({
   transcribeAudiobookWithGroq: mocks.transcribeAudiobookWithGroq,
+  transcribeAudiobookOnDevice: mocks.transcribeAudiobookOnDevice,
 }));
 vi.mock("../../api/podcast", () => ({
   transcribePodcastEpisode: mocks.transcribePodcastEpisode,
   transcribePodcastEpisodeWithGroq: mocks.transcribePodcastEpisodeWithGroq,
+  transcribePodcastEpisodeOnDevice: mocks.transcribePodcastEpisodeOnDevice,
 }));
 
 const profile = (id: string, name: string): ModelProfile => ({
@@ -131,5 +135,66 @@ describe("podcast transcription routing", () => {
       true,
     );
     expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
+  });
+});
+
+describe("android on-device transcription routing", () => {
+  it("routes documents to the on-device command without queueing", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), provider: "android-ondevice" },
+      [],
+      "native-mobile",
+      { androidSttReady: true },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routeDocumentTranscription(
+      { id: "doc-1", filePath: "/audio/book.m4b" },
+      resolution,
+      "en",
+    );
+    expect(route).toBe("android-ondevice");
+    expect(mocks.transcribeAudiobookOnDevice).toHaveBeenCalledWith(
+      "doc-1",
+      "/audio/book.m4b",
+      "en",
+    );
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+    expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
+  });
+
+  it("routes podcasts to the on-device wrapper with the audio URL", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), provider: "android-ondevice" },
+      [],
+      "native-mobile",
+      { androidSttReady: true },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routePodcastTranscription("episode-1", "https://audio", resolution, "en", true);
+    expect(route).toBe("android-ondevice");
+    expect(mocks.transcribePodcastEpisodeOnDevice).toHaveBeenCalledWith(
+      "episode-1",
+      "https://audio",
+      "en",
+    );
+    expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
+  });
+
+  it("routes auto on-device (mobile substitution) documents to on-device", async () => {
+    const resolution = resolveTranscription(baseSettings(), [parakeet], "native-mobile", {
+      androidSttReady: true,
+    });
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routeDocumentTranscription(
+      { id: "doc-1", filePath: "/audio/book.m4b" },
+      resolution,
+      "auto",
+    );
+    expect(route).toBe("android-ondevice");
+    expect(mocks.transcribeAudiobookOnDevice).toHaveBeenCalledWith(
+      "doc-1",
+      "/audio/book.m4b",
+      undefined,
+    );
   });
 });

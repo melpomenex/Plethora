@@ -39,6 +39,24 @@ export function showTranscriptionResolutionFailure(
     return;
   }
 
+  if (resolution.reason === "on-device-model-not-ready") {
+    toast.error(
+      "On-device model required",
+      "On-device transcription is selected but no speech model is downloaded. Download one in On-Device AI settings (or configure Groq).",
+      {
+        action: {
+          label: "Open Settings",
+          onClick: () => {
+            window.dispatchEvent(new CustomEvent("navigate-to-settings", {
+              detail: { section: "audio-transcription" },
+            }));
+          },
+        },
+      },
+    );
+    return;
+  }
+
   if (resolution.reason === "model-not-installed") {
     const modelId = resolution.modelId;
     const modelLabel = resolution.modelLabel ?? modelId ?? "Selected model";

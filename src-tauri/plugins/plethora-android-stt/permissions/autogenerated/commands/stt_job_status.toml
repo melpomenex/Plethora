@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stt-job-status"
+description = "Enables the stt_job_status command without any pre-configured scope."
+commands.allow = ["stt_job_status"]
+
+[[permission]]
+identifier = "deny-stt-job-status"
+description = "Denies the stt_job_status command without any pre-configured scope."
+commands.deny = ["stt_job_status"]

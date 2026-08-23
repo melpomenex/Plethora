@@ -54,6 +54,16 @@ pub struct Repository {
     pool: Pool<Sqlite>,
 }
 
+/// Resume state for an interrupted on-device (Android STT) transcription job:
+/// how far decoding got and how many segments were already persisted.
+#[derive(Debug, Clone)]
+pub struct TranscriptionCheckpoint {
+    pub document_id: String,
+    pub model_id: String,
+    pub decode_offset_ms: i64,
+    pub segment_cursor: i64,
+}
+
 /// Decode one `image_assets` row into an `ImageAsset`. Centralized so the four
 /// image-asset read methods stay in sync.
 fn row_to_image_asset(row: &SqliteRow) -> ImageAsset {
@@ -7108,6 +7118,66 @@ impl Repository {
         .bind(episode_id)
         .execute(self.pool())
         .await?;
+        Ok(())
+    }
+
+    /// Read the on-device transcription checkpoint for a document (Android
+    /// STT): how far decoding got and how many segments were persisted before
+    /// the last interruption. None when the document has no checkpoint.
+    pub async fn get_transcription_checkpoint(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<TranscriptionCheckpoint>> {
+        let row = sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT model_id, decode_offset_ms, segment_cursor \
+             FROM transcription_checkpoints WHERE document_id = ?",
+        )
+        .bind(document_id)
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(row.map(|(model_id, decode_offset_ms, segment_cursor)| TranscriptionCheckpoint {
+            document_id: document_id.to_string(),
+            model_id,
+            decode_offset_ms,
+            segment_cursor,
+        }))
+    }
+
+    /// Upsert the on-device transcription checkpoint for a document.
+    pub async fn save_transcription_checkpoint(
+        &self,
+        document_id: &str,
+        model_id: &str,
+        decode_offset_ms: i64,
+        segment_cursor: i64,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO transcription_checkpoints \
+             (document_id, model_id, decode_offset_ms, segment_cursor, updated_at) \
+             VALUES (?, ?, ?, ?, ?) \
+             ON CONFLICT(document_id) DO UPDATE SET \
+             model_id = excluded.model_id, \
+             decode_offset_ms = excluded.decode_offset_ms, \
+             segment_cursor = excluded.segment_cursor, \
+             updated_at = excluded.updated_at",
+        )
+        .bind(document_id)
+        .bind(model_id)
+        .bind(decode_offset_ms)
+        .bind(segment_cursor)
+        .bind(&now)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the on-device transcription checkpoint once a job completes.
+    pub async fn clear_transcription_checkpoint(&self, document_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM transcription_checkpoints WHERE document_id = ?")
+            .bind(document_id)
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 

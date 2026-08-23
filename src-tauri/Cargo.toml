@@ -75,6 +75,14 @@ plethora-android-tts = { path = "plugins/plethora-android-tts" }
 # command reports `platform_unsupported` and inference returns a typed error, so
 # callers fall back to the configured cloud provider. See plugins/plethora-android-genai/.
 plethora-android-genai = { path = "plugins/plethora-android-genai" }
+# In-repo Android plugin for on-device speech-to-text of imported audiobooks
+# and podcasts via sherpa-onnx (SenseVoice int8 multilingual default, Parakeet
+# TDT_CTC 110M int8 English fast path). Kotlin owns the MediaCodec decode →
+# resample → silero VAD → OfflineRecognizer pipeline inside a foreground
+# service; only control messages and finished timed segments cross the IPC.
+# Non-Android commands return `platform_unsupported` (Groq path untouched).
+# See plugins/plethora-android-stt/.
+plethora-android-stt = { path = "plugins/plethora-android-stt" }
 plethora-android-speech = { path = "plugins/plethora-android-speech" }
 plethora-android-vision = { path = "plugins/plethora-android-vision" }
 plethora-android-nlp = { path = "plugins/plethora-android-nlp" }

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Foreground-service permissions must live here (the host app manifest
+      does not carry them); without FOREGROUND_SERVICE, Service
+      .startForeground() throws SecurityException inside the service's own
+      handleCreateService frame, killing the process on the first job.
+
+      Transcription runs as a mediaProcessing FGS on API 35+
+      (FOREGROUND_SERVICE_MEDIA_PROCESSING, with the OS 6 h/24 h runtime
+      cap handled by SttTranscriptionService.onTimeout) and as dataSync on
+      API 29–34 (FOREGROUND_SERVICE_DATA_SYNC). Below API 29 the service
+      starts with no type. POST_NOTIFICATIONS makes the progress
+      notification visible on API 33+; INTERNET covers on-demand model
+      downloads (transcription itself is fully offline).
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!--
+          Keeps transcription alive when the screen is off or the app is
+          backgrounded (spec: "Transcription survives backgrounding").
+          Started only while the app is foregrounded (user-initiated
+          imports), so background FGS-launch restrictions do not apply.
+        -->
+        <service
+            android:name=".SttTranscriptionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
+
+        <receiver
+            android:name=".SttCancelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.plethora.androidstt.CANCEL" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

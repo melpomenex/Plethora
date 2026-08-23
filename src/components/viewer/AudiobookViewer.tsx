@@ -67,7 +67,7 @@ import { invokeCommand, isTauri, listen } from "../../lib/tauri";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
-import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq } from "../../api/podcast";
+import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq, transcribePodcastEpisodeOnDevice } from "../../api/podcast";
 import { isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { resolveLocalMediaSource } from "./localMediaSource";
@@ -78,7 +78,7 @@ import { usePaletteActionListener } from "../../commandPalette/paletteActionEven
 import { useIsActiveTab } from "../common/Tabs";
 import {
   describeResolution,
-  resolveTranscription,
+  resolveTranscriptionWithReadiness,
   type SuccessfulResolution,
 } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
@@ -1040,12 +1040,7 @@ export function AudiobookViewer({
       ctx.captureConfidence ?? "high"
     );
     if (!passage.text) {
-      showInfo(
-        t("viewer.flashcardNoPassage", {
-          defaultValue: "No synced passage to make a flashcard from yet.",
-        }),
-        undefined
-      );
+      showInfo(t("viewer.flashcardNoPassage"), undefined);
       return;
     }
     try {
@@ -1056,16 +1051,10 @@ export function AudiobookViewer({
         answer: passage.text,
         tags: ["audio-capture", "hands-free"],
       });
-      showSuccess(
-        t("viewer.flashcardCreated", { defaultValue: "Flashcard created" }),
-        undefined
-      );
+      showSuccess(t("viewer.flashcardCreated"), undefined);
     } catch (err) {
       console.error("[AudiobookViewer] flashcard creation failed:", err);
-      showError(
-        t("viewer.flashcardFailed", { defaultValue: "Failed to create flashcard" }),
-        err instanceof Error ? err.message : undefined
-      );
+      showError(t("viewer.flashcardFailed"), err instanceof Error ? err.message : undefined);
     }
   }, [document.id, showInfo, showSuccess, showError, t]);
 
@@ -2402,7 +2391,7 @@ export function AudiobookViewer({
       currentProfiles = useTranscriptionStore.getState().profiles;
     }
     const currentAudioSettings = useSettingsStore.getState().settings.audioTranscription;
-    const resolution = resolveTranscription(
+    const resolution = await resolveTranscriptionWithReadiness(
       currentAudioSettings,
       currentProfiles,
       isNativeMobile() ? "native-mobile" : "desktop",
@@ -2437,6 +2426,15 @@ export function AudiobookViewer({
             return;
           }
           await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);
+        } else if (resolution.provider === "android-ondevice") {
+          // On-device engine: downloads the episode via the existing episode
+          // path when it is not local yet, then runs fully offline.
+          const audioUrl = remoteAudioUrl || document.filePath;
+          if (!audioUrl) {
+            showError("Transcription Failed", "No audio URL available for this episode.");
+            return;
+          }
+          await transcribePodcastEpisodeOnDevice(episodeId, audioUrl, language);
         } else {
           const autoSegment = allSettings.documents.autoProcessOnImport;
           await transcribePodcastEpisode(episodeId, resolution.modelId, language, autoSegment);
@@ -2473,6 +2471,21 @@ export function AudiobookViewer({
           await audiobookApi.transcribeAudiobookWithGroq(document.id, document.filePath, language);
           // The command persists segments to the transcript tables; reload them
           // so the panel + karaoke highlight + auto-scroll (book sync) pick up.
+          await loadTranscript(document.id, document.id);
+          setAudiobookTranscriptionProgress(null);
+          showSuccess("Transcription Complete", "Audiobook transcript is ready.");
+        } catch (err) {
+          setAudiobookTranscriptionProgress(null);
+          showError("Transcription Failed", String(err));
+        }
+      } else if (resolution.provider === "android-ondevice") {
+        // On-device engine (Android): same events and transcript tables as
+        // Groq, fully offline. The Rust command checkpoints per poll, so a
+        // failed/interrupted run resumes on retry.
+        setAudiobookTranscriptionProgress({ status: "starting", progress: 0 });
+        showInfo("Transcription Started", `Transcribing with ${engine}. You can keep listening while it runs.`);
+        try {
+          await audiobookApi.transcribeAudiobookOnDevice(document.id, document.filePath, language);
           await loadTranscript(document.id, document.id);
           setAudiobookTranscriptionProgress(null);
           showSuccess("Transcription Complete", "Audiobook transcript is ready.");
@@ -3717,6 +3730,11 @@ export function AudiobookViewer({
                     {displayedTranscriptionResolution?.substitution === "mobile-no-local" && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
                         {t("viewer.mobileTranscriptionSubstitution")}
+                      </p>
+                    )}
+                    {displayedTranscriptionResolution?.substitution === "on-device-unavailable" && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        {t("viewer.onDeviceTranscriptionFallback")}
                       </p>
                     )}
                   </div>

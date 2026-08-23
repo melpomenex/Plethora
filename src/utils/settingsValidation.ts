@@ -142,7 +142,7 @@ export const QASettingsSchema = z.object({
 
 // Audio Transcription Settings Schema
 export const AudioTranscriptionSettingsSchema = z.object({
-  provider: z.enum(['local', 'groq', 'apple']).default('local'),
+  provider: z.enum(['local', 'groq', 'apple', 'android-ondevice']).default('local'),
   autoTranscription: z.boolean().default(false),
   autoTranscribeLocalVideos: z.boolean().default(true),
   preferredModelId: z.string().default('distil-small.en'),
@@ -151,6 +151,10 @@ export const AudioTranscriptionSettingsSchema = z.object({
   speakerDiarization: z.boolean().default(false),
   confidenceScores: z.boolean().default(false),
   confidenceThreshold: z.number().min(0).max(1).default(0.5),
+  androidOnDevice: z.object({
+    modelId: z.string().default(''),
+    pacing: z.enum(['capped', 'full']).default('capped'),
+  }).default({ modelId: '', pacing: 'capped' }).optional(),
   groq: z.object({
     apiKey: z.string().default(''),
     model: z.enum(['whisper-large-v3', 'whisper-large-v3-turbo']).default('whisper-large-v3-turbo'),

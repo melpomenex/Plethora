@@ -1,6 +1,7 @@
-import { transcribeAudiobookWithGroq } from "../api/audiobooks";
+import { transcribeAudiobookWithGroq, transcribeAudiobookOnDevice } from "../api/audiobooks";
 import {
   transcribePodcastEpisode,
+  transcribePodcastEpisodeOnDevice,
   transcribePodcastEpisodeWithGroq,
 } from "../api/podcast";
 import { enqueueAutoTranscription } from "../api/transcription";
@@ -11,7 +12,7 @@ export async function routeDocumentTranscription(
   document: Pick<Document, "id" | "filePath">,
   resolution: SuccessfulResolution,
   language: string,
-): Promise<"groq" | "local"> {
+): Promise<"groq" | "local" | "android-ondevice"> {
   if (resolution.provider === "groq") {
     await transcribeAudiobookWithGroq(
       document.id,
@@ -19,6 +20,15 @@ export async function routeDocumentTranscription(
       language === "auto" ? undefined : language,
     );
     return "groq";
+  }
+
+  if (resolution.provider === "android-ondevice") {
+    await transcribeAudiobookOnDevice(
+      document.id,
+      document.filePath,
+      language === "auto" ? undefined : language,
+    );
+    return "android-ondevice";
   }
 
   await enqueueAutoTranscription(
@@ -37,11 +47,20 @@ export async function routePodcastTranscription(
   resolution: SuccessfulResolution,
   language: string,
   autoSegment: boolean,
-): Promise<"groq" | "local"> {
+): Promise<"groq" | "local" | "android-ondevice"> {
   if (resolution.provider === "groq") {
     if (!audioUrl) throw new Error("No audio URL available for this episode.");
     await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);
     return "groq";
+  }
+
+  if (resolution.provider === "android-ondevice") {
+    // The on-device engine needs a local file: non-local episodes are
+    // downloaded through the existing episode-download path first (the
+    // transcription itself stays fully offline).
+    if (!audioUrl) throw new Error("No audio URL available for this episode.");
+    await transcribePodcastEpisodeOnDevice(episodeId, audioUrl, language);
+    return "android-ondevice";
   }
 
   await transcribePodcastEpisode(

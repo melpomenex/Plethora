@@ -159,3 +159,114 @@ describe("describeResolution", () => {
     expect(text.toLowerCase()).not.toMatch(/local|offline/);
   });
 });
+
+describe("resolveTranscription — android-ondevice matrix", () => {
+  const onDevice = (overrides: Partial<AudioTranscriptionSettings> = {}) =>
+    settings({ provider: "android-ondevice", ...overrides });
+
+  it("explicit android-ondevice resolves on mobile when a model is ready", () => {
+    expect(
+      resolveTranscription(onDevice(), [], "native-mobile", { androidSttReady: true })
+    ).toMatchObject({
+      ok: true,
+      provider: "android-ondevice",
+      modelId: "auto",
+    });
+  });
+
+  it("explicit android-ondevice honors the configured model", () => {
+    expect(
+      resolveTranscription(
+        onDevice({ androidOnDevice: { modelId: "parakeet-en-110m-int8", pacing: "full" } }),
+        [],
+        "native-mobile",
+        { androidSttReady: true }
+      )
+    ).toMatchObject({
+      ok: true,
+      provider: "android-ondevice",
+      modelId: "parakeet-en-110m-int8",
+    });
+  });
+
+  it("explicit android-ondevice without a model falls back to Groq when keyed", () => {
+    expect(
+      resolveTranscription(onDevice(), [], "native-mobile", { androidSttReady: false })
+    ).toMatchObject({
+      ok: true,
+      provider: "groq",
+      substitution: "on-device-unavailable",
+    });
+  });
+
+  it("explicit android-ondevice with no model and no Groq key surfaces an error", () => {
+    expect(
+      resolveTranscription(
+        onDevice({ groq: { ...settings().groq, apiKey: "" } }),
+        [],
+        "native-mobile",
+        { androidSttReady: false }
+      )
+    ).toEqual({
+      ok: false,
+      reason: "on-device-model-not-ready",
+      substitution: "on-device-unavailable",
+    });
+  });
+
+  it("android-ondevice never resolves on desktop even when ready", () => {
+    expect(
+      resolveTranscription(onDevice(), [], "desktop", { androidSttReady: true })
+    ).toMatchObject({ ok: true, provider: "groq", substitution: "on-device-unavailable" });
+  });
+
+  it("mobile local substitution prefers on-device when a model is ready", () => {
+    expect(
+      resolveTranscription(settings(), [parakeet], "native-mobile", { androidSttReady: true })
+    ).toMatchObject({
+      ok: true,
+      provider: "android-ondevice",
+      autoOnDevice: true,
+    });
+  });
+
+  it("mobile local substitution keeps Groq when no on-device model is ready", () => {
+    expect(
+      resolveTranscription(settings(), [parakeet], "native-mobile", { androidSttReady: false })
+    ).toMatchObject({
+      ok: true,
+      provider: "groq",
+      substitution: "mobile-no-local",
+    });
+  });
+
+  it("desktop local stays local regardless of on-device readiness", () => {
+    expect(
+      resolveTranscription(settings(), [parakeet], "desktop", { androidSttReady: true })
+    ).toMatchObject({ ok: true, provider: "local" });
+  });
+
+  it("apple-ready outranks the on-device default on mobile", () => {
+    expect(
+      resolveTranscription(settings(), [parakeet], "native-mobile", {
+        appleReady: true,
+        androidSttReady: true,
+      })
+    ).toMatchObject({ ok: true, provider: "apple" });
+  });
+
+  it("describes the on-device fallback notice", () => {
+    const text = describeResolution(
+      resolveTranscription(onDevice(), [], "native-mobile", { androidSttReady: false })
+    );
+    expect(text).toContain("Groq");
+    expect(text).toContain("On-device transcription is unavailable");
+  });
+
+  it("describes the on-device engine label", () => {
+    const text = describeResolution(
+      resolveTranscription(onDevice(), [], "native-mobile", { androidSttReady: true })
+    );
+    expect(text).toContain("On-Device STT");
+  });
+});

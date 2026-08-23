@@ -11,7 +11,7 @@ import { isNativeMobile, isTauri } from "../lib/tauri";
 import { migratedGetItem } from "../lib/brandMigration";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTranscriptionStore } from "../stores/useTranscriptionStore";
-import { describeResolution, resolveTranscription } from "../lib/transcriptionProvider";
+import { describeResolution, resolveTranscriptionWithReadiness } from "../lib/transcriptionProvider";
 import { 
   transcribeWithGroq, 
   convertGroqToInternalFormat,
@@ -478,7 +478,7 @@ export async function generateTranscript(
     await transcriptionStore.fetchProfiles();
     profiles = useTranscriptionStore.getState().profiles;
   }
-  const resolution = resolveTranscription(
+  const resolution = await resolveTranscriptionWithReadiness(
     audioSettings,
     profiles,
     isNativeMobile() ? "native-mobile" : "desktop",
@@ -544,7 +544,10 @@ export async function generateTranscript(
  * Get the currently configured transcription provider
  */
 export function getTranscriptionProvider(): 'local' | 'groq' {
-  return useSettingsStore.getState().settings.audioTranscription.provider;
+  const provider = useSettingsStore.getState().settings.audioTranscription.provider;
+  // Only the local + Groq engines are reachable from the legacy video/import
+  // helpers; apple/android-ondevice route through their own flows.
+  return provider === 'groq' ? 'groq' : 'local';
 }
 
 /**
@@ -774,6 +777,53 @@ export async function transcribeAudiobookWithGroq(
     language: language ?? null,
     groqApiKey: apiKey,
     groqModel: model,
+  });
+  return segmentCount;
+}
+
+/**
+ * Transcribe an imported audiobook entirely on device (Android sherpa-onnx
+ * engine — SenseVoice multilingual / Parakeet English). Fully offline and
+ * key-free; the Rust command runs the job (decode → VAD → recognizer) and
+ * persists timed segments with per-poll checkpointing, so an interrupted run
+ * resumes from where it stopped on retry. Mirrors the Groq wrapper: same
+ * `audiobook://transcription-progress` / `-complete` events (keyed by
+ * documentId) and the same transcripts/transcript_segments output, so the
+ * viewer's transcript panel and player sync work unchanged.
+ */
+export async function transcribeAudiobookOnDevice(
+  documentId: string,
+  filePath: string,
+  language?: string,
+): Promise<number> {
+  if (!isTauri()) {
+    throw new Error("On-device transcription requires the app (Tauri) backend.");
+  }
+
+  // Model + pacing preferences live in the JS settings store; the Rust
+  // command takes them explicitly (same split as the Groq key).
+  const { modelId, pacing } = (() => {
+    try {
+      const raw = migratedGetItem("plethora-settings");
+      const parsed = raw ? JSON.parse(raw) : null;
+      const od = parsed?.state?.settings?.audioTranscription?.androidOnDevice;
+      return {
+        modelId: od?.modelId || "",
+        pacing: od?.pacing === "full" ? "full" : "capped",
+      };
+    } catch {
+      return { modelId: "", pacing: "capped" };
+    }
+  })();
+
+  const { invokeCommand } = await import("../lib/tauri");
+  const segmentCount = await invokeCommand<number>("transcribe_audio_file_on_device", {
+    documentId,
+    filePath,
+    language: language ?? null,
+    modelId: modelId || null,
+    pacing,
+    title: null,
   });
   return segmentCount;
 }

@@ -6386,6 +6386,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plethora-android-stt"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "plethora-android-tts"
 version = "0.1.0"
 dependencies = [
@@ -6486,6 +6497,7 @@ dependencies = [
  "plethora-android-nlp",
  "plethora-android-search",
  "plethora-android-speech",
+ "plethora-android-stt",
  "plethora-android-tts",
  "plethora-android-vision",
  "plethora-apple-intelligence",

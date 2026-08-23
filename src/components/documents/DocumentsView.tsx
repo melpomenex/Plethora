@@ -110,7 +110,7 @@ import {
 } from "./documentSelection";
 import { usePriorityPopup, resolveDisplaySlider, getPriorityInfo } from "./usePriorityPopup";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
-import { resolveTranscription } from "../../lib/transcriptionProvider";
+import { resolveTranscriptionWithReadiness } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { routeDocumentTranscription } from "../../lib/transcriptionRouting";
 
@@ -912,7 +912,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
         }
       }
 
-      const resolution = resolveTranscription(
+      const resolution = await resolveTranscriptionWithReadiness(
         settings,
         profiles,
         isNativeMobile() ? "native-mobile" : "desktop",

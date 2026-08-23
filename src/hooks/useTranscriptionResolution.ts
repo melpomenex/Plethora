@@ -4,11 +4,13 @@ import { useTranscriptionStore } from "../stores/useTranscriptionStore";
 import { isNativeMobile } from "../lib/tauri";
 import { resolveTranscription } from "../lib/transcriptionProvider";
 import { isAppleSpeechReady } from "../lib/ai/apple/speech";
+import { isAndroidSttReady } from "../lib/ai/android/androidStt";
 
 export function useTranscriptionResolution() {
   const audioSettings = useSettingsStore((state) => state.settings.audioTranscription);
   const profiles = useTranscriptionStore((state) => state.profiles);
   const [appleReady, setAppleReady] = useState(false);
+  const [androidSttReady, setAndroidSttReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,6 +21,13 @@ export function useTranscriptionResolution() {
       .catch(() => {
         if (!cancelled) setAppleReady(false);
       });
+    void isAndroidSttReady()
+      .then((ready) => {
+        if (!cancelled) setAndroidSttReady(ready);
+      })
+      .catch(() => {
+        if (!cancelled) setAndroidSttReady(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -28,6 +37,6 @@ export function useTranscriptionResolution() {
     audioSettings,
     profiles,
     isNativeMobile() ? "native-mobile" : "desktop",
-    { appleReady },
+    { appleReady, androidSttReady },
   );
 }
