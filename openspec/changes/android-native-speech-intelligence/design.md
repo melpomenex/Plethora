@@ -23,6 +23,8 @@ Imported audio: transcode → transcribe file → existing transcript document p
 
 Voice note: short recording → note/extract using existing document types.
 
+**Relationship to existing transcription OpenSpec:** file/offline queue remains the production path (`job_queue.rs`, Groq, whisper). Android “Record lecture” is **additive**: always persist the recording first; live ML Kit streaming is best-effort and foreground-bound. Do not replace the podcast/YouTube ingest pipeline.
+
 ## UX
 
 Palette: “Record lecture”, “Transcribe audio”. Progress, cancel, permission rationale. TalkBack labels. After save, optional B enrichment is **user-requested**.

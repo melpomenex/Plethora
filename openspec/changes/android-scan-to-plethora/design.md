@@ -27,7 +27,7 @@ Scanner is interactive. OCR of saved pages can continue unless OS kills; not Gen
 
 ## Permissions
 
-CAMERA at scan time. No broad storage.
+Official Document Scanner docs: scanning uses **Play services camera UI** and typically **does not require the app to declare CAMERA**. Do not add a global CAMERA permission “just in case.” If gallery import or a fallback CameraX path is used, request CAMERA/media **contextually** for that path only. No broad storage.
 
 ## Security
 

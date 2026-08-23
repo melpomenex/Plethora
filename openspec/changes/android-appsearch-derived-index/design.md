@@ -19,6 +19,8 @@ If AppSearch is missing, corrupt, or flagged off, retrieval is unchanged.
 - Embedding property / `semanticSearch()` only if `Features.isFeatureSupported(SCHEMA_EMBEDDING_PROPERTY_CONFIG)`
 - Privacy: `setSchemaTypeDisplayedBySystem(schemaType, false)` always
 
+`setSchemaTypeDisplayedBySystem` is **only effective on PlatformStorage** (experimental API). LocalStorage never participates in System UI — that is why v1 is LocalStorage-only. Still set the flag so a future storage backend cannot silently opt in.
+
 Do **not** use PlatformStorage for v1 (system display defaults are dangerous). PlayServicesStorage stores data in Play Services — rejected for private study content v1.
 
 ## API maturity
