@@ -12,7 +12,7 @@ import {
 import { OnDeviceAiError, ON_DEVICE_AI_ERROR_CODES } from "../onDeviceAI";
 
 describe("taxonomy", () => {
-  it("contains the design-D6 categories plus Apple routing extensions", () => {
+  it("contains the design-D6 categories plus Apple and Android routing extensions", () => {
     expect([...AI_ERROR_CATEGORIES]).toEqual([
       "ModelUnavailable",
       "ModelDownloading",
@@ -32,6 +32,12 @@ describe("taxonomy", () => {
       "PermissionDenied",
       "FeatureDisabled",
       "UnsupportedLanguage",
+      "Busy",
+      "QuotaExceeded",
+      "BatteryQuotaExceeded",
+      "ForegroundRequired",
+      "ModelDownloadRequired",
+      "ResourceExhausted",
     ]);
   });
 
@@ -52,7 +58,23 @@ describe("aiErrorFromOnDevice", () => {
     ).toBe("UnsupportedDevice");
     expect(
       aiErrorFromOnDevice(new OnDeviceAiError("model_downloadable", "get nano")).category
-    ).toBe("ModelDownloading");
+    ).toBe("ModelDownloadRequired");
+    expect(aiErrorFromOnDevice(new OnDeviceAiError("busy", "in flight")).category).toBe("Busy");
+    expect(
+      aiErrorFromOnDevice(new OnDeviceAiError("battery_quota_exceeded", "quota")).category
+    ).toBe("BatteryQuotaExceeded");
+    expect(
+      aiErrorFromOnDevice(new OnDeviceAiError("background_use_blocked", "bg")).category
+    ).toBe("ForegroundRequired");
+    expect(aiErrorFromOnDevice(new OnDeviceAiError("safety_blocked", "no")).category).toBe(
+      "SafetyBlocked"
+    );
+    expect(aiErrorFromOnDevice(new OnDeviceAiError("queue_full", "full")).category).toBe(
+      "ResourceExhausted"
+    );
+    expect(
+      aiErrorFromOnDevice(new OnDeviceAiError("permission_denied", "mic")).category
+    ).toBe("PermissionDenied");
     expect(
       aiErrorFromOnDevice(new OnDeviceAiError("model_downloading", "50%")).category
     ).toBe("ModelDownloading");

@@ -1010,6 +1010,10 @@ export const ja: Dict = {
   "commandPalette.goToAnalytics": "統計ページへ",
   "commandPalette.importDocument": "ドキュメントをインポート",
   "commandPalette.importDocumentDesc": "ファイルから新しいドキュメントをインポート",
+  "commandPalette.scanDocument": "文書をスキャン",
+  "commandPalette.scanDocumentDesc": "ページをライブラリに取り込む",
+  "commandPalette.translateSelection": "選択範囲を翻訳",
+  "commandPalette.translateSelectionDesc": "現在の選択範囲をこの端末で翻訳",
   "commandPalette.importTwitterVideo": "X / Twitter 動画をインポート",
   "commandPalette.createFlashcard": "フラッシュカードを作成",
   "commandPalette.createFlashcardDesc": "カードスタジオを開いて新しくフラッシュカードの下書きを作成",
@@ -4966,6 +4970,7 @@ export const ja: Dict = {
   "aiLibrary.onDevice": "端末内",
   "aiLibrary.cloud": "クラウド",
   "aiLibrary.noProvider": "AIプロバイダーなし",
+  "aiLibrary.retrievalOnly": "一致する箇所",
   "aiLibrary.semanticMode": "セマンティック検索",
   "aiLibrary.lexicalMode": "キーワード検索",
   "aiLibrary.sources": "出典",
@@ -5742,5 +5747,7 @@ export const ja: Dict = {
   "companion.sessionDone": "セッション完了 — {count}回の復習をやり遂げました。",
   "companion.rssLiked": "了解 — これをもっと。",
   "companion.settingsTitle": "Plethora コンパニオン",
-  "companion.settingsDesc": "任意の常駐バードコンパニオン"
+  "companion.settingsDesc": "任意の常駐バードコンパニオン",
+  "onDeviceAi.allowCloudFallbackLabel": "クラウドへのフォールバックを許可",
+  "onDeviceAi.allowCloudFallbackDescription": "オンデバイスAIが失敗した場合、設定済みのクラウドプロバイダーで再試行します。既定はオフで、内容が黙って端末外に出ることはありません。"
 };

@@ -9,3 +9,4 @@ export * from "./request";
 export * from "./result";
 export * from "./service";
 export * from "./settings";
+export * from "./mlkitTranslate";

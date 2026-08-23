@@ -1020,6 +1020,10 @@ export const de: Dict = {
   "commandPalette.goToAnalytics": "Zur Statistik",
   "commandPalette.importDocument": "Dokument importieren",
   "commandPalette.importDocumentDesc": "Neues Dokument aus Datei importieren",
+  "commandPalette.scanDocument": "Dokument scannen",
+  "commandPalette.scanDocumentDesc": "Seiten in die Bibliothek aufnehmen",
+  "commandPalette.translateSelection": "Auswahl übersetzen",
+  "commandPalette.translateSelectionDesc": "Die aktuelle Auswahl auf diesem Gerät übersetzen",
   "commandPalette.importTwitterVideo": "X-/Twitter-Video importieren",
   "commandPalette.createFlashcard": "Karteikarte erstellen",
   "commandPalette.createFlashcardDesc": "KI-Karteikarten-Studio öffnen, um einen Entwurf zu erstellen",
@@ -5058,6 +5062,7 @@ export const de: Dict = {
   "aiLibrary.onDevice": "Auf dem Gerät",
   "aiLibrary.cloud": "Cloud",
   "aiLibrary.noProvider": "Kein KI-Anbieter",
+  "aiLibrary.retrievalOnly": "Passende Stellen",
   "aiLibrary.semanticMode": "Semantische Suche",
   "aiLibrary.lexicalMode": "Lexikalische Suche",
   "aiLibrary.sources": "Quellen",
@@ -5835,5 +5840,7 @@ export const de: Dict = {
   "companion.sessionDone": "Sitzung geschafft — {count} Wiederholungen erledigt.",
   "companion.rssLiked": "Notiert — mehr davon.",
   "companion.settingsTitle": "Plethora-Begleiter",
-  "companion.settingsDesc": "Optionaler ambienter Vogel-Begleiter"
+  "companion.settingsDesc": "Optionaler ambienter Vogel-Begleiter",
+  "onDeviceAi.allowCloudFallbackLabel": "Cloud-Fallback erlauben",
+  "onDeviceAi.allowCloudFallbackDescription": "Wenn die On-Device-KI fehlschlägt, mit einem konfigurierten Cloud-Anbieter erneut versuchen. Standardmäßig aus, damit Inhalte nicht still das Gerät verlassen."
 };

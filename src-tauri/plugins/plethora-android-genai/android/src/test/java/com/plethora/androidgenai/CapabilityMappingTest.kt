@@ -12,6 +12,15 @@ import org.junit.Test
 
 class CapabilityMappingTest {
     @Test
+    fun `summarization can be available when prompt is not`() {
+        // Galaxy S25-class: specialized allowlist without Prompt.
+        val prompt = featureStateForStatus(FeatureStatus.UNAVAILABLE)
+        val summary = featureStateForStatus(FeatureStatus.AVAILABLE)
+        assertEquals("unavailable", prompt.status)
+        assertEquals("available", summary.status)
+    }
+
+    @Test
     fun `feature statuses map independently`() {
         val prompt = featureStateForStatus(FeatureStatus.AVAILABLE)
         val summary = featureStateForStatus(FeatureStatus.DOWNLOADABLE)

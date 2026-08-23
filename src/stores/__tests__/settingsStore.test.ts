@@ -163,6 +163,7 @@ describe("settingsStore AI learning feature flags", () => {
       aiExtractWorthiness: true,
       aiSocraticTutor: true,
       aiAgent: true,
+      androidAppSearchIndex: false,
     });
     // Existing flags keep their defaults.
     expect(defaultSettings.features.appleFoundationModels).toBe(true);
@@ -221,6 +222,7 @@ describe("settingsStore AI learning feature flags", () => {
     expect(features.aiExtractWorthiness).toBe(true);
     expect(features.aiSocraticTutor).toBe(true);
     expect(features.aiAgent).toBe(true);
+    expect(features.androidAppSearchIndex).toBe(false);
   });
 });
 
