@@ -17,6 +17,7 @@ import {
   isOnDeviceAiSupportedPlatform,
   type OnDeviceRequirement,
 } from "./onDeviceAI";
+import { getAppleIntelligenceSnapshot, isAppleOsPlatform } from "./apple/capabilities";
 import { isCancelledError, toAIError } from "./errors";
 import { requestPaidConsent } from "../../utils/aiBillingConsent";
 import { ensureCloudAiDisclosure } from "../../lib/privacy/cloudAiDisclosure";
@@ -63,9 +64,21 @@ export function allowCloudFallback(): boolean {
 export async function resolveAiPath(
   requirement: OnDeviceRequirement = "prompt"
 ): Promise<AiPath> {
-  if (isOnDeviceAiSupportedPlatform() && prefersOnDevice()) {
-    const status = await getOnDeviceRequirementStatus(requirement);
-    if (status.status === "available") return "ondevice";
+  if (prefersOnDevice()) {
+    if (isOnDeviceAiSupportedPlatform()) {
+      const status = await getOnDeviceRequirementStatus(requirement);
+      if (status.status === "available") return "ondevice";
+    }
+    if (isAppleOsPlatform()) {
+      const snap = await getAppleIntelligenceSnapshot();
+      const fmReady = snap.foundationModels.status === "available";
+      const visionReady = snap.visionDocuments.status === "available";
+      if (requirement === "image-prompt") {
+        if (visionReady || fmReady) return "ondevice";
+      } else if (fmReady) {
+        return "ondevice";
+      }
+    }
   }
   return hasCloudProvider() ? "cloud" : "none";
 }

@@ -75,6 +75,10 @@ plethora-android-tts = { path = "plugins/plethora-android-tts" }
 # command reports `platform_unsupported` and inference returns a typed error, so
 # callers fall back to the configured cloud provider. See plugins/plethora-android-genai/.
 plethora-android-genai = { path = "plugins/plethora-android-genai" }
+# Apple on-device intelligence (Foundation Models, Speech, Vision, Spotlight,
+# NaturalLanguage, Core AI). Non-Apple targets return platform_unsupported.
+# See plugins/plethora-apple-intelligence/.
+plethora-apple-intelligence = { path = "plugins/plethora-apple-intelligence" }
 window-vibrancy = "0.6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

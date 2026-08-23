@@ -1,0 +1,16 @@
+[package]
+name = "plethora-apple-intelligence"
+version = "0.1.0"
+description = "Tauri plugin for Apple on-device intelligence (Foundation Models, Speech, Vision, Spotlight, NaturalLanguage, Core AI)"
+authors = ["Plethora Team"]
+edition = "2021"
+links = "plethora-apple-intelligence"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.0", features = ["unstable"] }
+serde = "1"
+serde_json = "1"
+thiserror = "1"

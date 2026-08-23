@@ -46,6 +46,7 @@ describe('iOS purpose-string overrides contract (Change C §5.2)', () => {
     expect(Object.keys(purposeStrings).sort()).toEqual([
       'NSCameraUsageDescription',
       'NSMicrophoneUsageDescription',
+      'NSSpeechRecognitionUsageDescription',
     ]);
 
     for (const [key, value] of Object.entries(purposeStrings)) {

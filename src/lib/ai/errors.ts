@@ -33,9 +33,33 @@ export const AI_ERROR_CATEGORIES = [
   "OCRFailed",
   "ProviderOffline",
   "Cancelled",
+  "PermissionDenied",
+  "FeatureDisabled",
+  "UnsupportedLanguage",
 ] as const;
 
 export type AIErrorCategory = (typeof AI_ERROR_CATEGORIES)[number];
+
+export const APPLE_REASON_TO_CATEGORY: Readonly<Record<string, AIErrorCategory>> = {
+  permission_denied: "PermissionDenied",
+  apple_intelligence_disabled: "FeatureDisabled",
+  unsupported_os: "UnsupportedDevice",
+  device_not_eligible: "UnsupportedDevice",
+  deviceNotEligible: "UnsupportedDevice",
+  model_not_ready: "ModelDownloading",
+  modelNotReady: "ModelDownloading",
+  unsupported_language: "UnsupportedLanguage",
+  platform_unsupported: "CapabilityUnavailable",
+  not_implemented: "CapabilityUnavailable",
+  pcc_required: "FeatureDisabled",
+  off_device_unavailable: "FeatureDisabled",
+  ocr_failed: "GenerationFailed",
+  vision_unavailable: "CapabilityUnavailable",
+  cancelled: "Cancelled",
+  invalid_argument: "InputTooLarge",
+  invalid_image: "VisionUnavailable",
+  inference_failed: "GenerationFailed",
+};
 
 /** Unified AI failure. `code` keeps the machine-readable origin code. */
 export class AIError extends Error {
@@ -215,6 +239,14 @@ export function toAIError(
   // (flattened bridge rejections); anything else is a cloud/generic failure.
   const hasBridgeCode = ON_DEVICE_AI_ERROR_CODES.some((c) => message.includes(c));
   if (hasBridgeCode) return aiErrorFromOnDevice(error, context);
+  const appleReason = Object.keys(APPLE_REASON_TO_CATEGORY).find((c) => message.includes(c));
+  if (appleReason) {
+    return new AIError(APPLE_REASON_TO_CATEGORY[appleReason], message, {
+      code: appleReason,
+      ...context,
+      cause: error,
+    });
+  }
   return aiErrorFromCloud(error, context);
 }
 

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-speech-start-live"
+description = "Enables the apple_speech_start_live command without any pre-configured scope."
+commands.allow = ["apple_speech_start_live"]
+
+[[permission]]
+identifier = "deny-apple-speech-start-live"
+description = "Denies the apple_speech_start_live command without any pre-configured scope."
+commands.deny = ["apple_speech_start_live"]

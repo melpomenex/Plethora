@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-fm-count-tokens"
+description = "Enables the apple_fm_count_tokens command without any pre-configured scope."
+commands.allow = ["apple_fm_count_tokens"]
+
+[[permission]]
+identifier = "deny-apple-fm-count-tokens"
+description = "Denies the apple_fm_count_tokens command without any pre-configured scope."
+commands.deny = ["apple_fm_count_tokens"]

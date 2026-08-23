@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-coreai-download-start"
+description = "Enables the apple_coreai_download_start command without any pre-configured scope."
+commands.allow = ["apple_coreai_download_start"]
+
+[[permission]]
+identifier = "deny-apple-coreai-download-start"
+description = "Denies the apple_coreai_download_start command without any pre-configured scope."
+commands.deny = ["apple_coreai_download_start"]

@@ -165,6 +165,8 @@ describe("settingsStore AI learning feature flags", () => {
       aiAgent: true,
     });
     // Existing flags keep their defaults.
+    expect(defaultSettings.features.appleFoundationModels).toBe(true);
+    expect(defaultSettings.features.appleCoreAI).toBe(false);
     expect(defaultSettings.features.notebooklmEnabled).toBe(false);
     expect(defaultSettings.features.fsrsScopedParametersEnabled).toBe(true);
     expect(defaultSettings.features.reviewUndoEnabled).toBe(true);

@@ -411,11 +411,18 @@ interface AISettings {
   aiControls: AIControlsSettings;
   memoryEnabled: boolean;
   /**
-   * Prefer on-device inference (Gemini Nano) over a cloud provider when it is
-   * available. Android-only in effect: everywhere else the on-device bridge
-   * reports `platform_unsupported` and this setting changes nothing.
+   * Prefer on-device inference (Gemini Nano / Apple Foundation Models / Core AI)
+   * over a cloud provider when a live on-device provider can serve the task.
    */
   preferOnDevice: boolean;
+  /**
+   * Optional pin among on-device backends. Unset keeps natural order
+   * (Nano, then Apple FM, then Core AI).
+   */
+  preferredOnDeviceProviderId?:
+    | "ondevice-gemini-nano"
+    | "ondevice-apple-foundation"
+    | "ondevice-apple-coreai";
   /**
    * Whether an on-device failure may automatically retry on a configured
    * cloud provider (design D27). Default **false** since ai-billing-safety
@@ -471,6 +478,11 @@ interface PrivacySettings {
   analyticsEnabled: boolean;
 }
 
+interface SearchSettings {
+  /** Donate display-eligible Core Spotlight items. Default off. */
+  systemSpotlightEnabled: boolean;
+}
+
 /**
  * Groq Transcription Settings
  */
@@ -489,7 +501,7 @@ interface GroqTranscriptionSettings {
  * Audio Transcription Settings
  */
 interface AudioTranscriptionSettings {
-  provider: "local" | "groq";
+  provider: "local" | "groq" | "apple";
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
   preferredModelId?: string;
@@ -687,6 +699,13 @@ interface FeatureFlags {
    * (context menu, selection action sheet) stay available when disabled.
    */
   dictionaryPeek: boolean;
+  appleFoundationModels: boolean;
+  appleSpotlightIndex: boolean;
+  appleSpeechTranscription: boolean;
+  appleVisionScan: boolean;
+  appleNaturalLanguageEmbeddings: boolean;
+  /** Phase 4; default off until iOS 27 catalog work is ready. */
+  appleCoreAI: boolean;
 }
 
 /**
@@ -896,6 +915,7 @@ export interface Settings {
   importExport: ImportExportSettings;
   notifications: NotificationSettings;
   privacy: PrivacySettings;
+  search: SearchSettings;
   audioTranscription: AudioTranscriptionSettings;
   smartQueue: SmartQueueSettings;
   tts: TTSSettings;
@@ -1130,6 +1150,9 @@ export const defaultSettings: Settings = {
     crashReportsEnabled: false,
     analyticsEnabled: false,
   },
+  search: {
+    systemSpotlightEnabled: false,
+  },
   audioTranscription: {
     provider: "local",
     autoTranscription: false,
@@ -1221,6 +1244,12 @@ export const defaultSettings: Settings = {
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,
     dictionaryPeek: true,
+    appleFoundationModels: true,
+    appleSpotlightIndex: true,
+    appleSpeechTranscription: true,
+    appleVisionScan: true,
+    appleNaturalLanguageEmbeddings: true,
+    appleCoreAI: false,
   },
   audioReviewMode: {
     enabled: false,
@@ -1454,6 +1483,7 @@ export const useSettingsStore = create<SettingsState>()(
           importExport: { ...defaultSettings.importExport, ...persisted.importExport },
           notifications: { ...defaultSettings.notifications, ...persisted.notifications },
           privacy: { ...defaultSettings.privacy, ...persisted.privacy },
+          search: { ...defaultSettings.search, ...persisted.search },
           audioTranscription: {
             ...defaultSettings.audioTranscription,
             ...persisted.audioTranscription,

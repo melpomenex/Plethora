@@ -251,6 +251,12 @@ describe("§1.5 desktop + Android regression snapshot", () => {
     desktop_capture_dom: { desktop: true, android: false },
     share_extension_inbox: { desktop: false, android: true },
     on_device_ai_gemini_nano: { desktop: false, android: true },
+    on_device_ai_apple_foundation: { desktop: true, android: false },
+    apple_speech_transcription: { desktop: true, android: false },
+    import_document_scan: { desktop: true, android: false },
+    import_photo_library: { desktop: true, android: false },
+    apple_spotlight_search: { desktop: true, android: false },
+    on_device_ai_apple_coreai: { desktop: true, android: false },
   } as const;
 
   it("matches the frozen desktop/android availability snapshot exactly", async () => {

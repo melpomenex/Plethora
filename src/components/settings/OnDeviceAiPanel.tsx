@@ -1,13 +1,5 @@
 /**
- * On-device AI (Gemini Nano) status and controls.
- *
- * Only rendered where the bridge can exist — an Android build. Everywhere else
- * the status is permanently `platform_unsupported`, and a settings row saying
- * so would be noise.
- *
- * Also hosts the embedding-model row (design D10 / task 4.5): EmbeddingGemma
- * is downloaded on explicit user action, sha256-verified natively, and then
- * powers the semantic index offline.
+ * On-device AI status and controls (Gemini Nano on Android, Apple snapshot on iOS).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,10 +14,15 @@ import {
   type OnDeviceAiStatus,
   type OnDeviceEmbeddingStatus,
 } from "../../lib/ai/onDeviceAI";
+import {
+  getAppleIntelligenceSnapshot,
+  isAppleOsPlatform,
+} from "../../lib/ai/apple/capabilities";
+import type { AppleIntelligenceSnapshot } from "../../lib/ai/apple/types";
+import { OnDeviceProcessingBadge } from "../common/OnDeviceProcessingBadge";
 import { ToastType, useToastStore } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 
-/** Status -> i18n key suffix, so label and detail stay in step. */
 const STATUS_KEY: Record<OnDeviceAiStatus["status"], string> = {
   available: "available",
   downloadable: "downloadable",
@@ -38,12 +35,15 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const addToast = useToastStore((s) => s.addToast);
   const { t } = useI18n();
 
+  const android = isOnDeviceAiSupportedPlatform();
+  const appleOs = isAppleOsPlatform();
+
   const [status, setStatus] = useState<OnDeviceAiStatus | null>(null);
   const [downloading, setDownloading] = useState(false);
-
   const [embedStatus, setEmbedStatus] = useState<OnDeviceEmbeddingStatus | null>(null);
   const [embedDownloading, setEmbedDownloading] = useState(false);
   const [embedPercent, setEmbedPercent] = useState<number | null>(null);
+  const [appleSnap, setAppleSnap] = useState<AppleIntelligenceSnapshot | null>(null);
 
   const refresh = useCallback(async () => {
     setStatus(await isOnDeviceAiAvailable());
@@ -53,14 +53,21 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     setEmbedStatus(await getOnDeviceEmbeddingStatus());
   }, []);
 
-  useEffect(() => {
-    if (!isOnDeviceAiSupportedPlatform()) return;
-    void refresh();
-    void refreshEmbedding();
-  }, [refresh, refreshEmbedding]);
+  const refreshApple = useCallback(async () => {
+    setAppleSnap(await getAppleIntelligenceSnapshot());
+  }, []);
 
-  // Nothing to configure on a platform with no bridge.
-  if (!isOnDeviceAiSupportedPlatform()) return null;
+  useEffect(() => {
+    if (android) {
+      void refresh();
+      void refreshEmbedding();
+    }
+    if (appleOs) {
+      void refreshApple();
+    }
+  }, [android, appleOs, refresh, refreshEmbedding, refreshApple]);
+
+  if (!android && !appleOs) return null;
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -102,7 +109,6 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
         title: t("onDeviceAi.downloadFailed"),
         message: error instanceof Error ? error.message : String(error),
       });
-      // Re-check: a stale `.part` keeps the status truthful for a retry.
       void refreshEmbedding();
     } finally {
       setEmbedDownloading(false);
@@ -129,65 +135,98 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
       title={t("onDeviceAi.sectionTitle")}
       description={t("onDeviceAi.sectionDescription")}
     >
-      <SettingsRow
-        label={t("onDeviceAi.statusLabel")}
-        description={
-          status ? t(`onDeviceAi.detail.${STATUS_KEY[status.status]}`) : t("onDeviceAi.checking")
-        }
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {status ? t(`onDeviceAi.status.${STATUS_KEY[status.status]}`) : "…"}
-          </span>
-          {status?.status === "downloadable" && (
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {downloading ? t("onDeviceAi.downloadInProgress") : t("onDeviceAi.download")}
-            </button>
-          )}
-          {status?.status === "downloading" && (
-            <button
-              onClick={() => void refresh()}
-              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
-            >
-              {t("onDeviceAi.refresh")}
-            </button>
-          )}
-        </div>
-      </SettingsRow>
+      {android && (
+        <>
+          <SettingsRow
+            label={t("onDeviceAi.statusLabel")}
+            description={
+              status ? t(`onDeviceAi.detail.${STATUS_KEY[status.status]}`) : t("onDeviceAi.checking")
+            }
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {status ? t(`onDeviceAi.status.${STATUS_KEY[status.status]}`) : "…"}
+              </span>
+              {status?.status === "downloadable" && (
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
+                >
+                  {downloading ? t("onDeviceAi.downloadInProgress") : t("onDeviceAi.download")}
+                </button>
+              )}
+              {status?.status === "downloading" && (
+                <button
+                  onClick={() => void refresh()}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+                >
+                  {t("onDeviceAi.refresh")}
+                </button>
+              )}
+            </div>
+          </SettingsRow>
 
-      <SettingsRow label={t("onDeviceAi.embeddingLabel")} description={t(embedDetailKey)}>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {embedStatusText}
-            {embedProgressText}
-          </span>
-          {(embedStatus?.status === "downloadable" || embedStatus?.status === "unavailable") &&
-            embedStatus?.reason !== "feature_not_compiled" &&
-            embedStatus?.reason !== "platform_unsupported" && (
-              <button
-                onClick={handleEmbedDownload}
-                disabled={embedDownloading}
-                className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
-              >
-                {embedDownloading
-                  ? `${t("onDeviceAi.downloadInProgress")}${embedProgressText}`
-                  : t("onDeviceAi.download")}
-              </button>
-            )}
-          {embedStatus?.status === "downloading" && !embedDownloading && (
-            <button
-              onClick={() => void refreshEmbedding()}
-              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
-            >
-              {t("onDeviceAi.refresh")}
-            </button>
-          )}
-        </div>
-      </SettingsRow>
+          <SettingsRow label={t("onDeviceAi.embeddingLabel")} description={t(embedDetailKey)}>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {embedStatusText}
+                {embedProgressText}
+              </span>
+              {(embedStatus?.status === "downloadable" || embedStatus?.status === "unavailable") &&
+                embedStatus?.reason !== "feature_not_compiled" &&
+                embedStatus?.reason !== "platform_unsupported" && (
+                  <button
+                    onClick={handleEmbedDownload}
+                    disabled={embedDownloading}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    {embedDownloading
+                      ? `${t("onDeviceAi.downloadInProgress")}${embedProgressText}`
+                      : t("onDeviceAi.download")}
+                  </button>
+                )}
+              {embedStatus?.status === "downloading" && !embedDownloading && (
+                <button
+                  onClick={() => void refreshEmbedding()}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+                >
+                  {t("onDeviceAi.refresh")}
+                </button>
+              )}
+            </div>
+          </SettingsRow>
+        </>
+      )}
+
+      {appleOs && (
+        <>
+          <SettingsRow
+            label={t("onDeviceAi.appleSectionTitle")}
+            description={
+              appleSnap?.foundationModels.status === "available"
+                ? t("onDeviceAi.appleFoundationLabel")
+                : appleSnap
+                  ? `${t("onDeviceAi.appleUnavailable")} (${appleSnap.foundationModels.reason ?? appleSnap.foundationReason ?? "unavailable"})`
+                  : t("onDeviceAi.checking")
+            }
+          >
+            <OnDeviceProcessingBadge />
+          </SettingsRow>
+          <SettingsRow
+            label={t("onDeviceAi.appleCoreAiTitle")}
+            description={
+              settings.features.appleCoreAI
+                ? t("onDeviceAi.appleCoreAiOn")
+                : t("onDeviceAi.appleCoreAiOff")
+            }
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("onDeviceAi.appleCoreAiLocal")}
+            </span>
+          </SettingsRow>
+        </>
+      )}
 
       <SettingsRow
         label={t("onDeviceAi.preferLabel")}

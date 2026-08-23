@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-spotlight-query"
+description = "Enables the apple_spotlight_query command without any pre-configured scope."
+commands.allow = ["apple_spotlight_query"]
+
+[[permission]]
+identifier = "deny-apple-spotlight-query"
+description = "Denies the apple_spotlight_query command without any pre-configured scope."
+commands.deny = ["apple_spotlight_query"]

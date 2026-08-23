@@ -87,6 +87,12 @@ export const PLATFORM_CAPABILITY_IDS = [
   // Android on-device Gemini Nano panel (already correctly gated; registered
   // so the audit matrix is complete).
   "on_device_ai_gemini_nano",
+  "on_device_ai_apple_foundation",
+  "apple_speech_transcription",
+  "import_document_scan",
+  "import_photo_library",
+  "apple_spotlight_search",
+  "on_device_ai_apple_coreai",
 ] as const;
 
 export type PlatformCapabilityId = (typeof PLATFORM_CAPABILITY_IDS)[number];
@@ -243,6 +249,49 @@ export const PLATFORM_CAPABILITY_REGISTRY: Record<
     platforms: {
       ios: unavailable("unsupported_platform"),
       desktop: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+
+  on_device_ai_apple_foundation: {
+    id: "on_device_ai_apple_foundation",
+    platforms: {
+      android: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+  apple_speech_transcription: {
+    id: "apple_speech_transcription",
+    platforms: {
+      android: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+  import_document_scan: {
+    id: "import_document_scan",
+    platforms: {
+      android: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+  import_photo_library: {
+    id: "import_photo_library",
+    platforms: {
+      android: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+  apple_spotlight_search: {
+    id: "apple_spotlight_search",
+    platforms: {
+      android: unavailable("unsupported_platform"),
+      web: unavailable("unsupported_platform"),
+    },
+  },
+  on_device_ai_apple_coreai: {
+    id: "on_device_ai_apple_coreai",
+    platforms: {
+      android: unavailable("unsupported_platform"),
       web: unavailable("unsupported_platform"),
     },
   },

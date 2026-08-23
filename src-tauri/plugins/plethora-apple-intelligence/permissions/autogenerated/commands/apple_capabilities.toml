@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-capabilities"
+description = "Enables the apple_capabilities command without any pre-configured scope."
+commands.allow = ["apple_capabilities"]
+
+[[permission]]
+identifier = "deny-apple-capabilities"
+description = "Denies the apple_capabilities command without any pre-configured scope."
+commands.deny = ["apple_capabilities"]

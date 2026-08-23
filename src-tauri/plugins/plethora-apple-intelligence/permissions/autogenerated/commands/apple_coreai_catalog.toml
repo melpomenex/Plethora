@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-coreai-catalog"
+description = "Enables the apple_coreai_catalog command without any pre-configured scope."
+commands.allow = ["apple_coreai_catalog"]
+
+[[permission]]
+identifier = "deny-apple-coreai-catalog"
+description = "Denies the apple_coreai_catalog command without any pre-configured scope."
+commands.deny = ["apple_coreai_catalog"]

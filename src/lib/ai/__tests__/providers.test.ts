@@ -383,11 +383,17 @@ describe("getRoutingProviders", () => {
   it("orders on-device first by default preference", () => {
     const providers = getRoutingProviders(true);
     expect(providers[0].kind).toBe("ondevice");
-    expect(providers[1].kind).toBe("cloud");
+    expect(providers.map((p) => p.id)).toEqual([
+      "ondevice-gemini-nano",
+      "ondevice-apple-foundation",
+      "ondevice-apple-coreai",
+      "cloud-llm",
+    ]);
   });
 
   it("orders cloud first when on-device is not preferred", () => {
     const providers = getRoutingProviders(false);
     expect(providers[0].kind).toBe("cloud");
+    expect(providers[0].id).toBe("cloud-llm");
   });
 });

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-spotlight-rebuild"
+description = "Enables the apple_spotlight_rebuild command without any pre-configured scope."
+commands.allow = ["apple_spotlight_rebuild"]
+
+[[permission]]
+identifier = "deny-apple-spotlight-rebuild"
+description = "Denies the apple_spotlight_rebuild command without any pre-configured scope."
+commands.deny = ["apple_spotlight_rebuild"]

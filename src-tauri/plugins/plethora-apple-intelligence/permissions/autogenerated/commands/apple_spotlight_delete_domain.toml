@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-spotlight-delete-domain"
+description = "Enables the apple_spotlight_delete_domain command without any pre-configured scope."
+commands.allow = ["apple_spotlight_delete_domain"]
+
+[[permission]]
+identifier = "deny-apple-spotlight-delete-domain"
+description = "Denies the apple_spotlight_delete_domain command without any pre-configured scope."
+commands.deny = ["apple_spotlight_delete_domain"]
