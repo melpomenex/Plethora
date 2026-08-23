@@ -255,11 +255,13 @@ export interface AskLibraryOptions {
  */
 export async function askLibrary(options: AskLibraryOptions): Promise<AskLibraryResult> {
   const retrieve = options.retrieve ?? retrieveFromLibrary;
-  const retrieval = await retrieve(options.query, {
+  const sqlite = await retrieve(options.query, {
     k: options.k ?? ASK_LIBRARY_K,
     filters: options.filters,
     config: options.config,
+    includeSpotlight: options.retrieve == null,
   });
+  const retrieval = sqlite;
 
   const deduped = dedupeRetrievedChunks(retrieval.results);
   const budgeted = fitChunksToContextBudget(deduped);

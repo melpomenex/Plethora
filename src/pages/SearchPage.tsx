@@ -46,6 +46,14 @@ export function SearchPage() {
   );
 
   useEffect(() => {
+    const onAsk = () => {
+      if (aiLibraryRagEnabled) setMode("ask");
+    };
+    window.addEventListener("ask-library", onAsk);
+    return () => window.removeEventListener("ask-library", onAsk);
+  }, [aiLibraryRagEnabled]);
+
+  useEffect(() => {
     const handler = setTimeout(() => {
       if (query.trim()) {
         performSearch();
