@@ -199,7 +199,7 @@ mod commands {
     // (serde round-trips through the native plugin); on other targets the
     // commands short-circuit with UNSUPPORTED before touching them.
     #[allow(dead_code)]
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct GetProductsArgs {
         #[serde(default)]
@@ -231,7 +231,7 @@ mod commands {
     }
 
     #[allow(dead_code)]
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct PurchaseArgs {
         pub product_id: String,

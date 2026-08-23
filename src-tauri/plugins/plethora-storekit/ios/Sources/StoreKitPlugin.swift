@@ -46,6 +46,7 @@ enum PlethoraProducts {
   static let defaultsKey = "plethora.storekit.appAccountToken"
 }
 
+@available(iOS 15.0, *)
 public class StoreKitPlugin: Plugin {
 
   /// Held while the Transaction.updates observer task is running.
@@ -281,17 +282,22 @@ public class StoreKitPlugin: Plugin {
       "originalTransactionId": String(transaction.originalID),
       "transactionId": String(transaction.id),
       "productId": transaction.productID,
-      "purchaseDateMs": UInt64(transaction.purchaseDate.timeIntervalSince1970 * 1000),
-      "environment": transaction.environment.rawValue,
+      "purchaseDateMs": transaction.purchaseDate.timeIntervalSince1970 * 1000,
+      "environment": {
+        if #available(iOS 16.0, *) {
+          return transaction.environment.rawValue
+        }
+        return "unknown"
+      }(),
       // The signed JWS for authoritative server-side re-verification.
       "jws": String(data: transaction.jsonRepresentation, encoding: .utf8) ?? "",
       "appAccountToken": NSNull(),
     ]
     if let expiration = transaction.expirationDate {
-      payload["expirationDateMs"] = UInt64(expiration.timeIntervalSince1970 * 1000)
+      payload["expirationDateMs"] = expiration.timeIntervalSince1970 * 1000
     }
     if let revocation = transaction.revocationDate {
-      payload["revocationDateMs"] = UInt64(revocation.timeIntervalSince1970 * 1000)
+      payload["revocationDateMs"] = revocation.timeIntervalSince1970 * 1000
     }
     if let token = transaction.appAccountToken {
       payload["appAccountToken"] = token.uuidString
@@ -334,7 +340,7 @@ public class StoreKitPlugin: Plugin {
     case .freeTrial: return "freeTrial"
     case .payAsYouGo: return "payAsYouGo"
     case .payUpFront: return "payUpFront"
-    @unknown default: return "unknown"
+    default: return "unknown"
     }
   }
 
@@ -358,6 +364,7 @@ enum PlethoraEvents {
 
 /// Plugin entry point — must match `ios_plugin_binding!(init_plugin_plethora_storekit)`
 /// in src/lib.rs.
+@available(iOS 15.0, *)
 @_cdecl("init_plugin_plethora_storekit")
 func initPlugin() -> Plugin {
   return StoreKitPlugin()

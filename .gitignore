@@ -176,3 +176,7 @@ src-tauri/gen/apple/secrets/*
 # The committed exportOptions template lives inside the otherwise-ignored
 # secrets dir (mirrors gen/android/app/keystore.properties.example).
 !src-tauri/gen/apple/secrets/*.example
+
+# Generated Tauri plugin iOS API shims (recreated by the tauri-plugin CLI
+# whenever a plugin with an ios/ dir is built)
+src-tauri/plugins/*/.tauri/
