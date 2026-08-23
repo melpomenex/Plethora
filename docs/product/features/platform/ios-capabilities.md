@@ -96,4 +96,10 @@ install) are additionally unavailable on **every** platform under the
 | `desktop_capture_dom` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
 | `share_extension_inbox` |  | ✅ | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |
 | `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |
+| `on_device_ai_apple_foundation` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `apple_speech_transcription` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `import_document_scan` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `import_photo_library` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `apple_spotlight_search` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `on_device_ai_apple_coreai` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
 <!-- END GENERATED MATRIX -->

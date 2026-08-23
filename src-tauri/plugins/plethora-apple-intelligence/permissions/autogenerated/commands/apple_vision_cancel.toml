@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-vision-cancel"
+description = "Enables the apple_vision_cancel command without any pre-configured scope."
+commands.allow = ["apple_vision_cancel"]
+
+[[permission]]
+identifier = "deny-apple-vision-cancel"
+description = "Denies the apple_vision_cancel command without any pre-configured scope."
+commands.deny = ["apple_vision_cancel"]

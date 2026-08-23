@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-fm-warmup"
+description = "Enables the apple_fm_warmup command without any pre-configured scope."
+commands.allow = ["apple_fm_warmup"]
+
+[[permission]]
+identifier = "deny-apple-fm-warmup"
+description = "Denies the apple_fm_warmup command without any pre-configured scope."
+commands.deny = ["apple_fm_warmup"]

@@ -111,7 +111,7 @@ export async function resolveTaskRoute(
     }
   }
 
-  const usable = candidates.findIndex((_, i) => !caps[i] || caps[i].textGeneration);
+  const usable = candidates.findIndex((_, i) => caps[i]?.textGeneration === true);
   if (usable >= 0) {
     return {
       task: task as AITaskDefinition<never, unknown>,

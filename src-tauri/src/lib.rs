@@ -865,6 +865,7 @@ pub fn run() {
         // `platform_unsupported` and inference returns a typed error, so the
         // frontend falls back to the configured cloud provider unchanged.
         .plugin(plethora_android_genai::init())
+        .plugin(plethora_apple_intelligence::init())
         // StoreKit 2 billing (iOS): native product query, purchase with
         // appAccountToken, verified entitlements, restore, and the
         // Transaction.updates listener. On non-iOS targets every command
@@ -1340,6 +1341,63 @@ pub fn run() {
                             })
                         },
                     ));
+                }
+
+                #[cfg(target_os = "ios")]
+                {
+                    let bridge_app = app.handle().clone();
+                    ai_learning::embeddings_backend::install_on_device_embedder(std::sync::Arc::new(
+                        move |texts: &[String], _normalize: bool, _kind: &str| {
+                            plethora_apple_intelligence::embed_texts_via_app(
+                                &bridge_app,
+                                texts.to_vec(),
+                                None,
+                            )
+                            .map(|result| {
+                                ai_learning::embeddings_backend::OnDeviceEmbedOutput {
+                                    vectors: result
+                                        .vectors
+                                        .into_iter()
+                                        .map(|v| v.into_iter().map(|x| x as f32).collect())
+                                        .collect(),
+                                }
+                            })
+                            .map_err(|e| {
+                                ai_learning::embeddings_backend::OnDeviceEmbedFailure {
+                                    code: e.code,
+                                    message: e.message,
+                                }
+                            })
+                        },
+                    ));
+                    let spotlight_app = app.handle().clone();
+                    let spotlight_app_delete = app.handle().clone();
+                    ai_learning::spotlight::install_spotlight_projector(
+                        std::sync::Arc::new(move |items: &[ai_learning::spotlight::SpotlightItem]| {
+                            let payload: Vec<serde_json::Value> = items
+                                .iter()
+                                .map(|item| {
+                                    serde_json::json!({
+                                        "identifier": item.identifier,
+                                        "domain": item.domain,
+                                        "title": item.title,
+                                        "text": item.text,
+                                        "uri": item.uri,
+                                    })
+                                })
+                                .collect();
+                            let _ = plethora_apple_intelligence::spotlight_donate_via_app(
+                                &spotlight_app,
+                                serde_json::Value::Array(payload),
+                            );
+                        }),
+                        std::sync::Arc::new(move |ids: &[String]| {
+                            let _ = plethora_apple_intelligence::spotlight_delete_via_app(
+                                &spotlight_app_delete,
+                                ids.to_vec(),
+                            );
+                        }),
+                    );
                 }
 
                 let active_episode_ids = app

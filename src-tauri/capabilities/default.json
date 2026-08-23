@@ -46,6 +46,7 @@
     "plethora-storekit:default",
     "plethora-android-tts:default",
     "plethora-android-genai:default",
+    "plethora-apple-intelligence:default",
     "updater:default",
     "process:default",
     "process:allow-restart",

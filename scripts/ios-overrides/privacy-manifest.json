@@ -2,7 +2,8 @@
   "$comment": "Change C privacy data contract for Proposal A's iOS overrides script (scripts/apply-ios-project-overrides.js). privacyManifestSourcePath points at the checked-in PrivacyInfo.xcprivacy source owned by Change C; the overrides script copies it into the generated Xcode project. purposeStrings are injected into Info.plist verbatim. Never edit src-tauri/gen/apple directly.",
   "privacyManifestSourcePath": "src-tauri/ios-assets/PrivacyInfo.xcprivacy",
   "purposeStrings": {
-    "NSCameraUsageDescription": "Plethora uses the camera only when you scan a sync QR code to link another device. No photos or video are recorded or uploaded.",
-    "NSMicrophoneUsageDescription": "Plethora uses the microphone only when you record pronunciation practice or dictate a note. Recordings stay on your device unless you explicitly choose cloud transcription, which is disclosed before first use."
+    "NSCameraUsageDescription": "Plethora uses the camera only when you scan a sync QR code or capture document pages you choose to import. Scanned images stay on this device unless you export or sync them.",
+    "NSMicrophoneUsageDescription": "Plethora uses the microphone only when you record pronunciation practice, dictate a note, or transcribe a lecture. Recordings stay on your device unless you explicitly choose cloud transcription, which is disclosed before first use.",
+    "NSSpeechRecognitionUsageDescription": "Plethora uses on-device speech recognition only when you transcribe an imported file or a lecture you record."
   }
 }

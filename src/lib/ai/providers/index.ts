@@ -7,9 +7,15 @@
  */
 
 import { prefersOnDevice } from "../provider";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import type { AIProvider } from "./types";
 import { getCloudProvider } from "./cloudProvider";
-import { getOnDeviceProvider } from "./onDeviceProvider";
+import { getOnDeviceProvider, ON_DEVICE_PROVIDER_ID } from "./onDeviceProvider";
+import {
+  getAppleFoundationProvider,
+  APPLE_FOUNDATION_PROVIDER_ID,
+} from "./appleFoundationProvider";
+import { getAppleCoreAiProvider, APPLE_CORE_AI_PROVIDER_ID } from "./appleCoreAiProvider";
 
 export * from "./types";
 export { CloudProvider, getCloudProvider, capabilitiesFromCloudConfig, cloudModelSupportsReasoning, CLOUD_PROVIDER_ID } from "./cloudProvider";
@@ -20,13 +26,34 @@ export {
   toNativeRequest,
   ON_DEVICE_PROVIDER_ID,
 } from "./onDeviceProvider";
+export {
+  AppleFoundationProvider,
+  getAppleFoundationProvider,
+  APPLE_FOUNDATION_PROVIDER_ID,
+} from "./appleFoundationProvider";
+export {
+  AppleCoreAiProvider,
+  getAppleCoreAiProvider,
+  APPLE_CORE_AI_PROVIDER_ID,
+} from "./appleCoreAiProvider";
 
 /**
  * Candidate providers in routing-preference order. Returns fresh capability
  * lookups per call so capability changes re-evaluate without an app restart.
  */
 export function getRoutingProviders(preferOnDeviceFirst: boolean = prefersOnDevice()): AIProvider[] {
-  const onDevice = getOnDeviceProvider();
+  const nano = getOnDeviceProvider();
+  const appleFm = getAppleFoundationProvider();
+  const appleCore = getAppleCoreAiProvider();
+  const preferred = useSettingsStore.getState().settings.ai.preferredOnDeviceProviderId;
+  const onDevice = [nano, appleFm, appleCore];
+  if (preferred === APPLE_FOUNDATION_PROVIDER_ID) {
+    onDevice.splice(0, onDevice.length, appleFm, nano, appleCore);
+  } else if (preferred === APPLE_CORE_AI_PROVIDER_ID) {
+    onDevice.splice(0, onDevice.length, appleCore, nano, appleFm);
+  } else if (preferred === ON_DEVICE_PROVIDER_ID) {
+    onDevice.splice(0, onDevice.length, nano, appleFm, appleCore);
+  }
   const cloud = getCloudProvider();
-  return preferOnDeviceFirst ? [onDevice, cloud] : [cloud, onDevice];
+  return preferOnDeviceFirst ? [...onDevice, cloud] : [cloud, ...onDevice];
 }

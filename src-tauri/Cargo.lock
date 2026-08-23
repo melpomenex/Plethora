@@ -6357,6 +6357,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plethora-apple-intelligence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "plethora-folder-import"
 version = "0.1.0"
 dependencies = [
@@ -6422,6 +6433,7 @@ dependencies = [
  "pdf-extract",
  "plethora-android-genai",
  "plethora-android-tts",
+ "plethora-apple-intelligence",
  "plethora-folder-import",
  "plethora-storekit",
  "pulldown-cmark",

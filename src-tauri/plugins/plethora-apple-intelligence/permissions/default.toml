@@ -1,0 +1,50 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the Apple on-device intelligence plugin commands. Off Apple OS the
+Rust shims return platform_unsupported; on iOS Swift implements or stubs
+each reserved RPC.
+"""
+permissions = [
+  "allow-apple-capabilities",
+  "allow-apple-fm-availability",
+  "allow-apple-fm-generate",
+  "allow-apple-fm-generate-stream",
+  "allow-apple-fm-cancel",
+  "allow-apple-fm-count-tokens",
+  "allow-apple-fm-warmup",
+  "allow-apple-speech-status",
+  "allow-apple-speech-ensure-assets",
+  "allow-apple-speech-transcribe-file",
+  "allow-apple-speech-start-live",
+  "allow-apple-speech-stop-live",
+  "allow-apple-speech-cancel",
+  "allow-apple-vision-status",
+  "allow-apple-vision-present-scanner",
+  "allow-apple-vision-recognize-document",
+  "allow-apple-vision-cancel",
+  "allow-apple-spotlight-status",
+  "allow-apple-spotlight-donate",
+  "allow-apple-spotlight-delete",
+  "allow-apple-spotlight-delete-domain",
+  "allow-apple-spotlight-query",
+  "allow-apple-spotlight-rebuild",
+  "allow-apple-nl-status",
+  "allow-apple-nl-request-assets",
+  "allow-apple-nl-embed-texts",
+  "allow-apple-coreai-status",
+  "allow-apple-coreai-catalog",
+  "allow-apple-coreai-download-start",
+  "allow-apple-coreai-download-cancel",
+  "allow-apple-coreai-install-commit",
+  "allow-apple-coreai-delete",
+  "allow-apple-coreai-set-active",
+  "allow-apple-coreai-session-start",
+  "allow-apple-coreai-prompt",
+  "allow-apple-coreai-cancel",
+  "allow-apple-coreai-count-tokens",
+  "allow-apple-coreai-warmup",
+  "allow-register-listener",
+  "allow-remove-listener"
+]

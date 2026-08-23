@@ -325,7 +325,7 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
       "agent",
       "occlusion",
     ],
-    description: "AI providers, Gemini Nano on-device models, and AI Learning features",
+    description: "AI providers, on-device models (Gemini Nano / Apple), and AI Learning features",
   },
   {
     id: SettingsTab.AudioTranscription,

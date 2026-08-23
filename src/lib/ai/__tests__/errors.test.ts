@@ -12,7 +12,7 @@ import {
 import { OnDeviceAiError, ON_DEVICE_AI_ERROR_CODES } from "../onDeviceAI";
 
 describe("taxonomy", () => {
-  it("contains exactly the fifteen design-D6 categories", () => {
+  it("contains the design-D6 categories plus Apple routing extensions", () => {
     expect([...AI_ERROR_CATEGORIES]).toEqual([
       "ModelUnavailable",
       "ModelDownloading",
@@ -29,6 +29,9 @@ describe("taxonomy", () => {
       "OCRFailed",
       "ProviderOffline",
       "Cancelled",
+      "PermissionDenied",
+      "FeatureDisabled",
+      "UnsupportedLanguage",
     ]);
   });
 

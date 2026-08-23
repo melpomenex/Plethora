@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-nl-request-assets"
+description = "Enables the apple_nl_request_assets command without any pre-configured scope."
+commands.allow = ["apple_nl_request_assets"]
+
+[[permission]]
+identifier = "deny-apple-nl-request-assets"
+description = "Denies the apple_nl_request_assets command without any pre-configured scope."
+commands.deny = ["apple_nl_request_assets"]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apple-speech-transcribe-file"
+description = "Enables the apple_speech_transcribe_file command without any pre-configured scope."
+commands.allow = ["apple_speech_transcribe_file"]
+
+[[permission]]
+identifier = "deny-apple-speech-transcribe-file"
+description = "Denies the apple_speech_transcribe_file command without any pre-configured scope."
+commands.deny = ["apple_speech_transcribe_file"]
