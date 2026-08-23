@@ -3,6 +3,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { mergeSpotlightIntoFts } from '../lib/ai/apple/spotlight';
 
 export interface FtsSearchQuery {
   query: string;
@@ -27,7 +28,12 @@ export interface FtsSearchStats {
 }
 
 export async function ftsSearch(query: FtsSearchQuery): Promise<FtsSearchResult[]> {
-  return await invoke<FtsSearchResult[]>('fts_search', { query });
+  const results = await invoke<FtsSearchResult[]>('fts_search', { query });
+  try {
+    return await mergeSpotlightIntoFts(query.query, results);
+  } catch {
+    return results;
+  }
 }
 
 export async function ftsSearchSuggestions(query: string): Promise<string[]> {
