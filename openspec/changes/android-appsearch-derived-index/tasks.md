@@ -1,0 +1,6 @@
+- [ ] 1. Scaffold `plethora-android-search` plugin (Rust stub + Kotlin LocalStorage) with permissions; register in `lib.rs` / `Cargo.toml` as the **only** shared-file edits besides retrieval trait.
+- [ ] 2. Schema + `displayedBySystem=false`; allowlisted types; deterministic ids.
+- [ ] 3. Indexer hooks: upsert/delete/rebuild; cascade tests.
+- [ ] 4. Optional embedding property if Features API true; version stamp with `embedding_version`.
+- [ ] 5. Retrieval adapter returning canonical ids; feature flag default off.
+- [ ] 6. JVM tests for mapping/delete; document APK size measurement before flipping default on.

@@ -1,0 +1,5 @@
+- [ ] 1. Scaffold NLP plugin; Language ID bundled; `identifyLanguage` command + TS adapter.
+- [ ] 2. Import cheap-tier hook (metadata only).
+- [ ] 3. ML Kit Translate adapter in `languageTranslation` registry; download/delete UX.
+- [ ] 4. Entity extraction spike + fixture gate; default off.
+- [ ] 5. Palette Translate selection; tests with fakes.

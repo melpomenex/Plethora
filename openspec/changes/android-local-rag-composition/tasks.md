@@ -1,0 +1,5 @@
+- [ ] 1. Implement `RagComposition` wiring in `useAskLibrary` / library task using A’s types.
+- [ ] 2. Retrieval-only UI path when generator unavailable.
+- [ ] 3. Palette commands use action names; gate on retriever or generator readiness separately.
+- [ ] 4. Tests with FakeRetriever + FakeAIProvider (namespace isolation, no silent cloud).
+- [ ] 5. Optional hook for C’s retriever id behind feature flag — no AppSearch code in this change.
