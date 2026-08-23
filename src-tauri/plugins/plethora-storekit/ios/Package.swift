@@ -1,4 +1,4 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.5
 // Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,7 +16,7 @@ let package = Package(
   name: "plethora-storekit",
   platforms: [
     .macOS(.v10_13),
-    .iOS(.v13),
+    .iOS(.v15),
   ],
   products: [
     .library(
