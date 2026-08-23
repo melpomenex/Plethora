@@ -59,9 +59,11 @@ if [ "$SIM_STATE" != "Booted" ]; then
   xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
 fi
 
+open -a Simulator 2>/dev/null || true
+
 echo "⏳ Waiting for simulator boot completion..."
 xcrun simctl bootstatus "$SIM_UDID" -b
 
-echo "✅ Simulator ready: $SIM_UDID"
+echo "✅ Simulator ready: $SIM_NAME ($SIM_UDID)"
 echo "SIMULATOR_UDID=$SIM_UDID"
 echo "$SIM_UDID" > /tmp/plethora_active_sim_udid
