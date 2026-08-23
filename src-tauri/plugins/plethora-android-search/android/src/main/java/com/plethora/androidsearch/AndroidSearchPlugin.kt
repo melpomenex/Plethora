@@ -114,18 +114,21 @@ class AndroidSearchPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun retrieve(invoke: Invoke) {
         val args = invoke.parseArgs(RetrieveArgs::class.java)
+        val out = JSObject()
+        out.put("results", JSArray())
         if (!AppSearchPolicy.enabled(args.enabled)) {
-            invoke.resolve(JSArray())
+            invoke.resolve(out)
             return
         }
         val hits = searchHits(args.query.orEmpty(), args.k ?: 8, args.namespace)
-        val out = JSArray()
+        val results = JSArray()
         hits.forEach { doc ->
             val o = JSObject()
             o.put("id", doc.id)
             o.put("namespace", doc.namespace)
-            out.put(o)
+            results.put(o)
         }
+        out.put("results", results)
         invoke.resolve(out)
     }
 
@@ -162,6 +165,10 @@ class AndroidSearchPlugin(private val activity: Activity) : Plugin(activity) {
                 SetSchemaRequest.Builder()
                     .addSchemas(librarySchema())
                     .setForceOverride(true)
+                    .setSchemaTypeDisplayedBySystem(
+                        AppSearchPolicy.SCHEMA_TYPE,
+                        AppSearchPolicy.DISPLAYED_BY_SYSTEM
+                    )
                     .build()
             )?.get(5, TimeUnit.SECONDS)
         } catch (e: Throwable) {
@@ -234,6 +241,10 @@ class AndroidSearchPlugin(private val activity: Activity) : Plugin(activity) {
             opened.setSchemaAsync(
                 SetSchemaRequest.Builder()
                     .addSchemas(librarySchema())
+                    .setSchemaTypeDisplayedBySystem(
+                        AppSearchPolicy.SCHEMA_TYPE,
+                        AppSearchPolicy.DISPLAYED_BY_SYSTEM
+                    )
                     .build()
             ).get(8, TimeUnit.SECONDS)
             session = opened
@@ -259,6 +270,5 @@ class AndroidSearchPlugin(private val activity: Activity) : Plugin(activity) {
                     .setIndexingType(AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_NONE)
                     .build()
             )
-            .setSchemaTypeDisplayedBySystem(AppSearchPolicy.DISPLAYED_BY_SYSTEM)
             .build()
 }

@@ -44,7 +44,5 @@ permissions = [
   "allow-apple-coreai-prompt",
   "allow-apple-coreai-cancel",
   "allow-apple-coreai-count-tokens",
-  "allow-apple-coreai-warmup",
-  "allow-register-listener",
-  "allow-remove-listener"
+  "allow-apple-coreai-warmup"
 ]

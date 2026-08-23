@@ -22,6 +22,7 @@ cloud provider or lexical-only mode.
 - `allow-ondevice-ai-cancel-prompt-request`
 - `allow-ondevice-ai-cancel`
 - `allow-ondevice-ai-ocr-labels`
+- `allow-ondevice-ai-describe-image`
 - `allow-ondevice-ai-embed-status`
 - `allow-ondevice-ai-embed-download`
 - `allow-ondevice-ai-embed-texts`
@@ -135,6 +136,32 @@ Enables the ondevice_ai_count_tokens command without any pre-configured scope.
 <td>
 
 Denies the ondevice_ai_count_tokens command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-genai:allow-ondevice-ai-describe-image`
+
+</td>
+<td>
+
+Enables the ondevice_ai_describe_image command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-genai:deny-ondevice-ai-describe-image`
+
+</td>
+<td>
+
+Denies the ondevice_ai_describe_image command without any pre-configured scope.
 
 </td>
 </tr>

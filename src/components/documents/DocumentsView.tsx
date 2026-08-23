@@ -640,7 +640,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
 
     window.addEventListener("import-document", handleImportShortcut as EventListener);
     const handleScanShortcut = () => {
-      void import("../lib/ai/apple/importVisionDocument").then(({ importAppleDocumentScan }) =>
+      void import("../../lib/ai/apple/importVisionDocument").then(({ importAppleDocumentScan }) =>
         importAppleDocumentScan().then((doc) => {
           if (onOpenDocument) onOpenDocument(doc);
         }).catch(() => undefined),
