@@ -454,11 +454,13 @@ function AskLibrarySection() {
                 : "bg-muted text-muted-foreground"
           }`}
         >
-          {ai.path === "ondevice"
-            ? t("aiLibrary.onDevice")
-            : ai.path === "cloud"
-              ? t("aiLibrary.cloud")
-              : t("aiLibrary.noProvider")}
+          {result?.retrievalOnly
+            ? t("aiLibrary.retrievalOnly")
+            : ai.path === "ondevice"
+              ? t("aiLibrary.onDevice")
+              : ai.path === "cloud"
+                ? t("aiLibrary.cloud")
+                : t("aiLibrary.noProvider")}
         </span>
         {result && (
           <span className="text-xs text-foreground-secondary">
@@ -484,7 +486,7 @@ function AskLibrarySection() {
         />
         <button
           onClick={submit}
-          disabled={!askQuery.trim() || running || !ai.available}
+          disabled={!askQuery.trim() || running}
           className="px-4 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
           {running ? t("aiLibrary.thinking") : t("aiLibrary.ask")}

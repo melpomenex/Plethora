@@ -36,6 +36,12 @@ export const AI_ERROR_CATEGORIES = [
   "PermissionDenied",
   "FeatureDisabled",
   "UnsupportedLanguage",
+  "Busy",
+  "QuotaExceeded",
+  "BatteryQuotaExceeded",
+  "ForegroundRequired",
+  "ModelDownloadRequired",
+  "ResourceExhausted",
 ] as const;
 
 export type AIErrorCategory = (typeof AI_ERROR_CATEGORIES)[number];
@@ -108,7 +114,7 @@ export const ON_DEVICE_CODE_TO_CATEGORY: Readonly<
   // Both "can be downloaded" and "download in progress" surface the
   // actionable download UX (spec: ai-task-architecture, Model download state
   // is actionable).
-  model_downloadable: "ModelDownloading",
+  model_downloadable: "ModelDownloadRequired",
   model_downloading: "ModelDownloading",
   model_unavailable: "ModelUnavailable",
   inference_failed: "GenerationFailed",
@@ -122,6 +128,12 @@ export const ON_DEVICE_CODE_TO_CATEGORY: Readonly<
   incomplete_output: "GenerationFailed",
   parse_failed: "InvalidStructuredOutput",
   cancelled: "Cancelled",
+  busy: "Busy",
+  battery_quota_exceeded: "BatteryQuotaExceeded",
+  background_use_blocked: "ForegroundRequired",
+  safety_blocked: "SafetyBlocked",
+  queue_full: "ResourceExhausted",
+  permission_denied: "PermissionDenied",
 };
 
 /** Map an `OnDeviceAiError` (or any error carrying a known code) to an `AIError`. */

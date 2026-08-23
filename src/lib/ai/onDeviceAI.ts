@@ -36,7 +36,12 @@ export interface OnDeviceAiStatus {
   reason?: string;
 }
 
-export type OnDeviceAiFeature = "all" | "prompt" | "summarization" | "image-prompt";
+export type OnDeviceAiFeature =
+  | "all"
+  | "prompt"
+  | "summarization"
+  | "image-prompt"
+  | "image-description";
 
 export interface OnDeviceFeatureState {
   status: OnDeviceAiStatusName;
@@ -49,6 +54,12 @@ export interface OnDeviceCapabilitySnapshot {
   prompt: OnDeviceFeatureState;
   summarization: OnDeviceFeatureState;
   imagePrompt: OnDeviceFeatureState;
+  /**
+   * Optional Image Description specialized API. Independent of Prompt
+   * (Galaxy S25-class devices may have specialized APIs without Prompt).
+   * Omitted by older plugin builds.
+   */
+  imageDescription?: OnDeviceFeatureState;
   structuredOutputCompiled: boolean;
   structuredOutput: boolean;
   systemInstructions: boolean;
@@ -108,6 +119,12 @@ export const ON_DEVICE_AI_ERROR_CODES = [
   "incomplete_output",
   "parse_failed",
   "cancelled",
+  "busy",
+  "battery_quota_exceeded",
+  "background_use_blocked",
+  "safety_blocked",
+  "queue_full",
+  "permission_denied",
 ] as const;
 
 export type OnDeviceAiErrorCode = (typeof ON_DEVICE_AI_ERROR_CODES)[number];
@@ -185,7 +202,8 @@ export async function getOnDeviceAiCapabilities(): Promise<OnDeviceCapabilitySna
     now - cachedSnapshotTime < CAPABILITY_TTL_MS &&
     cachedCapabilitySnapshot.prompt?.status !== "downloading" &&
     cachedCapabilitySnapshot.summarization?.status !== "downloading" &&
-    cachedCapabilitySnapshot.imagePrompt?.status !== "downloading"
+    cachedCapabilitySnapshot.imagePrompt?.status !== "downloading" &&
+    cachedCapabilitySnapshot.imageDescription?.status !== "downloading"
   ) {
     return cachedCapabilitySnapshot;
   }
@@ -199,7 +217,8 @@ export async function getOnDeviceAiCapabilities(): Promise<OnDeviceCapabilitySna
     if (
       res.prompt?.status !== "downloading" &&
       res.summarization?.status !== "downloading" &&
-      res.imagePrompt?.status !== "downloading"
+      res.imagePrompt?.status !== "downloading" &&
+      res.imageDescription?.status !== "downloading"
     ) {
       cachedCapabilitySnapshot = res;
       cachedSnapshotTime = now;
@@ -211,7 +230,11 @@ export async function getOnDeviceAiCapabilities(): Promise<OnDeviceCapabilitySna
   }
 }
 
-export type OnDeviceRequirement = "prompt" | "summarization" | "image-prompt";
+export type OnDeviceRequirement =
+  | "prompt"
+  | "summarization"
+  | "image-prompt"
+  | "image-description";
 
 /** Get the feature status for a specific requirement. */
 export async function getOnDeviceRequirementStatus(
@@ -223,6 +246,8 @@ export async function getOnDeviceRequirementStatus(
       return snapshot.summarization;
     case "image-prompt":
       return snapshot.imagePrompt;
+    case "image-description":
+      return snapshot.imageDescription ?? { status: "unavailable", reason: "feature_not_compiled" };
     case "prompt":
     default:
       return snapshot.prompt;
@@ -299,6 +324,7 @@ function unavailableCapabilitySnapshot(reason: string): OnDeviceCapabilitySnapsh
     prompt: feature(),
     summarization: feature(),
     imagePrompt: feature(),
+    imageDescription: feature(),
     structuredOutputCompiled: false,
     structuredOutput: false,
     systemInstructions: false,

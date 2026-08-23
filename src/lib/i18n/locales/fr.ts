@@ -1028,6 +1028,10 @@ export const fr: Dict = {
   "commandPalette.goToAnalytics": "Aller aux statistiques",
   "commandPalette.importDocument": "Importer un document",
   "commandPalette.importDocumentDesc": "Importer un nouveau document depuis un fichier",
+  "commandPalette.scanDocument": "Numériser un document",
+  "commandPalette.scanDocumentDesc": "Capturer des pages dans la bibliothèque",
+  "commandPalette.translateSelection": "Traduire la sélection",
+  "commandPalette.translateSelectionDesc": "Traduire la sélection actuelle sur cet appareil",
   "commandPalette.importTwitterVideo": "Importer une vidéo X/Twitter",
   "commandPalette.createFlashcard": "Créer une carte mémoire",
   "commandPalette.createFlashcardDesc": "Ouvrir le Studio de cartes pour concevoir une carte",
@@ -5054,6 +5058,7 @@ export const fr: Dict = {
   "aiLibrary.onDevice": "Sur l'appareil",
   "aiLibrary.cloud": "Cloud",
   "aiLibrary.noProvider": "Aucun fournisseur d'IA",
+  "aiLibrary.retrievalOnly": "Passages correspondants",
   "aiLibrary.semanticMode": "Recherche sémantique",
   "aiLibrary.lexicalMode": "Recherche lexicale",
   "aiLibrary.sources": "Sources",
@@ -5830,5 +5835,7 @@ export const fr: Dict = {
   "companion.sessionDone": "Session terminée — {count} révisions au compteur.",
   "companion.rssLiked": "Noté — plus de ça.",
   "companion.settingsTitle": "Compagnon Plethora",
-  "companion.settingsDesc": "Compagnon oiseau ambiant optionnel"
+  "companion.settingsDesc": "Compagnon oiseau ambiant optionnel",
+  "onDeviceAi.allowCloudFallbackLabel": "Autoriser le repli cloud",
+  "onDeviceAi.allowCloudFallbackDescription": "Si l’IA sur l’appareil échoue, réessayer avec un fournisseur cloud configuré. Désactivé par défaut pour que le contenu ne quitte pas l’appareil en silence."
 };

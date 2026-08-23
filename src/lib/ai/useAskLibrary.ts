@@ -16,6 +16,8 @@ import {
 } from "./tasks/definitions/libraryTask";
 import { resolveEmbeddingConfigForRag } from "../../components/assistant/ragConfig";
 import { toAIError } from "./errors";
+import { resolveLibraryRagComposition } from "./resolveLibraryRag";
+import { onDeviceRunLabel } from "./privacyIndicator";
 
 export interface UseAskLibrary {
   running: boolean;
@@ -25,6 +27,8 @@ export interface UseAskLibrary {
   /** Ask a question; aborts any in-flight ask. */
   ask: (query: string, options?: { contextPassage?: string }) => Promise<void>;
   reset: () => void;
+  /** Privacy chip for this run (null when cloud fallback or no generator). */
+  privacyLabel: string | null;
 }
 
 export function useAskLibrary(): UseAskLibrary {
@@ -50,11 +54,13 @@ export function useAskLibrary(): UseAskLibrary {
         // cloud/Ollama provider the backend's on-device default applies and
         // retrieval degrades to lexical-only instead of failing.
         const config = await resolveEmbeddingConfigForRag().catch(() => undefined);
+        const composition = await resolveLibraryRagComposition();
         const next = await askLibrary({
           query,
           config,
           contextPassage: options.contextPassage,
           signal: controller.signal,
+          composition,
         });
         if (controller.signal.aborted) return;
         setResult(next);
@@ -76,5 +82,12 @@ export function useAskLibrary(): UseAskLibrary {
     setResult(null);
   }, []);
 
-  return { running, error, result, ask, reset };
+  const privacyLabel = result
+    ? onDeviceRunLabel(
+        result.retrievalOnly ? "retrieval-only" : result.run.providerKind,
+        result.run.fallbackPath
+      )
+    : null;
+
+  return { running, error, result, ask, reset, privacyLabel };
 }

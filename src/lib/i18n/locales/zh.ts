@@ -542,6 +542,7 @@ export const zh: Dict = {
   "aiLibrary.onDevice": "本机处理",
   "aiLibrary.cloud": "云端",
   "aiLibrary.noProvider": "无 AI 提供方",
+  "aiLibrary.retrievalOnly": "匹配段落",
   "aiLibrary.semanticMode": "语义检索",
   "aiLibrary.lexicalMode": "词法检索",
   "aiLibrary.sources": "来源",
@@ -1297,6 +1298,10 @@ export const zh: Dict = {
   "commandPalette.goToAnalytics": "转到统计",
   "commandPalette.importDocument": "导入文档",
   "commandPalette.importDocumentDesc": "从文件导入新文档",
+  "commandPalette.scanDocument": "扫描文档",
+  "commandPalette.scanDocumentDesc": "将页面收入资料库",
+  "commandPalette.translateSelection": "翻译所选内容",
+  "commandPalette.translateSelectionDesc": "在本机翻译当前所选内容",
   "commandPalette.importTwitterVideo": "导入 X / Twitter 视频",
   "commandPalette.createFlashcard": "创建闪卡",
   "commandPalette.createFlashcardDesc": "打开闪卡工作室来制作一张闪卡",
@@ -5658,5 +5663,7 @@ export const zh: Dict = {
   "companion.sessionDone": "复习完成——完成 {count} 次复习。",
   "companion.rssLiked": "已记下——多来点这类内容。",
   "companion.settingsTitle": "Plethora 伙伴",
-  "companion.settingsDesc": "可选的 ambient 小鸟伙伴"
+  "companion.settingsDesc": "可选的 ambient 小鸟伙伴",
+  "onDeviceAi.allowCloudFallbackLabel": "允许云端回退",
+  "onDeviceAi.allowCloudFallbackDescription": "若端侧 AI 失败，再用已配置的云端服务重试。默认关闭，避免内容在未告知的情况下离开设备。"
 };

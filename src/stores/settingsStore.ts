@@ -502,6 +502,8 @@ interface GroqTranscriptionSettings {
  */
 interface AudioTranscriptionSettings {
   provider: "local" | "groq" | "apple";
+  /** When true, ML Kit Speech may run; existing whisper/sherpa/Groq stay default. */
+  preferAndroidSpeech: boolean;
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
   preferredModelId?: string;
@@ -685,6 +687,11 @@ interface FeatureFlags {
   aiSocraticTutor: boolean;
   /** Phase 7: constrained library agent (read-only + proposals) */
   aiAgent: boolean;
+  /**
+   * Optional Android AppSearch derived index (OpenSpec C). Default off —
+   * SQLite / ai_learning remains the source of truth.
+   */
+  androidAppSearchIndex: boolean;
   /**
    * Selection-interaction controller v2 (OpenSpec
    * `overhaul-reader-selection-ux`): stability-gated selection UI, anchored
@@ -1155,6 +1162,7 @@ export const defaultSettings: Settings = {
   },
   audioTranscription: {
     provider: "local",
+    preferAndroidSpeech: false,
     autoTranscription: false,
     autoTranscribeLocalVideos: true,
     preferredModelId: "distil-small.en",
@@ -1240,6 +1248,7 @@ export const defaultSettings: Settings = {
     aiExtractWorthiness: true,
     aiSocraticTutor: true,
     aiAgent: true,
+    androidAppSearchIndex: false,
     // QA soak phase (overhaul-reader-selection-ux task 7.8, first half): the
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,

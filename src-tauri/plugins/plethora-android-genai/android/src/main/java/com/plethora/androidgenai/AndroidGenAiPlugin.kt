@@ -791,6 +791,13 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
      * any failure is reported as `unavailable` with a machine-readable reason,
      * because "we could not tell" and "this device cannot" are the same thing
      * from the caller's point of view.
+     *
+     * AICore init failures and unlocked-bootloader devices both surface as
+     * `device_unsupported` here: the SDK does not expose a dedicated
+     * bootloader code, and the frontend must not treat "unknown" as downloadable.
+     * Callers that need per-API honesty must use `getCapabilities()` —
+     * Summarization / Image Description FeatureStatus is independent of Prompt
+     * (e.g. Galaxy S25 may have specialized APIs without Prompt).
      */
     @Command
     fun checkStatus(invoke: Invoke) {

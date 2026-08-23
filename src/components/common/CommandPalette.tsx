@@ -463,6 +463,17 @@ export function getDefaultCommands(): Command[] {
       keywords: ["record", "lecture", "speech", "transcribe"],
     }),
     createCommand({
+      id: "translate-selection",
+      label: t("commandPalette.translateSelection"),
+      description: t("commandPalette.translateSelectionDesc"),
+      icon: <TextT className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("translate-selection"));
+      },
+      keywords: ["translate", "language", "mlkit"],
+    }),
+    createCommand({
       id: "tag-untagged-documents",
       label: "Smart Tag Untagged Documents",
       description: "Run Smart Tagging on library documents with no tags",

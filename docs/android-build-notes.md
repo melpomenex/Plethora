@@ -15,7 +15,7 @@ can be re-applied.
 | `app/src/main/res/values-v31/themes.xml` | new file: full `Theme.plethora_tauri` re-declaration adding `android:windowSplashScreenBackground` = `#0A0A0A` | Android 12+ splash background matches the static pre-React frame's `#0A0A0A` (icon stays the launcher mascot) so native splash → static frame → animation read as one continuous launch. Pinned by `src/__tests__/brandInventory.test.ts`. |
 
 Everything else for the on-device AI feature lives in
-`src-tauri/plugins/android-genai/` — dependencies, R8 keep rules, manifest
+`src-tauri/plugins/plethora-android-genai/` — dependencies, R8 keep rules, manifest
 override, Kotlin sources — which `tauri android init` does not touch. An
 `implementation` dependency in the plugin module already reaches the APK, and
 its `consumer-rules.pro` is applied by the app's own R8 pass, so duplicating
@@ -97,3 +97,31 @@ lazily inside `checkStatus`, whose `catch (e: Throwable)` covers the
    re-create `app/src/main/res/values-v31/themes.xml` (splash background
    items) — see the hand-edit table above.
 4. `npm run tauri:android:build` to confirm.
+
+## Sibling Android AI plugins (planned)
+
+TypeScript adapters live under `src/lib/ai/android/` and invoke:
+
+| Plugin | Capability |
+| --- | --- |
+| `plethora-android-speech` | ML Kit Speech (`genai-speech-recognition:1.0.0-alpha1`), persist-audio-first |
+| `plethora-android-vision` | Document Scanner `play-services-mlkit-document-scanner:16.0.0` |
+| `plethora-android-nlp` | Language ID `language-id:17.0.6` + Translate (`kind: "local"`) |
+| `plethora-android-search` | Optional AppSearch derived index; **flag default off** |
+
+Missing plugins resolve as `platform_unsupported`. Do not merge these into `plethora-android-genai`.
+
+## Image Description (deferred)
+
+`com.google.mlkit:genai-image-description:1.0.0-beta1` is **not** added to the
+genai Gradle module in this change: it is an independent `FeatureStatus` bit
+(`imageDescription` on the TS snapshot) and must not ride the Prompt allowlist.
+Proofreading/Rewriting clients stay out. Specialized APIs (Summarization /
+Image Description) are read independently of Prompt so Galaxy S25-class
+devices can use cheap APIs without Nano Prompt.
+
+## Custom on-device models
+
+No install-time multi-GB generative pack. EmbeddingGemma stays on the existing
+genai downloader (not Play AI packs in v1). A licensed pack must be recorded in
+`src/lib/ai/modelLicense.ts` before `LocalModelProvider` can generate.

@@ -118,9 +118,11 @@ export interface AIStreamOptions {
  * Errors thrown from `generateStream`/`countTokens` should be `AIError`s (see
  * `../errors.ts`) so the task layer can branch on category.
  */
+export type AIProviderKind = "ondevice" | "cloud" | "local-model";
+
 export interface AIProvider {
   readonly id: string;
-  readonly kind: "ondevice" | "cloud";
+  readonly kind: AIProviderKind;
   /** Live capability snapshot. */
   getCapabilities(): Promise<AIModelCapabilities>;
   generateStream(req: AIRequest, opts?: AIStreamOptions): Promise<AIResponse>;
