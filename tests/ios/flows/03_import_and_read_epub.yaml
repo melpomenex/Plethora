@@ -1,0 +1,7 @@
+appId: com.plethora.app
+---
+- launchApp
+- tapOn:
+    id: "nav-tab-documents"
+- assertVisible:
+    id: "nav-tab-documents"

@@ -1259,6 +1259,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
             description={t("documentsView.headerSummary", { count: sortedDocuments.length })}
             primaryAction={
               <button
+                id="btn-import-document"
+                data-testid="btn-import-document"
                 onClick={handleImport}
                 disabled={isImporting}
                 {...tourAnchor("documentsImportButton")}
@@ -1270,6 +1272,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
             }
             secondaryActions={
               <button
+                id="btn-scan-folder"
+                data-testid="btn-scan-folder"
                 onClick={handleImportFolder}
                 disabled={isImporting}
                 className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground hover:bg-muted/80 disabled:opacity-50"

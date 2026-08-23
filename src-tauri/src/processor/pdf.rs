@@ -15,10 +15,11 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
     let buffer = match tokio::fs::read(path).await {
         Ok(b) => b,
         Err(e) => {
-            return Err(crate::error::PlethoraError::NotFound(format!(
-                "Failed to read PDF file: {}",
-                e
-            )))
+            return Err(crate::error::PlethoraError::Import(crate::error::ImportError {
+                code: crate::error::ImportErrorCode::FileNotFound,
+                message: format!("Failed to read PDF file: {}", e),
+                file_name: Some(file_path.to_string()),
+            }))
         }
     };
 
@@ -59,10 +60,11 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
     let doc = match lopdf::Document::load_mem(&buffer) {
         Ok(d) => d,
         Err(e) => {
-            return Err(crate::error::PlethoraError::NotFound(format!(
-                "Failed to parse PDF for metadata: {}",
-                e
-            )))
+            return Err(crate::error::PlethoraError::Import(crate::error::ImportError {
+                code: crate::error::ImportErrorCode::InvalidDocument,
+                message: format!("Failed to parse PDF for metadata: {}", e),
+                file_name: Some(file_path.to_string()),
+            }))
         }
     };
 

@@ -156,7 +156,11 @@ pub async fn extract_epub_content(file_path: &str) -> Result<ExtractedContent> {
     let path = Path::new(file_path);
 
     let mut doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::Import(crate::error::ImportError {
+            code: crate::error::ImportErrorCode::InvalidDocument,
+            message: format!("Failed to open EPUB: {}", e),
+            file_name: Some(file_path.to_string()),
+        })
     })?;
 
     let spine_items = doc.spine.clone();

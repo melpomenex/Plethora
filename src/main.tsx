@@ -87,6 +87,12 @@ if (typeof window !== 'undefined') {
     // Only replace the app UI during initial bootstrap. After React mounts,
     const isMounted = root?.getAttribute("data-plethora-mounted") === "true";
     console.error("[Global Error]", e.error ?? message);
+    try {
+      const w = window as unknown as { __plethoraTestErrors?: Array<{ type: string; message: string; stack?: string }> };
+      w.__plethoraTestErrors = w.__plethoraTestErrors || [];
+      w.__plethoraTestErrors.push({ type: "error", message: String(message), stack: e.error?.stack });
+    } catch {}
+
     if (root && !isMounted) {
       const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       root.innerHTML = '<div style="padding:20px;background:#000;color:#fff;font-family:monospace;"><h2>Startup Error</h2><pre style="white-space:pre-wrap;">' + escapeHtml(e.message) + '\n' + escapeHtml(e.error?.stack || '') + '</pre></div>';
@@ -104,6 +110,12 @@ if (typeof window !== 'undefined') {
       return;
     }
 
+    console.error("[Unhandled Rejection]", message);
+    try {
+      const w = window as unknown as { __plethoraTestErrors?: Array<{ type: string; message: string; stack?: string }> };
+      w.__plethoraTestErrors = w.__plethoraTestErrors || [];
+      w.__plethoraTestErrors.push({ type: "unhandledrejection", message, stack: reason?.stack });
+    } catch {}
   });
 }
 
@@ -559,3 +571,13 @@ reactRoot.render(
     </QueryClientProvider>
   </ErrorBoundary>
 );
+
+if (typeof document !== "undefined") {
+  document.body.setAttribute("data-plethora-ready", "true");
+  console.log("[startup] plethora-ready: true (React mounted)");
+  let mainHeartbeat = 0;
+  window.setInterval(() => {
+    mainHeartbeat++;
+    document.body.setAttribute("data-plethora-heartbeat", String(mainHeartbeat));
+  }, 1000);
+}

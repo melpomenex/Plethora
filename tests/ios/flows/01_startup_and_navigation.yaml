@@ -1,0 +1,25 @@
+appId: com.plethora.app
+---
+- launchApp:
+    clearState: false
+- assertVisible:
+    id: "nav-tab-dashboard"
+- tapOn:
+    id: "nav-tab-documents"
+- assertVisible:
+    id: "btn-import-document"
+- tapOn:
+    id: "nav-tab-queue"
+- assertVisible:
+    id: "nav-tab-queue"
+- tapOn:
+    id: "nav-tab-review"
+- tapOn:
+    id: "nav-tab-settings"
+- assertVisible:
+    id: "nav-tab-settings"
+- stopApp
+- launchApp:
+    clearState: false
+- assertVisible:
+    id: "nav-tab-dashboard"

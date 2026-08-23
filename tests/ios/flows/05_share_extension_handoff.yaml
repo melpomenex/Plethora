@@ -1,0 +1,6 @@
+appId: com.plethora.app
+---
+- runScript: "../../scripts/ios-test/inject-share.sh https://example.com/maestro-test 'Maestro Share Title'"
+- launchApp
+- assertVisible:
+    id: "nav-tab-dashboard"

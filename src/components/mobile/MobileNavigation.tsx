@@ -457,6 +457,8 @@ export function MobileNavigation({
           <button
             key={item.id}
             type="button"
+            id={`nav-tab-${item.id}`}
+            data-testid={`nav-tab-${item.id}`}
             data-tour={MOBILE_NAV_ANCHORS[item.id]}
             onClick={() => {
               openTab(item);

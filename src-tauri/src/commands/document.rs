@@ -162,10 +162,11 @@ pub async fn import_document(
 ) -> Result<Document> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(PlethoraError::NotFound(format!(
-            "File not found: {}",
-            file_path
-        )));
+        return Err(PlethoraError::Import(crate::error::ImportError {
+            code: crate::error::ImportErrorCode::FileNotFound,
+            message: format!("File not found: {}", file_path),
+            file_name: Some(file_path),
+        }));
     }
     // Canonicalize to resolve symlinks and ..
     let canonical = std::fs::canonicalize(&path)
@@ -261,10 +262,14 @@ async fn import_from_path(
             .iter()
             .find(|d| d.content_hash.as_ref() == Some(hash))
         {
-            return Err(crate::error::PlethoraError::NotFound(format!(
-                "Duplicate document detected: Already imported as '{}'",
-                duplicate.title
-            )));
+            return Err(crate::error::PlethoraError::Import(crate::error::ImportError {
+                code: crate::error::ImportErrorCode::DuplicateDocument,
+                message: format!(
+                    "Duplicate document detected: Already imported as '{}'",
+                    duplicate.title
+                ),
+                file_name: Some(file_name.to_string()),
+            }));
         }
     }
 
@@ -2353,5 +2358,30 @@ mod article_import_backend_tests {
 
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&src_dir).ok();
+    }
+}
+
+/// Sweep unreferenced staged import files older than 24 hours from app_data_dir/imports/
+pub fn sweep_stale_staging_files(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let imports_dir = data_dir.join("imports");
+        if imports_dir.is_dir() {
+            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+            if let Ok(entries) = std::fs::read_dir(&imports_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Ok(meta) = path.metadata() {
+                            if let Ok(modified) = meta.modified() {
+                                if modified < cutoff {
+                                    let _ = std::fs::remove_file(&path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

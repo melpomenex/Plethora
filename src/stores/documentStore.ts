@@ -906,6 +906,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         importProgress: { current: 0, total: 0 }
       });
       throw error;
+    } finally {
+      // Guarantee that progress and loading flags are cleared on any exit path
+      set((state) => ({
+        isImporting: false,
+        isSegmenting: false,
+        importProgress: state.isImporting ? { current: 0, total: 0 } : state.importProgress,
+      }));
     }
   },
 

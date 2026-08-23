@@ -86,10 +86,13 @@ let settled = false;
 // Progress heartbeat. Doubles as a liveness probe: if the elapsed counter
 // advances in screenshots, timers and painting work and only the import is
 // outstanding.
+let bootstrapHeartbeat = 0;
 const heartbeat = window.setInterval(() => {
   if (settled) return;
   const elapsed = Math.round((performance.now() - BOOT_START) / 1000);
   showStatus(`Starting Plethora… (${elapsed}s)`);
+  bootstrapHeartbeat++;
+  document.body?.setAttribute("data-plethora-heartbeat", String(bootstrapHeartbeat));
 }, 1000);
 
 // Last-resort recovery: a wedged load can always be retried manually.
