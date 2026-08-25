@@ -174,6 +174,14 @@ import { InlineDocumentTitle } from "./InlineDocumentTitle";
 import { ItemStatsButton } from "../stats/ItemStatsButton";
 import type { SectionNode } from "../../utils/sectionIndex";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
+import { classifyHtmlReader } from "./htmlReader/documentKind";
+import { prepareHtmlDocument } from "./htmlReader/prepareHtmlDocument";
+import {
+  buildArticleReaderStyles,
+  syncCanonicalOverflowAccessibility,
+} from "./htmlReader/articleReaderStyles";
+import { buildCompatibilityReaderStyles } from "./htmlReader/compatibilityReaderStyles";
+import { resolveReaderThemeTokens } from "./htmlReader/readerThemeTokens";
 
 const READER_FOCUS_EVENT = "plethora-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "plethora-reader-focus-mode";
@@ -482,7 +490,7 @@ export function DocumentViewer({
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
-  const { theme } = useTheme();
+  const { theme, themes: availableThemes, previewThemeId } = useTheme();
   // Rating orbs are a queue-review affordance: hide them when the caller opts
   // out (Scroll Mode renders its own overlay) or when the document was opened
   // from the library/Documents view rather than the queue.
@@ -5639,6 +5647,22 @@ export function DocumentViewer({
   };
 
   const htmlSource = currentDocument?.metadata?.articleHtml || currentDocument?.content || htmlContent || "";
+  const htmlReaderClassification = useMemo(
+    () =>
+      classifyHtmlReader({
+        fileType: currentDocument?.fileType,
+        metadata: currentDocument?.metadata,
+        html: htmlSource,
+      }),
+    [currentDocument?.fileType, currentDocument?.metadata, htmlSource]
+  );
+
+  useEffect(() => {
+    for (const diagnostic of htmlReaderClassification.diagnostics) {
+      console.warn(`DocumentViewer: ${diagnostic}`);
+    }
+  }, [currentDocument?.id, htmlReaderClassification.diagnostics]);
+
   const htmlForDisplay = useMemo(() => {
     if (!htmlSource) {
       if (isEditableBrowserArticleDocument(currentDocument)) {
@@ -5666,17 +5690,24 @@ export function DocumentViewer({
       if (!currentDocument?.metadata?.articleHtml?.trim()) {
         return processPlainTextContent(htmlSource, currentDocument?.title || "");
       }
-      return processHtmlContent(htmlSource, baseUrl, currentDocument?.title || "", preserveImages);
+      return prepareHtmlDocument({
+        html: htmlSource,
+        kind: htmlReaderClassification.kind,
+        title: currentDocument?.title || "",
+        baseUrl,
+        preserveImages,
+      });
     }
 
     const preserveImages = settings.documents.webImportPreserveImages;
     const baseUrl = resolveDocumentHtmlBaseUrl(currentDocument ?? {});
-    let html = processHtmlContent(
-      htmlSource,
+    let html = prepareHtmlDocument({
+      html: htmlSource,
+      kind: htmlReaderClassification.kind,
+      title: currentDocument?.title || "",
       baseUrl,
-      currentDocument?.title || "",
       preserveImages,
-    );
+    });
     if (!jumpHighlightQuery) return html;
 
     // Highlight query terms inside HTML text nodes. This runs only when opening via jump navigation.
@@ -5728,9 +5759,28 @@ export function DocumentViewer({
     } catch {
       return html;
     }
-  }, [htmlSource, settings.documents.webImportPreserveImages, jumpHighlightQuery, currentDocument]);
+  }, [
+    htmlSource,
+    settings.documents.webImportPreserveImages,
+    jumpHighlightQuery,
+    currentDocument,
+    htmlReaderClassification.kind,
+  ]);
 
   const isOcrHtml = docType === "pdf" && pdfViewMode === "ocr-html" && ocrResult?.format === "html";
+  const ocrHtmlForDisplay = useMemo(
+    () =>
+      isOcrHtml && ocrResult
+        ? prepareHtmlDocument({
+            html: ocrResult.combinedText,
+            kind: 'ocr-html',
+            title: currentDocument?.title || 'OCR document',
+            baseUrl: resolveDocumentHtmlBaseUrl(currentDocument ?? {}),
+            preserveImages: settings.documents.webImportPreserveImages,
+          })
+        : '',
+    [isOcrHtml, ocrResult, currentDocument, settings.documents.webImportPreserveImages]
+  );
   const isHtmlViewer = docType === "html" || isOcrHtml;
 
   useLayoutEffect(() => {
@@ -6145,516 +6195,101 @@ export function DocumentViewer({
   ]);
 
   const htmlSettings = settings.documents.htmlSettings;
-  const { theme: appTheme } = useTheme();
+  const appliedReaderTheme = useMemo(
+    () =>
+      (previewThemeId
+        ? availableThemes.find((candidate) => candidate.id === previewThemeId)
+        : undefined) ?? theme,
+    [availableThemes, previewThemeId, theme]
+  );
+
   const injectHtmlViewerStyles = useCallback(() => {
     try {
       const frame = iframeRef.current;
       const doc = frame?.contentDocument;
       if (!doc) return;
 
-      // Publisher stylesheets (arXiv LaTeXML, etc.) fight the reader theme —
-      // especially on dark backgrounds where they pin ink colors to near-black.
-      doc.querySelectorAll('style:not(#html-viewer-styles), link[rel="stylesheet"]').forEach((el) => {
-        el.remove();
-      });
-      doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'));
-      const isImportedArticle = Boolean(
-        doc.querySelector('.inc-article, .inc-body, .ltx_document, .inc-raw'),
-      );
-      const readingColumnMax = isImportedArticle ? '68ch' : '850px';
+      const readerKind = isOcrHtml ? 'ocr-html' : htmlReaderClassification.kind;
+      doc.documentElement.dataset.readerKind = readerKind;
+      doc
+        .querySelectorAll('style:not(#html-viewer-styles), link[rel="stylesheet"]')
+        .forEach((element) => element.remove());
+      // Canonical articles were stripped during preparation. Avoid touching their
+      // article nodes here so theme previews preserve highlights and selection.
+      if (readerKind !== 'canonical-article') {
+        doc.querySelectorAll('[style]').forEach((element) => element.removeAttribute('style'));
+      }
 
-      let style = doc.getElementById("html-viewer-styles") as HTMLStyleElement | null;
+      let style = doc.getElementById('html-viewer-styles') as HTMLStyleElement | null;
       if (!style) {
-        style = doc.createElement("style");
-        style.id = "html-viewer-styles";
-        doc.head.appendChild(style);
+        style = doc.createElement('style');
+        style.id = 'html-viewer-styles';
+        (doc.head ?? doc.documentElement).appendChild(style);
       }
 
-      const fs = settings.documents.htmlSettings;
-    const fontFamilyMap: Record<string, string> = {
-      serif: "Georgia, 'Times New Roman', serif",
-      "sans-serif": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      monospace: "'Courier New', Courier, monospace",
-    };
-    const ff = fontFamilyMap[fs.fontFamily] || fontFamilyMap.serif;
+      const rootStyle = getComputedStyle(document.documentElement);
+      const tokens = resolveReaderThemeTokens(
+        {
+          background: rootStyle.getPropertyValue('--color-background').trim(),
+          surface: rootStyle.getPropertyValue('--color-card').trim(),
+          mutedSurface: rootStyle.getPropertyValue('--color-muted').trim(),
+          foreground: rootStyle.getPropertyValue('--color-foreground').trim(),
+          mutedForeground: rootStyle.getPropertyValue('--color-muted-foreground').trim(),
+          border: rootStyle.getPropertyValue('--color-border').trim(),
+          link: rootStyle.getPropertyValue('--color-link').trim(),
+          accent:
+            rootStyle.getPropertyValue('--color-mode-accent').trim() ||
+            rootStyle.getPropertyValue('--color-primary').trim(),
+          focus: rootStyle.getPropertyValue('--color-link').trim(),
+        },
+        appliedReaderTheme
+      );
 
-    const root = document.documentElement;
-    const cs = getComputedStyle(root);
-    const bg = cs.getPropertyValue("--color-background").trim() || appTheme.colors.background;
-    const fg = cs.getPropertyValue("--color-foreground").trim() || appTheme.colors.onBackground || appTheme.colors.text;
-    const muted = cs.getPropertyValue("--color-muted").trim() || appTheme.colors.surfaceVariant || appTheme.colors.surface;
-    const mutedFg = cs.getPropertyValue("--color-muted-foreground").trim() || appTheme.colors.textSecondary || appTheme.colors.onSurface;
-    const border = cs.getPropertyValue("--color-border").trim() || appTheme.colors.border || appTheme.colors.outline;
-    const primary = cs.getPropertyValue("--color-primary").trim() || appTheme.colors.primary;
-    const card = cs.getPropertyValue("--color-card").trim() || appTheme.colors.card || appTheme.colors.surface;
+      style.textContent =
+        readerKind === 'canonical-article'
+          ? buildArticleReaderStyles(tokens, htmlSettings)
+          : buildCompatibilityReaderStyles(readerKind, tokens, htmlSettings);
 
-    const isTransparentTheme = bg === "transparent" || !bg;
-
-    const makeColorOpaque = (colorStr: string, fallback: string): string => {
-      const trimmed = colorStr.trim();
-      if (trimmed.startsWith("rgba(")) {
-        const match = trimmed.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-        if (match) {
-          return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
-        }
+      if (readerKind === 'canonical-article') {
+        syncCanonicalOverflowAccessibility(doc);
+        frame.contentWindow?.requestAnimationFrame(() => {
+          syncCanonicalOverflowAccessibility(doc);
+        });
       }
-      return trimmed === "transparent" ? fallback : trimmed;
-    };
-
-    // Resolve opaque backgrounds to ensure readability when the theme background is transparent (like Liquid Glass)
-    const resolvedCard = isTransparentTheme
-      ? makeColorOpaque(card, "rgb(30, 41, 59)")
-      : card;
-    const resolvedMuted = isTransparentTheme
-      ? makeColorOpaque(muted, "rgb(15, 23, 42)")
-      : muted;
-    const resolvedBodyBg = isTransparentTheme
-      ? makeColorOpaque(appTheme.colors.surface || appTheme.colors.toolbar || "rgb(15, 23, 42)", "rgb(15, 23, 42)")
-      : bg;
-
-    const hasPages = doc.querySelector(".page") !== null;
-
-    if (isTransparentTheme) {
-      try {
-        doc.documentElement.style.setProperty("background", "transparent", "important");
-        doc.documentElement.style.setProperty("background-color", "transparent", "important");
-        if (hasPages) {
-          doc.body.style.setProperty("background", "transparent", "important");
-          doc.body.style.setProperty("background-color", "transparent", "important");
-        } else {
-          doc.body.style.setProperty("background", resolvedBodyBg, "important");
-          doc.body.style.setProperty("background-color", resolvedBodyBg, "important");
-        }
-      } catch (e) {
-        console.warn("HTMLViewer: Failed to force transparency:", e);
-      }
+    } catch (error) {
+      console.warn('DocumentViewer: Failed to inject HTML viewer styles', error);
     }
-
-    style.textContent = `
-      :root {
-        --bg-color: ${bg} !important;
-        --text-color: ${fg} !important;
-        --page-border: ${border} !important;
-        --page-bg: ${resolvedCard} !important;
-      }
-      html, body {
-        background: ${hasPages && isTransparentTheme ? "transparent" : resolvedBodyBg} !important;
-        color: ${fg} !important;
-      }
-      html {
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-      body {
-        font-size: ${fs.fontSize}px !important;
-        line-height: ${fs.lineHeight} !important;
-        font-family: ${ff} !important;
-        max-width: ${readingColumnMax} !important;
-        margin: 0 auto !important;
-        padding: 1.5rem 1.25rem !important;
-      }
-      /* Strip cosmetic inline styles from all elements so theme tokens apply */
-      body * {
-        color: inherit !important;
-        background-color: transparent !important;
-        font-family: inherit !important;
-        font-size: inherit !important;
-        font-weight: inherit !important;
-        font-style: inherit !important;
-        line-height: inherit !important;
-        letter-spacing: inherit !important;
-        text-align: inherit !important;
-        text-decoration: inherit !important;
-        text-transform: inherit !important;
-      }
-      /* Restore semantic article hierarchy after neutralizing source-site
-         typography. Browser imports (especially MediaWiki) are not wrapped in
-         the PDF converter's .page-content container. */
-      h1, h2, h3, h4, h5, h6 {
-        font-weight: 700 !important;
-        line-height: 1.25 !important;
-        text-align: start !important;
-      }
-      h1 {
-        font-size: 2rem !important;
-        margin: 0 0 0.8em !important;
-        padding-bottom: 0.35em !important;
-        border-bottom: 1px solid ${border} !important;
-      }
-      h2 {
-        font-size: 1.55rem !important;
-        margin: 1.8em 0 0.65em !important;
-        padding-bottom: 0.25em !important;
-        border-bottom: 1px solid ${border} !important;
-      }
-      h3 {
-        font-size: 1.25rem !important;
-        margin: 1.5em 0 0.55em !important;
-      }
-      h4, h5, h6 {
-        font-size: 1.05rem !important;
-        margin: 1.25em 0 0.45em !important;
-      }
-      p {
-        margin: 0 0 1em !important;
-      }
-      ul, ol {
-        margin: 0 0 1em 1.5em !important;
-        padding-left: 1.25em !important;
-      }
-      ul { list-style: disc outside !important; }
-      ol { list-style: decimal outside !important; }
-      li {
-        display: list-item !important;
-        margin: 0.3em 0 !important;
-      }
-      table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-        margin: 1.25em 0 !important;
-        overflow-wrap: anywhere !important;
-      }
-      th, td {
-        border: 1px solid ${border} !important;
-        padding: 0.5rem 0.65rem !important;
-        text-align: start !important;
-        vertical-align: top !important;
-      }
-      th {
-        background: ${resolvedMuted} !important;
-        font-weight: 700 !important;
-      }
-      figure {
-        display: block !important;
-        margin: 1.25em auto !important;
-      }
-      figcaption {
-        color: ${mutedFg} !important;
-        font-size: 0.85em !important;
-        text-align: center !important;
-        margin-top: 0.4em !important;
-      }
-      dl { margin: 0 0 1em !important; }
-      dt { font-weight: 700 !important; margin-top: 0.75em !important; }
-      dd { margin: 0.25em 0 0.75em 1.5em !important; }
-      hr {
-        border: 0 !important;
-        border-top: 1px solid ${border} !important;
-        margin: 1.75em 0 !important;
-      }
-      sup, sub {
-        font-size: 0.75em !important;
-        line-height: 0 !important;
-      }
-      /* Reset layout sizing and structural margins/paddings on generic container blocks to prevent cutoffs/squishing */
-      div, section, article, main, header, footer {
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        width: auto !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      /* Ensure no element overflows the viewport horizontally */
-      body {
-        box-sizing: border-box !important;
-      }
-      body * {
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      /* Preserve explicit background on page cards and header */
-      .page {
-        background-color: ${resolvedCard} !important;
-        border: 1px solid ${border} !important;
-        border-radius: 8px !important;
-        padding: 2.5rem 2.75rem !important;
-        margin-bottom: 1.25rem !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04) !important;
-        transition: box-shadow 0.2s ease !important;
-      }
-      .page:hover {
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.05) !important;
-      }
-      .page:last-child {
-        margin-bottom: 0 !important;
-      }
-      .pdf-header {
-        text-align: center !important;
-        padding: 1.5rem 0 1.25rem !important;
-        margin-bottom: 1.5rem !important;
-        border-bottom: 2px solid ${border} !important;
-      }
-      .pdf-header h1 {
-        font-size: 1.65rem !important;
-        font-weight: 700 !important;
-        margin: 0 0 0.35rem !important;
-        letter-spacing: -0.02em !important;
-      }
-      .pdf-header .meta {
-        color: ${mutedFg} !important;
-        font-size: 0.85rem !important;
-      }
-      .page-header {
-        font-size: 0.7rem !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.08em !important;
-        color: ${mutedFg} !important;
-        opacity: 0.7 !important;
-        margin-bottom: 1rem !important;
-        padding-bottom: 0.5rem !important;
-        border-bottom: 1px solid ${border} !important;
-      }
-      .page-content h2 {
-        font-size: 1.4rem !important;
-        font-weight: 700 !important;
-        margin: 1.4em 0 0.6em !important;
-        letter-spacing: -0.01em !important;
-      }
-      .page-content h3 {
-        font-size: 1.15rem !important;
-        font-weight: 600 !important;
-        margin: 1.2em 0 0.5em !important;
-      }
-      .page-content p {
-        margin: 0 0 0.85em !important;
-      }
-      .page-content table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-        margin: 1em 0 !important;
-        font-size: 0.92em !important;
-      }
-      .page-content td,
-      .page-content th {
-        border: 1px solid ${border} !important;
-        padding: 0.4rem 0.6rem !important;
-        vertical-align: top !important;
-      }
-      .page-content th {
-        font-weight: 600 !important;
-        background: ${resolvedMuted} !important;
-      }
-      .page-content ul,
-      .page-content ol {
-        margin: 0 0 0.85em 1.5em !important;
-        padding: 0 !important;
-      }
-      .page-content li {
-        margin-bottom: 0.25em !important;
-      }
-      code, pre {
-        background: ${resolvedMuted} !important;
-        color: ${fg} !important;
-        border: 1px solid ${border} !important;
-        border-radius: 4px !important;
-        font-size: 0.88em !important;
-      }
-      pre {
-        padding: 1rem !important;
-        overflow-x: auto !important;
-      }
-      blockquote {
-        border-left: 3px solid ${primary} !important;
-        color: ${mutedFg} !important;
-        padding-left: 1rem !important;
-        margin: 1em 0 !important;
-        font-style: italic !important;
-      }
-      /* Canonical imported article layout (inc-article pipeline). */
-      article.inc-article {
-        max-width: 100% !important;
-        margin: 0 auto !important;
-        padding: 0 !important;
-        color: ${fg} !important;
-      }
-      article.inc-article header {
-        margin-bottom: 1.75rem !important;
-        padding-bottom: 1rem !important;
-        border-bottom: 1px solid ${border} !important;
-      }
-      article.inc-article .inc-publication {
-        color: ${mutedFg} !important;
-        font-size: 0.8rem !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.06em !important;
-        margin: 0 0 0.5rem !important;
-      }
-      article.inc-article .inc-title {
-        font-size: 2rem !important;
-        line-height: 1.2 !important;
-        margin: 0 0 0.5rem !important;
-        border-bottom: none !important;
-        padding-bottom: 0 !important;
-      }
-      article.inc-article .inc-dek {
-        color: ${mutedFg} !important;
-        font-size: 1.05rem !important;
-        margin: 0 0 0.75rem !important;
-      }
-      article.inc-article .inc-byline {
-        color: ${mutedFg} !important;
-        font-size: 0.9rem !important;
-        margin: 0 !important;
-      }
-      article.inc-article .inc-body {
-        margin-top: 1.25rem !important;
-        color: ${fg} !important;
-      }
-      article.inc-article .inc-body p,
-      article.inc-article .inc-body li,
-      article.inc-article .inc-body td,
-      article.inc-article .inc-body th,
-      article.inc-article .inc-body div,
-      article.inc-article .inc-body span:not(.ltx_note_mark) {
-        color: ${fg} !important;
-        -webkit-text-fill-color: ${fg} !important;
-      }
-      /* LaTeXML / legacy arXiv HTML inside imported articles */
-      .ltx_document {
-        max-width: 100% !important;
-        margin: 0 auto !important;
-        color: ${fg} !important;
-      }
-      .ltx_document .ltx_p,
-      .ltx_document p,
-      .ltx_document li,
-      .ltx_document dt,
-      .ltx_document dd,
-      .ltx_document th,
-      .ltx_document td,
-      .ltx_document h1,
-      .ltx_document h2,
-      .ltx_document h3,
-      .ltx_document h4,
-      .ltx_document h5,
-      .ltx_document h6,
-      .inc-article .inc-body p,
-      .inc-article .inc-body li,
-      .inc-article .inc-body td,
-      .inc-article .inc-body th,
-      .inc-article .inc-body span:not(.ltx_note_mark) {
-        color: inherit !important;
-        -webkit-text-fill-color: inherit !important;
-      }
-      .ltx_page_navbar,
-      .arxiv-html-header,
-      .ds-announcement,
-      .ds-site-footer,
-      .ltx_TOC,
-      dialog {
-        display: none !important;
-      }
-      article.inc-article .inc-hero img {
-        display: block !important;
-        width: 100% !important;
-        height: auto !important;
-        margin: 0 auto !important;
-        border-radius: 6px !important;
-      }
-      article.inc-article .inc-body table {
-        display: block !important;
-        width: 100% !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-      }
-      article.inc-article math,
-      article.inc-article .ltx_equation {
-        overflow-x: auto !important;
-        max-width: 100% !important;
-      }
-      a { color: ${primary} !important;
-        text-decoration: underline !important;
-        text-underline-offset: 2px !important;
-      }
-      a:hover { opacity: 0.8 !important; }
-      img {
-        max-width: 100% !important;
-        height: auto !important;
-        border-radius: 6px !important;
-        border: 1px solid ${border} !important;
-        margin: 0.75rem 0 !important;
-      }
-      .line-block {
-        white-space: pre-wrap !important;
-        margin: 0 0 1em !important;
-        font-size: 0.92em !important;
-        color: ${mutedFg} !important;
-      }
-      ::selection { background: ${primary}33; }
-      mark[data-search-highlight], mark[data-viewer-search] {
-        color: ${fg} !important;
-        background: ${primary}33 !important;
-        border-radius: 2px !important;
-        padding: 0 2px !important;
-      }
-      /* X / Twitter Thread styles */
-      .x-thread-container {
-        max-width: 48rem !important;
-        margin: 0 auto !important;
-        padding: 1.5rem 1rem !important;
-      }
-      .x-thread-header {
-        border-color: ${border} !important;
-      }
-      .x-post {
-        background: ${card} !important;
-        border-color: ${border} !important;
-        transition: border-color 0.2s;
-      }
-      .x-post:hover {
-        border-color: ${primary}60 !important;
-      }
-      .x-quoted-post {
-        background: ${resolvedMuted} !important;
-        border-color: ${border} !important;
-      }
-      .x-extract-post-btn {
-        background: ${resolvedMuted} !important;
-        border: 1px solid ${border} !important;
-        color: ${fg} !important;
-        transition: all 0.15s ease;
-      }
-      .x-extract-post-btn:hover {
-        background: ${primary}20 !important;
-        border-color: ${primary} !important;
-        color: ${primary} !important;
-      }
-      /* Smooth scrolling inside the converted document */
-      html { scroll-behavior: smooth !important; }
-    `;
-    } catch (err) {
-      console.warn("DocumentViewer: Failed to inject HTML viewer styles", err);
-    }
-  }, [settings.documents.htmlSettings, appTheme]);
+  }, [
+    appliedReaderTheme,
+    htmlReaderClassification.kind,
+    htmlSettings,
+    isOcrHtml,
+  ]);
 
   useEffect(() => {
     if (!isHtmlViewer) return;
     const frame = iframeRef.current;
     if (!frame) return;
 
-    const onLoad = () => {
-      try {
-        injectHtmlViewerStyles();
-      } catch { /* ignore */ }
-    };
+    const onLoad = () => injectHtmlViewerStyles();
     try {
-      frame.addEventListener("load", onLoad);
-    } catch { /* ignore */ }
-    
-    let readyComplete = false;
-    try {
-      readyComplete = frame.contentDocument?.readyState === "complete";
-    } catch { /* ignore */ }
-
-    if (readyComplete) {
-      onLoad();
+      frame.addEventListener('load', onLoad);
+    } catch {
+      // Cross-origin frames are outside the HTML reader contract.
     }
+
+    try {
+      if (frame.contentDocument?.readyState === 'complete') onLoad();
+    } catch {
+      // Cross-origin frames are outside the HTML reader contract.
+    }
+
     return () => {
       try {
-        frame.removeEventListener("load", onLoad);
-      } catch { /* ignore */ }
+        frame.removeEventListener('load', onLoad);
+      } catch {
+        // Frame may already have been replaced.
+      }
     };
   }, [isHtmlViewer, injectHtmlViewerStyles]);
 
@@ -8007,7 +7642,7 @@ export function DocumentViewer({
                   ref={setIframeRef}
                   className="h-full w-full border-0"
                   sandbox="allow-same-origin allow-scripts"
-                  srcDoc={ocrResult.combinedText}
+                  srcDoc={ocrHtmlForDisplay}
                   onMouseUp={handleIframeMouseUp}
                   onLoad={() => {
                     injectHtmlViewerStyles();
@@ -8469,7 +8104,11 @@ export function DocumentViewer({
               title={currentDocument.title}
               ref={setIframeRef}
               className="h-full w-full border-0"
-              sandbox="allow-same-origin allow-scripts"
+              sandbox={
+                htmlReaderClassification.kind === 'canonical-article'
+                  ? 'allow-same-origin'
+                  : 'allow-same-origin allow-scripts'
+              }
               srcDoc={htmlForDisplay}
               onMouseUp={handleIframeMouseUp}
               onLoad={() => {
