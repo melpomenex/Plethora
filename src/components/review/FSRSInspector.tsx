@@ -238,14 +238,14 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
   };
 
   // Algorithm-specific descriptions
-  const stabilityDesc = isSm18
+  const stabilityDesc = isAdaptive
     ? "Days until retrievability drops to 90%"
-    : isSm20
+    : isPrecision
     ? "Days until retrievability drops to 90%"
     : "Days until retrievability drops to ~37%";
-  const difficultyDesc = isSm18
+  const difficultyDesc = isAdaptive
     ? "0-1 scale. Higher = harder to remember"
-    : isSm20
+    : isPrecision
     ? "0-1 scale. Higher = harder to remember"
     : "1-10 scale. Higher = harder to remember";
 
@@ -363,7 +363,7 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
           </div>
           <div className="mt-2 text-[10px] text-muted-foreground">
             Projected retrievability over time based on current stability.
-            {isSm18 || isSm20 ? " R = 0.9^(t/S)" : " R = exp(-t/S)"}
+            {isAdaptive || isPrecision ? " R = 0.9^(t/S)" : " R = exp(-t/S)"}
           </div>
         </div>
 

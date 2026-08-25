@@ -221,7 +221,7 @@ type ReviewUndoSnapshot = {
 
 let lastUndoSnapshot: ReviewUndoSnapshot | null = null;
 
-const ratingToSm20Grade = (rating: ReviewRating): number => {
+const ratingToSixGrade = (rating: ReviewRating): number => {
   if (rating === 1) return 0;
   if (rating === 2) return 3;
   if (rating === 3) return 4;
@@ -378,7 +378,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       reviewMode === "normal" &&
       isPrecisionScheduler(settings.learning.algorithm) &&
       !settings.learning.precisionPureKernel;
-    const effectiveGrade = Math.max(0, Math.min(5, grade ?? ratingToSm20Grade(rating)));
+    const effectiveGrade = Math.max(0, Math.min(5, grade ?? ratingToSixGrade(rating)));
     const arenaReviewMode = settings.learning.arenaReviewMode ?? "automatic";
 
     // Automatic is still an Arena review: commit the authoritative weighted

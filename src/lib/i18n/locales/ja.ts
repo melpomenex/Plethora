@@ -1702,9 +1702,7 @@ export const ja: Dict = {
   "learningSettings.scopedOverrides": "スコープ FSRS オーバーライド",
   "learningSettings.scopedOverridesDesc":
     "優先順位はグローバル、デッキ、タグです。両方が一致する場合はタグオーバーライドが優先されます。",
-  "learningSettings.setZeroUnlimited": "0 に設定すると無制限の復習",
-  "learningSettings.adaptiveDesc": "Plethora Adaptive -- 安定性増加行列を使用した間隔計算",
-  "learningSettings.classicDesc": "シンプルなスケジューリングモデルを好む方のための、わかりやすく予測しやすいスケジューラー。",
+  "learningSettings.setZeroUnlimited": "0 に設定すると無制限の復習",  "learningSettings.classicDesc": "シンプルなスケジューリングモデルを好む方のための、わかりやすく予測しやすいスケジューラー。",
   "learningSettings.adaptiveDesc": "成績と記憶の動向に基づいて復習タイミングを継続的に調整する適応型スケジューラー。",
   "learningSettings.precisionDesc": "学習者のパフォーマンスをより詳細にモデル化し、定着率と復習タイミングを最適化する、Plethora最上位のスケジューラー。",
   "learningSettings.spacedRepetition": "間隔反復アルゴリズム",

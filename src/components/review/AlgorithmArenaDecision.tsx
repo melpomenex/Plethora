@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ArrowCounterClockwise, ArrowRight, ClockCountdown, Sparkle } from "@phosphor-icons/react";
 import type { SM20ArenaGradePreview } from "../../api/review";
-import { getSm20ArenaStats } from "../../api/review";
+import { getArenaStats } from "../../api/review";
 import { useReviewStore, type ArenaSelectionDraft } from "../../stores/reviewStore";
 import { useI18n } from "../../lib/i18n";
 import { horizonDaysAt, horizonPosition } from "./arenaHorizon";
@@ -133,7 +133,7 @@ export function AlgorithmArenaDecision({
   useEffect(() => {
     if (!pendingArenaReview) return;
     let active = true;
-    void getSm20ArenaStats()
+    void getArenaStats()
       .then((stats) => {
         if (active) setRMetric(stats.r_metric);
       })

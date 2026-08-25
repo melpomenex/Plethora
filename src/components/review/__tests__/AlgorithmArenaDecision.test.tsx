@@ -6,7 +6,7 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 
 vi.mock("../../../api/review", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/review")>()),
-  getSm20ArenaStats: vi.fn(() => new Promise(() => {})),
+  getArenaStats: vi.fn(() => new Promise(() => {})),
 }));
 
 const originalConfirmArenaSelection = useReviewStore.getState().confirmArenaSelection;

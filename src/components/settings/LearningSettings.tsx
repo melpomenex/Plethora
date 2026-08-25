@@ -8,9 +8,9 @@ import {
   type ArenaOptimizationStatus,
 } from "../../api/algorithm";
 import {
-  getSm20ArenaStats,
-  optimizeSm20Fsrs,
-  optimizeSm20M4,
+  getArenaStats,
+  optimizeArenaFsrs,
+  optimizePrecisionKernel,
   type ArenaStats,
 } from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
@@ -40,7 +40,7 @@ export function LearningSettings() {
   const [sm20OptMessage, setSm20OptMessage] = useState<string | null>(null);
 
   const refreshArena = () =>
-    getSm20ArenaStats()
+    getArenaStats()
       .then(setArenaStats)
       .catch(() => setArenaStats(null));
 
@@ -171,7 +171,7 @@ export function LearningSettings() {
                     try {
                       setSm20OptRunning("fsrs");
                       setSm20OptMessage(null);
-                      const result = await optimizeSm20Fsrs();
+                      const result = await optimizeArenaFsrs();
                       setSm20OptMessage(result.message);
                       await refreshArena();
                     } catch (error) {
@@ -190,7 +190,7 @@ export function LearningSettings() {
                     try {
                       setSm20OptRunning("m4");
                       setSm20OptMessage(null);
-                      const result = await optimizeSm20M4();
+                      const result = await optimizePrecisionKernel();
                       setSm20OptMessage(result.message);
                       await refreshArena();
                     } catch (error) {

@@ -3556,9 +3556,7 @@ export const en: Dict = {
   "learningSettings.algorithm": "Algorithm",
   "learningSettings.spacedRepetition": "Spaced Repetition Algorithm",
   "learningSettings.fsrsDesc":
-    "Free Spaced Repetition Scheduler -- optimal retention-based scheduling",
-  "learningSettings.adaptiveDesc": "Plethora Adaptive -- uses stability increase matrix for interval calculation",
-  "learningSettings.classicDesc": "A straightforward, predictable scheduler for users who prefer a simpler scheduling model.",
+    "Free Spaced Repetition Scheduler -- optimal retention-based scheduling",  "learningSettings.classicDesc": "A straightforward, predictable scheduler for users who prefer a simpler scheduling model.",
   "learningSettings.adaptiveDesc": "An adaptive scheduler that continuously adjusts review timing based on your performance and memory behavior.",
   "learningSettings.precisionDesc": "Plethora's most advanced scheduler, modeling learner performance in more detail to optimize retention and review timing.",
   "learningSettings.desiredRetention": "Desired Retention: {value}%",

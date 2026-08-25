@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Flask, Info } from "@phosphor-icons/react";
 import {
   formatInterval,
-  getSm20ArenaStats,
+  getArenaStats,
   type LearningItem,
   type PreviewIntervals,
   type ArenaStats,
@@ -48,7 +48,7 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
   useEffect(() => {
     if (!isPrecisionScheduler(activeAlgorithm)) return;
     let cancelled = false;
-    getSm20ArenaStats()
+    getArenaStats()
       .then((stats) => {
         if (!cancelled) setArenaStats(stats);
       })
