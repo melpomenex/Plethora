@@ -47,6 +47,7 @@
     "plethora-android-tts:default",
     "plethora-android-genai:default",
     "plethora-apple-intelligence:default",
+    "plethora-windows-intelligence:default",
     "plethora-android-speech:default",
     "plethora-android-stt:default",
     "plethora-android-vision:default",

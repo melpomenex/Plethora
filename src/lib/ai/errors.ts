@@ -47,6 +47,46 @@ export const AI_ERROR_CATEGORIES = [
 
 export type AIErrorCategory = (typeof AI_ERROR_CATEGORIES)[number];
 
+export const WINDOWS_REASON_TO_CATEGORY: Readonly<Record<string, AIErrorCategory>> = {
+  permission_denied: "PermissionDenied",
+  limited_access_denied: "PermissionDenied",
+  package_identity_missing: "CapabilityUnavailable",
+  platform_unsupported: "UnsupportedDevice",
+  unsupported_os: "UnsupportedDevice",
+  device_not_eligible: "UnsupportedDevice",
+  model_not_ready: "ModelDownloading",
+  model_downloadable: "ModelDownloadRequired",
+  model_downloading: "ModelDownloading",
+  unsupported_language: "UnsupportedLanguage",
+  unsupported_schema: "CapabilityUnavailable",
+  not_implemented: "CapabilityUnavailable",
+  feature_disabled: "FeatureDisabled",
+  ocr_failed: "GenerationFailed",
+  vision_unavailable: "CapabilityUnavailable",
+  cancelled: "Cancelled",
+  safety_blocked: "SafetyBlocked",
+  context_too_large: "InputTooLarge",
+  invalid_argument: "InputTooLarge",
+  invalid_image: "VisionUnavailable",
+  inference_failed: "GenerationFailed",
+  busy: "Busy",
+  winrt_bindings_pending: "CapabilityUnavailable",
+};
+
+export const FOUNDRY_REASON_TO_CATEGORY: Readonly<Record<string, AIErrorCategory>> = {
+  runtime_unavailable: "ProviderOffline",
+  model_unavailable: "ModelUnavailable",
+  model_downloadable: "ModelDownloadRequired",
+  model_not_cached: "ModelDownloadRequired",
+  model_not_loaded: "ModelUnavailable",
+  no_models_cached: "ModelDownloadRequired",
+  connection_failed: "ProviderOffline",
+  timeout: "ProviderOffline",
+  cancelled: "Cancelled",
+  feature_disabled: "FeatureDisabled",
+  inference_failed: "GenerationFailed",
+};
+
 export const APPLE_REASON_TO_CATEGORY: Readonly<Record<string, AIErrorCategory>> = {
   permission_denied: "PermissionDenied",
   apple_intelligence_disabled: "FeatureDisabled",
@@ -309,6 +349,22 @@ export function toAIError(
   // (flattened bridge rejections); anything else is a cloud/generic failure.
   const hasBridgeCode = ON_DEVICE_AI_ERROR_CODES.some((c) => message.includes(c));
   if (hasBridgeCode) return aiErrorFromOnDevice(error, context);
+  const windowsReason = Object.keys(WINDOWS_REASON_TO_CATEGORY).find((c) => message.includes(c));
+  if (windowsReason) {
+    return new AIError(WINDOWS_REASON_TO_CATEGORY[windowsReason], message, {
+      code: windowsReason,
+      ...context,
+      cause: error,
+    });
+  }
+  const foundryReason = Object.keys(FOUNDRY_REASON_TO_CATEGORY).find((c) => message.includes(c));
+  if (foundryReason) {
+    return new AIError(FOUNDRY_REASON_TO_CATEGORY[foundryReason], message, {
+      code: foundryReason,
+      ...context,
+      cause: error,
+    });
+  }
   const appleReason = Object.keys(APPLE_REASON_TO_CATEGORY).find((c) => message.includes(c));
   if (appleReason) {
     return new AIError(APPLE_REASON_TO_CATEGORY[appleReason], message, {

@@ -6503,6 +6503,7 @@ dependencies = [
  "plethora-apple-intelligence",
  "plethora-folder-import",
  "plethora-storekit",
+ "plethora-windows-intelligence",
  "pulldown-cmark",
  "quick-xml 0.37.5",
  "rand 0.8.7",
@@ -6549,6 +6550,17 @@ dependencies = [
  "window-vibrancy",
  "xcap",
  "zip 0.6.6",
+]
+
+[[package]]
+name = "plethora-windows-intelligence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "windows 0.58.0",
 ]
 
 [[package]]

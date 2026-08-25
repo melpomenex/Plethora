@@ -18,6 +18,8 @@ import {
   type OnDeviceRequirement,
 } from "./onDeviceAI";
 import { getAppleIntelligenceSnapshot, isAppleOsPlatform } from "./apple/capabilities";
+import { getFoundryStatus } from "./foundryLocal/client";
+import { getWindowsIntelligenceSnapshot, isWindowsDesktop } from "./windows/capabilities";
 import { isCancelledError, toAIError } from "./errors";
 import { requestPaidConsent } from "../../utils/aiBillingConsent";
 import { ensureCloudAiDisclosure } from "../../lib/privacy/cloudAiDisclosure";
@@ -74,6 +76,24 @@ export async function resolveAiPath(
     if (isOnDeviceAiSupportedPlatform()) {
       const status = await getOnDeviceRequirementStatus(requirement);
       if (status.status === "available") return "ondevice";
+    }
+    if (isWindowsDesktop()) {
+      const flags = useSettingsStore.getState().settings.features;
+      if (flags.windowsSystemAi !== false) {
+        const snap = await getWindowsIntelligenceSnapshot();
+        const lmReady = snap.languageModel.status === "available";
+        const visionReady = snap.imageDescription.status === "available";
+        if (requirement === "image-prompt") {
+          if (visionReady || lmReady) return "ondevice";
+        } else if (lmReady) {
+          return "ondevice";
+        }
+      }
+      const foundry = useSettingsStore.getState().settings.foundryLocal;
+      if (foundry?.enabled && requirement !== "image-prompt") {
+        const status = await getFoundryStatus(foundry.baseUrl, foundry.model);
+        if (status.status === "available") return "ondevice";
+      }
     }
     if (isAppleOsPlatform()) {
       const flags = useSettingsStore.getState().settings.features;

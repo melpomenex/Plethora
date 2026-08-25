@@ -52,6 +52,8 @@ Smart Tagging uses a layered, privacy-conscious architecture:
 - Proposes precise domain topics with a 1-sentence explainability rationale.
 - Fails closed to Tier 1 if the LLM times out or is unreachable.
 
+**Windows on-device providers:** On Windows desktop, Tier 2 can also use **System On-Device AI** (Windows AI APIs) or **Foundry Local** when enabled under Settings → On-device AI. Turn on **Prefer on-device AI** to try native paths before cloud. See `docs/architecture/native-ai.md` for precedence, privacy, and NSIS vs MSIX notes.
+
 ---
 
 ## 2. Tag Provenance & Explainability

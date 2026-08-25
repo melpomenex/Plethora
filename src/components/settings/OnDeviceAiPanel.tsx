@@ -28,7 +28,18 @@ import {
   isAppleOsPlatform,
   resetAppleIntelligenceCache,
 } from "../../lib/ai/apple/capabilities";
-import type { AppleFeatureState } from "../../lib/ai/apple/types";
+import type { AppleFeatureState, AppleIntelligenceSnapshot } from "../../lib/ai/apple/types";
+import {
+  getWindowsIntelligenceSnapshot,
+  isWindowsDesktopPlatform,
+  resetWindowsIntelligenceCache,
+} from "../../lib/ai/windows/capabilities";
+import type { WindowsFeatureState } from "../../lib/ai/windows/types";
+import {
+  getFoundryLocalStatus,
+  testFoundryLocalConnection,
+} from "../../lib/ai/foundryLocal/client";
+import type { FoundryLocalStatus } from "../../lib/ai/foundryLocal/types";
 import { nativePlatform } from "../../lib/tauri";
 import { OnDeviceProcessingBadge } from "../common/OnDeviceProcessingBadge";
 import { listLicensedModels } from "../../lib/ai/modelLicense";
@@ -101,6 +112,93 @@ function appleFoundationDetailKey(
   return `onDeviceAi.appleFoundationDetail.${resolved}`;
 }
 
+const WINDOWS_SYSTEM_REASONS = [
+  "package_identity_missing",
+  "limited_access_denied",
+  "unsupported_os",
+  "unsupported_hardware",
+  "disabled_by_user",
+  "model_deployment_failed",
+  "busy",
+  "platform_unsupported",
+] as const;
+
+type WindowsSystemReason = (typeof WINDOWS_SYSTEM_REASONS)[number];
+
+function resolveWindowsSystemReason(
+  state: WindowsFeatureState | undefined,
+): WindowsSystemReason | "available" | "downloadable" | "downloading" | "unknown" {
+  if (!state) return "unknown";
+  if (state.status === "available") return "available";
+  if (state.status === "downloadable") return "downloadable";
+  if (state.status === "downloading") return "downloading";
+  const reason = state.reason;
+  if (reason && (WINDOWS_SYSTEM_REASONS as readonly string[]).includes(reason)) {
+    return reason as WindowsSystemReason;
+  }
+  return "unknown";
+}
+
+function windowsSystemStatusKey(
+  resolved: ReturnType<typeof resolveWindowsSystemReason>,
+): string {
+  switch (resolved) {
+    case "available":
+      return "settings.systemOnDeviceAi.status.available";
+    case "downloadable":
+      return "settings.systemOnDeviceAi.status.downloadable";
+    case "downloading":
+      return "settings.systemOnDeviceAi.status.downloading";
+    case "package_identity_missing":
+      return "settings.systemOnDeviceAi.status.packageIdentityMissing";
+    case "limited_access_denied":
+      return "settings.systemOnDeviceAi.status.limitedAccessDenied";
+    case "unsupported_os":
+      return "settings.systemOnDeviceAi.status.unsupportedOs";
+    case "unsupported_hardware":
+      return "settings.systemOnDeviceAi.status.unsupportedHardware";
+    case "disabled_by_user":
+      return "settings.systemOnDeviceAi.status.disabledByUser";
+    case "platform_unsupported":
+      return "settings.systemOnDeviceAi.status.platformUnsupported";
+    default:
+      return "settings.systemOnDeviceAi.status.unavailable";
+  }
+}
+
+function windowsSystemDetailKey(
+  resolved: ReturnType<typeof resolveWindowsSystemReason>,
+): string {
+  switch (resolved) {
+    case "available":
+      return "settings.systemOnDeviceAi.detail.available";
+    case "downloadable":
+      return "settings.systemOnDeviceAi.detail.downloadable";
+    case "downloading":
+      return "settings.systemOnDeviceAi.detail.downloading";
+    case "package_identity_missing":
+      return "settings.systemOnDeviceAi.detail.packageIdentityMissing";
+    case "limited_access_denied":
+      return "settings.systemOnDeviceAi.detail.limitedAccessDenied";
+    case "unsupported_os":
+      return "settings.systemOnDeviceAi.detail.unsupportedOs";
+    case "unsupported_hardware":
+      return "settings.systemOnDeviceAi.detail.unsupportedHardware";
+    case "disabled_by_user":
+      return "settings.systemOnDeviceAi.detail.disabledByUser";
+    default:
+      return "settings.systemOnDeviceAi.detail.unavailable";
+  }
+}
+
+function foundryStatusKey(status: FoundryLocalStatus | null): string {
+  if (!status) return "settings.foundryLocal.status.checking";
+  if (!status.runtimeHealthy) return "settings.foundryLocal.status.runtimeUnavailable";
+  if (status.modelLoaded) return "settings.foundryLocal.status.ready";
+  if (status.availableModels.length > 0) return "settings.foundryLocal.status.modelUnavailable";
+  return "settings.foundryLocal.status.modelDownloadable";
+}
+
 export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const { settings, updateSettings } = useSettingsStore();
   const addToast = useToastStore((s) => s.addToast);
@@ -109,6 +207,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const android = isOnDeviceAiSupportedPlatform();
   const appleOs = isAppleOsPlatform();
   const macOs = appleOs && isMacOsPlatform();
+  const windowsDesktop = isWindowsDesktopPlatform();
 
   const [status, setStatus] = useState<OnDeviceAiStatus | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -116,6 +215,11 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const [embedDownloading, setEmbedDownloading] = useState(false);
   const [embedPercent, setEmbedPercent] = useState<number | null>(null);
   const [appleSnap, setAppleSnap] = useState<AppleIntelligenceSnapshot | null>(null);
+  const [windowsSnap, setWindowsSnap] = useState<Awaited<
+    ReturnType<typeof getWindowsIntelligenceSnapshot>
+  > | null>(null);
+  const [foundryStatus, setFoundryStatus] = useState<FoundryLocalStatus | null>(null);
+  const [foundryTesting, setFoundryTesting] = useState(false);
   const [sttStatus, setSttStatus] = useState<AndroidSttStatus | null>(null);
   const [sttModels, setSttModels] = useState<AndroidSttModel[]>([]);
   const [sttDownloadingId, setSttDownloadingId] = useState<string | null>(null);
@@ -147,6 +251,24 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     setAppleSnap(await getAppleIntelligenceSnapshot());
   }, []);
 
+  const refreshWindows = useCallback(async () => {
+    resetWindowsIntelligenceCache();
+    setWindowsSnap(await getWindowsIntelligenceSnapshot());
+  }, []);
+
+  const refreshFoundry = useCallback(async () => {
+    if (!settings.foundryLocal.enabled) {
+      setFoundryStatus(null);
+      return;
+    }
+    setFoundryStatus(
+      await getFoundryLocalStatus(
+        settings.foundryLocal.baseUrl,
+        settings.foundryLocal.model,
+      ),
+    );
+  }, [settings.foundryLocal.baseUrl, settings.foundryLocal.enabled, settings.foundryLocal.model]);
+
   useEffect(() => {
     if (android) {
       void refresh();
@@ -156,9 +278,26 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     if (appleOs) {
       void refreshApple();
     }
-  }, [android, appleOs, refresh, refreshEmbedding, refreshApple, refreshStt]);
+    if (windowsDesktop) {
+      void refreshWindows();
+    }
+    if (windowsDesktop && settings.foundryLocal.enabled) {
+      void refreshFoundry();
+    }
+  }, [
+    android,
+    appleOs,
+    windowsDesktop,
+    settings.foundryLocal.enabled,
+    refresh,
+    refreshEmbedding,
+    refreshApple,
+    refreshWindows,
+    refreshFoundry,
+    refreshStt,
+  ]);
 
-  if (!android && !appleOs) return null;
+  if (!android && !appleOs && !windowsDesktop) return null;
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -313,6 +452,71 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     onChange();
   };
 
+  const handleFoundryEnabledToggle = (enabled: boolean) => {
+    updateSettings({
+      foundryLocal: { ...settings.foundryLocal, enabled },
+    });
+    onChange();
+    if (enabled) {
+      void refreshFoundry();
+    } else {
+      setFoundryStatus(null);
+    }
+  };
+
+  const handleFoundryBaseUrl = (baseUrl: string) => {
+    updateSettings({
+      foundryLocal: { ...settings.foundryLocal, baseUrl },
+    });
+    onChange();
+  };
+
+  const handleFoundryModel = (model: string) => {
+    updateSettings({
+      foundryLocal: { ...settings.foundryLocal, model },
+    });
+    onChange();
+  };
+
+  const handleFoundryTestConnection = async () => {
+    setFoundryTesting(true);
+    try {
+      const result = await testFoundryLocalConnection(
+        settings.foundryLocal.baseUrl,
+        settings.foundryLocal.model,
+      );
+      setFoundryStatus(
+        await getFoundryLocalStatus(
+          settings.foundryLocal.baseUrl,
+          settings.foundryLocal.model,
+        ),
+      );
+      addToast({
+        type: result.ok ? ToastType.Success : ToastType.Error,
+        title: t("settings.foundryLocal.testConnection"),
+        message: result.ok
+          ? t("settings.foundryLocal.testSuccess", {
+              model: result.model ?? settings.foundryLocal.model ?? "—",
+            })
+          : t(
+              result.state === "runtime_unavailable"
+                ? "settings.foundryLocal.status.runtimeUnavailable"
+                : result.state === "model_unavailable"
+                  ? "settings.foundryLocal.status.modelUnavailable"
+                  : "settings.foundryLocal.status.modelDownloadable",
+            ),
+      });
+    } catch (error) {
+      addToast({
+        type: ToastType.Error,
+        title: t("settings.foundryLocal.testFailed"),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setFoundryTesting(false);
+    }
+  };
+
   const embedDetailKey = embedStatus
     ? `onDeviceAi.embeddingDetail.${STATUS_KEY[embedStatus.status]}`
     : "onDeviceAi.checking";
@@ -326,6 +530,11 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     ? resolveAppleFoundationReason(appleSnap.foundationModels, appleSnap.foundationReason)
     : "unknown";
   const appleFoundationAvailable = appleFoundationResolved === "available";
+
+  const windowsSystemResolved = windowsSnap
+    ? resolveWindowsSystemReason(windowsSnap.languageModel)
+    : "unknown";
+  const windowsSystemAvailable = windowsSystemResolved === "available";
 
   const assistantAppleFoundationRow = (
     <SettingsRow
@@ -576,6 +785,116 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
               {t("onDeviceAi.appleCoreAiLocal")}
             </span>
           </SettingsRow>
+        </>
+      )}
+
+      {windowsDesktop && (
+        <>
+          <SettingsRow
+            label={t("settings.systemOnDeviceAi.title")}
+            description={
+              windowsSnap
+                ? t(windowsSystemDetailKey(windowsSystemResolved))
+                : t("settings.systemOnDeviceAi.status.checking")
+            }
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {windowsSnap ? t(windowsSystemStatusKey(windowsSystemResolved)) : "…"}
+              </span>
+              {windowsSystemAvailable && <OnDeviceProcessingBadge />}
+              <button
+                type="button"
+                onClick={() => void refreshWindows()}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                {t("onDeviceAi.refresh")}
+              </button>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow
+            label={t("settings.foundryLocal.enableLabel")}
+            description={t("settings.foundryLocal.enableDescription")}
+          >
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={settings.foundryLocal.enabled === true}
+                onChange={(e) => handleFoundryEnabledToggle(e.target.checked)}
+                aria-label={t("settings.foundryLocal.enableLabel")}
+              />
+              <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+            </label>
+          </SettingsRow>
+
+          {settings.foundryLocal.enabled && (
+            <>
+              <SettingsRow
+                label={t("settings.foundryLocal.statusLabel")}
+                description={t("settings.foundryLocal.statusDescription")}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {t(foundryStatusKey(foundryStatus))}
+                  </span>
+                  {foundryStatus?.modelLoaded && <OnDeviceProcessingBadge />}
+                  <button
+                    type="button"
+                    onClick={() => void refreshFoundry()}
+                    className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+                  >
+                    {t("onDeviceAi.refresh")}
+                  </button>
+                </div>
+              </SettingsRow>
+
+              <SettingsRow
+                label={t("settings.foundryLocal.baseUrlLabel")}
+                description={t("settings.foundryLocal.baseUrlDescription")}
+              >
+                <input
+                  type="text"
+                  value={settings.foundryLocal.baseUrl}
+                  onChange={(e) => handleFoundryBaseUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:52725"
+                  className="w-full max-w-md px-3 py-1.5 text-sm rounded-lg border border-border bg-background"
+                  aria-label={t("settings.foundryLocal.baseUrlLabel")}
+                />
+              </SettingsRow>
+
+              <SettingsRow
+                label={t("settings.foundryLocal.modelAliasLabel")}
+                description={t("settings.foundryLocal.modelAliasDescription")}
+              >
+                <input
+                  type="text"
+                  value={settings.foundryLocal.model}
+                  onChange={(e) => handleFoundryModel(e.target.value)}
+                  placeholder={t("settings.foundryLocal.modelAliasPlaceholder")}
+                  className="w-full max-w-md px-3 py-1.5 text-sm rounded-lg border border-border bg-background"
+                  aria-label={t("settings.foundryLocal.modelAliasLabel")}
+                />
+              </SettingsRow>
+
+              <SettingsRow
+                label={t("settings.foundryLocal.testConnection")}
+                description={t("settings.foundryLocal.testConnectionDescription")}
+              >
+                <button
+                  type="button"
+                  onClick={() => void handleFoundryTestConnection()}
+                  disabled={foundryTesting}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
+                >
+                  {foundryTesting
+                    ? t("settings.foundryLocal.testing")
+                    : t("settings.foundryLocal.testConnection")}
+                </button>
+              </SettingsRow>
+            </>
+          )}
         </>
       )}
 

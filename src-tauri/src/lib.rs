@@ -902,6 +902,7 @@ pub fn run() {
         // frontend falls back to the configured cloud provider unchanged.
         .plugin(plethora_android_genai::init())
         .plugin(plethora_apple_intelligence::init())
+        .plugin(plethora_windows_intelligence::init())
         // On-device STT for Android: sherpa-onnx long-form transcription of
         // imported audiobooks/podcasts (decode → VAD → OfflineRecognizer in a
         // foreground service). Rust orchestrates persistence by polling job
