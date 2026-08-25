@@ -161,6 +161,17 @@ describe("SelectionActionsSheet", () => {
     expect(passage.explainPassage).toHaveBeenCalledTimes(2);
   });
 
+  it("renders markdown in the result", async () => {
+    passage.explainPassage.mockResolvedValue({
+      text: "**Bold term**: A clear structure is essential.",
+      truncated: false,
+    });
+    renderSheet();
+    fireEvent.click(screen.getByText("selectionSheet.explain"));
+    await waitFor(() => expect(screen.getByText("Bold term")).toBeTruthy());
+    expect(screen.getByText("Bold term").tagName).toBe("STRONG");
+  });
+
   it("shows the failure with a retry action", async () => {
     passage.explainPassage.mockRejectedValue(new Error("boom"));
     renderSheet();

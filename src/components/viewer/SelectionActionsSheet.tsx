@@ -12,7 +12,8 @@
  * queue articles alike.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import DOMPurify from "dompurify";
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -58,7 +59,9 @@ import {
 } from "../../lib/ai/passageAI";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorSheet } from "../tutor/TutorSheet";
-import { openLibrarySource } from "../../utils/openLibrarySource";import type { Extract } from "../../api/extracts";
+import { openLibrarySource } from "../../utils/openLibrarySource";
+import { renderMarkdown } from "../../utils/markdown";
+import type { Extract } from "../../api/extracts";
 import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageTutor";
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
@@ -168,6 +171,53 @@ export function passageAroundSelection(selection: Selection | null, text: string
   return full.slice(
     Math.max(0, at - SHORT_SELECTION_CONTEXT_CHARS),
     at + needle.length + SHORT_SELECTION_CONTEXT_CHARS
+  );
+}
+
+function SelectionMarkdown({ content }: { content: string }) {
+  const html = useMemo(() => renderMarkdown(content), [content]);
+  const safeHtml = useMemo(
+    () =>
+      DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: [
+          "strong",
+          "em",
+          "p",
+          "br",
+          "code",
+          "pre",
+          "a",
+          "ul",
+          "ol",
+          "li",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "blockquote",
+          "table",
+          "thead",
+          "tbody",
+          "tr",
+          "th",
+          "td",
+          "hr",
+          "div",
+          "span",
+          "sub",
+          "sup",
+        ],
+        ALLOWED_ATTR: ["href", "class", "target", "rel", "data-language"],
+      }),
+    [html],
+  );
+  return (
+    <div
+      className="prose prose-sm dark:prose-invert max-w-none text-[15px] leading-relaxed text-foreground"
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
+    />
   );
 }
 
@@ -878,9 +928,11 @@ export function SelectionActionsSheet({
                   </button>
                 )}
               </div>
+            ) : output ? (
+              <SelectionMarkdown content={output} />
             ) : (
-              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
-                {output || (running ? t("selectionSheet.running") : "")}
+              <p className="text-[15px] leading-relaxed text-foreground">
+                {running ? t("selectionSheet.running") : ""}
               </p>
             )}
 
