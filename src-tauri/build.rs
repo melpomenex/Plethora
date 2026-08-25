@@ -40,6 +40,20 @@ fn read_rpaths(binary: &std::path::Path) -> Vec<String> {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=windows/app.manifest");
+
+    #[cfg(target_os = "windows")]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let manifest = manifest_dir.join("windows/app.manifest");
+        if manifest.is_file() {
+            let mut res = tauri_winres::WindowsResource::new();
+            res.set_manifest_file(manifest.to_string_lossy());
+            if let Err(err) = res.compile() {
+                panic!("failed to compile Windows application manifest: {err}");
+            }
+        }
+    }
 
     // Expose the full Rust target triple to the library crate as a compile-time
     // env var. Used by engine.rs / model_manager.rs to build sidecar binary paths

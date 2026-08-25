@@ -55,6 +55,7 @@ Rust Tauri plugin exposing typed commands:
 - `windows_capabilities` — snapshot with per-feature readiness
 - `windows_lm_generate` / `windows_lm_generate_stream` / `windows_lm_cancel` / `windows_lm_warmup`
 - `windows_ocr_status`
+- `windows_lm_diagnostics` — extended hardware validation snapshot
 
 TypeScript entry: `getWindowsIntelligenceSnapshot()` in `src/lib/ai/windows/capabilities.ts`.
 
@@ -66,7 +67,13 @@ TypeScript entry: `getWindowsIntelligenceSnapshot()` in `src/lib/ai/windows/capa
 | ImageDescriptionGenerator | Imaging | image registry |
 | Embeddings via LM | Text | optional; library index stays cross-platform |
 
-**MSIX / package identity:** Windows AI APIs require package identity and manifest capability. Plethora ships **NSIS** today → runtime probe returns `package_identity_missing`; Tier 1 stays inactive without crashing. Foundry Local is the practical on-device path for those installs.
+**MSIX / package identity:** Windows AI APIs require package identity and `systemAIModels` manifest capability. Plethora ships **NSIS** today. NSIS installs bundle a **sparse identity package** (`PlethoraIdentity.msix`) that registers at startup via `AddPackageByUriAsync` with `ExternalLocationUri` pointing at the install directory. The main binary embeds matching MSIX identity metadata in `windows/app.manifest`. If registration fails, the probe returns `package_identity_missing`; Tier 1 stays inactive without crashing. Foundry Local is the practical on-device path until identity + LAF + hardware are satisfied.
+
+**Full MSIX distribution:** `scripts/build-windows-msix-package.ps1` packages a release staging directory into `windows/msix/out/Plethora.msix` for Store or sideload distribution (dev-signed; production requires a store certificate). This is a second bundle target alongside NSIS in release workflows.
+
+**Phi Silica WinRT bridge:** `plethora-windows-intelligence/cpp/PhiSilicaBridge.cpp` calls `LanguageModel::GenerateResponseAsync` when compiled with `PLETHORA_PHI_SILICA_CPP` (requires Microsoft Windows App SDK at build time). Without the SDK, `phiBridgeAvailable` is false and generation returns `winrt_bindings_pending`.
+
+**Hardware validation:** Settings → On-device AI → **Diagnostics** invokes `windows_lm_diagnostics` (package identity, bridge availability, ready state, LAF token presence, sparse MSIX search paths). On physical Copilot+ hardware, also run `scripts/smoke-windows-ai-diagnostics.ps1`.
 
 **Limited Access Feature (LAF):** Stable Phi Silica may require `LimitedAccessFeatures.TryUnlockFeature`. Token from env `PLETHORA_WINDOWS_AI_LAF_TOKEN` at runtime only — never committed. Missing token → `limited_access_denied`.
 

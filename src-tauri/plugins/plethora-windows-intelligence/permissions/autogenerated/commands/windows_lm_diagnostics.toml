@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-windows-lm-diagnostics"
+description = "Enables the windows_lm_diagnostics command without any pre-configured scope."
+commands.allow = ["windows_lm_diagnostics"]
+
+[[permission]]
+identifier = "deny-windows-lm-diagnostics"
+description = "Denies the windows_lm_diagnostics command without any pre-configured scope."
+commands.deny = ["windows_lm_diagnostics"]

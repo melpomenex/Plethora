@@ -416,7 +416,8 @@ pub async fn answer_about_extract(
     Ok(answer)
 }
 
-/// Summarize content
+/// Summarize content via the configured cloud provider.
+/// Cloud-only fallback for `runTask` cloudExecutors — UI should prefer `workflow-summarize`.
 #[tauri::command]
 pub async fn summarize_content(
     content: String,
@@ -460,7 +461,8 @@ pub async fn extract_key_points(
     Ok(points)
 }
 
-/// Generate title for content
+/// Generate title via the configured cloud provider.
+/// Cloud-only fallback for `runTask` cloudExecutors — UI should prefer `workflow-title`.
 #[tauri::command]
 pub async fn generate_title(content: String, ai_state: State<'_, AIState>) -> Result<String> {
     let config = get_ai_config_clone(&ai_state)?;

@@ -31,10 +31,11 @@ import {
 import type { AppleFeatureState, AppleIntelligenceSnapshot } from "../../lib/ai/apple/types";
 import {
   getWindowsIntelligenceSnapshot,
+  getWindowsLmDiagnostics,
   isWindowsDesktopPlatform,
   resetWindowsIntelligenceCache,
 } from "../../lib/ai/windows/capabilities";
-import type { WindowsFeatureState } from "../../lib/ai/windows/types";
+import type { WindowsFeatureState, WindowsLmDiagnostics } from "../../lib/ai/windows/types";
 import {
   getFoundryLocalStatus,
   testFoundryLocalConnection,
@@ -115,6 +116,7 @@ function appleFoundationDetailKey(
 const WINDOWS_SYSTEM_REASONS = [
   "package_identity_missing",
   "limited_access_denied",
+  "winrt_bindings_pending",
   "unsupported_os",
   "unsupported_hardware",
   "disabled_by_user",
@@ -153,6 +155,8 @@ function windowsSystemStatusKey(
       return "settings.systemOnDeviceAi.status.packageIdentityMissing";
     case "limited_access_denied":
       return "settings.systemOnDeviceAi.status.limitedAccessDenied";
+    case "winrt_bindings_pending":
+      return "settings.systemOnDeviceAi.status.winrtBindingsPending";
     case "unsupported_os":
       return "settings.systemOnDeviceAi.status.unsupportedOs";
     case "unsupported_hardware":
@@ -180,6 +184,8 @@ function windowsSystemDetailKey(
       return "settings.systemOnDeviceAi.detail.packageIdentityMissing";
     case "limited_access_denied":
       return "settings.systemOnDeviceAi.detail.limitedAccessDenied";
+    case "winrt_bindings_pending":
+      return "settings.systemOnDeviceAi.detail.winrtBindingsPending";
     case "unsupported_os":
       return "settings.systemOnDeviceAi.detail.unsupportedOs";
     case "unsupported_hardware":
@@ -218,6 +224,10 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const [windowsSnap, setWindowsSnap] = useState<Awaited<
     ReturnType<typeof getWindowsIntelligenceSnapshot>
   > | null>(null);
+  const [windowsDiagnostics, setWindowsDiagnostics] = useState<WindowsLmDiagnostics | null>(
+    null
+  );
+  const [windowsDiagnosticsOpen, setWindowsDiagnosticsOpen] = useState(false);
   const [foundryStatus, setFoundryStatus] = useState<FoundryLocalStatus | null>(null);
   const [foundryTesting, setFoundryTesting] = useState(false);
   const [sttStatus, setSttStatus] = useState<AndroidSttStatus | null>(null);
@@ -254,6 +264,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const refreshWindows = useCallback(async () => {
     resetWindowsIntelligenceCache();
     setWindowsSnap(await getWindowsIntelligenceSnapshot());
+    setWindowsDiagnostics(await getWindowsLmDiagnostics());
   }, []);
 
   const refreshFoundry = useCallback(async () => {
@@ -810,8 +821,26 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
               >
                 {t("onDeviceAi.refresh")}
               </button>
+              <button
+                type="button"
+                onClick={() => setWindowsDiagnosticsOpen((open) => !open)}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                {t("settings.systemOnDeviceAi.diagnosticsToggle")}
+              </button>
             </div>
           </SettingsRow>
+
+          {windowsDiagnosticsOpen && windowsDiagnostics && (
+            <SettingsRow
+              label={t("settings.systemOnDeviceAi.diagnosticsTitle")}
+              description={t("settings.systemOnDeviceAi.diagnosticsDescription")}
+            >
+              <pre className="text-xs text-muted-foreground max-w-md overflow-x-auto whitespace-pre-wrap font-mono">
+                {JSON.stringify(windowsDiagnostics, null, 2)}
+              </pre>
+            </SettingsRow>
+          )}
 
           <SettingsRow
             label={t("settings.foundryLocal.enableLabel")}

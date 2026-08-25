@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the windows_lm_cancel command without any pre-configured scope."
         },
         {
+          "description": "Enables the windows_lm_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-windows-lm-diagnostics",
+          "markdownDescription": "Enables the windows_lm_diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the windows_lm_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-windows-lm-diagnostics",
+          "markdownDescription": "Denies the windows_lm_diagnostics command without any pre-configured scope."
+        },
+        {
           "description": "Enables the windows_lm_ensure_ready command without any pre-configured scope.",
           "type": "string",
           "const": "allow-windows-lm-ensure-ready",

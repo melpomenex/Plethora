@@ -218,6 +218,21 @@ mod commands {
             Err(not_windows("windows_ocr_status"))
         }
     }
+
+    #[tauri::command]
+    pub async fn windows_lm_diagnostics() -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "windows")]
+        {
+            Ok(windows::lm_diagnostics())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(serde_json::json!({
+                "platform": "unsupported",
+                "reason": PLATFORM_UNSUPPORTED,
+            }))
+        }
+    }
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -230,6 +245,7 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::windows_lm_warmup,
             commands::windows_lm_ensure_ready,
             commands::windows_ocr_status,
+            commands::windows_lm_diagnostics,
         ])
         .build()
 }

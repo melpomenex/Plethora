@@ -204,6 +204,18 @@ jobs:
         shell: pwsh
         run: Get-ChildItem -Path src-tauri/bin -Recurse -File -ErrorAction SilentlyContinue | Unblock-File
 
+      - name: Install Windows App SDK (Phi Silica bridge)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          nuget install Microsoft.WindowsAppSDK -OutputDirectory $env:USERPROFILE\.nuget\packages -ExcludeVersion
+          echo "WINDOWS_APP_SDK_ROOT=$env:USERPROFILE\.nuget\packages\Microsoft.WindowsAppSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows sparse identity package
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/build-windows-sparse-package.ps1
+
       - name: Build Tauri application
         run: npx tauri build ${{ matrix.tauri_args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
         env:
@@ -248,6 +260,17 @@ jobs:
         run: |
           ./scripts/verify-windows-bundles.ps1
 
+      - name: Build Windows MSIX package (optional Store path)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $stage = Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Directory | Select-Object -First 1
+          if ($stage) {
+            ./scripts/build-windows-msix-package.ps1 -StageDir $stage.FullName
+          } else {
+            Write-Warning "NSIS staging directory not found; skipping MSIX pack"
+          }
+
       # When verification fails, keep the built installer as a workflow
       # artifact so the packing can be dissected offline without rebuilding.
       - name: Upload Windows installer for inspection (on failure)
@@ -284,6 +307,7 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi.zip
             src-tauri/target/release/bundle/**/*.exe.sig
             src-tauri/target/release/bundle/**/*.msi.sig
+            src-tauri/windows/msix/out/*.msix
           draft: false
           prerelease: false
           tag_name: ${{ steps.get_version.outputs.VERSION }}

@@ -3,6 +3,7 @@ import { invokeWindows } from "./plugin";
 import {
   unsupportedWindowsSnapshot,
   type WindowsIntelligenceSnapshot,
+  type WindowsLmDiagnostics,
 } from "./types";
 
 const TTL_MS = 10_000;
@@ -55,4 +56,15 @@ function isDownloading(snap: WindowsIntelligenceSnapshot): boolean {
     snap.imageDescription.status === "downloading" ||
     snap.embeddings.status === "downloading"
   );
+}
+
+export async function getWindowsLmDiagnostics(): Promise<WindowsLmDiagnostics> {
+  if (!isWindowsDesktop()) {
+    return { platform: "unsupported", reason: "platform_unsupported" };
+  }
+  try {
+    return await invokeWindows<WindowsLmDiagnostics>("windows_lm_diagnostics");
+  } catch {
+    return { platform: "unsupported", reason: "platform_unsupported" };
+  }
 }

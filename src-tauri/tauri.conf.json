@@ -49,7 +49,8 @@
     ],
     "resources": [
       "scripts/anna_download.py",
-      "bin/notebooklm-runtime"
+      "bin/notebooklm-runtime",
+      "windows/sparse/out/PlethoraIdentity.msix"
     ],
     "icon": [
       "icons/32x32.png",
