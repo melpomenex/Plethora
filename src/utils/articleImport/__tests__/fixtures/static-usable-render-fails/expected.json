@@ -1,0 +1,7 @@
+{
+  "url": "https://fixture.example.com/static-usable-render-fails/",
+  "minWords": 80,
+  "renderedFallbackRequired": true,
+  "mustContain": ["usable static article paragraph"],
+  "importWarningContains": "static article content instead"
+}

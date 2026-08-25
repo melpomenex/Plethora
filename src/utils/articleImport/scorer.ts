@@ -20,6 +20,7 @@ import {
   HIGH_THRESHOLD,
   LINK_DENSITY_FULL,
   MEDIUM_THRESHOLD,
+  MIN_WORDS,
   PROSE_COMMA_PER_1000,
   PROSE_VOLUME_FULL_WORDS,
   REPEATED_LINK_MIN_REPEATS,
@@ -274,7 +275,7 @@ export function scoreCandidate(
   const agreement = metadataAgreement(candidate, ctx.meta);
   const completeness = completenessPenalty(words, ctx);
 
-  const score = Math.max(
+  let score = Math.max(
     0,
     Math.min(
       100,
@@ -301,6 +302,11 @@ export function scoreCandidate(
     ...completeness.reasons,
   ];
 
+  if (candidate.engine.startsWith('site:') && candidate.stats.words >= MIN_WORDS) {
+    score = Math.min(100, score + 8);
+    reasons.push('structured_adapter_bonus');
+  }
+
   return {
     candidate,
     score,
@@ -311,7 +317,7 @@ export function scoreCandidate(
 
 /** Deterministic selection: highest score, ties break by engine precedence
  * (site-specific → defuddle → readability), then by word count. */
-const ENGINE_PRECEDENCE = ['site:', 'defuddle', 'readability'];
+const ENGINE_PRECEDENCE = ['site:', 'rendered-', 'defuddle', 'readability', 'semantic'];
 
 export function selectBestCandidate(scored: ScoredCandidate[]): ScoredCandidate | null {
   if (scored.length === 0) return null;

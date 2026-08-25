@@ -6,6 +6,7 @@
 import { Document } from '../types/document';
 import { fetchUrlContent, readDocumentFile } from '../api/documents';
 import { isTauri } from '../lib/tauri';
+import { parseArxivInput, arxivPaperRef } from './articleImport/arxivResolver';
 
 /**
  * CORS proxies for browser mode
@@ -421,20 +422,19 @@ export async function importFromUrl(
  */
 export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'pdf'): Promise<Omit<Document, 'id'>> {
   try {
-    const arxivId = extractArxivId(input);
-    if (!arxivId) {
+    const identity = parseArxivInput(input);
+    if (!identity) {
       throw new Error('Invalid Arxiv ID or URL');
     }
+    const arxivId = arxivPaperRef(identity);
 
-    const metadata = await fetchArxivMetadata(arxivId);
+    const metadata = await fetchArxivMetadata(identity.paperId);
 
     // Download PDF or HTML using the backend fetch function
     const isHtml = format === 'html';
-    const downloadUrl = isHtml
-      ? `https://arxiv.org/html/${arxivId}`
-      : `https://arxiv.org/pdf/${arxivId}.pdf`;
+    const downloadUrl = isHtml ? identity.htmlUrl : identity.pdfUrl;
     const fetched = await fetchUrlContent(downloadUrl);
-    const pdfUrl = `https://arxiv.org/pdf/${arxivId}.pdf`;
+    const pdfUrl = identity.pdfUrl;
 
     let content = metadata.abstract;
     if (isHtml) {
@@ -475,10 +475,10 @@ export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'p
         createdAt: metadata.published,
         pageCount: undefined, // Will be determined when PDF is processed
         language: 'en',
-        arxivId: arxivId,
-        arxivUrl: `https://arxiv.org/abs/${arxivId}`,
-        pdfUrl: pdfUrl,
-        htmlUrl: isHtml ? downloadUrl : undefined,
+        arxivId: identity.paperId,
+        arxivUrl: identity.absUrl,
+        pdfUrl: identity.pdfUrl,
+        htmlUrl: isHtml ? identity.htmlUrl : undefined,
         originalFileName: fetched.file_name,
       },
     };
@@ -493,24 +493,7 @@ export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'p
  * Extract Arxiv ID from various input formats
  */
 function extractArxivId(input: string): string | null {
-  // Remove whitespace and strip version suffix if present (e.g., v1, v2)
-  const cleaned = input.trim().replace(/v\d+$/, '');
-
-  // Direct ID format: 2301.07041 or cs.AI/1234567
-  const directIdMatch = cleaned.match(/^(\d{4}\.\d+|[a-z-]+\/\d+)$/);
-  if (directIdMatch) {
-    return directIdMatch[1];
-  }
-
-  // URL format: https://arxiv.org/abs/2301.07041 or https://arxiv.org/pdf/2301.07041.pdf
-  // Also handles version suffix in URLs like 2301.07041v1
-  const urlMatch = cleaned.match(/arxiv\.org\/(abs|pdf)\/(\d{4}\.\d+(?:v\d+)?|[a-z-]+\/\d+(?:v\d+)?)/);
-  if (urlMatch) {
-    // Strip version suffix from extracted ID
-    return urlMatch[2].replace(/v\d+$/, '');
-  }
-
-  return null;
+  return parseArxivInput(input)?.paperId ?? null;
 }
 
 /**
@@ -664,7 +647,7 @@ export function validateArxivInput(input: string): { valid: boolean; error?: str
   if (!arxivId) {
     return {
       valid: false,
-      error: 'Invalid Arxiv ID or URL. Expected format: 2301.07041, 2301.07041v1, or https://arxiv.org/abs/2301.07041',
+      error: 'Invalid Arxiv ID or URL. Expected format: 2301.07041, 2301.07041v1, https://arxiv.org/abs/2301.07041, or https://arxiv.org/html/2301.07041v1',
     };
   }
 

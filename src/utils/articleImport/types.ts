@@ -213,6 +213,10 @@ export interface ArticleImportDiagnostics {
   finalImageCount?: number;
   timings: StageTimings;
   failureReason?: ArticleImportErrorCode;
+  /** Source adapter classification (universal-article-import-pipeline). */
+  sourceClassification?: string;
+  /** Non-blocking import warnings surfaced to users/diagnostics. */
+  importWarnings?: string[];
 }
 
 /** Progress events emitted by the pipeline for UI states. */

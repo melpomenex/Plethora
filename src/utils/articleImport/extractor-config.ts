@@ -9,7 +9,7 @@
 
 /** Bump whenever scorer weights/thresholds or normalization semantics change
  * in a way that could alter extraction outcomes. Persisted with each import. */
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Scoring thresholds (design D3)
@@ -26,6 +26,11 @@ export const MEDIUM_THRESHOLD = 40;
 export const ACCEPT_FLOOR = 35;
 /** Candidates below this word count are never accepted, regardless of score. */
 export const MIN_WORDS = 120;
+/** Emergency floor when rendered fallback fails but static extraction is still
+ * readable (universal-article-import-pipeline). */
+export const EMERGENCY_MIN_WORDS = 80;
+/** Minimum score for emergency static acceptance after render failure. */
+export const EMERGENCY_ACCEPT_FLOOR = 25;
 
 // Component weights. Each component's raw sub-score is normalized to its
 // weight range; the total is clamped to [0, 100].

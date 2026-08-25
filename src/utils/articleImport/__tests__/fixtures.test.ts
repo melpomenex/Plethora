@@ -63,6 +63,7 @@ interface FixtureExpectation {
   confidenceAtLeast?: 'low' | 'medium' | 'high';
   noSiteSpecific?: boolean;
   renderedFallbackRequired?: boolean;
+  importWarningContains?: string;
 }
 
 interface FixtureCase {
@@ -146,6 +147,8 @@ describe('article import fixture corpus', () => {
       'js-rendered-shell',
       'jsonld-rich',
       'both-static-fail',
+      'arxiv-html-regression',
+      'static-usable-render-fails',
     ]) {
       expect(names, `missing fixture category: ${required}`).toContain(required);
     }
@@ -169,6 +172,12 @@ describe('article import fixture corpus', () => {
       if (expected.renderedFallbackRequired || expected.expectsFailure) {
         if (fixture.renderedHtml) {
           setRenderedCaptureForTests(fakeRenderedCapture(fixture.renderedHtml, fixture.url));
+        } else if (expected.importWarningContains) {
+          setRenderedCaptureForTests({
+            capture: vi.fn(async () => {
+              throw new RenderedCaptureError('timeout', 'budget exceeded');
+            }),
+          });
         } else if (expected.expectsFailure) {
           // Static candidates fail AND the rendered DOM (the same shell)
           // yields nothing either → acceptance floor decides.
@@ -261,6 +270,13 @@ describe('article import fixture corpus', () => {
       } else {
         expect(diagnostics.renderedFallbackUsed ?? false,
           `${fixture.name}: fallback must not be the default`).toBe(false);
+      }
+      if (expected.importWarningContains) {
+        const warnings = diagnostics.importWarnings ?? [];
+        expect(
+          warnings.some((w) => w.includes(expected.importWarningContains!)),
+          `${fixture.name}: missing import warning containing "${expected.importWarningContains}"`
+        ).toBe(true);
       }
     });
   }

@@ -142,7 +142,30 @@ describe('rendered-page fallback integration', () => {
     });
   });
 
-  it('capture timeout → rendered_failed, no document produced', async () => {
+  it('accepts emergency-usable static content when rendered capture times out', async () => {
+    fetchMock.mockResolvedValue({
+      html: `<!doctype html><html><head><title>Thin | Newsy</title></head><body>
+<nav><a href="/">Home</a><a href="/subscribe">Subscribe</a></nav>
+<main><article><h1>Thin But Usable</h1>
+${Array.from({ length: 6 }, (_, i) => `<p>Usable static article paragraph ${i} with enough prose to clear the emergency usability floor when rendered capture fails during fallback on this deterministic offline test page.</p>`).join('')}
+</article></main></body></html>`,
+      finalUrl: 'https://newsy.example.com/story/thin',
+      status: 200,
+      contentType: 'text/html',
+      redirectHops: 0,
+    });
+    setRenderedCaptureForTests(
+      fakeCapture(async () => {
+        throw new RenderedCaptureError('timeout', 'budget exceeded');
+      })
+    );
+
+    const outcome = await importArticle('https://newsy.example.com/story/thin');
+    expect(outcome.diagnostics.importWarnings?.join(' ')).toContain('static article content');
+    expect(outcome.article.textContent.length).toBeGreaterThan(0);
+  });
+
+  it('capture timeout on empty shell still fails typed', async () => {
     shellFetch();
     setRenderedCaptureForTests(
       fakeCapture(async () => {
