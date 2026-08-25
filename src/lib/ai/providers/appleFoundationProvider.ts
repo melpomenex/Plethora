@@ -31,7 +31,7 @@ const DEAD_CAPS: AIModelCapabilities = {
   embeddings: false,
   contextTokens: 4096,
   streaming: false,
-  prefixCaching: false,
+  prefixCaching: true,
   offlineAvailable: true,
   downloadState: "not-applicable",
 };
@@ -62,6 +62,7 @@ export class AppleFoundationProvider implements AIProvider {
       ...DEAD_CAPS,
       textGeneration: ready,
       structuredGeneration: ready,
+      streaming: ready,
       downloadState:
         snap.foundationModels.status === "downloadable" || avail.status === "downloadable"
           ? "downloadable"
@@ -92,7 +93,7 @@ export class AppleFoundationProvider implements AIProvider {
   }
 
   async countTokens(req: AIRequest): Promise<AIUsageMetadata> {
-    return appleFmCountTokens(`${req.systemInstruction ?? ""}${req.text}`);
+    return appleFmCountTokens(req.text, req.systemInstruction);
   }
 
   async warmUp(): Promise<void> {

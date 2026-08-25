@@ -33,12 +33,94 @@ export async function appleFmGenerate(args: {
   systemInstruction?: string;
   maxOutputTokens?: number;
   temperature?: number;
+  schemaName?: string;
+  structured?: boolean;
 }): Promise<AppleFmResponse> {
   try {
     return await invokeApple<AppleFmResponse>("apple_fm_generate", { payload: args });
   } catch (error) {
     throw appleErrorFromUnknown(error, { providerId: "ondevice-apple-foundation" });
   }
+}
+
+export async function appleFmGenerateStream(
+  args: {
+    requestId: string;
+    text: string;
+    systemInstruction?: string;
+    maxOutputTokens?: number;
+    temperature?: number;
+    schemaName?: string;
+    structured?: boolean;
+  },
+  opts?: AIStreamOptions,
+): Promise<AppleFmResponse> {
+  throwIfAborted(opts?.signal);
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlistenFns: Array<() => void> = [];
+  let settled = false;
+
+  const cleanup = () => {
+    if (settled) return;
+    settled = true;
+    for (const fn of unlistenFns) fn();
+  };
+
+  return new Promise<AppleFmResponse>((resolve, reject) => {
+    void (async () => {
+      try {
+        const unlistenText = await listen<{ requestId: string; text: string }>(
+          "apple-fm://text",
+          (event) => {
+            if (!settled && event.payload.requestId === args.requestId) {
+              opts?.onChunk?.(event.payload.text);
+            }
+          },
+        );
+        unlistenFns.push(unlistenText);
+
+        const unlistenComplete = await listen<AppleFmResponse>("apple-fm://complete", (event) => {
+          if (!settled && event.payload.requestId === args.requestId) {
+            cleanup();
+            resolve(event.payload);
+          }
+        });
+        unlistenFns.push(unlistenComplete);
+
+        const unlistenError = await listen<{ requestId: string; code: string; message: string }>(
+          "apple-fm://error",
+          (event) => {
+            if (!settled && event.payload.requestId === args.requestId) {
+              cleanup();
+              reject(
+                appleErrorFromUnknown(
+                  { code: event.payload.code, message: event.payload.message },
+                  { providerId: "ondevice-apple-foundation" },
+                ),
+              );
+            }
+          },
+        );
+        unlistenFns.push(unlistenError);
+
+        opts?.signal?.addEventListener("abort", () => {
+          void appleFmCancel(args.requestId);
+        });
+
+        const result = await invokeApple<AppleFmResponse>("apple_fm_generate_stream", {
+          payload: args,
+        });
+        if (!settled) {
+          cleanup();
+          opts?.onChunk?.(result.text);
+          resolve(result);
+        }
+      } catch (error) {
+        cleanup();
+        reject(appleErrorFromUnknown(error, { providerId: "ondevice-apple-foundation" }));
+      }
+    })();
+  });
 }
 
 export async function appleFmCancel(requestId: string): Promise<void> {
@@ -49,9 +131,11 @@ export async function appleFmCancel(requestId: string): Promise<void> {
   }
 }
 
-export async function appleFmCountTokens(text: string): Promise<AIUsageMetadata> {
+export async function appleFmCountTokens(text: string, systemInstruction?: string): Promise<AIUsageMetadata> {
   try {
-    return await invokeApple<AIUsageMetadata>("apple_fm_count_tokens", { payload: { text } });
+    return await invokeApple<AIUsageMetadata>("apple_fm_count_tokens", {
+      payload: { text, systemInstruction },
+    });
   } catch (error) {
     throw appleErrorFromUnknown(error, { providerId: "ondevice-apple-foundation" });
   }
@@ -97,13 +181,18 @@ export async function runChunkedGeneration(
     req.schemaName === "libraryAnswer" ? [req.text] : chunkTextByTokens(req.text, budget);
 
   if (pieces.length <= 1) {
-    const result = await appleFmGenerate({
+    const genArgs = {
       requestId: req.requestId,
       text: req.text,
       systemInstruction: req.systemInstruction,
       maxOutputTokens: req.maxOutputTokens,
       temperature: req.temperature,
-    });
+      schemaName: req.schemaName,
+      structured: req.structured,
+    };
+    const result = opts?.onChunk
+      ? await appleFmGenerateStream(genArgs, opts)
+      : await appleFmGenerate(genArgs);
     opts?.onChunk?.(result.text);
     return { requestId: result.requestId ?? req.requestId, text: result.text };
   }
@@ -117,6 +206,8 @@ export async function runChunkedGeneration(
       systemInstruction: req.systemInstruction,
       maxOutputTokens: req.maxOutputTokens,
       temperature: req.temperature,
+      schemaName: req.schemaName,
+      structured: req.structured,
     });
     partials.push(result.text);
     opts?.onChunk?.(result.text);
@@ -129,6 +220,8 @@ export async function runChunkedGeneration(
     systemInstruction: req.systemInstruction,
     maxOutputTokens: req.maxOutputTokens,
     temperature: req.temperature,
+    schemaName: req.schemaName,
+    structured: req.structured,
   });
   opts?.onChunk?.(reduced.text);
   return { requestId: reduced.requestId ?? req.requestId, text: reduced.text };

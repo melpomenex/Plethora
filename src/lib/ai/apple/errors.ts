@@ -21,6 +21,17 @@ export function appleErrorFromUnknown(
   context: { providerId?: string; taskId?: string } = {}
 ): AIError {
   if (error instanceof AIError) return error;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = String((error as { code: unknown }).code);
+    const message =
+      "message" in error && typeof (error as { message: unknown }).message === "string"
+        ? (error as { message: string }).message
+        : code;
+    if (APPLE_REASON_TO_CATEGORY[code]) {
+      return appleErrorFromReason(code, message, context);
+    }
+    return new AIError("GenerationFailed", message, { code, ...context, cause: error });
+  }
   const message = error instanceof Error ? error.message : String(error);
   const reason = Object.keys(APPLE_REASON_TO_CATEGORY).find((code) =>
     message.includes(code)
