@@ -21,7 +21,7 @@ const {
   deleteSourceSnapshotsMock,
   importArticleMock,
   importRawFallbackPageMock,
-  importArxivPdfMock,
+  importFromArxivMock,
   getArxivPaperMock,
 } = vi.hoisted(() => ({
   findDocumentIdBySourceUrlMock: vi.fn().mockResolvedValue(null),
@@ -36,7 +36,7 @@ const {
   deleteSourceSnapshotsMock: vi.fn().mockResolvedValue(0),
   importArticleMock: vi.fn(),
   importRawFallbackPageMock: vi.fn(),
-  importArxivPdfMock: vi.fn(),
+  importFromArxivMock: vi.fn(),
   getArxivPaperMock: vi.fn().mockResolvedValue(null),
 }));
 
@@ -74,7 +74,7 @@ vi.mock("../collectionStore", () => ({
 
 vi.mock("../../utils/documentImport", () => ({
   importFromUrl: vi.fn(),
-  importArxivPdf: (...args: unknown[]) => importArxivPdfMock(...args),
+  importFromArxiv: (...args: unknown[]) => importFromArxivMock(...args),
 }));
 vi.mock("../../api/arxiv", () => ({
   getArxivPaper: (...args: unknown[]) => getArxivPaperMock(...args),
@@ -474,7 +474,7 @@ describe("canonical arXiv HTML orchestration", () => {
 
     expect(getArxivPaperMock).toHaveBeenCalledWith("2410.07524");
     expect(importArticleMock).toHaveBeenCalledTimes(1);
-    expect(importArxivPdfMock).not.toHaveBeenCalled();
+    expect(importFromArxivMock).not.toHaveBeenCalled();
     expect(updateWebArticleMock.mock.calls[0][2]).toMatchObject({
       arxivId: "2410.07524",
       webArticle: expect.objectContaining({ extractor: "site:arxiv.org" }),
@@ -510,14 +510,14 @@ describe("canonical arXiv HTML orchestration", () => {
       content: "abstract",
       category: "Research Papers",
     } as Omit<Document, "id">;
-    importArxivPdfMock.mockResolvedValue(pdfData);
+    importFromArxivMock.mockResolvedValue(pdfData);
     createDocumentMock.mockResolvedValue({ ...baseDoc("pdf-1"), fileType: "pdf" });
     updateDocumentContentMock.mockResolvedValue({ ...baseDoc("pdf-1"), fileType: "pdf" });
     updateDocumentMock.mockResolvedValue({ ...baseDoc("pdf-1"), fileType: "pdf" });
 
     await useDocumentStore.getState().importFromArxiv("2410.07524v1");
 
-    expect(importArxivPdfMock).toHaveBeenCalledWith("2410.07524v1");
+    expect(importFromArxivMock).toHaveBeenCalledWith("2410.07524v1");
     expect(importArticleMock).not.toHaveBeenCalled();
     expect(updateWebArticleMock).not.toHaveBeenCalled();
   });

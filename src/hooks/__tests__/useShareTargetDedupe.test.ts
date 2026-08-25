@@ -56,7 +56,7 @@ vi.mock("../../utils/articleImport/rawFallback", () => ({
 
 vi.mock("../../utils/documentImport", () => ({
   importFromUrl: vi.fn(),
-  importArxivPdf: vi.fn(),
+  importFromArxiv: vi.fn(),
 }));
 
 vi.mock("../../stores/settingsStore", () => ({
