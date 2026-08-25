@@ -18,10 +18,14 @@ import {
   DEFAULT_TOKEN_BUDGET,
 } from "./chunkTextByTokens";
 import { checkAnswerGrounding } from "./cardValidator";
-import { runAiAction } from "./provider";
+import { runAiAction, hasCloudProvider } from "./provider";
 import { fnv1aHash } from "./providers/types";
 import { runTask } from "./tasks/runTask";
 import type { AITaskDefinition } from "./tasks/types";
+import { ensureCloudAiDisclosure } from "../privacy/cloudAiDisclosure";
+import { getActiveCloudConfig } from "./providers/cloudProvider";
+import { providerAllowsKeylessAccess } from "../utils/llmProviderUtils";
+import { AIError } from "./errors";
 import {
   DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS,
   DETAILED_PASSAGE_MAX_OUTPUT_TOKENS,
@@ -51,6 +55,8 @@ export interface PassageActionOptions {
   maxTokens?: number;
   /** Maximum generated output tokens. Defaults to DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS. */
   maxOutputTokens?: number;
+  /** Skip on-device routing and run through the configured cloud provider. */
+  cloudOnly?: boolean;
 }
 
 export interface PassageExplainOptions extends PassageActionOptions {
@@ -113,6 +119,35 @@ async function runPassageTask<I>(
   label: string,
   truncated: boolean
 ): Promise<PassageResult> {
+  if (options.cloudOnly) {
+    if (!hasCloudProvider()) {
+      throw new OnDeviceAiError("model_unavailable", "No cloud AI provider is configured.");
+    }
+    const config = getActiveCloudConfig();
+    const isLocal = config
+      ? providerAllowsKeylessAccess(config.provider, config.baseUrl)
+      : false;
+    const disclosed = await ensureCloudAiDisclosure({
+      featureClass: "ai_actions",
+      provider: config?.provider ?? "cloud",
+      isLocal,
+    });
+    if (!disclosed) {
+      throw new AIError("FeatureDisabled", "Cloud AI disclosure was not accepted.", {
+        code: "permission_denied",
+      });
+    }
+    const draft = await runTask(task, input, {
+      targetId,
+      kind: "cloud",
+      signal: options.signal,
+      onChunk: options.onChunk,
+      onRetry: options.onRetry,
+      maxOutputTokens: options.maxOutputTokens,
+    }).then(toDraft);
+    return { ...draft, truncated };
+  }
+
   const res = await runAiAction(
     {
       onDevice: () =>

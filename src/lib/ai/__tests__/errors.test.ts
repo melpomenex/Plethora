@@ -5,6 +5,7 @@ import {
   ON_DEVICE_CODE_TO_CATEGORY,
   aiErrorFromCloud,
   aiErrorFromOnDevice,
+  formatAIErrorMessage,
   isAIError,
   isCancelledError,
   toAIError,
@@ -167,6 +168,25 @@ describe("aiErrorFromCloud", () => {
     expect(aiErrorFromCloud(new Error("flagged by the content filter")).category).toBe(
       "SafetyBlocked"
     );
+    expect(
+      aiErrorFromCloud(new Error('Detected content likely to be unsafe')).category
+    ).toBe("SafetyBlocked");
+  });
+
+  it("maps Apple FM unsafe Tauri rejections to SafetyBlocked", () => {
+    const err = new Error(
+      'Tauri command "plugin:plethora-apple-intelligence|apple_fm_generate" failed: {"code":"inference_failed","message":"Detected content likely to be unsafe"}'
+    );
+    expect(toAIError(err).category).toBe("SafetyBlocked");
+    expect(toAIError(err).code).toBe("safety_blocked");
+  });
+
+  it("formatAIErrorMessage uses friendly safety copy", () => {
+    expect(
+      formatAIErrorMessage(
+        new Error('{"code":"inference_failed","message":"Detected content likely to be unsafe"}')
+      )
+    ).toContain("Apple Intelligence blocked");
   });
 
   it("classifies context overflow as InputTooLarge", () => {

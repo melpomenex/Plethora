@@ -6208,6 +6208,12 @@ export const en: Dict = {
   "selectionSheet.truncated": "The selection was shortened to fit the model.",
   "selectionSheet.ungrounded": "This answer may not be supported by the passage.",
   "selectionSheet.error": "That did not work: {message}",
+  "aiErrors.safetyBlocked":
+    "Apple Intelligence blocked this text on-device. It may be a false positive on literary, medical, or historical content.",
+  "aiErrors.safetyBlockedRetryCloud": "Retry with cloud provider",
+  "aiErrors.safetyBlockedCloudFallbackDenied":
+    "Cloud retry was not approved. Enable “Allow cloud fallback” in Settings → On-device AI, or choose a cloud provider.",
+  "aiErrors.generationFailed": "Generation failed.",
   "selectionSheet.downloadModel": "Download on-device model",
   "selectionSheet.modelDownloading": "Downloading model…",
 

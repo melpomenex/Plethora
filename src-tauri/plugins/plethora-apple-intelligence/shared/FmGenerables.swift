@@ -59,4 +59,30 @@ struct AppleFmFlashcardsOutput {
   var cards: [AppleFmFlashcard]
 }
 
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct AppleFmLearningCardCandidate {
+  var cardType: String
+  var question: String
+  var answer: String
+  var clozeText: String?
+  var conceptKeys: [String]
+  var concept: String?
+  var evidenceQuote: String?
+  var imageRefId: String?
+  var tags: [String]?
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct AppleFmLearningMaterialProposal {
+  var importance: Double
+  var knowledgeType: String
+  var concepts: [String]
+  var suggestedCards: [AppleFmLearningCardCandidate]
+  var prerequisites: [String]
+  var tags: [String]
+  var rationale: String
+}
+
 #endif

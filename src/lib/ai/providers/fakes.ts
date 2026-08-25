@@ -4,6 +4,7 @@
  */
 
 import { FakeAIProvider, fakeCapabilities, type FakeResponse } from "../__fixtures__/FakeAIProvider";
+import { APPLE_FOUNDATION_PROVIDER_ID } from "./appleFoundationProvider";
 import type { AIModelCapabilities } from "./types";
 
 export { FakeAIProvider, fakeCapabilities };
@@ -18,7 +19,7 @@ export class FakeLanguageProvider extends FakeAIProvider {
     } = {}
   ) {
     super({
-      id: options.id ?? "fake-apple-foundation",
+      id: options.id ?? APPLE_FOUNDATION_PROVIDER_ID,
       kind: options.kind ?? "ondevice",
       capabilities: options.capabilities,
       responses: options.responses,

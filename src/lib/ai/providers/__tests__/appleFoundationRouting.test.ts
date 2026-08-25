@@ -146,6 +146,24 @@ describe("resolveAiPath on macOS", () => {
 });
 
 describe("resolveTaskRoute with FakeAppleFoundationProvider", () => {
+  it("routes forced on-device passage tasks to Apple FM when Nano is unavailable", async () => {
+    const deadNano = new FakeLanguageProvider({
+      id: "ondevice-gemini-nano",
+      capabilities: { textGeneration: false },
+    });
+    const apple = new FakeAppleFoundationProvider({
+      id: APPLE_FOUNDATION_PROVIDER_ID,
+      capabilities: { textGeneration: true, structuredGeneration: true },
+    });
+
+    const route = await resolveTaskRoute(promptTask(), {
+      providers: [deadNano, apple],
+      kind: "ondevice",
+    });
+
+    expect(route?.provider.id).toBe(APPLE_FOUNDATION_PROVIDER_ID);
+  });
+
   it("routes to Apple FM when it is the first text-capable on-device provider", async () => {
     const deadNano = new FakeLanguageProvider({
       id: "ondevice-gemini-nano",

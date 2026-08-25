@@ -125,14 +125,13 @@ describe("runTask Apple Foundation cancellation", () => {
 });
 
 describe("runTask Apple Foundation structured generation", () => {
-  it("passes schemaName to the on-device provider for native structured output", async () => {
+  it("uses strict JSON for schemas not compiled into the Swift bridge", async () => {
     const onDevice = new FakeAppleFoundationProvider({
       capabilities: { structuredGeneration: true, textGeneration: true },
       responses: [
         {
           requestId: "fm-1",
           text: '{"prerequisites":[]}',
-          structured: { prerequisites: [] },
         },
       ],
     });
@@ -140,10 +139,10 @@ describe("runTask Apple Foundation structured generation", () => {
 
     const result = await runTask(structuredTask(), { src: "chapter one" });
 
-    expect(result.validationOutcome).toBe("native-structured");
-    expect(onDevice.requests[0].structured).toBe(true);
-    expect(onDevice.requests[0].schemaName).toBe("prerequisiteAnalysis");
-    expect(onDevice.requests[0].systemInstruction).not.toContain("ONLY a single JSON value");
+    expect(result.validationOutcome).toBe("strict-json");
+    expect(onDevice.requests[0].structured).toBe(false);
+    expect(onDevice.requests[0].schemaName).toBeUndefined();
+    expect(onDevice.requests[0].systemInstruction).toContain("ONLY a single JSON value");
   });
 });
 

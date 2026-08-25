@@ -36,6 +36,8 @@ import { useAskLibrary } from "../../lib/ai/useAskLibrary";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { runPrerequisiteAnalysis } from "../../lib/ai/tasks/definitions/prerequisiteTask";
 import type { PrerequisiteAnalysis } from "../../lib/ai/schemas/prerequisite";
+import { appleFmWarmup } from "../../lib/ai/apple/foundation";
+import { isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
 import {
   getOnDeviceRequirementStatus,
   isOnDeviceAiSupportedPlatform,
@@ -43,7 +45,8 @@ import {
   toOnDeviceAiError,
   warmUpOnDevicePrompt,
 } from "../../lib/ai/onDeviceAI";
-import { hasCloudProvider } from "../../lib/ai/provider";
+import { hasCloudProvider, requestCloudFallback, canOfferCloudRetryForSafety } from "../../lib/ai/provider";
+import { formatAIErrorMessage } from "../../lib/ai/errors";
 import {
   answerPassage,
   explainPassage,
@@ -224,6 +227,7 @@ export function SelectionActionsSheet({
   const [output, setOutput] = useState("");
   const [result, setResult] = useState<PassageResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCloudRetry, setShowCloudRetry] = useState(false);
   const [running, setRunning] = useState(false);
   const [showLearnThis, setShowLearnThis] = useState(false);
   const [showTutor, setShowTutor] = useState(false);
@@ -252,6 +256,7 @@ export function SelectionActionsSheet({
     setOutput("");
     setResult(null);
     setError(null);
+    setShowCloudRetry(false);
     setRunning(false);
     setShowLearnThis(false);
     setShowTutor(false);
@@ -300,10 +305,16 @@ export function SelectionActionsSheet({
     return () => { disposed = true; };
   }, [languageHost, learnThis?.documentId, showTutor, sourcePassage]);
 
-  // Speculatively warm up on-device Prompt model while user views the sheet
+  // Speculatively warm up the active on-device model while the user reads the menu.
   useEffect(() => {
-    if (open && ai.available && isOnDeviceAiSupportedPlatform()) {
+    if (!open || !ai.available) return;
+    if (isOnDeviceAiSupportedPlatform()) {
       void warmUpOnDevicePrompt().catch(() => {
+        // Non-blocking background warmup; silently ignore failure
+      });
+    }
+    if (isAppleOsPlatform()) {
+      void appleFmWarmup().catch(() => {
         // Non-blocking background warmup; silently ignore failure
       });
     }
@@ -329,7 +340,7 @@ export function SelectionActionsSheet({
   }, [open, ai.loading, ai.available]);
 
   const start = useCallback(
-    (next: SelectionAiAction, nextQuestion = question) => {
+    (next: SelectionAiAction, nextQuestion = question, cloudOnly = false) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -339,10 +350,12 @@ export function SelectionActionsSheet({
       setOutput("");
       setResult(null);
       setError(null);
+      setShowCloudRetry(false);
       setRunning(true);
 
       void runAction(next, sourcePassage, nextQuestion, {
         signal: controller.signal,
+        cloudOnly,
         onChunk: (chunk) => {
           if (controller.signal.aborted) return;
           setOutput((prev) => prev + chunk);
@@ -357,13 +370,24 @@ export function SelectionActionsSheet({
         })
         .catch((err) => {
           if (controller.signal.aborted) return;
-          setError(toOnDeviceAiError(err).message || String(err));
+          setError(formatAIErrorMessage(err));
+          setShowCloudRetry(canOfferCloudRetryForSafety(err));
           setRunning(false);
           if (operationId) onSettled?.(operationId, "failure");
         });
     },
     [question, sourcePassage, operationId, onSettled],
   );
+
+  const retryOnCloud = useCallback(async () => {
+    const ok = await requestCloudFallback(t(`selectionSheet.${action}`));
+    if (!ok) {
+      setError(t("aiErrors.safetyBlockedCloudFallbackDenied"));
+      setShowCloudRetry(false);
+      return;
+    }
+    start(action, question, true);
+  }, [action, question, start, t]);
 
   const startPrerequisites = useCallback(() => {
     setMode("prerequisites");
@@ -839,9 +863,21 @@ export function SelectionActionsSheet({
             )}
 
             {error ? (
-              <p className="text-[14px] text-destructive">
-                {t("selectionSheet.error", { message: error })}
-              </p>
+              <div className="space-y-2">
+                <p className="text-[14px] text-destructive">
+                  {t("selectionSheet.error", { message: error })}
+                </p>
+                {showCloudRetry && (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-border px-3 py-2 text-[14px] text-foreground inline-flex items-center gap-2"
+                    onClick={() => void retryOnCloud()}
+                  >
+                    <Sparkle className="w-4 h-4" aria-hidden="true" />
+                    {t("aiErrors.safetyBlockedRetryCloud")}
+                  </button>
+                )}
+              </div>
             ) : (
               <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
                 {output || (running ? t("selectionSheet.running") : "")}
