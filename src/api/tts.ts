@@ -11,6 +11,7 @@ import { chunkTextForTTS } from "../utils/ttsTextExtraction";
 import type { WordTiming } from "../utils/wordTimings";
 import { foldForMatch } from "../utils/readerSpeechIndex";
 import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { createOwnedObjectUrl } from "../diagnostics/ownedObjectUrl";
 import { t } from "../lib/i18n";
 
 export { TTSServiceError } from "./tts/errors";
@@ -208,13 +209,19 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
 
   let cached = await getCachedAudio(v2Key);
   if (cached) {
-    const audioUrl = URL.createObjectURL(new Blob([cached.audioData], { type: audioMime(format) }));
+    const audioUrl = createOwnedObjectUrl(new Blob([cached.audioData], { type: audioMime(format) }), {
+      owner: "tts-cache-hit",
+      ownerId: v2Key,
+    });
     if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "persistent", hasWordTimings: Boolean(cached.wordTimings), durationSec: cached.durationSec });
     return { audioUrl, durationSec: cached.durationSec, wordTimings: cached.wordTimings, rawOutput: { provider: providerId, model, fromCache: true }, cacheSource: "persistent" };
   }
   cached = await getCachedAudio(legacyKey);
   if (cached) {
-    const audioUrl = URL.createObjectURL(new Blob([cached.audioData], { type: audioMime(format) }));
+    const audioUrl = createOwnedObjectUrl(new Blob([cached.audioData], { type: audioMime(format) }), {
+      owner: "tts-cache-hit",
+      ownerId: v2Key,
+    });
     setCachedAudioDurable(v2Key, cached.audioData, cached.durationSec, cached.wordTimings).catch(()=>{});
     if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "persistent-legacy", hasWordTimings: Boolean(cached.wordTimings), durationSec: cached.durationSec });
     return { audioUrl, durationSec: cached.durationSec, wordTimings: cached.wordTimings, rawOutput: { provider: providerId, model, fromCache: true }, cacheSource: "persistent" };

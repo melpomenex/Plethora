@@ -1,4 +1,5 @@
 import { mapHttpError, readProviderMessage, TTSServiceError } from "../errors";
+import { createOwnedObjectUrl } from "../../../diagnostics/ownedObjectUrl";
 
 export const MAX_RETRIES = 2;
 
@@ -82,7 +83,13 @@ export function binaryResult(
   data: ArrayBuffer,
   mimeType = audioMime(format),
 ) {
-  const audioUrl = URL.createObjectURL(new Blob([data], { type: mimeType }));
+  // Owned URL (eliminate-long-running-memory-growth 5.1): every synthesized
+  // blob URL is registry-tracked under tts-synthesis so leaks are observable
+  // and revoke-all is possible.
+  const audioUrl = createOwnedObjectUrl(new Blob([data], { type: mimeType }), {
+    owner: "tts-synthesis",
+    ownerId: model,
+  });
   return {
     audioUrl,
     audioData: data,

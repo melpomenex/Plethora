@@ -86,3 +86,17 @@ export function aggregateSample(processes, readSample = (pid) => readProcessSamp
 
   return { processes: samples, total, complete };
 }
+
+/**
+ * The headline tree number the settle protocol converges on: `total.Pss`.
+ * On macOS the collector maps Pss to the physical-footprint sum (D4), so the
+ * same key carries the platform's headline; `PhysFootprint` is the explicit
+ * alias. Rss is never the headline on any platform.
+ */
+export function treeHeadlineBytes(sample, platform = process.platform) {
+  const total = sample?.total ?? {};
+  if (platform === "darwin") {
+    return total.PhysFootprint ?? total.Pss ?? 0;
+  }
+  return total.Pss ?? 0;
+}

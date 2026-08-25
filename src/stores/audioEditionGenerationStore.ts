@@ -20,6 +20,7 @@ import { useSettingsStore } from "./settingsStore";
 import { computeSentenceAnchors } from "../utils/audioEditionAnchors";
 import type { AudioEditionSettings } from "../types/audioEdition";
 import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
+import { getOwnedObjectUrlBytes, revokeOwnedObjectUrl } from "../diagnostics/ownedObjectUrl";
 
 export interface GenerationJob {
   editionId: string;
@@ -54,8 +55,102 @@ interface AudioEditionGenerationState {
 const pausedJobIds = new Set<string>();
 const cancelledJobIds = new Set<string>();
 
-// Blob cache for browser / synthesized audio URLs
+// ---------------------------------------------------------------------------
+// Bounded section-audio LRU (eliminate-long-running-memory-growth task 5.2)
+//
+// Previously a module-global Map with no cap, no revoke-on-replace (retrying
+// a section orphaned the old URL's Blob), and no cleanup on edition
+// deletion/cancellation — an N-section edition pinned N blob URLs for the
+// whole session (incident finding 2). Now: LRU with documented count + byte
+// caps, revoke on evict/replace, and explicit revoke on edition deletion,
+// job cancellation, and source-document deletion. Ownership: entries are
+// owned as "edition-section" + section id; nothing is revoked under an
+// actively-playing section (the working set keeps touched entries recent).
+// ---------------------------------------------------------------------------
+
+/** Documented cap: at most 24 sections' URLs live at once. */
+export const SECTION_AUDIO_CACHE_MAX_ENTRIES = 24;
+/** Documented cap: at most 192 MB of synthesized section audio live at once. */
+export const SECTION_AUDIO_CACHE_MAX_BYTES = 192 * 1024 * 1024;
+
+/** Section id -> live blob URL (LRU order = Map insertion order). */
 export const sectionAudioBlobCache = new Map<string, string>();
+const sectionAudioByteEstimates = new Map<string, number>();
+
+function sectionAudioTotalBytes(): number {
+  let total = 0;
+  for (const bytes of sectionAudioByteEstimates.values()) total += bytes;
+  return total;
+}
+
+function evictOldestSectionAudio(): void {
+  const oldest = sectionAudioBlobCache.keys().next().value as string | undefined;
+  if (oldest !== undefined) revokeSectionAudioUrl(oldest);
+}
+
+function enforceSectionAudioBounds(): void {
+  while (sectionAudioBlobCache.size > SECTION_AUDIO_CACHE_MAX_ENTRIES) {
+    evictOldestSectionAudio();
+  }
+  // Keep at least one entry regardless of byte pressure (a single section
+  // larger than the cap must not evict itself out from under playback).
+  while (sectionAudioBlobCache.size > 1 && sectionAudioTotalBytes() > SECTION_AUDIO_CACHE_MAX_BYTES) {
+    evictOldestSectionAudio();
+  }
+}
+
+/** Record/replace one section's URL; the replaced URL is revoked (fixes the
+ *  retry orphan). `bytes` falls back to the owned-URL registry estimate. */
+export function setSectionAudioUrl(sectionId: string, url: string, bytes?: number): void {
+  const previous = sectionAudioBlobCache.get(sectionId);
+  if (previous && previous !== url) {
+    revokeOwnedObjectUrl(previous);
+  }
+  sectionAudioBlobCache.delete(sectionId);
+  sectionAudioBlobCache.set(sectionId, url);
+  sectionAudioByteEstimates.set(sectionId, Math.max(bytes ?? 0, getOwnedObjectUrlBytes(url)));
+  enforceSectionAudioBounds();
+}
+
+/** LRU-touching read: the least recently used entry is the eviction victim. */
+export function getSectionAudioUrl(sectionId: string): string | undefined {
+  const url = sectionAudioBlobCache.get(sectionId);
+  if (url === undefined) return undefined;
+  sectionAudioBlobCache.delete(sectionId);
+  sectionAudioBlobCache.set(sectionId, url);
+  const bytes = sectionAudioByteEstimates.get(sectionId) ?? 0;
+  sectionAudioByteEstimates.delete(sectionId);
+  sectionAudioByteEstimates.set(sectionId, bytes);
+  return url;
+}
+
+/** Revoke one section's URL (removes it from the cache). */
+export function revokeSectionAudioUrl(sectionId: string): void {
+  const url = sectionAudioBlobCache.get(sectionId);
+  sectionAudioBlobCache.delete(sectionId);
+  sectionAudioByteEstimates.delete(sectionId);
+  if (url) revokeOwnedObjectUrl(url);
+}
+
+/** Revoke many sections' URLs (edition deletion / job cancellation). */
+export function revokeSectionAudioUrls(sectionIds: Iterable<string>): number {
+  let revoked = 0;
+  for (const sectionId of sectionIds) {
+    if (sectionAudioBlobCache.has(sectionId)) {
+      revokeSectionAudioUrl(sectionId);
+      revoked += 1;
+    }
+  }
+  return revoked;
+}
+
+/**
+ * Bounded diagnostics view of the section-audio cache (task 3.5): entry
+ * count plus byte estimates. No payload access, no content.
+ */
+export function getSectionAudioBlobCacheStats(): { entries: number; bytes: number } {
+  return { entries: sectionAudioBlobCache.size, bytes: sectionAudioTotalBytes() };
+}
 
 /**
  * Apply pronunciation dictionary substitutions to text before synthesis
@@ -229,7 +324,8 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
 
                 if (res.audioUrl) {
                   audioFilePath = res.audioUrl;
-                  sectionAudioBlobCache.set(section.id, res.audioUrl);
+                  // Bounded, revoke-on-replace LRU entry (task 5.2).
+                  setSectionAudioUrl(section.id, res.audioUrl, res.audioData?.byteLength);
                 }
                 if (res.durationSec && res.durationSec > 0) {
                   durationSec = res.durationSec;
@@ -352,6 +448,14 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
       cancelJob: async (editionId: string) => {
         cancelledJobIds.add(editionId);
         pausedJobIds.delete(editionId);
+        // Revoke the edition's live section URLs (task 5.2): a cancelled job
+        // must not leave synthesized blobs pinned for the session.
+        try {
+          const sections = await getAudioEditionSections(editionId);
+          revokeSectionAudioUrls(sections.map((s) => s.id));
+        } catch {
+          /* edition already gone — nothing to revoke */
+        }
         await updateAudioEditionStatus(editionId, "draft");
 
         set((state) => {

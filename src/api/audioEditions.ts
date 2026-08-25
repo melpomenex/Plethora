@@ -103,13 +103,27 @@ export async function updateAudioEditionStatus(
 }
 
 export async function deleteAudioEdition(id: string): Promise<void> {
+  // Capture the edition's section ids before deletion so their live audio
+  // URLs can be revoked afterwards (task 5.2). Dynamic import: the edition
+  // generation store imports this module, so a static edge would cycle.
+  let sectionIds: string[] = [];
+  try {
+    sectionIds = (await getAudioEditionSections(id)).map((s) => s.id);
+  } catch {
+    /* already gone */
+  }
   if (!isTauri()) {
     browserEditionStore.delete(id);
     browserSectionStore.delete(id);
-    return;
+  } else {
+    await invokeCommand<void>("delete_audio_edition", { id });
   }
-
-  await invokeCommand<void>("delete_audio_edition", { id });
+  try {
+    const { revokeSectionAudioUrls } = await import("../stores/audioEditionGenerationStore");
+    revokeSectionAudioUrls(sectionIds);
+  } catch {
+    /* store not loaded — nothing is pinned */
+  }
 }
 
 export async function getAudioEditionSection(id: string): Promise<AudioEditionSection | null> {

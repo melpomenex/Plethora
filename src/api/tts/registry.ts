@@ -10,7 +10,9 @@ import { androidAdapter } from "./providers/android";
 import { plethoraAdapter } from "./providers/plethora";
 import type { TTSProviderAdapter, TTSProviderId } from "./types";
 
-export const TTS_ADAPTERS: Readonly<Record<TTSProviderId, TTSProviderAdapter>> = {
+/** Registered adapters. `scenario-synth` is installed only in harness
+ *  sessions (see registerScenarioSynthAdapter), hence Partial. */
+export const TTS_ADAPTERS: Readonly<Partial<Record<TTSProviderId, TTSProviderAdapter>>> = {
   fal: falAdapter,
   groq: groqAdapter,
   pocket: pocketAdapter,
@@ -32,4 +34,14 @@ export function getAdapter(id: string, notice?: (message: string) => void): TTSP
 
 export function listAdapters(): TTSProviderAdapter[] {
   return Object.values(TTS_ADAPTERS);
+}
+
+/**
+ * Install the scenario-harness-only synthetic provider (task 4.1). Called
+ * exclusively by the memory-scenario host when the harness env is present;
+ * an ordinary production session never registers it, so it never appears in
+ * provider listings there.
+ */
+export function registerScenarioSynthAdapter(adapter: TTSProviderAdapter): void {
+  (TTS_ADAPTERS as Record<string, TTSProviderAdapter>)["scenario-synth"] = adapter;
 }

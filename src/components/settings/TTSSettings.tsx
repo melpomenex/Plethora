@@ -936,6 +936,8 @@ export function TTSSettings() {
                   // registry (never iOS). Hide each where it can't run.
                   if (adapter.id === "pocket") return showPocketOption;
                   if (adapter.id === "android") return androidAdapterAvailable;
+                  // Harness-only synthetic provider: never user-selectable.
+                  if (adapter.id === "scenario-synth") return false;
                   return true;
                 })
                 .map((adapter) => {
@@ -950,7 +952,7 @@ export function TTSSettings() {
                     <button
                       key={adapter.id}
                       type="button"
-                      onClick={() => setProvider(adapter.id)}
+                      onClick={() => setProvider(adapter.id as TTSProvider)}
                       className={cn(
                         "rounded-lg border p-2 text-left",
                         selected

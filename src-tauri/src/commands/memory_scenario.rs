@@ -1,14 +1,14 @@
 //! Memory-scenario configuration bridge (bound-runtime-memory-and-gate).
 //!
 //! The memory harness (`scripts/memory-bench/`) launches the app with a set of
-//! `INCREMENTUM_MEMORY_*` environment variables. The webview cannot read
+//! `PLETHORA_MEMORY_*` environment variables. The webview cannot read
 //! process environment variables directly, so this command is the one bridge:
 //! it returns the scenario configuration when (and only when) the harness's
 //! variables are present, and `None` otherwise.
 //!
 //! This is the double gate from design D2: the frontend scenario surface is
-//! mounted only when BOTH `INCREMENTUM_MEMORY_SCENARIO` and
-//! `INCREMENTUM_MEMORY_CONTROL` are present, so a production build (no harness
+//! mounted only when BOTH `PLETHORA_MEMORY_SCENARIO` and
+//! `PLETHORA_MEMORY_CONTROL` are present, so a production build (no harness
 //! env) exposes no scenario surface at all.
 
 use serde::Serialize;
@@ -19,6 +19,8 @@ pub const MEMORY_SCENARIO_ENV: &str = "PLETHORA_MEMORY_SCENARIO";
 pub const MEMORY_CONTROL_ENV: &str = "PLETHORA_MEMORY_CONTROL";
 pub const MEMORY_RUN_ID_ENV: &str = "PLETHORA_MEMORY_RUN_ID";
 pub const MEMORY_CORPUS_DIR_ENV: &str = "PLETHORA_MEMORY_CORPUS_DIR";
+/// Synthetic leak injection for the gate self-test (design D11, task 4.3).
+pub const MEMORY_SYNTHETIC_LEAK_ENV: &str = "PLETHORA_MEMORY_SYNTHETIC_LEAK_MB_PER_CYCLE";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,23 +34,39 @@ pub struct MemoryScenarioConfig {
     /// Directory the harness provisions corpus files into (`.bench/corpus`),
     /// when the harness set it.
     pub corpus_dir: Option<String>,
+    /// MB retained per cycle step by the scenario host's leak sink, when the
+    /// gate self-test requested it. Never present in an ordinary session.
+    pub synthetic_leak_mb_per_cycle: Option<u32>,
 }
 
 /// Read the memory-scenario configuration from the process environment.
 ///
 /// Returns `None` — and the frontend scenario surface stays inert — unless
-/// both `INCREMENTUM_MEMORY_SCENARIO` and `INCREMENTUM_MEMORY_CONTROL` are
-/// present in the environment of the launched app.
+/// both `PLETHORA_MEMORY_SCENARIO` and `PLETHORA_MEMORY_CONTROL` are present
+/// in the environment of the launched app.
 #[tauri::command]
 pub fn get_memory_scenario_config() -> Option<MemoryScenarioConfig> {
-    let scenario = std::env::var(MEMORY_SCENARIO_ENV).ok()?;
-    let control_url = std::env::var(MEMORY_CONTROL_ENV).ok()?;
+    // Server-side visibility: a harness run's log must show whether the
+    // webview ever asked for the scenario config (D10 failed-run artifacts).
+    let scenario = std::env::var(MEMORY_SCENARIO_ENV).ok();
+    let control = std::env::var(MEMORY_CONTROL_ENV).ok();
+    log::info!(
+        "[memoryScenario] config requested: scenario={:?} control={:?}",
+        scenario.as_deref().map(|s| s.len()),
+        control.is_some()
+    );
+    let scenario = scenario?;
+    let control_url = control?;
     let run_id = std::env::var(MEMORY_RUN_ID_ENV).ok()?;
+    log::info!("[memoryScenario] config served (run id present)");
     Some(MemoryScenarioConfig {
         scenario,
         control_url,
         run_id,
         corpus_dir: std::env::var(MEMORY_CORPUS_DIR_ENV).ok(),
+        synthetic_leak_mb_per_cycle: std::env::var(MEMORY_SYNTHETIC_LEAK_ENV)
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok()),
     })
 }
 
@@ -83,6 +101,13 @@ mod tests {
         assert_eq!(config.control_url, "http://127.0.0.1:43123");
         assert_eq!(config.run_id, "run-test");
         assert!(config.corpus_dir.is_none());
+        assert!(config.synthetic_leak_mb_per_cycle.is_none());
+
+        // Synthetic leak injection is forwarded only when explicitly set.
+        std::env::set_var(MEMORY_SYNTHETIC_LEAK_ENV, "3");
+        let config = get_memory_scenario_config().expect("config still present");
+        assert_eq!(config.synthetic_leak_mb_per_cycle, Some(3));
+        std::env::remove_var(MEMORY_SYNTHETIC_LEAK_ENV);
 
         std::env::remove_var(MEMORY_SCENARIO_ENV);
         std::env::remove_var(MEMORY_CONTROL_ENV);

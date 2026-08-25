@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createOwnedObjectUrl, revokeOwnedObjectUrl } from "../../diagnostics/ownedObjectUrl";
 import {
   X,
   Play,
@@ -61,12 +62,21 @@ export function CreateAudioEditionDialog({
   const [isAuditioning, setIsAuditioning] = useState(false);
   const [auditionError, setAuditionError] = useState<string | null>(null);
   const auditionAudioRef = useRef<HTMLAudioElement | null>(null);
+  const auditionUrlRef = useRef<string | null>(null);
 
   // Submission state
   const [isCreating, setIsCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Sync provider/model/voice when preset changes
+  // Revoke the audition preview URL on dismiss (task 5.7).
+  useEffect(() => {
+    return () => {
+      revokeOwnedObjectUrl(auditionUrlRef.current ?? "");
+      auditionUrlRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     if (quality === "fast") {
       setProvider("pocket");
@@ -152,17 +162,25 @@ export function CreateAudioEditionDialog({
         instructions,
       });
 
-      const audioUrl = URL.createObjectURL(audioBlob);
+      // Owned URL + revoke-on-replace/-end/-dismiss (task 5.7): the preview
+      // URL previously lived for the rest of the session.
+      revokeOwnedObjectUrl(auditionUrlRef.current);
+      const audioUrl = createOwnedObjectUrl(audioBlob, { owner: "edition-audition" });
+      auditionUrlRef.current = audioUrl;
       const audio = new Audio(audioUrl);
       auditionAudioRef.current = audio;
 
       audio.onended = () => {
         setIsAuditioning(false);
         auditionAudioRef.current = null;
+        revokeOwnedObjectUrl(audioUrl);
+        if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
       };
       audio.onerror = () => {
         setIsAuditioning(false);
         setAuditionError("Failed to play audition audio.");
+        revokeOwnedObjectUrl(audioUrl);
+        if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
       };
 
       await audio.play();

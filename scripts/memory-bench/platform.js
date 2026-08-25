@@ -10,6 +10,7 @@
 
 import { existsSync, accessSync, constants } from "node:fs";
 import { join } from "node:path";
+import { HELPER_BINARY, isHelperAvailable } from "./macos-footprint.js";
 
 /**
  * Check whether memory collection can run on this environment.
@@ -23,11 +24,27 @@ export function checkMemoryCollectionSupported({
   platform = process.platform,
   procRoot = "/proc",
 } = {}) {
+  if (platform === "darwin") {
+    // macOS collector (change eliminate-long-running-memory-growth): supported
+    // when the native helper is built and executable. Ancestry from the
+    // launched PID is the authoritative membership signal there (no /proc
+    // environ to consult for every member).
+    if (!isHelperAvailable()) {
+      return {
+        supported: false,
+        reason:
+          `macOS memory collection requires the native helper (${HELPER_BINARY}); ` +
+          "build it with: cd scripts/memory-bench/native/macos-footprint && cargo build --release",
+      };
+    }
+    return { supported: true };
+  }
+
   if (platform !== "linux") {
     return {
       supported: false,
       reason:
-        `memory collection is implemented only on Linux (current platform: "${platform}"); ` +
+        `memory collection is implemented only on Linux and macOS (current platform: "${platform}"); ` +
         "a collector for this platform would plug in behind the same scenario, baseline, and gate logic",
     };
   }

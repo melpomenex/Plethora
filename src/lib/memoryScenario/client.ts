@@ -58,7 +58,21 @@ export function normalizeStep(body: unknown): MemoryScenarioStep | null {
     case "closeAll":
     case "settle":
     case "quit":
+    case "diagnostics":
       return { step, op };
+    case "ttsCycle": {
+      const variant = candidate.variant === "hit" ? "hit" : "miss";
+      return { step, op: "ttsCycle", variant, cycle: Number(candidate.cycle) || 0 };
+    }
+    case "editionCycle": {
+      const sections = Number(candidate.sections);
+      return {
+        step,
+        op: "editionCycle",
+        sections: Number.isFinite(sections) && sections > 0 ? Math.floor(sections) : 4,
+        cycle: Number(candidate.cycle) || 0,
+      };
+    }
     default:
       return null;
   }
@@ -97,15 +111,23 @@ export async function postReport(
   runId: string,
   report: MemoryScenarioReport,
 ): Promise<void> {
+  // Bounded: a fetch that never settles (observed as a WKWebView keep-alive
+  // hang on macOS) must not freeze the poll loop forever — report loss is
+  // already tolerated by the protocol.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     await fetch(withRunId(`${controlUrl}/report`, runId), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(report),
+      signal: controller.signal,
     });
   } catch (error) {
     // Report loss is not fatal: the driver will notice the missing report and
     // mark the run unreliable.
     console.warn("[memoryScenario] failed to post report:", error);
+  } finally {
+    clearTimeout(timeout);
   }
 }

@@ -64,8 +64,10 @@ import {
   type TranscriptionQueueEntry,
 } from "../../api/transcription";
 import { invokeCommand, isTauri, listen } from "../../lib/tauri";
+import { loadDesktopAudioSource } from "./desktopAudioSource";
+import { getSectionAudioUrl } from "../../stores/audioEditionGenerationStore";
 import { useMobileShell } from "../../hooks/useMobileShell";
-import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
+import { updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
 import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq, transcribePodcastEpisodeOnDevice } from "../../api/podcast";
 import { isNativeMobile } from "../../lib/tauri";
@@ -895,7 +897,14 @@ export function AudiobookViewer({
   const [sectionAnchors, setSectionAnchors] = useState<AudioEditionAnchor[]>([]);
   const [showInbox, setShowInbox] = useState(false);
   const [showListenLater, setShowListenLater] = useState(false);
-  const editionSectionIdsRef = useRef<string[]>([]);
+  /** Sections kept live ahead of the playhead (working set, task 5.6). */
+const WORKING_SET_AHEAD = 2;
+
+const editionSectionIdsRef = useRef<string[]>([]);
+  /** Section RECORDS for the edition playlist (working-set resolution, 5.6). */
+  const editionReadySectionsRef = useRef<
+    { id: string; audioFilePath?: string | null; title?: string }[]
+  >([]);
 
   // Load the document's Audio Edition once per document. A ready edition with
   // section audio takes over the playlist (parts = ready sections, chapters =
@@ -906,6 +915,7 @@ export function AudiobookViewer({
     setAudioEdition(null);
     setSectionAnchors([]);
     editionSectionIdsRef.current = [];
+    editionReadySectionsRef.current = [];
 
     void (async () => {
       try {
@@ -936,9 +946,10 @@ export function AudiobookViewer({
           .slice()
           .sort((a, b) => a.sectionIndex - b.sectionIndex);
         const readySections = sections.filter(
-          (s) => s.generationStatus === "ready" && (sectionAudioBlobCache.get(s.id) || s.audioFilePath)
+          (s) => s.generationStatus === "ready" && (sectionAudioBlobCache.has(s.id) || s.audioFilePath)
         );
         editionSectionIdsRef.current = readySections.map((s) => s.id);
+        editionReadySectionsRef.current = readySections;
 
         // Generated editions drive playback through the section playlist.
         // Transcript editions (single section) leave the existing source
@@ -948,8 +959,13 @@ export function AudiobookViewer({
           readySections.length > 0 &&
           !multiPartInfo
         ) {
+          // Playback working set (D7 / task 5.6): only the CURRENT section's
+          // source must be live up front; further entries are resolved from
+          // the section RECORDS on advance and prefetched across boundaries.
+          // An N-section edition no longer pins N blob URLs — the LRU keeps
+          // the live window bounded.
           const sources = readySections.map(
-            (s) => sectionAudioBlobCache.get(s.id) || (s.audioFilePath as string)
+            (s, i) => (i <= WORKING_SET_AHEAD ? getSectionAudioUrl(s.id) : undefined) || (s.audioFilePath as string) || "",
           );
           const durations = readySections.map((s) => s.durationSec || 0);
           setPartSources(sources);
@@ -1003,6 +1019,37 @@ export function AudiobookViewer({
       cancelled = true;
     };
   }, [currentPartIndex, audioEdition?.id]);
+
+  // Playback working set (D7 / task 5.6): resolve the section record at a
+  // playlist index — the LRU-touched cache URL when live, otherwise the
+  // section's recorded audio path. Never materializes anything new.
+  const resolveSectionSourceAt = useCallback((index: number): string => {
+    const section = editionReadySectionsRef.current[index];
+    if (!section) return "";
+    return getSectionAudioUrl(section.id) || section.audioFilePath || "";
+  }, []);
+
+  // Prefetch across section boundaries: keep the current + next sections
+  // live in the LRU (touched = most recent = never the eviction victim) and
+  // patch their playlist entries so handleEnded finds a live source. This is
+  // the "no gap at the boundary" half of the working set.
+  useEffect(() => {
+    if (!multiPartInfo) return;
+    setPartSources((prev) => {
+      let changed = false;
+      const next = [...prev];
+      for (let ahead = 0; ahead <= WORKING_SET_AHEAD; ahead++) {
+        const index = currentPartIndex + ahead;
+        if (index < 0 || index >= multiPartInfo.totalParts) continue;
+        const resolved = resolveSectionSourceAt(index);
+        if (resolved && resolved !== next[index]) {
+          next[index] = resolved;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [currentPartIndex, multiPartInfo?.totalParts, resolveSectionSourceAt]);
 
   // Listening session lifecycle: create/resume on play, close on
   // inactivity/content change/unmount (no micro-sessions).
@@ -1485,9 +1532,12 @@ export function AudiobookViewer({
       setCurrentPartIndex(nextPartIndex);
       currentTimeRef.current = 0;
       currentGlobalTimeRef.current = toGlobalSeconds(nextPartIndex, 0);
-      // Load next part - audio element will auto-play if it was playing
+      // Load next part - audio element will auto-play if it was playing.
+      // Working-set resolution (5.6): re-resolve from the section record —
+      // the prefetched entry is normally live, but a revoked LRU victim
+      // falls back to the section's recorded path instead of a dead URL.
       if (audioRef.current) {
-        audioRef.current.src = partSources[nextPartIndex] || "";
+        audioRef.current.src = resolveSectionSourceAt(nextPartIndex) || partSources[nextPartIndex] || "";
         audioRef.current.load();
         audioRef.current.play().catch(() => {
           setIsPlaying(false);
@@ -1627,20 +1677,17 @@ export function AudiobookViewer({
               console.warn("[AudiobookViewer] Mobile stream fallback failed, trying remote stream:", streamErr);
             }
           } else {
-            // Desktop: blob URL is safe (no mobile heap ceiling) and supports macOS.
+            // Desktop: stream via the native media server by default; the
+            // bounded whole-file fallback caps materialization (task 5.5).
             try {
-              const bytes = await readDocumentFile(localPath);
-              if (bytes.byteLength > 0) {
-                const mimeType = getAudioMimeType(localPath);
-                const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-                setFallbackSrc((prev) => {
-                  if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
-                  return blobUrl;
-                });
-                return true;
-              }
+              const src = await loadDesktopAudioSource(localPath);
+              setFallbackSrc((prev) => {
+                if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                return src;
+              });
+              return true;
             } catch (blobErr) {
-              console.warn("[AudiobookViewer] Local blob fallback failed, falling back to streaming:", blobErr);
+              console.warn("[AudiobookViewer] Local desktop audio fallback failed, falling back to streaming:", blobErr);
             }
           }
         }
@@ -1682,17 +1729,12 @@ export function AudiobookViewer({
         throw new Error("media server unavailable");
       }
 
-      const bytes = await readDocumentFile(playbackFilePath);
-      if (bytes.byteLength === 0) {
-        throw new Error("Empty file data");
-      }
-      const mimeType = getAudioMimeType(playbackFilePath);
-      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      // Desktop (incl. macOS): stream by default; the whole-file fallback is
+      // bounded at 256 MiB by the backend before materialization (task 5.5).
+      const src = await loadDesktopAudioSource(playbackFilePath);
       setFallbackSrc((prev) => {
-        if (prev?.startsWith("blob:")) {
-          URL.revokeObjectURL(prev);
-        }
-        return blobUrl;
+        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+        return src;
       });
       return true;
     } catch (err) {

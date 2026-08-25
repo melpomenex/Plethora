@@ -100,10 +100,17 @@ test("readProcessSample records an exited process as absent with a reason", (t) 
   assert.match(malformed.reason, /malformed/);
 });
 
-test("platform gate: non-Linux is unsupported", () => {
-  const out = checkMemoryCollectionSupported({ platform: "darwin" });
+test("platform gate: a platform with no collector is unsupported", () => {
+  const out = checkMemoryCollectionSupported({ platform: "win32" });
   assert.equal(out.supported, false);
-  assert.match(out.reason, /only on Linux/);
+  assert.match(out.reason, /only on Linux and macOS/);
+});
+
+test("platform gate: darwin support tracks the native helper's availability", async () => {
+  const { isHelperAvailable } = await import("../memory-bench/macos-footprint.js");
+  const out = checkMemoryCollectionSupported({ platform: "darwin" });
+  assert.equal(out.supported, isHelperAvailable());
+  if (!out.supported) assert.match(out.reason, /native helper/);
 });
 
 test("platform gate: missing smaps_rollup is unsupported and names what is needed", () => {
