@@ -23,6 +23,7 @@
 import { countWords, normalizeWhitespace, parseFragment } from './domUtils';
 import { normalizeImages, absolutizeImageUrl, type ImageNormalizationReport } from './imageNormalizer';
 import { titleSimilarity } from './metadataExtractor';
+import { isScholarlyClassToken } from './scholarlyContract';
 import type { NormalizedArticle } from './types';
 
 export interface ArticleNormalizerInput {
@@ -50,11 +51,9 @@ const UNWRAP_TAGS = new Set(['span', 'font', 'div', 'section', 'article', 'main'
 
 function isLayoutWrapper(el: Element): boolean {
   if (!UNWRAP_TAGS.has(el.tagName.toLowerCase())) return false;
-  // Only unwrap div/section/article/main when they carry no semantic value:
-  // no class-based inc-* hook (we just created those), and unwrapping keeps
-  // children in place anyway, so the check is really about never unwrapping
-  // tables, lists, or figures — none of which are in UNWRAP_TAGS.
-  return true;
+  // Plethora-owned hooks are semantic reader contracts. Unknown publisher
+  // wrappers remain layout-only and are unwrapped with child order intact.
+  return !Array.from(el.classList).some(isScholarlyClassToken);
 }
 
 function formatBylineDate(iso: string): string {

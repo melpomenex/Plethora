@@ -288,13 +288,17 @@ describe('sanitizer', () => {
     expect(out.toLowerCase()).not.toContain('evil.example.com');
   });
 
-  it('fragment links are allowed; mailto is allowed', async () => {
-    const { html: out } = await sanitizeArticleHtml(
-      `<p><a href="#section">jump</a> <a href="mailto:x@example.com">mail</a></p>`
+  it('only paired generated fragments are allowed; mailto is allowed', async () => {
+    const { html: out, warnings } = await sanitizeArticleHtml(
+      `<p><a href="#inc-ref-1">jump</a> <a href="#section">unsafe jump</a> <a href="#inc-ref-2">missing</a> <a href="mailto:x@example.com">mail</a></p><section id="inc-ref-1">Target</section>`
     );
     const doc = parse(out);
-    expect(doc.querySelector('a[href="#section"]')).not.toBeNull();
+    expect(doc.querySelector('a[href="#inc-ref-1"]')).not.toBeNull();
+    expect(doc.querySelector('a[href="#section"]')).toBeNull();
+    expect(doc.querySelector('a[href="#inc-ref-2"]')).toBeNull();
+    expect(doc.querySelector('#inc-ref-1')).not.toBeNull();
     expect(doc.querySelector('a[href^="mailto:"]')).not.toBeNull();
+    expect(warnings.some((warning) => warning.includes('inc-ref-2'))).toBe(true);
   });
 
   it('counts dropped items for diagnostics', async () => {

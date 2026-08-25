@@ -8,6 +8,11 @@
  */
 
 import { loadDomPurify } from './engineLoader';
+import {
+  isAllowedScholarlyAccessibilityAttribute,
+  isGeneratedScholarlyId,
+  isScholarlyClassToken,
+} from './scholarlyContract';
 
 export interface SanitizationReport {
   droppedTags: number;
@@ -19,6 +24,7 @@ export interface SanitizationReport {
 export interface SanitizeResult {
   html: string;
   report: SanitizationReport;
+  warnings: string[];
 }
 
 /** Semantic HTML allowlist (design D6). Everything else — script, style,
@@ -27,7 +33,7 @@ export interface SanitizeResult {
 const ALLOWED_TAGS = [
   // Prose structure
   'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'strong', 'em', 'b', 'i', 's', 'u', 'a', 'br', 'hr', 'small', 'sup', 'sub',
+  'strong', 'em', 'b', 'i', 's', 'u', 'a', 'span', 'br', 'hr', 'small', 'sup', 'sub',
   'abbr', 'time', 'mark', 'cite', 'q', 'dfn', 'kbd', 'samp', 'var',
   // Lists
   'ul', 'ol', 'li', 'dl', 'dt', 'dd',
@@ -38,7 +44,7 @@ const ALLOWED_TAGS = [
   // Code
   'pre', 'code',
   // Article scaffolding (normalizer-emitted hooks)
-  'article', 'header', 'div',
+  'article', 'header', 'section', 'div',
   // MathML
   'math', 'semantics', 'annotation', 'annotation-xml', 'maction', 'menclose',
   'merror', 'mfrac', 'mi', 'mmultiscripts', 'mn', 'mo', 'mover', 'mpadded',
@@ -51,24 +57,12 @@ const ALLOWED_TAGS = [
  * structural hooks (inc-*) — reader styling hooks and the raw-fallback
  * notice. Publisher classes are never inc-prefixed, so this filter cannot
  * pass site styling through. */
-const INC_CLASS_TOKENS = new Set([
-  'inc-article',
-  'inc-raw',
-  'inc-publication',
-  'inc-title',
-  'inc-dek',
-  'inc-byline',
-  'inc-hero',
-  'inc-body',
-  'inc-raw-notice',
-]);
-
 /** Attribute allowlist — no style, no data-*, no event handlers (DOMPurify
- * strips on* by default even if listed). `class` is allowlisted but the
- * after-sanitize hook filters it down to INC_CLASS_TOKENS only. */
+ * strips on* by default even if listed). `class`, generated `id`, and the two
+ * accessibility attributes are filtered again by the post hook. */
 const ALLOWED_ATTR = [
   // Global semantics only
-  'lang', 'dir', 'class',
+  'lang', 'dir', 'class', 'id', 'aria-label', 'aria-labelledby',
   // Anchors
   'href', 'title', 'rel',
   // Images
@@ -77,7 +71,7 @@ const ALLOWED_ATTR = [
   // Quotes
   'cite',
   // Tables
-  'colspan', 'rowspan', 'scope', 'headers',
+  'colspan', 'rowspan', 'scope',
   // Lists
   'start', 'type',
   // Time
@@ -86,7 +80,7 @@ const ALLOWED_ATTR = [
   'display', 'mathvariant', 'encoding', 'notation', 'linethickness', 'stretchy',
   'fence', 'separator', 'lspace', 'rspace', 'largeop', 'movablelimits',
   'columnalign', 'rowalign', 'columnlines', 'rowlines', 'frame', 'rowspacing',
-  'columnspacing', 'open', 'close', 'accent', 'accentunder', 'role',
+  'columnspacing', 'open', 'close', 'accent', 'accentunder',
 ];
 
 function isAllowedLinkScheme(url: string): boolean {
@@ -126,6 +120,7 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
     droppedUrls: 0,
     droppedImages: 0,
   };
+  const warnings: string[] = [];
 
   // Count what the allowlist removes (DOMPurify reports removals via hooks is
   // awkward for tags; compare node inventory before/after instead).
@@ -142,7 +137,7 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
     if (node.hasAttribute('class')) {
       const kept = (node.getAttribute('class') ?? '')
         .split(/\s+/)
-        .filter((token) => INC_CLASS_TOKENS.has(token));
+        .filter(isScholarlyClassToken);
       if (kept.length > 0) {
         node.setAttribute('class', kept.join(' '));
       } else {
@@ -150,9 +145,29 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
         report.droppedAttributes += 1;
       }
     }
+
+    const id = node.getAttribute('id');
+    if (id !== null && !isGeneratedScholarlyId(id)) {
+      node.removeAttribute('id');
+      report.droppedAttributes += 1;
+    }
+
+    for (const attribute of ['aria-label', 'aria-labelledby'] as const) {
+      const value = node.getAttribute(attribute);
+      if (
+        value !== null &&
+        !isAllowedScholarlyAccessibilityAttribute(node, attribute, value)
+      ) {
+        node.removeAttribute(attribute);
+        report.droppedAttributes += 1;
+      }
+    }
+
     const href = node.getAttribute('href');
     if (node.tagName.toLowerCase() === 'a') {
-      if (href !== null && !isAllowedLinkScheme(href)) {
+      const unsafeFragment =
+        href?.startsWith('#') && !isGeneratedScholarlyId(href.slice(1));
+      if (href !== null && (unsafeFragment || !isAllowedLinkScheme(href))) {
         node.removeAttribute('href');
         report.droppedUrls += 1;
       }
@@ -181,6 +196,7 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
       ALLOWED_TAGS,
       ALLOWED_ATTR,
       ALLOW_DATA_ATTR: false,
+      ALLOW_ARIA_ATTR: false,
       KEEP_CONTENT: true, // drop disallowed elements, keep their text children
       FORBID_TAGS: ['style', 'svg', 'template', 'noscript', '#comment'],
       // Reader re-parses; forbid anything executable by construction.
@@ -199,6 +215,35 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
     img.remove();
     report.droppedImages += 1;
   });
+
+  // Validate generated relationships against the DOM that actually survived
+  // DOMPurify. Visible anchor text is retained when a relationship is lost.
+  const targets = new Map<string, Element>();
+  afterDoc.querySelectorAll<HTMLElement>('[id]').forEach((target) => {
+    if (!isGeneratedScholarlyId(target.id) || targets.has(target.id)) {
+      const removed = target.id;
+      target.removeAttribute('id');
+      warnings.push(`removed malformed or duplicate scholarly target: ${removed}`);
+      return;
+    }
+    targets.set(target.id, target);
+  });
+  afterDoc.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((anchor) => {
+    const targetId = anchor.getAttribute('href')!.slice(1);
+    if (!isGeneratedScholarlyId(targetId) || !targets.has(targetId)) {
+      anchor.removeAttribute('href');
+      anchor.removeAttribute('rel');
+      report.droppedUrls += 1;
+      warnings.push(`removed scholarly fragment without a surviving target: ${targetId}`);
+    }
+  });
+  afterDoc.querySelectorAll<HTMLElement>('[aria-labelledby]').forEach((element) => {
+    const targetId = element.getAttribute('aria-labelledby') ?? '';
+    if (!isGeneratedScholarlyId(targetId) || !targets.has(targetId)) {
+      element.removeAttribute('aria-labelledby');
+      warnings.push(`removed scholarly aria-labelledby without a surviving target: ${targetId}`);
+    }
+  });
   const afterTags = countTags(afterDoc);
   const afterAttrs = Array.from(afterDoc.querySelectorAll('*')).reduce(
     (n, el) => n + el.attributes.length,
@@ -212,5 +257,5 @@ export async function sanitizeArticleHtml(html: string): Promise<SanitizeResult>
   const finalHtml = afterDoc.body.firstElementChild
     ? afterDoc.body.firstElementChild.innerHTML
     : cleaned;
-  return { html: finalHtml, report };
+  return { html: finalHtml, report, warnings };
 }

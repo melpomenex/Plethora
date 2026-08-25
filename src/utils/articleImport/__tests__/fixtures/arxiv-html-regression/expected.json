@@ -7,7 +7,10 @@
     "mixture-of-experts",
     "MoE",
     "MMLU",
-    "virtual group"
+    "virtual group",
+    "Stable upcycling",
+    "Fine-grained means more, smaller experts",
+    "Outrageously Large Neural Networks"
   ],
   "mustNotContain": [
     "Learn more",
@@ -17,5 +20,12 @@
   ],
   "expectedExtractor": "site:arxiv.org",
   "confidenceAtLeast": "medium",
+  "mustContainImageUrls": [
+    "https://arxiv.org/html/2410.07524v1/moe-routing.svg"
+  ],
+  "expectedFigureCaptions": [
+    "Figure 1: Converting pre-trained dense checkpoint into Mixture of Experts.",
+    "Table 1: Wide benchmark comparison."
+  ],
   "minImages": 1
 }
