@@ -16,7 +16,10 @@ export type AssistantProviderId =
   | "gemini"
   | "deepseek"
   | "ollama"
-  | "openrouter";
+  | "openrouter"
+  | "ondevice-apple-foundation";
+
+export const APPLE_FM_ASSISTANT_PROVIDER = "ondevice-apple-foundation" as const;
 
 const VALID_PROVIDERS: readonly string[] = [
   "openai",
@@ -25,7 +28,12 @@ const VALID_PROVIDERS: readonly string[] = [
   "deepseek",
   "ollama",
   "openrouter",
+  APPLE_FM_ASSISTANT_PROVIDER,
 ];
+
+export function isAppleFmAssistantProvider(id: AssistantProviderId): boolean {
+  return id === APPLE_FM_ASSISTANT_PROVIDER;
+}
 
 export function isAssistantProviderId(value: unknown): value is AssistantProviderId {
   return typeof value === "string" && VALID_PROVIDERS.includes(value);

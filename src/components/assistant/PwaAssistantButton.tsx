@@ -14,7 +14,13 @@ import { useLLMProvidersStore, useSettingsStore } from "../../stores";
 import type { AssistantContext } from "./AssistantPanel";
 import * as documentsApi from "../../api/documents";
 import { getAssistantContextErrorMessage } from "../../utils/assistantContext";
-import { getStoredAssistantProvider, isAssistantProviderId } from "../../utils/assistantProvider";
+import {
+  getStoredAssistantProvider,
+  isAppleFmAssistantProvider,
+  isAssistantProviderId,
+  type AssistantProviderId,
+} from "../../utils/assistantProvider";
+import { runAssistantAppleFmChat } from "../../lib/ai/assistant/assistantAppleFmChat";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { isNativeMobile } from "../../lib/tauri";
 
@@ -128,7 +134,7 @@ export function PwaAssistantButton({
   const providers = useLLMProvidersStore((s) => s.providers);
   const enabledProviders = useLLMProvidersStore((s) => s.getEnabledProviders);
 
-  const preferredProviderType = useMemo(() => {
+  const preferredProviderType = useMemo((): AssistantProviderId => {
     const stored = getStoredAssistantProvider();
     if (stored !== "openai") return stored;
     // Fall back to the app-level configured provider when nothing valid is
@@ -259,6 +265,18 @@ export function PwaAssistantButton({
   };
 
   const resolveProvider = () => {
+    if (isAppleFmAssistantProvider(preferredProviderType)) {
+      if (settings.ai.assistantUseAppleFoundation !== true) {
+        return {
+          error:
+            "Apple Intelligence is not enabled for the Assistant. Turn on “Use in Assistant” in Settings → AI → On-device AI.",
+          provider: null as any,
+          useAppleFm: false as const,
+        };
+      }
+      return { error: null as string | null, provider: null, useAppleFm: true as const };
+    }
+
     const enabled = enabledProviders();
     const byType = providers.filter((p) => p.enabled && p.provider === preferredProviderType);
     const candidate =
@@ -267,6 +285,7 @@ export function PwaAssistantButton({
       return {
         error: "No LLM providers are configured. Add one in Settings → AI Provider Settings.",
         provider: null as any,
+        useAppleFm: false as const,
       };
     }
     if (
@@ -277,9 +296,10 @@ export function PwaAssistantButton({
         error:
           "Your selected provider is missing an API key. Fix it in Settings → AI Provider Settings.",
         provider: null as any,
+        useAppleFm: false as const,
       };
     }
-    return { error: null, provider: candidate };
+    return { error: null, provider: candidate, useAppleFm: false as const };
   };
 
   const sendPrompt = async (prompt: string) => {
@@ -306,22 +326,6 @@ export function PwaAssistantButton({
         return;
       }
 
-      const provider = resolved.provider;
-      setLastUsedProviderLabel(`${provider.name || provider.provider} • ${provider.model}`);
-
-      // Small, stable system prompt optimized for reading assistance.
-      const system: LLMMessage = {
-        role: "system",
-        content:
-          "You are a concise reading assistant. Answer using the provided document context. If the context does not contain the answer, say so and suggest what to look for.",
-      };
-
-      const history = messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .slice(-6)
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-      const llmMessages: LLMMessage[] = [system, ...history, { role: "user", content: trimmed }];
       const contextWindow =
         context.contextWindowTokens && context.contextWindowTokens > 0
           ? context.contextWindowTokens
@@ -341,6 +345,52 @@ export function PwaAssistantButton({
       if (resolvedContext.status !== "ready" || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(context.status));
       }
+
+      const history = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-6)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      if (resolved.useAppleFm) {
+        setLastUsedProviderLabel("Apple Intelligence • on-device");
+        try {
+          const response = await runAssistantAppleFmChat({
+            systemInstruction:
+              "You are a helpful reading assistant. Answer using the attached document context when relevant. Be concise.",
+            userPrompt: trimmed,
+            documentContext: resolvedContext.content ?? contextContent,
+            conversationHistory: history,
+            maxOutputTokens: contextWindow,
+          });
+
+          const assistant: ChatMessage = {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content: response.content,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, assistant]);
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Apple Intelligence is not available on this device. Enable it in System Settings or turn on the Assistant toggle in On-Device AI settings.";
+          setError(message);
+        }
+        return;
+      }
+
+      const provider = resolved.provider!;
+      setLastUsedProviderLabel(`${provider.name || provider.provider} • ${provider.model}`);
+
+      // Small, stable system prompt optimized for reading assistance.
+      const system: LLMMessage = {
+        role: "system",
+        content:
+          "You are a concise reading assistant. Answer using the provided document context. If the context does not contain the answer, say so and suggest what to look for.",
+      };
+
+      const llmMessages: LLMMessage[] = [system, ...history, { role: "user", content: trimmed }];
 
       const response = await chatWithContext(
         provider.provider,

@@ -431,6 +431,8 @@ interface AISettings {
    * required" opt-in; the retry keeps the informational toast.
    */
   allowCloudFallback: boolean;
+  /** When true, Apple Foundation Models appear as an Assistant provider on Apple platforms. */
+  assistantUseAppleFoundation: boolean;
   /**
    * Active-recall reading mode (design D19 / ai-active-recall): `off` (the
    * default and the kill switch), or the interruption budget `low` /
@@ -1119,6 +1121,7 @@ export const defaultSettings: Settings = {
     // explicit opt-in. Default OFF — an on-device failure must not silently
     // send content to a paid cloud provider.
     allowCloudFallback: false,
+    assistantUseAppleFoundation: false,
     // Active recall ships dark (design D19: off is the default + kill switch).
     activeRecallMode: "off",
     aiControls: {

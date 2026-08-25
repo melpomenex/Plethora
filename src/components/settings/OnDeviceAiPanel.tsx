@@ -294,6 +294,11 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     onChange();
   };
 
+  const handleAssistantAppleFoundationToggle = (enabled: boolean) => {
+    updateSettings({ ai: { ...settings.ai, assistantUseAppleFoundation: enabled } });
+    onChange();
+  };
+
   const handleSpeechToggle = (enabled: boolean) => {
     updateSettings({
       audioTranscription: { ...settings.audioTranscription, preferAndroidSpeech: enabled },
@@ -321,6 +326,31 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
     ? resolveAppleFoundationReason(appleSnap.foundationModels, appleSnap.foundationReason)
     : "unknown";
   const appleFoundationAvailable = appleFoundationResolved === "available";
+
+  const assistantAppleFoundationRow = (
+    <SettingsRow
+      label={t("onDeviceAi.assistantAppleFoundationLabel")}
+      description={
+        appleFoundationAvailable
+          ? t("onDeviceAi.assistantAppleFoundationDescription")
+          : t("assistant.appleFoundationUnavailable")
+      }
+    >
+      <label
+        className={`relative inline-flex items-center ${appleFoundationAvailable ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+      >
+        <input
+          type="checkbox"
+          className="sr-only peer"
+          checked={settings.ai.assistantUseAppleFoundation === true}
+          disabled={!appleFoundationAvailable}
+          onChange={(e) => handleAssistantAppleFoundationToggle(e.target.checked)}
+          aria-label={t("onDeviceAi.assistantAppleFoundationLabel")}
+        />
+        <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-disabled:opacity-50"></div>
+      </label>
+    </SettingsRow>
+  );
 
   return (
     <SettingsSection
@@ -492,6 +522,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
               </button>
             </div>
           </SettingsRow>
+          {assistantAppleFoundationRow}
           <SettingsRow
             label={t("onDeviceAi.appleCoreAiTitle")}
             description={
@@ -532,6 +563,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
               )}
             </div>
           </SettingsRow>
+          {assistantAppleFoundationRow}
           <SettingsRow
             label={t("onDeviceAi.appleCoreAiTitle")}
             description={

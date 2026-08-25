@@ -799,6 +799,9 @@ export const es: Dict = {
   "assistant.openAssistant": "Abrir asistente",
   "assistant.placeholder": "Pregunta sobre tu documento, o escribe /help para ver comandos...",
   "assistant.runningToolCalls": "Ejecutando herramientas...",
+  "assistant.providerAppleFoundation": "Apple Intelligence",
+  "assistant.appleFoundationUnavailable": "Apple Intelligence no está disponible en este dispositivo. Actívalo en Ajustes del sistema o activa el interruptor del Asistente en los ajustes de IA en el dispositivo.",
+  "assistant.appleFoundationImagesStripped": "No se enviaron imágenes: Apple Intelligence aún no admite visión en el Asistente.",
   "assistant.shareConversation": "Compartir conversación",
   "assistant.shareExport": "Compartir/Exportar",
   "assistant.title": "Asistente",
@@ -5881,5 +5884,7 @@ export const es: Dict = {
   "onDeviceAi.appleFoundationDetail.device_not_eligible": "Este Mac no cumple los requisitos de hardware de Apple Intelligence.",
   "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "Activa Apple Intelligence en Ajustes del sistema → Apple Intelligence y Siri.",
   "onDeviceAi.appleFoundationDetail.unsupported_os": "Requiere macOS 26 o posterior con soporte de Apple Intelligence.",
-  "onDeviceAi.appleFoundationDetail.platform_unsupported": "Apple Foundation Models no están disponibles en esta plataforma."
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "Apple Foundation Models no están disponibles en esta plataforma.",
+  "onDeviceAi.assistantAppleFoundationLabel": "Usar en el Asistente",
+  "onDeviceAi.assistantAppleFoundationDescription": "Mostrar Apple Intelligence como proveedor en el panel del Asistente para un chat de documentos privado y en el dispositivo."
 };
