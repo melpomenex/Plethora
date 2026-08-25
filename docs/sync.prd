@@ -1,0 +1,2154 @@
+# Plethora Pro Sync — Product Requirements Document
+
+## 1. Overview
+
+Plethora Pro Sync provides fast, reliable, encrypted synchronization of a user's Plethora data across desktop and mobile devices without placing network activity on the critical path of normal application use.
+
+Plethora is fundamentally a **local-first application**. Each device maintains a complete local SQLite database and remains fully functional without an internet connection. Sync operates asynchronously in the background and propagates changes between devices through a lightweight server-side synchronization service.
+
+This system replaces the previous CRDT/Yjs-heavy synchronization approach with a simpler model based on:
+
+* SQLite as the local source of truth
+* Transactional outbox journaling
+* Batched push/pull synchronization
+* Monotonic server change cursors
+* Append-only event records where appropriate
+* Deterministic conflict resolution
+* Content-addressed file storage
+* Optional/end-to-end encryption
+* Background synchronization that never blocks the UI
+
+Sync is intended to be a core **Plethora Pro** feature.
+
+---
+
+# 2. Problem Statement
+
+Plethora users may use several devices:
+
+* macOS
+* Windows
+* Linux
+* iPhone/iPad
+* Android
+* tablets
+* e-ink Android devices
+
+Users need their learning state to move naturally between devices, including:
+
+* cards
+* review history
+* scheduling state
+* documents
+* extracts
+* tags
+* reading position
+* TTS/audiobook position
+* media
+* images
+* app preferences
+* queues
+* study progress
+
+A previous synchronization implementation relied heavily on CRDT/Yjs-style replication and introduced significant application lag and architectural complexity.
+
+Plethora does not require Google-Docs-style real-time collaborative editing for most of its data.
+
+The new system must therefore prioritize:
+
+1. local application performance
+2. offline-first behavior
+3. synchronization reliability
+4. data integrity
+5. privacy
+6. simplicity
+7. incremental scalability
+
+---
+
+# 3. Product Principles
+
+## 3.1 Local-first
+
+Every supported Plethora client must remain fully usable without access to Plethora's servers.
+
+The server is a synchronization mechanism, not the application's primary database.
+
+The local SQLite database remains authoritative for current device operation.
+
+---
+
+## 3.2 Sync must never block normal use
+
+Network access must not occur synchronously as part of ordinary UI actions.
+
+The following actions must complete successfully regardless of sync-server availability:
+
+* rating a card
+* opening a document
+* creating a card
+* editing a card
+* creating an extract
+* changing a tag
+* changing document priority
+* advancing through a queue
+* changing reading position
+* pausing or resuming TTS
+* importing a document
+* creating annotations
+* modifying local settings
+
+A server outage must not make Plethora noticeably slower.
+
+---
+
+## 3.3 Sync should be boring
+
+Avoid distributed-systems complexity unless there is a demonstrated product requirement for it.
+
+Do not use CRDTs globally.
+
+Do not synchronize React/Zustand state.
+
+Do not maintain a distributed copy of the entire SQLite database.
+
+Prefer conventional database synchronization primitives that are easy to inspect, test, and recover.
+
+---
+
+## 3.4 User data should be private
+
+The production architecture should support end-to-end encryption such that Plethora's server does not require access to the plaintext content of synced user data.
+
+At minimum, sensitive user-generated content must be encrypted at rest.
+
+The long-term target is client-side encryption for:
+
+* cards
+* documents
+* extracts
+* notes
+* review data
+* tags
+* reading history
+* media metadata
+* uploaded files
+
+---
+
+# 4. Goals
+
+The initial implementation must support:
+
+* cross-device synchronization
+* offline mutations
+* background uploads
+* background downloads
+* incremental delta synchronization
+* deterministic conflict handling
+* multiple simultaneously registered devices
+* deleted-record propagation
+* file synchronization
+* device registration
+* entitlement checking for Pro
+* encryption
+* sync health/status reporting
+* recovery after interrupted synchronization
+* server-side scalability without requiring expensive infrastructure
+
+The architecture must be capable of supporting tens of thousands of users without redesigning the sync protocol.
+
+---
+
+# 5. Non-Goals
+
+The first implementation does not need to support:
+
+* collaborative multi-user document editing
+* real-time simultaneous editing
+* shared notebooks between multiple accounts
+* operational transforms
+* global CRDT synchronization
+* syncing transient React state
+* syncing cached AI outputs unless explicitly valuable
+* syncing downloaded local AI models
+* syncing machine-specific paths
+* synchronizing API secrets between machines by default
+* making the remote server authoritative for normal app operation
+* sub-second propagation guarantees
+
+Near-real-time synchronization is desirable but not required for correctness.
+
+---
+
+# 6. User Experience
+
+## 6.1 User enables Pro Sync
+
+A user signs into their Plethora account.
+
+If their account has an active Pro entitlement, the user can enable:
+
+**Settings → Sync**
+
+The UI should show:
+
+* Sync enabled/disabled
+* Last successful sync
+* Current sync status
+* Number of connected devices
+* Storage usage
+* Encryption status
+* Current device name
+* Manual "Sync Now" action
+* Sign out/remove device
+* Troubleshooting/recovery options
+
+---
+
+## 6.2 First-device behavior
+
+When a user enables sync for the first time:
+
+1. Plethora registers the device.
+2. A sync identity/device ID is created.
+3. Encryption keys are initialized.
+4. Existing local syncable records are indexed.
+5. An initial snapshot/upload is created.
+6. The device receives a server sync cursor.
+7. Normal incremental synchronization begins.
+
+The initial upload must run in the background.
+
+The application must remain usable during bootstrap.
+
+---
+
+## 6.3 Adding another device
+
+When the user signs into Plethora Pro on another device:
+
+1. Plethora authenticates the account.
+2. The device is registered.
+3. Encryption keys are securely provisioned.
+4. The device downloads the user's current sync state.
+5. Records are applied locally.
+6. Required file blobs are downloaded lazily or according to user preference.
+7. The client receives its current server cursor.
+8. Incremental sync begins.
+
+Where practical, allow QR-based device pairing.
+
+---
+
+# 7. High-Level Architecture
+
+```text
+              Plethora Desktop
+                    │
+                    ▼
+                 SQLite
+                    │
+             sync_outbox
+                    │
+                    ▼
+           Background Sync Worker
+                    │
+              HTTPS / WebSocket
+                    │
+        ┌───────────▼───────────┐
+        │    Plethora Sync API  │
+        └───────────┬───────────┘
+                    │
+          ┌─────────▼────────┐
+          │    PostgreSQL    │
+          └──────────────────┘
+                    │
+          ┌─────────▼────────┐
+          │ Object Storage   │
+          │   R2 / S3 API    │
+          └──────────────────┘
+
+                    ▲
+                    │
+              HTTPS / WebSocket
+                    │
+             Background Worker
+                    │
+                 SQLite
+                    │
+              Plethora Mobile
+```
+
+---
+
+# 8. Local Data Architecture
+
+## 8.1 SQLite remains primary local storage
+
+All user-facing operations interact with SQLite as they do when sync is disabled.
+
+Sync is an additional persistence concern and must not replace repository/database abstractions already used by Plethora.
+
+---
+
+# 9. Transactional Outbox
+
+Every mutation to syncable data must generate a corresponding synchronization journal entry within the **same SQLite transaction**.
+
+Example:
+
+```sql
+BEGIN;
+
+UPDATE learning_items
+SET front = ?, updated_at = ?
+WHERE id = ?;
+
+INSERT INTO sync_outbox (
+    change_id,
+    entity_type,
+    entity_id,
+    operation,
+    base_revision,
+    payload,
+    created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+COMMIT;
+```
+
+This guarantees that:
+
+* no local mutation can occur without being journaled
+* no journal event can exist for a failed local mutation
+
+---
+
+# 10. Suggested `sync_outbox` Schema
+
+```text
+change_id
+entity_type
+entity_id
+operation
+base_revision
+payload
+created_at
+attempt_count
+last_attempt_at
+sync_status
+```
+
+Possible operations:
+
+```text
+create
+update
+delete
+append_event
+```
+
+Possible sync states:
+
+```text
+pending
+uploading
+acknowledged
+failed
+```
+
+Successfully acknowledged changes may be deleted or compacted.
+
+---
+
+# 11. Server Change Log
+
+The sync backend must assign every accepted mutation a globally monotonic server sequence number.
+
+Example:
+
+```text
+912390
+912391
+912392
+912393
+```
+
+The server stores a log sufficient to answer:
+
+```text
+Give user X all changes after cursor 912390.
+```
+
+Client synchronization state should contain:
+
+```text
+last_server_cursor
+last_successful_sync
+device_id
+```
+
+---
+
+# 12. Push Protocol
+
+Clients periodically batch pending outbox changes.
+
+Conceptual request:
+
+```text
+POST /v1/sync/push
+```
+
+Payload:
+
+```json
+{
+  "device_id": "...",
+  "changes": [
+    {
+      "change_id": "...",
+      "entity_type": "learning_item",
+      "entity_id": "...",
+      "operation": "update",
+      "base_revision": 17,
+      "payload": "..."
+    }
+  ]
+}
+```
+
+Response:
+
+```json
+{
+  "accepted": ["..."],
+  "conflicts": [],
+  "server_cursor": 912393
+}
+```
+
+Batches should be bounded by:
+
+* maximum number of records
+* maximum serialized payload size
+
+Suggested initial targets:
+
+```text
+100–500 changes per batch
+1–5 MB maximum payload
+```
+
+---
+
+# 13. Pull Protocol
+
+Clients request everything that changed after their last cursor:
+
+```text
+GET /v1/sync/pull?after=912393
+```
+
+Response:
+
+```json
+{
+  "changes": [...],
+  "next_cursor": 912458,
+  "has_more": false
+}
+```
+
+Downloaded changes must be applied to SQLite in a transaction.
+
+Large pulls should be paginated.
+
+---
+
+# 14. Sync Triggers
+
+Sync should occur in the background when:
+
+* the application starts
+* the application enters the foreground
+* connectivity returns
+* a reasonable amount of local data accumulates
+* a short debounce follows local mutations
+* the user presses "Sync Now"
+* a WebSocket or push notification indicates remote changes
+* a periodic background interval expires where supported
+
+Sync frequency should adapt to platform constraints.
+
+---
+
+# 15. WebSockets
+
+WebSockets may be used to improve responsiveness but must not be required for correctness.
+
+WebSocket messages should primarily function as notifications:
+
+```text
+changes_available
+```
+
+The receiving device should then execute the normal pull protocol.
+
+Do not use the WebSocket as the canonical delivery mechanism.
+
+If the WebSocket is unavailable, normal periodic synchronization must continue to work.
+
+---
+
+# 16. Entity Synchronization Strategies
+
+Different Plethora entities require different conflict semantics.
+
+## 16.1 Append-only entities
+
+Use immutable events where appropriate.
+
+Examples:
+
+* card reviews
+* reading events
+* analytics events
+* activity history
+
+These records should normally never be overwritten.
+
+---
+
+## 16.2 Versioned entities
+
+Use record-level revision numbers.
+
+Examples:
+
+* cards
+* documents
+* extracts
+* collections
+* decks
+* notes
+
+Each mutation references:
+
+```text
+base_revision
+```
+
+The server increments:
+
+```text
+revision
+```
+
+after accepting the change.
+
+---
+
+## 16.3 Last-write-wins entities
+
+Some values do not merit complex merging.
+
+Examples:
+
+* theme
+* font size
+* reader preferences
+* selected algorithm
+* audio volume
+* document priority
+* reading position
+* TTS position
+* playback position
+
+Use deterministic last-write-wins semantics.
+
+Prefer server-assigned ordering rather than arbitrary device clocks.
+
+---
+
+## 16.4 Set-like entities
+
+Examples:
+
+* tags
+* collection membership
+* relationships
+
+Where useful, model these as individual membership records rather than rewriting an entire array.
+
+Example:
+
+```text
+item_tag
+  item_id
+  tag_id
+  created_at
+  deleted_at
+```
+
+---
+
+# 17. Review History
+
+Review events should be treated as immutable and append-only.
+
+Suggested conceptual structure:
+
+```text
+event_id
+card_id
+device_id
+reviewed_at
+rating
+duration_ms
+algorithm
+algorithm_version
+scheduler_state_before
+scheduler_state_after
+created_at
+```
+
+The event ID must be globally unique, preferably UUIDv7 or equivalent.
+
+---
+
+# 18. Scheduling State
+
+Where practical, current card scheduling state should be derivable from review history.
+
+The implementation must define deterministic behavior when the same card is reviewed independently on multiple offline devices.
+
+Example:
+
+```text
+Device A:
+12:00 — Good
+
+Device B:
+12:05 — Again
+```
+
+Both events are retained.
+
+The scheduler must deterministically process the ordered history and derive the resulting state.
+
+Plethora may detect unusually close reviews from separate devices and flag them as potential duplicate reviews.
+
+It must not silently discard valid history.
+
+---
+
+# 19. Conflict Resolution
+
+## 19.1 Revision conflict
+
+Example:
+
+```text
+Server card revision: 18
+Incoming base revision: 17
+```
+
+The server returns a conflict.
+
+The client receives:
+
+```text
+base record
+local record
+remote record
+```
+
+---
+
+## 19.2 Automatic field-level merge
+
+If different fields changed, merge automatically.
+
+Example:
+
+```text
+Mac:
+changes card.back
+
+Phone:
+changes card.front
+```
+
+Result:
+
+```text
+front from Phone
+back from Mac
+```
+
+---
+
+## 19.3 Same-field conflicts
+
+If both devices edit the same field, use one of:
+
+1. deterministic latest-version resolution
+2. preserve alternate conflict copy
+3. user-visible merge interface
+
+Initial implementation may use:
+
+**last accepted write wins + preserve conflict metadata**
+
+for uncommon same-field collisions.
+
+Data loss should be avoided wherever reasonably possible.
+
+---
+
+# 20. Deletes
+
+Physical deletion must not immediately remove synchronized records.
+
+Use tombstones.
+
+Example:
+
+```text
+entity_id
+deleted_at
+revision
+```
+
+This ensures an offline device can later learn that an entity was deleted elsewhere.
+
+Tombstones may eventually be garbage-collected after a retention period when all known devices have advanced beyond the relevant change cursor.
+
+Initial implementation may retain tombstones conservatively.
+
+---
+
+# 21. Files and Binary Objects
+
+Binary content must not be transported through normal database sync payloads.
+
+Examples:
+
+* PDFs
+* EPUBs
+* images
+* audio
+* generated audiobooks
+* downloaded media
+* image occlusion source images
+
+Files should use content-addressed object storage.
+
+---
+
+# 22. Content Addressing
+
+Calculate a cryptographic hash:
+
+```text
+SHA-256(file contents)
+```
+
+Example:
+
+```text
+sha256:a4e74d...
+```
+
+The document metadata references:
+
+```text
+blob_hash
+mime_type
+original_filename
+size
+```
+
+If multiple records use the same content, only one physical object needs to be stored.
+
+---
+
+# 23. Blob Upload Workflow
+
+1. Local client calculates file hash.
+2. Client asks server whether the object already exists.
+3. If not, server creates a short-lived upload URL.
+4. Client uploads directly to object storage.
+5. Server records object metadata.
+6. Synced entity references blob hash.
+
+Prefer direct client-to-object-storage uploads to avoid proxying large files through the API server.
+
+---
+
+# 24. Blob Download Workflow
+
+When a device needs a file:
+
+1. client checks local object cache
+2. if absent, request authorized download URL
+3. download encrypted object
+4. verify integrity
+5. decrypt if applicable
+6. store locally
+7. expose file to Plethora
+
+Downloads may be lazy.
+
+A new device should not necessarily download an entire large library immediately.
+
+---
+
+# 25. File Storage Preferences
+
+Potential future settings:
+
+* Download everything
+* Download documents automatically
+* Download media on Wi-Fi
+* Download on demand
+* Keep files offline
+* Clear local cached copies
+
+Mobile defaults should prioritize storage efficiency.
+
+---
+
+# 26. End-to-End Encryption
+
+## 26.1 Objective
+
+The sync server should not require plaintext access to user learning content.
+
+Records should be encrypted on-device before upload.
+
+---
+
+## 26.2 Encryption Envelope
+
+Conceptually:
+
+```text
+serialize record
+      ↓
+compress if appropriate
+      ↓
+encrypt with account sync key
+      ↓
+upload encrypted envelope
+```
+
+Server-visible metadata may include only what is operationally necessary:
+
+```text
+account_id
+entity_id
+entity_type
+revision
+server_sequence
+encrypted_payload
+```
+
+---
+
+# 27. Account Sync Key
+
+Each account receives a high-entropy synchronization key.
+
+The key must not be transmitted or stored in plaintext on Plethora infrastructure.
+
+New devices may receive the key using:
+
+* encrypted key wrapping derived from account credentials
+* recovery key
+* QR-based device pairing
+* trusted-device transfer
+
+The implementation should support secure account recovery.
+
+---
+
+# 28. Device Identity
+
+Each installation receives a unique device ID.
+
+Device metadata may include:
+
+```text
+device_id
+device_name
+platform
+app_version
+created_at
+last_seen_at
+revoked_at
+```
+
+Users should be able to revoke a device.
+
+Revoked devices must no longer be able to upload or download sync data.
+
+---
+
+# 29. Device Pairing
+
+Where possible, allow pairing via QR code.
+
+Example:
+
+```text
+Desktop:
+"Add mobile device"
+
+Desktop displays QR.
+
+Phone scans QR.
+
+Encrypted key material is transferred using an authenticated short-lived pairing exchange.
+```
+
+This may reuse concepts from Plethora's existing device-pairing implementation where appropriate.
+
+---
+
+# 30. Authentication
+
+Plethora Sync requires a Plethora account.
+
+Authentication must support:
+
+* access tokens
+* refresh tokens
+* device revocation
+* session expiration
+* password/account changes
+* secure token storage using platform-native facilities where possible
+
+The exact identity provider may be selected during implementation.
+
+Potential options include:
+
+* Supabase Auth
+* Clerk
+* Auth0
+* custom authentication
+
+For initial implementation, managed authentication is preferred unless a strong reason exists otherwise.
+
+---
+
+# 31. Pro Entitlements
+
+The sync service is gated by Plethora Pro.
+
+The server must validate subscription entitlement.
+
+Desktop clients should support signed offline entitlement caching.
+
+Conceptually:
+
+```text
+account_id
+plan: pro
+features:
+  sync
+expires_at
+signature
+```
+
+Clients verify signatures using an embedded public key.
+
+Offline grace periods should prevent transient authentication failures from immediately disabling features.
+
+Suggested grace period:
+
+```text
+7–30 days
+```
+
+Final duration to be determined.
+
+---
+
+# 32. Syncable Data
+
+Initial sync should support:
+
+### Core learning state
+
+* learning items/cards
+* review history
+* scheduling state
+* decks
+* collections
+* tags
+* relationships
+* extracts
+
+### Documents
+
+* document metadata
+* imported text
+* PDF/EPUB references
+* reading state
+* annotations
+* highlights
+
+### Media
+
+* audiobook metadata
+* podcast progress
+* video progress
+* TTS playback position
+* chapter state
+
+### User preferences
+
+* selected theme
+* reader preferences
+* scheduling preferences
+* queue configuration
+* UX preferences suitable for cross-device use
+
+### Images
+
+* image registry metadata
+* image occlusion source images
+* card mask information
+
+---
+
+# 33. Data That Should Not Sync by Default
+
+Examples:
+
+* local Ollama model files
+* downloaded Whisper models
+* cached OCR models
+* local executable paths
+* OS-specific file paths
+* transient caches
+* machine-specific GPU settings
+* temporary files
+* logs
+* crash dumps
+* API credentials unless explicitly designed for secure credential sync
+* browser session state
+* NotebookLM Google session cookies
+* OS-specific integration state
+
+---
+
+# 34. Sync Status UI
+
+The user should be able to see:
+
+```text
+Synced just now
+Syncing…
+Offline
+Sync paused
+Sync error
+Initial sync in progress
+```
+
+Detailed diagnostics may show:
+
+* pending changes
+* last upload
+* last download
+* current server cursor
+* number of retries
+* storage usage
+* current device ID
+* backend reachability
+
+Diagnostics should remain understandable to normal users.
+
+---
+
+# 35. Error Handling
+
+Sync failures must never prevent local changes.
+
+Example:
+
+```text
+Card successfully reviewed locally.
+Sync upload failed.
+```
+
+Correct behavior:
+
+```text
+Review remains saved.
+Outbox retains mutation.
+Background worker retries later.
+```
+
+Use exponential backoff with jitter.
+
+Permanent failures should be surfaced only when user action is required.
+
+---
+
+# 36. Retry Strategy
+
+Suggested policy:
+
+```text
+immediate retry for transient first failure
+then exponential backoff
+maximum backoff: several minutes
+reset backoff on network restoration/user-triggered sync
+```
+
+Avoid continuously hammering unavailable infrastructure.
+
+---
+
+# 37. Idempotency
+
+Every client mutation must carry a unique change ID.
+
+The server must treat duplicate uploads of the same change ID as safe.
+
+Example:
+
+```text
+client uploads change ABC
+server accepts it
+response is lost
+client uploads ABC again
+```
+
+Server must respond as already accepted rather than applying the mutation twice.
+
+This is especially important for append-only review events.
+
+---
+
+# 38. Initial Sync
+
+Initial sync must support two cases.
+
+## Existing local library → new cloud account
+
+Upload all syncable records in controlled batches.
+
+## Existing cloud library → new device
+
+Download snapshot/state and apply locally.
+
+Initial sync must be resumable.
+
+If interrupted at 70%, restarting the application must continue rather than restart everything.
+
+---
+
+# 39. Snapshotting
+
+The server may periodically generate encrypted logical snapshots to avoid replaying an unlimited historical log when adding a new device.
+
+A device can receive:
+
+```text
+snapshot at cursor 900000
++
+changes 900001 onward
+```
+
+Snapshotting is an optimization, not required for the first prototype if normal record retrieval is sufficient.
+
+---
+
+# 40. Server Architecture
+
+Recommended initial deployment:
+
+## Sync API
+
+Rust service.
+
+Potential frameworks:
+
+* Axum
+* Actix Web
+
+Given Plethora's existing Rust backend expertise, Axum is a strong default.
+
+---
+
+## Database
+
+PostgreSQL.
+
+Responsibilities:
+
+* accounts
+* devices
+* entitlements
+* mutation metadata
+* revisions
+* server cursors
+* tombstones
+* blob metadata
+* synchronization logs
+
+The server should not depend on Postgres for plaintext user content if E2EE is enabled.
+
+---
+
+## Blob Storage
+
+S3-compatible object storage.
+
+Preferred initial candidate:
+
+**Cloudflare R2**
+
+Reasons:
+
+* inexpensive storage
+* no standard Internet egress charges
+* S3-compatible API
+* direct upload/download support
+* low initial cost
+
+Alternatives:
+
+* AWS S3
+* Backblaze B2
+* Wasabi
+
+---
+
+# 41. Initial Infrastructure Budget
+
+Target launch infrastructure:
+
+```text
+$10–30/month
+```
+
+Suggested configurations:
+
+## Option A — Low-cost self-hosted
+
+```text
+Hetzner VPS
+Rust API
+PostgreSQL
+Cloudflare R2
+```
+
+Approximate initial cost:
+
+```text
+$8–15/month
+```
+
+---
+
+## Option B — Reduced operations burden
+
+```text
+Rust API
+Supabase Auth
+Supabase PostgreSQL
+Cloudflare R2
+```
+
+Approximate initial cost:
+
+```text
+$25–35/month
+```
+
+Option B is preferable for launch if the additional monthly cost substantially reduces operational workload.
+
+---
+
+# 42. Storage Limits
+
+Plethora Pro should not initially offer unlimited file storage.
+
+Suggested initial allowance:
+
+```text
+5–10 GB per Pro user
+```
+
+The exact limit should be configurable server-side without requiring a client release.
+
+Future storage add-ons may include:
+
+```text
++50 GB
++200 GB
+```
+
+---
+
+# 43. Pro Product Positioning
+
+Suggested positioning:
+
+## Plethora Free
+
+* fully local application
+* no required account
+* local backups
+* import/export
+* local AI
+* bring-your-own API keys
+* core learning features
+
+## Plethora Pro
+
+* encrypted cross-device sync
+* synchronized reading progress
+* synchronized scheduling/reviews
+* document/file synchronization
+* multi-device management
+* cloud backup
+* advanced automation
+* premium integrations
+
+Sync should provide obvious recurring subscription value without tying Pro primarily to expensive cloud inference.
+
+---
+
+# 44. Performance Requirements
+
+## Critical
+
+Normal local actions must not wait for sync.
+
+Target:
+
+```text
+additional synchronous overhead per local mutation:
+effectively limited to one small SQLite outbox INSERT
+```
+
+No network round trip may occur during a local transaction.
+
+---
+
+## Background sync
+
+Normal incremental synchronization should generally complete within seconds when connectivity is available.
+
+No hard SLA is required initially.
+
+---
+
+## UI
+
+Sync worker activity must not trigger broad React/Zustand rerenders.
+
+Downloaded changes should update affected stores/components selectively.
+
+---
+
+# 45. SQLite Concurrency
+
+The implementation must be careful not to recreate lag through local database contention.
+
+Recommended:
+
+* WAL mode
+* short transactions
+* bounded batch sizes
+* apply remote changes in controlled chunks
+* avoid holding write locks while performing network operations
+* never perform HTTP calls inside a DB transaction
+* yield between very large batches if needed
+* benchmark low-end mobile hardware
+
+---
+
+# 46. Background Worker Design
+
+The sync worker belongs in the Rust/Tauri layer where practical.
+
+Responsibilities:
+
+* inspect pending outbox
+* batch uploads
+* handle acknowledgments
+* pull remote deltas
+* apply incoming records
+* manage retry/backoff
+* track connectivity
+* manage blob transfer
+* emit coarse-grained sync events to frontend
+
+Frontend should not implement the synchronization protocol.
+
+---
+
+# 47. Conflict Observability
+
+Record synchronization conflicts for diagnostics.
+
+Fields may include:
+
+```text
+entity_type
+entity_id
+local_revision
+remote_revision
+resolution
+timestamp
+device_ids
+```
+
+Users should not normally see conflicts unless action is required.
+
+Developers should be able to inspect them.
+
+---
+
+# 48. Telemetry
+
+Collect privacy-preserving operational metrics such as:
+
+* sync success rate
+* sync duration
+* number of uploaded changes
+* number of downloaded changes
+* conflict frequency
+* average batch size
+* retry counts
+* initial sync duration
+* blob failures
+* server response latency
+
+Do not record decrypted user content.
+
+---
+
+# 49. Backup vs Sync
+
+Sync and backup are separate concepts.
+
+Sync propagates mutations, including deletes.
+
+Backup preserves recoverable historical state.
+
+Plethora should continue supporting local backup/export independently of Pro Sync.
+
+Future Pro cloud backup may retain historical snapshots separate from active synchronized state.
+
+---
+
+# 50. Recovery
+
+Users should have a way to recover from synchronization problems.
+
+Potential actions:
+
+### Retry Sync
+
+Re-run normal synchronization.
+
+### Rebuild Sync Index
+
+Rebuild local synchronization metadata from SQLite.
+
+### Re-download Cloud State
+
+Preserve local backup, then reconstruct synchronized state.
+
+### Upload This Device as Source
+
+Administrative recovery path where appropriate.
+
+### Reset Sync
+
+Explicit destructive operation with very strong confirmation.
+
+All recovery actions must protect local user data before destructive changes.
+
+---
+
+# 51. Testing Strategy
+
+The synchronization system must have extensive automated testing before broad deployment.
+
+---
+
+## Unit tests
+
+Test:
+
+* outbox generation
+* revisions
+* tombstones
+* cursor logic
+* encryption
+* serialization
+* conflict resolution
+* idempotency
+* review-event ordering
+* file hashing
+* retry behavior
+
+---
+
+## Integration tests
+
+Simulate:
+
+```text
+Device A
+Device B
+Server
+```
+
+Test:
+
+* concurrent edits
+* offline edits
+* reconnect
+* duplicate requests
+* dropped responses
+* reordered operations
+* app termination mid-sync
+* server restart
+* expired authentication
+* revoked device
+* corrupt payload
+* large initial sync
+
+---
+
+## Adversarial tests
+
+Automatically introduce:
+
+* random network failures
+* delays
+* HTTP 500 responses
+* duplicated messages
+* partial downloads
+* interrupted uploads
+* inconsistent clocks
+* process crashes
+* device sleep/wake
+* storage exhaustion
+
+Sync must converge safely.
+
+---
+
+# 52. Performance Tests
+
+Benchmark at minimum:
+
+```text
+10 cards
+1,000 cards
+10,000 cards
+100,000 learning records
+1,000,000 review events
+```
+
+Also benchmark:
+
+* 10 MB PDF
+* 100 MB PDF
+* 1 GB media library
+* large tag graphs
+* initial sync
+* incremental one-record sync
+* 500-record batch
+
+Test on:
+
+* desktop
+* modern phone
+* constrained mobile hardware
+
+---
+
+# 53. Security Requirements
+
+The system must defend against:
+
+* unauthorized account access
+* unauthorized device access
+* replayed mutations
+* duplicate operations
+* blob URL leakage
+* cross-account object access
+* forged subscription entitlements
+* compromised refresh tokens
+* malformed encrypted payloads
+* path traversal
+* oversized payload attacks
+
+All API endpoints require authenticated account scope.
+
+Blob URLs must be short-lived and account-authorized.
+
+---
+
+# 54. Rate Limits
+
+Reasonable limits should protect infrastructure without degrading normal use.
+
+Rate limits should support normal bursty sync behavior.
+
+Example conceptual limits:
+
+```text
+sync requests per minute
+changes per batch
+maximum payload size
+blob upload size
+storage quota
+device count
+```
+
+Final values should be measured rather than guessed.
+
+---
+
+# 55. Schema Evolution
+
+Every encrypted payload must include a schema version.
+
+Example:
+
+```json
+{
+  "schema_version": 4,
+  "entity_type": "learning_item",
+  "payload": "..."
+}
+```
+
+Clients must support migrations from older versions.
+
+Sync must not assume every device runs the newest Plethora version.
+
+---
+
+# 56. Client-Version Compatibility
+
+Server should track:
+
+```text
+client_version
+sync_protocol_version
+```
+
+If a breaking protocol change occurs, return an explicit compatibility error rather than corrupting data.
+
+Prefer backward-compatible protocol evolution.
+
+---
+
+# 57. Sync Protocol Version
+
+Define a protocol version independently from the Plethora application version.
+
+Example:
+
+```text
+sync_protocol_version = 1
+```
+
+This permits client releases to evolve without unnecessarily changing the wire protocol.
+
+---
+
+# 58. Deployment Strategy
+
+## Phase 0 — Architecture cleanup
+
+Before new cloud implementation:
+
+* audit existing Yjs/CRDT sync code
+* identify reusable encryption/device-pairing work
+* identify reusable sync journal components
+* isolate/remove performance-sensitive old replication hooks
+* ensure core application remains fully functional with sync disabled
+
+Do not blindly delete potentially useful existing functionality.
+
+---
+
+## Phase 1 — Local journal
+
+Implement:
+
+* syncable entity definitions
+* transactional outbox
+* UUID guarantees
+* revisions
+* tombstones
+* append-only review events
+* tests
+
+No cloud dependency required.
+
+---
+
+## Phase 2 — Minimal sync backend
+
+Implement:
+
+* account auth
+* device registration
+* PostgreSQL schema
+* `/push`
+* `/pull`
+* cursor model
+* idempotency
+* basic conflict handling
+
+Test desktop-to-desktop synchronization.
+
+---
+
+## Phase 3 — Mobile
+
+Enable synchronization between:
+
+```text
+desktop ↔ iOS
+desktop ↔ Android
+iOS ↔ Android
+```
+
+Validate app backgrounding and mobile lifecycle behavior.
+
+---
+
+## Phase 4 — Encryption
+
+Implement/complete:
+
+* account sync keys
+* record-level encryption
+* encrypted blobs
+* key provisioning
+* device pairing
+* recovery mechanism
+
+E2EE should be complete before public GA if feasible.
+
+---
+
+## Phase 5 — File sync
+
+Implement:
+
+* blob hashing
+* R2/S3 integration
+* direct uploads
+* downloads
+* quotas
+* lazy retrieval
+* mobile storage policies
+
+---
+
+## Phase 6 — Pro gating
+
+Integrate:
+
+* subscriptions
+* account entitlements
+* signed offline entitlements
+* storage quotas
+* device limits
+* billing lifecycle
+
+---
+
+## Phase 7 — Beta
+
+Release to internal/beta users.
+
+Measure:
+
+* latency
+* conflicts
+* data corruption incidents
+* CPU impact
+* database contention
+* network usage
+* mobile battery usage
+* server cost
+
+---
+
+## Phase 8 — GA
+
+Enable Plethora Pro Sync broadly only after reliability requirements are met.
+
+---
+
+# 59. Rollback Strategy
+
+The synchronization system must be independently disableable.
+
+A server-side or client feature flag should allow Plethora to stop synchronizing while preserving all local data.
+
+If sync is disabled:
+
+* local SQLite remains functional
+* user data remains accessible
+* no sync metadata should corrupt normal application operation
+* queued changes may be preserved for later retry
+
+Imported/downloaded files must remain usable.
+
+---
+
+# 60. Migration from Existing Sync System
+
+The current CRDT/Yjs implementation must not be directly carried forward unless individual components clearly add value.
+
+Audit and classify existing components:
+
+### Likely reusable
+
+* cryptographic utilities
+* QR pairing
+* device identity
+* telemetry
+* chaos-testing infrastructure
+* sync-journal concepts
+* cloud-provider abstractions where appropriate
+
+### Likely replaceable
+
+* global Yjs database replication
+* replicated application-state structures
+* unnecessary shard layers
+* state synchronization that causes UI work
+* synchronization logic coupled directly to frontend state
+* distributed structures without demonstrated need
+
+Migration must prioritize simplification.
+
+---
+
+# 61. API Surface
+
+Initial conceptual endpoints:
+
+```text
+POST   /v1/auth/...
+POST   /v1/devices/register
+GET    /v1/devices
+DELETE /v1/devices/:id
+
+POST   /v1/sync/push
+GET    /v1/sync/pull
+GET    /v1/sync/status
+
+POST   /v1/blobs/check
+POST   /v1/blobs/upload-url
+GET    /v1/blobs/:hash/download-url
+
+GET    /v1/storage/usage
+GET    /v1/account/entitlements
+```
+
+Exact API design may differ during implementation.
+
+---
+
+# 62. Suggested Server Tables
+
+Conceptually:
+
+```text
+users
+devices
+entitlements
+
+entities
+entity_revisions
+change_log
+processed_changes
+tombstones
+
+blob_objects
+blob_references
+storage_usage
+
+sync_sessions
+```
+
+Actual schema should be normalized based on implementation requirements.
+
+---
+
+# 63. Idempotent Review Event Example
+
+Client creates:
+
+```text
+event_id:
+019b...UUID
+```
+
+If an upload succeeds but the response is lost, retrying must return:
+
+```text
+already_applied
+```
+
+rather than creating a second review.
+
+This requirement is mandatory.
+
+---
+
+# 64. Example End-to-End Flow
+
+User rates a card **Good** on Mac.
+
+### Local
+
+```text
+SQLite transaction:
+
+1. add review event
+2. update derived scheduling state
+3. add sync_outbox record
+4. commit
+```
+
+UI updates immediately.
+
+### Background
+
+Sync worker sees pending event.
+
+Uploads:
+
+```text
+review_event ABC
+```
+
+Server:
+
+```text
+validates auth
+checks idempotency
+stores encrypted payload
+assigns sequence 500032
+acknowledges
+```
+
+Mac marks outbox entry synchronized.
+
+### Phone
+
+Phone receives:
+
+```text
+changes_available
+```
+
+Phone asks:
+
+```text
+/sync/pull?after=500031
+```
+
+Server returns event ABC.
+
+Phone:
+
+```text
+decrypts event
+applies to SQLite
+recalculates affected scheduling state if required
+moves cursor to 500032
+```
+
+The card now appears consistently on both devices.
+
+At no point did Mac wait for the server before finishing the review.
+
+---
+
+# 65. Success Metrics
+
+The implementation is successful when:
+
+### Performance
+
+Sync-enabled Plethora has no meaningful UI latency regression compared with sync-disabled Plethora.
+
+### Reliability
+
+Normal offline → online workflows converge without user intervention.
+
+### Integrity
+
+No valid review/card/document changes are silently lost.
+
+### Conflict rate
+
+Same-field conflicts remain rare and recoverable.
+
+### Cost
+
+Infrastructure remains inexpensive relative to Pro subscription revenue.
+
+### Privacy
+
+The server cannot access user content plaintext when E2EE is enabled.
+
+### UX
+
+Users can understand whether their data is synchronized without learning distributed-systems terminology.
+
+---
+
+# 66. Acceptance Criteria
+
+The feature is not ready for production until all of the following are true:
+
+* [ ] Local mutations never require Internet access
+* [ ] Disabling the network does not impair normal Plethora usage
+* [ ] Every syncable mutation generates an outbox record atomically
+* [ ] Push operations are idempotent
+* [ ] Pull operations resume from a monotonic cursor
+* [ ] Sync survives application termination
+* [ ] Sync survives server failure
+* [ ] Sync survives network interruption
+* [ ] Offline edits on two devices eventually converge
+* [ ] Review events are never silently overwritten
+* [ ] Deleted records propagate correctly
+* [ ] New devices can bootstrap existing accounts
+* [ ] Large libraries can sync incrementally
+* [ ] Files are transferred outside normal DB payloads
+* [ ] Duplicate blobs are not unnecessarily uploaded
+* [ ] Storage quotas are enforced server-side
+* [ ] Device revocation works
+* [ ] Pro entitlement checking works
+* [ ] Authentication tokens are stored securely
+* [ ] Sensitive sync content is encrypted
+* [ ] Sync does not cause broad React rerenders
+* [ ] SQLite write contention remains within acceptable limits
+* [ ] No network calls occur inside SQLite transactions
+* [ ] Sync worker retries safely with backoff
+* [ ] User can see last successful sync
+* [ ] Sync failures do not cause local data loss
+* [ ] Recovery mechanisms are tested
+* [ ] Schema/protocol versions are explicit
+* [ ] Older supported clients cannot corrupt newer synchronized state
+* [ ] Automated chaos tests pass
+* [ ] Mobile battery/network impact is acceptable
+
+---
+
+# 67. Hard Architectural Rules
+
+The following should be treated as non-negotiable unless this PRD is explicitly revised.
+
+### Rule 1
+
+**SQLite is the operational source of truth on every client.**
+
+### Rule 2
+
+**Sync must never block an interactive user action.**
+
+### Rule 3
+
+**Every syncable local mutation must be journaled atomically.**
+
+### Rule 4
+
+**CRDTs must not be used globally.**
+
+A CRDT may be introduced for a specific data type only where concurrent editing semantics clearly justify it.
+
+### Rule 5
+
+**Binary files do not travel through normal synchronization records.**
+
+### Rule 6
+
+**Review history is append-only.**
+
+### Rule 7
+
+**All network operations must be safely retryable.**
+
+### Rule 8
+
+**The server must treat mutations idempotently.**
+
+### Rule 9
+
+**The app must remain useful during a complete Plethora server outage.**
+
+### Rule 10
+
+**Sync implementation complexity must be justified by an observable product requirement.**
+
+---
+
+# 68. Future Opportunities
+
+Once the foundation is stable, the same infrastructure can enable:
+
+* web access to Plethora libraries
+* cloud backups
+* revision history
+* restore points
+* browser-extension remote sync
+* shared decks
+* selective library sharing
+* family/team subscriptions
+* synchronized AI workflow state
+* remotely queued tasks
+* device handoff
+* "Continue on Phone"
+* server-triggered push notifications
+* encrypted web viewer
+* user-selectable synchronization scopes
+
+These features should not complicate the initial protocol unnecessarily.
+
+---
+
+# 69. Final Product Direction
+
+Plethora Sync should behave less like a distributed collaborative editor and more like a highly reliable synchronization layer over a local-first personal database.
+
+The intended mental model is:
+
+```text
+Use Plethora normally.
+Everything saves locally immediately.
+Plethora quietly synchronizes in the background.
+Your other devices catch up.
+```
+
+The user should generally not need to think about synchronization at all.
+
+The architecture should optimize for correctness, low latency, privacy, inexpensive infrastructure, maintainability, and resilience rather than theoretical distributed-state sophistication.
+
