@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { processHtmlContent, processPlainTextContent } from "../documentImport";
+import { processHtmlContent, processPlainTextContent, resolveDocumentHtmlBaseUrl, resolveHtmlReaderBaseUrl } from "../documentImport";
 
 vi.mock("../../lib/tauri", () => ({ isTauri: () => true }));
 
@@ -107,6 +107,48 @@ describe("processHtmlContent", () => {
     expect(parsed.body.textContent).toContain("The real article.");
     expect(parsed.body.textContent).not.toContain("Jump to content");
     expect(parsed.body.textContent).not.toContain("Related navigation");
+  });
+
+  it("strips publisher styles and resolves arXiv images from abs canonical URLs", () => {
+    const html = processHtmlContent(
+      '<style>p{color:#000}</style><article class="inc-article"><div class="inc-body"><p style="color:#111">Text</p><img src="x1.png" alt="Figure"></div></article>',
+      "https://arxiv.org/abs/2410.07524v1",
+      "Paper",
+      true,
+    );
+
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    expect(
+      [...parsed.querySelectorAll("style")].some((style) => style.textContent?.includes("color:#000")),
+    ).toBe(false);
+    expect(parsed.querySelector("p")?.getAttribute("style")).toBeNull();
+    expect(parsed.querySelector("img")?.getAttribute("src")).toBe(
+      "https://arxiv.org/html/2410.07524v1/x1.png",
+    );
+    expect(parsed.querySelector("base")?.getAttribute("href")).toBe(
+      "https://arxiv.org/html/2410.07524v1/",
+    );
+  });
+});
+
+describe("resolveHtmlReaderBaseUrl", () => {
+  it("maps arXiv abs URLs to the HTML asset directory", () => {
+    expect(resolveHtmlReaderBaseUrl("https://arxiv.org/abs/2410.07524v1")).toBe(
+      "https://arxiv.org/html/2410.07524v1/",
+    );
+  });
+});
+
+describe("resolveDocumentHtmlBaseUrl", () => {
+  it("prefers the pipeline canonical URL for web imports", () => {
+    expect(
+      resolveDocumentHtmlBaseUrl({
+        filePath: "https://arxiv.org/abs/2410.07524v1",
+        metadata: {
+          webArticle: { canonicalUrl: "https://arxiv.org/abs/2410.07524v1" },
+        },
+      }),
+    ).toBe("https://arxiv.org/html/2410.07524v1/");
   });
 });
 
