@@ -198,7 +198,7 @@ describe("scheduling is unchanged by assessment (spec scenario)", () => {
     // The options bag carries scheduling parameters only — no assessment
     // payload ever rides along the review submission.
     expect(Object.keys(options ?? {}).sort()).toEqual(
-      ["algorithm", "arenaProvenance", "arenaSelection", "desiredRetention", "fsrsWeights", "grade", "noScheduleUpdate", "sm20PureM4"].sort()
+      ["algorithm", "arenaProvenance", "arenaSelection", "desiredRetention", "fsrsWeights", "grade", "noScheduleUpdate", "precisionPureKernel"].sort()
     );
 
     // Assessment ran on reveal and was persisted separately AFTER grading.

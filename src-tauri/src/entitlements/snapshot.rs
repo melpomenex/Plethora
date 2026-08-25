@@ -230,7 +230,7 @@ pub fn get_descriptor(id: CapabilityId) -> CapabilityDescriptor {
             default_plan: "pro",
             requires_account: true,
             has_quotas: true,
-            local_fallback: "Manual card editing and FSRS/SM-20 parameter tuning.",
+            local_fallback: "Manual card editing and FSRS/Precision parameter tuning.",
         },
         CapabilityId::AdvancedAnalytics => CapabilityDescriptor {
             id,

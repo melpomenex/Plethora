@@ -1,7 +1,7 @@
 # Change: FSRS-native review and reading UX overhaul
 
 ## Why
-The current review and reading queue surfaces do not expose FSRS reasoning, time cost, or session flow clearly enough for power users. A redesign focused on transparency, time budgeting, and incremental reading pathways is needed to surpass SuperMemo-level UX.
+The current review and reading queue surfaces do not expose FSRS reasoning, time cost, or session flow clearly enough for power users. A redesign focused on transparency, time budgeting, and incremental reading pathways is needed to surpass Plethora-level UX.
 
 ## What Changes
 - Reframe review and reading queues as session-aware plans with time budgets and safe stop points.

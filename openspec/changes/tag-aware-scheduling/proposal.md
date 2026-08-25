@@ -1,6 +1,6 @@
 ## Why
 
-Review sessions suffer from two problems that reduce learning efficiency: semantically similar items appearing back-to-back cause interference (weakening recall), and advanced material becoming available before foundational prerequisites are stable leads to wasted effort. Tag-Aware Scheduling (TAS) addresses both by reordering and gating the review queue using existing tag embeddings and user-defined prerequisites — without modifying the proven SM-20/FSRS interval algorithms.
+Review sessions suffer from two problems that reduce learning efficiency: semantically similar items appearing back-to-back cause interference (weakening recall), and advanced material becoming available before foundational prerequisites are stable leads to wasted effort. Tag-Aware Scheduling (TAS) addresses both by reordering and gating the review queue using existing tag embeddings and user-defined prerequisites — without modifying the proven Plethora Precision/FSRS interval algorithms.
 
 ## What Changes
 
@@ -10,7 +10,7 @@ Review sessions suffer from two problems that reduce learning efficiency: semant
 - **New**: Prerequisite editor UI in tag management: multi-select, dependency graph visualization, maturity progress bars.
 - **New**: Queue indicators showing why items are blocked/delayed, with a "Force show" override.
 - **New**: TAS config settings panel (on/off toggle, sliders for thresholds).
-- **Modified**: Queue assembly pipeline — TAS runs as a post-processing step after SM-20/FSRS; the existing scheduler is unchanged.
+- **Modified**: Queue assembly pipeline — TAS runs as a post-processing step after Plethora Precision/FSRS; the existing scheduler is unchanged.
 - **Default**: TAS is opt-in; disabled by default. All existing behavior is preserved when TAS is off.
 
 ## Capabilities

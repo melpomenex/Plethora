@@ -2,7 +2,7 @@
 
 ## Context
 
-The Plethora repository contains a rich learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), supporting incremental reading, spaced repetition (FSRS-6, SM-18, SM-20, TAS), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
+The Plethora repository contains a rich learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), supporting incremental reading, spaced repetition (FSRS-6, Plethora Adaptive, Plethora Precision, TAS), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
 
 Currently, public documentation on `useplethora.com` is minimal:
 - `website/src/pages/docs/index.astro` and `website/src/pages/docs/[slug].astro` render a flat list of 6-7 placeholder stubs (`getting-started.md`, `incremental-reading.md`, etc.).
@@ -141,12 +141,12 @@ The wiki taxonomy organizes Plethora's verified capabilities into 12 coherent ca
 | Category Key | Category Title | Description | Key Articles Covered |
 | :--- | :--- | :--- | :--- |
 | `start-here` | Start Here | Fundamentals, installation, and first launch. | `getting-started`, `installation-desktop`, `installation-mobile`, `core-concepts-journey`, `quick-start-tutorial` |
-| `capture-and-import` | Capture & Import | Getting books, papers, articles, and decks into Plethora. | `local-file-imports`, `web-url-scraping`, `arxiv-papers`, `kindle-clippings`, `anki-apkg-import`, `supermemo-zip-import`, `browser-extension` |
+| `capture-and-import` | Capture & Import | Getting books, papers, articles, and decks into Plethora. | `local-file-imports`, `web-url-scraping`, `arxiv-papers`, `kindle-clippings`, `anki-apkg-import`, `legacy-third-party-zip-import`, `browser-extension` |
 | `read-and-listen` | Read & Listen | Comprehensive reading viewers, audio, and TTS engines. | `pdf-page-mode`, `pdf-scroll-mode`, `pdf-reflow`, `epub-cfi-reader`, `html-web-reader`, `markdown-latex-reader`, `video-transcript-karaoke`, `text-to-speech-engines`, `vim-reading-navigation`, `reading-position-persistence` |
 | `understand-and-extract` | Understand & Extract | Distilling knowledge through selections and extracts. | `selections-and-highlights`, `incremental-reading-extracts`, `extract-priority-inheritance`, `extract-lifecycle-management`, `dictionary-peek`, `notes-and-annotations` |
 | `organize-and-connect` | Organize & Connect | Structuring your library and discovering associations. | `collections-and-folders`, `tagging-system`, `knowledge-graph-3d`, `topic-clustering`, `global-library-search` |
 | `remember-and-review` | Remember & Review | Active recall surfaces and card authoring. | `flashcard-studio`, `cloze-deletion-cards`, `qa-cards`, `image-occlusion-ocr`, `audio-review-mode`, `review-sessions-grading` |
-| `scheduling-and-algorithms` | Scheduling & Spaced Repetition | The science and algorithms behind retention. | `spaced-repetition-fundamentals`, `fsrs-6-algorithm`, `supermemo-algorithms`, `topic-aware-scheduling`, `neural-queue-composition` |
+| `scheduling-and-algorithms` | Scheduling & Spaced Repetition | The science and algorithms behind retention. | `spaced-repetition-fundamentals`, `fsrs-6-algorithm`, `plethora-schedulers`, `topic-aware-scheduling`, `neural-queue-composition` |
 | `language-learning` | Language Learning | Tools for foreign language immersion and vocabulary. | `language-profiles`, `lexical-coverage-dictionaries`, `sentence-mining`, `dictation-and-shadowing` |
 | `ai-and-models` | AI & Providers | Augmenting study with on-device and cloud models. | `ai-provider-setup`, `byo-api-keys`, `on-device-gemini-nano`, `socratic-tutor`, `grounded-library-rag`, `ai-cost-and-privacy` |
 | `rss-and-podcasts` | RSS & Podcasts | Continuous learning from web feeds and audio broadcasts. | `rss-feed-management`, `rss-full-text-reader`, `semantic-preference-learning`, `podcast-whisper-transcription` |

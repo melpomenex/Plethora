@@ -202,7 +202,7 @@ fn build_learning_item(
     item.interval = card.interval_days as f64;
     item.review_count = card.repetitions;
     item.lapses = card.lapse_count;
-    item.algorithm_type = "sm2".to_string();
+    item.algorithm_type = "classic".to_string();
 
     if card.known_pile {
         item.is_suspended = true;
@@ -492,7 +492,7 @@ fn imported_cards_carry_the_chosen_collection() {
         assert_eq!(item.lapses, 0);
         assert!(matches!(item.state, ItemState::Review));
         assert!(!item.is_suspended);
-        assert_eq!(item.algorithm_type, "sm2");
+        assert_eq!(item.algorithm_type, "classic");
         assert!(item.last_review_date.is_some());
 
         assert_eq!(item.id, hex_sha256("What is DNA synthesis?"));

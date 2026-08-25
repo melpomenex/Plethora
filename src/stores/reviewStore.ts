@@ -12,9 +12,9 @@ import {
   ReviewStreak,
   ArenaSelection,
   ArenaSelectionSource,
-  SM20ArenaModelId,
+  ArenaModelId,
   ArenaReviewProvenance,
-  SM20ArenaGradePreview,
+  ArenaGradePreview,
 } from "../api/review";
 import { getLearningItems } from "../api/learning-items";
 import { useCollectionStore } from "./collectionStore";
@@ -25,6 +25,7 @@ import { resolveFsrsParamsForScope } from "../utils/fsrsScope";
 import { filterByDecks } from "../utils/studyDecks";
 import { featureFlags } from "../lib/featureFlags";
 import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
+import { isPrecisionScheduler } from "../lib/schedulerIdentity";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -76,7 +77,7 @@ export type ReviewPhase =
 
 export interface ArenaSelectionDraft {
   source: ArenaSelectionSource;
-  modelId?: SM20ArenaModelId;
+  modelId?: ArenaModelId;
   intervalDays?: number;
 }
 
@@ -88,7 +89,7 @@ export interface PendingArenaReview {
   gradedAt: number;
   recallTimeTaken: number;
   selection: ArenaSelectionDraft;
-  preview?: SM20ArenaGradePreview;
+  preview?: ArenaGradePreview;
   error?: string;
 }
 
@@ -160,7 +161,7 @@ interface ReviewState {
   loadStreak: () => Promise<void>;
   showAnswer: () => void;
   hideAnswer: () => void;
-  /** Submit a review. `grade` is the native SM-20 grade (0-5) when the native
+  /** Submit a review. `grade` is the native Precision grade (0-5) when the native
    * grading scale is active; the rating is still passed for stats/history. */
   submitRating: (rating: ReviewRating, grade?: number, arenaSelection?: ArenaSelection) => Promise<void>;
   selectArenaChoice: (selection: ArenaSelectionDraft) => void;
@@ -375,10 +376,10 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     const arenaEligible =
       featureFlags.reviewAlgorithmArena &&
       reviewMode === "normal" &&
-      settings.learning.algorithm === "sm20" &&
-      !settings.learning.sm20PureM4;
+      isPrecisionScheduler(settings.learning.algorithm) &&
+      !settings.learning.precisionPureKernel;
     const effectiveGrade = Math.max(0, Math.min(5, grade ?? ratingToSm20Grade(rating)));
-    const arenaReviewMode = settings.learning.sm20ArenaReviewMode ?? "automatic";
+    const arenaReviewMode = settings.learning.arenaReviewMode ?? "automatic";
 
     // Automatic is still an Arena review: commit the authoritative weighted
     // pick (and provenance) immediately. The fallback token deliberately asks
@@ -504,7 +505,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           algorithm: settings.learning.algorithm,
           noScheduleUpdate: false,
           grade,
-          sm20PureM4: settings.learning.sm20PureM4,
+          precisionPureKernel: settings.learning.precisionPureKernel,
           arenaSelection,
           arenaProvenance,
         });
@@ -669,7 +670,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       const intervals = await previewReviewIntervals(
         currentCard.id,
         settings.learning.algorithm,
-        settings.learning.sm20PureM4
+        settings.learning.precisionPureKernel
       );
       const pending = get().pendingArenaReview;
       set({

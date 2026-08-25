@@ -44,7 +44,7 @@
 - [x] 6.2 Add unit tests for the commit/clear state machine: commit on valid selection, no commit for collapsed / non-PDF / empty-text selections, clear on each of the five clear triggers, no clear on native-selection loss
 - [x] 6.3 Add a test that overlay rects re-derive correctly across a scale change
 - [x] 6.4 Run the full test suite and `npm run typecheck`; record the net line-count change from tasks 1-5
-  - Full suite: 2329 passed / 1 skipped / 1 failed — the single failure is the pre-existing flaky `src/lib/__tests__/sm20.test.ts` ensemble test (passes in isolation; unrelated to this change). `tsc --noEmit` clean.
+  - Full suite: 2329 passed / 1 skipped / 1 failed — the single failure is the pre-existing flaky `src/lib/__tests__/precisionScheduler.test.ts` ensemble test (passes in isolation; unrelated to this change). `tsc --noEmit` clean.
   - Net line change, tasks 1–5 (code only): PDFViewer.tsx + PDFViewer.css + PdfPageView.tsx + HighlightLayer.tsx = −204 (215+/419−); selection/ engine deleted = −2,027; new code SelectionOverlay.tsx (+63) + pdfSelectionPersistence.ts (+84). **Code net ≈ −2,084 lines** (design goal: net code reduction ✓). Task 6 tests add +374 lines.
 
 ## 7. Cross-platform and reconciliation

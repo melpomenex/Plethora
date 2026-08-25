@@ -29,7 +29,7 @@ The app already has a mature toast system (`Toast.tsx` + `useToast` hook) with s
 
 **Decision**: The "Highlight" action in `SelectionPopup` and viewer toolbars SHALL create the extract immediately and show a toast instead of opening `CreateExtractDialog`.
 
-**Rationale**: Aligns with the user's SuperMemo comparison and the existing `useInlineExtraction` pattern. The `flashSelection()` animation already provides immediate visual feedback; the toast adds confirmation.
+**Rationale**: Aligns with the user's Plethora comparison and the existing `useInlineExtraction` pattern. The `flashSelection()` animation already provides immediate visual feedback; the toast adds confirmation.
 
 **Alternative considered**: Collapsible inline form (like Google Docs comments) — rejected as it still requires interaction and adds UI complexity for every viewer type.
 

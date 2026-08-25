@@ -1,6 +1,6 @@
 ## Context
 
-Incrementum currently schedules reviews using SM-20/FSRS, which optimizes intervals but ignores semantic relationships between items. Two items about closely related topics can appear back-to-back, causing interference that weakens recall. Additionally, items tagged with advanced concepts can appear before the user has stabilized foundational prerequisites.
+Incrementum currently schedules reviews using Plethora Precision/FSRS, which optimizes intervals but ignores semantic relationships between items. Two items about closely related topics can appear back-to-back, causing interference that weakens recall. Additionally, items tagged with advanced concepts can appear before the user has stabilized foundational prerequisites.
 
 Tag-Aware Scheduling (TAS) adds a post-processing layer over the existing scheduler. It uses the existing embedding pipeline's tag coherence values and user-defined prerequisite edges to reorder and gate the queue. TAS is opt-in and toggleable — when disabled, the system behaves exactly as it does today.
 
@@ -10,18 +10,18 @@ Tag-Aware Scheduling (TAS) adds a post-processing layer over the existing schedu
 - Reduce semantic interference by separating high-coherence items in the review queue.
 - Enforce prerequisite ordering so advanced material surfaces only after foundations are stable.
 - Keep scheduling deterministic and fast — no LLM/embedding calls at scheduling time.
-- Preserve SM-20/FSRS interval integrity — TAS mutates presentation order, not intervals.
+- Preserve Plethora Precision/FSRS interval integrity — TAS mutates presentation order, not intervals.
 
 **Non-Goals:**
 - Auto-inference of prerequisites (users explicitly declare them; future LLM agent may assist).
-- Replacing or modifying the SM-20/FSRS algorithm.
+- Replacing or modifying the Plethora Precision/FSRS algorithm.
 - Real-time coherence computation — uses existing pre-computed values.
 
 ## Decisions
 
 ### 1. TAS as a post-processing layer, not a scheduler modification
 
-**Decision**: TAS runs over the already-computed SM-20/FSRS due set. It blocks and reorders items without touching intervals, due dates, or stability values.
+**Decision**: TAS runs over the already-computed Plethora Precision/FSRS due set. It blocks and reorders items without touching intervals, due dates, or stability values.
 
 **Rationale**: This preserves the integrity of the proven scheduling algorithms. TAS can be toggled on/off at any time with zero migration cost. When disabled, the queue is identical to the pre-TAS behavior.
 

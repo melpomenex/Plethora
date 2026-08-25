@@ -18,7 +18,7 @@ Constraints:
 - tauri is pinned to `=2.11.0` (GHSA-7gmj-67g7-phm9 regression); the design must not require a newer tauri. Raw IPC responses (`tauri::ipc::Response`) exist since 2.0, so this is fine.
 - PWA/browser mode routes the same API functions through `browserInvoke` (IndexedDB backend); Tauri-only IPC changes must leave those signatures workable for both backends.
 - The release profile's documented rustc/LLVM SIGSEGV history forbids `lto = "fat"` / `codegen-units = 1` experiments in this change.
-- SM-20 scheduling code paths must not change behavior (see `Code/sm20` reference discipline).
+- Plethora Precision scheduling code paths must not change behavior (see `Code/precision` reference discipline).
 
 ## Goals / Non-Goals
 

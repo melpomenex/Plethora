@@ -4,7 +4,7 @@ Defines the system-wide 20 Rules of Knowledge Formulation command (`/20rules`), 
 
 ## Purpose
 
-To ensure AI-generated flashcards maximize long-term retention and minimize forgetting and interference, flashcards must adhere to the 20 Rules of Knowledge Formulation (Wozniak / SuperMemo). This capability introduces a standardized short command (`/20rules`, aliased to `/formulate`), UI action chips, educational reminders of what the rules do and why they matter, and prompt integration that guarantees generated flashcards are atomic, comprehensible, and highly applicable.
+To ensure AI-generated flashcards maximize long-term retention and minimize forgetting and interference, flashcards must adhere to the 20 Rules of Knowledge Formulation (Wozniak / Plethora). This capability introduces a standardized short command (`/20rules`, aliased to `/formulate`), UI action chips, educational reminders of what the rules do and why they matter, and prompt integration that guarantees generated flashcards are atomic, comprehensible, and highly applicable.
 
 ## ADDED Requirements
 

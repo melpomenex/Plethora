@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally.",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and Precision runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally.",
   "benchmarks": {
     "kp-timeline/build": {
       "cost": 0.0103,

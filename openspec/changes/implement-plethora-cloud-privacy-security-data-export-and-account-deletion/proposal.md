@@ -8,7 +8,7 @@ Privacy and portability are product features, not compliance chores: a documente
 
 ## What exists today
 - **Local security**: keychain-gated secret storage with AES-256-GCM file fallbacks (AI keys, OAuth tokens, planned account tokens); SSRF guard; backup encryption (AES-256-GCM + PBKDF2); E2E sync crypto design (6); no telemetry in the desktop app (Vercel Analytics only on web); content-free logging norms emerging in 5.
-- **Export**: app-state export (`.incrementum`→`.plethora` per rebrand), Anki/SuperMemo/mnemosyne deck exports, collection archives, `StatisticsExport`; Obsidian/Anki integrations.
+- **Export**: app-state export (`.incrementum`→`.plethora` per rebrand), Anki/Plethora/mnemosyne deck exports, collection archives, `StatisticsExport`; Obsidian/Anki integrations.
 - **Server**: nothing privacy-relevant beyond auth; no data map, no deletion flows, no audit log; `REQUIRE_PAID_FILE_SYNC` legacy flag; deprecated routes removed by 5.
 - **Docs**: no privacy document exists (docs/ has none).
 

@@ -100,7 +100,7 @@ incrementum-tauri/
 │   │   ├── commands/             # Tauri command handlers
 │   │   ├── models/               # Data models
 │   │   ├── database/             # Database layer
-│   │   ├── algorithms/           # FSRS, SM-2, SM-18, SM-20, schedulers
+│   │   ├── algorithms/           # FSRS, Classic, Adaptive, Precision, schedulers
 │   │   ├── processor/            # Document processors
 │   │   └── integrations/         # External integrations
 │   ├── Cargo.toml               # Rust dependencies
@@ -445,7 +445,7 @@ This allows sparse user data to be smoothly interpolated while dense data domina
 
 #### FSRS-Family Branch
 
-When `algorithm_branch == 1`, SM-20 uses a **3-expert weighted mixture** for retrievability estimation instead of the classic formula:
+When `algorithm_branch == 1`, Precision uses a **3-expert weighted mixture** for retrievability estimation instead of the classic formula:
 
 - **Expert 1** (power-law): `S × (S/(S+t))^pow(p[0]/0.9, 2)` — activated when threshold < param and threshold < S
 - **Expert 2** (FSRS-style): `(1 + t/S)^log₂(0.9)` — bounded proper forgetting curve ≈ `(1+t/S)^(-0.152)`
@@ -457,7 +457,7 @@ Expert weights are computed via sigmoid functions over stability and difficulty 
 
 #### Index Conversions
 
-SM-20 maps continuous values to discrete matrix indices:
+Precision maps continuous values to discrete matrix indices:
 
 - **Stability**: `floor((S - 2)^1/2.904) + 1`, clamped to [1, 20] — power-law binning
 - **Difficulty**: `floor(D × 19) + 1`, clamped to [1, 10]

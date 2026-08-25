@@ -1,6 +1,6 @@
 ## Why
 
-Users have no way to plan their study sessions or anticipate workload spikes. The existing analytics (heatmaps, schedule bar charts) show historical activity and a simple due-count forecast, but they don't provide a calendar-grade view of daily review load — how many items are due each day, how that compares to past days, and whether the user is building a sustainable schedule. SuperMemo's Workload tab addresses this but with dated UX (a dense multi-column table). Incrementum needs a modern, visually rich calendar that makes workload planning intuitive.
+Users have no way to plan their study sessions or anticipate workload spikes. The existing analytics (heatmaps, schedule bar charts) show historical activity and a simple due-count forecast, but they don't provide a calendar-grade view of daily review load — how many items are due each day, how that compares to past days, and whether the user is building a sustainable schedule. Plethora's Workload tab addresses this but with dated UX (a dense multi-column table). Incrementum needs a modern, visually rich calendar that makes workload planning intuitive.
 
 ## What Changes
 

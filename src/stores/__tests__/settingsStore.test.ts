@@ -129,16 +129,16 @@ describe("settingsStore Arena review mode", () => {
   });
 
   it("defaults to automatic Arena scheduling", () => {
-    expect(defaultSettings.learning.sm20ArenaReviewMode).toBe("automatic");
+    expect(defaultSettings.learning.arenaReviewMode).toBe("automatic");
   });
 
   it("round-trips the explicit chooser preference", () => {
     useSettingsStore.getState().updateSettingsCategory("learning", {
-      sm20ArenaReviewMode: "choose",
+      arenaReviewMode: "choose",
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.state.settings.learning.sm20ArenaReviewMode).toBe("choose");
+    expect(stored.state.settings.learning.arenaReviewMode).toBe("choose");
   });
 });
 

@@ -1,6 +1,6 @@
 ## Why
 
-The performance gate we already have (`npm run bench:check`, `scripts/perf-baselines.json`) covers *computation* — SM-20 scheduling, queue composition, markdown, Anki import. It covers no UI at all: every existing `*.bench.ts` runs in a plain Node environment with no DOM, and `performance-benchmark-gate` explicitly forbids jsdom. So the surface users actually feel — the tab workspace — has no regression protection whatsoever, and it is measurably the laggy one once several tabs are open.
+The performance gate we already have (`npm run bench:check`, `scripts/perf-baselines.json`) covers *computation* — Plethora Precision scheduling, queue composition, markdown, Anki import. It covers no UI at all: every existing `*.bench.ts` runs in a plain Node environment with no DOM, and `performance-benchmark-gate` explicitly forbids jsdom. So the surface users actually feel — the tab workspace — has no regression protection whatsoever, and it is measurably the laggy one once several tabs are open.
 
 Reading the tab workspace shows why, and none of it is speculative:
 

@@ -8,7 +8,7 @@ The documentation system SHALL establish `docs/product/**` as the single authori
 - **THEN** all canonical markdown documents from `docs/product/**` are validated, enriched with website taxonomy metadata, and written to `website/src/content/docs/`, while internal notes marked `published: false` are excluded from the public build.
 
 ### Requirement: Comprehensive Feature Coverage of Shipped Capabilities
-The documentation center SHALL provide dedicated, code-verified documentation articles covering all user-facing features across reading viewers, document ingestion, queue composition, spaced repetition algorithms (FSRS-6, SM-18, SM-20, TAS), flashcard review surfaces, language learning tools, media/TTS, AI providers, RSS/podcasts, platform specifics, themes, and local-first privacy.
+The documentation center SHALL provide dedicated, code-verified documentation articles covering all user-facing features across reading viewers, document ingestion, queue composition, spaced repetition algorithms (FSRS-6, Plethora Adaptive, Plethora Precision, TAS), flashcard review surfaces, language learning tools, media/TTS, AI providers, RSS/podcasts, platform specifics, themes, and local-first privacy.
 
 #### Scenario: Verification of shipped feature documentation
 - **WHEN** the documentation coverage script (`scripts/docs-coverage.mjs`) runs

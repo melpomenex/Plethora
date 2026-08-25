@@ -10,7 +10,7 @@
 The current Tauri-based Incrementum application has basic functionality but lacks the comprehensive feature set of the mature Qt-based Incrementum-CPP implementation. Users rely on features like:
 - Multiple sophisticated themes (17 themes exist in Incrementum-CPP)
 - Comprehensive settings management across 20+ categories
-- Advanced learning algorithms (FSRS, SM2, SuperMemo)
+- Advanced learning algorithms (FSRS, Classic, Plethora)
 - Document processing (OCR, PDF conversion, segmentation)
 - Integration services (Anki, Obsidian, RSS, MCP servers)
 - Smart queue management and analytics
@@ -61,7 +61,7 @@ From the SettingsDialog, implement all settings categories:
 - **User Interface**: Theme selection, dense mode, toolbar icon size, statistics display, hint modes
 - **Documents**: Auto-segmentation, highlighting, OCR providers, math OCR settings
 - **Learning**: Intervals, retention, scheduling, queue modes
-- **Algorithm**: FSRS/SM2 selection, forgetting curves, stability parameters
+- **Algorithm**: FSRS/Classic selection, forgetting curves, stability parameters
 - **Automation**: Auto-sync, notifications, background processing
 - **Sync**: Browser sync, VPS cloud sync, desktop full sync
 - **API Settings**: QA providers, local LLM, transcription services
@@ -79,7 +79,7 @@ From the SettingsDialog, implement all settings categories:
 #### 3. Core Features
 
 ##### Document Management
-- Import: PDF, EPUB, Arxiv, SuperMemo, Anki packages, URLs, screenshots
+- Import: PDF, EPUB, Arxiv, Plethora, Anki packages, URLs, screenshots
 - Viewer: Enhanced PDF viewer, EPUB viewer, document controls
 - Processing: Auto-segmentation, OCR (Google, AWS, Mistral, Mathpix, GPT-4o, Claude, local)
 - Extraction: Key phrase extraction, cloze creation
@@ -87,7 +87,7 @@ From the SettingsDialog, implement all settings categories:
 - Offline copies: Save and manage offline versions
 
 ##### Learning & Review
-- Algorithms: FSRS, SM2, SuperMemo with configurable parameters
+- Algorithms: FSRS, Classic, Plethora with configurable parameters
 - Queue management: Smart queues, reading queues, interleaved modes
 - Document View queue: priority scoring based on rating (1-4) and priority slider (0-100)
 - Review interface: Flip cards, cloze cards, rating system
@@ -176,7 +176,7 @@ Use web view for some features, native for others.
 - [ ] All 17 themes available with live preview
 - [ ] All 20+ settings categories implemented
 - [ ] Document import (PDF, EPUB, Arxiv, Anki) working
-- [ ] Learning algorithms (FSRS, SM2) functional
+- [ ] Learning algorithms (FSRS, Classic) functional
 - [ ] Review interface complete with all card types
 - [ ] Knowledge graph visualization working
 - [ ] RSS feed management functional

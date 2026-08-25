@@ -77,7 +77,7 @@ export interface LearningSettings {
 
 // Algorithm Settings
 export interface AlgorithmSettings {
-  type: "fsrs" | "sm2" | "sm18" | "sm20";
+  type: "fsrs" | "adaptive" | "precision" | "classic";
   desiredRetention: number;
   maxRetention: number;
   weightsHalfLife: number;

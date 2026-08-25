@@ -28,9 +28,9 @@ pub struct OptimizationResult {
 /// Optimizable parameters
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OptimizationParams {
-    /// Minimum ease factor for SM-2
+    /// Minimum ease factor for Classic
     pub min_ease_factor: f64,
-    /// Initial ease factor for SM-2
+    /// Initial ease factor for Classic
     pub initial_ease_factor: f64,
     /// Desired retention rate (0.0 - 1.0)
     pub desired_retention: f64,
@@ -80,8 +80,8 @@ impl ParameterOptimizer {
         Self::default()
     }
 
-    /// Optimize SM-2 parameters based on historical data
-    pub fn optimize_sm2(
+    /// Optimize Classic parameters based on historical data
+    pub fn optimize_classic(
         &self,
         history: &[ReviewHistory],
         initial_params: OptimizationParams,
@@ -314,9 +314,9 @@ mod tests {
     }
 
     #[test]
-    fn test_optimize_sm2_empty_history() {
+    fn test_optimize_classic_empty_history() {
         let optimizer = ParameterOptimizer::new();
-        let result = optimizer.optimize_sm2(&[], OptimizationParams::default());
+        let result = optimizer.optimize_classic(&[], OptimizationParams::default());
 
         // Should return default params with neutral score
         assert_eq!(result.expected_retention, 0.5);

@@ -40,7 +40,7 @@ Implemented via six parallel subagents in two launch groups. All commits direct 
 - B: Apple Root CA G3 fingerprint constant must be confirmed against Apple's published root list before production sign-off (env-overridable meanwhile). Owner: B.
 - C: finalize `store_transactions` disclosure wording now that B's real flows are known (flow facts recorded in B's report). Owner: C (small follow-up).
 - E: `shareProvenance` applied to text-note imports only; URL/file-import metadata hook needs a documentStore change outside E's ownership. Owner: E + document-store owners.
-- Pre-existing failures on main, NOT introduced this session (verified against pre-session commit): `precisionScheduler.test.ts` SM-20 fixture mismatch; `prefetchCommonTabs` mock unhandled rejections in MainLayout tests; server tsc errors (`capture.ts`, `video-extracts.ts`); ~20 cargo sherpa/tts test-compile errors. Owners: unrelated to A–H; flagged for general triage.
+- Pre-existing failures on main, NOT introduced this session (verified against pre-session commit): `precisionScheduler.test.ts` Plethora Precision fixture mismatch; `prefetchCommonTabs` mock unhandled rejections in MainLayout tests; server tsc errors (`capture.ts`, `video-extracts.ts`); ~20 cargo sherpa/tts test-compile errors. Owners: unrelated to A–H; flagged for general triage.
 
 **Post-merge integration gate (this session):** `tsc --noEmit` clean · eslint 0 errors · vitest 4840 passed / 1 failed (the pre-existing precisionScheduler fixture) · server tests 46/46 · `test:scripts` 149 pass / 0 fail.
 

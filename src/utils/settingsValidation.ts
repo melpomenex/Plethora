@@ -64,7 +64,7 @@ export const LearningSettingsSchema = z.object({
 
 // Algorithm Settings Schema
 export const AlgorithmSettingsSchema = z.object({
-  type: z.enum(['fsrs', 'adaptive', 'precision', 'classic', 'classic_5', 'classic_8', 'classic_15', 'sm2', 'sm5', 'sm8', 'sm15', 'sm18', 'sm20']).default('fsrs'),
+  type: z.enum(['fsrs', 'adaptive', 'precision', 'classic', 'classic_5', 'classic_8', 'classic_15']).default('fsrs'),
   desiredRetention: z.number().min(0.7).max(0.99).default(0.9),
   maxRetention: z.number().min(0.7).max(0.99).default(0.99),
   weightsHalfLife: z.number().min(1).max(365).default(30),

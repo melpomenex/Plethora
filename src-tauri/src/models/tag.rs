@@ -17,7 +17,7 @@ pub struct Tag {
     pub coherence: Option<f64>,
     /// Total number of items with this tag
     pub item_count: i32,
-    /// Average SM-20/FSRS stability across items
+    /// Average Precision/FSRS stability across items
     pub avg_stability: Option<f64>,
     /// Count of items whose stability >= maturity_threshold
     pub mature_count: i32,

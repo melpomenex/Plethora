@@ -56,7 +56,7 @@ The system SHALL store fields that have no direct LearningItem equivalent (`corr
 - **THEN** these values are stored in `interaction_metadata` as a JSON object accessible after import
 
 ### Requirement: Expose Tauri commands for import
-The system SHALL expose `validate_study_json_file` and `import_study_json_file` Tauri commands following the same patterns as existing import commands (path-based, matching Anki/SuperMemo patterns).
+The system SHALL expose `validate_study_json_file` and `import_study_json_file` Tauri commands following the same patterns as existing import commands (path-based, matching Anki/Plethora patterns).
 
 #### Scenario: Validate command
 - **WHEN** the frontend calls `validate_study_json_file` with a file path

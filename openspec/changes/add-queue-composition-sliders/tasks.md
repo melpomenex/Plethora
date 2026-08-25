@@ -45,7 +45,7 @@
 
 - [x] 7.1 Run the unit test suite and the typecheck; both clean.
 - [ ] 7.2 Run the app, open the Queue in reading mode, click "Scroll Mode", set Flashcards to 55%, and confirm flashcards appear at roughly that share — the reported bug.
-       > **Superseded** by `supermemo-faithful-queue` Phase 1 task 1.3: the
+       > **Superseded** by `unified-priority-queue` Phase 1 task 1.3: the
        > "Scroll Mode button honours the flashcard slider" scenario was broken
        > on flashcard-leaning filters because the queue-list branch's document
        > pool could be empty. Phase 1 backfills the document pool from the

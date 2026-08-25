@@ -9,7 +9,7 @@ The system SHALL run Tag-Aware Scheduling pre-computation once per review sessio
 
 #### Scenario: Queue built with TAS disabled
 - **WHEN** the user opens a review session and TAS is disabled
-- **THEN** the system SHALL present the default SM-20/FSRS queue without any TAS processing
+- **THEN** the system SHALL present the default Plethora Precision/FSRS queue without any TAS processing
 
 ### Requirement: Prerequisite gating blocks items below maturity ratio
 For each due item, the system SHALL evaluate all tags on the item and all prerequisites of those tags. The item SHALL be blocked if any prerequisite tag's mature item ratio (`matureCount / itemCount`) falls below the configured `maturityRatio`. An item with multiple tags SHALL be blocked if any single tag's prerequisite is unmet.
@@ -57,7 +57,7 @@ The system SHALL assemble the final queue from items that are not prerequisite-b
 - **THEN** the assembled queue SHALL be empty and the UI SHALL indicate why
 
 ### Requirement: Tag maturity computed on review completion
-The system SHALL recompute tag stability statistics when a review is completed. An item SHALL be considered mature when its SM-20/FSRS stability metric meets or exceeds the tag's `maturityThreshold`. The system SHALL increment `matureCount` when an item crosses the threshold and decrement when it drops below.
+The system SHALL recompute tag stability statistics when a review is completed. An item SHALL be considered mature when its Plethora Precision/FSRS stability metric meets or exceeds the tag's `maturityThreshold`. The system SHALL increment `matureCount` when an item crosses the threshold and decrement when it drops below.
 
 #### Scenario: Item matures after review
 - **WHEN** an item with stability 0.7 is reviewed and its stability increases to 0.85, and its tag has `maturityThreshold` 0.8
@@ -93,8 +93,8 @@ The system SHALL provide a `get_tag_maturity_stats` Tauri command that returns a
 - **THEN** the response SHALL include `itemCount: 10`, `avgStability: 0.6`, `matureCount: 3`
 
 ### Requirement: TAS preserves underlying scheduler integrity
-TAS SHALL operate as a post-processing layer over the existing SM-20/FSRS scheduler. It SHALL NOT modify item intervals, due dates, or stability values. Blocked or delayed items SHALL retain their original SM-20/FSRS state.
+TAS SHALL operate as a post-processing layer over the existing Plethora Precision/FSRS scheduler. It SHALL NOT modify item intervals, due dates, or stability values. Blocked or delayed items SHALL retain their original Plethora Precision/FSRS state.
 
 #### Scenario: Blocked item retains interval
-- **WHEN** an item with a 7-day SM-20 interval is prerequisite-blocked for 3 days
+- **WHEN** an item with a 7-day Plethora Precision interval is prerequisite-blocked for 3 days
 - **THEN** when unblocked, the item SHALL still have its 7-day interval intact

@@ -1,16 +1,13 @@
 /**
- * SM-20 Algorithm — True 5-Model Ensemble Implementation (TypeScript Mirror)
+ * Plethora Precision scheduler — Algorithm Arena (TypeScript mirror).
  *
- * This is the browser/PWA mirror of the Rust implementation under
- * `src-tauri/src/algorithms/sm20/`. It implements the actual SM-20 scheduling
- * algorithm as decoded from `sm20.exe`: a 5-model weighted ensemble.
+ * Browser/PWA mirror of `src-tauri/src/algorithms/precision/`. Five-model
+ * weighted ensemble (M1–M5):
  *
  * Pipeline:
  *   ensemble = (6·M1 + 14·M2 + 45·M3 + 25·M4 + 10·M5) / 100
  *   adjusted = ln(1 - FI/100) / ln(0.9) · ensemble
  *   interval = clamp(round(clamp(adjusted, 0.7, 44530)), 1, 44530)
- *
- * The browser path uses the same persisted collection learner as native.
  */
 
 import {
@@ -18,7 +15,6 @@ import {
   DEFAULT_M2_ITEM_STATE,
   DEFAULT_M3_ITEM_STATE,
   freshPrecisionCollectionState,
-  freshSm20CollectionState,
   observeArena,
   reviewM2,
   reviewM3,
@@ -27,12 +23,11 @@ import {
   type M2ItemState,
   type M3ItemState,
   type PrecisionCollectionState,
-  type SM20CollectionState,
 } from './precisionCollection';
 import { fsrs, type FSRSState } from 'ts-fsrs';
 
-export type { PrecisionCollectionState, SM20CollectionState } from './precisionCollection';
-export { freshPrecisionCollectionState, freshSm20CollectionState, currentDayFromCe } from './precisionCollection';
+export type { PrecisionCollectionState } from './precisionCollection';
+export { freshPrecisionCollectionState, currentDayFromCe } from './precisionCollection';
 
 // =============================================================================
 // CONSTANTS
@@ -170,9 +165,6 @@ export interface PrecisionState {
   lapse_ordinal?: number;
 }
 
-/** Backward compatibility alias */
-export type SM20State = PrecisionState;
-
 export interface PrecisionReviewResult {
   state: PrecisionState;
   interval_days: number;
@@ -180,18 +172,12 @@ export interface PrecisionReviewResult {
   model_intervals: [number, number, number, number, number];
 }
 
-/** Backward compatibility alias */
-export type SM20ReviewResult = PrecisionReviewResult;
-
 export interface PrecisionPreviewIntervals {
   again: number;
   hard: number;
   good: number;
   easy: number;
 }
-
-/** Backward compatibility alias */
-export type SM20PreviewIntervals = PrecisionPreviewIntervals;
 
 interface M1ItemState {
   last_review_day: number;
@@ -322,10 +308,10 @@ function model5(t: number, grade: number, sOld: number): number {
 
 function personalizedModel5(
   parameters: number[] | null,
-  memory: SM20State['m5_memory'],
+  memory: PrecisionState['m5_memory'],
   elapsedDays: number,
   grade: number,
-): { stability: number; memory: NonNullable<SM20State['m5_memory']> } | null {
+): { stability: number; memory: NonNullable<PrecisionState['m5_memory']> } | null {
   if (!parameters?.length || !parameters.every(Number.isFinite)) return null;
   try {
     const nativeParameters = Array.from(new Float32Array(parameters));
@@ -486,7 +472,7 @@ function ratingToGrade(rating: number): number {
 // PUBLIC API
 // =============================================================================
 
-const DEFAULT_STATE: SM20State = {
+const DEFAULT_STATE: PrecisionState = {
   version: 4,
   stability: 1.0,
   difficulty: 0.3,
@@ -551,16 +537,10 @@ export function parsePrecisionState(algorithmState?: string): PrecisionState {
   return { ...DEFAULT_STATE, m1_state: { ...DEFAULT_M1_STATE }, m2_state: { ...DEFAULT_M2_STATE }, m3_state: { ...DEFAULT_M3_STATE } };
 }
 
-/** Backward compatibility alias */
-export const parseSm20State = parsePrecisionState;
-
 export function precisionRetrievability(stability: number, elapsedDays: number): number {
   if (!Number.isFinite(stability) || stability <= 0) return 0;
   return Math.pow(0.9, Math.max(0, elapsedDays) / stability);
 }
-
-/** Backward compatibility alias */
-export const sm20Retrievability = precisionRetrievability;
 
 export function recallRetrievabilityToBucket(value: number): number {
   return clamp(Math.round(Math.exp(value * Math.log(20))), 1, 20);
@@ -580,9 +560,6 @@ export interface PrecisionExecutionOptions {
   postLapsePriority?: number;
   random?: () => number;
 }
-
-/** Backward compatibility alias */
-export type SM20ExecutionOptions = PrecisionExecutionOptions;
 
 /** Review a Precision item using the native-equivalent 5-model ensemble. */
 export function precisionReview(
@@ -715,9 +692,6 @@ export function precisionReview(
   };
 }
 
-/** Backward compatibility alias */
-export const sm20Review = precisionReview;
-
 export function precisionPreviewGradeResults(
   currentState: PrecisionState,
   elapsedDays: number,
@@ -740,9 +714,6 @@ export function precisionPreviewGradeResults(
   );
 }
 
-/** Backward compatibility alias */
-export const sm20PreviewGradeResults = precisionPreviewGradeResults;
-
 export function precisionPreviewIntervals(
   currentState: PrecisionState,
   elapsedDays: number,
@@ -759,9 +730,6 @@ export function precisionPreviewIntervals(
   };
 }
 
-/** Backward compatibility alias */
-export const sm20PreviewIntervals = precisionPreviewIntervals;
-
 /** Kept for backward API compatibility — no longer used by the ensemble. */
 export function precisionRecordReview(
   _stability: number,
@@ -773,6 +741,3 @@ export function precisionRecordReview(
 ): void {
   // No-op: the ensemble's M3 model handles matrix updates internally.
 }
-
-/** Backward compatibility alias */
-export const sm20RecordReview = precisionRecordReview;

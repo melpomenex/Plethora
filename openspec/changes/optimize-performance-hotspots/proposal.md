@@ -30,7 +30,7 @@ Explicitly examined and found healthy (no action proposed): DB layer (sqlx pool,
 - **Backend thread hygiene**: async Tauri commands move blocking file I/O to `tokio::fs` or `spawn_blocking`, and the remaining synchronous `pdf_extract` call sites move onto `spawn_blocking`, matching the pattern already used in `processor/pdf.rs:37`.
 - **Store subscription hygiene** (piggybacks on queue work, no new capability): convert whole-store `useXStore()` destructuring to selector-based subscriptions in the hot paths touched by this change (queue, review, settings shells).
 
-Non-goals: Yjs/sync performance (covered by existing `yjs-sync-performance` spec), Cargo release-profile changes (documented SIGSEGV risk outweighs the marginal size win), tiktoken WASM removal (5.6 MB but already lazy; revisit separately if APK budget demands it), and any scheduling-algorithm changes (SM-20 paths stay untouched).
+Non-goals: Yjs/sync performance (covered by existing `yjs-sync-performance` spec), Cargo release-profile changes (documented SIGSEGV risk outweighs the marginal size win), tiktoken WASM removal (5.6 MB but already lazy; revisit separately if APK budget demands it), and any scheduling-algorithm changes (Plethora Precision paths stay untouched).
 
 ## Capabilities
 

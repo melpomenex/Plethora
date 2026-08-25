@@ -2,7 +2,7 @@
 
 ## Why
 
-SuperMemo's defining IR lifecycle actions — **Forget**, **Dismiss**, **Done** — let users graduate or retire material from the queue without deleting it. Today Incrementum's extracts can only be reviewed-forever or deleted (`delete_extract`, `bulk_delete_extracts`). Documents have `is_dismissed` (`models/document.rs:38`), but extracts have no equivalent, and there is no "reset memory" or "graduate" action. This leaves the IR workflow incomplete: users cannot clean up their queue except by destructive deletion.
+Plethora's defining IR lifecycle actions — **Forget**, **Dismiss**, **Done** — let users graduate or retire material from the queue without deleting it. Today Incrementum's extracts can only be reviewed-forever or deleted (`delete_extract`, `bulk_delete_extracts`). Documents have `is_dismissed` (`models/document.rs:38`), but extracts have no equivalent, and there is no "reset memory" or "graduate" action. This leaves the IR workflow incomplete: users cannot clean up their queue except by destructive deletion.
 
 ## What Changes
 

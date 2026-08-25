@@ -2,7 +2,7 @@
 
 Incrementum already records a surprising amount of per-item history — every queue rating measures dwell time, documents accumulate `total_time_spent`, and every flashcard review writes a `review_results` row with its rating, timing, and resulting due date — but almost none of it is visible. The Queue "Details" popover shows seven scheduling numbers (stability, difficulty, retrievability, next interval, due date, reps, lapses) and nothing about the time or effort the user has invested in that item. Users who care about their learning data have to export the database to answer "how long have I spent on this?"
 
-Two of the tracking paths are also broken in ways that make the honest answer unavailable: `submit_extract_review` accepts the measured time as `_time_taken` and discards it, and the fully-built `reading_sessions` table, Tauri commands, and frontend API have **zero call sites** — so time spent reading outside the Queue is never recorded. Closing those gaps and surfacing the result turns a pile of dormant columns into the per-item statistics view a SuperMemo user expects.
+Two of the tracking paths are also broken in ways that make the honest answer unavailable: `submit_extract_review` accepts the measured time as `_time_taken` and discards it, and the fully-built `reading_sessions` table, Tauri commands, and frontend API have **zero call sites** — so time spent reading outside the Queue is never recorded. Closing those gaps and surfacing the result turns a pile of dormant columns into the per-item statistics view a Plethora user expects.
 
 ## What Changes
 

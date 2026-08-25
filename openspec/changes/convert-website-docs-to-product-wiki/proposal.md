@@ -17,12 +17,12 @@ This change converts the current `/docs` section into a comprehensive, searchabl
 - **Astro Content Schema Expansion**: Upgrade `website/src/content.config.ts` to support rich metadata including categories, subcategories, reading times, claim IDs, feature statuses, platform tags, aliases, keywords, and related doc references.
 - **12-Category User-Goal Information Architecture**: Reorganize documentation around user learning goals:
   1. *Start Here* (Getting Started, Installation, First Launch, Core Concepts)
-  2. *Capture & Import* (Local Files, URL Scraping, Arxiv, Kindle Clippings, Anki Packages, SuperMemo ZIPs, Browser Extension)
+  2. *Capture & Import* (Local Files, URL Scraping, Arxiv, Kindle Clippings, Anki Packages, legacy third-party collection ZIPs, Browser Extension)
   3. *Read & Listen* (PDF Page & Scroll Modes, PDF Reflow, EPUB & CFI Tracking, HTML Reader, Markdown & LaTeX, Video Transcripts, TTS Engines, Vim Navigation, Position Persistence)
   4. *Understand & Extract* (Selections & Highlights, Incremental Reading Extracts, Priority & Inheritance, Extract Lifecycle, Dictionary Peek, Notes)
   5. *Organize & Connect* (Collections, Smart Tagging, Knowledge Graph, Topic Clustering, Global Search)
   6. *Remember & Review* (Flashcard Studio, Cloze Cards, Q&A, Image Occlusion, Audio Review Mode, Review Sessions)
-  7. *Scheduling & Algorithms* (SRS Principles, FSRS-6, SuperMemo SM-18 / SM-20 / SM-2/5/8/15, Topic-Aware Scheduling, Neural Queue)
+  7. *Scheduling & Algorithms* (SRS Principles, FSRS-6, Plethora Plethora Adaptive / Plethora Precision / Plethora Classic/5/8/15, Topic-Aware Scheduling, Neural Queue)
   8. *Language Learning* (Language Profiles, Lexical Coverage, Sentence Mining, Dictation & Shadowing)
   9. *AI & Providers* (BYO API Keys, On-Device Models / Gemini Nano, Socratic Tutor, Grounded RAG, Cost & Privacy Controls)
   10. *RSS & Podcasts* (RSS Management, Full-Text Extraction, Semantic Preferences, Podcast Whisper Transcription)

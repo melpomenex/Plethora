@@ -1,6 +1,6 @@
 ## Why
 
-Natural encounters should build durable lexical evidence without flooding reviews, while Plethora already has Flashcard Studio, learning items, and selectable FSRS/SM-18/SM-20/SM-2 scheduling. The missing capability is an explicit, rich escalation from a word/phrase/sentence worth memorizing into that existing system.
+Natural encounters should build durable lexical evidence without flooding reviews, while Plethora already has Flashcard Studio, learning items, and selectable FSRS/Plethora Adaptive/Plethora Precision/Plethora Classic scheduling. The missing capability is an explicit, rich escalation from a word/phrase/sentence worth memorizing into that existing system.
 
 ## What Changes
 

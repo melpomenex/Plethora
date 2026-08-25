@@ -50,11 +50,11 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     const [imageUrls, setImageUrls] = useState<string[]>([]);
     const { click } = useHapticFeedback();
     const containerRef = useRef<HTMLDivElement>(null);
-    // SuperMemo six-grade schedulers (SM-18/SM-20) rate on the native 0-5
+    // Six-grade schedulers (Adaptive/Precision) rate on the native 0-5
     // scale — same shared control, keyboard mapping, and touch joystick as
     // the review session.
     const ratingSchema = useRatingSchema();
-    const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) === "supermemo";
+    const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
     const isAnswerRevealedRef = useRef(isAnswerRevealed);
     isAnswerRevealedRef.current = isAnswerRevealed;
 
@@ -101,7 +101,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
             }
 
             // Number keys to rate (only when answer is revealed): 0-5 native
-            // grades under SuperMemo schedulers, 1-4 otherwise.
+            // grades under six-grade schedulers, 1-4 otherwise.
             if (isAnswerRevealed) {
                 if (useNativeGrades && /^[0-5]$/.test(e.key)) {
                     e.preventDefault();

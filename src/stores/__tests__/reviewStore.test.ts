@@ -7,8 +7,8 @@ const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMo
   settingsState: {
     learning: {
       algorithm: "fsrs",
-      sm20PureM4: false,
-      sm20ArenaReviewMode: "choose" as "automatic" | "choose",
+      precisionPureKernel: false,
+      arenaReviewMode: "choose" as "automatic" | "choose",
       fsrsParams: { desiredRetention: 0.9, maximumInterval: 36500 },
       scopedFsrsOverrides: [],
     },
@@ -107,11 +107,11 @@ const makeArenaPreview = (previewId = "preview-store") => ({
   item_revision: `item-${previewId}`,
   arena_revision: `arena-${previewId}`,
   generated_at: new Date().toISOString(),
-  model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+  model_order: ["m1", "m2", "m3", "m4", "m5"],
   grades: Array.from({ length: 6 }, (_, grade) => ({
     grade,
     recommendation: { interval_days: grade + 10, due_at: new Date().toISOString() },
-    candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+    candidates: ["m1", "m2", "m3", "m4", "m5"].map((model_id, index) => ({
       model_id,
       label: model_id.toUpperCase(),
       interval_days: grade + index + 1,
@@ -132,8 +132,8 @@ describe("reviewStore Wave 1 behavior", () => {
     previewReviewIntervalsMock.mockReset();
     previewReviewIntervalsMock.mockResolvedValue({ again: 1, hard: 2, good: 3, easy: 4 });
     settingsState.learning.algorithm = "fsrs";
-    settingsState.learning.sm20PureM4 = false;
-    settingsState.learning.sm20ArenaReviewMode = "choose";
+    settingsState.learning.precisionPureKernel = false;
+    settingsState.learning.arenaReviewMode = "choose";
     window.localStorage.clear();
     useReviewStore.getState().resetSession();
   });
@@ -302,20 +302,20 @@ describe("reviewStore Wave 1 behavior", () => {
     );
   });
 
-  it("holds an eligible SM-20 grade until the Arena choice commits", async () => {
-    settingsState.learning.algorithm = "sm20";
-    const card = makeLearningCard({ algorithm_type: "sm20", algorithm_state: '{"interval":2}' });
+  it("holds an eligible Precision grade until the Arena choice commits", async () => {
+    settingsState.learning.algorithm = "precision";
+    const card = makeLearningCard({ algorithm_type: "precision", algorithm_state: '{"interval":2}' });
     const arena = {
       schema_version: 1,
       preview_id: "preview-1",
       item_revision: "item-rev",
       arena_revision: "arena-rev",
       generated_at: new Date().toISOString(),
-      model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+      model_order: ["m1", "m2", "m3", "m4", "m5"],
       grades: Array.from({ length: 6 }, (_, grade) => ({
         grade,
         recommendation: { interval_days: grade + 10, due_at: new Date().toISOString() },
-        candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+        candidates: ["m1", "m2", "m3", "m4", "m5"].map((model_id, index) => ({
           model_id,
           label: model_id.toUpperCase(),
           interval_days: grade + index + 1,
@@ -346,7 +346,7 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(useReviewStore.getState().reviewPhase).toBe("arena-ready");
 
     submitReviewMock.mockResolvedValue({});
-    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "fsrs" });
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "m5" });
     await useReviewStore.getState().confirmArenaSelection();
 
     expect(submitReviewMock).toHaveBeenCalledWith(
@@ -357,7 +357,7 @@ describe("reviewStore Wave 1 behavior", () => {
       expect.objectContaining({
         arenaSelection: expect.objectContaining({
           source: "model",
-          model_id: "fsrs",
+          model_id: "m5",
           preview_id: "preview-1",
         }),
       }),
@@ -370,7 +370,7 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(restoreLearningItemStateMock).toHaveBeenCalledWith(
       "card-1",
       expect.objectContaining({
-        algorithmType: "sm20",
+        algorithmType: "precision",
         algorithmState: '{"interval":2}',
         arenaCommitId: committedSelection.commit_id,
       }),
@@ -380,13 +380,13 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("keeps the pending grade, selection, queue, and counters after an Arena commit error", async () => {
-    settingsState.learning.algorithm = "sm20";
+    settingsState.learning.algorithm = "precision";
     submitReviewMock.mockRejectedValue(new Error("network offline"));
-    const card = makeLearningCard({ algorithm_type: "sm20" });
+    const card = makeLearningCard({ algorithm_type: "precision" });
     const gradePreview = {
       grade: 4,
       recommendation: { interval_days: 12, due_at: new Date().toISOString() },
-      candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+      candidates: ["m1", "m2", "m3", "m4", "m5"].map((model_id, index) => ({
         model_id,
         label: model_id,
         interval_days: index + 4,
@@ -404,7 +404,7 @@ describe("reviewStore Wave 1 behavior", () => {
         again: 1, hard: 2, good: 3, easy: 4,
         arena: {
           schema_version: 1, preview_id: "p", item_revision: "i", arena_revision: "a",
-          generated_at: new Date().toISOString(), model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+          generated_at: new Date().toISOString(), model_order: ["m1", "m2", "m3", "m4", "m5"],
           grades: [gradePreview, gradePreview, gradePreview, gradePreview, gradePreview, gradePreview],
         },
       } as any,
@@ -428,8 +428,8 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("discards a confirmed pending grade on session exit without scheduling it", async () => {
-    settingsState.learning.algorithm = "sm20";
-    const card = makeLearningCard({ algorithm_type: "sm20" });
+    settingsState.learning.algorithm = "precision";
+    const card = makeLearningCard({ algorithm_type: "precision" });
     useReviewStore.setState({
       queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
       sessionStartTime: Date.now(), sessionId: "exit", isAnswerShown: true,
@@ -447,11 +447,11 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(useReviewStore.getState().reviewsCompleted).toBe(0);
   });
 
-  it("keeps Pure M4 and non-SM-20 reviews on the direct scheduler path", async () => {
+  it("keeps Pure M4 and non-Precision reviews on the direct scheduler path", async () => {
     submitReviewMock.mockResolvedValue({});
-    for (const [algorithm, pureM4] of [["fsrs", false], ["sm20", true]] as const) {
+    for (const [algorithm, pureM4] of [["fsrs", false], ["precision", true]] as const) {
       settingsState.learning.algorithm = algorithm;
-      settingsState.learning.sm20PureM4 = pureM4;
+      settingsState.learning.precisionPureKernel = pureM4;
       const card = makeLearningCard({ id: `card-${algorithm}-${pureM4}`, algorithm_type: algorithm });
       useReviewStore.setState({
         queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
@@ -468,10 +468,10 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("commits Arena Pick immediately in the default automatic mode", async () => {
-    settingsState.learning.algorithm = "sm20";
-    settingsState.learning.sm20ArenaReviewMode = "automatic";
+    settingsState.learning.algorithm = "precision";
+    settingsState.learning.arenaReviewMode = "automatic";
     submitReviewMock.mockResolvedValue({});
-    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "automatic" });
+    const card = makeLearningCard({ algorithm_type: "precision", extract_id: "automatic" });
     const arena = makeArenaPreview("automatic");
     useReviewStore.setState({
       queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
@@ -500,10 +500,10 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("uses the authoritative automatic fallback when preview is not ready", async () => {
-    settingsState.learning.algorithm = "sm20";
-    settingsState.learning.sm20ArenaReviewMode = "automatic";
+    settingsState.learning.algorithm = "precision";
+    settingsState.learning.arenaReviewMode = "automatic";
     submitReviewMock.mockResolvedValue({});
-    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "fallback" });
+    const card = makeLearningCard({ algorithm_type: "precision", extract_id: "fallback" });
     useReviewStore.setState({
       queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
       sessionStartTime: Date.now(), sessionId: "fallback", isAnswerShown: true,
@@ -521,7 +521,7 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("locks queue navigation until Back to rating discards the pending grade", async () => {
-    settingsState.learning.algorithm = "sm20";
+    settingsState.learning.algorithm = "precision";
     const first = makeLearningCard({ id: "card-1", extract_id: "one" });
     const second = makeLearningCard({ id: "card-2", extract_id: "two" });
     useReviewStore.setState({
@@ -544,8 +544,8 @@ describe("reviewStore Wave 1 behavior", () => {
   });
 
   it("refreshes a stale preview while preserving the uncommitted selection", async () => {
-    settingsState.learning.algorithm = "sm20";
-    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "stale" });
+    settingsState.learning.algorithm = "precision";
+    const card = makeLearningCard({ algorithm_type: "precision", extract_id: "stale" });
     const initialArena = makeArenaPreview("initial");
     const refreshedArena = makeArenaPreview("refreshed");
     previewReviewIntervalsMock.mockResolvedValue({
@@ -558,7 +558,7 @@ describe("reviewStore Wave 1 behavior", () => {
       previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena: initialArena } as any,
     });
     await useReviewStore.getState().submitRating(3, 4);
-    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "sm19" });
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "m3" });
     await useReviewStore.getState().confirmArenaSelection();
 
     await vi.waitFor(() => {
@@ -566,7 +566,7 @@ describe("reviewStore Wave 1 behavior", () => {
     });
     expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({
       source: "model",
-      modelId: "sm19",
+      modelId: "m3",
     });
     expect(useReviewStore.getState().reviewPhase).toBe("arena-ready");
     expect(useReviewStore.getState().reviewsCompleted).toBe(0);

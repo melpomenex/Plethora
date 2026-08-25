@@ -168,7 +168,7 @@ pub enum AlgorithmType {
     Classic15,
     Adaptive,
     Precision,
-    SM2,
+    ClassicLegacy,
 }
 
 /// Calculate next review state using Classic algorithm
@@ -961,7 +961,7 @@ pub async fn optimize_algorithm_params(
     }
 
     let optimizer = ParameterOptimizer::new();
-    let mut result = optimizer.optimize_sm2(&history, initial_params);
+    let mut result = optimizer.optimize_classic(&history, initial_params);
     result.history_count = total;
     result.minimum_history_required = MIN_HISTORY_REQUIRED;
 
@@ -1003,8 +1003,6 @@ pub struct ArenaOptimizationStatus {
     pub message: String,
 }
 
-pub type SM20OptimizationStatus = ArenaOptimizationStatus;
-
 /// Get the Arena ensemble status. Reports how many M3 matrix cells have been
 /// populated by the learning pipeline. The ensemble is always active — there
 /// is no separate "optimize" step.
@@ -1032,23 +1030,11 @@ pub async fn get_arena_optimization_status(
     })
 }
 
-#[tauri::command]
-pub async fn get_sm20_optimization_status(
-    repo: State<'_, Repository>,
-) -> Result<ArenaOptimizationStatus> {
-    get_arena_optimization_status(repo).await
-}
-
 /// The Arena ensemble does not require a separate optimization step — M2's
 /// optimizer and M3's matrices learn continuously as reviews occur. This
 /// command is kept for API compatibility but is a no-op.
 #[tauri::command]
 pub async fn optimize_arena_locally(repo: State<'_, Repository>) -> Result<ArenaOptimizationStatus> {
-    get_arena_optimization_status(repo).await
-}
-
-#[tauri::command]
-pub async fn optimize_sm20_locally(repo: State<'_, Repository>) -> Result<ArenaOptimizationStatus> {
     get_arena_optimization_status(repo).await
 }
 

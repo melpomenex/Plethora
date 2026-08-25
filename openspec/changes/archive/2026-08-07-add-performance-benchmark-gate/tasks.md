@@ -25,7 +25,7 @@
 
 ## 4. Seed benchmark suites
 
-- [x] 4.1 `src/lib/sm20.bench.ts` — repetition scheduling over a fixed grade sequence; inputs built with `seededRandom`.
+- [x] 4.1 `src/lib/precision.bench.ts` — repetition scheduling over a fixed grade sequence; inputs built with `seededRandom`.
 - [x] 4.2 `src/lib/postpone.bench.ts` — postpone planning across a synthetic collection of ~1000 items.
 - [x] 4.3 `src/pages/queueScrollBudget.bench.ts` — queue assembly and budget computation over ~500 items.
 - [x] 4.4 `src/utils/markdown.bench.ts` — render a fixed multi-thousand-word document with mixed formatting.

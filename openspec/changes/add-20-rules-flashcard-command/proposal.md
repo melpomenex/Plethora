@@ -1,6 +1,6 @@
 ## Why
 
-Incrementum is built around incremental reading and spaced repetition, but generating effective, high-retention flashcards requires adhering to sound cognitive principles. Dr. Piotr Wozniak's *20 Rules of Knowledge Formulation* (and its modern incremental reading evolution on SuperMemo Guru) is the gold standard for creating atomic, high-retention flashcards that avoid interference, maximize applicability, and keep learning pleasurable.
+Incrementum is built around incremental reading and spaced repetition, but generating effective, high-retention flashcards requires adhering to sound cognitive principles. Dr. Piotr Wozniak's *20 Rules of Knowledge Formulation* (and its modern incremental reading evolution on Plethora Guru) is the gold standard for creating atomic, high-retention flashcards that avoid interference, maximize applicability, and keep learning pleasurable.
 
 Currently, users across Document Q&A, the Assistant panel, and AI Flashcard Studio must manually describe how they want cards formulated or receive generic cards that frequently violate the minimum information principle (e.g., wordy answers, complex enumerations, passive facts lacking context). Adding a dedicated, memorable command (e.g., `/20rules` and `/formulate`) across these surfaces equips users with one-click access to prompt-engineered 20-rules card formulation, accompanied by explicit reminders of what the rules are and why they work.
 

@@ -3,7 +3,7 @@
 //! `FUN_00cf4d50` (ensemble) → `FUN_00cf5b50` (finalization) → `FUN_00cf5100`
 //! (dispersal) / `FUN_00ce2fe0` (post-lapse).
 //!
-//! All constants and formulas live-binary-validated against `sm20.exe`:
+//! All constants and formulas live-binary-validated against the Precision reference binary:
 //! - Ensemble weighting: 20/20 exact match
 //! - Retention adjustment: 20/20 exact match
 //! - Dispersal: 200 trials, distribution matches within 5% per bucket
@@ -30,10 +30,10 @@ const ADAPT_CLAMP_HI: f64 = 0.5; // DAT_00af44c0
 const ADAPT_TARGET_SUM: f64 = 100.0; // _DAT_00af4518
                                      // Per-weight clamps: (lo, hi) from af44d0..af4510
 const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
-    (0.1, 30.0),  // W1/PA2  (M1/SM-2 legacy)
-    (2.0, 50.0),  // W2/PA15 (M2/SM-15 classic)
-    (25.0, 99.9), // W3/PA19 (M3/SM-19 matrix)
-    (15.0, 95.0), // W4/PA20 (M4/SM-20 kernel)
+    (0.1, 30.0),  // W1/PA2  (M1/classic legacy)
+    (2.0, 50.0),  // W2/PA15 (M2/classic optimizer)
+    (25.0, 99.9), // W3/PA19 (M3/matrix)
+    (15.0, 95.0), // W4/PA20 (M4/precision kernel)
     (0.1, 45.0),  // W5/PAF  (M5/FSRS analytic)
 ];
 
@@ -84,7 +84,7 @@ pub const DEFAULT_FI: u8 = 10;
 ///
 /// Mirrors `FUN_00cf4d50`: the weights live in mutable per-user state (the
 /// binary's `[Algorithm] PA2/PA15/PA19/PA20/PAF` settings), and when they sum
-/// to zero the blend falls back to the SM-19 slot (`+0x7b`).
+/// to zero the blend falls back to the M3 matrix slot (`+0x7b`).
 ///
 /// M1 and M2 are stored as int32 in the item struct, so they are rounded
 /// before weighting (matching `(double)*(int*)(item+0x73/0x77)`).
@@ -98,7 +98,7 @@ pub fn ensemble_stability_weighted(
 ) -> f64 {
     let total: f64 = weights.iter().sum();
     if total <= ENSEMBLE_THRESHOLD {
-        return m3; // default = slot +0x7b (SM-19)
+        return m3; // default = slot +0x7b (M3 matrix)
     }
     // int32 store rounding = FUN_0040c5d0 = ties-to-even (no-op in the
     // pipeline, where m1/m2 arrive integer-valued).

@@ -5,12 +5,17 @@ import {
   getSm20ArenaStats,
   type LearningItem,
   type PreviewIntervals,
-  type SM20ArenaStats,
+  type ArenaStats,
 } from "../../api/review";
-import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/adaptiveScheduler";
-import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/precisionScheduler";
+import { parseAdaptiveState, adaptiveRetrievability, type AdaptiveState } from "../../lib/adaptiveScheduler";
+import { parsePrecisionState, precisionRetrievability, type PrecisionState } from "../../lib/precisionScheduler";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
+import {
+  isAdaptiveScheduler,
+  isPrecisionScheduler,
+  normalizeSchedulerId,
+} from "../../lib/schedulerIdentity";
 
 interface ReviewTransparencyPanelProps {
   card: LearningItem;
@@ -19,18 +24,19 @@ interface ReviewTransparencyPanelProps {
 
 const ALGORITHM_LABELS: Record<string, string> = {
   fsrs: `${schedulerLabel("fsrs")} Transparency`,
-  sm18: `${schedulerLabel("sm18")} Transparency`,
-  sm20: `${schedulerLabel("sm20")} Transparency`,
+  adaptive: `${schedulerLabel("adaptive")} Transparency`,
+  precision: `${schedulerLabel("precision")} Transparency`,
 };
 
 function getAlgorithmLabel(algorithmType?: string): string {
-  return ALGORITHM_LABELS[algorithmType ?? ""] ?? `${schedulerLabel("fsrs")} Transparency`;
+  const canonical = normalizeSchedulerId(algorithmType ?? "fsrs");
+  return ALGORITHM_LABELS[canonical] ?? `${schedulerLabel("fsrs")} Transparency`;
 }
 
 export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransparencyPanelProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [showSuspendNote, setShowSuspendNote] = useState(false);
-  const [arenaStats, setArenaStats] = useState<SM20ArenaStats | null>(null);
+  const [arenaStats, setArenaStats] = useState<ArenaStats | null>(null);
   const { settings } = useSettingsStore();
 
   // The global setting determines which algorithm the next review will use (matches submitReview behavior).
@@ -40,7 +46,7 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
   // Algorithm Arena weights change slowly (per committed review) — fetch once
   // per mount; tolerate absence (non-Tauri surfaces, old backend).
   useEffect(() => {
-    if (activeAlgorithm !== "sm20") return;
+    if (!isPrecisionScheduler(activeAlgorithm)) return;
     let cancelled = false;
     getSm20ArenaStats()
       .then((stats) => {
@@ -51,26 +57,26 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
       cancelled = true;
     };
   }, [activeAlgorithm]);
-  const hasSm18State = !!card.algorithm_state && card.algorithm_state.startsWith("{") && card.algorithm_state.includes('"stability"') && (card.algorithm_type === "sm18" || card.algorithm_state.includes('"repetition"'));
-  const hasSm20State = !!card.algorithm_state && card.algorithm_type === "sm20";
-  const sm18State: SM18State | null = hasSm18State ? parseSm18State(card.algorithm_state) : null;
-  const sm20State: SM20State | null = hasSm20State ? parseSm20State(card.algorithm_state) : null;
+  const hasAdaptiveState = !!card.algorithm_state && card.algorithm_state.startsWith("{") && card.algorithm_state.includes('"stability"') && (isAdaptiveScheduler(card.algorithm_type) || card.algorithm_state.includes('"repetition"'));
+  const hasPrecisionState = !!card.algorithm_state && isPrecisionScheduler(card.algorithm_type);
+  const adaptiveState: AdaptiveState | null = hasAdaptiveState ? parseAdaptiveState(card.algorithm_state) : null;
+  const precisionState: PrecisionState | null = hasPrecisionState ? parsePrecisionState(card.algorithm_state) : null;
 
-  const stability = sm18State
-    ? sm18State.stability
-    : sm20State
-    ? sm20State.stability
+  const stability = adaptiveState
+    ? adaptiveState.stability
+    : precisionState
+    ? precisionState.stability
     : card.memory_state?.stability;
-  const difficulty = sm18State
-    ? sm18State.difficulty
-    : sm20State
-    ? sm20State.difficulty
+  const difficulty = adaptiveState
+    ? adaptiveState.difficulty
+    : precisionState
+    ? precisionState.difficulty
     : card.memory_state?.difficulty;
-  const retrievability = sm18State && sm18State.stability > 0
-    ? sm18Retrievability(sm18State.stability, sm18State.elapsed)
-    : sm20State && sm20State.stability > 0
-    ? sm20Retrievability(
-        sm20State.stability,
+  const retrievability = adaptiveState && adaptiveState.stability > 0
+    ? adaptiveRetrievability(adaptiveState.stability, adaptiveState.elapsed)
+    : precisionState && precisionState.stability > 0
+    ? precisionRetrievability(
+        precisionState.stability,
         card.last_review_date
           ? (Date.now() - new Date(card.last_review_date).getTime()) / (86400 * 1000)
           : 0
@@ -100,22 +106,22 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
         )}
       </div>
 
-      {sm18State && (
+      {adaptiveState && (
         <div className="text-xs text-muted-foreground">
-          Reps {sm18State.repetition} • Lapses {sm18State.lapses}
+          Reps {adaptiveState.repetition} • Lapses {adaptiveState.lapses}
         </div>
       )}
-      {sm20State && (
+      {precisionState && (
         <div className="text-xs text-muted-foreground">
-          Reps {sm20State.repetition} • Lapses {sm20State.lapses}
+          Reps {precisionState.repetition} • Lapses {precisionState.lapses}
         </div>
       )}
 
-      {activeAlgorithm === "sm20" && arenaStats && (
+      {isPrecisionScheduler(activeAlgorithm) && arenaStats && (
         <div className="text-xs text-muted-foreground">
-          {settings.learning.sm20PureM4 ? (
+          {settings.learning.precisionPureKernel ? (
             <span className="text-amber-500 font-semibold block mb-0.5">
-              Pure {schedulerLabel("sm20")} Mode (scheduling with M4 only; Arena weights not used):
+              Pure {schedulerLabel("precision")} Mode (scheduling with M4 only; Arena weights not used):
             </span>
           ) : null}
           Arena{" "}

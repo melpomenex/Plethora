@@ -71,7 +71,7 @@ describe("resolveScrollRatingKey", () => {
   });
 });
 
-describe("resolveScrollRatingKey under the SuperMemo six-grade schema", () => {
+describe("resolveScrollRatingKey under the six-grade schema", () => {
   const nativeCtx = { itemType: "flashcard" as const, flashcardRevealed: true, isRating: false, nativeGrades: true };
 
   it("0-5 each submit the exact grade with its equivalent rating", () => {
@@ -98,10 +98,10 @@ describe("resolveScrollRatingKey under the SuperMemo six-grade schema", () => {
     ).toEqual({ kind: "rate", rating: 4, grade: 5 });
   });
 
-  it("documents NEVER get grade keys: even under SM-20 the caller gates nativeGrades to flashcards", () => {
-    // This is the wiring the scroll page uses — a document under a SuperMemo
+  it("documents NEVER get grade keys: even under Precision the caller gates nativeGrades to flashcards", () => {
+    // This is the wiring the scroll page uses — a document under a six-grade
     // scheduler still rates on plain 1-4 keys matching its four-orb UI.
-    const nativeGrades = usesNativeGradeKeys("document", "sm20");
+    const nativeGrades = usesNativeGradeKeys("document", "precision");
     expect(nativeGrades).toBe(false);
     for (const key of ["1", "2", "3", "4"]) {
       expect(
@@ -154,22 +154,22 @@ describe("usesNativeGradeKeys (which items get 0-5 grade keys)", () => {
   });
 
   it("flashcards under four-grade schedulers keep 1-4 rating keys", () => {
-    for (const algorithm of ["fsrs", "sm2", "sm5", "sm8", "sm15"] as const) {
+    for (const algorithm of ["fsrs", "classic", "classic_5", "classic_8", "classic_15"] as const) {
       expect(usesNativeGradeKeys("flashcard", algorithm)).toBe(false);
     }
     expect(usesNativeGradeKeys("flashcard", undefined)).toBe(false);
   });
 
-  it("every non-flashcard item type keeps 1-4 rating keys even under SM-20", () => {
+  it("every non-flashcard item type keeps 1-4 rating keys even under Precision", () => {
     // Documents/extracts are scheduled by four-grade schedulers (FSRS-6
     // engagement for documents) regardless of the flashcard algorithm.
     for (const itemType of ["document", "extract", "rss", "podcast"] as const) {
-      expect(usesNativeGradeKeys(itemType, "sm20")).toBe(false);
-      expect(usesNativeGradeKeys(itemType, "sm18")).toBe(false);
+      expect(usesNativeGradeKeys(itemType, "precision")).toBe(false);
+      expect(usesNativeGradeKeys(itemType, "adaptive")).toBe(false);
     }
   });
 
   it("no item showing → no grade keys", () => {
-    expect(usesNativeGradeKeys(undefined, "sm20")).toBe(false);
+    expect(usesNativeGradeKeys(undefined, "precision")).toBe(false);
   });
 });

@@ -3,15 +3,15 @@ import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import {
-  getSM20OptimizationStatus,
+  getArenaOptimizationStatus,
   optimizeAlgorithmParams,
-  type SM20OptimizationStatus,
+  type ArenaOptimizationStatus,
 } from "../../api/algorithm";
 import {
   getSm20ArenaStats,
   optimizeSm20Fsrs,
   optimizeSm20M4,
-  type SM20ArenaStats,
+  type ArenaStats,
 } from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import {
@@ -20,6 +20,7 @@ import {
   schedulerDescriptionKey,
   schedulerLabel,
 } from "../../lib/schedulerCatalog";
+import { isPrecisionScheduler } from "../../lib/schedulerIdentity";
 import { NumericInput } from "../common";
 import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 import { tourAnchor } from "../onboarding/tour/anchors";
@@ -33,8 +34,8 @@ export function LearningSettings() {
   const [newScopeId, setNewScopeId] = useState("");
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizerMessage, setOptimizerMessage] = useState<string | null>(null);
-  const [sm20Status, setSm20Status] = useState<SM20OptimizationStatus | null>(null);
-  const [arenaStats, setArenaStats] = useState<SM20ArenaStats | null>(null);
+  const [arenaOptStatus, setArenaOptStatus] = useState<ArenaOptimizationStatus | null>(null);
+  const [arenaStats, setArenaStats] = useState<ArenaStats | null>(null);
   const [sm20OptRunning, setSm20OptRunning] = useState<"fsrs" | "m4" | null>(null);
   const [sm20OptMessage, setSm20OptMessage] = useState<string | null>(null);
 
@@ -44,10 +45,10 @@ export function LearningSettings() {
       .catch(() => setArenaStats(null));
 
   useEffect(() => {
-    if (settings.learning.algorithm !== "sm20") return;
-    void getSM20OptimizationStatus()
-      .then(setSm20Status)
-      .catch(() => setSm20Status(null));
+    if (!isPrecisionScheduler(settings.learning.algorithm)) return;
+    void getArenaOptimizationStatus()
+      .then(setArenaOptStatus)
+      .catch(() => setArenaOptStatus(null));
     void refreshArena();
   }, [settings.learning.algorithm]);
 
@@ -98,7 +99,7 @@ export function LearningSettings() {
             </p>
           </div>
 
-          {settings.learning.algorithm === "sm20" && (
+          {isPrecisionScheduler(settings.learning.algorithm) && (
             <div className="border border-border rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="font-medium text-foreground">Algorithm Arena</h4>
@@ -111,16 +112,16 @@ export function LearningSettings() {
                 </p>
               </div>
 
-              {!settings.learning.sm20PureM4 && <AlgorithmArenaModeControl />}
+              {!settings.learning.precisionPureKernel && <AlgorithmArenaModeControl />}
 
               <div className="border-t border-border pt-3">
                 <SettingToggle
-                  label={`Pure ${schedulerLabel("sm20")} Mode (M4 kernel only)`}
+                  label={`Pure ${schedulerLabel("precision")} Mode (M4 kernel only)`}
                   description="Bypasses the Algorithm Arena blend to schedule with the pure Precision M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
-                  checked={settings.learning.sm20PureM4}
+                  checked={settings.learning.precisionPureKernel}
                   onChange={(checked) =>
                     updateSettings({
-                      learning: { ...settings.learning, sm20PureM4: checked },
+                      learning: { ...settings.learning, precisionPureKernel: checked },
                     })
                   }
                 />
@@ -128,7 +129,7 @@ export function LearningSettings() {
 
               {arenaStats && Array.isArray(arenaStats.model_names) && arenaStats.model_names.length > 0 && (
                 <div className="space-y-1">
-                  {settings.learning.sm20PureM4 && (
+                  {settings.learning.precisionPureKernel && (
                     <div className="text-xs font-semibold text-amber-500 mb-1">
                       Running in Pure M4 Mode (Arena blend weights below are not used for scheduling)
                     </div>
@@ -138,8 +139,8 @@ export function LearningSettings() {
                       <div key={name} className="bg-muted/50 rounded-md py-1.5">
                         <div className="text-muted-foreground">
                           {name}
-                          {(name === ARENA_MODEL_LABELS.fsrs && arenaStats.fsrs_optimized) ||
-                          (name === ARENA_MODEL_LABELS.sm20 && arenaStats.m4_optimized)
+                          {                          (name === ARENA_MODEL_LABELS.m5 && arenaStats.fsrs_optimized) ||
+                          (name === ARENA_MODEL_LABELS.m4 && arenaStats.m4_optimized)
                             ? " ★"
                             : ""}
                         </div>
@@ -151,16 +152,16 @@ export function LearningSettings() {
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {arenaStats.r_metric != null
-                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs ${ARENA_MODEL_LABELS.sm19} alone · ${arenaStats.total_scored} scored reviews`
+                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs ${ARENA_MODEL_LABELS.m3} alone · ${arenaStats.total_scored} scored reviews`
                       : `Weights adapt as reviews accumulate (${arenaStats.total_scored} scored so far; ★ = personalized parameters active).`}
                   </div>
                 </div>
               )}
 
               <div className="text-xs text-muted-foreground">
-                {ARENA_MODEL_LABELS.sm15} optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
-                {sm20Status?.m3_matrix_cells_populated != null
-                  ? ` · ${ARENA_MODEL_LABELS.sm19} matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
+                {ARENA_MODEL_LABELS.m2} optimizer: {arenaOptStatus?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
+                {arenaOptStatus?.m3_matrix_cells_populated != null
+                  ? ` · ${ARENA_MODEL_LABELS.m3} matrix cells: ${arenaOptStatus.m3_matrix_cells_populated}/${arenaOptStatus.m3_matrix_total_cells ?? 9261}`
                   : ""}
               </div>
 
@@ -193,7 +194,7 @@ export function LearningSettings() {
                       setSm20OptMessage(result.message);
                       await refreshArena();
                     } catch (error) {
-                      setSm20OptMessage(error instanceof Error ? error.message : `${schedulerLabel("sm20")} optimization failed`);
+                      setSm20OptMessage(error instanceof Error ? error.message : `${schedulerLabel("precision")} optimization failed`);
                     } finally {
                       setSm20OptRunning(null);
                     }
@@ -201,14 +202,14 @@ export function LearningSettings() {
                   disabled={sm20OptRunning !== null}
                   className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
                 >
-                  {sm20OptRunning === "m4" ? `Optimizing ${schedulerLabel("sm20")}…` : `Optimize ${schedulerLabel("sm20")} parameters`}
+                  {sm20OptRunning === "m4" ? `Optimizing ${schedulerLabel("precision")}…` : `Optimize ${schedulerLabel("precision")} parameters`}
                 </button>
                 <button
                   onClick={async () => {
                     try {
                       setIsOptimizing(true);
-                      const status = await getSM20OptimizationStatus();
-                      setSm20Status(status);
+                      const status = await getArenaOptimizationStatus();
+                      setArenaOptStatus(status);
                       await refreshArena();
                     } catch {
                       // ignore refresh errors
@@ -231,10 +232,10 @@ export function LearningSettings() {
             </div>
           )}
 
-          {(settings.learning.algorithm === "fsrs" || settings.learning.algorithm === "sm18") && (
+          {(settings.learning.algorithm === "fsrs" || settings.learning.algorithm === "adaptive") && (
           <div>
             <label htmlFor="fsrs-retention" className="block text-sm font-medium text-foreground mb-2">
-              {settings.learning.algorithm === "sm18" ? "Forgetting Index" : "Desired Retention"}: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
+              {settings.learning.algorithm === "adaptive" ? "Forgetting Index" : "Desired Retention"}: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
             </label>
             <input
               type="range"
@@ -256,7 +257,7 @@ export function LearningSettings() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              {settings.learning.algorithm === "sm18"
+              {settings.learning.algorithm === "adaptive"
                 ? "Lower = more frequent reviews (default 90%)"
                 : "Higher retention = more frequent reviews"}
             </p>

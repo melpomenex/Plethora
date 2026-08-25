@@ -5,7 +5,7 @@
 - [x] 1.3 Implement `postponeElement(item, config)` — standard postpone with eligibility gates, ratio computation, priority weighting, and min/max clamping for items
 - [x] 1.4 Implement topic/document path in `postponeElement` — use topic parameters and topic eligibility gates for documents
 - [x] 1.5 Implement `simplePostpone(item, config)` — linear interpolation by priority without eligibility checks
-- [x] 1.6 Implement `randomizeInterval(base, maxNoise)` — SM-20 noise distribution with sqrt decay, sign flip, and clamping
+- [x] 1.6 Implement `randomizeInterval(base, maxNoise)` — Plethora Precision noise distribution with sqrt decay, sign flip, and clamping
 - [x] 1.7 Implement `postponeAll(items, config)` — batch postpone iterating all items, collecting stats (count, total increase, skipped), with item/topic dispatch
 - [x] 1.8 Add unit tests for the postpone engine in `src/lib/__tests__/postpone.test.ts` — cover all scenarios from the spec (high/low priority, eligibility gates, simple mode, randomization, edge cases)
 

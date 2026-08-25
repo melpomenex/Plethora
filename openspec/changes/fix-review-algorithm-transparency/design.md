@@ -1,6 +1,6 @@
 ## Context
 
-The review store's `loadPreviewIntervals` action passes `settings.learning.algorithm` (the user's global setting) to the backend `preview_review_intervals` command. The Rust backend already correctly dispatches to FSRS/SM18/SM20 based on the algorithm string parameter, and the frontend `ReviewTransparencyPanel` already correctly labels the panel based on `card.algorithm_type`. The disconnect is that the preview data was computed using the wrong algorithm.
+The review store's `loadPreviewIntervals` action passes `settings.learning.algorithm` (the user's global setting) to the backend `preview_review_intervals` command. The Rust backend already correctly dispatches to FSRS/Adaptive/Precision based on the algorithm string parameter, and the frontend `ReviewTransparencyPanel` already correctly labels the panel based on `card.algorithm_type`. The disconnect is that the preview data was computed using the wrong algorithm.
 
 ## Goals / Non-Goals
 
@@ -9,7 +9,7 @@ The review store's `loadPreviewIntervals` action passes `settings.learning.algor
 - Card-level `algorithm_type` SHALL take priority over the global setting, consistent with the review submission path (`apply_review`)
 
 **Non-Goals:**
-- Changing the SM20 algorithm's interval computation — the "Hard = 6+ days" behavior is correct per the algorithm design (interval = stability * SInc * success_multiplier, where stability grows across repetitions)
+- Changing the Precision algorithm's interval computation — the "Hard = 6+ days" behavior is correct per the algorithm design (interval = stability * SInc * success_multiplier, where stability grows across repetitions)
 - Adding new transparency features or visualizations
 - Backend changes — the Rust `preview_review_intervals` already handles all three algorithms correctly
 

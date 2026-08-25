@@ -1,6 +1,6 @@
 //! Tag-Aware Scheduling (TAS) module.
 //!
-//! Provides post-processing over the SM-20/FSRS scheduler:
+//! Provides post-processing over the Precision/FSRS scheduler:
 //! 1. Prerequisite gating — block items whose tag prerequisites are immature
 //! 2. Interference jitter — separate items sharing high-coherence tags
 //! 3. Queue assembly — build the annotated, sorted queue

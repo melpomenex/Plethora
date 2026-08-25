@@ -345,7 +345,7 @@ plethora-tauri/
 │   │   ├── commands/      # Tauri command handlers
 │   │   ├── models/        # Data models
 │   │   ├── database/      # SQLite database layer
-│   │   ├── algorithms/    # FSRS, SM-2 implementations
+│   │   ├── algorithms/    # FSRS, Classic implementations
 │   │   ├── processor/     # Document processors
 │   │   └── integrations/  # External integrations
 │   └── Cargo.toml         # Rust dependencies

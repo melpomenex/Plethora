@@ -22,7 +22,7 @@ The Algorithm Arena SHALL identify its candidate models via canonical IDs: `"cla
 
 #### Scenario: Arena candidate labels avoid third-party trademarks
 - **WHEN** the Algorithm Arena choices are rendered during card review
-- **THEN** candidate labels are `"Plethora Classic"`, `"Classic 15"`, `"Classic 19"`, `"Plethora Precision"`, and `"FSRS"`, and no candidate displays a SuperMemo trademark
+- **THEN** candidate labels are `"Plethora Classic"`, `"Classic 15"`, `"Classic 19"`, `"Plethora Precision"`, and `"FSRS"`, and no candidate displays a third-party SRS trademark
 
 ### Requirement: Knowledge formulation rules are presented neutrally
 The knowledge formulation engine (`src/lib/ai/knowledgeFormulation.ts`) and associated UI modals SHALL present the formulation principles as "20 Rules of Knowledge Formulation" without personal pioneer branding in headers, command descriptions, or AI prompt personas.

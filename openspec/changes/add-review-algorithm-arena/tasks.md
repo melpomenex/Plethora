@@ -1,15 +1,15 @@
 ## 1. Lock the Arena Contracts
 
 - [x] 1.1 Add shared TypeScript types for the versioned six-grade Arena preview set, five model candidates, recommendation, range, custom bounds, selection source, revisions, and commit ID in `src/api/review.ts`.
-- [x] 1.2 Extend `PreviewIntervals` with an optional SM-20 Arena payload while preserving the existing fields consumed by rating buttons and non-SM-20 schedulers.
+- [x] 1.2 Extend `PreviewIntervals` with an optional Plethora Precision Arena payload while preserving the existing fields consumed by rating buttons and non-Plethora Precision schedulers.
 - [x] 1.3 Extend `submitReview` arguments and Tauri aliases with the optional Arena selection payload and separate decision time.
 - [x] 1.4 Add Rust request/response structs with strict model/source enums, schema versioning, finite-number validation, and backward-compatible optional deserialization.
 - [x] 1.5 Define typed backend errors for stale preview, invalid custom interval, unsupported Arena mode, invalid model source, and duplicate/idempotent commit handling.
-- [x] 1.6 Add a shared model-order fixture that pins `sm2`, `sm15`, `sm19`, `sm20`, and `fsrs` to the existing Arena slot order.
+- [x] 1.6 Add a shared model-order fixture that pins `classic`, `classic_15`, `classic_19`, `precision`, and `fsrs` to the existing Arena slot order.
 
-## 2. Expose Deterministic SM-20 Candidates
+## 2. Expose Deterministic Plethora Precision Candidates
 
-- [x] 2.1 Refactor the SM-20 review scratch path to return the five raw model slot outputs alongside the weighted ensemble output without changing current committed scheduling results.
+- [x] 2.1 Refactor the Plethora Precision review scratch path to return the five raw model slot outputs alongside the weighted ensemble output without changing current committed scheduling results.
 - [x] 2.2 Finalize each model slot through the same forgetting-index, lapse, and minimum-growth policy as the ensemble with stochastic dispersal disabled.
 - [x] 2.3 Extend the all-grades preview loop to return recommendation, five candidates, weights, personalization flags, range, and custom bounds for every native grade 0-5 in one pass.
 - [x] 2.4 Generate relative-independent RFC3339 due timestamps and normalized positive intervals at the backend boundary.
@@ -17,7 +17,7 @@
 - [x] 2.6 Generate a preview ID and schema version without mutating item, collection, optimizer, matrix, weight, or review-history state.
 - [x] 2.7 Add Rust unit fixtures for all six grades that pin raw slots, finalized candidates, model order, weighted recommendation, range, and repeat-call determinism.
 - [x] 2.8 Add regression tests proving the legacy `again`, `hard`, `good`, `easy`, and `grade_intervals` values are unchanged when the Arena payload is added.
-- [x] 2.9 Add non-mutation tests that snapshot the item and full SM-20 collection state before and after repeated Arena previews.
+- [x] 2.9 Add non-mutation tests that snapshot the item and full Plethora Precision collection state before and after repeated Arena previews.
 
 ## 3. Persist Arena Decision Provenance
 
@@ -30,13 +30,13 @@
 
 ## 4. Commit an Arena Choice Atomically
 
-- [x] 4.1 Add an Arena-aware SM-20 transaction path that begins a database transaction, checks the commit ID, reloads current item/collection state, and validates preview revisions.
+- [x] 4.1 Add an Arena-aware Plethora Precision transaction path that begins a database transaction, checks the commit ID, reloads current item/collection state, and validates preview revisions.
 - [x] 4.2 Recompute the selected grade's candidates inside the transaction and resolve Arena/model sources from authoritative output rather than client interval values.
 - [x] 4.3 Validate custom intervals as finite, positive, and within the recomputed backend bounds.
 - [x] 4.4 Apply the grade once, update Arena/model learning once, and patch the chosen value into item due date, item interval, and every internal field representing the actual used interval.
 - [x] 4.5 Preserve raw slot predictions separately from the chosen interval so later recall scoring remains model-specific.
 - [x] 4.6 Disable stochastic final dispersal for Arena-selected commits so the persisted value matches the confirmed preview; keep direct and Pure M4 behavior unchanged.
-- [x] 4.7 Write the learning item, SM-20 collection state, review result/provenance, study statistics, and review-session counters within the same transaction.
+- [x] 4.7 Write the learning item, Plethora Precision collection state, review result/provenance, study statistics, and review-session counters within the same transaction.
 - [x] 4.8 Return the prior committed result for a repeated `arena_commit_id` without mutating any state a second time.
 - [x] 4.9 Add transaction tests for Arena Pick, each of the five model IDs, valid custom choice, spoofed model interval, stale revision, invalid bounds, rollback on injected failure, and retry idempotency.
 - [x] 4.10 Add tests proving model weights respond only to recall prediction loss and do not change merely because a model or Custom was selected.
@@ -50,14 +50,14 @@
 
 ## 6. Refactor the Review Session State Machine
 
-- [x] 6.1 Replace the eligible SM-20 optimistic grade-and-advance path in `reviewStore.ts` with explicit `question`, `answer`, `arena-loading`, `arena-ready`, and `committing` phases.
+- [x] 6.1 Replace the eligible Plethora Precision optimistic grade-and-advance path in `reviewStore.ts` with explicit `question`, `answer`, `arena-loading`, `arena-ready`, and `committing` phases.
 - [x] 6.2 Add one `pendingArenaReview` object containing card ID, grade, rating, recall time, decision start, commit ID, preview, selection, and error state.
 - [x] 6.3 Prefetch the extended Arena payload with the current card's existing interval preview and select the correct grade entry synchronously after grading when available.
 - [x] 6.4 Keep the answer/card/queue/session metrics unchanged while an eligible grade is pending; advance and trigger feedback only after commit succeeds.
 - [x] 6.5 Separate recall time from Arena decision time so study-time statistics retain their current meaning and provenance records decision latency.
 - [x] 6.6 Implement Back to rating, pending-grade discard confirmation on Review-tab exit/reset, and locked previous/next navigation while Arena work is pending.
 - [x] 6.7 Preserve pending grade and selection across preview/commit errors and refresh stale candidates without silently confirming a changed interval.
-- [x] 6.8 Extend the undo snapshot and restore command to cover every SM-20 state field changed by the selected actual interval and reconcile the Arena review-result event.
+- [x] 6.8 Extend the undo snapshot and restore command to cover every Plethora Precision state field changed by the selected actual interval and reconcile the Arena review-result event.
 - [x] 6.9 Add store tests for eligible/ineligible routing, no optimistic advance, successful single advance, completion feedback timing, stale refresh, exit discard, navigation lock, retry, and undo.
 - [x] 6.10 Add and persist the `automatic` / `choose` Arena review preference, route automatic grades through authoritative Arena Pick without pending UI, and cover both modes with store tests.
 
@@ -69,9 +69,9 @@
 - [x] 7.4 Add the selected-choice explanation layer with weighted-pick, earliest/latest, personalized-model, and custom-bound explanations driven by real preview data.
 - [x] 7.5 Add the compact two-step first-run guide, persist completion/dismissal in settings, and ensure it never blocks confirmation.
 - [x] 7.6 Implement the primary action label as `Schedule for <relative interval>` and keep label, selected option, due date, and submitted source synchronized.
-- [x] 7.7 Replace the SM-20 transparency sentence during Arena phase with a collapsible `Why this interval` detail showing weights, model proposals, Arena range definition, and R-Metric only when available.
+- [x] 7.7 Replace the Plethora Precision transparency sentence during Arena phase with a collapsible `Why this interval` detail showing weights, model proposals, Arena range definition, and R-Metric only when available.
 - [x] 7.8 Add component tests for default selection, every selection source, grade-specific data, first-run guide, confirmation payload, loading, preview error actions, commit retry, and stale interval announcement.
-- [x] 7.9 Add a polished two-option Arena mode control in SM-20 Learning settings and beside native review grades, with concise descriptions, recommended state, and semantic radio behavior.
+- [x] 7.9 Add a polished two-option Arena mode control in Plethora Precision Learning settings and beside native review grades, with concise descriptions, recommended state, and semantic radio behavior.
 
 ## 8. Implement the Memory Horizon Simulation
 
@@ -92,7 +92,7 @@
 - [x] 9.4 Integrate preference-aware haptics so touch feedback fires once per settled candidate or meaningful custom unit boundary.
 - [x] 9.5 Render the same Arena decision state in `ZenReviewMode.tsx` with reduced chrome and no duplicate scheduling logic.
 - [x] 9.6 Update hands-free audio auto-advance to commit Arena Pick, announce the relative interval, and stop in the recoverable Arena error state if commit fails.
-- [x] 9.7 Verify cram, Pure M4, non-SM-20, Queue reading mode, legacy widgets, and other excluded surfaces retain current behavior.
+- [x] 9.7 Verify cram, Pure M4, non-Plethora Precision, Queue reading mode, legacy widgets, and other excluded surfaces retain current behavior.
 - [x] 9.8 Add responsive tests at 320px, 375px, 768px, 1024px, and wide desktop widths, including iOS/Android safe-area fixtures and landscape phone orientation.
 - [x] 9.9 Replace the mobile overlay-style confirmation footer with a reserved flex action dock, regression-test non-overlap containment across phone, landscape, and desktop viewports, and reuse the contained layout in Zen mode.
 
@@ -118,7 +118,7 @@
 
 - [x] 12.1 Add an internal feature flag that gates only the frontend decision phase and leaves the selection-aware backend backward compatible when disabled.
 - [x] 12.2 Run targeted frontend unit/integration tests for review store, RatingButtons, ReviewSession, Memory Horizon, Zen mode, audio mode, sync, and browser parity.
-- [x] 12.3 Run targeted Rust tests for SM-20 preview, selection validation, transaction rollback, persistence, idempotency, sync, and export/import.
+- [x] 12.3 Run targeted Rust tests for Plethora Precision preview, selection validation, transaction rollback, persistence, idempotency, sync, and export/import.
 - [x] 12.4 Run TypeScript checking, production build, lint for changed files, and the existing review regression suites.
 - [ ] 12.5 Test a real review session on desktop and a physical mobile device in light/dark, touch/keyboard, normal/reduced-motion, online/offline, and slow-preview conditions.
 - [ ] 12.6 Profile preview and interaction responsiveness on low-end mobile hardware; confirm candidate prefetch does not block card reveal and drag does not trigger per-frame React renders.

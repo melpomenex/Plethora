@@ -232,7 +232,7 @@ interface Settings {
 
   // Algorithm
   algorithm: {
-    type: 'fsrs' | 'sm2' | 'supermemo';
+    type: 'fsrs' | 'm1' | 'legacy-third-party';
     desiredRetention: number;
     maxRetention: number;
     weightsHalfLife: number;
@@ -513,7 +513,7 @@ interface LearningItem {
   type: 'flashcard' | 'cloze';
   question: string;
   answer: string;
-  algorithm: 'fsrs' | 'sm2' | 'supermemo';
+  algorithm: 'fsrs' | 'm1' | 'legacy-third-party';
   stability: number;
   difficulty: number;
   dueDate: Date;
@@ -609,7 +609,7 @@ The current Web Browser tab renders pages in an iframe, which fails on many site
 ## Testing Strategy
 
 ### Unit Tests
-- Algorithm implementations (FSRS, SM2)
+- Algorithm implementations (FSRS, Classic)
 - Utility functions
 - Data transformation logic
 - Settings validation

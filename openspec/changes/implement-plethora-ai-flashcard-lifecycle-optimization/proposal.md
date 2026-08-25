@@ -7,7 +7,7 @@
 Cards decay: poorly worded, duplicated, testing the same fact, outdated by newer sources, remembered in definition but failing application. AI should help *maintain* the deck — "This card has been failed four times and may be poorly worded", "These three cards test the same fact" — proposing rewrite/split/merge/retire/generate-application actions, **never silently rewriting user knowledge**: confirmation required unless explicitly configured otherwise.
 
 ## What exists today
-- Rich review history: `review_results` (ratings, time, lapses, per-review), `review_log`, per-item FSRS state (stability/difficulty/reps/lapses), `sm20_*` arena data, `item_stats_repository` summaries.
+- Rich review history: `review_results` (ratings, time, lapses, per-review), `review_log`, per-item FSRS state (stability/difficulty/reps/lapses), `precision_*` arena data, `item_stats_repository` summaries.
 - Card model: `learning_items` (item_type, algorithm_state, priority trio, interaction_metadata), decks (`studyDeckStore`), FTS `extract_search`/`document_search`, embeddings index (7).
 - Provenance: `ai_provenance` + `source_ref` on AI-created cards (13 guarantees).
 - Concept graph (9) for concept-level aggregation; duplicate detection primitives (13) for merge candidates.

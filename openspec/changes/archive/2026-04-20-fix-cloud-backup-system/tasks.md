@@ -56,5 +56,5 @@
 ## 7. Validation
 
 - [x] 7.1 Run `cargo build` to verify no compilation errors
-- [x] 7.2 Run `cargo test` to verify existing tests still pass — 217 pass, 8 pre-existing SM20/SuperMemo failures unchanged
+- [x] 7.2 Run `cargo test` to verify existing tests still pass — 217 pass, 8 pre-existing Precision/Plethora failures unchanged
 - [x] 7.3 Run `npm run build` to verify frontend compiles

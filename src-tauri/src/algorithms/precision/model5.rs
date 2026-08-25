@@ -58,7 +58,7 @@ mod tests {
 
     /// The forgot branch must use `s_new` (D_new) for the `^-0.11` base, not
     /// `s_old`. This was a real decode bug (caught by live capture against
-    /// sm20.exe, 2026-07-20); the stale formula used `s_old.powf(-0.11)` and
+    /// Precision reference binary, 2026-07-20); the stale formula used `s_old.powf(-0.11)` and
     /// produced materially different outputs at large S. These vectors are the
     /// Python canonical package's output, which is itself verified against the
     /// binary's live vectors (`analysis/M5_LIVE_DIRECT.json`, 72 vectors).

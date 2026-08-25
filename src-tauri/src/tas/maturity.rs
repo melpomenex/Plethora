@@ -3,7 +3,7 @@
 use crate::models::{Tag, TagStabilityStats};
 
 /// Determine if an item is mature for a given tag.
-/// An item is mature when its SM-20/FSRS stability meets or exceeds the tag's `maturity_threshold`.
+/// An item is mature when its Precision/FSRS stability meets or exceeds the tag's `maturity_threshold`.
 pub fn is_item_mature(stability: f64, tag: &Tag) -> bool {
     stability >= tag.maturity_threshold
 }

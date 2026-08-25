@@ -47,7 +47,7 @@
 
 ## 4. Review-history merge correctness
 
-- [ ] 4.1 Audit every place FSRS / SM-18 / SM-20 scheduling reads review history; ensure they read from the merged `reviews` map (via the adapter), not from a local-only table
+- [ ] 4.1 Audit every place FSRS / Plethora Adaptive / Plethora Precision scheduling reads review history; ensure they read from the merged `reviews` map (via the adapter), not from a local-only table
 - [ ] 4.2 Add an invariant test: re-running each scheduling algorithm over the merged review log produces the same card state as the merged projection field; cover the multi-device-out-of-order scenario
 - [ ] 4.3 Add a test for the same-review-twice case (reconnect after pushing) — assert exactly one entry, schedule unaffected by replay
 - [ ] 4.4 Add a test for the same-card-reviewed-on-two-devices case — assert both reviews present, schedule reflects chronological order

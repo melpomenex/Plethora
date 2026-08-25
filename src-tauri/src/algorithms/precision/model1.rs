@@ -1,4 +1,4 @@
-//! Model 1 — legacy SM-2 scheduler (6% ensemble weight).
+//! Model 1 — legacy Classic scheduler (6% ensemble weight).
 //!
 //! `FUN_00d43e00`. A deterministic legacy multiplier with two history fields.
 //! Live-validated: 40/40 vectors match exactly.

@@ -84,7 +84,7 @@ Constraints carried through every decision: current security boundaries stay int
 **Change:**
 1. Forecast parity: count extracts (`next_review_date`, `is_dismissed`) and video extracts alongside cards and documents; bucket everything overdue into a leading "overdue/backlog" point (or today's bucket — picked at implementation for chart clarity) so the backlog is visible rather than zero; extend `DueForecastPoint` and the Schedule/Analytics series accordingly.
 2. Sentinel: resolve "is default collection" once in `queue.rs` against `DEFAULT_COLLECTION_ID` and pass the semantics down; apply the same fallback across learning-item, document, extract, and video-extract due queries so all four item types scope identically.
-3. Thread the chosen `collection_id` through `build_learning_item` in `study_json_import.rs` (and audit `anki.rs`/`supermemo_import.rs` for the same pattern).
+3. Thread the chosen `collection_id` through `build_learning_item` in `study_json_import.rs` (and audit `anki.rs`/`legacy_third_party_import.rs` for the same pattern).
 4. Document the "Due All = due through end of today UTC" semantic in the filter description copy if product wants "all scheduled" instead — open question, default is keep current semantics.
 
 **Tests:** Rust tests for the UUID fallback (legacy NULL/empty rows), extract/video-extract inclusion in `get_due_queue_items`, overdue bucketing in the forecast; an import test asserting imported cards land in the chosen collection.

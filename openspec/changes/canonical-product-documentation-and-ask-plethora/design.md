@@ -3,8 +3,8 @@
 ## Context
 
 Plethora is a cross-platform learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), operating on macOS, Windows, Linux, Android, and iOS (simulator). The application integrates complex domains:
-- **Multi-format document processing & incremental reading** (PDF with reflow, EPUB with CFI tracking, HTML with readability snapshots, Markdown, TXT, video transcripts, audiobooks, Kindle clippings, Arxiv, Anki `.apkg`, SuperMemo ZIPs).
-- **Spaced repetition learning engines** (FSRS-6, SM-18 with 3D SInc matrix, SM-20 with Arena and Postpone engine, classic SM-2/5/8/15).
+- **Multi-format document processing & incremental reading** (PDF with reflow, EPUB with CFI tracking, HTML with readability snapshots, Markdown, TXT, video transcripts, audiobooks, Kindle clippings, Arxiv, Anki `.apkg`, legacy third-party collection ZIPs).
+- **Spaced repetition learning engines** (FSRS-6, Plethora Adaptive with 3D SInc matrix, Plethora Precision with Arena and Postpone engine, classic Plethora Classic/5/8/15).
 - **Review & study surfaces** (Flashcard Studio, Cloze, Q&A, Image Occlusion with OCR, Language Learning dictation/shadowing/sentence mining, Hands-Free Audio Review).
 - **Media & Neural TTS** (Pocket TTS in Rust desktop, Sherpa-ONNX / KittenTTS / Kokoro-82M on Android, Fal.ai voice cloning, Souvlaki OS media keys / SMTC / MPRIS, YouTube playback with transcript sync, Podcast Whisper transcription).
 - **AI Learning System** (on-device Gemini Nano via ML Kit, LiteRT / EmbeddingGemma semantic memory, cloud LLM providers via OpenRouter/OpenAI/Anthropic/Ollama, Socratic tutor, Active Recall interruptions, answer assessment, NotebookLM Py AppImage integration).
@@ -48,9 +48,9 @@ Based on systematic inspection of the Plethora codebase (`src/`, `src-tauri/`, `
 ```text
 Plethora Product Domains
 ├── 1. Reading & Document Viewers (PDF, EPUB, HTML, Markdown, TXT, Video Transcripts, Audiobooks)
-├── 2. Document Management & Ingestion (Local import, URL scraping, Arxiv, Anna's Archive, Anki, SuperMemo, Kindle clippings)
+├── 2. Document Management & Ingestion (Local import, URL scraping, Arxiv, Anna's Archive, Anki, Plethora, Kindle clippings)
 ├── 3. Queue & Incremental Reading (Reading Queue, Priority scoring, Inheritance, Reappearance intervals, Neural queue)
-├── 4. Scheduling & Algorithms (FSRS-6, SM-18, SM-20 Arena & Postpone, SM-2/5/8/15, Topic-Aware Scheduling TAS)
+├── 4. Scheduling & Algorithms (FSRS-6, Plethora Adaptive, Plethora Precision Arena & Postpone, Plethora Classic/5/8/15, Topic-Aware Scheduling TAS)
 ├── 5. Review & Learning Items (Flashcard Studio, Cloze, Q&A, Image Occlusion OCR, Audio Review Mode, Zen Mode)
 ├── 6. Language Learning System (Profiles, Lexicon & Coverage, Dictation, Shadowing, Sentence Mining, Dictionary Peek)
 ├── 7. Media, Audio & TTS (Pocket TTS, Sherpa-ONNX, Fal.ai cloning, Souvlaki OS media keys, Hands-Free Study)
@@ -85,7 +85,7 @@ Plethora Product Domains
 | `import.arxiv` | ArXiv Research Paper Import | Implemented | `arxiv.ts`, `arxiv.rs` | Direct ArXiv ID/URL resolution, abstract extraction, PDF downloading, and author metadata tagging. |
 | `import.kindle` | Kindle Clippings Ingestion | Implemented | `kindle_clippings.rs`, `KindleImportModal.tsx` | Parses `My Clippings.txt`, matches book titles to library documents, and creates linked extracts. |
 | `import.anki_apkg` | Anki Deck Import (.apkg) | Implemented | `anki.rs`, `StudyJsonImport.tsx` | Imports SQLite Anki decks, media files, MathJax/KaTeX LaTeX syntax, and schedules. |
-| `import.supermemo_zip` | SuperMemo XML/ZIP Import | Implemented | `supermemo_import.rs` | Imports SuperMemo collections, preserving hierarchy, extracts, and learning intervals. |
+| `import.legacy-third-party_zip` | legacy third-party collection XML/ZIP Import | Implemented | `legacy_third_party_import.rs` | Imports Plethora collections, preserving hierarchy, extracts, and learning intervals. |
 | `import.browser_ext` | Browser Extension Bridge | Implemented | `browser_sync_server.rs`, `axum` | Axum HTTP server on `localhost:9527` receiving 1-click captures from Chrome/Firefox extension. |
 | `library.collection` | Document Collections | Implemented | `collectionStore.ts`, `collection_archive.rs` | Hierarchical folder collections, bulk tagging, filtering, and `.plethora-collection` archive export. |
 
@@ -95,7 +95,7 @@ Plethora Product Domains
 | `queue.scroll_session` | Composed Scroll Queue | Implemented | `QueueScrollPage.tsx`, `queueScrollBudget.ts` | Continuous TikTok-style feed interleaving documents, extracts, and cards per composition sliders. |
 | `queue.composition` | Queue Composition Sliders | Implemented | `settingsStore.ts` (`scrollQueue.composition`) | User-configured percentage mix between full documents, extracts, flashcards, RSS, and podcasts. |
 | `queue.priority_score` | 0-100 Priority Scoring | Implemented | `priority_queue.rs`, `priority_vector.rs` | Priority weighting affecting next-item selection; 0=highest priority, 100=lowest. |
-| `queue.extract_chain` | SuperMemo IR Extract Chain | Implemented | `extractStore.ts`, `extract_lifecycle` | Extract creation inherits parent document priority; parent returns to queue after extraction. |
+| `queue.extract_chain` | Plethora IR Extract Chain | Implemented | `extractStore.ts`, `extract_lifecycle` | Extract creation inherits parent document priority; parent returns to queue after extraction. |
 | `queue.extract_lifecycle`| Extract Lifecycle Actions | Implemented | `extract_lifecycle_actions` | Extract graduation states: Keep in Queue, Dismiss (retire without deleting), Done (mastered). |
 | `queue.neural_queue` | Neural Topic Queue | Implemented | `neural_queue.rs`, `algorithms/neural_queue.rs` | Semantic similarity clustering sequencing related articles and extracts sequentially. |
 | `queue.reappearance` | Reappearance Interval Rules | Implemented | `queue.rs`, `incremental_scheduler.rs` | Document reappearance calculation based on rating, length, reading speed, and current queue load. |
@@ -104,9 +104,9 @@ Plethora Product Domains
 | Stable ID | Feature Name | Status | Key Source Files | User Behavior & Rules |
 | :--- | :--- | :--- | :--- | :--- |
 | `scheduler.fsrs` | FSRS-6 Modern Spaced Repetition| Implemented | `fsrs = "5.2"`, `ts-fsrs`, `fsrsParameters.ts` | 19-parameter Free Spaced Repetition Scheduler with desired retention target (default 90%). |
-| `scheduler.sm18` | SuperMemo 18 Algorithm | Implemented | `sm18.rs` (212KB), `sm18_data.rs` | Full SuperMemo 18 engine: 3D Stability Increase (SInc) matrix, D-Factor, Retrievability calculation. |
-| `scheduler.sm20.arena` | SM-20 Algorithm Arena | Implemented | `sm20/`, `ArenaChoiceRail.tsx` | Head-to-head algorithm comparisons, coach advice, and post-grade algorithm selection. |
-| `scheduler.sm20.postpone`| SM-20 Postpone Engine | Implemented | `postpone.rs`, `postpone_engine` | Algorithmic workload management postponing low-priority items while preserving stability. |
+| `scheduler.adaptive` | Plethora 18 Algorithm | Implemented | `adaptive.rs` (212KB), `adaptive_data.rs` | Full Plethora 18 engine: 3D Stability Increase (SInc) matrix, D-Factor, Retrievability calculation. |
+| `scheduler.precision.arena` | Plethora Precision Algorithm Arena | Implemented | `precision/`, `ArenaChoiceRail.tsx` | Head-to-head algorithm comparisons, coach advice, and post-grade algorithm selection. |
+| `scheduler.precision.postpone`| Plethora Precision Postpone Engine | Implemented | `postpone.rs`, `postpone_engine` | Algorithmic workload management postponing low-priority items while preserving stability. |
 | `scheduler.scoped_params`| Scoped FSRS Overrides | Implemented | `settingsStore.ts` (`scopedFsrsOverrides`) | Per-deck and per-tag retention targets and custom FSRS weight overrides. |
 | `scheduler.load_balancing`| Queue Load Management | Implemented | `queue_load_management` | Easy Days scheduling, load smoothing across weeks, and advance review batching. |
 
@@ -210,9 +210,9 @@ docs/product/
 │   │   └── reappearance-rules.md
 │   ├── scheduling/
 │   │   ├── fsrs-algorithm.md
-│   │   ├── sm18-algorithm.md
-│   │   ├── sm20-arena.md
-│   │   ├── sm20-postpone.md
+│   │   ├── adaptive-algorithm.md
+│   │   ├── precision-arena.md
+│   │   ├── precision-postpone.md
 │   │   ├── scoped-parameters.md
 │   │   └── queue-load-management.md
 │   ├── review/
@@ -484,7 +484,7 @@ export function classifyPaletteInput(
     };
   }
 
-  // 3. Exact match against Canonical Feature Aliases ("e-ink mode", "tts speed", "sm-20")
+  // 3. Exact match against Canonical Feature Aliases ("e-ink mode", "tts speed", "precision")
   const aliasMatch = findDirectAliasMatch(query);
   if (aliasMatch && aliasMatch.confidence >= 0.95) {
     return {
@@ -518,7 +518,7 @@ export interface HelpAppContext {
   platform: "desktop-macos" | "desktop-windows" | "desktop-linux" | "mobile-android" | "mobile-ios";
   ttsActive: boolean;
   ttsProvider?: string;
-  activeAlgorithm: "fsrs" | "sm18" | "sm20" | "sm2";
+  activeAlgorithm: "fsrs" | "adaptive" | "precision" | "m1";
   einkActive: boolean;
   activeSettingsTab?: string;
 }
@@ -534,7 +534,7 @@ Where:
 - **View Boost**: $\times 1.4$ if chunk's domain matches `activeView` (e.g. `reading/` when in `document-viewer`).
 - **Format Boost**: $\times 1.3$ if chunk references `documentFormat` (e.g. `epub` when reading an EPUB).
 - **TTS State Boost**: $\times 1.5$ for `tts.auto_scroll` and `tts.word_highlighting` if `ttsActive === true`.
-- **Algorithm Boost**: $\times 1.4$ for the active algorithm (`fsrs`, `sm18`, `sm20`).
+- **Algorithm Boost**: $\times 1.4$ for the active algorithm (`fsrs`, `adaptive`, `precision`).
 - **Platform Boost**: $\times 1.3$ if chunk matches running OS (`mobile-android`, `eink`).
 
 ---
@@ -614,7 +614,7 @@ Universal explainability triggers are embedded across the interface:
 ├────────────────────────────────────────────────────────┤
 │ [? Why am I seeing this item today?]                   │
 │   → Triggers explainability query:                     │
-│     item = { stability: 14.2, reps: 3, algorithm: sm20 }│
+│     item = { stability: 14.2, reps: 3, algorithm: precision }│
 │     Returns grounded mathematical/policy explanation   │
 └────────────────────────────────────────────────────────┘
 ```
@@ -661,6 +661,6 @@ A dedicated regression test suite (`src/features/help/__tests__/retrievalQuality
 1. **Exact Feature Lookups**: "Where is TTS speed?", "How to turn on E-ink mode?" (Must resolve zero-LLM with action button).
 2. **Colloquial Synonyms**: "AirPods buttons", "read aloud follow along", "reappearing articles" (Must retrieve correct feature IDs).
 3. **Contextual Vague Questions**: "Why isn't this scrolling?" (With `ttsActive=true`, must rank `tts.auto_scroll` #1).
-4. **"Why" Inquiries**: "Why did my queue item come back?", "Why is SM-18 interval shorter?" (Must cite `## Rationale`).
-5. **Non-Existent Features**: "Can Plethora sync via Bluetooth with SuperMemo 19?" (Must return `evidenceLevel: "none"` without hallucination).
+4. **"Why" Inquiries**: "Why did my queue item come back?", "Why is Plethora Adaptive interval shorter?" (Must cite `## Rationale`).
+5. **Non-Existent Features**: "Can Plethora sync via Bluetooth with Plethora 19?" (Must return `evidenceLevel: "none"` without hallucination).
 6. **Multi-Feature Interaction**: "How does E-ink mode affect TTS auto-scrolling?" (Must retrieve both `platform.eink` and `tts.auto_scroll`).

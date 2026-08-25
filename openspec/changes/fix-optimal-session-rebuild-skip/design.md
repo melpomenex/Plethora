@@ -68,7 +68,7 @@ Neural mode already snapshots and restores its session
 - Changing `composeSession`'s anchor semantics or the greedy interleave
   itself — they are correct for *building* sessions; the problem is applying
   them to a session already in progress.
-- Changing rating, scheduling (FSRS/SM-20), or queue-list ordering behavior.
+- Changing rating, scheduling (FSRS/Plethora Precision), or queue-list ordering behavior.
 - Neural mode's refill path (already snapshot-restored) beyond ensuring the
   re-anchor helper is not applied against it.
 

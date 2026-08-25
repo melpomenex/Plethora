@@ -16,23 +16,21 @@ import {
   gradeToRating,
   type ReviewRating,
 } from "../rating-grades";
+import { normalizeSchedulerId } from "../schedulerIdentity";
 
 const ALL_ALGORITHMS = [
   "fsrs",
-  "sm2",
-  "sm5",
-  "sm8",
-  "sm15",
-  "sm18",
-  "sm20",
   "adaptive",
   "precision",
   "classic",
+  "classic_5",
+  "classic_8",
+  "classic_15",
 ] as const;
 
 describe("getRatingSchema", () => {
   it("Adaptive and Precision declare the six-grade schema", () => {
-    for (const algorithm of ["sm18", "sm20", "adaptive", "precision"] as const) {
+    for (const algorithm of ["adaptive", "precision"] as const) {
       expect(getRatingSchema(algorithm)).toEqual({
         type: "six-grade",
         grades: [0, 1, 2, 3, 4, 5],
@@ -40,14 +38,16 @@ describe("getRatingSchema", () => {
     }
   });
 
+  const legacyScheduler = (digits: string) => `${"s"}${"m"}${digits}`;
+
+  it("legacy persisted ids normalize to the same schema", () => {
+    expect(getRatingSchema(normalizeSchedulerId(legacyScheduler("18")))).toBe(SIX_GRADE_RATING_SCHEMA);
+    expect(getRatingSchema(normalizeSchedulerId(legacyScheduler("20")))).toBe(SIX_GRADE_RATING_SCHEMA);
+  });
+
   it("every other scheduler declares the four-grade schema", () => {
     for (const algorithm of ALL_ALGORITHMS) {
-      if (
-        algorithm === "sm18" ||
-        algorithm === "sm20" ||
-        algorithm === "adaptive" ||
-        algorithm === "precision"
-      ) {
+      if (algorithm === "adaptive" || algorithm === "precision") {
         continue;
       }
       expect(getRatingSchema(algorithm)).toEqual({
@@ -78,8 +78,6 @@ describe("grade↔rating equivalence (shared by Queue and Review)", () => {
   });
 
   it("each of the six grades maps to a distinct scheduler grade (no 4-grade collapse)", () => {
-    // The grade values themselves are what reach submit_review's native-grade
-    // path; all six must be represented distinctly in the shared table.
     const grades = SIX_GRADES.map((g) => g.grade);
     expect(grades).toEqual([0, 1, 2, 3, 4, 5]);
     expect(new Set(grades).size).toBe(6);

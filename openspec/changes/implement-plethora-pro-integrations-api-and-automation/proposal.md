@@ -25,7 +25,7 @@ Power users want Plethora in their workflows: an API for scripts/Shortcuts/Obsid
 
 ### 3. Integrations surface (`integrations`)
 - Connector registry standardizing existing connectors (Obsidian, Anki, NotebookLM, extension, RSS) + new cloud-mediated ones where valuable (read-it-later import: Pocket/Instapaper/Readwise export-file importers v1 — file-based, no third-party OAuth complexity; OAuth connectors deferred).
-- Export/import workflows: the existing export formats (Anki decks, SuperMemo, app-state backups, collection archives, mnemosyne txt) documented as the portability contract; API-based bulk export endpoint (`export` job kind) for account-held data.
+- Export/import workflows: the existing export formats (Anki decks, Plethora, app-state backups, collection archives, mnemosyne txt) documented as the portability contract; API-based bulk export endpoint (`export` job kind) for account-held data.
 
 ### 4. Client UX
 - Settings → Integrations & API: token manager (scopes, rotate, revoke, last-used), webhook manager (endpoint, events, active/disabled, delivery log with redacted payloads), connector cards, API docs link + copyable examples (curl/Shortcuts).

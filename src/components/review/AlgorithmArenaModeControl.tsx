@@ -31,14 +31,14 @@ const OPTIONS: Array<{
 export function AlgorithmArenaModeControl({ compact = false }: AlgorithmArenaModeControlProps) {
   const { t } = useI18n();
   const mode = useSettingsStore(
-    (state) => state.settings.learning.sm20ArenaReviewMode ?? "automatic",
+    (state) => state.settings.learning.arenaReviewMode ?? "automatic",
   );
   const updateSettings = useSettingsStore((state) => state.updateSettings);
 
   const selectMode = (next: ArenaReviewMode) => {
     const learning = useSettingsStore.getState().settings.learning;
     updateSettings({
-      learning: { ...learning, sm20ArenaReviewMode: next },
+      learning: { ...learning, arenaReviewMode: next },
     });
   };
 

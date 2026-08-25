@@ -12,7 +12,7 @@ Constraints:
 
 - Runners are shared GitHub `ubuntu-latest` VMs. Raw wall-clock ms varies 2–3× between runs on identical code; a naive ms threshold is either so loose it catches nothing (today's problem) or so tight it flakes.
 - Vitest 4.0.18 is already installed and ships `vitest bench` (Tinybench) with `--outputJson` and `--compare`. No new dependency is needed.
-- The hot paths worth measuring are mostly pure TypeScript (`src/lib/sm20.ts`, `src/lib/postpone.ts`, queue assembly, markdown/import parsing) and are already unit-testable without a Tauri runtime.
+- The hot paths worth measuring are mostly pure TypeScript (`src/lib/precisionScheduler.ts`, `src/lib/postpone.ts`, queue assembly, markdown/import parsing) and are already unit-testable without a Tauri runtime.
 
 ## Goals / Non-Goals
 
@@ -69,7 +69,7 @@ The anchor is not a perfect model of the machine: it does not capture cache size
   "defaultTolerance": 1.25,
   "anchor": { "name": "noise-anchor", "iterations": 200000 },
   "benchmarks": {
-    "sm20/next-interval": { "cost": 12.4, "tolerance": 1.25 },
+    "precision/next-interval": { "cost": 12.4, "tolerance": 1.25 },
     "postpone/plan-1000-items": { "cost": 840.0 },
     "queue/build-500-items": { "cost": 1310.0 }
   }
@@ -94,7 +94,7 @@ Start with the paths where a regression is felt by a user in a loop, not the pat
 
 | Suite | Why |
 |---|---|
-| `src/lib/sm20.bench.ts` | Scheduler math runs per grade, per item — the tightest loop in the app |
+| `src/lib/precision.bench.ts` | Scheduler math runs per grade, per item — the tightest loop in the app |
 | `src/lib/postpone.bench.ts` | Postpone plans over the whole collection; already has three specs |
 | `src/pages/queueScrollBudget.bench.ts` | Queue assembly gates time-to-first-item |
 | `src/utils/markdown.bench.ts` | Runs on every reader render |

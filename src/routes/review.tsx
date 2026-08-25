@@ -20,6 +20,7 @@ import { useI18n } from "../lib/i18n";
 import { requestTutorFollowUp, saveConversationalAssessment } from "../utils/conversationalReview";
 import { addEnergyLog } from "../utils/energyTracker";
 import { getReviewAccessibilityConfig } from "../utils/reviewAccessibility";
+import { usesSixGradeScale } from "../lib/schedulerIdentity";
 
 export function Review() {
   const {
@@ -87,8 +88,8 @@ export function Review() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const settings = useSettingsStore((state) => state.settings);
-  // SM-20 grades natively on a 0-5 scale — surface it instead of 4 buttons.
-  const useNativeGrades = settings.learning.algorithm === "sm20";
+  // Precision grades natively on a 0-5 scale — surface it instead of 4 buttons.
+  const useNativeGrades = usesSixGradeScale(settings.learning.algorithm);
   const { t } = useI18n();
   const [conversationInput, setConversationInput] = useState("");
   const [conversationResult, setConversationResult] = useState<{ question: string; score: number; feedback: string } | null>(null);
@@ -317,7 +318,7 @@ export function Review() {
       // Number keys for rating (only when answer is shown)
       if (isAnswerShown && currentCard && !isSubmitting) {
         if (useNativeGrades) {
-          // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
+          // Native Precision grade scale: keys 0-5 (0-2 fail, 3-5 pass).
           if (/^[0-5]$/.test(e.key)) {
             const grade = Number(e.key);
             const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;

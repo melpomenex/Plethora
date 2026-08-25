@@ -26,7 +26,7 @@ The audit identified systemic issues across three dimensions:
 - Restructuring the database schema
 - Migrating from SQLite to another database
 - Rewriting the browser sync server from Axum to another framework
-- Changing the SM-2/SM-18/SM-20 scheduling algorithms
+- Changing the Plethora Classic/Plethora Adaptive/Plethora Precision scheduling algorithms
 - Implementing automatic crash reporting or analytics
 - Removing the `unsafe-inline` dev CSP (acceptable for development)
 - Refactoring the entire command module structure (200+ commands remain)

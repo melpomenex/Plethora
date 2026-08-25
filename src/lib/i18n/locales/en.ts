@@ -439,7 +439,7 @@ export const en: Dict = {
   "review.retentionMaintenance": "Retention maintenance",
   "review.releaseToRate": "Release to rate",
   "review.swipeHint": "Swipe \u2190 Again \u2022 \u2191 Good \u2022 \u2193 Hard \u2022 \u2192 Easy",
-  // H-pattern rating joystick (touch + SM-18/SM-20)
+  // H-pattern rating joystick (touch + six-grade schedulers)
   "review.joystickHint":
     "Drag \u2191 Hard / Good / Easy \u2022 Drag \u2193 Blackout / Wrong / Almost",
   "review.joystickReleaseToRate": "Release to rate",
@@ -448,7 +448,7 @@ export const en: Dict = {
   "review.hard": "Hard",
   "review.good": "Good",
   "review.easy": "Easy",
-  // SM-20 native grade scale (0-2 = fail variants, 3-5 = pass variants)
+  // six-point native grade scale (0-2 = fail variants, 3-5 = pass variants)
   "review.grade0": "Blackout",
   "review.grade1": "Wrong",
   "review.grade2": "Almost",
@@ -2460,8 +2460,8 @@ export const en: Dict = {
   "handbook.searchNoSections": "No matching sections.",
   "handbook.previousMatch": "Previous match",
   "handbook.nextMatch": "Next match",
-  "handbook.understandingSM18": "Understanding Plethora Adaptive",
-  "handbook.understandingSM20": "Understanding Plethora Precision",
+  "handbook.understandingAdaptive": "Understanding Plethora Adaptive",
+  "handbook.understandingPrecision": "Understanding Plethora Precision",
   "userProfile.guestUser": "Guest User",
   "userProfile.freePlan": "Free Plan",
   "userProfile.proPlan": "Pro Plan",
@@ -3557,7 +3557,7 @@ export const en: Dict = {
   "learningSettings.spacedRepetition": "Spaced Repetition Algorithm",
   "learningSettings.fsrsDesc":
     "Free Spaced Repetition Scheduler -- optimal retention-based scheduling",
-  "learningSettings.sm18Desc": "Plethora Adaptive -- uses stability increase matrix for interval calculation",
+  "learningSettings.adaptiveDesc": "Plethora Adaptive -- uses stability increase matrix for interval calculation",
   "learningSettings.classicDesc": "A straightforward, predictable scheduler for users who prefer a simpler scheduling model.",
   "learningSettings.adaptiveDesc": "An adaptive scheduler that continuously adjusts review timing based on your performance and memory behavior.",
   "learningSettings.precisionDesc": "Plethora's most advanced scheduler, modeling learner performance in more detail to optimize retention and review timing.",
@@ -4511,11 +4511,11 @@ export const en: Dict = {
   "mobileNav.downloadForOffline": "Download for offline",
   "mobileNav.downloadForOfflineDesc": "Download current document for offline reading",
   "mobileNav.saveSettings": "Save Settings",
-  "settingsLegacy.supermemo18": "Plethora Adaptive",
-  "settingsLegacy.supermemo15": "Plethora Classic 15",
-  "settingsLegacy.supermemo8": "Plethora Classic 8",
-  "settingsLegacy.supermemo5": "Plethora Classic 5",
-  "settingsLegacy.supermemo2": "Plethora Classic",
+  "settingsLegacy.classic18": "Plethora Adaptive",
+  "settingsLegacy.classic15": "Plethora Classic 15",
+  "settingsLegacy.classic8": "Plethora Classic 8",
+  "settingsLegacy.classic5": "Plethora Classic 5",
+  "settingsLegacy.classic2": "Plethora Classic",
   "newsletterDirectory.title": "Newsletter Directory",
   "queue.learningItemsOnly": "Applies to learning items only.",
   "queue.reviewScheduleUpdated": "Updated review schedule.",

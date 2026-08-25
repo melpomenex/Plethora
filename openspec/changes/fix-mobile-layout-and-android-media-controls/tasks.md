@@ -45,7 +45,7 @@
 ## 6. Regression guards
 
 - [x] 6.1 Run `npm run test`, `npm run lint`, typecheck, and `npm run bench:check` (layout work touches hot render paths in DocumentsView).
-  - Result (2026-08-21): vitest 4621/4623 pass. Two failures are UNRELATED to this change: `precisionScheduler.test.ts` ("matches the shared native fixture") breaks on the branding commit's Rust `sm20 -> precision` rename (ensemble fixture mismatch), and one ReviewCard occlusion case that passes in isolation (full-suite flake). Lint: 9 pre-existing errors, none in files touched here. `tsc --noEmit`: clean. `bench:check`: OK — no regressions, only stale-baseline (faster-than-recorded) warnings; bundle budget OK.
+  - Result (2026-08-21): vitest 4621/4623 pass. Two failures are UNRELATED to this change: `precisionScheduler.test.ts` ("matches the shared native fixture") breaks on the branding commit's Rust `precision -> precision` rename (ensemble fixture mismatch), and one ReviewCard occlusion case that passes in isolation (full-suite flake). Lint: 9 pre-existing errors, none in files touched here. `tsc --noEmit`: clean. `bench:check`: OK — no regressions, only stale-baseline (faster-than-recorded) warnings; bundle budget OK.
 - [x] 6.2 Run `npm run test:scripts` and any Rust checks if plugin Rust shim files were touched.
   - Result: test:scripts 118 pass / 0 fail. Plugin Rust shim untouched, so no Rust re-check required.
 - [ ] 6.3 Verify desktop Documents view, desktop Create Extract dialog, tablet layouts, and themes show no visual regression (manual pass + existing tests). <!-- REMAINS: manual visual pass; existing desktop/tablet component tests all pass. -->

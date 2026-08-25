@@ -9320,7 +9320,7 @@ pub const SINC_MATRIX: [f64; 9261] = [
     0.0,
 ];
 
-/// SM-18 item state — persisted per learning item.
+/// Adaptive item state — persisted per learning item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdaptiveState {
     /// Difficulty in [0.0, 1.0]

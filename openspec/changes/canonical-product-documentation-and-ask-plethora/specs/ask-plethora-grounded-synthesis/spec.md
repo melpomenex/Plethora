@@ -4,7 +4,7 @@
 The system SHALL define an AI task `askPlethoraTask` under `src/lib/ai/tasks/definitions/` following the existing `AITaskDefinition` pattern. The task system instruction SHALL strictly constrain the model to answer using ONLY the supplied canonical documentation chunks and allowed application state, prohibiting the fabrication of unlisted features, settings, or commands.
 
 #### Scenario: Strict rejection of undocumented features
-- **WHEN** a user asks "Can Plethora sync directly with SuperMemo 19 over Bluetooth?"
+- **WHEN** a user asks "Can Plethora sync directly with Plethora 19 over Bluetooth?"
 - **THEN** the model reviews the retrieved docs, finds no supporting evidence, and explicitly responds that the feature is not supported or documented in Plethora, setting `evidenceLevel: "none"`.
 
 #### Scenario: Multi-provider execution

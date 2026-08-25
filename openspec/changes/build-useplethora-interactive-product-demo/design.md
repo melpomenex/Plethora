@@ -29,7 +29,7 @@ The control label SHALL be **Remember this** (or equivalent) and SHALL produce a
 
 ### Review
 
-Show front → reveal → four or five grade buttons matching **actual in-app grade labels** (verify `src/components/review/` at implementation — do not invent SuperMemo 0–5 if the UI shows a different set). After grade, show a short “next in N days” using **fixed** demo numbers, with copy “Illustrative schedule, not your algorithm output.”
+Show front → reveal → four or five grade buttons matching **actual in-app grade labels** (verify `src/components/review/` at implementation — do not invent six-grade 0–5 if the UI shows a different set). After grade, show a short “next in N days” using **fixed** demo numbers, with copy “Illustrative schedule, not your algorithm output.”
 
 ### A11y
 

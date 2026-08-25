@@ -16,12 +16,12 @@
 ## 3. Documentation Coverage & Article Authoring
 
 - [x] 3.1 Author and verify Category 1: *Start Here* articles (`getting-started.md`, `installation-desktop.md`, `installation-mobile.md`, `core-concepts-journey.md`, `quick-start-tutorial.md`).
-- [x] 3.2 Author and verify Category 2: *Capture & Import* articles (`local-file-imports.md`, `web-url-scraping.md`, `arxiv-papers.md`, `kindle-clippings.md`, `anki-apkg-import.md`, `supermemo-zip-import.md`, `browser-extension.md`).
+- [x] 3.2 Author and verify Category 2: *Capture & Import* articles (`local-file-imports.md`, `web-url-scraping.md`, `arxiv-papers.md`, `kindle-clippings.md`, `anki-apkg-import.md`, `legacy-third-party-zip-import.md`, `browser-extension.md`).
 - [x] 3.3 Author and verify Category 3: *Read & Listen* articles (`pdf-page-mode.md`, `pdf-scroll-mode.md`, `pdf-reflow.md`, `epub-cfi-reader.md`, `html-web-reader.md`, `markdown-latex-reader.md`, `video-transcript-karaoke.md`, `text-to-speech-engines.md`, `vim-reading-navigation.md`, `reading-position-persistence.md`).
 - [x] 3.4 Author and verify Category 4: *Understand & Extract* articles (`selections-and-highlights.md`, `incremental-reading-extracts.md`, `extract-priority-inheritance.md`, `extract-lifecycle-management.md`, `dictionary-peek.md`, `notes-and-annotations.md`).
 - [x] 3.5 Author and verify Category 5: *Organize & Connect* articles (`collections-and-folders.md`, `tagging-system.md`, `knowledge-graph-3d.md`, `topic-clustering.md`, `global-library-search.md`).
 - [x] 3.6 Author and verify Category 6: *Remember & Review* articles (`flashcard-studio.md`, `cloze-deletion-cards.md`, `qa-cards.md`, `image-occlusion-ocr.md`, `audio-review-mode.md`, `review-sessions-grading.md`).
-- [x] 3.7 Author and verify Category 7: *Scheduling & Algorithms* articles (`spaced-repetition-fundamentals.md`, `fsrs-6-algorithm.md`, `supermemo-algorithms.md`, `topic-aware-scheduling.md`, `neural-queue-composition.md`).
+- [x] 3.7 Author and verify Category 7: *Scheduling & Algorithms* articles (`spaced-repetition-fundamentals.md`, `fsrs-6-algorithm.md`, `plethora-schedulers.md`, `topic-aware-scheduling.md`, `neural-queue-composition.md`).
 - [x] 3.8 Author and verify Category 8: *Language Learning* articles (`language-profiles.md`, `lexical-coverage-dictionaries.md`, `sentence-mining.md`, `dictation-and-shadowing.md`).
 - [x] 3.9 Author and verify Category 9: *AI & Providers* articles (`ai-provider-setup.md`, `byo-api-keys.md`, `on-device-gemini-nano.md`, `socratic-tutor.md`, `grounded-library-rag.md`, `ai-cost-and-privacy.md`).
 - [x] 3.10 Author and verify Category 10: *RSS & Podcasts* articles (`rss-feed-management.md`, `rss-full-text-reader.md`, `semantic-preference-learning.md`, `podcast-whisper-transcription.md`).

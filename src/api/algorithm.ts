@@ -10,9 +10,6 @@ export interface ClassicCalculation {
   next_review_date: string;
 }
 
-/** Backward compatibility alias */
-export type SM2Calculation = ClassicCalculation;
-
 /**
  * Document rating request
  */
@@ -57,7 +54,7 @@ export interface DocumentScheduleRequest {
  */
 export enum AlgorithmType {
   Fsrs = "Fsrs",
-  SM2 = "sm2",
+  Classic = "classic",
 }
 
 /**
@@ -203,9 +200,6 @@ export async function calculateClassicNext(
   });
 }
 
-/** Backward compatibility alias */
-export const calculateSM2Next = calculateClassicNext;
-
 /**
  * Rate a document and schedule its next reading
  * 
@@ -317,21 +311,13 @@ export interface ArenaOptimizationStatus {
   message: string;
 }
 
-export type SM20OptimizationStatus = ArenaOptimizationStatus;
-
 export async function getArenaOptimizationStatus(): Promise<ArenaOptimizationStatus> {
   return await invokeCommand<ArenaOptimizationStatus>("get_arena_optimization_status");
 }
 
-/** Backward compatibility alias */
-export const getSM20OptimizationStatus = getArenaOptimizationStatus;
-
 export async function optimizeArenaLocally(): Promise<ArenaOptimizationStatus> {
   return await invokeCommand<ArenaOptimizationStatus>("optimize_arena_locally");
 }
-
-/** Backward compatibility alias */
-export const optimizeSM20Locally = optimizeArenaLocally;
 
 /**
  * Get default engagement preferences for scroll mode

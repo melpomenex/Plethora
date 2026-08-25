@@ -1,6 +1,6 @@
 ## Why
 
-Users currently have a single flat data space — all documents, extracts, learning items, and review history coexist without partitioning. This makes it impossible to maintain separate knowledge bases for different life contexts (e.g., School, Work, Leisure). The codebase already has three partially-overlapping "collection" concepts (a localStorage store, stubbed Rust models, and tag-based study decks), but none provides true data isolation. SuperMemo's collection model shows that segmenting data into independent silos is essential for focused review and clean statistics.
+Users currently have a single flat data space — all documents, extracts, learning items, and review history coexist without partitioning. This makes it impossible to maintain separate knowledge bases for different life contexts (e.g., School, Work, Leisure). The codebase already has three partially-overlapping "collection" concepts (a localStorage store, stubbed Rust models, and tag-based study decks), but none provides true data isolation. Plethora's collection model shows that segmenting data into independent silos is essential for focused review and clean statistics.
 
 ## What Changes
 

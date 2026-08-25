@@ -937,15 +937,15 @@ export async function deleteSyncState(key: string): Promise<void> {
     await deleteById(STORES.syncState, key);
 }
 
-/** Atomically persist a normal browser SM-20 review and its collection learner. */
-export async function commitBrowserSm20Review(
+/** Atomically persist a normal browser Precision review and its collection learner. */
+export async function commitBrowserPrecisionReview(
     item: LearningItem,
     collectionState: unknown,
 ): Promise<void> {
     await withRetry((database) => new Promise<void>((resolve, reject) => {
         const tx = database.transaction([STORES.learningItems, STORES.syncState], 'readwrite');
         tx.objectStore(STORES.learningItems).put(item);
-        tx.objectStore(STORES.syncState).put({ key: 'sm20_collection_state', value: collectionState });
+        tx.objectStore(STORES.syncState).put({ key: 'precision_collection_state', value: collectionState });
         tx.oncomplete = () => resolve();
         tx.onabort = () => reject(tx.error ?? new Error('review transaction aborted'));
         tx.onerror = () => reject(tx.error ?? new Error('review transaction failed'));
@@ -990,7 +990,7 @@ export async function commitBrowserArenaReview(
             reviewsRequest.onsuccess = () => {
                 const reviews = (reviewsRequest.result?.value as unknown[] | undefined) ?? [];
                 itemStore.put(item);
-                syncStore.put({ key: 'sm20_collection_state', value: collectionState });
+                syncStore.put({ key: 'precision_collection_state', value: collectionState });
                 syncStore.put({ key: 'browser_review_results', value: [...reviews, provenance] });
                 syncStore.put({
                     key: commitKey,
@@ -1036,7 +1036,7 @@ export async function undoBrowserArenaReview(
                 const reviews = (reviewsRequest.result?.value as Array<Record<string, unknown>> | undefined) ?? [];
                 itemStore.put(item);
                 if (previousCollectionState !== undefined) {
-                    syncStore.put({ key: 'sm20_collection_state', value: previousCollectionState });
+                    syncStore.put({ key: 'precision_collection_state', value: previousCollectionState });
                 }
                 syncStore.put({
                     key: 'browser_review_results',

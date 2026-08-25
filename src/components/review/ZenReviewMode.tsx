@@ -6,9 +6,9 @@
  *
  * Features:
  * - No visible buttons, progress bars, or headers
- * - Keyboard grading (1-4 / 0-5 for SM-18/SM-20, Space)
+ * - Keyboard grading (1-4 / 0-5 for six-grade schedulers, Space)
  * - Touch grading after reveal: the same H-pattern 6-grade joystick
- *   (SM-18/SM-20) or 4-direction swipe (FSRS/SM-2) as the regular review
+ *   (six-grade schedulers) or 4-direction swipe (FSRS/Classic) as the regular review
  * - Subtle algorithm metadata (10px monospace, bottom-right)
  * - Context Peek: Hold Alt to see source document context
  * - Instant card transitions (no animations)
@@ -20,10 +20,11 @@ import { useReviewStore, type ReviewSessionItem } from "../../stores/reviewStore
 import { formatInterval } from "../../api/review";
 import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
-import { parseSm18State, sm18Retrievability } from "../../lib/adaptiveScheduler";
-import { parseSm20State, sm20Retrievability } from "../../lib/precisionScheduler";
+import { parseAdaptiveState, adaptiveRetrievability } from "../../lib/adaptiveScheduler";
+import { parsePrecisionState, precisionRetrievability } from "../../lib/precisionScheduler";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { normalizeSchedulerId } from "../../lib/schedulerIdentity";
 import { normalizeClozeSyntax } from "../../utils/cloze";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
@@ -341,11 +342,11 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
   const containerRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettingsStore();
 
-  // Touch grading: SuperMemo six-grade schedulers get the 6-grade H-pattern
+  // Touch grading: six-grade schedulers get the 6-grade H-pattern
   // joystick; four-grade schedulers (and desktop) keep the classic 4-direction
   // swipe. The scale is declared by the shared rating schema.
   const ratingSchema = useRatingSchema();
-  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) === "supermemo";
+  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
   const isTouch = useIsTouchRating();
   const useJoystick = useNativeGrades && isTouch;
   const haptic = useHapticFeedback();
@@ -551,26 +552,28 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
   const currentCardData = currentCard as any;
 
   // Compute algorithm-aware metadata values
-  const effectiveAlgorithm = currentCardData.algorithm_type || settings.learning.algorithm;
-  const isSm18 = effectiveAlgorithm === "sm18";
-  const isSm20 = effectiveAlgorithm === "sm20";
-  const sm18State = isSm18 ? parseSm18State(currentCardData.algorithm_state) : null;
-  const sm20State = isSm20 ? parseSm20State(currentCardData.algorithm_state) : null;
-  const metaStability = isSm18 && sm18State
-    ? sm18State.stability
-    : isSm20 && sm20State
-    ? sm20State.stability
+  const effectiveAlgorithm = normalizeSchedulerId(
+    currentCardData.algorithm_type || settings.learning.algorithm,
+  );
+  const isAdaptive = effectiveAlgorithm === "adaptive";
+  const isPrecision = effectiveAlgorithm === "precision";
+  const adaptiveState = isAdaptive ? parseAdaptiveState(currentCardData.algorithm_state) : null;
+  const precisionState = isPrecision ? parsePrecisionState(currentCardData.algorithm_state) : null;
+  const metaStability = isAdaptive && adaptiveState
+    ? adaptiveState.stability
+    : isPrecision && precisionState
+    ? precisionState.stability
     : currentCardData.stability;
-  const metaDifficulty = isSm18 && sm18State
-    ? sm18State.difficulty
-    : isSm20 && sm20State
-    ? sm20State.difficulty
+  const metaDifficulty = isAdaptive && adaptiveState
+    ? adaptiveState.difficulty
+    : isPrecision && precisionState
+    ? precisionState.difficulty
     : currentCardData.difficulty;
-  const metaRetrievability = isSm18 && sm18State && sm18State.stability > 0
-    ? sm18Retrievability(sm18State.stability, sm18State.elapsed)
-    : isSm20 && sm20State && sm20State.stability > 0
-    ? sm20Retrievability(
-        sm20State.stability,
+  const metaRetrievability = isAdaptive && adaptiveState && adaptiveState.stability > 0
+    ? adaptiveRetrievability(adaptiveState.stability, adaptiveState.elapsed)
+    : isPrecision && precisionState && precisionState.stability > 0
+    ? precisionRetrievability(
+        precisionState.stability,
         currentCardData.last_review_date
           ? (Date.now() - new Date(currentCardData.last_review_date).getTime()) / (86400 * 1000)
           : 0

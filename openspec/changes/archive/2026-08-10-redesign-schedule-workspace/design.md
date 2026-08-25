@@ -26,7 +26,7 @@ The redesign must work inside the existing desktop shell, narrow split panes, an
 
 **Non-Goals:**
 
-- Changing FSRS, SM-18, SM-20, priority, postpone, or spread algorithms.
+- Changing FSRS, Plethora Adaptive, Plethora Precision, priority, postpone, or spread algorithms.
 - Adding new backend commands, database fields, drag-and-drop scheduling, recurring plans, or notification workflows.
 - Replacing the application-wide theme or typography system.
 - Redesigning the Spread modal beyond any small visual alignment needed to match the new workspace.

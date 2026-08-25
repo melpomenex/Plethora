@@ -326,7 +326,7 @@ Los intervalos entre documentos tienen un límite de aproximadamente **30 días*
 
 **El Programador Engaging.** Cuando lees documentos de la cola, Plethora utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
 
-**Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" Plethora Precision o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel Plethora Precision en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de Plethora Precision](#understanding-sm-20) para saber qué cuenta y qué no.
+**Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" Plethora Precision o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel Plethora Precision en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de Plethora Precision](#understanding-plethora-precision) para saber qué cuenta y qué no.
 
 ### Sistema de calificación
 
@@ -963,8 +963,8 @@ Plethora admite cuatro algoritmos de programación. Elige el que mejor se adapte
 - Mejor retención con menos reseñas
 
 **Plethora Precision:**
-- Algoritmo más avanzado, diseñado a partir de sm20.exe mediante Ghidra
-- Utiliza la fórmula de intervalo V4 (Plethora Precision propiamente dicha); La programación Classic 19 está disponible a través del algoritmo `sm2` separado
+- Algoritmo más avanzado, diseñado a partir del binario de referencia de Plethora Precision mediante Ghidra
+- Utiliza la fórmula de intervalo V4 (Plethora Precision propiamente dicha); La programación Classic 19 está disponible a través del scheduler Classic separado
 - El suavizado bayesiano aprende intervalos óptimos a partir de los datos de revisión reales
 - Desarrolla conocimiento a lo largo del tiempo a través de matrices persistentes de intervalo/recuento de 21×21×21
 

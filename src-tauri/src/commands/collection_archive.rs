@@ -778,7 +778,7 @@ mod arena_archive_tests {
 
     #[test]
     fn arena_archive_fields_support_all_sources_and_legacy_rows() {
-        for (source, model_id) in [("arena", None), ("model", Some("sm20")), ("custom", None)] {
+        for (source, model_id) in [("arena", None), ("model", Some("m4")), ("custom", None)] {
             let value = json!({
                 "scheduleSource": source,
                 "scheduleModelId": model_id,

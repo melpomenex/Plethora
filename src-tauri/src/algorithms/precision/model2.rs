@@ -3,9 +3,10 @@
 //! The collection-wide optimizer state. `ClassicM2Optimizer` holds the
 //! collection state; `M2ItemState` is the small per-item part.
 //!
-//! Live-validated against the running `sm20.exe` binary (34 isolated + 60
+//! Live-validated against the running Precision reference binary (34 isolated + 60
 //! chained reviews, exact match). Every formula, constant and branch mirrors
-//! the Python reconstruction in `sm20_model2.py`.
+//! every formula, constant and branch mirrors the Python reconstruction in
+//! `precision_model2.py`.
 //!
 //! Evidence: `[C][BIN]`
 
@@ -17,7 +18,7 @@ use super::helpers::clamp;
 // CONSTANTS
 // =============================================================================
 
-/// Target retention ratio R* used throughout SM-15/16.
+/// Target retention ratio R* used throughout the classic optimizer path.
 const TARGET_R: f64 = 0.9;
 
 /// Quantization scale for the unsigned-word record rounding (`_q`).
@@ -911,7 +912,7 @@ pub fn model_2<R: rand::Rng>(
 }
 
 // =============================================================================
-// TESTS — pinned against `sm20_model2.py` reference output
+// TESTS — pinned against `precision_model2.py` reference output
 // =============================================================================
 
 #[cfg(test)]
@@ -978,9 +979,9 @@ mod tests {
         }
     }
 
-    /// The validated chained scenario from `sm20_model2.py`'s `__main__` block.
+    /// The validated chained scenario from `precision_model2.py`'s `__main__` block.
     /// These are the exact stability / A / U / reps / lapses values emitted by
-    /// the Python reference, which was itself live-validated against sm20.exe.
+    /// the Python reference, which was itself live-validated against the Precision reference binary.
     #[test]
     fn chained_scenario_matches_python_reference() {
         let mut opt = fresh_optimizer();

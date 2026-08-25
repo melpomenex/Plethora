@@ -23,7 +23,7 @@ describe("collection archive Arena provenance", () => {
   it("exports Arena Pick, model, Custom, and legacy review rows without losing provenance", async () => {
     const reviewResults = [
       { id: "arena", reviewSessionId: "session-1", scheduleSource: "arena", arenaCommitId: "commit-arena" },
-      { id: "model", reviewSessionId: "session-1", scheduleSource: "model", scheduleModelId: "sm19", arenaCommitId: "commit-model" },
+      { id: "model", reviewSessionId: "session-1", scheduleSource: "model", scheduleModelId: "m3", arenaCommitId: "commit-model" },
       { id: "custom", reviewSessionId: "session-1", scheduleSource: "custom", arenaCommitId: "commit-custom", arenaRecommendedInterval: 12, arenaDecisionTimeMs: 420, arenaSnapshot: "{\"version\":1}" },
       { id: "legacy", reviewSessionId: "session-1" },
       { id: "other-collection", reviewSessionId: "session-2", scheduleSource: "arena" },

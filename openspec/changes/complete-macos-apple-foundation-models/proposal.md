@@ -28,4 +28,4 @@ Prior Apple Foundation Models work (`add-apple-foundation-models-provider`) buil
 - `src/lib/ai/apple/foundation.ts`, `appleFoundationProvider.ts` — streaming, structured, capability mapping
 - `src/components/settings/OnDeviceAiPanel.tsx` — macOS status UX
 - Tests under `src/lib/ai/**/__tests__/` and plugin Rust tests
-- No changes to cloud provider routing, task prompts, or SM-2 scheduling logic
+- No changes to cloud provider routing, task prompts, or Plethora Classic scheduling logic

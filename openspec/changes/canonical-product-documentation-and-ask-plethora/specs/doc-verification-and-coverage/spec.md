@@ -11,7 +11,7 @@ The project SHALL include automated validation tooling (`scripts/docs-validate.m
 The validation tooling SHALL verify that every feature ID is unique across the entire corpus and that all cross-references listed in `related` fields or markdown links point to valid, existing feature documents.
 
 #### Scenario: Broken cross-reference detection
-- **WHEN** a feature document references a non-existent feature ID `queue.supermemo.deprecated_item`
+- **WHEN** a feature document references a non-existent feature ID `queue.legacy-third-party.deprecated_item`
 - **THEN** the validation script identifies the broken reference and reports the source file and line.
 
 #### Scenario: Duplicate feature ID prevention

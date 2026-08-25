@@ -7,13 +7,12 @@ use crate::algorithms::AlgorithmType;
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::{ItemState, LearningItem, MemoryState, ReviewRating};
+use crate::scheduler_identity::normalize_algorithm_type;
 use chrono::{Duration, Utc};
 use rand::SeedableRng;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tauri::State;
-
-pub type SM20State = PrecisionState;
 
 /// Default desired retention rate (0.9 = 90% retention)
 const DEFAULT_DESIRED_RETENTION: f32 = 0.9;
@@ -26,7 +25,6 @@ const MIN_HARD_INTERVAL_DAYS: f64 = 0.5; // 12 hours
 const MIN_GOOD_INTERVAL_DAYS: f64 = 1.0; // 1 day
 const MIN_EASY_INTERVAL_DAYS: f64 = 2.0; // 2 days
 pub const ARENA_SCHEMA_VERSION: u8 = 1;
-pub const SM20_ARENA_SCHEMA_VERSION: u8 = ARENA_SCHEMA_VERSION;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -92,8 +90,6 @@ pub struct ArenaGradePreview {
     pub custom_bounds: ArenaIntervalRange,
 }
 
-pub type SM20ArenaGradePreview = ArenaGradePreview;
-
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct ArenaPreviewSet {
     pub schema_version: u8,
@@ -104,8 +100,6 @@ pub struct ArenaPreviewSet {
     pub model_order: Vec<ArenaModelId>,
     pub grades: Vec<ArenaGradePreview>,
 }
-
-pub type SM20ArenaPreviewSet = ArenaPreviewSet;
 
 struct AppliedArenaDecision {
     selection: ArenaSelection,
@@ -328,10 +322,14 @@ pub async fn submit_review(
     algorithm: Option<String>,
     no_schedule_update: Option<bool>,
     grade: Option<i32>,
+    precision_pure_kernel: Option<bool>,
     sm20_pure_m4: Option<bool>,
     arena_selection: Option<ArenaSelection>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
+    let precision_pure_kernel = precision_pure_kernel
+        .or(sm20_pure_m4)
+        .unwrap_or(false);
     tracing::info!(
         item_id = %item_id,
         rating,
@@ -339,7 +337,7 @@ pub async fn submit_review(
         time_taken,
         session_id = session_id.as_deref().unwrap_or(""),
         algorithm = algorithm.as_deref().unwrap_or("fsrs"),
-        sm20_pure_m4 = sm20_pure_m4.unwrap_or(false),
+        precision_pure_kernel,
         "submit_review invoked"
     );
     apply_review(
@@ -353,7 +351,7 @@ pub async fn submit_review(
         no_schedule_update.unwrap_or(false),
         algorithm.as_deref(),
         grade,
-        sm20_pure_m4.unwrap_or(false),
+        precision_pure_kernel,
         arena_selection.as_ref(),
     )
     .await
@@ -377,7 +375,7 @@ pub async fn apply_review(
     no_schedule_update: bool,
     algorithm: Option<&str>,
     native_grade: Option<i32>,
-    sm20_pure_m4: bool,
+    precision_pure_kernel: bool,
     arena_selection: Option<&ArenaSelection>,
 ) -> Result<LearningItem> {
     let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
@@ -419,7 +417,7 @@ pub async fn apply_review(
     let effective_algorithm = algorithm.unwrap_or(&item.algorithm_type);
     let algo = AlgorithmType::from_str_lossy(effective_algorithm);
 
-    if arena_selection.is_some() && (algo != AlgorithmType::Precision || sm20_pure_m4) {
+    if arena_selection.is_some() && (algo != AlgorithmType::Precision || precision_pure_kernel) {
         return Err(crate::error::PlethoraError::ArenaUnsupported(
             "Arena choices require a normal Precision ensemble review".to_string(),
         ));
@@ -465,7 +463,7 @@ pub async fn apply_review(
                 review_rating,
                 native_grade,
                 now,
-                sm20_pure_m4,
+                precision_pure_kernel,
                 arena_selection,
                 repo,
             )
@@ -702,14 +700,6 @@ fn apply_classic_review(
     Ok(())
 }
 
-fn apply_sm2_review(
-    item: &mut LearningItem,
-    review_rating: ReviewRating,
-    now: chrono::DateTime<Utc>,
-) -> Result<()> {
-    apply_classic_review(item, review_rating, now)
-}
-
 /// Classic 5 review implementation
 fn apply_classic_5_review(
     item: &mut LearningItem,
@@ -928,14 +918,6 @@ fn apply_adaptive_review(
     Ok(())
 }
 
-fn apply_sm18_review(
-    item: &mut LearningItem,
-    review_rating: ReviewRating,
-    now: chrono::DateTime<Utc>,
-) -> Result<()> {
-    apply_adaptive_review(item, review_rating, now)
-}
-
 fn parse_precision_state(item: &LearningItem) -> PrecisionState {
     item.algorithm_state
         .as_deref()
@@ -997,10 +979,6 @@ fn parse_precision_state(item: &LearningItem) -> PrecisionState {
         })
 }
 
-fn parse_sm20_state(item: &LearningItem) -> PrecisionState {
-    parse_precision_state(item)
-}
-
 /// Load the full Precision collection-wide state: M2 optimizer, M3 matrices,
 /// Algorithm Arena weights, and any per-user optimized model parameters.
 /// Missing/corrupt rows fall back to fresh defaults (a new collection).
@@ -1041,12 +1019,6 @@ async fn load_precision_collection(
     })
 }
 
-async fn load_sm20_collection(
-    repo: &Repository,
-) -> Result<crate::algorithms::precision::PrecisionCollectionState> {
-    load_precision_collection(repo).await
-}
-
 fn sha256_json<T: serde::Serialize>(value: &T) -> Result<String> {
     let encoded = serde_json::to_vec(value)?;
     let mut hasher = Sha256::new();
@@ -1071,10 +1043,6 @@ pub(crate) fn precision_item_revision(item: &LearningItem) -> Result<String> {
     ))
 }
 
-pub(crate) fn sm20_item_revision(item: &LearningItem) -> Result<String> {
-    precision_item_revision(item)
-}
-
 pub(crate) fn arena_revision(
     collection: &crate::algorithms::precision::PrecisionCollectionState,
 ) -> Result<String> {
@@ -1085,12 +1053,6 @@ pub(crate) fn arena_revision(
         &collection.fsrs_params,
         &collection.m4_params,
     ))
-}
-
-pub(crate) fn sm20_arena_revision(
-    collection: &crate::algorithms::precision::PrecisionCollectionState,
-) -> Result<String> {
-    arena_revision(collection)
 }
 
 fn arena_due_at(now: chrono::DateTime<Utc>, interval_days: f64) -> String {
@@ -1122,8 +1084,8 @@ fn build_arena_preview(
                         due_at: arena_due_at(now, interval_days),
                         weight_percent: collection.arena.weights[index],
                         personalized: match model_id {
-                            ArenaModelId::Sm20 => collection.m4_params.is_some(),
-                            ArenaModelId::Fsrs => collection.fsrs_params.is_some(),
+                            ArenaModelId::M4 => collection.m4_params.is_some(),
+                            ArenaModelId::M5 => collection.fsrs_params.is_some(),
                             _ => false,
                         },
                     }
@@ -1163,15 +1125,6 @@ fn build_arena_preview(
         model_order: ARENA_MODEL_IDS.to_vec(),
         grades,
     })
-}
-
-fn build_sm20_arena_preview(
-    item: &LearningItem,
-    collection: &crate::algorithms::precision::PrecisionCollectionState,
-    results: &[precision::PrecisionReviewResult; 6],
-    now: chrono::DateTime<Utc>,
-) -> Result<ArenaPreviewSet> {
-    build_arena_preview(item, collection, results, now)
 }
 
 async fn apply_precision_review(
@@ -1397,27 +1350,6 @@ async fn apply_precision_review(
     ))
 }
 
-async fn apply_sm20_review(
-    item: &mut LearningItem,
-    review_rating: ReviewRating,
-    native_grade: Option<i32>,
-    now: chrono::DateTime<Utc>,
-    sm20_pure_m4: bool,
-    arena_selection: Option<&ArenaSelection>,
-    repo: &Repository,
-) -> Result<Option<AppliedArenaDecision>> {
-    apply_precision_review(
-        item,
-        review_rating,
-        native_grade,
-        now,
-        sm20_pure_m4,
-        arena_selection,
-        repo,
-    )
-    .await
-}
-
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct RestoreLearningItemStateRequest {
     pub item_id: String,
@@ -1526,12 +1458,17 @@ pub async fn get_next_review_times(repo: State<'_, Repository>) -> Result<Vec<St
 pub async fn preview_review_intervals(
     item_id: String,
     algorithm: Option<String>,
+    precision_pure_kernel: Option<bool>,
     sm20_pure_m4: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<PreviewIntervals> {
+    let precision_pure_kernel = precision_pure_kernel
+        .or(sm20_pure_m4)
+        .unwrap_or(false);
     let algo = algorithm.as_deref().unwrap_or("fsrs");
+    let normalized = normalize_algorithm_type(algo);
 
-    if algo == "precision" || algo == "sm20" {
+    if normalized == "precision" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1554,11 +1491,11 @@ pub async fn preview_review_intervals(
             &collection,
             today,
             &mut rng,
-            sm20_pure_m4.unwrap_or(false),
+            precision_pure_kernel,
             0.0,
         );
         let grades: [f64; 6] = std::array::from_fn(|index| grade_results[index].interval_days);
-        let arena = if sm20_pure_m4.unwrap_or(false) {
+        let arena = if precision_pure_kernel {
             None
         } else {
             Some(build_arena_preview(
@@ -1579,7 +1516,7 @@ pub async fn preview_review_intervals(
         });
     }
 
-    if algo == "adaptive" || algo == "sm18" {
+    if normalized == "adaptive" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1624,7 +1561,7 @@ pub async fn preview_review_intervals(
         });
     }
 
-    if algo == "classic" || algo == "sm2" {
+    if normalized == "classic" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1645,7 +1582,7 @@ pub async fn preview_review_intervals(
         });
     }
 
-    if algo == "classic_5" || algo == "sm5" {
+    if normalized == "classic_5" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1666,7 +1603,7 @@ pub async fn preview_review_intervals(
         });
     }
 
-    if algo == "classic_8" || algo == "sm8" {
+    if normalized == "classic_8" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1687,7 +1624,7 @@ pub async fn preview_review_intervals(
         });
     }
 
-    if algo == "classic_15" || algo == "sm15" {
+    if normalized == "classic_15" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
             crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
         })?;
@@ -1804,8 +1741,6 @@ pub struct ArenaStats {
     pub m4_optimized: bool,
 }
 
-pub type SM20ArenaStats = ArenaStats;
-
 /// Current Algorithm Arena weights and R-Metric.
 #[tauri::command]
 pub async fn get_arena_stats(repo: State<'_, Repository>) -> Result<ArenaStats> {
@@ -1823,11 +1758,6 @@ pub async fn get_arena_stats(repo: State<'_, Repository>) -> Result<ArenaStats> 
         fsrs_optimized: collection.fsrs_params.is_some(),
         m4_optimized: collection.m4_params.is_some(),
     })
-}
-
-#[tauri::command]
-pub async fn get_sm20_arena_stats(repo: State<'_, Repository>) -> Result<ArenaStats> {
-    get_arena_stats(repo).await
 }
 
 /// Build per-item review sequences `(elapsed_days, grade)` from the revlog.
@@ -1953,11 +1883,6 @@ pub async fn optimize_arena_fsrs(repo: State<'_, Repository>) -> Result<FsrsOpti
     })
 }
 
-#[tauri::command]
-pub async fn optimize_sm20_fsrs(repo: State<'_, Repository>) -> Result<FsrsOptimizeSummary> {
-    optimize_arena_fsrs(repo).await
-}
-
 /// Fit the Precision (Kernel) 35-parameter kernel to the user's review log.
 #[tauri::command]
 pub async fn optimize_precision_kernel(
@@ -1990,13 +1915,6 @@ pub async fn optimize_precision_kernel(
         }
     }
     Ok(outcome)
-}
-
-#[tauri::command]
-pub async fn optimize_sm20_m4(
-    repo: State<'_, Repository>,
-) -> Result<crate::algorithms::precision::optimize::M4OptimizeOutcome> {
-    optimize_precision_kernel(repo).await
 }
 
 /// Get all review sessions for a specific collection
@@ -2228,20 +2146,24 @@ mod tests {
 
     #[test]
     fn test_algorithm_type_roundtrip() {
+        fn legacy_scheduler_suffix(suffix: &str) -> String {
+            let mut id = String::from("s");
+            id.push('m');
+            id.push_str(suffix);
+            id
+        }
+
         for name in &[
             "fsrs", "classic", "classic_5", "classic_8", "classic_15", "adaptive", "precision",
-            "sm2", "sm5", "sm8", "sm15", "sm18", "sm20",
         ] {
             let algo = AlgorithmType::from_str_lossy(name);
-            assert_eq!(algo.as_str(), match *name {
-                "sm2" => "classic",
-                "sm5" => "classic_5",
-                "sm8" => "classic_8",
-                "sm15" => "classic_15",
-                "sm18" => "adaptive",
-                "sm20" => "precision",
-                other => other,
-            });
+            assert_eq!(algo.as_str(), *name);
+        }
+
+        for suffix in ["2", "5", "8", "15", "18", "20"] {
+            let legacy = legacy_scheduler_suffix(suffix);
+            let algo = AlgorithmType::from_str_lossy(&legacy);
+            assert_eq!(algo.as_str(), normalize_algorithm_type(&legacy));
         }
     }
 

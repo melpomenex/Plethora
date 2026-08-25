@@ -41,7 +41,7 @@ describe("RatingButtons suggestedRating (highlight only)", () => {
     expect(onSelectRating).toHaveBeenCalledWith(2);
   });
 
-  it("highlights the equivalent native grade on the SM-20 scale", () => {
+  it("highlights the equivalent native grade on the six-grade scale", () => {
     const { container } = render(
       <RatingButtons onSelectRating={() => {}} gradeScale suggestedRating={3 as never} />
     );
