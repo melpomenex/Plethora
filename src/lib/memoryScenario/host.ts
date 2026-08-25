@@ -117,34 +117,39 @@ async function runStep(
   manifest: Awaited<ReturnType<typeof fetchManifest>>,
 ): Promise<void> {
   resetQuiescence();
-  markBusy(true); // The step itself is in-flight work.
+  // The busy window covers ONLY the step execution: a settle step must be
+  // able to observe the app quiet, which it never could if the scenario's
+  // own step kept the activity counter raised through the wait (found via
+  // the macOS e2e — inFlightTask was always true).
+  let result;
+  markBusy(true);
   try {
-    const result = await executeStep(step, manifest);
-    // Wait for quiescence for settle steps; other steps report promptly but
-    // still carry the quiescence state.
-    const quiescence =
-      step.op === "settle"
-        ? await waitForQuiescence()
-        : {
-            inFlightTask: isBusy(),
-            storeLoading: false,
-            storeImporting: false,
-            pendingTabsSave: false,
-            stabilizationElapsedMs: 0,
-            quiescent: false,
-          };
-    await postReport(config.controlUrl, config.runId, {
-      step: step.step,
-      status: result.ok ? "done" : "error",
-      tabId: result.tabId,
-      error: result.error,
-      diagnostics: result.diagnostics,
-      quiescent: step.op === "settle" ? quiescence.quiescent : undefined,
-      quiescence: step.op === "settle" ? quiescence : undefined,
-    });
+    result = await executeStep(step, manifest);
   } finally {
     markBusy(false);
   }
+  // Wait for quiescence for settle steps; other steps report promptly but
+  // still carry the quiescence state.
+  const quiescence =
+    step.op === "settle"
+      ? await waitForQuiescence()
+      : {
+          inFlightTask: isBusy(),
+          storeLoading: false,
+          storeImporting: false,
+          pendingTabsSave: false,
+          stabilizationElapsedMs: 0,
+          quiescent: false,
+        };
+  await postReport(config.controlUrl, config.runId, {
+    step: step.step,
+    status: result.ok ? "done" : "error",
+    tabId: result.tabId,
+    error: result.error,
+    diagnostics: result.diagnostics,
+    quiescent: step.op === "settle" ? quiescence.quiescent : undefined,
+    quiescence: step.op === "settle" ? quiescence : undefined,
+  });
 }
 
 async function reportAfterStep(

@@ -11,7 +11,7 @@
         "pages": 3,
         "label": "Memory benchmark fixture"
       },
-      "sha256": "1074dc1272a880d69965982ac2233b88d6f539898ca2ea360a953954888f6497",
+      "sha256": "283995e4d47ffaa80c58c062b7d03085375b9e08c3933ceb9dcd2fbd0d7c833b",
       "description": "Deterministic 3-page text PDF (pdf.js-renderable, validated by test)"
     },
     "pdf-2": {
@@ -23,7 +23,7 @@
         "pages": 5,
         "label": "Memory benchmark fixture"
       },
-      "sha256": "ac3c8ff2061bc6c80e4f8e9b0019b1e9c803580299292fdc69d1d9e9ee773fbb",
+      "sha256": "a2e7e0f602509384ddd14d41110704ff21338c44a79de954cafb9b2cb8b629c8",
       "description": "Deterministic 5-page text PDF"
     },
     "epub-1": {

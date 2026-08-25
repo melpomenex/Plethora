@@ -77,9 +77,11 @@ async function defaultSampleTree({ procRoot, launchedPid, runId }) {
   return sample;
 }
 
-/** macOS sampler: native helper → normalized shared sample shape (task 2.7). */
-async function darwinSampleTree({ launchedPid, runId }) {
-  return sampleMacOsTree({ launchedPid, runId });
+/** macOS sampler: native helper → normalized shared sample shape (task 2.7).
+ *  `webkitBaseline` (differential WebKit attribution, macOS 26+) is injected
+ *  by runScenario before the app launches. */
+async function darwinSampleTree({ launchedPid, runId, webkitBaseline }) {
+  return sampleMacOsTree({ launchedPid, runId, webkitBaseline });
 }
 
 /** Platform dispatch: collector selection only — scenarios are shared (D2). */
@@ -88,8 +90,8 @@ function platformSampleTree(platform) {
 }
 
 /** Sample one headline tree value (Pss on Linux, footprint on macOS). */
-async function readTreePssVia(sampler, { procRoot, launchedPid, runId }, platform = process.platform) {
-  const sample = await sampler({ procRoot, launchedPid, runId });
+async function readTreePssVia(sampler, { procRoot, launchedPid, runId, webkitBaseline }, platform = process.platform) {
+  const sample = await sampler({ procRoot, launchedPid, runId, webkitBaseline });
   return treeHeadlineBytes(sample, platform);
 }
 
@@ -177,6 +179,20 @@ export async function runScenario(deps) {
     control = { ...created, url };
   }
 
+  // 4a. macOS: snapshot pre-existing WebKit XPC helpers BEFORE launch so
+  // post-launch WebKit processes can be attributed to this app
+  // (differential membership; kern.procargs2 markers are denied on macOS 26).
+  let webkitBaseline = null;
+  if ((options.platform ?? process.platform) === "darwin" && !appClient) {
+    try {
+      const { listWebKitPids } = await import("./macos-footprint.js");
+      webkitBaseline = listWebKitPids();
+      log(`webkit baseline before launch: ${webkitBaseline.length} helper(s)`);
+    } catch (error) {
+      log(`webkit baseline unavailable (${error.message}); WebKit attribution disabled`);
+    }
+  }
+
   // 4. Launch the app with the harness environment.
   const appEnv = {
     ...process.env,
@@ -243,26 +259,36 @@ export async function runScenario(deps) {
           break;
         }
 
-        let report;
-        try {
-          report = await control.waitForReport(step.step, stepTimeoutMs);
-          log(`report for step ${step.step}: status=${report.status}${report.error ? ` error=${report.error}` : ""}`);
-        } catch (error) {
-          // WKWebView can swallow a delivered step's response (the client
-          // aborts its poll and the step dies with the aborted request).
-          // Re-push the SAME step number once before failing: the app either
-          // never saw it (re-executes cleanly; open steps dedupe tabs) or it
-          // did and the report was lost (idempotent re-report).
-          log(`no report for step ${step.step} (${error.message}); re-pushing once`);
-          try {
-            await pushWithTimeout(control, step, stepTimeoutMs);
-            report = await control.waitForReport(step.step, 30_000);
-            log(`retry report for step ${step.step}: status=${report.status}`);
-          } catch (retryError) {
-            hardFailure = `phase "${phase.key}": ${error.message} (retry: ${retryError.message})`;
+        // WKWebView intermittently swallows a delivered step's response
+        // (the app never sees the step and keeps polling). All scenario ops
+        // are idempotent (tabs dedupe, settle re-queries quiescence,
+        // diagnostics is read-only), so re-deliver the same step every 10 s
+        // until its report arrives or the overall timeout elapses.
+        let report = null;
+        const reportDeadline = Date.now() + stepTimeoutMs;
+        let redeliveries = 0;
+        while (!report) {
+          const remaining = reportDeadline - Date.now();
+          if (remaining <= 0) {
+            hardFailure = `phase "${phase.key}": no report for step ${step.step} within ${stepTimeoutMs}ms (${redeliveries} re-deliveries)`;
             break;
           }
+          const outcome = await Promise.race([
+            control.waitForReport(step.step, Math.min(remaining, 10_000)).then((r) => ({ report: r })).catch((e) => ({ error: e })),
+          ]);
+          if (outcome.report) {
+            report = outcome.report;
+            break;
+          }
+          if (Date.now() >= reportDeadline) continue; // loop guard re-checks
+          redeliveries += 1;
+          if (redeliveries <= 12) {
+            log(`no report for step ${step.step} yet; re-delivering (attempt ${redeliveries})`);
+            await pushWithTimeout(control, step, 30_000).catch(() => {});
+          }
         }
+        if (hardFailure) break;
+        log(`report for step ${step.step}: status=${report.status}${report.error ? ` error=${report.error}` : ""}`);
         if (report.status === "error") {
           hardFailure = `phase "${phase.key}": app reported error: ${report.error ?? "unknown"}`;
           break;
@@ -288,7 +314,7 @@ export async function runScenario(deps) {
         while (Date.now() - soakStart < phase.soak.durationMs) {
           await sleep(phase.soak.sampleIntervalMs);
           const elapsedSec = Math.round((Date.now() - soakStart) / 1000);
-          const sample = await tree({ procRoot, launchedPid: child.pid, runId });
+          const sample = await tree({ procRoot, launchedPid: child.pid, runId, webkitBaseline });
           samples.push({
             key: `${phase.key}/${elapsedSec}`,
             stage: phase.key,
@@ -305,21 +331,26 @@ export async function runScenario(deps) {
       }
 
       // Settle step: the app waits for its own quiescence and reports it.
+      // The FIRST settle can race app boot (store hydration outlasting the
+      // app-side 30 s quiescence window) — re-settle up to twice before
+      // accepting a non-quiescent verdict.
       let appQuiescent = false;
       if (phase.steps.length > 0 || phase.key === "idle-fresh" || phase.key === "idle-final") {
-        const settleStep = { step: nextStepNumber(), op: "settle" };
-        await pushWithTimeout(control, settleStep, stepTimeoutMs).catch(() => {});
-        try {
-          const report = await control.waitForReport(settleStep.step, stepTimeoutMs);
-          appQuiescent = report.quiescent === true;
-        } catch {
-          appQuiescent = false;
+        for (let attempt = 0; attempt < 3 && !appQuiescent; attempt++) {
+          const settleStep = { step: nextStepNumber(), op: "settle" };
+          await pushWithTimeout(control, settleStep, stepTimeoutMs).catch(() => {});
+          try {
+            const report = await control.waitForReport(settleStep.step, stepTimeoutMs);
+            appQuiescent = report.quiescent === true;
+          } catch {
+            appQuiescent = false;
+          }
         }
       }
 
       const settleOutcome = await waitForSettle({
         readTreePss: () =>
-          readTreePssVia(tree, { procRoot, launchedPid: child.pid, runId }, platform),
+          readTreePssVia(tree, { procRoot, launchedPid: child.pid, runId, webkitBaseline }, platform),
         appQuiescent: async () => appQuiescent,
         settle,
       });
@@ -350,7 +381,7 @@ export async function runScenario(deps) {
         }
       }
 
-      const sample = await tree({ procRoot, launchedPid: child.pid, runId });
+      const sample = await tree({ procRoot, launchedPid: child.pid, runId, webkitBaseline });
       samples.push({
         key: phase.key,
         stage: phase.key.split("/")[0],

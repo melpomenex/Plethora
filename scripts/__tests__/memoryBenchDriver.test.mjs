@@ -55,7 +55,10 @@ function makeFakeApp({ onOpen, hangAfterSteps = Infinity } = {}) {
       }
       const body = await res.json();
       if (body.done) return;
-      const step = body.step;
+      // Steps are delivered FLAT ({step: <number>, op, ...}); `done`
+      // terminators are the only nested shape. body.step is a number for
+      // flat steps, so fall back to the body itself.
+      const step = body.step && typeof body.step === "object" ? body.step : body;
       const handler = handlers[step.op];
       const report = handler ? await handler(step) : { step: step.step, status: "error", error: `unknown op ${step.op}` };
       try {

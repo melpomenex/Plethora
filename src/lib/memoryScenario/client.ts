@@ -16,9 +16,16 @@ import type {
 /** How long the driver holds a /step long-poll before answering 204. */
 export const POLL_TIMEOUT_MS = 30_000;
 
+let requestCounter = 0;
+
 function withRunId(url: string, runId: string): string {
   const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}run=${encodeURIComponent(runId)}`;
+  // Cache-buster: WKWebView has been observed answering repeated GETs to an
+  // identical URL from cache even with no-store (2026-08-25 macOS harness
+  // debugging), silently swallowing step deliveries. A unique URL per request
+  // defeats any cache definitively.
+  const seq = `_${Date.now()}-${++requestCounter}`;
+  return `${url}${sep}run=${encodeURIComponent(runId)}&${seq}`;
 }
 
 /** Fetch the corpus manifest (corpusId -> fileName). */
@@ -93,10 +100,15 @@ export async function pollStep(controlUrl: string, runId: string): Promise<StepP
     if (!response.ok) {
       return { kind: "error", message: `step request failed: HTTP ${response.status}` };
     }
-    const body = (await response.json()) as { done?: boolean; error?: string };
+    const body = (await response.json()) as { done?: boolean; error?: string; step?: unknown };
     if (body.error) return { kind: "error", message: body.error };
     if (body.done) return { kind: "done" };
-    const step = normalizeStep(body);
+    // The delivery shape is FLAT ({step: <number>, op, ...}); tolerate a
+    // nested {step: {...}} from older drivers. body.step is a NUMBER for
+    // flat steps — only unwrap when it is an object.
+    const step = normalizeStep(
+      body.step && typeof body.step === "object" ? body.step : body,
+    );
     return step ? { kind: "step", step } : { kind: "idle" };
   } catch (error) {
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };

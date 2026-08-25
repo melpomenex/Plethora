@@ -150,6 +150,22 @@ pub fn classify_role(root_pid: u32, pid: u32, executable: &str, comm: &str) -> &
     ROLE_OTHER
 }
 
+/** Every live WebKit-named XPC process pid (driver baseline snapshot). */
+pub fn list_webkit_pids(source: &mut dyn ProcSource) -> Vec<u32> {
+    let mut pids = Vec::new();
+    if let Ok(all) = source.list_pids() {
+        for pid in all {
+            if let Some(info) = source.bsd_info(pid) {
+                if is_webkit_process(&info.name, &info.comm) {
+                    pids.push(pid);
+                }
+            }
+        }
+    }
+    pids.sort_unstable();
+    pids
+}
+
 fn file_name_of(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -159,7 +175,27 @@ fn file_name_of(path: &str) -> &str {
 /// Membership = the root itself plus every process whose PPID chain (from the
 /// snapshot of BSD info taken at walk start) reaches the root. Reparented
 /// orphans (PPID → 1) are therefore never absorbed.
-pub fn snapshot_tree(source: &mut dyn ProcSource, root_pid: u32, marker: Option<&str>) -> TreeSnapshot {
+/// Membership heuristic for macOS 26+ (task 2.3 follow-up): `kern.procargs2`
+/// is denied system-wide on current Darwin, so the run-ID environment
+/// marker cannot attribute WKWebView XPC helpers (which are reparented to
+/// launchd). When the driver supplies the WebKit PIDs that existed BEFORE
+/// it launched the app, every OTHER WebKit-named process is attributed to
+/// this app's tree. The pre-launch baseline guarantees an already-running
+/// application's helpers are never absorbed; a foreign app spawning helpers
+/// DURING the run is the documented blind spot (acceptable on a dedicated
+/// benchmark machine).
+pub fn is_webkit_process(executable: &str, comm: &str) -> bool {
+    let name = executable.to_ascii_lowercase();
+    let c = comm.to_ascii_lowercase();
+    name.contains("webkit") || c.contains("webkit")
+}
+
+pub fn snapshot_tree(
+    source: &mut dyn ProcSource,
+    root_pid: u32,
+    marker: Option<&str>,
+    webkit_baseline: Option<&[u32]>,
+) -> TreeSnapshot {
     let mut absent = Vec::new();
     let mut snapshot = TreeSnapshot {
         root_pid,
@@ -212,7 +248,13 @@ pub fn snapshot_tree(source: &mut dyn ProcSource, root_pid: u32, marker: Option<
     };
     let _ = root_info;
 
-    // Ancestry: BFS from the root over the frozen PPID map.
+    // Ancestry: BFS from the root over the frozen PPID map. On macOS,
+    // WKWebView helper processes (WebContent/Networking/GPU) are XPC
+    // services REPARENTED TO LAUNCHD (PPID 1), so ancestry finds only the
+    // native root — the run-ID marker is the only membership signal for
+    // them (design D3). With a marker provided, include every process
+    // whose environment carries it; unreadable environments stay excluded
+    // (a foreign application's WebKit helpers can never match).
     let mut members = vec![root_pid];
     let mut frontier = vec![root_pid];
     while let Some(pid) = frontier.pop() {
@@ -220,6 +262,34 @@ pub fn snapshot_tree(source: &mut dyn ProcSource, root_pid: u32, marker: Option<
             if info.ppid == pid && !members.contains(candidate) {
                 members.push(*candidate);
                 frontier.push(*candidate);
+            }
+        }
+    }
+    members.sort_unstable();
+    // Marker attempt (kept for OS versions where kern.procargs2 works).
+    if let Some(marker) = marker {
+        for (pid, info) in &bsd {
+            if members.contains(pid) {
+                continue;
+            }
+            if is_webkit_process(&info.name, &info.comm)
+                && source
+                    .environ_has_marker(*pid, marker)
+                    .unwrap_or(false)
+            {
+                members.push(*pid);
+            }
+        }
+    }
+    // Differential baseline: WebKit helpers that appeared after the driver
+    // launched the app belong to it.
+    if let Some(baseline) = webkit_baseline {
+        for (pid, info) in &bsd {
+            if members.contains(pid) || baseline.contains(pid) {
+                continue;
+            }
+            if is_webkit_process(&info.name, &info.comm) {
+                members.push(*pid);
             }
         }
     }
@@ -369,7 +439,7 @@ mod tests {
     #[test]
     fn classifies_roles_from_executable_names() {
         let mut m = default_tree();
-        let snap = snapshot_tree(&mut m, 100, None);
+        let snap = snapshot_tree(&mut m, 100, None, None);
         let by_pid: HashMap<u32, &ProcessSample> =
             snap.processes.iter().map(|p| (p.pid, p)).collect();
         assert_eq!(by_pid[&100].role_hint, ROLE_NATIVE);
@@ -381,7 +451,7 @@ mod tests {
     #[test]
     fn walk_absorbs_only_descendants_of_the_root() {
         let mut m = default_tree();
-        let snap = snapshot_tree(&mut m, 100, None);
+        let snap = snapshot_tree(&mut m, 100, None, None);
         let pids: Vec<u32> = snap.processes.iter().map(|p| p.pid).collect();
         assert_eq!(pids, vec![100, 101, 102, 103]);
         // The foreign WebContent process (pid 900, different ancestry) is
@@ -392,7 +462,7 @@ mod tests {
     #[test]
     fn absent_root_is_reported_never_an_error() {
         let mut m = MockSource::new(); // empty system: root not present
-        let snap = snapshot_tree(&mut m, 4242, None);
+        let snap = snapshot_tree(&mut m, 4242, None, None);
         assert!(snap.processes.is_empty());
         assert!(snap.absent.iter().any(|a| a.pid == 4242));
     }
@@ -401,7 +471,7 @@ mod tests {
     fn pid_exiting_mid_walk_lands_in_absent() {
         let mut m = default_tree();
         m.exit_rusage = vec![102];
-        let snap = snapshot_tree(&mut m, 100, None);
+        let snap = snapshot_tree(&mut m, 100, None, None);
         assert!(snap.absent.iter().any(|a| a.pid == 102));
         // The row still exists (membership is ancestry) with zeroed footprint.
         let row = snap.processes.iter().find(|p| p.pid == 102).unwrap();
@@ -416,7 +486,7 @@ mod tests {
         m.markers.insert(100, true);
         m.markers.insert(101, false); // env readable, marker absent
         // 102/103: kern.procargs2 refused → None → markerVerified false.
-        let snap = snapshot_tree(&mut m, 100, Some("run-42"));
+        let snap = snapshot_tree(&mut m, 100, Some("run-42"), None);
         let by_pid: HashMap<u32, &ProcessSample> =
             snap.processes.iter().map(|p| (p.pid, p)).collect();
         assert!(by_pid[&100].marker_verified);
@@ -429,14 +499,31 @@ mod tests {
         let mut m = default_tree();
         // A process whose parent died: PPID rewired to launchd (1).
         m.tree(950, 1, "/.../com.apple.WebKit.WebContent");
-        let snap = snapshot_tree(&mut m, 100, None);
+        let snap = snapshot_tree(&mut m, 100, None, None);
         assert!(!snap.processes.iter().any(|p| p.pid == 950));
+    }
+
+    #[test]
+    fn webkit_baseline_differential_includes_new_helpers_excluding_baseline() {
+        let mut m = default_tree();
+        // A WebKit helper that existed BEFORE the app launched (another
+        // app's) must never be absorbed...
+        m.tree(800, 1, "/.../com.apple.WebKit.WebContent");
+        // ...but one that appeared after launch belongs to this app.
+        m.tree(801, 1, "/.../com.apple.WebKit.WebContent");
+        let snap = snapshot_tree(&mut m, 100, None, Some(&[800]));
+        let pids: Vec<u32> = snap.processes.iter().map(|p| p.pid).collect();
+        assert!(!pids.contains(&800), "baseline helper excluded");
+        assert!(pids.contains(&801), "new helper included");
+        // With no baseline, differential inclusion is off.
+        let snap_no_baseline = snapshot_tree(&mut m, 100, None, None);
+        assert!(!snap_no_baseline.processes.iter().any(|p| p.pid == 801));
     }
 
     #[test]
     fn serialized_shape_matches_the_collector_contract() {
         let mut m = default_tree();
-        let snap = snapshot_tree(&mut m, 100, Some("run-42"));
+        let snap = snapshot_tree(&mut m, 100, Some("run-42"), None);
         let json = serde_json::to_value(&snap).unwrap();
         let row = &json["processes"][1]; // pid 101
         for field in [

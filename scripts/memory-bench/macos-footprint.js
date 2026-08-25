@@ -67,12 +67,34 @@ export function ensureHelperBuilt({ buildTimeoutMs = 300_000 } = {}) {
 }
 
 /**
+ * Snapshot the WebKit XPC pids that exist right now (driver baseline).
+ * @returns {number[]}
+ */
+export function listWebKitPids() {
+  const result = spawnSync(HELPER_BINARY, ["--list-webkit"], {
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  if (result.error || result.status !== 0) return [];
+  return result.stdout
+    .split("\n")
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+/**
  * Run the helper once and parse its JSON.
  * @returns {{ rootPid: number, processes: Array<object>, absent: Array<object>} | null}
  */
-export function runHelper({ launchedPid, runId }) {
+export function runHelper({ launchedPid, runId, webkitBaseline }) {
   const args = [String(launchedPid)];
   if (runId) args.push("--marker", runId);
+  // Pass the flag even for an EMPTY baseline: "no pre-existing helpers"
+  // is the strongest differential case (every WebKit process post-launch
+  // belongs to this app).
+  if (Array.isArray(webkitBaseline)) {
+    args.push("--webkit-baseline", webkitBaseline.join(","));
+  }
   const result = spawnSync(HELPER_BINARY, args, {
     encoding: "utf8",
     timeout: 30_000,
@@ -126,10 +148,21 @@ export function classifyFromHint(pid, launchedPid, roleHint, executable) {
 
 /**
  * Normalize helper rows into the shared per-process sample shape.
+ *
+ * Membership (D3): descendant of the launched root OR carrying the run-ID
+ * marker in its environment. The OR matters on macOS: WKWebView helper
+ * processes (WebContent/Networking/GPU) are XPC services reparented to
+ * launchd, so ancestry alone finds only the native root — the marker is
+ * the only relationship signal for them (markerVerified is recorded per
+ * process; unreadable environments exclude rather than include).
  * @returns {Array<{pid, ppid, present, role, markerVerified, values}>}
  */
 export function normalizeProcesses(helperOutput, launchedPid) {
-  const members = verifyAncestry(helperOutput.processes, launchedPid);
+  // The helper IS the membership authority: it applies the ancestry walk,
+  // the (OS-dependent) run-ID marker, and the differential WebKit baseline.
+  // Re-filtering here with JS-side ancestry+marker alone would drop the
+  // launchd-reparented WKWebView helpers on macOS 26 (marker unreadable).
+  const members = helperOutput.processes;
   const absent = new Set((helperOutput.absent ?? []).map((a) => a.pid));
   return members.map((p) => ({
     pid: p.pid,
@@ -184,7 +217,7 @@ export function collectMacOsTree({ helperOutput, launchedPid }) {
  * Full macOS sample entry point: run the helper and normalize.
  * (Injected `run` for tests.)
  */
-export function sampleMacOsTree({ launchedPid, runId, run = runHelper }) {
-  const helperOutput = run({ launchedPid, runId });
+export function sampleMacOsTree({ launchedPid, runId, webkitBaseline, run = runHelper }) {
+  const helperOutput = run({ launchedPid, runId, webkitBaseline });
   return collectMacOsTree({ helperOutput, launchedPid });
 }
