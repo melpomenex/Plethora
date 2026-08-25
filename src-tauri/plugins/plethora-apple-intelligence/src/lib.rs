@@ -267,6 +267,9 @@ fn call_mobile<T: DeserializeOwned>(
         .map_err(|e| Error::new("inference_failed", e.to_string()))
 }
 
+#[cfg(target_os = "macos")]
+mod macos_bridge;
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -276,23 +279,94 @@ fn now_ms() -> u64 {
 
 mod commands {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use tauri::Manager;
 
     #[tauri::command]
     pub async fn apple_capabilities(
+        app: AppHandle<Wry>,
         state: State<'_, AppleIntelligence>,
     ) -> Result<AppleIntelligenceSnapshot, Error> {
         #[cfg(target_os = "ios")]
         {
+            let _ = app;
             call_mobile(state.inner(), "capabilities", serde_json::json!({}))
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(target_os = "macos")]
         {
             let _ = state;
+            macos_bridge::fm_capabilities_snapshot()
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            let _ = (app, state);
             let mut snap = AppleIntelligenceSnapshot::platform_unsupported();
             snap.checked_at = now_ms();
             Ok(snap)
         }
     }
+
+    macro_rules! fm_cmd {
+        ($fn:ident, $ios_method:literal, $macos_fn:ident) => {
+            #[tauri::command]
+            pub async fn $fn(
+                app: AppHandle<Wry>,
+                state: State<'_, AppleIntelligence>,
+                payload: Option<serde_json::Value>,
+            ) -> Result<serde_json::Value, Error> {
+                let body = payload.unwrap_or_else(|| serde_json::json!({}));
+                #[cfg(target_os = "ios")]
+                {
+                    let _ = app;
+                    call_mobile(state.inner(), $ios_method, body)
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = state;
+                    macos_bridge::$macos_fn(body)
+                }
+                #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+                {
+                    let _ = (app, state, body);
+                    Err(not_apple(stringify!($fn)))
+                }
+            }
+        };
+    }
+
+    macro_rules! fm_stream_cmd {
+        ($fn:ident, $ios_method:literal) => {
+            #[tauri::command]
+            pub async fn $fn(
+                app: AppHandle<Wry>,
+                state: State<'_, AppleIntelligence>,
+                payload: Option<serde_json::Value>,
+            ) -> Result<serde_json::Value, Error> {
+                let body = payload.unwrap_or_else(|| serde_json::json!({}));
+                #[cfg(target_os = "ios")]
+                {
+                    call_mobile(state.inner(), $ios_method, body)
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = state;
+                    macos_bridge::fm_generate_stream(app, body)
+                }
+                #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+                {
+                    let _ = (app, state, body);
+                    Err(not_apple(stringify!($fn)))
+                }
+            }
+        };
+    }
+
+    fm_cmd!(apple_fm_availability, "fmAvailability", fm_availability_with_payload);
+    fm_cmd!(apple_fm_generate, "fmGenerate", fm_generate);
+    fm_stream_cmd!(apple_fm_generate_stream, "fmGenerateStream");
+    fm_cmd!(apple_fm_cancel, "fmCancel", fm_cancel);
+    fm_cmd!(apple_fm_count_tokens, "fmCountTokens", fm_count_tokens);
+    fm_cmd!(apple_fm_warmup, "fmWarmup", fm_warmup_with_payload);
 
     macro_rules! stub_cmd {
         ($fn:ident, $method:literal) => {
@@ -318,12 +392,6 @@ mod commands {
         };
     }
 
-    stub_cmd!(apple_fm_availability, "fmAvailability");
-    stub_cmd!(apple_fm_generate, "fmGenerate");
-    stub_cmd!(apple_fm_generate_stream, "fmGenerateStream");
-    stub_cmd!(apple_fm_cancel, "fmCancel");
-    stub_cmd!(apple_fm_count_tokens, "fmCountTokens");
-    stub_cmd!(apple_fm_warmup, "fmWarmup");
     stub_cmd!(apple_speech_status, "speechStatus");
     stub_cmd!(apple_speech_ensure_assets, "speechEnsureAssets");
     stub_cmd!(apple_speech_transcribe_file, "speechTranscribeFile");
