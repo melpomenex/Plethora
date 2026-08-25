@@ -1375,6 +1375,57 @@ Configure proveedores de IA para la generación de tarjetas:
 - Fichas máximas
 - Aviso del sistema
 
+#### On-Device Apple Intelligence (Mac & iPhone)
+
+En dispositivos Apple compatibles, Plethora puede ejecutar muchas funciones de IA con **Apple Foundation Models**: el modelo de lenguaje integrado de Apple que funciona en el dispositivo. Es independiente de los proveedores en la nube (OpenAI, Ollama, etc.) y **no requiere clave API**.
+
+**Qué es:** generación de texto en el dispositivo para tareas como etiquetado inteligente, resúmenes, creación de tarjetas didácticas y respuestas de Preguntar a la biblioteca.
+
+**Qué no es:** Apple Foundation Models **no** transcribe vídeos ni audio, **no** lee texto en voz alta (TTS) y **no** analiza fotos. Para esas tareas, use **Configuración → Transcripción de audio** y **Configuración → Texto a voz**.
+
+**Requisitos:**
+- **Mac:** macOS 26 o posterior, Apple Silicon, Apple Intelligence activado en Ajustes del sistema
+- **iPhone / iPad:** iOS 26 o posterior, Apple Intelligence activado, dispositivo compatible
+
+**Cómo activarlo:**
+1. Abra **Configuración → Ajustes de proveedores de IA**
+2. Desplácese hasta **IA en el dispositivo**
+3. Active **Preferir IA en el dispositivo**
+4. Compruebe que **Foundation Models** (o **Apple Intelligence**) muestre **Listo**
+
+Cuando aparece Listo, Plethora usa automáticamente la IA de Apple en el dispositivo para las tareas compatibles. No hace falta añadir Apple a la lista de proveedores en la nube.
+
+**Qué puede hacer con la IA de Apple en el dispositivo:**
+
+| Función | ¿Funciona en el dispositivo? |
+|---------|------------------------------|
+| Etiquetado inteligente | Sí |
+| Resumir / explicar un pasaje | Sí |
+| Preguntar a la biblioteca (respuestas desde su biblioteca) | Sí |
+| Generar tarjetas didácticas a partir de texto | Sí |
+| Extraer puntos clave, preguntas de estudio | Sí |
+| Sugerencias de revisión en Studio | Sí |
+| Transcribir vídeos o audiolibros | No — use **Configuración → Transcripción de audio** |
+| Leer texto en voz alta (TTS) | No — use **Configuración → Texto a voz** |
+| Describir imágenes / OCR | No — use OCR o funciones de visión |
+
+**Privacidad:**
+- El procesamiento se queda **en su dispositivo** de forma predeterminada
+- **Permitir reserva en la nube** está desactivado por defecto: si la IA en el dispositivo no puede completar una tarea, Plethora **no** envía su contenido en silencio a un proveedor en la nube de pago
+- Puede activar la reserva en la nube si quiere que Plethora reintente con su proveedor en la nube configurado cuando la IA en el dispositivo no esté disponible
+
+**Si el estado no es Listo:**
+
+| Estado | Qué significa | Qué probar |
+|--------|--------------|------------|
+| Listo | La IA en el dispositivo está disponible | Use las funciones de IA con normalidad |
+| Descargando… | El sistema aún está instalando el modelo | Espere y pulse **Actualizar** en IA en el dispositivo |
+| Desactivado | Apple Intelligence está desactivado | Active Apple Intelligence en Ajustes del sistema |
+| No compatible | El dispositivo o la región no lo admiten | Use un proveedor en la nube o local |
+| SO no compatible | macOS/iOS anterior a la versión 26 | Actualice el sistema o use otro proveedor |
+
+**Consejo:** Los documentos largos se gestionan automáticamente: Plethora los divide en fragmentos que caben en la ventana de contexto del dispositivo y combina los resultados. No tiene que configurar nada.
+
 #### Generación automática
 
 **Generación de tarjeta:**
