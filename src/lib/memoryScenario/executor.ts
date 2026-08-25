@@ -23,6 +23,7 @@ import { getCachedAudio, makeTTSCacheKeyV2, setCachedAudioDurable } from "../../
 import { createOwnedObjectUrl, revokeOwnedObjectUrl } from "../../diagnostics/ownedObjectUrl";
 import { getDiagnosticSnapshot } from "../../diagnostics/resourceCounts";
 import type { MemoryScenarioManifest, MemoryScenarioStep } from "./types";
+import { harnessLog } from "./harnessLog";
 import {
   SCENARIO_SYNTH_MODEL,
   SCENARIO_SYNTH_PROVIDER,
@@ -81,11 +82,14 @@ export async function resolveDocument(
   // not accumulate duplicate imports; import only when the path is unknown.
   let doc = useDocumentStore.getState().documents.find((d) => d.filePath === filePath);
   if (!doc) {
+    harnessLog(`[memoryScenario] open ${corpusId}: loading documents`);
     await useDocumentStore.getState().loadDocuments();
     doc = useDocumentStore.getState().documents.find((d) => d.filePath === filePath);
   }
   if (!doc) {
+    harnessLog(`[memoryScenario] open ${corpusId}: importing ${filePath}`);
     doc = await useDocumentStore.getState().importGenericFile(filePath);
+    harnessLog(`[memoryScenario] open ${corpusId}: imported as ${doc.id}`);
   }
 
   documentIdByCorpusId.set(corpusId, doc.id);

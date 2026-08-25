@@ -20,28 +20,12 @@ import { markBusy, isBusy } from "./activity";
 import { setDiagnosticsEnabled } from "../../diagnostics/gate";
 import { registerScenarioSynthAdapter } from "../../api/tts/registry";
 import { scenarioSynthAdapter } from "./scenarioSynth";
-import { info as nativeLogInfo, warn as nativeLogWarn } from "@tauri-apps/plugin-log";
+import { harnessLog } from "./harnessLog";
 import type { MemoryScenarioStep } from "./types";
 
 const POLL_RETRY_MS = 1_000;
 /** Fail the run after this many consecutive poll errors (the app reports and stops). */
 const MAX_CONSECUTIVE_POLL_ERRORS = 10;
-
-/**
- * Harness-visible log: console AND the native logger (Stdout target on
- * desktop). A failed overnight soak must name the JS-side cause in the
- * driver's captured output (D10 failed-run artifacts) — console alone is
- * invisible in a desktop WKWebView.
- */
-function harnessLog(message: string, kind: "info" | "warn" = "info"): void {
-  if (kind === "warn") {
-    console.warn(message);
-    void nativeLogWarn(message).catch(() => {});
-  } else {
-    console.log(message);
-    void nativeLogInfo(message).catch(() => {});
-  }
-}
 
 let running = false;
 

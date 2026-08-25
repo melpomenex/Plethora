@@ -248,8 +248,20 @@ export async function runScenario(deps) {
           report = await control.waitForReport(step.step, stepTimeoutMs);
           log(`report for step ${step.step}: status=${report.status}${report.error ? ` error=${report.error}` : ""}`);
         } catch (error) {
-          hardFailure = `phase "${phase.key}": ${error.message}`;
-          break;
+          // WKWebView can swallow a delivered step's response (the client
+          // aborts its poll and the step dies with the aborted request).
+          // Re-push the SAME step number once before failing: the app either
+          // never saw it (re-executes cleanly; open steps dedupe tabs) or it
+          // did and the report was lost (idempotent re-report).
+          log(`no report for step ${step.step} (${error.message}); re-pushing once`);
+          try {
+            await pushWithTimeout(control, step, stepTimeoutMs);
+            report = await control.waitForReport(step.step, 30_000);
+            log(`retry report for step ${step.step}: status=${report.status}`);
+          } catch (retryError) {
+            hardFailure = `phase "${phase.key}": ${error.message} (retry: ${retryError.message})`;
+            break;
+          }
         }
         if (report.status === "error") {
           hardFailure = `phase "${phase.key}": app reported error: ${report.error ?? "unknown"}`;

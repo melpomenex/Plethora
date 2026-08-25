@@ -122,26 +122,25 @@ produced.
 The macOS collector, driver dispatch, environment collection, TTS/edition
 stages, soak tiers, synthetic-leak injection, and the diagnostics op are
 implemented and unit-tested (12 native-helper tests, 12 collector tests, the
-full script suite). Two e2e attempts against the debug build from this
-writing session did not complete:
+full script suite). The first e2e attempts failed with the app's webview
+never executing any JavaScript (server-side logging in
+`get_memory_scenario_config` proved the config command was never invoked and
+the control server saw zero requests). **Root cause, identified 2026-08-25:**
+the app had been built with bare `cargo build`, which keeps
+`tauri.conf.json`'s `devUrl` (`http://127.0.0.1:15173`) — the webview
+pointed at a dev server that was not running, so no page (and no scenario
+host) ever loaded. An interactive GUI session is NOT required; the binary
+just has to be built through the tauri CLI so the built `dist` is embedded.
 
-- The driver launches the app, the webview URL loads, and the Rust side is
-  healthy — but the webview's JavaScript never executed (server-side logging
-  in `get_memory_scenario_config` proves the config command was never
-  invoked, and the control server saw zero requests). Window enumeration
-  shows a windowed process with no visible window: WKWebView defers page
-  execution for windows that never become visible, and this session's shell
-  cannot attach windows to the interactive GUI session.
-
-**To record the "before" numbers (tasks 2.7/2.8/4.4)**, run from an
-interactive (physically attended or screen-shared) login on the Mac mini:
+**To record the "before" numbers (tasks 2.7/2.8/4.4):**
 
 ```bash
-npm run build && (cd src-tauri && cargo build)
-node scripts/memory-bench/driver.js --output .bench/memory-result-macos-before.json \
-  > .bench/before.log 2>&1          # reader + tts + edition stages
-node scripts/memory-bench/driver.js --soak=nightly --output .bench/soak-before.json \
-  > .bench/soak-before.log 2>&1     # overnight, unattended (README §tiers)
+# IMPORTANT: build through the tauri CLI, NOT bare `cargo build` — a bare
+# cargo build keeps tauri.conf.json's devUrl (http://127.0.0.1:15173), so
+# the webview points at a dev server that is not running and no JS executes.
+npm run tauri:build:local:debug
+node scripts/memory-bench/driver.js --output .bench/memory-result-macos-before.json > .bench/before.log 2>&1
+node scripts/memory-bench/driver.js --soak=nightly --output .bench/soak-before.json > .bench/soak-before.log 2>&1
 ```
 
 The harness host now logs through the native logger, so a failed run names
@@ -242,9 +241,10 @@ session.**
 ### Remaining limitations (honest state at close of implementation)
 
 1. The macOS **before/after numbers, attribution, Instruments workflow
-   execution, nightly soaks, and baselines** are pending an attended GUI
-   session (see "macOS harness status"): WKWebView pages do not execute when
-   spawned windowless from this machine's remote shell.
+   execution, nightly soaks, and baselines** are pending a run against an
+   embedded-dist build (`npm run tauri:build:local:debug`): the earlier
+   failures were devUrl-only binaries, not a harness defect (see "macOS
+   harness status").
 2. The synthetic-leak **gate self-test run** (live harness + comparator) and
    the optional CI macOS soak job decision (task 8.5) are likewise pending;
    the slope/ratchet math itself is fixture-tested.
