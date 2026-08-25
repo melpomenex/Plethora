@@ -197,7 +197,50 @@ Readings (verified code hazards, magnitude now partially attributed):
 # Reproduce (build embeds dist; run from a normal, unsandboxed terminal):
 npm run tauri:build:local:debug
 node scripts/memory-bench/driver.js --output .bench/memory-result-macos-before.json > .bench/before.log 2>&1
-node scripts/memory-bench/driver.js --soak=nightly --output .bench/soak-before.json > .bench/soak-before.log 2>&1
+node scripts/memory-bench/driver.js --soak nightly --output .bench/soak-before.json > .bench/soak-before.log 2>&1
+```
+
+(The soak flag takes a SPACE-separated argument: `--soak nightly`. The
+`--soak=nightly` form prints usage and exits — a run lost to exactly this
+on 2026-08-25.)
+
+### Release-build comparison (2026-08-25)
+
+`.bench/memory-result-macos-release.json` — same machine, same scenario,
+release build (`npm run tauri:build:local`, binary passed via `--app
+src-tauri/target/release/plethora-tauri`), `reliable: true`:
+
+| Stage | Total | native | web-content | GPU (other) | network |
+|---|---|---|---|---|---|
+| idle-fresh | 1.03 GB | 462 M | 437 M | ~107 M | 21 M |
+| one-doc | 0.83 GB | 215 M | 485 M | ~112 M | 21 M |
+| four-tabs | 0.85 GB | 170 M | 544 M | ~112 M | 22 M |
+| all-closed | 0.92 GB | 170 M | 609 M | ~113 M | 22 M |
+| single-cycles/3 | 1.10 GB | 170 M | 708 M | ~203 M | 22 M |
+| multi-cycles/7 | 1.03 GB | 173 M | 718 M | ~120 M | 22 M |
+| tts-cycles/0 | 1.03 GB | 174 M | 719 M | ~119 M | 22 M |
+| tts-cycles/11 | 1.06 GB | 174 M | 745 M | ~121 M | 23 M |
+| edition-cycles/5 | 1.09 GB | 175 M | 770 M | ~119 M | 23 M |
+| idle-final | 1.09 GB | 175 M | 772 M | ~118 M | 23 M |
+
+Comparison readings:
+
+- **The debug build was ~440 M of the native footprint** (613 M → 173 M
+  steady-state release). Normal-use idle total is ~1.0 GB, not 1.1–2.0 GB.
+- **The +823 M debug first-PDF spike is largely a debug artifact**: the
+  release WebContent process pays ~+50 M for one fixture document (437→485 M).
+  The debug web-content numbers are inflated by unoptimized JS/WASM paths.
+- **The retention/ratchet signal SURVIVES in release**: closing the document
+  leaves web-content at 609 M (vs 485 M open), and it never returns to the
+  437 M baseline, climbing to 772 M by idle-final (+335 M over the run).
+  The leak-shaped behavior the fix phases target is real, not build noise.
+- **TTS/edition cycles remain near-flat in release** (719→745 M over 12 TTS
+  cycles is mostly the same slow ratchet seen in open/close cycles, ~2 M per
+  cycle, not a TTS-specific slope).
+
+```bash
+npm run tauri:build:local
+node scripts/memory-bench/driver.js --app src-tauri/target/release/plethora-tauri --output .bench/memory-result-macos-release.json > .bench/release-before.log 2>&1
 ```
 
 ### Manual deep-attribution workflow (task 6.1, design D10)
