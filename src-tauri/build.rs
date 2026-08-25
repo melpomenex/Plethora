@@ -134,6 +134,10 @@ fn main() {
     // embedded ad-hoc signature. On Apple Silicon, an unsigned/invalid binary is
     // SIGKILL'd by the kernel, so we re-sign ad-hoc with codesign afterward.
     if cfg!(target_os = "macos") {
+        // Apple FM Swift bridge references libswift_* via @rpath; the main binary must
+        // inherit an LC_RPATH or dyld dies before main() with "Check with the developer…".
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+
         let bin_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin");
 
         // Both production and dev rpaths must be present on every macOS sidecar.

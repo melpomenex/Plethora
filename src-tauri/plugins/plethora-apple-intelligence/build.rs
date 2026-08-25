@@ -100,6 +100,8 @@ fn build_macos_swift() {
         cmd.arg(src);
     }
     cmd.args(["-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels"]);
+    // Static Swift still references libswift_* at runtime; ensure the app can resolve them.
+    cmd.args(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"]);
 
     let status = cmd.status().expect("swiftc failed to start");
     if !status.success() {
@@ -109,4 +111,5 @@ fn build_macos_swift() {
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=plethora_apple_fm");
     println!("cargo:rustc-link-arg=-Wl,-weak_framework,FoundationModels");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }
