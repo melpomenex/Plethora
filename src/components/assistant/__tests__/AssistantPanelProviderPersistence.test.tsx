@@ -13,6 +13,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AssistantPanel } from "../AssistantPanel";
 import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import {
   ASSISTANT_PROVIDER_STORAGE_KEY,
   getStoredAssistantProvider,
@@ -37,6 +38,17 @@ vi.mock("../../../api/documents", async (importOriginal) => {
     extractDocumentText: vi.fn().mockResolvedValue({ content: "" }),
   };
 });
+
+vi.mock("../../../lib/ai/apple/capabilities", () => ({
+  getAppleIntelligenceSnapshot: vi.fn().mockResolvedValue({
+    foundationModels: { status: "available" },
+  }),
+  isAppleOsPlatform: () => true,
+}));
+
+vi.mock("../../../lib/ai/apple/foundation", () => ({
+  appleFmAvailability: vi.fn().mockResolvedValue({ status: "available" }),
+}));
 
 /** Seed the LLM providers store so the dropdown treats providers as selectable. */
 function seedProviders() {
@@ -91,6 +103,16 @@ describe("assistant provider choice persistence (regression)", () => {
     localStorage.clear();
     seedProviders();
     vi.clearAllMocks();
+    useSettingsStore.setState((state) => ({
+      ...state,
+      settings: {
+        ...state.settings,
+        ai: {
+          ...state.settings.ai,
+          assistantUseAppleFoundation: false,
+        },
+      },
+    }));
     // jsdom does not implement Element.scrollTo; the panel's scroll-to-bottom
     // effect calls it on mount.
     Element.prototype.scrollTo = vi.fn();
@@ -172,5 +194,30 @@ describe("assistant provider choice persistence (regression)", () => {
     persistAssistantProvider("deepseek");
     expect(getStoredAssistantProvider()).toBe("deepseek");
     expect(localStorage.getItem(ASSISTANT_PROVIDER_STORAGE_KEY)).toBe("deepseek");
+  });
+
+  it("shows Apple Intelligence and persists ondevice-apple-foundation when enabled", async () => {
+    useSettingsStore.setState((state) => ({
+      ...state,
+      settings: {
+        ...state.settings,
+        ai: {
+          ...state.settings.ai,
+          assistantUseAppleFoundation: true,
+        },
+      },
+    }));
+
+    render(<AssistantPanel />);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByTitle("Change Active AI Model"));
+      expect(screen.getByText("Apple Intelligence")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Apple Intelligence"));
+
+    expect(localStorage.getItem(ASSISTANT_PROVIDER_STORAGE_KEY)).toBe("ondevice-apple-foundation");
+    expect(getStoredAssistantProvider()).toBe("ondevice-apple-foundation");
   });
 });
