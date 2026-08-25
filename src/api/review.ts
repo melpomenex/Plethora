@@ -1,24 +1,21 @@
 import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
 import type { LearningSettings } from "../stores/settingsStore";
+import type { ArenaModelId } from "../lib/schedulerIdentity";
+
+export type { ArenaModelId } from "../lib/schedulerIdentity";
 
 export const ARENA_SCHEMA_VERSION = 1 as const;
-export const SM20_ARENA_SCHEMA_VERSION = ARENA_SCHEMA_VERSION;
 
 export const ARENA_MODEL_ORDER = [
-  "sm2",
-  "sm15",
-  "sm19",
-  "sm20",
-  "fsrs",
-] as const;
+  "m1",
+  "m2",
+  "m3",
+  "m4",
+  "m5",
+] as const satisfies readonly ArenaModelId[];
 
-export const SM20_ARENA_MODEL_ORDER = ARENA_MODEL_ORDER;
-
-export type ArenaModelId = (typeof ARENA_MODEL_ORDER)[number];
-export type SM20ArenaModelId = ArenaModelId;
 export type NativeGrade = 0 | 1 | 2 | 3 | 4 | 5;
-export type SM20NativeGrade = NativeGrade;
 export type ArenaSelectionSource = "arena" | "model" | "custom";
 
 export interface ArenaIntervalChoice {
@@ -46,8 +43,6 @@ export interface ArenaGradePreview {
   custom_bounds: ArenaIntervalRange;
 }
 
-export type SM20ArenaGradePreview = ArenaGradePreview;
-
 export interface ArenaPreviewSet {
   schema_version: typeof ARENA_SCHEMA_VERSION;
   preview_id: string;
@@ -57,8 +52,6 @@ export interface ArenaPreviewSet {
   model_order: ArenaModelId[];
   grades: ArenaGradePreview[];
 }
-
-export type SM20ArenaPreviewSet = ArenaPreviewSet;
 
 export interface ArenaSelection {
   commit_id: string;
@@ -74,7 +67,7 @@ export interface ArenaSelection {
 
 export interface ArenaReviewProvenance {
   schedule_source?: ArenaSelectionSource | null;
-  schedule_model_id?: SM20ArenaModelId | null;
+  schedule_model_id?: ArenaModelId | null;
   arena_commit_id?: string | null;
   arena_recommended_interval?: number | null;
   arena_decision_time_ms?: number | null;
@@ -86,11 +79,10 @@ export interface PreviewIntervals {
   hard: number;
   good: number;
   easy: number;
-  /** Native per-grade intervals (index = grade 0-5). Present only for
-   * algorithms with a native grade scale (currently SM-20). */
+  /** Native per-grade intervals (index = grade 0-5). Present for six-grade schedulers. */
   grade_intervals?: number[];
-  /** Full Algorithm Arena decision data. Present only for SM-20 Arena mode. */
-  arena?: SM20ArenaPreviewSet;
+  /** Full Algorithm Arena decision data. Present only for Precision Arena mode. */
+  arena?: ArenaPreviewSet;
 }
 
 export interface ReviewStreak {
@@ -114,10 +106,10 @@ export async function submitReview(
     fsrsWeights?: number[];
     algorithm?: LearningSettings["algorithm"];
     noScheduleUpdate?: boolean;
-    /** Native SM-20 grade (0-5). When set, the backend schedules with this
+    /** Native six-grade (0-5). When set, the backend schedules with this
      * grade directly instead of mapping the 4-button rating. */
     grade?: number;
-    sm20PureM4?: boolean;
+    precisionPureKernel?: boolean;
     arenaSelection?: ArenaSelection;
     /** Sync-only copy. Native persistence uses an authoritative recomputation. */
     arenaProvenance?: ArenaReviewProvenance;
@@ -140,8 +132,8 @@ export async function submitReview(
     no_schedule_update: options?.noScheduleUpdate,
     noScheduleUpdate: options?.noScheduleUpdate,
     grade: options?.grade,
-    sm20_pure_m4: options?.sm20PureM4,
-    sm20PureM4: options?.sm20PureM4,
+    sm20_pure_m4: options?.precisionPureKernel,
+    precisionPureKernel: options?.precisionPureKernel,
     arena_selection: options?.arenaSelection,
     arenaSelection: options?.arenaSelection,
   });
@@ -208,14 +200,14 @@ export async function getDueItems(collectionId?: string): Promise<LearningItem[]
 export async function previewReviewIntervals(
   itemId: string,
   algorithm?: string,
-  sm20PureM4?: boolean
+  precisionPureKernel?: boolean
 ): Promise<PreviewIntervals> {
   return await invokeCommand<PreviewIntervals>("preview_review_intervals", {
     item_id: itemId,
     itemId,
     algorithm,
-    sm20_pure_m4: sm20PureM4,
-    sm20PureM4,
+    sm20_pure_m4: precisionPureKernel,
+    precisionPureKernel,
   });
 }
 
@@ -240,14 +232,9 @@ export interface ArenaStats {
   m4_optimized: boolean;
 }
 
-export type SM20ArenaStats = ArenaStats;
-
 export async function getArenaStats(): Promise<ArenaStats> {
   return await invokeCommand<ArenaStats>("get_arena_stats");
 }
-
-/** Backward compatibility alias */
-export const getSm20ArenaStats = getArenaStats;
 
 export interface FsrsOptimizeSummary {
   accepted: boolean;
@@ -260,9 +247,6 @@ export interface FsrsOptimizeSummary {
 export async function optimizeArenaFsrs(): Promise<FsrsOptimizeSummary> {
   return await invokeCommand<FsrsOptimizeSummary>("optimize_arena_fsrs");
 }
-
-/** Backward compatibility alias */
-export const optimizeSm20Fsrs = optimizeArenaFsrs;
 
 export interface PrecisionOptimizeOutcome {
   accepted: boolean;
@@ -282,9 +266,6 @@ export type M4OptimizeOutcome = PrecisionOptimizeOutcome;
 export async function optimizePrecisionKernel(): Promise<PrecisionOptimizeOutcome> {
   return await invokeCommand<PrecisionOptimizeOutcome>("optimize_precision_kernel");
 }
-
-/** Backward compatibility alias */
-export const optimizeSm20M4 = optimizePrecisionKernel;
 
 export interface CardSourceContext {
   document_id: string;

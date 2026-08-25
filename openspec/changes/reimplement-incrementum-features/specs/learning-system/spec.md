@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Spaced Repetition Algorithms
-The application MUST implement three spaced repetition algorithms (FSRS 5.2, SM2, SuperMemo) with full parameter configuration.
+The application MUST implement three spaced repetition algorithms (FSRS 5.2, Classic, Plethora) with full parameter configuration.
 
 #### Scenario: Select FSRS algorithm
 **Given** the user is in Algorithm settings
@@ -23,14 +23,14 @@ The application MUST implement three spaced repetition algorithms (FSRS 5.2, SM2
 **When** a learning item (flashcard or cloze) is scheduled
 **Then** the next review interval should be computed using FSRS 5.2 parameters
 
-#### Scenario: Select SM2 algorithm
+#### Scenario: Select Classic algorithm
 **Given** the user is in Algorithm settings
-**When** they select SM2 as the active algorithm
-**Then** all new learning items should use SuperMemo 2 scheduling
-**And** SM2 parameters (easiness, interval modifier) should be configurable
+**When** they select Classic as the active algorithm
+**Then** all new learning items should use Plethora 2 scheduling
+**And** Classic parameters (easiness, interval modifier) should be configurable
 
-#### Scenario: Use SuperMemo algorithm
-**Given** the user selects the SuperMemo algorithm
+#### Scenario: Use Plethora scheduler algorithm
+**Given** the user selects the Plethora scheduler algorithm
 **When** they configure the forgetting index
 **Then** items should be scheduled based on the configured forgetting index
 **And** category-specific forgetting indexes should be supported
@@ -240,7 +240,7 @@ The application MUST support batch operations on queue items.
 ```typescript
 // Algorithm interface
 interface SpacedRepetitionAlgorithm {
-  name: 'fsrs' | 'sm2' | 'supermemo';
+  name: 'fsrs' | 'm1' | 'legacy-third-party';
   calculateNextReview(item: LearningItem, rating: number): ScheduledReview;
   updateParameters(item: LearningItem, rating: number): LearningItem;
   getParameters(): AlgorithmParameters;
@@ -252,8 +252,8 @@ interface SpacedRepetitionAlgorithm {
 - Support all FSRS parameters (stability, difficulty, retention)
 - Implement short-term and long-term scheduling
 
-### SM2 Implementation
-- Use standard SuperMemo 2 formula
+### Classic Implementation
+- Use standard Plethora 2 formula
 - Track easiness factor (EF)
 - Implement interval calculation: I(1) = 1, I(n) = I(n-1) * EF
 

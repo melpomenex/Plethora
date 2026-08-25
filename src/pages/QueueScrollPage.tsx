@@ -3041,7 +3041,7 @@ export function QueueScrollPage() {
         flashcardRevealed: flashcardRevealedRef.current,
         isRating,
         // Native 0-5 grade keys apply ONLY to flashcards (the one item type
-        // scheduled by the SM-18/SM-20 flashcard scheduler); documents and
+        // scheduled by the Adaptive/Precision flashcard scheduler); documents and
         // extracts keep 1-4 keys matching their on-screen buttons.
         nativeGrades: usesNativeGradeKeys(currentItem?.type, settings.learning.algorithm),
       });
@@ -3272,11 +3272,11 @@ export function QueueScrollPage() {
 
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
-        // Rate flashcard using the active scheduler (FSRS/SM-2 four-grade, or
-        // SM-18/SM-20 natively via `grade`).
+        // Rate flashcard using the active scheduler (FSRS/Classic four-grade, or
+        // Adaptive/Precision natively via `grade`).
         await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
           algorithm: settings.learning.algorithm,
-          sm20PureM4: settings.learning.sm20PureM4,
+          precisionPureKernel: settings.learning.precisionPureKernel,
           grade,
         });
 

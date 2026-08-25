@@ -11,9 +11,9 @@ describe("AlgorithmArenaModeControl", () => {
         general: { ...state.settings.general, language: "en" },
         learning: {
           ...state.settings.learning,
-          algorithm: "sm20",
-          sm20PureM4: false,
-          sm20ArenaReviewMode: "automatic",
+          algorithm: "precision",
+          precisionPureKernel: false,
+          arenaReviewMode: "automatic",
         },
       },
     }));
@@ -29,7 +29,7 @@ describe("AlgorithmArenaModeControl", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /show the arena/i }));
 
-    expect(useSettingsStore.getState().settings.learning.sm20ArenaReviewMode).toBe("choose");
+    expect(useSettingsStore.getState().settings.learning.arenaReviewMode).toBe("choose");
     expect(screen.getByRole("radio", { name: /show the arena/i })).toHaveAttribute("aria-checked", "true");
   });
 
@@ -41,6 +41,6 @@ describe("AlgorithmArenaModeControl", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "Show Arena" }));
 
-    expect(useSettingsStore.getState().settings.learning.sm20ArenaReviewMode).toBe("choose");
+    expect(useSettingsStore.getState().settings.learning.arenaReviewMode).toBe("choose");
   });
 });

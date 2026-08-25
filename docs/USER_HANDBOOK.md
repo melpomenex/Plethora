@@ -347,7 +347,7 @@ In the fallback scheduler, consecutive Good/Easy ratings add a small bonus and c
 
 **Engagement affects both order and spacing.** The engagement layer does two things: it shapes *which* document comes up next (novelty injection, variety balancing, serendipity), and it scales the FSRS-6 interval within its 0.25×–2.0× band. It layers on top of the FSRS-6 math; it does not replace it.
 
-**Practical takeaway.** Document reviews run through their **own** FSRS-6 instance and are tracked separately — they do **not** train the flashcard schedulers (the FSRS optimizer, Plethora Adaptive, Plethora Precision), which only learn from flashcard reviews. If you want those to personalize, you need flashcards reviewed at day-scale spacing. (This is why the Plethora Precision panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding Plethora Precision](#understanding-sm-20) for what does and doesn't count.
+**Practical takeaway.** Document reviews run through their **own** FSRS-6 instance and are tracked separately — they do **not** train the flashcard schedulers (the FSRS optimizer, Plethora Adaptive, Plethora Precision), which only learn from flashcard reviews. If you want those to personalize, you need flashcards reviewed at day-scale spacing. (This is why the Plethora Precision panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding Plethora Precision](#understanding-plethora-precision) for what does and doesn't count.
 
 ### Rating System
 
@@ -986,8 +986,8 @@ Plethora supports four scheduling algorithms. Choose the one that best fits your
 - Better retention with fewer reviews
 
 **Plethora Precision:**
-- Most advanced algorithm, reverse-engineered from sm20.exe via Ghidra
-- Uses the V4 (Plethora Precision proper) interval formula; Classic 19 scheduling is available via the separate `sm2` algorithm
+- Most advanced algorithm, reverse-engineered from the Plethora Precision reference binary via Ghidra
+- Uses the V4 (Plethora Precision proper) interval formula; Classic 19 scheduling is available via the separate Classic scheduler
 - Bayesian smoothing learns optimal intervals from your actual review data
 - Builds knowledge over time via persisted 21×21×21 interval/count matrices
 

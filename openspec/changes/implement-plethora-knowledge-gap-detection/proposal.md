@@ -7,7 +7,7 @@
 Users accumulate materials that imply prerequisite structures the app can infer: "You understand paging and virtual memory, but your materials indicate weak understanding of TLB behavior." Combining reading history, semantic structure, review performance, flashcards, and graph relations, Plethora can identify **probable** weak or missing knowledge — with mandatory honesty about uncertainty and full explainability — and offer concrete next actions.
 
 ## What exists today
-- **Signals already collected**: `review_results` (ratings, lapses, time), per-item FSRS state (stability/difficulty/reps) on documents/extracts/learning_items, `study_statistics` rollups, `item_stats_repository`, `sm20_arena` adaptive-weight history, recall prompts (`recall_prompt_history` with outcomes), `answer_assessments` (AI grading of free answers), `passage_scores`, reading-session heartbeats (`item_activity_log`).
+- **Signals already collected**: `review_results` (ratings, lapses, time), per-item FSRS state (stability/difficulty/reps) on documents/extracts/learning_items, `study_statistics` rollups, `item_stats_repository`, `arena_state` adaptive-weight history, recall prompts (`recall_prompt_history` with outcomes), `answer_assessments` (AI grading of free answers), `passage_scores`, reading-session heartbeats (`item_activity_log`).
 - **Structural signals** (from 7/8/9): semantic chunks, accepted connections, concept graph with `prerequisite-of` relations and confidence, extraction coverage per document.
 - **Partial precedent**: `prerequisite-analysis` task exists (`src/lib/ai/tasks/definitions/prerequisiteTask.ts`) — used for tutoring context, not library-wide gap detection. `LearnThisProposalSheet` shows the proposal-UX pattern.
 

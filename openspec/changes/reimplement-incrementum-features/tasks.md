@@ -55,7 +55,7 @@
 - [x] Build Arxiv import integration
 - [x] Implement Screenshot capture and import
 - [x] Add Anki deck/package import
-- [x] Create SuperMemo collection import
+- [x] Create Plethora collection import
 
 ### 2.2 Document Viewer ✅ COMPLETE
 - [x] Build PDF viewer component with pan/zoom
@@ -89,8 +89,8 @@
 
 ### 3.1 Algorithm Implementation ✅ COMPLETE
 - [x] Port FSRS algorithm to Rust backend
-- [x] Port SM2 algorithm to Rust backend
-- [x] Port SuperMemo algorithm to Rust backend
+- [x] Port Classic algorithm to Rust backend
+- [x] Port Plethora scheduler algorithm to Rust backend
 - [x] Create algorithm configuration interface
 - [x] Implement parameter tuning UI
 - [x] Add forgetting curve visualization

@@ -27,5 +27,5 @@
 - [x] 4.2 `cargo test` compile check incl. examples; `npm run test:run` brand suites; `npm run test:browser-extension`
 ## 5. Follow-up pass
 
-- [x] 5.1 Full SuperMemo word scrub (handbooks ×6, import UI, AI prompt, dialogs/console); guards tightened to zero-allowlist
+- [x] 5.1 Full Plethora word scrub (handbooks ×6, import UI, AI prompt, dialogs/console); guards tightened to zero-allowlist
 - [x] 5.2 Linux/Windows unbundled-run window icon (runtime set_icon) + icons/icon.png in bundle.icon; validated PNG/ICO structure

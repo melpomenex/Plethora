@@ -1,7 +1,7 @@
 //! Model 4 — the 35-parameter FSRS review kernel (25% ensemble weight).
 //!
 //! `FUN_00af9420` — the novel 3-expert forgetting-curve mixture model that
-//! SM-20 adds over SM-18. Every formula is decoded line-for-line from
+//! Precision kernel adds over Adaptive. Every formula is decoded line-for-line from
 //! Ghidra-decompiled C, with the two most critical formulas additionally
 //! verified against raw x86-64 assembly.
 //!
@@ -248,7 +248,7 @@ pub struct KernelResult {
     pub ratio: f64,
 }
 
-/// Full SM-20 review kernel with an explicit parameter block. `FUN_00af9420`. `[C][ASM][BIN]`
+/// Full Precision review kernel with an explicit parameter block. `FUN_00af9420`. `[C][ASM][BIN]`
 ///
 /// Args:
 /// - `p`: the 35-double parameter block (shipped defaults or per-user fit)

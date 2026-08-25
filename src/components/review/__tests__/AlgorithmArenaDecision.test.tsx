@@ -20,16 +20,16 @@ const arena = {
   item_revision: "item-revision",
   arena_revision: "arena-revision",
   generated_at: new Date().toISOString(),
-  model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"] as const,
+  model_order: ["m1", "m2", "m3", "m4", "m5"] as const,
   grades: Array.from({ length: 6 }, (_, grade) => ({
     grade: grade as 0 | 1 | 2 | 3 | 4 | 5,
     recommendation: { interval_days: 18, due_at: dueAt(18) },
     candidates: [
-      { model_id: "sm2" as const, label: "Plethora Classic", interval_days: 6, weight_percent: 6 },
-      { model_id: "sm15" as const, label: "Classic 15", interval_days: 11, weight_percent: 14 },
-      { model_id: "sm19" as const, label: "Classic 19", interval_days: 17, weight_percent: 45 },
-      { model_id: "sm20" as const, label: "Plethora Precision", interval_days: 24, weight_percent: 25 },
-      { model_id: "fsrs" as const, label: "FSRS", interval_days: 31, weight_percent: 10 },
+      { model_id: "m1" as const, label: "Plethora Classic", interval_days: 6, weight_percent: 6 },
+      { model_id: "m2" as const, label: "Classic 15", interval_days: 11, weight_percent: 14 },
+      { model_id: "m3" as const, label: "Classic 19", interval_days: 17, weight_percent: 45 },
+      { model_id: "m4" as const, label: "Plethora Precision", interval_days: 24, weight_percent: 25 },
+      { model_id: "m5" as const, label: "FSRS", interval_days: 31, weight_percent: 10 },
     ].map((candidate) => ({
       ...candidate,
       due_at: dueAt(candidate.interval_days),
@@ -89,7 +89,7 @@ describe("AlgorithmArenaDecision", () => {
     fireEvent.click(screen.getByRole("radio", { name: /fsrs/i }));
     expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({
       source: "model",
-      modelId: "fsrs",
+      modelId: "m5",
     });
     expect(screen.getByText(/fsrs selected/i)).toBeInTheDocument();
   });
@@ -106,7 +106,7 @@ describe("AlgorithmArenaDecision", () => {
     fireEvent.keyDown(window, { key: "5" });
     expect(useReviewStore.getState().pendingArenaReview?.selection).toMatchObject({
       source: "model",
-      modelId: "fsrs",
+      modelId: "m5",
     });
     fireEvent.keyDown(window, { key: "a" });
     expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({ source: "arena" });
@@ -225,12 +225,12 @@ describe("AlgorithmArenaDecision", () => {
     fireEvent.click(cluster);
     expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({
       source: "model",
-      modelId: "fsrs",
+      modelId: "m1",
     });
     fireEvent.click(cluster);
     expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({
       source: "model",
-      modelId: "sm15",
+      modelId: "m2",
     });
   });
 

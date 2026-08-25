@@ -53,6 +53,7 @@ import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 import { formatArenaInterval } from "./arenaFormatters";
 import { AlgorithmArenaModeControl } from "./AlgorithmArenaModeControl";
 import { featureFlags } from "../../lib/featureFlags";
+import { isPrecisionScheduler } from "../../lib/schedulerIdentity";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { InlineCardEditor } from "./InlineCardEditor";
 import { FlashcardStudioModal } from "./FlashcardStudioModal";
@@ -195,16 +196,16 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const volumeRockerMode = useSettingsStore(
     (state) => state.settings.interface.volumeRockerScroll ?? "none",
   );
-  // SM-18 and SM-20 grade natively on a 0-5 scale (0-2 fail, 3-5 pass) —
+  // Adaptive and Precision grade natively on a 0-5 scale (0-2 fail, 3-5 pass) —
   // surface the native scale instead of squeezing it into the 4 Anki-style
   // buttons. The scale is declared by the shared rating schema.
   const ratingSchema = useRatingSchema();
-  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) === "supermemo";
+  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
   const canChooseArenaMode = useSettingsStore(
     (state) =>
       featureFlags.reviewAlgorithmArena &&
-      state.settings.learning.algorithm === "sm20" &&
-      !state.settings.learning.sm20PureM4,
+      isPrecisionScheduler(state.settings.learning.algorithm) &&
+      !state.settings.learning.precisionPureKernel,
   );
   // The H-pattern joystick is a touch-only affordance; desktop uses the
   // tappable grid + keyboard 0-5.
@@ -214,9 +215,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const { shouldShow: showFSRSExplanation, markShown: markFSRSShown } = useFSRSExplanation();
 
   // Swipe gestures for mobile/tablet (only when answer is shown and not submitting).
-  // On touch devices with a native 0-5 grade algorithm (SM-18/SM-20), the
+  // On touch devices with a native 0-5 grade algorithm (six-grade schedulers), the
   // 4-axis swipe is replaced by the 6-zone H-pattern joystick so all grades
-  // are reachable. FSRS/SM-2 and desktop keep the classic 4-direction swipe.
+  // are reachable. FSRS/Classic and desktop keep the classic 4-direction swipe.
   const useJoystick = useNativeGrades && isTouch;
 
   // Keep latest state in refs so the gesture callbacks (registered once)

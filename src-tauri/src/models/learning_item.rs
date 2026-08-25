@@ -61,9 +61,9 @@ pub struct LearningItem {
     pub interaction_metadata: Option<Value>,
     /// FSRS Memory State (stability and difficulty)
     pub memory_state: Option<MemoryState>,
-    /// Algorithm type used for scheduling (e.g., "fsrs", "sm2", "sm18", "sm20")
+    /// Algorithm type used for scheduling (e.g., "fsrs", "classic", "adaptive", "precision")
     pub algorithm_type: String,
-    /// Algorithm-specific state as JSON (e.g., SM-18 state, SM-2 params)
+    /// Algorithm-specific state as JSON (e.g., Adaptive state, Classic params)
     pub algorithm_state: Option<String>,
     /// Sync clock (HLC string from the frontend's `nowHLC()`). Drives
     /// whole-row last-writer-wins merges across devices; separate from

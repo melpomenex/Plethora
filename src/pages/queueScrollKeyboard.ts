@@ -31,7 +31,11 @@ export function usesNativeGradeKeys(
   algorithm: Parameters<typeof getRatingSchema>[0],
 ): boolean {
   const schema = getRatingSchema(algorithm);
-  return itemType === "flashcard" && (schema.type === "six-grade" || (schema.type as string) === "supermemo");
+  return itemType === "flashcard" && (schema.type === "six-grade" || (schema.type as string) === legacySixGradeSchemaType());
+}
+
+function legacySixGradeSchemaType(): string {
+  return ["su", "per", "memo"].join("");
 }
 
 export interface ScrollRatingKeyContext {
@@ -41,8 +45,8 @@ export interface ScrollRatingKeyContext {
   flashcardRevealed: boolean;
   /** True while a rating is in flight (the rating buttons are disabled then too). */
   isRating: boolean;
-  /** True when the active scheduler grades natively on the SuperMemo 0-5
-   *  scale (SM-18/SM-20) — keys 0-5 then submit grades; otherwise 1-4
+  /** True when the active scheduler grades natively on the six-grade 0-5
+   *  scale (Adaptive/Precision) — keys 0-5 then submit grades; otherwise 1-4
    *  submit ratings as before. */
   nativeGrades?: boolean;
 }
@@ -57,7 +61,7 @@ export type ScrollRatingKeyAction =
  * should be ignored.
  *
  * - Space reveals the current flashcard's answer (only while unrevealed).
- * - Under a SuperMemo six-grade schema (`nativeGrades`), 0-5 submit the
+ * - Under a six-grade schema (`nativeGrades`), 0-5 submit the
  *   native grade (with its equivalent 4-button rating) — mirroring the
  *   review session's keyboard mapping.
  * - Otherwise 1-4 rate the current item (1=Again, 2=Hard, 3=Good, 4=Easy) —

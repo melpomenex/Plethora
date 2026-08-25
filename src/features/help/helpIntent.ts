@@ -64,7 +64,7 @@ export function classifyPaletteInput(
     };
   }
 
-  // 3. Exact or High-Confidence Canonical Feature Alias / Title Lookup ("e-ink mode", "tts speed", "sm-18")
+  // 3. Exact or High-Confidence Canonical Feature Alias / Title Lookup ("e-ink mode", "tts speed", "adaptive")
   const directMatch = defaultHelpRetrieval.resolveDirectLookup(query);
   if (directMatch && directMatch.confidence >= 0.92) {
     return {

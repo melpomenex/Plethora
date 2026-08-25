@@ -326,7 +326,7 @@ Plethora 的 **Plethora Precision** 选项是 **Algorithm Arena** - 对原始调
 
 **引人入胜的调度程序。** 当您从队列中阅读文档时，Plethora 使用*引人入胜* 变体，它将新颖性注入、多样性平衡和机缘巧合叠加在基本间隔之上，使您的阅读会话保持多样化和有趣。这些参与功能会影响接下来出现的*哪个*文档，而不是基础的间隔数学。
 
-**实用要点。**进行大量渐进阅读**不会**计入“训练”Plethora Precision 或 FSRS - 这些算法只会看到抽认卡评论。如果您希望它们个性化，您需要按日间隔查看抽认卡。 （这就是为什么即使您整周都在阅读文档，学习设置中的 Plethora Precision 面板也会显示“0 分”。）请参阅[了解 Plethora Precision](#understanding-sm-20) 了解哪些内容重要，哪些内容不重要。
+**实用要点。**进行大量渐进阅读**不会**计入“训练”Plethora Precision 或 FSRS - 这些算法只会看到抽认卡评论。如果您希望它们个性化，您需要按日间隔查看抽认卡。 （这就是为什么即使您整周都在阅读文档，学习设置中的 Plethora Precision 面板也会显示“0 分”。）请参阅[了解 Plethora Precision](#understanding-plethora-precision) 了解哪些内容重要，哪些内容不重要。
 
 ### 评级系统
 
@@ -963,8 +963,8 @@ Plethora支持四种调度算法。选择最适合您的学习风格的一种：
 - 更少的评论，更好的保留
 
 **Plethora Precision：**
-- 最先进的算法，通过 Ghidra 从 sm20.exe 进行逆向工程
-- 使用V4（Plethora Precision适当）间隔公式； Classic 19 调度可通过单独的“sm2”算法实现
+- 最先进的算法，通过 Ghidra 从 Plethora Precision 参考二进制进行逆向工程
+- 使用V4（Plethora Precision适当）间隔公式； Classic 19 调度可通过单独的 Classic 调度器实现
 - 贝叶斯平滑从您的实际评论数据中学习最佳间隔
 - 通过持续的 21×21×21 间隔/计数矩阵随着时间的推移构建知识
 

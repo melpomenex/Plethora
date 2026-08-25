@@ -1,6 +1,6 @@
-//! Model 3 — SM-15 raw matrix scheduler (45% ensemble weight).
+//! Model 3 — Classic 15 raw matrix scheduler (45% ensemble weight).
 //!
-//! `FUN_00cea5a0` — the legacy SM-15 matrix-based scheduler, the single biggest
+//! `FUN_00cea5a0` — the legacy Classic 15 matrix-based scheduler, the single biggest
 //! contributor to the ensemble. Uses 21³ Bayesian learning matrices that are
 //! populated per-review. Live-validated: 9/9 vectors (6 fresh + 3 seeded) at
 //! 12 decimal places.
@@ -663,7 +663,7 @@ struct W3Output {
     d_blend: f64,
 }
 
-/// `FUN_00cea5a0`: the SM-15 raw (W3) model path. `[C][BIN]`
+/// `FUN_00cea5a0`: the Classic 15 raw (W3) model path. `[C][BIN]`
 fn w3_model_path(
     t: f64,
     reps: u32,

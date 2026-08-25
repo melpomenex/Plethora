@@ -326,7 +326,7 @@ Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Mater
 
 **Der Engaging Scheduler.** Wenn Sie Dokumente aus der Warteschlange lesen, verwendet Plethora die Variante *Engaging*, die Neuheiten, Sortenausgleich und Serendipity über die Basisintervalle legt, damit Ihre Lesesitzungen abwechslungsreich und interessant bleiben. Diese Engagement-Funktionen wirken sich darauf aus, *welches* Dokument als nächstes erscheint, nicht auf die zugrunde liegende Intervallberechnung.
 
-**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von Plethora Precision oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im Plethora Precision-Bereich in den Lerneinstellungen „0 Punkte“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [Plethora Precision verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
+**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von Plethora Precision oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im Plethora Precision-Bereich in den Lerneinstellungen „0 Punkte“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [Plethora Precision verstehen](#understanding-plethora-precision) erfahren Sie, was zählt und was nicht.
 
 ### Bewertungssystem
 
@@ -963,8 +963,8 @@ Plethora unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am be
 - Bessere Bindung mit weniger Bewertungen
 
 **Plethora Precision:**
-- Fortschrittlichster Algorithmus, rückentwickelt von sm20.exe über Ghidra
-- Verwendet die V4-Intervallformel (Plethora Precision richtig); Die Classic 19-Planung ist über den separaten „sm2“-Algorithmus verfügbar
+- Fortschrittlichster Algorithmus, rückentwickelt aus dem Plethora-Precision-Referenzbinary über Ghidra
+- Verwendet die V4-Intervallformel (Plethora Precision richtig); Die Classic 19-Planung ist über den separaten Classic-Scheduler verfügbar
 - Durch die Bayes'sche Glättung werden optimale Intervalle aus Ihren tatsächlichen Überprüfungsdaten ermittelt
 - Baut im Laufe der Zeit Wissen über persistente 21×21×21-Intervall-/Zählmatrizen auf
 

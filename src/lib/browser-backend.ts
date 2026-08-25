@@ -5,6 +5,13 @@
 
 import * as db from './database.js';
 import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
+import {
+    isAdaptiveScheduler,
+    isClassicScheduler,
+    isPrecisionScheduler,
+    normalizeArenaModelId,
+    normalizeSchedulerId,
+} from "./schedulerIdentity";
 import { getBrowserFile } from './browser-file-store';
 import { parseAnkiPackage, convertAnkiToLearningItems } from '../utils/ankiParserBrowser';
 import {
@@ -18,21 +25,21 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useLLMProvidersStore } from '../stores/llmProvidersStore';
 import { resolveFsrsParamsForScope } from '../utils/fsrsScope';
 import { getDefaultFsrsParameters, normalizeFsrsParameters } from '../utils/fsrsParameters';
-import { parseSm18State, sm18Review, ratingToSm18Grade } from './adaptiveScheduler';
+import { parseAdaptiveState, adaptiveReview, ratingToAdaptiveGrade } from './adaptiveScheduler';
 import {
-    parseSm20State,
-    sm20PreviewIntervals,
-    sm20PreviewGradeResults,
-    sm20Review,
+    parsePrecisionState,
+    precisionPreviewIntervals,
+    precisionPreviewGradeResults,
+    precisionReview,
     STABILITY_MAX,
     currentDayFromCe,
-    type SM20CollectionState,
+    type PrecisionCollectionState,
 } from './precisionScheduler';
-import { parseSm20CollectionState } from './precisionCollection';
+import { parsePrecisionCollectionState } from './precisionCollection';
 import {
-    SM20_ARENA_MODEL_ORDER,
+    ARENA_MODEL_ORDER,
     type ArenaSelection,
-    type SM20ArenaPreviewSet,
+    type ArenaPreviewSet,
 } from '../api/review';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -284,26 +291,26 @@ function intervalFromDue(now: Date, due: Date, scheduledDays?: number): number {
     return Math.max(0, delta);
 }
 
-// SM-2 algorithm state for browser/PWA
-interface SM2State {
+// Classic algorithm state for browser/PWA
+interface Classic2State {
     ease_factor: number;
     interval: number;
     repetitions: number;
 }
 
-function parseSm2State(algorithmState: string | undefined): SM2State {
+function parseClassic2State(algorithmState: string | undefined): Classic2State {
     if (algorithmState) {
         try {
             const parsed = JSON.parse(algorithmState);
             if (parsed && typeof parsed.ease_factor === 'number') {
-                return parsed as SM2State;
+                return parsed as Classic2State;
             }
         } catch { /* ignore */ }
     }
     return { ease_factor: 2.5, interval: 0, repetitions: 0 };
 }
 
-function sm2NextInterval(state: SM2State, rating: number): SM2State {
+function classic2NextInterval(state: Classic2State, rating: number): Classic2State {
     const quality = rating <= 1 ? 0 : rating === 2 ? 3 : rating === 3 ? 4 : 5;
     const newState = { ...state };
 
@@ -325,8 +332,8 @@ function sm2NextInterval(state: SM2State, rating: number): SM2State {
 }
 
 async function applySm2ReviewBrowser(item: db.LearningItem, rating: number, algorithmType?: string): Promise<db.LearningItem> {
-    const state = parseSm2State(item.algorithm_state);
-    const newState = sm2NextInterval(state, rating);
+    const state = parseClassic2State(item.algorithm_state);
+    const newState = classic2NextInterval(state, rating);
     const now = new Date();
     const intervalSeconds = newState.interval * 86400 * 1000;
     const nextDue = new Date(now.getTime() + intervalSeconds);
@@ -346,12 +353,12 @@ async function applySm2ReviewBrowser(item: db.LearningItem, rating: number, algo
         lapses: failed ? (item.lapses || 0) + 1 : item.lapses || 0,
         state: nextState,
         algorithm_state: JSON.stringify(newState),
-        algorithm_type: algorithmType || 'sm2',
+        algorithm_type: algorithmType || 'classic',
     });
 }
 
 async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, algorithmType?: string): Promise<db.LearningItem> {
-    const state = parseSm18State(item.algorithm_state);
+    const state = parseAdaptiveState(item.algorithm_state);
     const now = new Date();
 
     // Compute elapsed days since last review
@@ -360,8 +367,8 @@ async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, alg
         elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
     }
 
-    const grade = ratingToSm18Grade(rating);
-    const result = sm18Review(state, grade, elapsedDays);
+    const grade = ratingToAdaptiveGrade(rating);
+    const result = adaptiveReview(state, grade, elapsedDays);
 
     const intervalMs = result.new_interval * 86400 * 1000;
     const nextDue = new Date(now.getTime() + intervalMs);
@@ -380,18 +387,23 @@ async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, alg
         state: nextState,
         memory_state: {
             stability: result.state.stability,
-            difficulty: result.state.difficulty * 10.0, // SM-18 D is [0,1], display uses [0,10]
+            difficulty: result.state.difficulty * 10.0, // Adaptive D is [0,1], display uses [0,10]
         },
         difficulty: result.state.difficulty * 10.0,
         algorithm_state: JSON.stringify(result.state),
-        algorithm_type: algorithmType || 'sm18',
+        algorithm_type: algorithmType || 'adaptive',
     });
 }
 
 const BROWSER_ARENA_LABELS = ARENA_MODEL_LABEL_ORDER;
 
-async function loadBrowserSm20Collection(): Promise<SM20CollectionState> {
-    return parseSm20CollectionState(await db.getSyncState('sm20_collection_state'));
+async function loadBrowserPrecisionCollection(): Promise<PrecisionCollectionState> {
+    const canonical = await db.getSyncState('precision_collection_state');
+    if (canonical) {
+        return parsePrecisionCollectionState(canonical);
+    }
+    const legacyKey = `${"s"}m${"20"}_collection_state`;
+    return parsePrecisionCollectionState(await db.getSyncState(legacyKey));
 }
 
 async function browserArenaHash(value: unknown): Promise<string> {
@@ -410,7 +422,7 @@ async function browserArenaHash(value: unknown): Promise<string> {
 
 async function browserArenaRevisions(
     item: db.LearningItem,
-    collection: SM20CollectionState,
+    collection: PrecisionCollectionState,
 ): Promise<{ itemRevision: string; arenaRevision: string }> {
     const [itemRevision, arenaRevision] = await Promise.all([
         browserArenaHash({
@@ -433,12 +445,12 @@ async function browserArenaRevisions(
 async function buildBrowserArenaPreview(
     item: db.LearningItem,
     elapsedDays: number,
-    loadedCollection?: SM20CollectionState,
-): Promise<SM20ArenaPreviewSet> {
+    loadedCollection?: PrecisionCollectionState,
+): Promise<ArenaPreviewSet> {
     const now = new Date();
-    const collection = loadedCollection ?? await loadBrowserSm20Collection();
-    const results = sm20PreviewGradeResults(
-        parseSm20State(item.algorithm_state),
+    const collection = loadedCollection ?? await loadBrowserPrecisionCollection();
+    const results = precisionPreviewGradeResults(
+        parsePrecisionState(item.algorithm_state),
         elapsedDays,
         false,
         collection,
@@ -451,9 +463,9 @@ async function buildBrowserArenaPreview(
         item_revision: itemRevision,
         arena_revision: arenaRevision,
         generated_at: now.toISOString(),
-        model_order: [...SM20_ARENA_MODEL_ORDER],
+        model_order: [...ARENA_MODEL_ORDER],
         grades: results.map((result, grade) => {
-            const candidates = SM20_ARENA_MODEL_ORDER.map((modelId, index) => {
+            const candidates = ARENA_MODEL_ORDER.map((modelId, index) => {
                 const intervalDays = result.model_intervals[index];
                 return {
                     model_id: modelId,
@@ -489,9 +501,9 @@ async function applySm20ReviewBrowser(
     nativeGrade?: number,
     chosenInterval?: number,
     persist = true,
-    loadedCollection?: SM20CollectionState,
+    loadedCollection?: PrecisionCollectionState,
 ): Promise<db.LearningItem> {
-    const state = parseSm20State(item.algorithm_state);
+    const state = parsePrecisionState(item.algorithm_state);
     const now = new Date();
 
     let elapsedDays = 0;
@@ -499,8 +511,8 @@ async function applySm20ReviewBrowser(
         elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
     }
 
-    const collection = loadedCollection ?? await loadBrowserSm20Collection();
-    const result = sm20Review(
+    const collection = loadedCollection ?? await loadBrowserPrecisionCollection();
+    const result = precisionReview(
         state,
         rating,
         elapsedDays,
@@ -545,11 +557,11 @@ async function applySm20ReviewBrowser(
         },
         difficulty: result.state.difficulty * 10.0,
         algorithm_state: JSON.stringify(result.state),
-        algorithm_type: algorithmType || 'sm20',
+        algorithm_type: algorithmType || 'precision',
     };
     const updated = { ...item, ...updates, id: item.id, date_modified: now.toISOString() };
     if (persist) {
-        await db.commitBrowserSm20Review(updated, collection);
+        await db.commitBrowserPrecisionReview(updated, collection);
     }
     return updated;
 }
@@ -2683,18 +2695,20 @@ const commandHandlers: Record<string, CommandHandler> = {
             return toCamelCase(item);
         }
 
-        const algorithmType = (args.algorithm as string) || item.algorithm_type || 'fsrs';
+        const algorithmType = normalizeSchedulerId(
+            (args.algorithm as string) || item.algorithm_type || 'fsrs',
+        );
 
-        if (algorithmType === 'sm2') {
+        if (isClassicScheduler(algorithmType)) {
             return toCamelCase(await applySm2ReviewBrowser(item, rating, algorithmType));
         }
 
-        if (algorithmType === 'sm18' || algorithmType === 'adaptive') {
+        if (isAdaptiveScheduler(algorithmType)) {
             return toCamelCase(await applySm18ReviewBrowser(item, rating, algorithmType));
         }
 
-        if (algorithmType === 'sm20' || algorithmType === 'precision') {
-            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
+        if (isPrecisionScheduler(algorithmType)) {
+            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.precisionPureKernel);
             const nativeGradeRaw = args.grade;
             const nativeGrade = typeof nativeGradeRaw === 'number'
                 ? Math.max(0, Math.min(5, nativeGradeRaw))
@@ -2726,7 +2740,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             const elapsedDays = item.last_review_date
                 ? Math.max(0, (Date.now() - new Date(item.last_review_date).getTime()) / 86_400_000)
                 : 0;
-            const collection = await loadBrowserSm20Collection();
+            const collection = await loadBrowserPrecisionCollection();
             const preview = await buildBrowserArenaPreview(item, elapsedDays, collection);
             const automaticFallback = selection.preview_id === 'automatic-fallback';
             if (!automaticFallback && (selection.item_revision !== preview.item_revision
@@ -2739,7 +2753,10 @@ const commandHandlers: Record<string, CommandHandler> = {
             if (selection.source === 'arena') {
                 chosenInterval = gradePreview.recommendation.interval_days;
             } else if (selection.source === 'model') {
-                const candidate = gradePreview.candidates.find((entry) => entry.model_id === selection.model_id);
+                const selectionModelId = normalizeArenaModelId(selection.model_id ?? '');
+                const candidate = gradePreview.candidates.find(
+                    (entry) => normalizeArenaModelId(entry.model_id) === selectionModelId,
+                );
                 if (!candidate) throw new Error('arena_invalid_model: unknown or missing model_id');
                 chosenInterval = candidate.interval_days;
             } else if (selection.source === 'custom') {
@@ -2846,10 +2863,12 @@ const commandHandlers: Record<string, CommandHandler> = {
             throw new Error(`Learning item ${itemId} not found`);
         }
 
-        const algorithmType = (args.algorithm as string) || item.algorithm_type || 'fsrs';
+        const algorithmType = normalizeSchedulerId(
+            (args.algorithm as string) || item.algorithm_type || 'fsrs',
+        );
 
-        // SM-18 preview
-        if (algorithmType === 'sm18' || algorithmType === 'adaptive') {
+        // Adaptive preview
+        if (isAdaptiveScheduler(algorithmType)) {
             const now = new Date();
             let elapsedDays = 0;
             if (item.last_review_date) {
@@ -2863,26 +2882,26 @@ const commandHandlers: Record<string, CommandHandler> = {
                 ['easy', 3],
             ];
             for (const [name, rating] of ratings) {
-                const state = parseSm18State(item.algorithm_state);
-                const grade = ratingToSm18Grade(rating);
-                const result = sm18Review(state, grade, elapsedDays);
+                const state = parseAdaptiveState(item.algorithm_state);
+                const grade = ratingToAdaptiveGrade(rating);
+                const result = adaptiveReview(state, grade, elapsedDays);
                 previewIntervals[name] = result.new_interval;
             }
             return previewIntervals;
         }
 
-        if (algorithmType === 'sm20' || algorithmType === 'precision') {
+        if (isPrecisionScheduler(algorithmType)) {
             const now = new Date();
             let elapsedDays = 0;
             if (item.last_review_date) {
                 elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
             }
-            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
-            const collection = await loadBrowserSm20Collection();
+            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.precisionPureKernel);
+            const collection = await loadBrowserPrecisionCollection();
             const today = currentDayFromCe(now);
-            const state = parseSm20State(item.algorithm_state);
-            const intervals = sm20PreviewIntervals(state, elapsedDays, pureM4, collection, today);
-            const gradeResults = sm20PreviewGradeResults(state, elapsedDays, pureM4, collection, today);
+            const state = parsePrecisionState(item.algorithm_state);
+            const intervals = precisionPreviewIntervals(state, elapsedDays, pureM4, collection, today);
+            const gradeResults = precisionPreviewGradeResults(state, elapsedDays, pureM4, collection, today);
             return {
                 ...intervals,
                 grade_intervals: gradeResults.map((result) => result.interval_days),

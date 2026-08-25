@@ -1,7 +1,7 @@
 # Project Context
 
 ## Purpose
-Incrementum is a Tauri 2.0 / React 19 desktop application for spaced repetition learning, document reading, and knowledge management. It supports PDF, EPUB, web articles, Kindle clippings, video transcripts, and more. Users create flashcards (extracts) from reading material and review them using FSRS/SM-18/SM-20 algorithms.
+Incrementum is a Tauri 2.0 / React 19 desktop application for spaced repetition learning, document reading, and knowledge management. It supports PDF, EPUB, web articles, Kindle clippings, video transcripts, and more. Users create flashcards (extracts) from reading material and review them using FSRS/Plethora Adaptive/Plethora Precision algorithms.
 
 ## Tech Stack
 - **Backend:** Rust (Tauri 2.0), SQLite via rusqlite, Whisper for local transcription, FSRS algorithm
@@ -36,7 +36,7 @@ Incrementum is a Tauri 2.0 / React 19 desktop application for spaced repetition 
 - OpenSpec for spec-driven development (proposal → apply → archive)
 
 ## Domain Context
-- Spaced repetition: FSRS (free), SM-18, SM-20 algorithms
+- Spaced repetition: FSRS (free), Plethora Adaptive, Plethora Precision algorithms
 - Document types: PDF, EPUB, web articles, Kindle clippings, video transcripts, images
 - Extracts: highlighted text snippets turned into flashcards
 - Queue: review queue with priority-based ordering

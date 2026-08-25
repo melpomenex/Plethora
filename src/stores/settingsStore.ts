@@ -8,6 +8,8 @@ import {
 } from "../utils/ttsSettings";
 import { normalizeFsrsParameters } from "../utils/fsrsParameters";
 import { isNativeMobile } from "../lib/tauri";
+import type { SchedulerId } from "../lib/schedulerIdentity";
+import { normalizeSchedulerId } from "../lib/schedulerIdentity";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
 import type { StudyAction } from "../types/audioEdition";
 
@@ -59,7 +61,7 @@ export interface FSRSScopeOverride {
 }
 
 /**
- * Postpone Settings (SM-20 algorithm-aware postponement)
+ * Postpone Settings (Precision algorithm-aware postponement)
  */
 export interface PostponeSettings {
   // Item parameters
@@ -95,20 +97,7 @@ export interface PostponeSettings {
  * Learning Settings
  */
 export interface LearningSettings {
-  algorithm:
-    | "fsrs"
-    | "sm2"
-    | "sm5"
-    | "sm8"
-    | "sm15"
-    | "sm18"
-    | "sm20"
-    | "adaptive"
-    | "precision"
-    | "classic"
-    | "classic_5"
-    | "classic_8"
-    | "classic_15";
+  algorithm: SchedulerId;
   newCardsPerDay: number;
   reviewsPerDay: number;
   initialInterval: number;
@@ -122,9 +111,9 @@ export interface LearningSettings {
   scopedFsrsOverrides: FSRSScopeOverride[];
   timezone: string;
   postpone: PostponeSettings;
-  sm20PureM4: boolean;
-  /** Whether SM-20 commits Arena Pick immediately or opens the post-grade chooser. */
-  sm20ArenaReviewMode: "automatic" | "choose";
+  precisionPureKernel: boolean;
+  /** Whether Precision commits Arena Pick immediately or opens the post-grade chooser. */
+  arenaReviewMode: "automatic" | "choose";
 }
 
 /**
@@ -1028,8 +1017,8 @@ export const defaultSettings: Settings = {
       simpleMode: false,
       autoPostponeEnabled: false,
     },
-    sm20PureM4: false,
-    sm20ArenaReviewMode: "automatic",
+    precisionPureKernel: false,
+    arenaReviewMode: "automatic",
   },
   documents: {
     defaultCategory: "Uncategorized",
@@ -1331,26 +1320,48 @@ export const useSettingsStore = create<SettingsState>()(
       settings: defaultSettings,
 
       updateSettings: (updates) =>
-        set((state) => ({
-          settings: { ...state.settings, ...updates },
-        })),
+        set((state) => {
+          const nextLearning =
+            updates.learning && "algorithm" in updates.learning
+              ? {
+                  ...updates.learning,
+                  algorithm: normalizeSchedulerId(String(updates.learning.algorithm)),
+                }
+              : updates.learning;
+          return {
+            settings: {
+              ...state.settings,
+              ...updates,
+              ...(nextLearning ? { learning: { ...state.settings.learning, ...nextLearning } } : {}),
+            },
+          };
+        }),
 
       updateSettingsCategory: (category, updates) =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            [category]: {
-              ...state.settings[category],
-              ...updates,
-              // The sidebar width is user-facing only within its min/max range;
-              // clamp here (single source of truth) so the toolbar CSS variable
-              // and any other consumer never see an out-of-range value.
-              ...(category === "interface" && "sidebarWidth" in updates
-                ? { sidebarWidth: clampSidebarWidth(updates.sidebarWidth) }
-                : {}),
+        set((state) => {
+          const nextCategory =
+            category === "learning" && updates && "algorithm" in updates
+              ? {
+                  ...updates,
+                  algorithm: normalizeSchedulerId(String(updates.algorithm)),
+                }
+              : updates;
+          return {
+            settings: {
+              ...state.settings,
+              [category]: {
+                ...state.settings[category],
+                ...nextCategory,
+                // The sidebar width is user-facing only within its min/max range;
+                // clamp here (single source of truth) so the toolbar CSS variable
+                // and any other consumer never see an out-of-range value.
+                ...(category === "interface" && "sidebarWidth" in updates
+                  ? { sidebarWidth: clampSidebarWidth(updates.sidebarWidth) }
+                  : {}),
+              },
             },
-          },
-        })),
+          };
+        }),
 
       resetSettings: () => set({ settings: defaultSettings }),
 
@@ -1478,17 +1489,24 @@ export const useSettingsStore = create<SettingsState>()(
           learning: {
             ...defaultSettings.learning,
             ...persisted.learning,
+            algorithm: normalizeSchedulerId(
+              persisted.learning?.algorithm ?? defaultSettings.learning.algorithm,
+            ),
             fsrsParams: {
               ...defaultSettings.learning.fsrsParams,
               ...persistedFsrsParams,
               personalizedWeights: normalizedGlobalWeights,
             },
             scopedFsrsOverrides: normalizedScopedOverrides,
-            sm20PureM4: persisted.learning?.sm20PureM4 ?? defaultSettings.learning.sm20PureM4,
-            sm20ArenaReviewMode:
+            precisionPureKernel:
+              persisted.learning?.precisionPureKernel ??
+              persisted.learning?.sm20PureM4 ??
+              defaultSettings.learning.precisionPureKernel,
+            arenaReviewMode:
+              persisted.learning?.arenaReviewMode === "choose" ||
               persisted.learning?.sm20ArenaReviewMode === "choose"
                 ? "choose"
-                : defaultSettings.learning.sm20ArenaReviewMode,
+                : defaultSettings.learning.arenaReviewMode,
           },
           documents: {
             ...defaultSettings.documents,

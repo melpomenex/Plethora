@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: Eligible SM-20 reviews include an interval decision phase
+### Requirement: Eligible Plethora Precision reviews include an interval decision phase
 
-When the Arena review preference is `choose`, the Review tab's eligible SM-20 flashcard session SHALL model the review as grade, Arena decision, commit, then advance. Grading alone SHALL NOT remove the card, increment session metrics, show completion feedback, publish sync events, create an undo snapshot, or load the next card. Those effects SHALL occur only after the selected interval commits successfully. With the default `automatic` preference, the session SHALL atomically commit Arena Pick and advance without entering a visible decision phase. Ineligible reviews SHALL retain their existing lifecycle.
+When the Arena review preference is `choose`, the Review tab's eligible Plethora Precision flashcard session SHALL model the review as grade, Arena decision, commit, then advance. Grading alone SHALL NOT remove the card, increment session metrics, show completion feedback, publish sync events, create an undo snapshot, or load the next card. Those effects SHALL occur only after the selected interval commits successfully. With the default `automatic` preference, the session SHALL atomically commit Arena Pick and advance without entering a visible decision phase. Ineligible reviews SHALL retain their existing lifecycle.
 
 #### Scenario: Grading pauses before advance
 
-- **WHEN** the user grades an eligible SM-20 learning item
+- **WHEN** the user grades an eligible Plethora Precision learning item
 - **THEN** the reviewed card remains the current card with its answer visible
 - **AND** the session enters the Arena phase without changing queue or completion metrics
 
@@ -25,7 +25,7 @@ When the Arena review preference is `choose`, the Review tab's eligible SM-20 fl
 
 #### Scenario: Automatic Arena scheduling bypasses the decision phase
 
-- **WHEN** the user grades an otherwise eligible SM-20 learning item with Arena review mode set to `automatic`
+- **WHEN** the user grades an otherwise eligible Plethora Precision learning item with Arena review mode set to `automatic`
 - **THEN** Arena Pick commits atomically without creating pending decision state
 - **AND** queue and session effects occur only after that automatic commit succeeds
 
@@ -63,11 +63,11 @@ After a committed Arena review, the existing one-step review undo SHALL restore 
 
 ### Requirement: Hands-free audio preserves automatic progression
 
-When hands-free audio auto-advance is active for an otherwise eligible SM-20 review, the session SHALL auto-confirm Arena Pick after grading rather than stopping on a visual-only chooser. The system SHALL announce the chosen relative interval, record the selection source as `arena`, and preserve the same atomic commit and error guarantees as the visual Arena flow.
+When hands-free audio auto-advance is active for an otherwise eligible Plethora Precision review, the session SHALL auto-confirm Arena Pick after grading rather than stopping on a visual-only chooser. The system SHALL announce the chosen relative interval, record the selection source as `arena`, and preserve the same atomic commit and error guarantees as the visual Arena flow.
 
 #### Scenario: Audio review auto-confirms Arena Pick
 
-- **WHEN** hands-free audio mode grades an eligible SM-20 card through its configured automatic action
+- **WHEN** hands-free audio mode grades an eligible Plethora Precision card through its configured automatic action
 - **THEN** the weighted Arena recommendation is committed atomically
 - **AND** the chosen interval is announced before the flow advances
 

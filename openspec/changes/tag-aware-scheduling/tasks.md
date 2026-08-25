@@ -7,7 +7,7 @@
 
 ## 2. Rust: Maturity Computation
 
-- [x] 2.1 Implement `compute_maturity` helper: item is mature when SM-20/FSRS stability >= tag's `maturity_threshold`
+- [x] 2.1 Implement `compute_maturity` helper: item is mature when Plethora Precision/FSRS stability >= tag's `maturity_threshold`
 - [x] 2.2 Implement `recompute_tag_stability_stats` function that iterates a tag's items and updates `itemCount`, `avgStability`, `matureCount`
 - [x] 2.3 Hook maturity recomputation into the review completion path (call after each item review updates stability)
 - [x] 2.4 Handle manual reschedule edge case: recompute stats when an item's stability is changed outside review flow

@@ -22,7 +22,7 @@ export interface SpreadProjection {
 /**
  * Compute a spread projection for the given items across a horizon.
  *
- * Learning items use the postpone engine (SM-20) for algorithm-aware scheduling.
+ * Learning items use the postpone engine (Precision) for algorithm-aware scheduling.
  * Documents use a simpler even-distribution strategy (topic postpone).
  * Returns the projected distribution without making any API calls.
  */
@@ -46,7 +46,7 @@ export function computeSpreadProjection(
     );
 
     if (item.itemType === "document") {
-      // Treat documents as "topics" in the SM-20 model
+      // Treat documents as "topics" in the Precision postpone model
       inputs.push({
         id: item.id,
         type: "topic",

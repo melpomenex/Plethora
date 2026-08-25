@@ -4,7 +4,7 @@
 
 Users with large queues (e.g., 2955 items due on one day) have no way to see their upcoming study schedule at a glance or redistribute that load. The existing Queue shows what's due *today* but lacks temporal context — when each item is scheduled, how many days until it's due, FSRS memory metrics, and most critically, the ability to **spread** an overwhelming day's load across future days.
 
-SuperMemo handles this with its "Postpone" and incremental reading scheduling system: items get redistributed across a future horizon so the user sees a manageable daily load instead of an avalanche. Incrementum already has a postpone engine (`src/lib/postpone.ts`) modeled after SM-20, but the UI only exposes "Postpone All" as a bulk action — there's no visual schedule, no per-day spreading control, and no way to preview the result before committing.
+Plethora handles this with its "Postpone" and incremental reading scheduling system: items get redistributed across a future horizon so the user sees a manageable daily load instead of an avalanche. Incrementum already has a postpone engine (`src/lib/postpone.ts`) modeled after Plethora Precision, but the UI only exposes "Postpone All" as a bulk action — there's no visual schedule, no per-day spreading control, and no way to preview the result before committing.
 
 ## Scope
 

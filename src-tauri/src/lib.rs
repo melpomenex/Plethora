@@ -4,6 +4,7 @@
 mod ai;
 mod ai_learning;
 mod algorithms;
+mod arena_model_identity;
 mod anki;
 mod backup;
 mod battery;
@@ -19,6 +20,7 @@ mod entitlements;
 pub mod error;
 mod generator;
 mod integrations;
+mod ipc_compat;
 mod kindle_clippings;
 mod legacy_data;
 mod mcp;
@@ -37,6 +39,7 @@ mod pocket_tts;
 mod podcast;
 pub mod processor;
 mod scheduler;
+mod scheduler_identity;
 mod segmentation;
 mod tts;
 mod services;
@@ -1840,11 +1843,11 @@ pub fn run() {
             commands::get_next_review_times,
             commands::preview_review_intervals,
             commands::get_arena_stats,
-            commands::get_sm20_arena_stats,
+            ipc_compat::get_sm20_arena_stats,
             commands::optimize_arena_fsrs,
-            commands::optimize_sm20_fsrs,
+            ipc_compat::optimize_sm20_fsrs,
             commands::optimize_precision_kernel,
-            commands::optimize_sm20_m4,
+            ipc_compat::optimize_sm20_m4,
             commands::get_review_streak,
             commands::record_recall_prompt,
             commands::set_recall_prompt_outcome,
@@ -1869,9 +1872,9 @@ pub fn run() {
             commands::get_due_workload_forecast,
             commands::optimize_algorithm_params,
             commands::get_arena_optimization_status,
-            commands::get_sm20_optimization_status,
+            ipc_compat::get_sm20_optimization_status,
             commands::optimize_arena_locally,
-            commands::optimize_sm20_locally,
+            ipc_compat::optimize_sm20_locally,
             commands::get_default_engagement_preferences,
             commands::get_smart_start_position,
             commands::get_ai_config,

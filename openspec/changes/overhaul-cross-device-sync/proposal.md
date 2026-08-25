@@ -66,6 +66,6 @@ The current "yjs-sync" does not actually sync a user's devices. It replicates `l
 - Users with no room key set are prompted to create or join one; existing room IDs without a passphrase continue to work in "TLS only" mode with a clear UI warning until they migrate.
 
 **Risks**
-- CRDT merge semantics on review history (SM-18/SM-20/FSRS state) are subtle; needs a per-algorithm merge strategy to avoid double-counting reviews.
+- CRDT merge semantics on review history (Plethora Adaptive/Plethora Precision/FSRS state) are subtle; needs a per-algorithm merge strategy to avoid double-counting reviews.
 - E2EE key recovery: lost passphrase = lost data; need a recovery-code flow or escrow decision before launch.
 - Mobile bandwidth/battery: full-state replication on first sync could be heavy; requires delta-only transport and chunked file fetch.

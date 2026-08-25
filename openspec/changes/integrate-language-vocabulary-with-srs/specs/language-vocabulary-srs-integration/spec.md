@@ -20,11 +20,11 @@ The draft SHALL support target word/phrase, source sentence, cloze, translation/
 
 ### Requirement: Existing item and scheduler reuse
 
-Accepted drafts SHALL become existing Plethora learning items and SHALL use the user's selected FSRS/SM-18/SM-20/SM-2 scheduling algorithm and review controls. The integration MUST NOT add a language-only scheduler.
+Accepted drafts SHALL become existing Plethora learning items and SHALL use the user's selected FSRS/Plethora Adaptive/Plethora Precision/Plethora Classic scheduling algorithm and review controls. The integration MUST NOT add a language-only scheduler.
 
 #### Scenario: Algorithm selection
-- **WHEN** the user has selected SM-18 and accepts a vocabulary draft
-- **THEN** the resulting learning item is scheduled by the same SM-18 path as other accepted items
+- **WHEN** the user has selected Plethora Adaptive and accepts a vocabulary draft
+- **THEN** the resulting learning item is scheduled by the same Plethora Adaptive path as other accepted items
 
 ### Requirement: Card format choices
 

@@ -8,7 +8,7 @@
  * grade↔rating semantics come from `lib/rating-grades`.
  *
  * Render this only when the active rating schema is six-grade
- * (`useRatingSchema().type === "six-grade" || useRatingSchema().type === "supermemo"`);
+ * (`useRatingSchema().type === "six-grade"`);
  * four-grade schedulers keep their existing 4-button/swipe UI.
  */
 
@@ -48,7 +48,7 @@ export interface SixGradeRatingControlProps {
   showButtons?: boolean;
 }
 
-export type SuperMemoRatingControlProps = SixGradeRatingControlProps;
+export type SixGradeRatingControlProps = SixGradeRatingControlProps;
 
 function TouchSixGradeRating({
   onSelect,
@@ -102,6 +102,3 @@ export function SixGradeRatingControl(props: SixGradeRatingControlProps) {
     />
   );
 }
-
-/** Backward compatibility alias */
-export const SuperMemoRatingControl = SixGradeRatingControl;

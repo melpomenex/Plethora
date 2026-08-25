@@ -31,7 +31,7 @@ Incrementum is a **production-grade, cross-platform incremental-reading and spac
 | Area | Status |
 |------|--------|
 | Core incremental reading (extract → review) | ✅ Complete |
-| Spaced repetition (FSRS-6, SM-2/5/8/15, SM-18, SM-20) | ✅ Complete |
+| Spaced repetition (FSRS-6, Classic variants, Adaptive, Precision) | ✅ Complete |
 | PDF / EPUB / Markdown / HTML / TXT readers | ✅ Complete |
 | Video / Audiobook / YouTube / Podcast learning | ✅ Complete |
 | AI assistant, RAG, flashcard generation, MCP | ✅ Complete |
@@ -82,7 +82,7 @@ The Rust backend is organized into domain modules under `src-tauri/src/`:
 ```
 src-tauri/src/
 ├── commands/        # 53 Tauri command modules (the IPC API surface)
-├── algorithms/      # FSRS, SM-2/5/8/15, SM-18, SM-20, schedulers
+├── algorithms/      # FSRS, Classic variants, Adaptive, Precision, schedulers
 ├── models/          # Core data models (learning_item, document, extract, …)
 ├── database/        # SQLite via sqlx + rusqlite; repository pattern
 ├── processor/       # PDF, EPUB, Markdown, HTML extraction

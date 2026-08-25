@@ -44,14 +44,6 @@ pub use precision::{
 };
 pub use queue_selector::QueueSelector;
 
-// Backward-compatibility aliases
-pub use adaptive::AdaptiveReviewResult as SM18ReviewResult;
-pub use adaptive::AdaptiveScheduler as SM18Algorithm;
-pub use adaptive::AdaptiveState as SM18State;
-pub use precision::PrecisionPreviewIntervals as SM20PreviewIntervals;
-pub use precision::PrecisionReviewResult as SM20ReviewResult;
-pub use precision::PrecisionState as SM20State;
-
 /// Supported spaced repetition algorithms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -72,14 +64,14 @@ pub enum AlgorithmType {
 impl AlgorithmType {
     /// Parse from string, defaulting to Fsrs for unknown values
     pub fn from_str_lossy(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+        match crate::scheduler_identity::normalize_algorithm_type(s) {
             "fsrs" => AlgorithmType::Fsrs,
-            "adaptive" | "sm18" => AlgorithmType::Adaptive,
-            "precision" | "sm20" => AlgorithmType::Precision,
-            "classic" | "classic_2" | "sm2" => AlgorithmType::Classic,
-            "classic_5" | "classic5" | "sm5" => AlgorithmType::Classic5,
-            "classic_8" | "classic8" | "sm8" => AlgorithmType::Classic8,
-            "classic_15" | "classic15" | "sm15" => AlgorithmType::Classic15,
+            "adaptive" => AlgorithmType::Adaptive,
+            "precision" => AlgorithmType::Precision,
+            "classic" => AlgorithmType::Classic,
+            "classic_5" => AlgorithmType::Classic5,
+            "classic_8" => AlgorithmType::Classic8,
+            "classic_15" => AlgorithmType::Classic15,
             _ => AlgorithmType::Fsrs,
         }
     }

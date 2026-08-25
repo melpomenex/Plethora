@@ -12,6 +12,7 @@ import {
 import { getDocument, dismissDocument, updateDocument } from "../../api/documents";
 import { LocalOnlyShieldToggle } from "../settings/LocalOnlyShieldToggle";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
+import { normalizeSchedulerId } from "../../lib/schedulerIdentity";
 import { useToast } from "../common/Toast";
 import { getExtract } from "../../api/extracts";
 import { getLearningItem } from "../../api/learning-items";
@@ -537,13 +538,11 @@ export function ItemDetailsPopover({
             <div className="border-t border-border pt-3 space-y-2">
               <div className="text-xs text-muted-foreground">
                 {t("itemDetails.scheduling")} / {schedulerLabel(
-                  details.algorithmType === "sm18" ||
-                    (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm18")
-                    ? "sm18"
-                    : details.algorithmType === "sm20" ||
-                        (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm20")
-                    ? "sm20"
-                    : "fsrs"
+                  normalizeSchedulerId(
+                    details.algorithmType && details.algorithmType !== "fsrs"
+                      ? details.algorithmType
+                      : settings.learning.algorithm,
+                  ),
                 )}
               </div>
               {isLoading ? (

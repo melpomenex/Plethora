@@ -150,7 +150,7 @@ The system SHALL display a clear success message after import, with actionable n
 - **THEN** no toast is shown (the dialog's "All caught up" message is sufficient)
 
 ### Requirement: Expose Tauri commands for import
-The system SHALL expose three Tauri commands following existing import patterns (path-based, matching Anki/SuperMemo/StudyJSON patterns).
+The system SHALL expose three Tauri commands following existing import patterns (path-based, matching Anki/Plethora/StudyJSON patterns).
 
 #### Scenario: `validate_kindle_clippings` command
 - **WHEN** the frontend calls `validate_kindle_clippings` with a file path

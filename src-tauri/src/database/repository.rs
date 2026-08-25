@@ -2118,7 +2118,7 @@ impl Repository {
         // This method used to decrement it by hand, which covered only this one
         // delete path — cascades and the raw `DELETE FROM extracts` sites left
         // the count inflated.
-        // Also unlink the extract's element_tree node (supermemo-faithful-queue
+        // Also unlink the extract's element_tree node (unified-priority-queue
         // Phase 2), mirroring create_extract's register_node edge.
         let mut tx = self.pool.begin().await?;
 
@@ -3536,12 +3536,6 @@ impl Repository {
         })
     }
 
-    pub async fn load_sm20_collection_in_transaction(
-        tx: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<crate::algorithms::precision::PrecisionCollectionState> {
-        Self::load_precision_collection_in_transaction(tx).await
-    }
-
     /// Commit an Algorithm Arena review as one SQLite unit. The review row is
     /// inserted first to acquire SQLite's write reservation; item and Arena
     /// revisions are then rechecked under that reservation before any durable
@@ -3630,7 +3624,7 @@ impl Repository {
             .await?
             .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item.id)))?;
         let current_item = Self::row_to_learning_item(&current_item_row)?;
-        let current_item_revision = crate::commands::review::sm20_item_revision(&current_item)?;
+        let current_item_revision = crate::commands::review::precision_item_revision(&current_item)?;
         if current_item_revision != expected_item_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -3640,7 +3634,7 @@ impl Repository {
 
         let current_collection = Self::load_precision_collection_in_transaction(&mut tx).await?;
         let current_arena_revision =
-            crate::commands::review::sm20_arena_revision(&current_collection)?;
+            crate::commands::review::arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -3783,42 +3777,6 @@ impl Repository {
 
         tx.commit().await?;
         Ok(true)
-    }
-
-    pub async fn commit_sm20_arena_review(
-        &self,
-        item: &LearningItem,
-        collection: &crate::algorithms::precision::PrecisionCollectionState,
-        review_result_id: &str,
-        session_id: Option<&str>,
-        rating: i32,
-        time_taken: i32,
-        provenance: &ArenaReviewProvenance<'_>,
-        expected_item_revision: &str,
-        expected_arena_revision: &str,
-        statistics_date: &str,
-        correct_reviews: i32,
-        new_cards: i32,
-        learning_cards: i32,
-        review_cards: i32,
-    ) -> Result<bool> {
-        self.commit_precision_arena_review(
-            item,
-            collection,
-            review_result_id,
-            session_id,
-            rating,
-            time_taken,
-            provenance,
-            expected_item_revision,
-            expected_arena_revision,
-            statistics_date,
-            correct_reviews,
-            new_cards,
-            learning_cards,
-            review_cards,
-        )
-        .await
     }
 
     /// Batch-insert review log entries (used for Anki revlog import).
@@ -4293,10 +4251,6 @@ impl Repository {
         Ok(row.map(|(state,)| state))
     }
 
-    pub async fn get_sm20_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
-        self.get_arena_m2_optimizer().await
-    }
-
     /// Save the M2 optimizer state (JSON blob).
     pub async fn save_arena_m2_optimizer(&self, state: &[u8]) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
@@ -4310,10 +4264,6 @@ impl Repository {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    pub async fn save_sm20_m2_optimizer(&self, state: &[u8]) -> Result<()> {
-        self.save_arena_m2_optimizer(state).await
     }
 
     /// Load the M3 matrix state. Returns None if not yet initialized.
@@ -4365,12 +4315,6 @@ impl Repository {
         }
     }
 
-    pub async fn get_sm20_m3_matrices(
-        &self,
-    ) -> Result<Option<crate::algorithms::precision::model3::M3MatrixState>> {
-        self.get_arena_m3_matrices().await
-    }
-
     /// Save the M3 matrix state.
     pub async fn save_arena_m3_matrices(
         &self,
@@ -4407,13 +4351,6 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn save_sm20_m3_matrices(
-        &self,
-        state: &crate::algorithms::precision::model3::M3MatrixState,
-    ) -> Result<()> {
-        self.save_arena_m3_matrices(state).await
-    }
-
     /// Load the Algorithm Arena state (JSON `ArenaState`).
     pub async fn get_arena_state(&self) -> Result<Option<String>> {
         let row: Option<(String,)> =
@@ -4421,10 +4358,6 @@ impl Repository {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|(s,)| s))
-    }
-
-    pub async fn get_sm20_arena(&self) -> Result<Option<String>> {
-        self.get_arena_state().await
     }
 
     /// Save the Algorithm Arena state (JSON `ArenaState`).
@@ -4442,10 +4375,6 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn save_sm20_arena(&self, state_json: &str) -> Result<()> {
-        self.save_arena_state(state_json).await
-    }
-
     /// Load per-user optimized model parameters (`id` = 'fsrs' or 'm4').
     /// Returns the params JSON string.
     pub async fn get_arena_model_params(&self, id: &str) -> Result<Option<String>> {
@@ -4455,10 +4384,6 @@ impl Repository {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|(s,)| s))
-    }
-
-    pub async fn get_sm20_model_params(&self, id: &str) -> Result<Option<String>> {
-        self.get_arena_model_params(id).await
     }
 
     /// Save per-user optimized model parameters (`id` = 'fsrs' or 'm4').
@@ -4481,15 +4406,6 @@ impl Repository {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    pub async fn save_sm20_model_params(
-        &self,
-        id: &str,
-        params_json: &str,
-        meta_json: Option<&str>,
-    ) -> Result<()> {
-        self.save_arena_model_params(id, params_json, meta_json).await
     }
 
     /// Fetch the full review log for optimizer training:
@@ -8198,7 +8114,7 @@ mod tests {
             .expect("learning item");
         let due = Utc::now();
 
-        for (index, (source, model)) in [("arena", None), ("model", Some("sm19")), ("custom", None)]
+        for (index, (source, model)) in [("arena", None), ("model", Some("m3")), ("custom", None)]
             .into_iter()
             .enumerate()
         {
@@ -8330,10 +8246,10 @@ mod tests {
             .expect("stored item read")
             .expect("stored item");
         let expected_item_revision =
-            crate::commands::review::sm20_item_revision(&original).expect("item revision");
+            crate::commands::review::precision_item_revision(&original).expect("item revision");
         let collection = crate::algorithms::precision::PrecisionCollectionState::default();
         let expected_arena_revision =
-            crate::commands::review::sm20_arena_revision(&collection).expect("Arena revision");
+            crate::commands::review::arena_revision(&collection).expect("Arena revision");
 
         let mut scheduled = original.clone();
         scheduled.interval = 12.0;

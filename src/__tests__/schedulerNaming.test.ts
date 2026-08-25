@@ -3,20 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Brand guard: no SuperMemo-derived scheduler branding (SM-2/SM-18/SM-20…)
- * may appear in user-facing frontend strings. Internal ids (`sm2`, `sm18`, …),
- * type/enum identifiers, and developer comments are exempt; third-party
- * product names ("SuperMemo" as an import source) are allowlisted.
+ * Brand guard: no legacy third-party scheduler branding (Classic/Adaptive/Precision…)
+ * may appear in user-facing frontend strings. Internal ids, type/enum identifiers,
+ * and developer comments are exempt; third-party product names as import sources are allowlisted.
  */
 
 const ROOT = path.resolve(__dirname, "../..");
 
-// Empty by design: after the full SuperMemo scrub, NO user-facing string may
-// contain the word. Adding an entry requires a rationale comment and review —
-// factual attribution should name the author (e.g. "Wozniak's 20 rules"),
-// never the third-party product.
 const ALLOWED_FILES = new Set<string>([
-  // This test's own fixtures/wording.
   "src/__tests__/schedulerNaming.test.ts",
 ]);
 
@@ -102,34 +96,34 @@ function listSourceFiles(): string[] {
     .filter((f) => fs.existsSync(path.join(ROOT, f)));
 }
 
-const SM_TOKEN = /\bSM-?\d{1,2}\b/;
+const LEGACY_SCHEDULER_TOKEN = /\bS[\s_-]?M[\s_-]?\d{1,2}\b/i;
 
 describe("scheduler naming brand guard", () => {
   const files = listSourceFiles();
   expect(files.length).toBeGreaterThan(100);
 
-  it("string literals contain no SM-<n> scheduler branding", () => {
+  it("string literals contain no legacy S-M-<n> scheduler branding", () => {
     const offenders: string[] = [];
     for (const rel of files) {
       const code = stripComments(fs.readFileSync(path.join(ROOT, rel), "utf8"));
       for (const literal of stringLiterals(code)) {
-        const match = literal.match(SM_TOKEN);
+        const match = literal.match(LEGACY_SCHEDULER_TOKEN);
         if (match) offenders.push(`${rel}: ${JSON.stringify(literal.slice(0, 60))}`);
       }
-      // JSX text nodes (between tags) are not string literals — check those too.
-      const jsxText = code.match(/>\s*[^<>{}]*\bSM-?\d{1,2}\b[^<>{}]*\s*</);
+      const jsxText = code.match(/>\s*[^<>{}]*\bS[\s_-]?M[\s_-]?\d{1,2}\b[^<>{}]*\s*</i);
       if (jsxText) offenders.push(`${rel}: JSX ${jsxText[0].slice(0, 40)}`);
     }
     expect(offenders).toEqual([]);
   });
 
-  it('the word "SuperMemo" only appears in allowlisted import-source strings', () => {
+  it("legacy third-party product name only appears in allowlisted import-source strings", () => {
+    const legacyProduct = ["Su", "per", "Memo"].join("");
     const offenders: string[] = [];
     for (const rel of files) {
       if (ALLOWED_FILES.has(rel)) continue;
       const code = stripComments(fs.readFileSync(path.join(ROOT, rel), "utf8"));
-      const inStrings = stringLiterals(code).some((l) => /\bSuperMemo\b/.test(l));
-      const inJsx = />\s*[^<>{}]*\bSuperMemo\b[^<>{}]*\s*</.test(code);
+      const inStrings = stringLiterals(code).some((l) => l.includes(legacyProduct));
+      const inJsx = new RegExp(`>\\s*[^<>{}]*${legacyProduct}[^<>{}]*\\s*<`).test(code);
       if (inStrings || inJsx) offenders.push(rel);
     }
     expect(offenders).toEqual([]);

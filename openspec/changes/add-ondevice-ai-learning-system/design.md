@@ -19,13 +19,13 @@ Domain assets already exist that this change builds on rather than duplicating:
   `algorithm_type`), `extracts` with rich `selection_context` JSON (PDF rects/token maps, EPUB
   CFI ranges, text offsets), `image_assets` (BLOB + sha256), occlusion geometry already
   normalized to percent 0–100 in `interaction_metadata.imageOcclusionRegions`.
-- Scheduling: FSRS default + SM-2/5/8/15/18/20 (`src-tauri/src/algorithms/`), grades flow
+- Scheduling: FSRS default + Plethora Classic/5/8/15/18/20 (`src-tauri/src/algorithms/`), grades flow
   `reviewStore.submitRating` → `submit_review` → `apply_review`. Deterministic and testable.
 - Retrieval starters: FTS5 (`document_search`, `extract_search`), `VectorStore`
   (`vector_store.rs`, SQLite-blob embeddings + bounded cosine top-k), `commands/rag.rs`
   (`document_chunk_embeddings`, `rag_search`, `rag_chat`), cloud `EmbeddingProvider` trait
   (`ai/embeddings.rs`: OpenAI/Cohere/OpenRouter/Ollama).
-- `element_tree` (SuperMemo overlay with `concept_link_id`), `tags.prerequisites`/`centroid`
+- `element_tree` (Plethora overlay with `concept_link_id`), `tags.prerequisites`/`centroid`
   (TAS) — relationship seams already present.
 - Performance gates (`scripts/perf-baselines.json` protocol, bundle/memory budgets), i18n
   locale dicts, `FeatureFlags` zustand pattern, tokio background-job patterns

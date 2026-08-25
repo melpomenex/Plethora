@@ -8,7 +8,7 @@ Existing stats measure activity (reviews/day, streaks). Knowledge health measure
 
 ## What exists today
 - **Activity analytics** (recharts): `src/components/analytics/` — ActivityChart, CategoryBreakdown, ForecastSimulator, ForgettingCurvePanel, ProgressRings, ReviewHeatmap (12-month), ScheduleVisualization, StudyStreak, WorkloadCalendar (+day popover), StatisticsExport; `analyticsStore`; `study_statistics` daily rollups; per-item `ItemStatsModal`; review-side `MemoryHorizon`, `FSRSInspector`.
-- **Scheduling truth**: per-item FSRS stability/difficulty/retrievability (`QueueItem` projections), review_results with ratings/times, SM-20 arena weights and per-model recommendations, postpone history, `item_stats_repository`.
+- **Scheduling truth**: per-item FSRS stability/difficulty/retrievability (`QueueItem` projections), review_results with ratings/times, Plethora Precision arena weights and per-model recommendations, postpone history, `item_stats_repository`.
 - **Signals from new stack**: mastery estimates + gaps (10), card version lineage + maintenance findings (14), concept graph coverage (9), reading-to-extract conversion (`extract_count`, passage scores), lesson outcomes (12's `lesson-completed`).
 - Bench precedent: `semanticGrading.bench.ts`, analytics-adjacent tests; export = `StatisticsExport`.
 
@@ -19,7 +19,7 @@ Locally-computable metrics (Free), each with definition, source queries, and unc
 - **Retention & forgetting**: estimated retention = mean retrievability over active items (FSRS R(t) per item, aggregated with distribution not just mean); predicted forgetting curve next 7/30 days; "cards becoming unstable" (stability trend negative across k reviews).
 - **Conversion funnel**: imported/read → extracted → carded → reviewed → retained per collection/topic/time-window; "consumed but never converted" list (feeds 10's read_never_reviewed).
 - **Workload & forecast**: upcoming workload (exists — extended with stability-weighted effort), overload risk, postpone impact accounting (existing engine data).
-- **Algorithm performance**: FSRS vs SM-20 arena per-model calibration (predicted vs actual recall, Brier-style bins — data already in `review_results` + arena recommendations), per-algorithm recommendation accuracy.
+- **Algorithm performance**: FSRS vs Plethora Precision arena per-model calibration (predicted vs actual recall, Brier-style bins — data already in `review_results` + arena recommendations), per-algorithm recommendation accuracy.
 - **Topic/concept mastery trends**: from 10's estimates over time (time series, variance bands).
 - **Knowledge growth**: new concepts/sources/cards per period, reinforcement counts (repeat exposures from 8's accepted connections).
 - **Neglect detection**: topics untouched vs due-weighted expectation.

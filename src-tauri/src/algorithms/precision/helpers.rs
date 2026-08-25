@@ -1,6 +1,6 @@
-//! Shared math helpers for the SM-20 ensemble.
+//! Shared math helpers for the Precision ensemble.
 //!
-//! All functions mirror the Delphi RTL routines used by `sm20.exe` and are
+//! All functions mirror the Delphi RTL routines used by the Precision reference binary and are
 //! confirmed against decompiled C / assembly.
 
 /// Clamp `v` to `[lo, hi]`.

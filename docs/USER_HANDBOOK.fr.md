@@ -306,7 +306,7 @@ Les intervalles entre les documents sont limités à environ **30 jours** afin q
 
 **Le planificateur engageant.** Lorsque vous lisez des documents à partir de la file d'attente, Plethora utilise la variante *Engaging*, qui superpose l'injection de nouveauté, l'équilibrage des variétés et le hasard au-dessus des intervalles de base afin que vos sessions de lecture restent variées et intéressantes. Ces fonctionnalités d'engagement affectent *quel* document apparaîtra ensuite, et non les calculs d'intervalle sous-jacents.
 
-**Point pratique.** Faire beaucoup de lectures incrémentielles ne comptera **pas** pour la « formation » Plethora Precision ou FSRS – ces algorithmes ne voient que les critiques de cartes mémoire. Si vous souhaitez qu'ils soient personnalisés, vous avez besoin de cartes mémoire examinées à intervalles journaliers. (C'est pourquoi le panneau Plethora Precision dans les paramètres d'apprentissage peut afficher « 0 score » même si vous avez lu des documents toute la semaine.) Voir [Comprendre Plethora Precision](#understanding-sm-20) pour savoir ce qui compte et ce qui ne compte pas.
+**Point pratique.** Faire beaucoup de lectures incrémentielles ne comptera **pas** pour la « formation » Plethora Precision ou FSRS – ces algorithmes ne voient que les critiques de cartes mémoire. Si vous souhaitez qu'ils soient personnalisés, vous avez besoin de cartes mémoire examinées à intervalles journaliers. (C'est pourquoi le panneau Plethora Precision dans les paramètres d'apprentissage peut afficher « 0 score » même si vous avez lu des documents toute la semaine.) Voir [Comprendre Plethora Precision](#understanding-plethora-precision) pour savoir ce qui compte et ce qui ne compte pas.
 
 ### Système de notation
 
@@ -943,8 +943,8 @@ Plethora prend en charge quatre algorithmes de planification. Choisissez celui q
 - Meilleure rétention avec moins d'avis
 
 **Plethora Precision (SuperMémo 20) :**
-- Algorithme le plus avancé, rétro-ingénierie à partir de sm20.exe via Ghidra
-- Utilise la formule d'intervalle V4 (Plethora Precision proprement dite); La planification Classic 19 est disponible via l'algorithme `sm2` séparé
+- Algorithme le plus avancé, rétro-ingénierie à partir du binaire de référence Plethora Precision via Ghidra
+- Utilise la formule d'intervalle V4 (Plethora Precision proprement dite); La planification Classic 19 est disponible via le scheduler Classic séparé
 - Le lissage bayésien apprend les intervalles optimaux à partir de vos données d'examen réelles
 - Développe des connaissances au fil du temps via des matrices d'intervalle/compte persistantes de 21 × 21 × 21
 

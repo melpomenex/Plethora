@@ -12,7 +12,7 @@ export interface ConversionFunnelStats {
 }
 
 export interface AlgorithmCalibration {
-  algorithm: 'fsrs' | 'sm20' | 'hlr';
+  algorithm: 'fsrs' | 'precision' | 'hlr';
   predictedRecall: number;
   actualRecall: number;
   sampleCount: number;

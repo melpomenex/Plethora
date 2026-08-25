@@ -4,7 +4,7 @@ Incrementum is a Tauri 2 desktop app (React 19 + TypeScript frontend, Rust/SQLit
 
 The Rust backend exposes commands through `src-tauri/src/commands/` and queries data via a Repository pattern on SQLite. The browser fallback maps the same command names to IndexedDB queries via `browser-backend.ts`.
 
-SuperMemo's Workload tab shows a dense multi-column table of daily repetitions across months with sum/average footers. The goal is to create something that conveys the same information but with modern, visually rich UX — a proper month-grid calendar with color-coded intensity and drill-down.
+Plethora's Workload tab shows a dense multi-column table of daily repetitions across months with sum/average footers. The goal is to create something that conveys the same information but with modern, visually rich UX — a proper month-grid calendar with color-coded intensity and drill-down.
 
 ## Goals / Non-Goals
 

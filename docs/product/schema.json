@@ -21,7 +21,7 @@
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
-      "description": "Stable hierarchical feature identifier (e.g. tts.word_highlighting, queue.sm20.postpone)"
+      "description": "Stable hierarchical feature identifier (e.g. tts.word_highlighting, queue.precision.postpone)"
     },
     "title": {
       "type": "string",

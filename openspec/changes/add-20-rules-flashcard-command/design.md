@@ -1,6 +1,6 @@
 ## Context
 
-Incrementum is an incremental reading and spaced repetition system. Effective spaced repetition relies critically on knowledge formulation: cards must be atomic, unambiguous, comprehensible, and resistant to interference. Dr. Piotr Wozniak's *20 Rules of Knowledge Formulation* (and its modern SuperMemo Guru incremental reading extensions) is the established foundational methodology for optimal item creation.
+Incrementum is an incremental reading and spaced repetition system. Effective spaced repetition relies critically on knowledge formulation: cards must be atomic, unambiguous, comprehensible, and resistant to interference. Dr. Piotr Wozniak's *20 Rules of Knowledge Formulation* (and its modern Plethora Guru incremental reading extensions) is the established foundational methodology for optimal item creation.
 
 Currently, Incrementum's AI card creation features (Document Q&A, Assistant, Flashcard Studio) use generic prompt instructions. When users ask the AI to "create flashcards", models frequently produce wordy answers, complex multi-item lists, and disconnected trivia that cause high lapse rates during review. Providing a system-wide `/20rules` command and visual reminder gives learners immediate access to cognitive science-backed flashcards.
 

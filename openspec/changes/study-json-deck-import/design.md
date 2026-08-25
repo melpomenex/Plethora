@@ -1,8 +1,8 @@
 ## Context
 
-Incrementum already supports importing from Anki (`.apkg`) and SuperMemo (XML/ZIP) through a unified import system. Files can arrive via two paths: the global `DragDropUpload` component (detects file extension and routes to the appropriate handler) or the `EnhancedFilePicker` dialog (tabbed UI with one tab per importer). All import commands pass file paths (strings) to the Rust backend.
+Incrementum already supports importing from Anki (`.apkg`) and Plethora (XML/ZIP) through a unified import system. Files can arrive via two paths: the global `DragDropUpload` component (detects file extension and routes to the appropriate handler) or the `EnhancedFilePicker` dialog (tabbed UI with one tab per importer). All import commands pass file paths (strings) to the Rust backend.
 
-The Study JSON format is a flat-map (`{question_text: card_object}`) with SM-2-style scheduling fields. It's simpler than Anki or SuperMemo — single file per deck, no media, no nested structure, and fields that largely overlap with SM-2. Users should be able to import these files from any machine via drag-and-drop or file picker.
+The Study JSON format is a flat-map (`{question_text: card_object}`) with Plethora Classic-style scheduling fields. It's simpler than Anki or Plethora — single file per deck, no media, no nested structure, and fields that largely overlap with Plethora Classic. Users should be able to import these files from any machine via drag-and-drop or file picker.
 
 ## Goals / Non-Goals
 
@@ -11,7 +11,7 @@ The Study JSON format is a flat-map (`{question_text: card_object}`) with SM-2-s
 - Create one Document per deck file, one LearningItem per card
 - Validate Study JSON files before import (schema check)
 - Support all algorithm targets — seed appropriate state from available fields
-- Follow the same architectural patterns as `anki.rs` and `supermemo_import.rs`
+- Follow the same architectural patterns as `anki.rs` and `legacy_third_party_import.rs`
 
 **Non-Goals:**
 - Export back to Study JSON format
@@ -34,16 +34,16 @@ Each card becomes a `LearningItem` with `document_id` pointing to the parent Doc
 
 **Alternative considered**: Create a category instead of a Document per deck. Rejected because Documents are the existing container for learning items and this aligns with how Anki imports work.
 
-### 2. Field mapping: SM-2 compatible by default
+### 2. Field mapping: Plethora Classic compatible by default
 
-The Study JSON fields (`ease_factor`, `interval_days`, `repetitions`) map directly to Incrementum's SM-2 fields. Imported cards default to `algorithm_type = "sm2"` since the data originated from an SM-2-like scheduler.
+The Study JSON fields (`ease_factor`, `interval_days`, `repetitions`) map directly to Incrementum's Plethora Classic fields. Imported cards default to `algorithm_type = "m1"` since the data originated from an Plethora Classic-like scheduler.
 
 For algorithm-specific state seeding:
-- **SM-2**: Direct mapping — `ease_factor`, `interval`, `review_count` = `repetitions`
-- **SM-20**: Seed `SM20State` from JSON fields: `stability = interval_days`, `difficulty` rescaled from `difficulty_score` (map 1-10 range to 0.0-1.0), `repetition = repetitions`, `lapses = lapse_count`
+- **Plethora Classic**: Direct mapping — `ease_factor`, `interval`, `review_count` = `repetitions`
+- **Plethora Precision**: Seed `PrecisionState` from JSON fields: `stability = interval_days`, `difficulty` rescaled from `difficulty_score` (map 1-10 range to 0.0-1.0), `repetition = repetitions`, `lapses = lapse_count`
 - **FSRS-6**: Seed `MemoryState` from `difficulty_score` (rescaled 1-10 to 1-10) and `stability = interval_days`
 
-**Alternative considered**: Always import as FSRS. Rejected because the source data is SM-2-shaped; importing as SM-2 preserves the scheduling fidelity.
+**Alternative considered**: Always import as FSRS. Rejected because the source data is Plethora Classic-shaped; importing as Plethora Classic preserves the scheduling fidelity.
 
 ### 3. Card state derivation from existing fields
 
@@ -63,7 +63,7 @@ Each imported LearningItem gets tags: `["study-json-import", subject, deck_name]
 
 ### 6. File input: drag-and-drop + file picker (not directory-bound)
 
-The importer follows the existing two-path pattern used by Anki and SuperMemo:
+The importer follows the existing two-path pattern used by Anki and Plethora:
 
 **Drag-and-drop**: The `DragDropUpload` component already detects `.apkg` files by extension and routes them to the Anki handler. We add `.json` detection that validates the file is a Study JSON deck (not a settings export or other JSON), then routes to the import flow. On Tauri native drops, file paths are available directly. On browser drops, files are read as bytes.
 
@@ -75,6 +75,6 @@ The importer follows the existing two-path pattern used by Anki and SuperMemo:
 
 ## Risks / Trade-offs
 
-- **[Algorithm mismatch]** → Imported SM-2 intervals may not match optimal intervals for SM-20/FSRS if the user switches algorithms. Mitigation: Document this in import UI. The user can re-review cards to calibrate.
+- **[Algorithm mismatch]** → Imported Plethora Classic intervals may not match optimal intervals for Plethora Precision/FSRS if the user switches algorithms. Mitigation: Document this in import UI. The user can re-review cards to calibrate.
 - **[Duplicate imports]** → Re-importing the same file could create duplicate cards. Mitigation: Check for existing LearningItems with the same document_id and question text before creating.
 - **[Field loss]** → `correct_count`, `missed_count`, `retention_rate`, `manual_review`, `save_for_later` have no direct Incrementum fields. Mitigation: Store them in `interaction_metadata` JSON field for potential future use.

@@ -17,7 +17,7 @@
 - [x] 3.4 Store unmapable fields (correct_count, missed_count, retention_rate, manual_review, save_for_later) in interaction_metadata JSON
 - [x] 3.5 Implement deduplication: check existing LearningItems by document_id + question before creating
 - [x] 3.6 Generate deterministic IDs using SHA-256 of question text (matching the pattern already used in the session state file)
-- [x] 3.7 Set algorithm_type to "sm2" and add tags ["study-json-import", subject, deck_name]
+- [x] 3.7 Set algorithm_type to "m1" and add tags ["study-json-import", subject, deck_name]
 - [x] 3.8 Register `import_study_json_file` Tauri command
 
 ## 4. Rust Backend: Tests

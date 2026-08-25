@@ -1,9 +1,9 @@
 /**
- * Matrix + pipeline tests for the shared SuperMemo rating control (change
- * unify-supermemo-rating-ux):
+ * Matrix + pipeline tests for the shared six-grade rating control (change
+ * unified-rating-ux):
  *
  * - Control matrix: view (Queue overlay, Queue flashcard, shared control) ×
- *   platform (desktop, touch) × algorithm (SM-18, SM-20, fsrs) — which rating
+ *   platform (desktop, touch) × algorithm (Adaptive, Precision, fsrs) — which rating
  *   UI renders.
  * - Per-grade pipeline: selecting each of grades 0-5 produces the expected
  *   (rating, grade) pair in both Queue surfaces and the Review button grid,
@@ -31,7 +31,7 @@ vi.mock("../../../hooks/useFormFactor", () => ({
   useFormFactor: () => formFactorMock.value,
 }));
 
-function setAlgorithm(algorithm: "fsrs" | "sm18" | "sm20") {
+function setAlgorithm(algorithm: "fsrs" | "adaptive" | "precision") {
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, learning: { ...state.settings.learning, algorithm } },
   }));
@@ -110,8 +110,8 @@ describe("SixGradeRatingControl control matrix", () => {
 });
 
 describe("Queue flashcard matrix (view × platform × algorithm)", () => {
-  it("SM-18/SM-20 flashcards render the six-grade control after reveal", () => {
-    for (const algorithm of ["sm18", "sm20"] as const) {
+  it("Adaptive/Precision flashcards render the six-grade control after reveal", () => {
+    for (const algorithm of ["adaptive", "precision"] as const) {
       setAlgorithm(algorithm);
       const { container } = render(
         <FlashcardScrollItem learningItem={baseLearningItem} onRate={vi.fn()} />,
@@ -171,12 +171,12 @@ describe("Queue overlay matrix (desktop documents)", () => {
     onGoToPrevious: vi.fn(),
   };
 
-  it("documents keep the four-orb rail even under SM-18/SM-20 (no grade buttons)", () => {
+  it("documents keep the four-orb rail even under Adaptive/Precision (no grade buttons)", () => {
     // Documents are scheduled by the four-grade FSRS-6 engagement scheduler
     // regardless of the flashcard algorithm — the 0-5 UI must never leak
     // into the document overlay. Regression test for the overlay branch that
     // once rendered six grade buttons here.
-    for (const algorithm of ["sm18", "sm20", "fsrs"] as const) {
+    for (const algorithm of ["adaptive", "precision", "fsrs"] as const) {
       setAlgorithm(algorithm);
       const onRate = vi.fn();
       const { container } = render(
@@ -197,7 +197,7 @@ describe("Queue overlay matrix (desktop documents)", () => {
 
 describe("per-grade pipeline: Queue ≡ Review, no 4-grade normalization", () => {
   it("each grade 0-5 in the Queue flashcard submits the exact grade + equivalent rating", () => {
-    for (const algorithm of ["sm18", "sm20"] as const) {
+    for (const algorithm of ["adaptive", "precision"] as const) {
       setAlgorithm(algorithm);
       for (const { grade, rating } of SIX_GRADES) {
         const onRate = vi.fn();
@@ -213,7 +213,7 @@ describe("per-grade pipeline: Queue ≡ Review, no 4-grade normalization", () =>
   });
 
   it("keyboard grades 0-5 on a revealed Queue flashcard submit rating+grade pairs", () => {
-    for (const algorithm of ["sm18", "sm20"] as const) {
+    for (const algorithm of ["adaptive", "precision"] as const) {
       setAlgorithm(algorithm);
       for (const { grade, rating } of SIX_GRADES) {
         const onRate = vi.fn();

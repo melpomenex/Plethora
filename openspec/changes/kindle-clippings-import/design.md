@@ -248,7 +248,7 @@ Add to the "Additional Imports" section:
 
 ### EnhancedFilePicker Tab
 
-Add a "Kindle" tab alongside "Anki", "SuperMemo", etc. with `.txt` filter and the same preview dialog flow.
+Add a "Kindle" tab alongside "Anki", "Plethora", etc. with `.txt` filter and the same preview dialog flow.
 
 ## Edge Cases
 

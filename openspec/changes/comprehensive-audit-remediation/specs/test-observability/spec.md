@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Scheduling algorithm benchmarks MUST exist
-A benchmark harness SHALL measure the performance of SM-2, SM-18, and SM-20 scheduling computations. Benchmarks SHALL cover: single review submission, batch review of 1000 items, queue generation with 5000 items, and priority score calculation.
+A benchmark harness SHALL measure the performance of Plethora Classic, Plethora Adaptive, and Plethora Precision scheduling computations. Benchmarks SHALL cover: single review submission, batch review of 1000 items, queue generation with 5000 items, and priority score calculation.
 
 #### Scenario: Benchmark execution
 - **WHEN** `cargo bench` is run

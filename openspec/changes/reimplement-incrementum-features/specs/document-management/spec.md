@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Multi-Format Document Import
-The application MUST support importing documents from multiple formats including PDF, EPUB, URLs, Arxiv, Anki packages, and SuperMemo collections.
+The application MUST support importing documents from multiple formats including PDF, EPUB, URLs, Arxiv, Anki packages, and Plethora collections.
 
 #### Scenario: Import PDF file
 **Given** the user clicks "Import Document"
@@ -40,9 +40,9 @@ The application MUST support importing documents from multiple formats including
 **And** cards should be converted to learning items
 **And** media should be imported
 
-#### Scenario: Import SuperMemo collection
-**Given** the user clicks "Import SuperMemo"
-**When** they select a SuperMemo collection file
+#### Scenario: Import Plethora collection
+**Given** the user clicks "Import Plethora"
+**When** they select a Plethora collection file
 **Then** the collection should be parsed
 **And** items should be converted to the internal format
 **And** preserve learning history if available

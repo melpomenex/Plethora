@@ -130,7 +130,7 @@ The application MUST provide algorithm selection and parameter tuning.
 
 #### Scenario: Select algorithm
 **Given** the user is on the Algorithm settings tab
-**When** they select FSRS, SM2, or SuperMemo
+**When** they select FSRS, Classic, or Plethora
 **Then** that algorithm should be used for all scheduling
 **And** algorithm-specific parameters should be displayed
 **And** card scheduling should update immediately
@@ -142,7 +142,7 @@ The application MUST provide algorithm selection and parameter tuning.
 **And** update future scheduling calculations
 
 #### Scenario: Configure forgetting index
-**Given** the user is using SuperMemo algorithm
+**Given** the user is using Plethora scheduler algorithm
 **When** they set the global forgetting index
 **Then** the algorithm should use that index for all items
 **And** allow category-specific overrides

@@ -17,7 +17,7 @@ Documents carry two priority columns (both `INTEGER NOT NULL DEFAULT 0`, migrati
 | `EngagingScheduler::schedule_item` (`engaging_scheduler.rs:161`) → `rate_document_engaging` (`algorithm.rs:318`) | **neither** | document **due date** (`next_reading_date`) | YES — this is the document scheduler (FSRS-6 + engagement layer). Takes no priority input. |
 | `calculate_fsrs_document_priority` (`algorithms/mod.rs:230`) → `queue.rs:324,742,832,950` | **`priority_rating`** (1-5) | document **queue ordering** (sort, 0.5×–2.0× multiplier) | YES |
 | `calculate_document_priority_score` (`algorithms/mod.rs:199`) → `update_document_priority` (`document.rs:938`) | **both** | derives persisted `priority_score` | YES |
-| FSRS / SM-18 / SM-20 flashcard review (`commands/review.rs`) | **neither** | flashcard SRS | YES (unaffected) |
+| FSRS / Plethora Adaptive / Plethora Precision flashcard review (`commands/review.rs`) | **neither** | flashcard SRS | YES (unaffected) |
 
 So: **document *due-date* scheduling ignores priority entirely.** Priority only affects *ordering* within a due set, and that ordering currently reads the 1-5 rating, not the slider. The 0-100 slider today flows only into the stored `priority_score`, which nothing in the queue hot path reads. Making the slider authoritative affects ordering only — never when a document becomes due, never flashcards.
 
@@ -29,7 +29,7 @@ So: **document *due-date* scheduling ignores priority entirely.** Priority only 
 
 **Goals**
 
-- A continuous 0-100 priority slider (SuperMemo-style) replaces the discrete 1-5 stepper, in all three Documents layouts.
+- A continuous 0-100 priority slider (Plethora-style) replaces the discrete 1-5 stepper, in all three Documents layouts.
 - `Shift+P` opens a popup (slider + number input) that sets priority for the selection — single item or mass-set across a multi-/range-selection.
 - The same popup works in the reader for the open document.
 - The slider genuinely drives queue ordering — rewired through the FSRS document-priority calc.
@@ -38,7 +38,7 @@ So: **document *due-date* scheduling ignores priority entirely.** Priority only 
 **Non-Goals**
 
 - Changing document *due-date* scheduling. `EngagingScheduler::schedule_item` is untouched (it takes no priority input anyway).
-- Touching flashcard SRS (FSRS/SM-18/SM-20). Priority does not reach it; this change does not add it.
+- Touching flashcard SRS (FSRS/Plethora Adaptive/Plethora Precision). Priority does not reach it; this change does not add it.
 - Introducing a new DB column or migration. `priority_slider` and `priority_rating` already exist; `priority_score` already exists.
 - Removing the `priority_rating` field. Code still reads it (and the FSRS calc could fall back to it); instead the backend derives it from the slider so both stay populated.
 - Redesigning the reader's existing mouse `PriorityControl` (`PriorityControl.tsx`) beyond letting the shortcut open the same popup. It already writes a 0-100 slider; it stays.

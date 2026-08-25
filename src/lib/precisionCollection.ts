@@ -1,10 +1,9 @@
 /**
- * Collection-wide SM-20 state used by the browser/PWA scheduler.
+ * Collection-wide Precision scheduler state used by the browser/PWA path.
  *
- * This is a direct TypeScript mirror of the production paths in
- * `src-tauri/src/algorithms/sm20/{model2,model3,arena}.rs`. Keep persisted
- * field names snake_case so a collection can move between IndexedDB and the
- * Tauri SQLite representation without a translation layer.
+ * TypeScript mirror of `src-tauri/src/algorithms/precision/` (model2, model3,
+ * arena). Persisted field names stay snake_case so collection state can move
+ * between IndexedDB and Tauri SQLite without a translation layer.
  */
 
 export type ArenaWeights = [number, number, number, number, number];
@@ -87,9 +86,6 @@ export interface PrecisionCollectionState {
   fsrs_params: number[] | null;
   m4_params: number[] | null;
 }
-
-/** Backward compatibility alias */
-export type SM20CollectionState = PrecisionCollectionState;
 
 export const DEFAULT_M2_ITEM_STATE: M2ItemState = {
   last_review_day: -1,
@@ -242,9 +238,6 @@ export function freshPrecisionCollectionState(): PrecisionCollectionState {
   };
 }
 
-/** Backward compatibility alias */
-export const freshSm20CollectionState = freshPrecisionCollectionState;
-
 export function parsePrecisionCollectionState(value: unknown): PrecisionCollectionState {
   if (!value || typeof value !== 'object') return freshPrecisionCollectionState();
   const input = value as Partial<PrecisionCollectionState>;
@@ -263,9 +256,6 @@ export function parsePrecisionCollectionState(value: unknown): PrecisionCollecti
     m4_params: Array.isArray(input.m4_params) ? input.m4_params : null,
   };
 }
-
-/** Backward compatibility alias */
-export const parseSm20CollectionState = parsePrecisionCollectionState;
 
 function weightedLinear(x: number[], y: number[], weights: number[], plusOne: boolean): [number, number] {
   const w = weights.map((value) => roundTiesEven(value) + (plusOne ? 1 : 1e-5));
@@ -643,7 +633,7 @@ function predictedBlend(old: number, sinc: number, grade: number, reps: number, 
   return clamp(weight * target + (1 - weight) * old, 0, 1);
 }
 
-function stabilityIncrease(old: number, matrix: number, count: number, grade: number, next: number): number {
+function blendStabilityFromMatrix(old: number, matrix: number, count: number, grade: number, next: number): number {
   const pass = grade >= 3;
   const fail = !pass;
   let wCount = 0.01;
@@ -781,7 +771,7 @@ function w3Path(
   const newSFromMatrix = clampR(sigmoidRatio(total, 3.5) * sincInterval + (1 - sigmoidRatio(total, 3.5)) * retrievability);
   const dBlend = predictedBlend(difficulty, newSFromMatrix, grade, reps, lapses);
   const estimated = clampS(-Math.log(0.9) * t / -Math.log(newSFromMatrix));
-  const newS = stabilityIncrease(oldStability, estimated, total, grade, t);
+  const newS = blendStabilityFromMatrix(oldStability, estimated, total, grade, t);
   let matrixEntry: number;
   if (grade < 3) {
     const stage = roundTiesEven(lapses) + 1;

@@ -6,10 +6,10 @@
  *
  * Features:
  * - Current card parameters (D, S, R)
- * - Forget curve visualization (FSRS: R=exp(-t/S), SM18: R=0.9^(t/S))
+ * - Forget curve visualization (FSRS: R=exp(-t/S), Adaptive: R=0.9^(t/S))
  * - Simulated interval calculation
  * - Raw memory state data
- * - Algorithm-aware: adapts labels and formulas for FSRS-6 and SM18
+ * - Algorithm-aware: adapts labels and formulas for FSRS-6 and Adaptive
  */
 
 import { useState, useRef } from "react";
@@ -23,10 +23,15 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import type { LearningItem } from "../../api/review";
-import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/adaptiveScheduler";
-import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/precisionScheduler";
+import { parseAdaptiveState, adaptiveRetrievability, type AdaptiveState } from "../../lib/adaptiveScheduler";
+import { parsePrecisionState, precisionRetrievability, type PrecisionState } from "../../lib/precisionScheduler";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
+import {
+  isAdaptiveScheduler,
+  isPrecisionScheduler,
+  normalizeSchedulerId,
+} from "../../lib/schedulerIdentity";
 
 interface FSRSInspectorProps {
   card: LearningItem | null;
@@ -41,7 +46,7 @@ function calculateForgetCurve(
   algorithmType?: string,
   _elapsedDays?: number
 ): { day: number; retrievability: number }[] {
-  if (algorithmType === "sm18" || algorithmType === "sm20") {
+  if (isAdaptiveScheduler(algorithmType) || isPrecisionScheduler(algorithmType)) {
     return days.map((day) => ({
       day,
       retrievability: Math.pow(0.9, day / stability),
@@ -183,43 +188,45 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
   if (!isOpen || !card) return null;
 
   // Use card's algorithm_type if set, otherwise fall back to user's setting
-  const effectiveAlgorithm = card.algorithm_type || settings.learning.algorithm;
-  const isSm18 = effectiveAlgorithm === "sm18";
-  const isSm20 = effectiveAlgorithm === "sm20";
-  const sm18State: SM18State | null = isSm18 ? parseSm18State(card.algorithm_state) : null;
-  const sm20State: SM20State | null = isSm20 ? parseSm20State(card.algorithm_state) : null;
+  const effectiveAlgorithm = normalizeSchedulerId(
+    card.algorithm_type || settings.learning.algorithm,
+  );
+  const isAdaptive = effectiveAlgorithm === "adaptive";
+  const isPrecision = effectiveAlgorithm === "precision";
+  const adaptiveState: AdaptiveState | null = isAdaptive ? parseAdaptiveState(card.algorithm_state) : null;
+  const precisionState: PrecisionState | null = isPrecision ? parsePrecisionState(card.algorithm_state) : null;
 
-  const stability = isSm18 && sm18State
-    ? sm18State.stability
-    : isSm20 && sm20State
-    ? sm20State.stability
+  const stability = isAdaptive && adaptiveState
+    ? adaptiveState.stability
+    : isPrecision && precisionState
+    ? precisionState.stability
     : card.memory_state?.stability ?? 0;
-  const difficulty = isSm18 && sm18State
-    ? sm18State.difficulty
-    : isSm20 && sm20State
-    ? sm20State.difficulty
+  const difficulty = isAdaptive && adaptiveState
+    ? adaptiveState.difficulty
+    : isPrecision && precisionState
+    ? precisionState.difficulty
     : card.memory_state?.difficulty ?? 0;
-  const retrievability = isSm18 && sm18State && sm18State.stability > 0
-    ? sm18Retrievability(sm18State.stability, sm18State.elapsed)
-    : isSm20 && sm20State && sm20State.stability > 0
-    ? sm20Retrievability(
-        sm20State.stability,
+  const retrievability = isAdaptive && adaptiveState && adaptiveState.stability > 0
+    ? adaptiveRetrievability(adaptiveState.stability, adaptiveState.elapsed)
+    : isPrecision && precisionState && precisionState.stability > 0
+    ? precisionRetrievability(
+        precisionState.stability,
         card.last_review_date
           ? (Date.now() - new Date(card.last_review_date).getTime()) / (86400 * 1000)
           : 0
       )
     : (card.memory_state as any)?.retrievability ?? 0;
 
-  const inspectorTitle = isSm18
-    ? `${schedulerLabel("sm18")} Inspector`
-    : isSm20
-      ? `${schedulerLabel("sm20")} Inspector`
+  const inspectorTitle = isAdaptive
+    ? `${schedulerLabel("adaptive")} Inspector`
+    : isPrecision
+      ? `${schedulerLabel("precision")} Inspector`
       : `${schedulerLabel("fsrs")} Inspector`;
 
   // Calculate forget curve data
   const curveDays = [0, 1, 3, 7, 14, 30, 60, 90];
   const forgetCurve = stability > 0
-    ? calculateForgetCurve(stability, curveDays, effectiveAlgorithm, sm18State?.elapsed)
+    ? calculateForgetCurve(stability, curveDays, effectiveAlgorithm, adaptiveState?.elapsed)
     : curveDays.map((day) => ({ day, retrievability: 1 }));
 
   // Calculate optimal intervals for each rating
@@ -311,33 +318,33 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
             icon={Brain}
           />
 
-          {isSm18 && sm18State && (
+          {isAdaptive && adaptiveState && (
             <>
               <ParameterRow
                 label="Reps"
-                value={sm18State.repetition}
+                value={adaptiveState.repetition}
                 description="Repetitions since last lapse"
                 icon={Pulse}
               />
               <ParameterRow
                 label="Lapses"
-                value={sm18State.lapses}
+                value={adaptiveState.lapses}
                 description="Total times forgotten (grade < 3)"
                 icon={Pulse}
               />
             </>
           )}
-          {isSm20 && sm20State && (
+          {isPrecision && precisionState && (
             <>
               <ParameterRow
                 label="Reps"
-                value={sm20State.repetition}
+                value={precisionState.repetition}
                 description="Successful repetitions completed"
                 icon={Pulse}
               />
               <ParameterRow
                 label="Lapses"
-                value={sm20State.lapses}
+                value={precisionState.lapses}
                 description="Total failed reviews"
                 icon={Pulse}
               />

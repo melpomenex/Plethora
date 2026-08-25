@@ -1,10 +1,10 @@
 ## Context
 
-Incrementum's SM-20 path already evaluates five competitors on every review: SM-2, SM-15, SM-19, SM-20, and FSRS. It stores adaptive weights and exposes aggregate weights, losses, and the R-Metric through `get_sm20_arena_stats`. The active review UI only shows the blended interval, and `ReviewTransparencyPanel` renders the weights as a dense sentence. `reviewStore.submitRating` optimistically removes the card and advances before `submit_review` finishes, so there is currently no point at which a user can inspect and confirm the five proposed schedules.
+Incrementum's Plethora Precision path already evaluates five competitors on every review: Plethora Classic, Classic 15, Classic 19, Plethora Precision, and FSRS. It stores adaptive weights and exposes aggregate weights, losses, and the R-Metric through `get_precision_arena_stats`. The active review UI only shows the blended interval, and `ReviewTransparencyPanel` renders the weights as a dense sentence. `reviewStore.submitRating` optimistically removes the card and advances before `submit_review` finishes, so there is currently no point at which a user can inspect and confirm the five proposed schedules.
 
-The reference SuperMemo dialog proves that the data can support interval choice, but it also exposes the problems this design must avoid: a rainbow heatmap without semantic meaning, tiny overlapping markers, multiple disconnected action rows, ambiguous "used" versus "selected" values, and a fixed desktop layout. Incrementum should preserve the informed choice while making the interaction feel native to a fast review session.
+The reference Plethora dialog proves that the data can support interval choice, but it also exposes the problems this design must avoid: a rainbow heatmap without semantic meaning, tiny overlapping markers, multiple disconnected action rows, ambiguous "used" versus "selected" values, and a fixed desktop layout. Incrementum should preserve the informed choice while making the interaction feel native to a fast review session.
 
-This design builds on the existing SM-20 ensemble and the active `fix-sm20-activation` work. It does not invent a second Arena or change the five scheduling models. The canonical surface is the Review tab's flashcard / learning-item session.
+This design builds on the existing Plethora Precision ensemble and the active `fix-precision-activation` work. It does not invent a second Arena or change the five scheduling models. The canonical surface is the Review tab's flashcard / learning-item session.
 
 Design read: a focused learning-product interaction for serious self-learners, with a cinematic scientific-instrument feel. The visual dials are variance 7, motion 7, and density 5. Motion communicates algorithm divergence and selection state, while the primary action remains reachable immediately.
 
@@ -21,8 +21,8 @@ Design read: a focused learning-product interaction for serious self-learners, w
 
 **Non-Goals:**
 
-- Reimplementing or retuning SM-2, SM-15, SM-19, SM-20, FSRS, weight adaptation, or the R-Metric.
-- Offering the Arena for documents, Queue reading mode, cram reviews, non-SM-20 schedulers, Pure M4 mode, or review widgets outside the canonical Review tab.
+- Reimplementing or retuning Plethora Classic, Classic 15, Classic 19, Plethora Precision, FSRS, weight adaptation, or the R-Metric.
+- Offering the Arena for documents, Queue reading mode, cram reviews, non-Plethora Precision schedulers, Pure M4 mode, or review widgets outside the canonical Review tab.
 - Turning the Review tab into a long-form analytics dashboard.
 - Adding a new animation or component library.
 - Automatically choosing an interval after a timeout in the normal visual review flow.
@@ -44,12 +44,12 @@ question -> answer -> grading -> arena-loading -> arena-ready -> committing -> n
 
 - the item is a flashcard / learning item in the Review tab;
 - the session is normal scheduled review, not cram;
-- the active algorithm is `sm20`;
+- the active algorithm is `precision`;
 - Pure M4 is off;
 - scheduling updates are enabled.
 - the user's Arena review mode is `choose` rather than the default `automatic`.
 
-SM-20 exposes one persistent, explicit choice called **After each rating**. **Automatic** is the recommended default: Arena commits its authoritative weighted recommendation with `schedule_source = arena` and advances without showing the decision stage. **Show the Arena** pauses after each eligible grade and opens the full Memory Horizon. Both modes run and train the same five collection models; the preference changes interaction only, never scheduler capability. The choice is presented as two descriptive radio cards in Learning settings and as a compact two-option control next to the SM-20 rating controls, so it can be understood during setup and changed in context.
+Plethora Precision exposes one persistent, explicit choice called **After each rating**. **Automatic** is the recommended default: Arena commits its authoritative weighted recommendation with `schedule_source = arena` and advances without showing the decision stage. **Show the Arena** pauses after each eligible grade and opens the full Memory Horizon. Both modes run and train the same five collection models; the preference changes interaction only, never scheduler capability. The choice is presented as two descriptive radio cards in Learning settings and as a compact two-option control next to the Plethora Precision rating controls, so it can be understood during setup and changed in context.
 
 The answer remains visible. On desktop, the lower rating region expands across the review workspace into the Arena stage. On mobile, the answer compresses to a scrollable context area above a thumb-reachable Arena stage. This is an in-place state transition, not a dialog or route change. The right transparency rail becomes a collapsible "Why this interval" detail inside the stage while the Arena is active.
 
@@ -74,10 +74,10 @@ Choose when this returns                           Good remembered
 
 Now        1 month          1 year                         10 years
 |-------------|---------------|--------------------------------|
-       SM-2         SM-15   SM-19      [ ARENA ]       FSRS  SM-20
+       Plethora Classic         Classic 15   Classic 19      [ ARENA ]       FSRS  Plethora Precision
                      <---------- Arena range ---------->
 
-Arena Pick   SM-2   SM-15   SM-19   SM-20   FSRS   Custom
+Arena Pick   Plethora Classic   Classic 15   Classic 19   Plethora Precision   FSRS   Custom
 [ Schedule for 5 years, 11 months ]
 ```
 
@@ -91,22 +91,22 @@ Alternative considered: five equal algorithm cards. Rejected because it hides th
 
 ### Decision 3: Preview all native grades on card load and reveal one after grading
 
-The existing SM-20 interval preview already runs the full five-model ensemble for all six native grades. Extend that scratch computation to return raw, finalized competitor intervals rather than running a second expensive pass after the grade.
+The existing Plethora Precision interval preview already runs the full five-model ensemble for all six native grades. Extend that scratch computation to return raw, finalized competitor intervals rather than running a second expensive pass after the grade.
 
-`PreviewIntervals` gains an optional `arena` payload for SM-20:
+`PreviewIntervals` gains an optional `arena` payload for Plethora Precision:
 
 ```ts
-interface SM20ArenaPreviewSet {
+interface ArenaPreviewSet {
   schema_version: 1;
   preview_id: string;
   item_revision: string;
   arena_revision: string;
   generated_at: string;
-  model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"];
-  grades: SM20ArenaGradePreview[]; // exactly six, indexed 0-5
+  model_order: ["m1", "m4", "m5", "precision", "fsrs"];
+  grades: PrecisionArenaGradePreview[]; // exactly six, indexed 0-5
 }
 
-interface SM20ArenaGradePreview {
+interface PrecisionArenaGradePreview {
   grade: 0 | 1 | 2 | 3 | 4 | 5;
   recommendation: ArenaIntervalChoice;
   candidates: ArenaModelCandidate[];
@@ -115,7 +115,7 @@ interface SM20ArenaGradePreview {
 }
 
 interface ArenaModelCandidate {
-  model_id: "sm2" | "sm15" | "sm19" | "sm20" | "fsrs";
+  model_id: "m1" | "m4" | "m5" | "precision" | "fsrs";
   label: string;
   interval_days: number;
   due_at: string;
@@ -161,7 +161,7 @@ interface ArenaSelection {
   item_revision: string;
   arena_revision: string;
   source: "arena" | "model" | "custom";
-  model_id?: "sm2" | "sm15" | "sm19" | "sm20" | "fsrs";
+  model_id?: "m1" | "m4" | "m5" | "precision" | "fsrs";
   interval_days?: number; // required only for custom
   decision_time_ms: number;
 }
@@ -173,9 +173,9 @@ At commit, the backend reloads the item and collection state, verifies the item 
 
 The backend then applies the grade exactly once, scores the previous review's model predictions, updates the five model states, and persists collection-wide learning. The chosen interval becomes the actual `learning_items.interval` and due date. Any internal "previous interval" fields that represent the schedule actually used are patched to the chosen value. Raw per-model slot predictions remain intact so the next recall outcome can score each competitor fairly.
 
-Arena-active commits use the exact deterministic interval shown to the user and do not add stochastic day dispersal afterward. Direct SM-20 and Pure M4 reviews retain their existing behavior.
+Arena-active commits use the exact deterministic interval shown to the user and do not add stochastic day dispersal afterward. Direct Plethora Precision and Pure M4 reviews retain their existing behavior.
 
-The learning rule is intentionally separate from selection preference. Arena weights update from predicted recall versus the observed pass/fail outcome. Choosing FSRS, SM-20, or Custom does not directly reward that choice or alter a weight.
+The learning rule is intentionally separate from selection preference. Arena weights update from predicted recall versus the observed pass/fail outcome. Choosing FSRS, Plethora Precision, or Custom does not directly reward that choice or alter a weight.
 
 Alternative considered: trust the interval number returned by the UI. Rejected because stale or malformed clients could schedule outside safe bounds or label a custom value as an algorithm proposal.
 
@@ -231,7 +231,7 @@ An app crash or tab close during `arena-ready` leaves no partial review because 
 
 ## Risks / Trade-offs
 
-- **[Risk] A chooser after every SM-20 grade slows review throughput.** -> Automatic is the recommended default; users deliberately opt into the chooser, and Arena Pick remains preselected with Enter/Space confirmation for that mode.
+- **[Risk] A chooser after every Plethora Precision grade slows review throughput.** -> Automatic is the recommended default; users deliberately opt into the chooser, and Arena Pick remains preselected with Enter/Space confirmation for that mode.
 - **[Risk] Extreme interval spread makes labels collide.** -> Use a logarithmic axis, marker lanes, cluster cycling, and an always-available textual choice rail.
 - **[Risk] Users mistake spread for scientific confidence.** -> Call it Arena range, define it as min-to-max proposals, and keep losses/R-Metric in optional details.
 - **[Risk] Custom choices weaken scheduler outcomes.** -> Show the Arena recommendation persistently, enforce backend bounds, store provenance, and never train weights from the fact that a user selected a model.
@@ -244,12 +244,12 @@ An app crash or tab close during `arena-ready` leaves no partial review because 
 ## Migration Plan
 
 1. Add nullable review-result provenance columns and update export/import/sync types with backward-compatible optional fields.
-2. Refactor the SM-20 scratch preview to expose finalized raw candidates for all six grades while pinning current ensemble preview outputs with regression tests.
+2. Refactor the Plethora Precision scratch preview to expose finalized raw candidates for all six grades while pinning current ensemble preview outputs with regression tests.
 3. Add validated Arena selection to `submit_review`, preserving the current direct path when the payload is absent.
 4. Introduce the review phase state machine and API types behind an internal feature flag; keep the current direct submit path available for rollback.
 5. Build the semantic choice list first, then layer the Memory Horizon visualization, motion, touch gestures, and Zen/mobile layouts over it.
 6. Add integration, accessibility, sync, stale-preview, and viewport tests. Validate both themes, reduced motion, keyboard-only flow, VoiceOver/TalkBack semantics, and low-end mobile performance.
-7. Enable the Arena phase only for eligible SM-20 Review-tab sessions. If rollback is needed, disable the frontend flag; the additive columns and selection-aware backend remain harmless.
+7. Enable the Arena phase only for eligible Plethora Precision Review-tab sessions. If rollback is needed, disable the frontend flag; the additive columns and selection-aware backend remain harmless.
 
 ## Open Questions
 

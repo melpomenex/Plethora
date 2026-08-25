@@ -67,7 +67,7 @@ export const DOC_CATEGORIES: DocCategory[] = [
     id: 'scheduling-and-algorithms',
     title: 'Scheduling & Spaced Repetition',
     shortTitle: 'SRS Algorithms',
-    description: 'Adaptive scheduling algorithms: FSRS-6, SuperMemo SM-18/SM-20, and TAS.',
+    description: 'Adaptive scheduling algorithms: FSRS-6, Plethora Adaptive/Precision, and TAS.',
     order: 7,
   },
   {

@@ -195,7 +195,7 @@ function randomizeInterval(base: number, maxNoise: number): number {
 }
 
 /**
- * Compute the interval increase for a single element using the SM-20 postpone algorithm.
+ * Compute the interval increase for a single element using the Precision postpone algorithm.
  * Returns a PostponeResult with the computed increase, new interval, and ratio.
  */
 export function postponeElement(input: PostponeInput, config: PostponeConfig): PostponeResult {

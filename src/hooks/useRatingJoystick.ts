@@ -1,6 +1,6 @@
 /**
  * Rating Joystick Hook — H-pattern "stick shift" gesture for the native
- * 0-5 grade scale (SM-18 / SM-20).
+ * 0-5 grade scale (Adaptive / Precision).
  *
  * Touch-down anywhere in the bound element springs up a joystick base under
  * the thumb. Dragging partitions the plane into a 2-row × 3-column H:

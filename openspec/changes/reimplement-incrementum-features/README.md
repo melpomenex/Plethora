@@ -35,7 +35,7 @@ The `SettingsDialog.cpp` (~29,000 lines) reveals comprehensive settings:
 - User Interface (themes, dense mode, toolbar, statistics)
 - Documents (auto-segment, OCR providers, math OCR)
 - Learning (intervals, retention, queue modes)
-- Algorithm (FSRS/SM2/SuperMemo selection)
+- Algorithm (FSRS/Classic/Plethora selection)
 - Automation (auto-sync, notifications)
 - API Settings (QA providers, local LLM, transcription)
 - QA (auto-generation, difficulty, context windows)
@@ -50,14 +50,14 @@ The `SettingsDialog.cpp` (~29,000 lines) reveals comprehensive settings:
 
 #### 3. **Document Management**
 From `MainWindow.h` and dialogs:
-- Import: PDF, EPUB, Arxiv, SuperMemo, Anki packages, URLs, screenshots
+- Import: PDF, EPUB, Arxiv, Plethora, Anki packages, URLs, screenshots
 - Viewing: Enhanced PDF viewer, EPUB viewer, document controls
 - Processing: Auto-segmentation (4 strategies), OCR (7 providers), math OCR
 - Annotations: Highlights (5 colors), extracts, cloze deletions
 - Offline copies with management
 
 #### 4. **Learning & Review**
-- Algorithms: FSRS, SM2, SuperMemo with full parameter control
+- Algorithms: FSRS, Classic, Plethora with full parameter control
 - Queue: Smart queues, reading queues, interleaved modes
 - Review: Flip cards, cloze cards, rating system
 - Statistics: Dashboard, charts, upcoming views, flashcard stats
@@ -199,7 +199,7 @@ From my analysis, here are ALL features that need implementation:
 - [ ] Auto-segmentation (4 strategies)
 - [ ] Highlights and extracts
 - [ ] Cloze deletion creation
-- [ ] Learning algorithms (FSRS/SM2/SuperMemo)
+- [ ] Learning algorithms (FSRS/Classic/Plethora)
 - [ ] Queue management
 - [ ] Review interface
 - [ ] Statistics dashboard
@@ -222,7 +222,7 @@ From my analysis, here are ALL features that need implementation:
 
 ### Integration Features ✅
 - [ ] Arxiv import
-- [ ] SuperMemo import
+- [ ] legacy third-party collection import
 - [ ] Anki package import
 - [ ] Screenshot capture
 - [ ] Web browser integration

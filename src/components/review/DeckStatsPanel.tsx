@@ -15,6 +15,7 @@ import type { LearningItem } from "../../api/learning-items";
 import type { StudyDeck } from "../../types/study-decks";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { schedulerLabel } from "../../lib/schedulerCatalog";
+import { isClassicScheduler, normalizeSchedulerId } from "../../lib/schedulerIdentity";
 import { useDocumentStore } from "../../stores/documentStore";
 
 interface DeckStatsPanelProps {
@@ -57,9 +58,9 @@ function StatRow({ label, value, color, onClick }: { label: string; value: strin
 
 const ALGO_NAMES: Record<string, string> = {
   fsrs: schedulerLabel("fsrs"),
-  sm2: schedulerLabel("sm2"),
-  sm18: schedulerLabel("sm18"),
-  sm20: schedulerLabel("sm20"),
+  classic: schedulerLabel("classic"),
+  adaptive: schedulerLabel("adaptive"),
+  precision: schedulerLabel("precision"),
 };
 
 export function DeckStatsPanel({
@@ -312,11 +313,11 @@ export function DeckStatsPanel({
           <div className="mt-1.5 space-y-2">
             {stats.algorithmMetrics.map(({ algo, count, retention: algoRet, avgDifficulty: algoDiff, avgStability: algoStab, avgEase, avgInterval, leeches: algoLeeches }) => {
               const ret = formatRetention(algoRet);
-              const displayName = ALGO_NAMES[algo] ?? algo;
-              const isSm2 = algo === "sm2";
-              const isSm18 = algo === "sm18";
-              const isSm20 = algo === "sm20";
-              const isFsrs = algo === "fsrs";
+              const displayName = ALGO_NAMES[normalizeSchedulerId(algo)] ?? algo;
+              const isClassic = isClassicScheduler(algo);
+              const isAdaptive = normalizeSchedulerId(algo) === "adaptive";
+              const isPrecision = normalizeSchedulerId(algo) === "precision";
+              const isFsrs = normalizeSchedulerId(algo) === "fsrs";
               return (
                 <div key={algo} className="rounded-md border border-border/60 p-1.5 space-y-0">
                   <div className="flex items-center justify-between mb-0.5">
@@ -326,19 +327,19 @@ export function DeckStatsPanel({
                   {/* Shared metrics */}
                   <StatRow label="Retention" value={ret.text} color={ret.color} />
                   <StatRow label="Avg Difficulty" value={algoDiff.toFixed(2)} />
-                  {/* FSRS / SM-18 / SM-20: stability + difficulty from memory_state */}
-                  {(isFsrs || isSm18 || isSm20) && (
+                  {/* FSRS / Adaptive / Precision: stability + difficulty from memory_state */}
+                  {(isFsrs || isAdaptive || isPrecision) && (
                     <StatRow
                       label="Avg Stability"
                       value={algoStab < 1 ? `${(algoStab * 24).toFixed(0)}h` : `${algoStab.toFixed(1)}d`}
                     />
                   )}
-                  {/* SM-2: ease factor */}
-                  {isSm2 && (
+                  {/* Classic: ease factor */}
+                  {isClassic && (
                     <StatRow label="Avg Ease Factor" value={avgEase.toFixed(2)} />
                   )}
-                  {/* SM-2: average interval */}
-                  {isSm2 && (
+                  {/* Classic: average interval */}
+                  {isClassic && (
                     <StatRow
                       label="Avg Interval"
                       value={avgInterval < 1 ? `${(avgInterval * 24).toFixed(0)}h` : `${avgInterval.toFixed(1)}d`}

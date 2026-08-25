@@ -2,7 +2,7 @@
 
 ## Why
 
-Incrementum positions itself as a SuperMemo-style incremental reading (IR) tool. The defining feature of true IR — going back to Wozniak's original design — is that **extracts inherit their parent article's priority**, so a library of thousands of articles stays tractable. Today Incrementum only stores priority on documents (`priority_rating`, `priority_slider`, `priority_score`); extracts have no priority field, and the queue hardcodes extract priority to `9.0` (new) / `7.0` (reviewed) regardless of which article the extract came from (`src-tauri/src/commands/queue.rs:191-195`). This means a high-priority article's extracts float at the same queue weight as a low-priority one's, breaking the IR priority chain.
+Incrementum positions itself as a Plethora-style incremental reading (IR) tool. The defining feature of true IR — going back to Wozniak's original design — is that **extracts inherit their parent article's priority**, so a library of thousands of articles stays tractable. Today Incrementum only stores priority on documents (`priority_rating`, `priority_slider`, `priority_score`); extracts have no priority field, and the queue hardcodes extract priority to `9.0` (new) / `7.0` (reviewed) regardless of which article the extract came from (`src-tauri/src/commands/queue.rs:191-195`). This means a high-priority article's extracts float at the same queue weight as a low-priority one's, breaking the IR priority chain.
 
 ## What Changes
 
@@ -18,7 +18,7 @@ Incrementum positions itself as a SuperMemo-style incremental reading (IR) tool.
 - Expose `priority_score` on the extract `QueueItem` so the UI can display it.
 
 ### 3. Priority re-inheritance on document priority change
-- When a document's priority is updated, propagate the new `priority_score` to extracts that have not been individually re-prioritized (i.e. extract's `priority_score` still equals its inherited value). This mirrors SuperMemo's "extract inherits until manually overridden" behavior.
+- When a document's priority is updated, propagate the new `priority_score` to extracts that have not been individually re-prioritized (i.e. extract's `priority_score` still equals its inherited value). This mirrors Plethora's "extract inherits until manually overridden" behavior.
 
 ### 4. Optional manual override
 - Add a command to set an individual extract's priority, marking it as user-overridden so it stops inheriting.

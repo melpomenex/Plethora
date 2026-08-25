@@ -1,6 +1,6 @@
 ## Why
 
-When a user highlights or excerpts text in any viewer (PDF, EPUB, HTML, RSS), the app currently opens a full modal dialog (`CreateExtractDialog`) that interrupts reading flow. A user reported: "After highlighting or excerpting text, the software forcibly pops up a dialog box, which significantly disrupts the reading flow." SuperMemo's approach is more scientifically designed — it creates extracts instantly with minimal friction. The app already has an inline extraction path (`useInlineExtraction`, Alt+X) that does zero-dialog extraction, but the primary UI-driven highlight actions still force a dialog.
+When a user highlights or excerpts text in any viewer (PDF, EPUB, HTML, RSS), the app currently opens a full modal dialog (`CreateExtractDialog`) that interrupts reading flow. A user reported: "After highlighting or excerpting text, the software forcibly pops up a dialog box, which significantly disrupts the reading flow." Plethora's approach is more scientifically designed — it creates extracts instantly with minimal friction. The app already has an inline extraction path (`useInlineExtraction`, Alt+X) that does zero-dialog extraction, but the primary UI-driven highlight actions still force a dialog.
 
 ## What Changes
 

@@ -1,10 +1,10 @@
 //! Precision scheduling — the **Algorithm Arena** implementation.
 //!
-//! Precision schedules with a weighted blend of **five competing algorithms** —
+//! Precision schedules with a weighted blend of **five competing models** —
 //! the "Algorithm Arena" feature:
 //!
 //! ```text
-//! blend    = (w₁·Classic + w₂·Classic15 + w₃·Classic19 + w₄·Precision + w₅·FSRS) / Σw
+//! blend    = (w₁·M1 + w₂·M2 + w₃·M3 + w₄·M4 + w₅·M5) / Σw
 //! adjusted = ln(1 - FI/100) / ln(0.9) · blend
 //! raw      = dispersal(adjusted)
 //!          | post_lapse(adjusted, priority%)
@@ -19,26 +19,23 @@
 //!
 //! All 5 competitors, the blend, retention adjustment, dispersal, post-lapse,
 //! finalization, and the runtime weight adaptation are implemented here.
-//! decoded and live-validated against the running `sm20.exe` binary via
-//! Frida injection.
 //!
 //! ## The five competitors (slot order = item struct offsets)
 //!
-//! | Slot | Key | Default | Function | Algorithm |
-//! |------|------|---------|----------|-----------|
-//! | M1 (+0x73) | `PA2` | 6% | `d43e00` | **SM-2** (EF 2.5/1.3, I(2)=6, classic EF update) |
-//! | M2 (+0x77) | `PA15` | 14% | `a651f0`→`a605a0` | **SM-15** (A-factor/OF-matrix optimizer) |
-//! | M3 (+0x7b) | `PA19` | 45% | `cea5a0` | **SM-19** (Bayesian 21³ D/S/R matrices) |
-//! | M4 (+0x83) | `PA20` | 25% | `af9420` | **SM-20 proper** (35-param theory-based kernel, no matrices) |
-//! | M5 (+0x8b) | `PAF` | 10% | `ce6c70`→`ce71b0` | **FSRS** (19/81 power curve, near-default weights) |
+//! | Slot | Key | Default | Function | Model |
+//! |------|-----|---------|----------|-------|
+//! | M1 (+0x73) | `PA2` | 6% | `d43e00` | **M1** — ease-factor scheduler (EF 2.5/1.3 floor, I(2)=6, classic EF update) |
+//! | M2 (+0x77) | `PA15` | 14% | `a651f0`→`a605a0` | **M2** — A-factor / OF-matrix optimizer |
+//! | M3 (+0x7b) | `PA19` | 45% | `cea5a0` | **M3** — Bayesian 21³ D/S/R matrices |
+//! | M4 (+0x83) | `PA20` | 25% | `af9420` | **M4** — 35-parameter theory-based kernel (no matrices) |
+//! | M5 (+0x8b) | `PAF` | 10% | `ce6c70`→`ce71b0` | **M5** — FSRS power curve (19/81 weights, near-default when unoptimized) |
 //!
-//! The Arena weights adapt to the user's own review history via the decoded
-//! `FUN_00af40d0` (see [`arena`]): on every committed review past the first,
-//! the per-review stats orchestrator `FUN_00ce4470` computes each model's
-//! signed prediction error `(outcome - R_i)` and nudges the weights toward
-//! models that predicted the outcome better. Both trainable competitors can
-//! additionally be fitted to the user's own review log (see [`optimize`] for
-//! SM-20/M4, and the fsrs crate integration for M5).
+//! The Arena weights adapt to the user's own review history via [`arena`]:
+//! on every committed review past the first, the per-review stats orchestrator
+//! computes each model's signed prediction error `(outcome - R_i)` and nudges
+//! the weights toward models that predicted the outcome better. Both trainable
+//! competitors can additionally be fitted to the user's own review log (see
+//! [`optimize`] for M4, and the fsrs crate integration for M5).
 //!
 //! Evidence: `[C]` = decompiled C, `[ASM]` = assembly, `[BIN]` = binary extraction
 
@@ -54,6 +51,10 @@ pub mod optimize;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::arena_model_identity::{
+    normalize_arena_model_id, ArenaModelId, ARENA_MODEL_IDS,
+};
+
 pub use arena::ArenaState;
 use ensemble::*;
 use kernel::review_kernel_with;
@@ -62,76 +63,21 @@ use model2::{model_2, ClassicM2Optimizer, M2ItemState};
 use model3::{model_3_stateful, M3ItemState, M3MatrixState};
 use model5::model_5;
 
-/// Stable public identifiers for the five Algorithm Arena competitors.
-/// The order is part of the preview and persisted-provenance contract.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum ArenaModelId {
-    Sm2,
-    Sm15,
-    Sm19,
-    Sm20,
-    Fsrs,
-}
-
-pub const ARENA_MODEL_IDS: [ArenaModelId; 5] = [
-    ArenaModelId::Sm2,
-    ArenaModelId::Sm15,
-    ArenaModelId::Sm19,
-    ArenaModelId::Sm20,
-    ArenaModelId::Fsrs,
-];
-
-impl ArenaModelId {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Sm2 => "sm2",
-            Self::Sm15 => "sm15",
-            Self::Sm19 => "sm19",
-            Self::Sm20 => "sm20",
-            Self::Fsrs => "fsrs",
-        }
-    }
-
-    /// User-facing display name. Product naming only — `as_str()` ids are the
-    /// compatibility contract and stay SuperMemo-derived. Keep in sync with
-    /// `ARENA_MODEL_LABELS` in `src/lib/schedulerCatalog.ts`.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Sm2 => "Plethora Classic",
-            Self::Sm15 => "Classic 15",
-            Self::Sm19 => "Classic 19",
-            Self::Sm20 => "Plethora Precision",
-            Self::Fsrs => "FSRS",
-        }
-    }
-
-    pub const fn index(self) -> usize {
-        match self {
-            Self::Sm2 => 0,
-            Self::Sm15 => 1,
-            Self::Sm19 => 2,
-            Self::Sm20 => 3,
-            Self::Fsrs => 4,
-        }
-    }
-}
-
-// Re-export index mappers for backward compatibility with the old sm20.rs API
+// Re-export index mappers for the precision kernel API
 pub use kernel::init_new_item as init_kernel_item;
 pub use model3::{d_index as difficulty_to_index, r_index};
 
 // =============================================================================
 // LEGACY V4 DIAGNOSTIC TYPES — kept for backward-compatible DB deserialization.
-// The ensemble does not use these; they exist only so the old
-// sm20_recall_cells / sm20_optimizer_profiles tables can still be queried.
+// The ensemble does not use these; they exist only so legacy recall-cell and
+// optimizer-profile tables can still be queried.
 // =============================================================================
-pub const SM20_MODEL_VERSION: i32 = 4;
-pub const SM20_OPTIMIZER_VERSION: i32 = 1;
-pub const SM20_MIN_OPTIMIZER_SAMPLES: u32 = 200;
+pub const PRECISION_MODEL_VERSION: i32 = 4;
+pub const PRECISION_OPTIMIZER_VERSION: i32 = 1;
+pub const PRECISION_MIN_OPTIMIZER_SAMPLES: u32 = 200;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Copy)]
-pub struct SM20RecallCoefficients {
+pub struct PrecisionRecallCoefficients {
     pub coefficient_1: f64,
     pub coefficient_2: f64,
     pub coefficient_3: f64,
@@ -139,7 +85,7 @@ pub struct SM20RecallCoefficients {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct SM20RecallCell {
+pub struct PrecisionRecallCell {
     pub retrievability_bucket: u8,
     pub difficulty_bucket: u8,
     pub total_count: u32,
@@ -163,9 +109,9 @@ pub const DEFAULT_FI: u8 = 10;
 
 /// Per-item Precision scheduling state.
 ///
-/// Backward-compatible with the previous `SM20State` — all old fields are
-/// retained with `#[serde(default)]` so existing items deserialize cleanly.
-/// New fields hold the per-item state for models M1, M2, and M3.
+/// Retains legacy serde fields with `#[serde(default)]` so existing items
+/// deserialize cleanly. New fields hold the per-item state for models M1, M2,
+/// and M3.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PrecisionState {
     pub stability: f64,
@@ -220,9 +166,6 @@ pub struct PrecisionState {
     pub m5_memory: Option<M5Memory>,
 }
 
-/// Backward compatibility alias for `PrecisionState`.
-pub type SM20State = PrecisionState;
-
 /// FSRS memory state carried per item for the personalized M5 competitor.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct M5Memory {
@@ -272,9 +215,6 @@ pub struct PrecisionReviewResult {
     pub model_intervals: [f64; 5],
 }
 
-/// Backward compatibility alias for `PrecisionReviewResult`.
-pub type SM20ReviewResult = PrecisionReviewResult;
-
 /// Preview intervals for each rating button.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrecisionPreviewIntervals {
@@ -283,9 +223,6 @@ pub struct PrecisionPreviewIntervals {
     pub good: f64,
     pub easy: f64,
 }
-
-/// Backward compatibility alias for `PrecisionPreviewIntervals`.
-pub type SM20PreviewIntervals = PrecisionPreviewIntervals;
 
 /// Collection-wide state that must be loaded/saved per review.
 #[derive(Clone, Serialize, Deserialize)]
@@ -301,9 +238,6 @@ pub struct PrecisionCollectionState {
     /// When present, M4 runs with these instead of the shipped defaults.
     pub m4_params: Option<Vec<f64>>,
 }
-
-/// Backward compatibility alias for `PrecisionCollectionState`.
-pub type SM20CollectionState = PrecisionCollectionState;
 
 impl Default for PrecisionCollectionState {
     fn default() -> Self {
@@ -330,7 +264,6 @@ pub fn retrievability(stability: f64, elapsed_days: f64) -> f64 {
 }
 
 /// Map retrievability to a 1-20 bucket index. `floor(20^R)` clamped to [1,20].
-/// Kept for backward compatibility with the old sm20.rs API.
 pub fn recall_retrievability_to_bucket(value: f64) -> u8 {
     r_index(value) as u8
 }
@@ -362,8 +295,8 @@ pub fn rating_to_grade(rating: i32) -> i32 {
 // PERSONALIZED MODEL PLUMBING
 // =============================================================================
 
-/// Resolve the M4 (Algorithm SM-20) parameter block: the per-user fit when a
-/// valid one exists, otherwise the binary's shipped defaults.
+/// Resolve the M4 parameter block: the per-user fit when a valid one exists,
+/// otherwise the shipped defaults.
 fn resolve_m4_params(custom: Option<&[f64]>) -> [f64; 35] {
     if let Some(p) = custom {
         if p.len() == 35 && p.iter().all(|v| v.is_finite()) {
@@ -415,9 +348,9 @@ fn fsrs_m5(
 // REVIEW (the main entry point)
 // =============================================================================
 
-/// Run one review through the full SM-20 5-model ensemble pipeline.
+/// Run one review through the full 5-model ensemble pipeline.
 ///
-/// Takes a native SM-20 `grade` (0-5; 0-2 fail, 3-5 pass). Callers holding a
+/// Takes a native Precision `grade` (0-5; 0-2 fail, 3-5 pass). Callers holding a
 /// 4-button rating map it first via [`rating_to_grade`].
 ///
 /// This is the production review path. It:
@@ -446,24 +379,24 @@ fn fsrs_m5(
 /// nor the post-lapse jitter fires (previews must not re-roll on every fetch).
 #[allow(clippy::too_many_arguments)]
 pub fn review(
-    state: &SM20State,
+    state: &PrecisionState,
     grade: i32,
     elapsed_days: f64,
     fi: u8,
-    collection: &mut SM20CollectionState,
+    collection: &mut PrecisionCollectionState,
     today: i32,
     commit: bool,
     disperse: bool,
     rng: &mut impl rand::Rng,
     pure_m4: bool,
     post_lapse_x: f64,
-) -> SM20ReviewResult {
+) -> PrecisionReviewResult {
     let grade = grade.clamp(0, 5);
     let t = elapsed_days;
     let s = state.stability;
     let d = state.difficulty;
 
-    // --- M4: Algorithm SM-20 — the 35-param kernel (default weight 25%) ---
+    // --- M4: 35-param kernel (default weight 25%) ---
     // Runs with the per-user parameter fit when one exists, else the
     // binary's shipped pretrained block.
     let m4_p = resolve_m4_params(collection.m4_params.as_deref());
@@ -487,7 +420,7 @@ pub fn review(
     let m1_review = model_1(&state.m1_state, today, grade, state.m1_history.as_ref());
     let m1 = m1_review.interval as f64;
 
-    // --- M2: classic SM-15/16 scheduler (14%) ---
+    // --- M2: A-factor optimizer scheduler (14%) ---
     let m2_review = model_2(
         &state.m2_state,
         &mut collection.m2_optimizer,
@@ -499,7 +432,7 @@ pub fn review(
     );
     let m2 = m2_review.stability as f64;
 
-    // --- M3: SM-19 raw matrix scheduler (45%) ---
+    // --- M3: Bayesian matrix scheduler (45%) ---
     let m3_review = model_3_stateful(
         &state.m3_state,
         &mut collection.m3_matrices,
@@ -510,7 +443,7 @@ pub fn review(
     );
     let m3 = m3_review.stability;
 
-    // --- Ensemble (Algorithm Arena blend at the live per-user weights or Pure SM-20 M4) ---
+    // --- Ensemble (Algorithm Arena blend at the live per-user weights or pure M4) ---
     let ensemble_val = if pure_m4 {
         m4
     } else {
@@ -774,8 +707,8 @@ mod tests {
         StdRng::seed_from_u64(0)
     }
 
-    fn established_item() -> SM20State {
-        SM20State {
+    fn established_item() -> PrecisionState {
+        PrecisionState {
             stability: 30.0,
             difficulty: 0.4,
             repetition: 3,
@@ -818,12 +751,12 @@ mod tests {
     /// stays on the normal path.
     #[test]
     fn post_lapse_applies_to_the_lapsed_review_itself() {
-        let mut coll = SM20CollectionState::default();
+        let mut coll = PrecisionCollectionState::default();
 
         // Fresh item, first review is a lapse: pre-review reps == 0 →
         // family = 1 but ordinal = 0 → NORMAL path. Markers stored exactly
         // as the binary writes them: (1, 0).
-        let fresh = SM20State::default();
+        let fresh = PrecisionState::default();
         let r1 = review(
             &fresh,
             1,
@@ -896,9 +829,9 @@ mod tests {
     /// the binary never does.)
     #[test]
     fn persisted_markers_do_not_drive_scheduling() {
-        let mut coll = SM20CollectionState::default();
+        let mut coll = PrecisionCollectionState::default();
         let base = established_item();
-        let armed = SM20State {
+        let armed = PrecisionState {
             post_lapse_family: 1,
             lapse_ordinal: 4,
             ..base.clone()
@@ -936,7 +869,7 @@ mod tests {
     }
 
     /// End-to-end differential pins against the Python reference package
-    /// (`sm20/pipeline.py`, generated 2026-07-20 after the same-review
+    /// (`precision/pipeline.py`, generated 2026-07-20 after the same-review
     /// post-lapse, min-growth, and arena-input fixes landed on both sides).
     /// Deterministic: commit=false + disperse=false, and none of these
     /// inputs reach M2's probabilistic tail-fix, so the rng is never drawn.
@@ -952,7 +885,7 @@ mod tests {
     #[test]
     fn pipeline_matches_python_reference_end_to_end() {
         // A: established pass (grade 4, elapsed 30) → 49 (exact match).
-        let mut coll = SM20CollectionState::default();
+        let mut coll = PrecisionCollectionState::default();
         let a = review(
             &established_item(),
             4,
@@ -992,7 +925,7 @@ mod tests {
 
         // C: fresh-item lapse (grade 1, elapsed 0; top-level difficulty 0.5 =
         // the reference's default) → normal path → 2 (exact match).
-        let fresh = SM20State {
+        let fresh = PrecisionState {
             difficulty: 0.5,
             ..Default::default()
         };
@@ -1018,7 +951,7 @@ mod tests {
     /// for used < 70.
     #[test]
     fn pass_reviews_enforce_minimum_growth() {
-        let mut coll = SM20CollectionState::default();
+        let mut coll = PrecisionCollectionState::default();
         // Reviewed 30 days after the last review: floor = 1.7 * 30^-0.1 ≈ 1.209,
         // so the interval must be ≥ round(30 * 1.209 + 0.5) = 37.
         let r = review(
@@ -1046,12 +979,12 @@ mod tests {
 
     #[test]
     fn arena_preview_is_deterministic_complete_and_non_mutating() {
-        let collection = SM20CollectionState::default();
+        let collection = PrecisionCollectionState::default();
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../src/shared/arenaParityFixture.json"
         ))
         .expect("shared Arena parity fixture");
-        let state: SM20State =
+        let state: PrecisionState =
             serde_json::from_value(fixture["state"].clone()).expect("shared fixture state");
         let elapsed_days = fixture["elapsed_days"].as_f64().expect("elapsed days");
         let before = serde_json::to_vec(&(
@@ -1098,11 +1031,11 @@ mod tests {
         assert_eq!(
             ARENA_MODEL_IDS,
             [
-                ArenaModelId::Sm2,
-                ArenaModelId::Sm15,
-                ArenaModelId::Sm19,
-                ArenaModelId::Sm20,
-                ArenaModelId::Fsrs,
+                ArenaModelId::M1,
+                ArenaModelId::M2,
+                ArenaModelId::M3,
+                ArenaModelId::M4,
+                ArenaModelId::M5,
             ],
             "the persisted Arena slots are a public compatibility contract",
         );
@@ -1174,7 +1107,7 @@ mod tests {
         assert_eq!(legacy, expected_intervals);
 
         let committed_grade = fixture["committed_grade"].as_i64().unwrap() as i32;
-        let mut commit_collection = SM20CollectionState {
+        let mut commit_collection = PrecisionCollectionState {
             m2_optimizer: collection.m2_optimizer.clone(),
             m3_matrices: collection.m3_matrices.clone(),
             arena: collection.arena.clone(),
@@ -1277,7 +1210,7 @@ mod tests {
                 serde_json::from_value(expected["candidates"].clone()).unwrap();
             assert_eq!(result.model_intervals, expected_candidates);
         }
-        let mut personalized_collection = SM20CollectionState::default();
+        let mut personalized_collection = PrecisionCollectionState::default();
         personalized_collection.fsrs_params = Some(
             serde_json::from_value(fixture["personalized_fsrs"]["parameters"].clone()).unwrap(),
         );

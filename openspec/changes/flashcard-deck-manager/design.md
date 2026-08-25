@@ -1,6 +1,6 @@
 ## Context
 
-The app has a mature spaced-repetition system with FSRS-6/SM-2 algorithms, tag-based virtual decks, and a full review pipeline. The gap is **deck management UX**: users cannot browse decks with their cards, see per-deck statistics at a glance, or edit cards inline. Currently, viewing cards per-document exists (`LearningCardsList`), but there is no unified deck-scoped browser.
+The app has a mature spaced-repetition system with FSRS-6/Plethora Classic algorithms, tag-based virtual decks, and a full review pipeline. The gap is **deck management UX**: users cannot browse decks with their cards, see per-deck statistics at a glance, or edit cards inline. Currently, viewing cards per-document exists (`LearningCardsList`), but there is no unified deck-scoped browser.
 
 Decks are virtual (tag-filters, not DB rows). Cards belong to decks via tag matching. All needed card fields (state, interval, difficulty, due date, lapses, memory state) already exist in the `learning_items` table and are queryable via existing Tauri commands.
 

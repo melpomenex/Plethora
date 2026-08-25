@@ -177,7 +177,7 @@ impl ArenaState {
     /// Reviews under [`MIN_SCORING_ELAPSED_DAYS`] are ignored (sanity guard).
     /// The binary's caller has additional branch guards on the item's
     /// repetition count and M3's retrievability; those are enforced upstream
-    /// in [`crate::algorithms::sm20::review`] by only calling `observe` on
+    /// in [`crate::algorithms::precision::review`] by only calling `observe` on
     /// committed reviews past the first.
     ///
     /// [`FUN_00af40d0`]: self

@@ -71,7 +71,7 @@ Surfaced during the same investigation, included because they are real defects i
 - **Two leak/cleanup fixes.** `ThemeBackdrop` tracks the registered resize handler separately from the animation-supplied one; a boot-time sweep removes orphaned transcription temp files older than a threshold.
 - **Data-loss guard.** On startup the app detects `*.sync-conflict-*` / `*.corrupt-*` siblings of its database and surfaces a one-time, dismissible warning that external file-level sync of the SQLite file risks corruption.
 
-Non-goals: no change to sync *semantics* (what replicates, conflict resolution, CRDT model, encryption scheme, or the relay protocol); no re-litigation of deferring the chain past first paint (that stays); no work on the desktop tab-mounting model (`TabContent` keeping every tab mounted is real but is a separate architectural change); no changes to scheduling algorithms or SM-20 paths; no Cargo profile changes.
+Non-goals: no change to sync *semantics* (what replicates, conflict resolution, CRDT model, encryption scheme, or the relay protocol); no re-litigation of deferring the chain past first paint (that stays); no work on the desktop tab-mounting model (`TabContent` keeping every tab mounted is real but is a separate architectural change); no changes to scheduling algorithms or Plethora Precision paths; no Cargo profile changes.
 
 ## Capabilities
 

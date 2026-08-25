@@ -92,7 +92,7 @@ export interface HelpAppContext {
   platform: TargetPlatform;
   ttsActive: boolean;
   ttsProvider?: string;
-  activeAlgorithm: "fsrs" | "adaptive" | "precision" | "classic" | "sm18" | "sm20" | "sm2";
+  activeAlgorithm: "fsrs" | "adaptive" | "precision" | "classic" | "classic_5" | "classic_8" | "classic_15";
   einkActive: boolean;
   activeSettingsTab?: string;
 }

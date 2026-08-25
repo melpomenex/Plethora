@@ -29,13 +29,13 @@ describe("Memory Horizon math", () => {
 
   it("groups equal and near-overlapping markers deterministically", () => {
     const points = [
-      { id: "fsrs", intervalDays: 30 },
-      { id: "sm20", intervalDays: 30 },
-      { id: "sm2", intervalDays: 3 },
+      { id: "m5", intervalDays: 30 },
+      { id: "m4", intervalDays: 30 },
+      { id: "m1", intervalDays: 3 },
     ];
     const first = groupHorizonCollisions(points, 60);
     const second = groupHorizonCollisions([...points].reverse(), 60);
     expect(first).toEqual(second);
-    expect(first.find((cluster) => cluster.points.length === 2)?.points.map((point) => point.id)).toEqual(["fsrs", "sm20"]);
+    expect(first.find((cluster) => cluster.points.length === 2)?.points.map((point) => point.id)).toEqual(["m4", "m5"]);
   });
 });

@@ -1,10 +1,8 @@
 /**
- * SM-18 Algorithm Implementation (TypeScript)
+ * Plethora Adaptive scheduler (TypeScript mirror).
  *
- * Ported from the reverse-engineered Python reference at:
- * https://github.com/melpomenex/sm18-re/blob/main/sm18_exact_algorithm.py
- *
- * Key formulas (from Ghidra decompilation of sm18.exe):
+ * Continuous 3D stability-increase interpolation across difficulty, stability,
+ * and retrievability. Key formulas:
  * - Retrievability: R = 0.9^(t/S)
  * - Stability update (success): S_new = S * SInc (from default matrix)
  * - Stability update (failure): S_new = max(S * 0.87 / (1 + 0.1 * lapses), 0.5)
@@ -59,7 +57,6 @@ const DEFAULT_S_BOUNDARIES: readonly number[] = [
  * Default 21×21×21 SInc matrix.
  * Layout: flat[D * 441 + S * 21 + R] — D slowest, R fastest.
  * Indices 0..19 active, index 20 = sentinel (value 0).
- * Source: https://github.com/melpomenex/sm18-re/blob/main/alg17_data/StabilityIncrease.dat
  */
 const SINC_MATRIX: Float64Array = new Float64Array([
 14.244807054158343, 8.463742430189027, 6.241742514560372, 5.02884564545017, 4.25287141671599, 3.708614708359822, 3.3031636812584915, 2.9879558285658203,
@@ -1240,9 +1237,6 @@ export interface AdaptiveState {
     grade_r?: Record<number, number>;
 }
 
-/** Backward compatibility alias */
-export type SM18State = AdaptiveState;
-
 /** Result of an Adaptive review computation. */
 export interface AdaptiveReviewResult {
     /** Updated item state */
@@ -1257,9 +1251,6 @@ export interface AdaptiveReviewResult {
     new_interval: number;
 }
 
-/** Backward compatibility alias */
-export type SM18ReviewResult = AdaptiveReviewResult;
-
 export function defaultAdaptiveState(): AdaptiveState {
     return {
         difficulty: DEFAULT_DIFFICULTY,
@@ -1271,9 +1262,6 @@ export function defaultAdaptiveState(): AdaptiveState {
         grade_r: { ...DEFAULT_GRADE_R },
     };
 }
-
-/** Backward compatibility alias */
-export const defaultSm18State = defaultAdaptiveState;
 
 /** Parse AdaptiveState from JSON string, falling back to defaults. */
 export function parseAdaptiveState(algorithmState: string | undefined): AdaptiveState {
@@ -1296,9 +1284,6 @@ export function parseAdaptiveState(algorithmState: string | undefined): Adaptive
     return defaultAdaptiveState();
 }
 
-/** Backward compatibility alias */
-export const parseSm18State = parseAdaptiveState;
-
 /** Compute retrievability: R = 0.9^(t/S). R = 0.9 at t = S by definition. */
 export function adaptiveRetrievability(stability: number, elapsedDays: number): number {
     if (stability <= 0.0) return 0.0;
@@ -1306,18 +1291,12 @@ export function adaptiveRetrievability(stability: number, elapsedDays: number): 
     return Math.pow(0.9, elapsedDays / stability);
 }
 
-/** Backward compatibility alias */
-export const sm18Retrievability = adaptiveRetrievability;
-
 /** Compute interval from stability: S * ln(1-FI) / ln(0.9). For FI = 0.10, interval == stability. */
 export function adaptiveIntervalFromStability(stability: number, fi: number): number {
     if (stability <= 0.0 || fi <= 0.0 || fi >= 1.0) return 0.0;
     if (Math.abs(fi - 0.10) < 1e-9) return stability;
     return stability * Math.log(1.0 - fi) / Math.log(0.9);
 }
-
-/** Backward compatibility alias */
-export const sm18IntervalFromStability = adaptiveIntervalFromStability;
 
 /** Compute BW (B-W deviation) metric. BW = (grade_R - R) for success, -R for failure. */
 function computeBw(grade: number, r: number, gradeR: number): number {
@@ -1365,7 +1344,7 @@ function binRGrade(r: number): number {
 }
 
 /**
- * Look up SInc from the default matrix (StabilityIncrease.dat).
+ * Look up SInc from the default 21³ stability-increase matrix.
  * Falls back to DEFAULT_SINC (0.07) for sentinel/zero entries.
  */
 function sincLookup(dGrade: number, sGrade: number, rGrade: number): number {
@@ -1464,9 +1443,6 @@ export function adaptiveReview(
     };
 }
 
-/** Backward compatibility alias */
-export const sm18Review = adaptiveReview;
-
 /**
  * Map Tauri review ratings (0=Again, 1=Hard, 2=Good, 3=Easy) to Adaptive grades (0-5).
  * Again->0, Hard->2, Good->3, Easy->5.
@@ -1480,7 +1456,3 @@ export function ratingToAdaptiveGrade(rating: number): number {
         default: return 3;
     }
 }
-
-/** Backward compatibility alias */
-export const ratingToSm18Grade = ratingToAdaptiveGrade;
-

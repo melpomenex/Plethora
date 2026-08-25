@@ -2,16 +2,16 @@
 
 ### Requirement: Arena is scoped to eligible learning-item reviews
 
-The system SHALL present the Algorithm Arena interval-choice phase only for normal scheduled flashcard / learning-item reviews in the Review tab when the active algorithm is `sm20`, Pure M4 mode is disabled, scheduling updates are enabled, and the user's Arena review mode is `choose`. The system SHALL NOT present the Arena for documents, Queue reading mode, cram mode, non-SM-20 algorithms, Pure M4 mode, automatic Arena review mode, or review widgets outside the Review tab.
+The system SHALL present the Algorithm Arena interval-choice phase only for normal scheduled flashcard / learning-item reviews in the Review tab when the active algorithm is `precision`, Pure M4 mode is disabled, scheduling updates are enabled, and the user's Arena review mode is `choose`. The system SHALL NOT present the Arena for documents, Queue reading mode, cram mode, non-Plethora Precision algorithms, Pure M4 mode, automatic Arena review mode, or review widgets outside the Review tab.
 
-#### Scenario: Eligible SM-20 flashcard enters the Arena
+#### Scenario: Eligible Plethora Precision flashcard enters the Arena
 
-- **WHEN** a user grades a flashcard in a normal Review-tab session with SM-20 Arena scheduling active
+- **WHEN** a user grades a flashcard in a normal Review-tab session with Plethora Precision Arena scheduling active
 - **THEN** the system enters the Algorithm Arena interval-choice phase before scheduling or advancing the card
 
 #### Scenario: Ineligible review keeps direct scheduling
 
-- **WHEN** a user grades an item in cram mode, Pure M4 mode, a non-SM-20 algorithm, or a non-Review-tab surface
+- **WHEN** a user grades an item in cram mode, Pure M4 mode, a non-Plethora Precision algorithm, or a non-Review-tab surface
 - **THEN** the system retains that surface's existing direct scheduling behavior
 - **AND** it does not show the Algorithm Arena
 
@@ -22,12 +22,12 @@ The system SHALL present the Algorithm Arena interval-choice phase only for norm
 
 ### Requirement: User chooses between automatic flow and the Arena
 
-The system SHALL expose one persistent SM-20 Arena review preference with `automatic` and `choose` values. `automatic` SHALL be the recommended default and SHALL commit Arena's authoritative weighted recommendation with Arena provenance without presenting or waiting on the decision phase. `choose` SHALL open the full Arena after every otherwise eligible grade. The same five collection models SHALL remain active and continue learning in both modes. The choice SHALL be discoverable in Learning settings and in context beside the SM-20 rating controls.
+The system SHALL expose one persistent Plethora Precision Arena review preference with `automatic` and `choose` values. `automatic` SHALL be the recommended default and SHALL commit Arena's authoritative weighted recommendation with Arena provenance without presenting or waiting on the decision phase. `choose` SHALL open the full Arena after every otherwise eligible grade. The same five collection models SHALL remain active and continue learning in both modes. The choice SHALL be discoverable in Learning settings and in context beside the Plethora Precision rating controls.
 
 #### Scenario: Automatic mode keeps review moving
 
 - **GIVEN** Arena review mode is `automatic`
-- **WHEN** the user grades an eligible SM-20 learning item
+- **WHEN** the user grades an eligible Plethora Precision learning item
 - **THEN** the authoritative Arena Pick is committed without displaying the Memory Horizon
 - **AND** the review advances through the normal committed-review lifecycle
 - **AND** provenance records the schedule source as `arena`
@@ -35,23 +35,23 @@ The system SHALL expose one persistent SM-20 Arena review preference with `autom
 #### Scenario: Choose mode opens the simulation
 
 - **GIVEN** Arena review mode is `choose`
-- **WHEN** the user grades an eligible SM-20 learning item
+- **WHEN** the user grades an eligible Plethora Precision learning item
 - **THEN** the answer remains visible and the Memory Horizon opens before scheduling
 
 #### Scenario: User changes the preference in context
 
-- **WHEN** the user changes the compact Arena mode control beside the SM-20 grades
+- **WHEN** the user changes the compact Arena mode control beside the Plethora Precision grades
 - **THEN** the preference persists across sessions in both Tauri and PWA clients
 - **AND** the next grade follows the newly selected mode
 
 ### Requirement: Preview exposes five comparable model proposals without mutation
 
-For every eligible card, the system SHALL provide deterministic Arena preview data for native grades 0-5. Each grade SHALL include one proposal from SM-2, SM-15, SM-19, SM-20, and FSRS; the current weight of each model; the weighted Arena recommendation; the minimum-to-maximum Arena range; authoritative custom bounds; relative intervals; exact due dates; and item/Arena revision identifiers. Generating a preview SHALL NOT mutate card, model, collection, matrix, weight, review-history, or due-date state.
+For every eligible card, the system SHALL provide deterministic Arena preview data for native grades 0-5. Each grade SHALL include one proposal from Plethora Classic, Classic 15, Classic 19, Plethora Precision, and FSRS; the current weight of each model; the weighted Arena recommendation; the minimum-to-maximum Arena range; authoritative custom bounds; relative intervals; exact due dates; and item/Arena revision identifiers. Generating a preview SHALL NOT mutate card, model, collection, matrix, weight, review-history, or due-date state.
 
 #### Scenario: Preview contains all competitors for a grade
 
-- **WHEN** an eligible SM-20 card's preview finishes loading
-- **THEN** each native grade entry contains exactly one candidate for each of `sm2`, `sm15`, `sm19`, `sm20`, and `fsrs`
+- **WHEN** an eligible Plethora Precision card's preview finishes loading
+- **THEN** each native grade entry contains exactly one candidate for each of `classic`, `classic_15`, `classic_19`, `precision`, and `fsrs`
 - **AND** the candidates expose finite positive intervals, due dates, and weights
 - **AND** the entry exposes the deterministic weighted recommendation and Arena range
 
@@ -106,9 +106,9 @@ The system SHALL preselect Arena Pick and SHALL allow the user to choose Arena P
 
 #### Scenario: Keyboard selects a model
 
-- **WHEN** the Arena is ready and the user invokes the documented shortcut for SM-20
-- **THEN** the SM-20 candidate becomes selected
-- **AND** a subsequent Enter commits the recomputed SM-20 candidate interval
+- **WHEN** the Arena is ready and the user invokes the documented shortcut for Plethora Precision
+- **THEN** the Plethora Precision candidate becomes selected
+- **AND** a subsequent Enter commits the recomputed Plethora Precision candidate interval
 
 #### Scenario: Escape returns to grading
 
@@ -171,8 +171,8 @@ The Arena SHALL update model weights only from each model's prior recall predict
 
 #### Scenario: Choosing a model does not reward it
 
-- **WHEN** the user selects SM-20 instead of Arena Pick
-- **THEN** the current review does not increase SM-20's weight merely because it was selected
+- **WHEN** the user selects Plethora Precision instead of Arena Pick
+- **THEN** the current review does not increase Plethora Precision's weight merely because it was selected
 - **AND** future weight adaptation remains based on recall prediction loss
 
 #### Scenario: Custom schedule preserves future model scoring

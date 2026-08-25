@@ -78,7 +78,7 @@ The view fetches forecast + queue data on mount. When the user spreads items or 
 - Mobile: segmented control in the mobile header
 
 ### Postpone Engine (`src/lib/postpone.ts`)
-- Spread uses `postponeElement()` with SM-20 config from settings
+- Spread uses `postponeElement()` with Plethora Precision config from settings
 - For the preview, run `postponeAll()` on in-memory items (don't persist) to get the projected distribution
 - On confirm, call `postpone_item()` for each item via the Tauri command
 

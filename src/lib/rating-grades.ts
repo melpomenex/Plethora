@@ -8,14 +8,15 @@
  * `rating` field, stats, and history.
  */
 
-import { useSettingsStore, type LearningSettings } from "../stores/settingsStore";
-import type { ReviewRating, SM20NativeGrade } from "../api/review";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { ReviewRating, NativeGrade } from "../api/review";
+import { usesSixGradeScale } from "./schedulerIdentity";
 
-export type { ReviewRating, SM20NativeGrade };
+export type { ReviewRating, NativeGrade };
 export { RATING_LABELS, RATING_COLORS } from "../api/review";
 
 /** Native 0-5 grade type (0 = complete lapse, 5 = perfect recall). */
-export type NativeGrade = SM20NativeGrade;
+export type SixPointGrade = NativeGrade;
 
 /** Equivalent 4-button rating for a native grade (0/1/2→1, 3→2, 4→3, 5→4). */
 export function gradeToRating(grade: NativeGrade): ReviewRating {
@@ -33,9 +34,6 @@ export interface RatingGrade {
   /** Tailwind background class for the tappable grid buttons. */
   color: string;
 }
-
-/** Backward compatibility alias */
-export type SuperMemoGrade = RatingGrade;
 
 export const SIX_GRADES: RatingGrade[] = [
   {
@@ -87,9 +85,6 @@ export const SIX_GRADE_SCALE = SIX_GRADES;
 /** SixGrade type alias */
 export type SixGrade = NativeGrade;
 
-/** Backward compatibility alias */
-export const SUPERMEMO_GRADES = SIX_GRADES;
-
 /** Equivalent native grade for an advisory 4-button rating suggestion. */
 export const SUGGESTED_GRADE_BY_RATING: Record<ReviewRating, NativeGrade> = {
   1: 1,
@@ -103,7 +98,7 @@ export const SUGGESTED_GRADE_BY_RATING: Record<ReviewRating, NativeGrade> = {
 /** The rating scale the active scheduling algorithm grades natively on. */
 export interface RatingSchema {
   /** `six-grade` = native 0-5 grade scale; `four-grade` = 1-4 Anki-style. */
-  type: "six-grade" | "four-grade" | "supermemo";
+  type: "six-grade" | "four-grade";
   /** The grade/rating values the UI offers, in display order. */
   grades: number[];
 }
@@ -112,9 +107,6 @@ export const SIX_GRADE_RATING_SCHEMA: RatingSchema = {
   type: "six-grade",
   grades: [0, 1, 2, 3, 4, 5],
 };
-
-/** Backward compatibility alias */
-export const SUPERMEMO_RATING_SCHEMA = SIX_GRADE_RATING_SCHEMA;
 
 export const FOUR_GRADE_RATING_SCHEMA: RatingSchema = {
   type: "four-grade",
@@ -128,12 +120,9 @@ export const FOUR_GRADE_RATING_SCHEMA: RatingSchema = {
  * code must never hard-code algorithm-name checks.
  */
 export function getRatingSchema(
-  algorithm: LearningSettings["algorithm"] | undefined,
+  algorithm: string | undefined,
 ): RatingSchema {
-  return algorithm === "adaptive" ||
-    algorithm === "precision" ||
-    algorithm === "sm18" ||
-    algorithm === "sm20"
+  return usesSixGradeScale(algorithm)
     ? SIX_GRADE_RATING_SCHEMA
     : FOUR_GRADE_RATING_SCHEMA;
 }

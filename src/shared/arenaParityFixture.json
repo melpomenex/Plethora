@@ -1,5 +1,5 @@
 {
-  "model_order": ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+  "model_order": ["m1", "m2", "m3", "m4", "m5"],
   "elapsed_days": 30,
   "state": {
     "stability": 30,
