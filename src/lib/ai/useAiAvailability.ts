@@ -27,6 +27,7 @@ export interface AiAvailability {
 export function useAiAvailability(requirement: OnDeviceRequirement = "prompt"): AiAvailability {
   const providers = useLLMProvidersStore((s) => s.providers);
   const preferOnDevice = useSettingsStore((s) => s.settings.ai.preferOnDevice);
+  const appleFoundationModels = useSettingsStore((s) => s.settings.features.appleFoundationModels);
 
   const [state, setState] = useState<AiAvailability>(() => ({
     path: hasCloudProvider() ? "cloud" : "none",
@@ -43,7 +44,7 @@ export function useAiAvailability(requirement: OnDeviceRequirement = "prompt"): 
     return () => {
       cancelled = true;
     };
-  }, [providers, preferOnDevice, requirement]);
+  }, [providers, preferOnDevice, appleFoundationModels, requirement]);
 
   return state;
 }

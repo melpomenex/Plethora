@@ -110,25 +110,31 @@ describe("resolveTaskRoute routing branches (design D3)", () => {
     expect(await resolveTaskRoute(task(), { providers: [] })).toBeNull();
   });
 
-  it("honors forced provider kinds without capability filtering", async () => {
+  it("honors forced provider kinds but skips providers without text generation", async () => {
     const dead = new FakeAIProvider({
       kind: "ondevice",
       capabilities: { textGeneration: false },
     });
+    const apple = new FakeAIProvider({
+      kind: "ondevice",
+      capabilities: { textGeneration: true },
+    });
     const cloud = new FakeAIProvider({ kind: "cloud" });
 
     const forcedOnDevice = await resolveTaskRoute(task(), {
-      providers: [dead, cloud],
+      providers: [dead, apple, cloud],
       kind: "ondevice",
     });
-    expect(forcedOnDevice?.provider).toBe(dead); // caller resolved availability
+    expect(forcedOnDevice?.provider).toBe(apple);
 
     const forcedCloud = await resolveTaskRoute(task(), {
-      providers: [dead, cloud],
+      providers: [dead, apple, cloud],
       kind: "cloud",
     });
     expect(forcedCloud?.provider).toBe(cloud);
 
-    expect(await resolveTaskRoute(task(), { providers: [cloud], kind: "ondevice" })).toBeNull();
+    expect(
+      await resolveTaskRoute(task(), { providers: [dead, cloud], kind: "ondevice" })
+    ).toBeNull();
   });
 });

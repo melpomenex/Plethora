@@ -181,4 +181,18 @@ describe("runAiAction fallback consent (ai-billing-safety #14)", () => {
     ).rejects.toThrow("on-device failed");
     expect(cloud).not.toHaveBeenCalled();
   });
+
+  it("does not auto-fallback when on-device safety guardrails refuse content", async () => {
+    setCloudFallback(true);
+    installCloudProvider();
+    const cloud = vi.fn(async () => "cloud-result");
+    const onDeviceSafety = vi.fn(async () => {
+      throw new AIError("SafetyBlocked", "blocked", { code: "safety_blocked" });
+    });
+
+    await expect(
+      runAiAction({ onDevice: onDeviceSafety, cloud }, "Summarize")
+    ).rejects.toMatchObject({ category: "SafetyBlocked" });
+    expect(cloud).not.toHaveBeenCalled();
+  });
 });

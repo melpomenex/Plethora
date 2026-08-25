@@ -76,13 +76,16 @@ export async function resolveAiPath(
       if (status.status === "available") return "ondevice";
     }
     if (isAppleOsPlatform()) {
-      const snap = await getAppleIntelligenceSnapshot();
-      const fmReady = snap.foundationModels.status === "available";
-      const visionReady = snap.visionDocuments.status === "available";
-      if (requirement === "image-prompt") {
-        if (visionReady || fmReady) return "ondevice";
-      } else if (fmReady) {
-        return "ondevice";
+      const flags = useSettingsStore.getState().settings.features;
+      if (flags.appleFoundationModels !== false) {
+        const snap = await getAppleIntelligenceSnapshot();
+        const fmReady = snap.foundationModels.status === "available";
+        const visionReady = snap.visionDocuments.status === "available";
+        if (requirement === "image-prompt") {
+          if (visionReady || fmReady) return "ondevice";
+        } else if (fmReady) {
+          return "ondevice";
+        }
       }
     }
   }
@@ -186,6 +189,8 @@ export async function runAiAction<T>(
 
     const typed = toAIError(error);
     if (typed.category === "Cancelled") throw typed;
+    // Safety refusals need an explicit cloud retry in the UI — never silent fallback.
+    if (typed.category === "SafetyBlocked") throw typed;
 
     if (!hasCloudProvider()) throw typed;
 
@@ -209,4 +214,10 @@ export async function runAiAction<T>(
     });
     return action.cloud();
   }
+}
+
+/** Whether the UI may offer an explicit cloud retry after an on-device safety refusal. */
+export function canOfferCloudRetryForSafety(error: unknown): boolean {
+  const mapped = toAIError(error);
+  return mapped.category === "SafetyBlocked" && hasCloudProvider() && allowCloudFallback();
 }

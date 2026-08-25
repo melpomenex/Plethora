@@ -178,7 +178,9 @@ export async function runChunkedGeneration(
 
   const budget = Math.max(1000, contextTokens - (req.maxOutputTokens ?? 512) - 256);
   const pieces =
-    req.schemaName === "libraryAnswer" ? [req.text] : chunkTextByTokens(req.text, budget);
+    req.structured === true || req.schemaName === "libraryAnswer"
+      ? [req.text]
+      : chunkTextByTokens(req.text, budget);
 
   if (pieces.length <= 1) {
     const genArgs = {

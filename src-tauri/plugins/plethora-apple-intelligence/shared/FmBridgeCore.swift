@@ -292,6 +292,12 @@ public actor FmBridgeCore {
       let json = response.rawContent.jsonString
       onPartial?(json)
       return json
+    case "learningMaterialProposal":
+      let response = try await session.respond(to: prompt, generating: AppleFmLearningMaterialProposal.self, options: options)
+      if cancelled.contains(requestId) { throw FmBridgeError.coded("cancelled", "Request cancelled") }
+      let json = response.rawContent.jsonString
+      onPartial?(json)
+      return json
     default:
       throw FmBridgeError.coded("unsupported_schema", "Unknown structured schema: \(schemaName)")
     }
@@ -304,10 +310,15 @@ public actor FmBridgeCore {
       || message.localizedCaseInsensitiveContains("Private Cloud Compute") {
       return .coded("pcc_required", "On-device generation required Private Cloud Compute")
     }
+    if message.localizedCaseInsensitiveContains("unsafe")
+      || message.localizedCaseInsensitiveContains("content policy")
+      || message.localizedCaseInsensitiveContains("content filter") {
+      return .coded("safety_blocked", "Apple Intelligence blocked this text on-device")
+    }
     if let genError = error as? LanguageModelSession.GenerationError {
       switch genError {
       case .refusal(_, _):
-        return .coded("safety_blocked", "Generation blocked by safety guardrails")
+        return .coded("safety_blocked", "Apple Intelligence blocked this text on-device")
       case .unsupportedLanguageOrLocale(_):
         return .coded("unsupported_language", "Unsupported language for Apple Intelligence")
       case .exceededContextWindowSize(_):

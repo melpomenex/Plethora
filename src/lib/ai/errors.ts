@@ -16,6 +16,7 @@ import {
   OnDeviceAiError,
   type OnDeviceAiErrorCode,
 } from "./onDeviceAI";
+import { t } from "../i18n";
 
 export const AI_ERROR_CATEGORIES = [
   "ModelUnavailable",
@@ -139,6 +140,55 @@ export const ON_DEVICE_CODE_TO_CATEGORY: Readonly<
   permission_denied: "PermissionDenied",
 };
 
+const DEFAULT_SAFETY_BLOCKED_MESSAGE =
+  "Apple Intelligence blocked this text on-device. It may be a false positive on literary, medical, or historical content.";
+
+/** True when a provider message indicates on-device safety guardrails fired. */
+export function isSafetyBlockedMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("safety_blocked") ||
+    lower.includes("likely to be unsafe") ||
+    lower.includes("content likely to be unsafe") ||
+    (lower.includes("unsafe") && lower.includes("content")) ||
+    (lower.includes("blocked") && lower.includes("content")) ||
+    lower.includes("content policy") ||
+    lower.includes("content filter") ||
+    (lower.includes("refusal") && lower.includes("guardrail"))
+  );
+}
+
+/** Parse `{ code, message }` from flattened Tauri plugin rejections. */
+export function parseTauriPluginErrorPayload(
+  error: unknown
+): { code?: string; message?: string } | null {
+  const raw = error instanceof Error ? error.message : String(error);
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { code?: unknown; message?: unknown };
+    return {
+      code: typeof parsed.code === "string" ? parsed.code : undefined,
+      message: typeof parsed.message === "string" ? parsed.message : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function safetyBlockedError(
+  message: string,
+  context: { providerId?: string; taskId?: string },
+  cause?: unknown
+): AIError {
+  return new AIError("SafetyBlocked", message || DEFAULT_SAFETY_BLOCKED_MESSAGE, {
+    code: "safety_blocked",
+    ...context,
+    cause,
+  });
+}
+
 /** Map an `OnDeviceAiError` (or any error carrying a known code) to an `AIError`. */
 export function aiErrorFromOnDevice(
   error: OnDeviceAiError | unknown,
@@ -161,11 +211,18 @@ export function aiErrorFromOnDevice(
   }
 
   if (!code) {
+    if (isSafetyBlockedMessage(message)) {
+      return safetyBlockedError(DEFAULT_SAFETY_BLOCKED_MESSAGE, context, error);
+    }
     return new AIError("GenerationFailed", message || "On-device generation failed.", {
       code: "inference_failed",
       ...context,
       cause: error,
     });
+  }
+
+  if (code === "inference_failed" && isSafetyBlockedMessage(message)) {
+    return safetyBlockedError(DEFAULT_SAFETY_BLOCKED_MESSAGE, context, error);
   }
 
   return new AIError(ON_DEVICE_CODE_TO_CATEGORY[code], message, {
@@ -191,14 +248,8 @@ export function aiErrorFromCloud(
   if (/(^|\W)cancelled|\babort(ed)?\b/.test(lower)) {
     return new AIError("Cancelled", message, { code: "cancelled", ...context, cause: error });
   }
-  if (
-    lower.includes("safety") ||
-    lower.includes("content_policy") ||
-    lower.includes("content policy") ||
-    lower.includes("content filter") ||
-    lower.includes("blocked") && lower.includes("content")
-  ) {
-    return new AIError("SafetyBlocked", message, { code: "safety_blocked", ...context, cause: error });
+  if (isSafetyBlockedMessage(message)) {
+    return safetyBlockedError(DEFAULT_SAFETY_BLOCKED_MESSAGE, context, error);
   }
   if (
     lower.includes("context length") ||
@@ -250,6 +301,10 @@ export function toAIError(
     return aiErrorFromOnDevice(error, context);
   }
   const message = error instanceof Error ? error.message : String(error);
+  const pluginPayload = parseTauriPluginErrorPayload(error);
+  if (pluginPayload?.code === "safety_blocked" || isSafetyBlockedMessage(pluginPayload?.message ?? message)) {
+    return safetyBlockedError(DEFAULT_SAFETY_BLOCKED_MESSAGE, context, error);
+  }
   // A message carrying a known on-device code maps through the bridge table
   // (flattened bridge rejections); anything else is a cloud/generic failure.
   const hasBridgeCode = ON_DEVICE_AI_ERROR_CODES.some((c) => message.includes(c));
@@ -272,6 +327,15 @@ export function toAIError(
  * The task layer and `runAiAction` use this to guarantee that a user
  * cancellation NEVER triggers cloud fallback.
  */
+/** User-facing copy for any mapped AI failure. */
+export function formatAIErrorMessage(error: unknown): string {
+  const mapped = toAIError(error);
+  if (mapped.category === "SafetyBlocked") {
+    return t("aiErrors.safetyBlocked");
+  }
+  return mapped.message || t("aiErrors.generationFailed");
+}
+
 export function isCancelledError(error: unknown): boolean {
   if (error instanceof AIError) return error.category === "Cancelled";
   if (error instanceof OnDeviceAiError) return error.code === "cancelled";

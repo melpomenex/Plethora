@@ -59,21 +59,13 @@ export async function resolveTaskRoute(
   } = {}
 ): Promise<AITaskRoute | null> {
   const source = options.providerSource ?? defaultProviderSource;
-  const candidates = options.providers ?? source();
-
-  if (candidates.length === 0) return null;
+  let candidates = options.providers ?? source();
 
   if (options.kind) {
-    const forced = candidates.filter((p) => p.kind === options.kind);
-    if (forced.length === 0) return null;
-    return {
-      task: task as AITaskDefinition<never, unknown>,
-      provider: forced[0],
-      requestedModelClass: task.modelClass,
-      servedModelClass: task.modelClass,
-      fallbackPath: "none",
-    };
+    candidates = candidates.filter((p) => p.kind === options.kind);
   }
+
+  if (candidates.length === 0) return null;
 
   const caps = await Promise.all(candidates.map(capabilitiesOf));
 

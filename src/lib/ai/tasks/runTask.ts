@@ -17,6 +17,8 @@
 import { estimateTokens } from "../chunkTextByTokens";
 import { recordTaskDiagnostic } from "../diagnostics";
 import { AIError, isCancelledError, toAIError } from "../errors";
+import { appleFmSupportsNativeSchema } from "../apple/nativeSchemas";
+import { APPLE_FOUNDATION_PROVIDER_ID } from "../providers/appleFoundationProvider";
 import { requestCloudFallback } from "../provider";
 import type {
   AIModelCapabilities,
@@ -343,7 +345,9 @@ async function generateWithFallbacks<I, O>(
   const useNativeStructured =
     task.outputKind === "structured" &&
     !!task.schema &&
-    ctx.capabilities?.structuredGeneration === true;
+    ctx.capabilities?.structuredGeneration === true &&
+    (ctx.provider.id !== APPLE_FOUNDATION_PROVIDER_ID ||
+      appleFmSupportsNativeSchema(task.schema.nativeName));
 
   const request: AIRequest = {
     requestId: makeRequestId(task.id),
