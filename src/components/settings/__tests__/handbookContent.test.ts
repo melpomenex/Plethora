@@ -17,5 +17,7 @@ describe("handbookContent", () => {
     expect(getHandbookMarkdown("zh")).toContain("# Plethora 用户手册");
     expect(getHandbookMarkdown("ja")).toContain("# Plethora ユーザー ハンドブック");
     expect(getHandbookMarkdown("en")).toContain("# Plethora User Handbook");
+    expect(getHandbookMarkdown("en")).toContain("On-Device Windows AI");
+    expect(getHandbookMarkdown("de")).toContain("On-Device Windows-KI");
   });
 });

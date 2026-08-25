@@ -1426,6 +1426,67 @@ Wenn der Status **Bereit** ist, nutzt Plethora automatisch die On-Device-Apple-K
 
 **Tipp:** Lange Dokumente werden automatisch verarbeitet — Plethora teilt sie in Abschnitte auf, die in das On-Device-Kontextfenster passen, und führt die Ergebnisse zusammen. Sie müssen dies nicht konfigurieren.
 
+#### On-Device Windows-KI (Windows 11)
+
+Auf dem Windows-Desktop kann Plethora KI-Aufgaben **auf Ihrem PC** ausführen, ohne Ihre Bibliothekinhalte an OpenAI, Anthropic oder andere separat konfigurierte Cloud-APIs zu senden. Windows bietet zwei ergänzende On-Device-Pfade:
+
+1. **System-On-Device-KI** — eingebaute Windows-KI-APIs für Textaufgaben und OCR, wenn Ihr PC und Ihre Windows-Version sie unterstützen
+2. **Foundry Local** — optionaler OpenAI-kompatibler lokaler Server, den Sie selbst installieren (funktioniert auf vielen GPUs, auch ohne Copilot+-NPU)
+
+Diese Pfade sind getrennt von Cloud-Anbietern und **verwenden Ihren OpenAI-API-Schlüssel nicht**, sofern Sie keinen Cloud-Fallback aktivieren.
+
+**Was es ist:** On-Device-Textgenerierung für automatisches Tagging, Zusammenfassen von Passagen, Lernkartenideen, Antworten in „Bibliothek fragen“ und Workflow-Kurzbefehle — plus **Windows-System-OCR** für gescannte PDFs und Bilder, wenn unter **Einstellungen → Dokumente → OCR** aktiviert.
+
+**Was es nicht ist:** System-On-Device-KI **transkribiert** kein Audio oder Video (nutzen Sie **Einstellungen → Audiotranskription**), **liest** keinen Text vor (nutzen Sie **Einstellungen → Text-zu-Sprache**) und läuft **nicht auf jedem Windows-PC**. Copilot+-NPU-Funktionen (Phi-Silica-Text-KI und Windows-System-OCR) erfordern Hardware und Windows-Builds, die viele Gaming-PCs nicht erfüllen — **Foundry Local**, **Tesseract** oder ein Cloud-Anbieter bleiben dort die praktischen Optionen.
+
+**Anforderungen:**
+- **Windows 11 Version 24H2 oder neuer** (Build 26100+) für System-On-Device-KI-Statusprüfungen
+- **Paketidentität** bei der Installation registriert (Plethora's Windows-Installer registriert automatisch eine Sparse-MSIX-Identität; bei Fehlschlag bleibt System-On-Device-KI inaktiv)
+- **Copilot+ / NPU-Hardware** für Microsofts Phi-Silica-Sprachmodell — viele diskrete GPUs (z. B. ältere GeForce-Karten) können Tier-1-Text-KI nicht nutzen, auch wenn Foundry Local gut funktioniert
+- **Foundry Local:** jeder Windows-PC, auf dem Sie die Foundry-Local-Runtime installieren und aktivieren
+
+**So schalten Sie es ein:**
+1. Öffnen Sie **Einstellungen → KI-Anbieter**
+2. Scrollen Sie zu **On-Device-KI**
+3. Aktivieren Sie **On-Device-KI bevorzugen**
+4. Prüfen Sie die Statuszeilen **System-On-Device-KI** und **Foundry Local**
+
+Wenn **On-Device-KI bevorzugen** aktiv ist, versucht Plethora auf Windows zuerst System-On-Device-KI, dann Foundry Local (falls aktiv), bevor Ihr konfigurierter Cloud-Anbieter — sofern **Cloud-Fallback erlauben** nicht aus ist (dann bleiben Fehler on-device).
+
+**Was Sie tun können:**
+
+| Funktion | System-On-Device-KI | Foundry Local |
+|----------|---------------------|---------------|
+| Automatisches Tagging | Wenn bereit | Wenn Runtime + Modell bereit |
+| Zusammenfassen / Passage erklären | Wenn bereit | Wenn bereit |
+| Bibliothek fragen | Wenn bereit | Wenn bereit |
+| Lernkarten aus Text generieren | Wenn bereit | Wenn bereit |
+| OCR beim Import / PDF (Windows-System-OCR) | Wenn OCR bereit | Nein — Tesseract oder Cloud-OCR |
+| Audio oder Video transkribieren | Nein | Nein |
+| Text vorlesen (TTS) | Nein | Nein |
+
+**Dokumente → OCR:** Wenn **Windows-System-OCR** unter **Einstellungen → Dokumente → OCR** erscheint, wählen Sie es direkt oder aktivieren **Windows-System-OCR bevorzugen** für automatische Nutzung beim Import und PDF-OCR, wenn verfügbar. Es nutzt dieselbe Windows-KI-Basis und fällt auf Tesseract oder Ihren gewählten OCR-Anbieter zurück, wenn nicht verfügbar.
+
+**Datenschutz:**
+- **On-Device-KI bevorzugen** leitet unterstützte Aufgaben zuerst an On-Device-Backends
+- **Cloud-Fallback erlauben** ist standardmäßig deaktiviert — Plethora sendet Ihre Bibliothekinhalte **nicht** still an kostenpflichtige Cloud-APIs, wenn On-Device-KI scheitert
+- Foundry Local hält die Inferenz auf Ihrem Rechner; nur Ihr konfigurierter lokaler Endpunkt wird kontaktiert
+
+**Wenn der Status nicht „Bereit“ ist:**
+
+| Status | Bedeutung | Was Sie versuchen können |
+|--------|-----------|--------------------------|
+| Verfügbar / Bereit | Funktion ist einsatzbereit | KI normal nutzen; bei Problemen **Diagnose** öffnen |
+| Herunterladbar / Wird heruntergeladen… | Windows-KI-Modell noch nicht installiert | Windows Update / Modellinstallation abwarten, dann **Aktualisieren** |
+| Paketidentität fehlt | Sparse MSIX nicht registriert | Plethora neu installieren oder reparieren; Sparse-MSIX-Pfade in **Diagnose** prüfen |
+| Eingeschränkter Zugriff verweigert | Phi Silica braucht Microsoft-LAF-Freischaltung | Nur für fortgeschrittene Einrichtung; für Foundry Local nicht nötig |
+| Hardware nicht unterstützt | PC hat keine erforderliche NPU für diese Windows-KI-Funktion | **Foundry Local** aktivieren, Cloud-Anbieter oder Tesseract für OCR |
+| OS nicht unterstützt | Windows-Build unter 24H2 | Windows aktualisieren oder Foundry Local / Cloud nutzen |
+
+Öffnen Sie unter Windows **Einstellungen → On-Device-KI → Diagnose** für Paketidentität, Bridge-Verfügbarkeit, OCR-Bereitschaft und Foundry-Local-Endpunkt.
+
+**Tipp:** Auf einem Gaming-PC mit starker GPU aber ohne Copilot+-NPU ist **Foundry Local** meist der realistische On-Device-KI-Pfad. Der System-On-Device-KI-Status zeigt weiterhin, warum Phi Silica oder Windows-System-OCR auf Ihrer Hardware nicht verfügbar sind.
+
 #### Automatische Generierung
 
 **Kartenerstellung:**
