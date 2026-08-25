@@ -78,6 +78,7 @@ export interface StudioSheetsProps {
 
   // Provider
   providers: { id: string; name: string }[];
+  onDeviceProviders: { id: string; label: string }[];
   selectedProviderId: string | null;
   onSelectProvider: (id: string | null) => void;
   notebookLmAvailable: boolean;
@@ -311,11 +312,30 @@ export function StudioSheets(props: StudioSheetsProps) {
   return sheet(
     t("flashcardStudio.sheetProviderTitle"),
     <div>
-      {props.providers.length === 0 && !props.notebookLmAvailable && (
+      {props.providers.length === 0 &&
+        props.onDeviceProviders.length === 0 &&
+        !props.notebookLmAvailable && (
         <p className="px-4 py-3 text-sm text-muted-foreground">
           {t("flashcardStudio.noProvider")}
         </p>
       )}
+      {props.onDeviceProviders.map((provider) => (
+        <button
+          key={provider.id}
+          type="button"
+          onClick={() => {
+            props.onSelectProvider(provider.id);
+            onClose();
+          }}
+          className={cn(
+            rowClass,
+            props.selectedProviderId === provider.id ? "bg-primary/10 text-primary" : "active:bg-muted"
+          )}
+        >
+          <Sparkle className="h-4 w-4 opacity-60" />
+          {provider.label}
+        </button>
+      ))}
       {props.notebookLmAvailable && (
         <button
           type="button"

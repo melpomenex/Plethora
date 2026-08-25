@@ -89,7 +89,12 @@ import { isTauri, isMac } from "../../lib/tauri";
 import { cn } from "../../utils";
 import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtils";
 import { resolveFlashcardTarget, type FlashcardTargetOverride } from "../../utils/flashcardTarget";
-import { isOnDeviceAiAvailable, generateFlashcards as generateFlashcardsOnDevice } from "../../lib/ai/onDeviceAI";
+import { generateFlashcardsWithRouter } from "../../lib/ai/generateFlashcardsRouter";
+import {
+  isCatalogOnDeviceProviderId,
+  listAvailableOnDeviceProviders,
+  type OnDeviceProviderOption,
+} from "../../lib/ai/onDeviceProviderCatalog";
 import { withOnDeviceRun } from "../../lib/ai/onDeviceRunStore";
 import { ON_DEVICE_TAG } from "../../utils/aiExtractUtils";
 import { NumericInput } from "../common";
@@ -252,12 +257,6 @@ interface GenerationHistoryItem {
 
 const HISTORY_KEY = "flashcard-studio-history";
 const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
-/**
- * Sentinel provider id for on-device Gemini Nano. Like NotebookLM it is not a
- * row in the LLM provider registry, so it gets its own id and its own branch in
- * handleSend rather than going through chatWithContext.
- */
-const ON_DEVICE_PROVIDER_ID = "__ondevice__";
 
 // Cost per 1K tokens (approximate for GPT-4)
 const COST_PER_1K_INPUT = 0.01;
@@ -2133,15 +2132,16 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   // Rust). Hide it in the browser/PWA rather than letting it silently no-op.
   const notebookLmAvailable = notebookLmEnabled && isTauri();
 
-  // On-device Gemini Nano. Android-only; `isOnDeviceAiAvailable()` reports
-  // `platform_unsupported` everywhere else, so this stays false and the option
-  // never appears.
-  const [onDeviceReady, setOnDeviceReady] = useState(false);
+  // On-device providers (Gemini Nano on Android, Apple FM on macOS) are not rows
+  // in the cloud LLM registry — list them separately for the provider picker.
+  const [availableOnDeviceProviders, setAvailableOnDeviceProviders] = useState<
+    OnDeviceProviderOption[]
+  >([]);
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    void isOnDeviceAiAvailable().then((status) => {
-      if (!cancelled) setOnDeviceReady(status.status === "available");
+    void listAvailableOnDeviceProviders().then((options) => {
+      if (!cancelled) setAvailableOnDeviceProviders(options);
     });
     return () => {
       cancelled = true;
@@ -2222,6 +2222,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const shouldAutoScrollRef = useRef(true);
   const saveInFlightRef = useRef(false);
 
+  const preferredOnDeviceProviderId = useSettingsStore(
+    (state) => state.settings.ai.preferredOnDeviceProviderId
+  );
+
   useEffect(() => {
     if (!isOpen) return;
     if (selectedProviderId) return;
@@ -2234,12 +2238,21 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       setSelectedProviderId(NOTEBOOKLM_PROVIDER_ID);
       return;
     }
-    // Last resort: on a phone with Nano ready and no cloud keys, on-device is
-    // the only way the studio can generate anything.
-    if (onDeviceReady) {
-      setSelectedProviderId(ON_DEVICE_PROVIDER_ID);
+    if (availableOnDeviceProviders.length > 0) {
+      const preferredOnDevice = availableOnDeviceProviders.find(
+        (option) => option.id === preferredOnDeviceProviderId
+      );
+      setSelectedProviderId(preferredOnDevice?.id ?? availableOnDeviceProviders[0].id);
     }
-  }, [isOpen, enabledProviders, selectedProviderId, preferredProviderType, notebookLmAvailable, onDeviceReady]);
+  }, [
+    isOpen,
+    enabledProviders,
+    selectedProviderId,
+    preferredProviderType,
+    preferredOnDeviceProviderId,
+    notebookLmAvailable,
+    availableOnDeviceProviders,
+  ]);
 
   useEffect(() => {
     if (!isOpen || !notebookLmAvailable) return;
@@ -2274,10 +2287,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   }, [notebookLmAvailable, selectedProviderId, enabledProviders]);
 
   useEffect(() => {
-    if (!onDeviceReady && selectedProviderId === ON_DEVICE_PROVIDER_ID) {
-      setSelectedProviderId(enabledProviders[0]?.id ?? null);
-    }
-  }, [onDeviceReady, selectedProviderId, enabledProviders]);
+    if (!selectedProviderId || !isCatalogOnDeviceProviderId(selectedProviderId)) return;
+    if (availableOnDeviceProviders.some((option) => option.id === selectedProviderId)) return;
+    setSelectedProviderId(enabledProviders[0]?.id ?? null);
+  }, [availableOnDeviceProviders, selectedProviderId, enabledProviders]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2654,7 +2667,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     return enabledProviders.find((p) => p.id === selectedProviderId) || null;
   }, [enabledProviders, selectedProviderId]);
   const isNotebookProviderSelected = selectedProviderId === NOTEBOOKLM_PROVIDER_ID;
-  const isOnDeviceProviderSelected = selectedProviderId === ON_DEVICE_PROVIDER_ID;
+  const isOnDeviceProviderSelected = isCatalogOnDeviceProviderId(selectedProviderId);
+  const selectedOnDeviceProvider = availableOnDeviceProviders.find(
+    (option) => option.id === selectedProviderId
+  );
   const backdropDismiss = useBackdropDismiss(onClose);
   // OpenRouter (and other aggregator/custom-model setups) can point at any current or
   // future vision-capable model; the name-based heuristic below is necessarily incomplete,
@@ -3180,11 +3196,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         const target = explicit ?? resolveFlashcardTarget(aiControls, sourceText).count;
 
         const generated = await withOnDeviceRun("Flashcard generation", ({ signal, onProgress }) =>
-          generateFlashcardsOnDevice(sourceText, {
+          generateFlashcardsWithRouter(sourceText, {
             count: target,
             tags: [ON_DEVICE_TAG],
             signal,
             onProgress,
+            providerId: selectedProviderId ?? undefined,
           }),
         );
 
@@ -4178,9 +4195,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               >
                 {enabledProviders.length === 0 && <option value="">{t("flashcardStudio.noProvider")}</option>}
                 {notebookLmAvailable && <option value={NOTEBOOKLM_PROVIDER_ID}>NotebookLM</option>}
-                {onDeviceReady && (
-                  <option value={ON_DEVICE_PROVIDER_ID}>{t("flashcardStudio.onDeviceProvider")}</option>
-                )}
+                {availableOnDeviceProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.id === "ondevice-apple-foundation"
+                      ? t("assistant.providerAppleFoundation")
+                      : t("flashcardStudio.onDeviceProvider")}
+                  </option>
+                ))}
                 {enabledProviders.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -4234,7 +4255,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 contextTokens: chipContextTokens,
                 providerName: isNotebookProviderSelected
                   ? "NotebookLM"
-                  : currentProvider?.name ?? null,
+                  : selectedOnDeviceProvider?.label ?? currentProvider?.name ?? null,
               }}
               onOpenSheet={setActiveSheet}
             />
@@ -5117,6 +5138,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           sessionCount={sessionsCache.length}
           extractCount={allExtracts.length}
           providers={enabledProviders}
+          onDeviceProviders={availableOnDeviceProviders}
           selectedProviderId={selectedProviderId}
           onSelectProvider={setSelectedProviderId}
           notebookLmAvailable={notebookLmAvailable}

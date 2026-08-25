@@ -4,10 +4,8 @@ import { usePendingFlashcardsStore } from "../stores/pendingFlashcardsStore";
 import { resolveFlashcardTarget } from "./flashcardTarget";
 import { runAiAction } from "../lib/ai/provider";
 import { withOnDeviceRun } from "../lib/ai/onDeviceRunStore";
-import {
-  generateFlashcards as generateFlashcardsOnDevice,
-  summarize as summarizeOnDevice,
-} from "../lib/ai/onDeviceAI";
+import { generateFlashcardsWithRouter } from "../lib/ai/generateFlashcardsRouter";
+import { summarize as summarizeOnDevice } from "../lib/ai/onDeviceAI";
 
 const SUMMARY_WORD_MAP: Record<AIControlsSettings["summaryLength"], number> = {
   short: 100,
@@ -39,7 +37,7 @@ export async function handleAutoGeneration(
       {
         onDevice: () =>
           withOnDeviceRun("Flashcard generation", ({ signal, onProgress }) =>
-            generateFlashcardsOnDevice(content, {
+            generateFlashcardsWithRouter(content, {
               count: target.count,
               tags: [ON_DEVICE_TAG],
               signal,
