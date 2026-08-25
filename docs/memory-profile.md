@@ -117,34 +117,88 @@ macOS measurement, soak tiers, resource diagnostics, and the fix/verification
 phases are specified in the change above; results land here as they are
 produced.
 
-### macOS harness status (2026-08-25)
+### macOS harness status — WORKING; first before-numbers recorded (2026-08-25)
 
-The macOS collector, driver dispatch, environment collection, TTS/edition
-stages, soak tiers, synthetic-leak injection, and the diagnostics op are
-implemented and unit-tested (12 native-helper tests, 12 collector tests, the
-full script suite). The first e2e attempts failed with the app's webview
-never executing any JavaScript (server-side logging in
-`get_memory_scenario_config` proved the config command was never invoked and
-the control server saw zero requests). **Root cause, identified 2026-08-25:**
-the app had been built with bare `cargo build`, which keeps
-`tauri.conf.json`'s `devUrl` (`http://127.0.0.1:15173`) — the webview
-pointed at a dev server that was not running, so no page (and no scenario
-host) ever loaded. An interactive GUI session is NOT required; the binary
-just has to be built through the tauri CLI so the built `dist` is embedded.
+The e2e harness now runs the full scenario reliably on macOS. Getting here
+required fixing a chain of latent defects, each surfaced by the harness
+itself (all fixed in-tree):
 
-**To record the "before" numbers (tasks 2.7/2.8/4.4):**
+1. **Bare `cargo build` keeps `devUrl`** — the webview pointed at a
+   non-running dev server, so no JS ever executed. Build via
+   `npm run tauri:build:local:debug` (embeds `dist`).
+2. **Step-delivery shape mismatch (predecessor latent bug)**: the control
+   server sent `{step:{...}}` (nested) while the app's `normalizeStep`
+   expects flat fields — every step was silently treated as idle. The
+   predecessor's e2e had never run against the real app.
+3. **CORS**: with embedded assets the page originates from
+   `tauri://localhost`; the control server now sends CORS headers +
+   preflight, drops disconnected long-poll waiters, and uses tiny holds +
+   `Connection: close` (WKWebView swallows responses written to connections
+   that waited).
+4. **Self-blocking quiescence (predecessor latent bug)**: the host kept the
+   activity counter raised through the settle step's own quiescence wait —
+   a settle could never report quiet. The busy window now covers only step
+   execution.
+5. **Fixture PDFs had 8-byte-short xref offsets** (the header line's length
+   was never counted): pdf.js tolerated it, Rust `pdf-extract` refused
+   ("Invalid file trailer"). Generator fixed; corpus hashes updated.
+6. **Edition-cycle fixture defects**: FK violation on a synthetic document
+   id (now anchored to the real corpus document) and re-creating the same
+   edition id on retry (unique-constraint; the retry now uses its own id).
+7. **macOS 26 process attribution**: `kern.procargs2` is denied system-wide
+   (the run-ID environment marker is unreadable — D3's open question
+   resolved), and WKWebView helpers are XPC services reparented to launchd
+   (PPID 1, own process group). Per-role attribution uses a DIFFERENTIAL
+   baseline: the driver snapshots pre-existing WebKit helpers before
+   launch; WebKit processes appearing after launch belong to the app. The
+   pre-launch snapshot still guarantees an already-running application's
+   helpers are never absorbed; a foreign app spawning helpers DURING the
+   run is the documented blind spot (acceptable on a dedicated bench
+   machine). Process-info syscalls also require an unsandboxed context —
+   run the driver from a normal terminal.
+
+**First "before" numbers (tasks 2.7/2.8/4.4)** — `.bench/memory-result-macos-before.json`,
+Apple M4 / 16 GiB / macOS 26.5.1, debug build, 2026-08-25, all stages
+settled, `reliable: true`:
+
+| Stage | Total | native | web-content | GPU (other) | network |
+|---|---|---|---|---|---|
+| idle-fresh | 1.09 GB | 607 M | 371 M | 99 M | 9 M |
+| one-doc | 1.92 GB | 610 M | **1194 M** | 102 M | 9 M |
+| two-tabs | 1.87 GB | 611 M | 1151 M | 104 M | 9 M |
+| four-tabs | 1.88 GB | 611 M | 1155 M | 104 M | 9 M |
+| all-closed | **1.92 GB** | 611 M | **1192 M** | 112 M | 9 M |
+| single-cycles/0 | 1.93 GB | 611 M | 1194 M | 112 M | 9 M |
+| single-cycles/3 | 2.02 GB | 612 M | 1236 M | 159 M | 9 M |
+| multi-cycles/3 | 2.03 GB | 612 M | 1250 M | 159 M | 9 M |
+| tts-cycles/0..3 | 2.03 GB | 613 M | 1245–1250 M | 158 M | 9 M |
+| edition-cycles/0..1 | 2.03 GB | 613 M | 1247 M | 157 M | 9 M |
+| idle-final | 2.03 GB | 613 M | 1248 M | 157 M | 9 M |
+
+Readings (verified code hazards, magnitude now partially attributed):
+
+- **First-PDF cost is +823 M in the WebContent process** (371→1194 M) and
+  **closing does not return it** (1192 M at all-closed). Whether this is
+  WebKit backing-store high-water or live retention is exactly what the
+  Phase 4 Instruments/heap-snapshot workflow must classify.
+- **Open/close cycles ratchet web-content ~7 M/cycle** (1194→1250 M across
+  8 single + 8 multi cycles at this scale). This is the leak-shaped signal
+  the ratchet gate exists to catch; the nightly soak quantifies the idle
+  slope.
+- **TTS and edition cycles are FLAT** (1245–1250 M throughout): the new
+  bounded paths (owned URLs, LRU section cache, single IDB connection,
+  metadata-only eviction) hold at bench scale — the 4.1/4.2 reproduction
+  stages show no unbounded growth from these subsystems on their own.
+- **Diagnostics stay bounded in the real app**: live owned URLs return to 0
+  after every stage, TTS cache connections stable at 1, error aggregates 0,
+  section cache within caps.
 
 ```bash
-# IMPORTANT: build through the tauri CLI, NOT bare `cargo build` — a bare
-# cargo build keeps tauri.conf.json's devUrl (http://127.0.0.1:15173), so
-# the webview points at a dev server that is not running and no JS executes.
+# Reproduce (build embeds dist; run from a normal, unsandboxed terminal):
 npm run tauri:build:local:debug
 node scripts/memory-bench/driver.js --output .bench/memory-result-macos-before.json > .bench/before.log 2>&1
 node scripts/memory-bench/driver.js --soak=nightly --output .bench/soak-before.json > .bench/soak-before.log 2>&1
 ```
-
-The harness host now logs through the native logger, so a failed run names
-the JS-side cause in the captured log (design D10 failed-run artifacts).
 
 ### Manual deep-attribution workflow (task 6.1, design D10)
 

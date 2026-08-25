@@ -47,7 +47,13 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 250 }) {
     // pool exhausts — observed 2026-08-25). Closing every response keeps
     // each request on a fresh, unpooled connection.
     res.setHeader("Connection", "close");
-    res.setHeader("Cache-Control", "no-store");
+    // WKWebView's cache has been observed to answer repeated GET /step
+    // requests (identical URL) from cache even with no-store, swallowing
+    // step deliveries. Send the full cache-ban set and vary per request.
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Vary", "*");
     if (req.method === "OPTIONS") {
       res.writeHead(204).end();
       return;
@@ -74,7 +80,7 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 250 }) {
       if (pending) {
         console.error(`[control] /step -> ${pending.step.step} (${pending.step.op})`);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ step: pending.step }));
+        res.end(JSON.stringify(pending.step));
         pending.resolve();
         return;
       }
@@ -114,7 +120,8 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 250 }) {
             res.writeHead(400).end("report.step must be a number");
             return;
           }
-          console.error(`[control] /report step=${report.step} status=${report.status}${report.error ? ` error=${String(report.error).slice(0, 200)}` : ""}`);
+          const quiescence = report.quiescence ? ` quiescence=${JSON.stringify(report.quiescence)}` : "";
+          console.error(`[control] /report step=${report.step} status=${report.status}${report.error ? ` error=${String(report.error).slice(0, 200)}` : ""}${quiescence}`);
           reports.set(report.step, report);
           const waitersForStep = reportWaiters.get(report.step) ?? [];
           reportWaiters.delete(report.step);
@@ -144,7 +151,7 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 250 }) {
         }
         clearTimeout(waiter.timer);
         waiter.res.writeHead(200, { "content-type": "application/json" });
-        waiter.res.end(JSON.stringify({ step }));
+        waiter.res.end(JSON.stringify(step));
         resolve();
         return;
       }

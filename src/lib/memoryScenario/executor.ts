@@ -198,14 +198,18 @@ async function runEditionCycle(
 ): Promise<void> {
   const baseText = await loadLongText(manifest);
   editionCycleCounter += 1;
-  const editionId = `scenario-edition-${cycle}-${editionCycleCounter}`;
-  const documentId = "scenario-document";
+  // Run-unique id: attempts from earlier harness runs may have left rows
+  // behind (a failed cycle does not roll back its create).
+  const editionId = `scenario-edition-${Date.now()}-${cycle}-${editionCycleCounter}`;
+  // Anchor the edition to the real corpus document: the DB enforces a
+  // foreign key on source_document_id.
+  const documentId = (await resolveDocument("pdf-1", manifest)).id;
   const now = Date.now();
 
-  const makeSections = (salt: string): AudioEditionSection[] =>
+  const makeSections = (salt: string, editionIdForSections = editionId): AudioEditionSection[] =>
     Array.from({ length: sections }, (_, i) => ({
-      id: `${editionId}-section-${i}${salt}`,
-      editionId,
+      id: `${editionIdForSections}-section-${i}${salt}`,
+      editionId: editionIdForSections,
       sectionIndex: i,
       title: baseText.slice(i * 500, i * 500 + 400) || `Section ${i}${salt}`,
       sourceStartAnchor: String(i * 500),
@@ -245,13 +249,21 @@ async function runEditionCycle(
     await useAudioEditionGenerationStore.getState().cancelJob(editionId);
     await Promise.race([started, new Promise((r) => setTimeout(r, 500))]);
 
-    // retry: a fresh edition over the same document
-    const retry = makeSections("-r");
-    await createAudioEdition({ ...edition, status: "draft" }, retry);
-    const retryRun = useAudioEditionGenerationStore.getState().startJob(editionId, textMapOf(retry));
+    // retry: a fresh edition over the same document (its own id —
+    // create_audio_edition is insert-only, so re-creating the same id
+    // violates the unique constraint).
+    const retryEditionId = `${editionId}-r`;
+    const retry = makeSections("-r", retryEditionId);
+    await createAudioEdition({ ...edition, id: retryEditionId, status: "draft" }, retry);
+    const retryRun = useAudioEditionGenerationStore.getState().startJob(retryEditionId, textMapOf(retry));
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await useAudioEditionGenerationStore.getState().cancelJob(editionId);
+    await useAudioEditionGenerationStore.getState().cancelJob(retryEditionId);
     await Promise.race([retryRun, new Promise((r) => setTimeout(r, 500))]);
+    try {
+      await deleteAudioEdition(retryEditionId);
+    } catch {
+      /* best-effort */
+    }
   } finally {
     // cleanup: delete the edition (must revoke its section URLs)
     try {

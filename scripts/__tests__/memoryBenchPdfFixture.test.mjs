@@ -16,7 +16,7 @@ test("generator output is deterministic for identical parameters", () => {
   const b = buildPdf({ pages: 3, label: "Memory benchmark fixture" });
   assert.equal(a, b);
   const hash = createHash("sha256").update(a).digest("hex");
-  assert.equal(hash, "1074dc1272a880d69965982ac2233b88d6f539898ca2ea360a953954888f6497");
+  assert.equal(hash, "283995e4d47ffaa80c58c062b7d03085375b9e08c3933ceb9dcd2fbd0d7c833b");
 });
 
 test("different parameters produce different documents", () => {

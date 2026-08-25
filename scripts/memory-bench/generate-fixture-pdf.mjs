@@ -49,7 +49,10 @@ export function buildPdf({ pages = 3 } = {}) {
 
   const chunks = ["%PDF-1.4"];
   const offsets = [];
-  let length = 0;
+  // Account for the header line + its join newline: every object offset
+  // (and startxref) was 8 bytes short, which Rust pdf-extract rejects with
+  // "Invalid file trailer" (pdf.js tolerated it — found via the macOS e2e).
+  let length = "%PDF-1.4".length + 1;
 
   const push = (body) => {
     offsets.push(length);

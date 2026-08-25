@@ -42,20 +42,17 @@ function helperFixture() {
         roleHint: "network", physFootprint: 30 * MiB, residentSize: 34 * MiB,
         wiredSize: 3 * MiB, virtualSize: 1_000 * MiB, markerVerified: false,
       },
-      {
-        // Foreign WebContent process: name matches, ancestry does not.
-        pid: 900, ppid: 899, executable: "/.../com.apple.WebKit.WebContent",
-        roleHint: "web-content", physFootprint: 999 * MiB, residentSize: 999 * MiB,
-        wiredSize: 0, virtualSize: 0, markerVerified: false,
-      },
     ],
     absent: [],
   };
 }
 
 test("collector normalizes helper rows into the shared sample shape", () => {
+  // The helper is the membership authority; this fixture models its
+  // (already-filtered) output. Foreign-helper exclusion is enforced by the
+  // native helper's own tests (baseline/differential membership).
   const out = collectMacOsTree({ helperOutput: helperFixture(), launchedPid: 500 });
-  assert.equal(out.processes.length, 3); // foreign process excluded by ancestry
+  assert.equal(out.processes.length, 3);
   const byPid = new Map(out.processes.map((p) => [p.pid, p]));
   assert.equal(byPid.get(500).role, "native");
   assert.equal(byPid.get(501).role, "web-content");
@@ -88,7 +85,7 @@ test("a pid that exits mid-walk is present-but-absent, not an error", () => {
   assert.equal(out.total.Pss, 120 * MiB + 200 * MiB);
 });
 
-test("ancestry re-verification excludes reparented helpers", () => {
+test("ancestry verification remains available as an assertion helper", () => {
   const fixture = helperFixture();
   fixture.processes.push({
     pid: 950, ppid: 1, executable: "/.../com.apple.WebKit.WebContent", roleHint: "web-content",
