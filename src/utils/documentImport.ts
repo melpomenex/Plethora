@@ -6,7 +6,7 @@
 import { Document } from '../types/document';
 import { fetchUrlContent, readDocumentFile } from '../api/documents';
 import { isTauri } from '../lib/tauri';
-import { parseArxivInput, arxivPaperRef } from './articleImport/arxivResolver';
+import { arxivHtmlAssetBase, parseArxivInput, arxivPaperRef } from './articleImport/arxivResolver';
 
 /**
  * CORS proxies for browser mode
@@ -119,33 +119,59 @@ export function processPlainTextContent(rawText: string, title: string): string 
     .join('')}</article></body></html>`;
 }
 
+/** Resolve a canonical/source URL to the base used for relative image and asset URLs. */
+export function resolveHtmlReaderBaseUrl(candidate: string): string {
+  const arxiv = parseArxivInput(candidate);
+  if (arxiv) {
+    return arxivHtmlAssetBase(arxiv.htmlUrl);
+  }
+  try {
+    const url = new URL(candidate);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    if (candidate.startsWith('file://')) {
+      return candidate;
+    }
+    if (candidate.startsWith('/')) {
+      return `file://${candidate}`;
+    }
+    return typeof window !== 'undefined' ? `${window.location.origin}/` : candidate;
+  }
+}
+
+/** Pick the best source URL for display-time HTML repair on a stored document. */
+export function resolveDocumentHtmlBaseUrl(doc: {
+  filePath?: string | null;
+  metadata?: {
+    source?: string;
+    htmlUrl?: string;
+    webArticle?: { canonicalUrl?: string };
+  } | null;
+}): string {
+  const candidates = [
+    doc.metadata?.webArticle?.canonicalUrl,
+    doc.metadata?.htmlUrl,
+    doc.metadata?.source,
+    doc.filePath,
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  for (const candidate of candidates) {
+    if (/^https?:\/\//i.test(candidate)) {
+      return resolveHtmlReaderBaseUrl(candidate);
+    }
+  }
+  return typeof window !== 'undefined' ? window.location.origin : 'https://localhost/';
+}
+
 export function processHtmlContent(rawHtml: string, baseUrl: string, title: string, preserveImages: boolean): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
-  let baseHref = baseUrl;
-  try {
-    // If the URL is an arXiv HTML page, ensure it has a trailing slash so that path-relative assets
-    // resolve correctly under the paper ID directory (e.g. /html/2403.12345/image.png)
-    if (baseUrl.includes('arxiv.org/html/')) {
-      const urlObj = new URL(baseUrl);
-      if (!urlObj.pathname.endsWith('/')) {
-        urlObj.pathname += '/';
-      }
-      baseHref = urlObj.toString();
-    } else {
-      const urlObj = new URL(baseUrl);
-      urlObj.hash = '';
-      baseHref = urlObj.toString();
-    }
-  } catch {
-    if (baseUrl.startsWith('file://')) {
-      baseHref = baseUrl;
-    } else if (baseUrl.startsWith('/')) {
-      baseHref = `file://${baseUrl}`;
-    } else {
-      baseHref = window.location.origin + '/';
-    }
-  }
+  const baseHref = resolveHtmlReaderBaseUrl(baseUrl);
+
+  // Publisher stylesheets and inline colors fight the reader theme in srcdoc iframes.
+  doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => el.remove());
+  doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'));
   
   const dangerousSelectors = [
     'script',

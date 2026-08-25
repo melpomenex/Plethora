@@ -14,6 +14,7 @@ import { normalizeWhitespace, parseHtml, countWords } from './domUtils';
 import { extractPageMetadata, resolveArticleMetadata } from './metadataExtractor';
 import { normalizeImages } from './imageNormalizer';
 import { sanitizeArticleHtml } from './sanitizer';
+import { arxivHtmlAssetBase, parseArxivInput } from './arxivResolver';
 import { siteNameFromUrl, normalizeArticleUrl } from './urlNormalizer';
 import { resolveCanonicalUrl } from './importPipeline';
 import { createStageTimer } from './stageTimer';
@@ -50,7 +51,9 @@ export async function importRawFallbackPage(
   while (doc.body.firstChild) {
     body.appendChild(doc.body.firstChild);
   }
-  const imageReport = normalizeImages(body, canonicalUrl);
+  const arxiv = parseArxivInput(canonicalUrl);
+  const imageBaseUrl = arxiv ? arxivHtmlAssetBase(arxiv.htmlUrl) : canonicalUrl;
+  const imageReport = normalizeImages(body, imageBaseUrl);
 
   const sanitized = await sanitizeArticleHtml(body.innerHTML);
   const postDoc = parseHtml(sanitized.html);

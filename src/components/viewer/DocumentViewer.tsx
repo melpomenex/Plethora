@@ -109,7 +109,7 @@ import type { ReviewRating } from "../../api/review";
 import { autoExtractWithCache, ensureGLMOllamaRuntime, ensureOCRConfig, isAutoExtractEnabled } from "../../utils/documentAutoExtract";
 import { ocrPdfFile } from "../../api/ocrCommands";
 import { renderMarkdown } from "../../utils/markdown";
-import { processHtmlContent, processPlainTextContent } from "../../utils/documentImport";
+import { processHtmlContent, processPlainTextContent, resolveDocumentHtmlBaseUrl } from "../../utils/documentImport";
 import { lookupDictionary, type DictionaryResult } from "../../utils/dictionaryLookup";
 import { recordReadingSession } from "../../utils/readingSpeed";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
@@ -5670,74 +5670,63 @@ export function DocumentViewer({
     }
 
     const preserveImages = settings.documents.webImportPreserveImages;
+    const baseUrl = resolveDocumentHtmlBaseUrl(currentDocument ?? {});
+    let html = processHtmlContent(
+      htmlSource,
+      baseUrl,
+      currentDocument?.title || "",
+      preserveImages,
+    );
+    if (!jumpHighlightQuery) return html;
+
+    // Highlight query terms inside HTML text nodes. This runs only when opening via jump navigation.
     try {
       const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlSource, "text/html");
-      doc.querySelectorAll("style, link[rel='stylesheet']").forEach((el) => el.remove());
-      if (!preserveImages) {
-        const styleTag = doc.createElement("style");
-        styleTag.textContent = `
-          img, picture, source {
-            display: none !important;
-          }
-        `;
-        doc.head.appendChild(styleTag);
-      }
-      let html = doc.documentElement.outerHTML;
-      if (!jumpHighlightQuery) return html;
+      const highlightDoc = parser.parseFromString(html, "text/html");
+      highlightDoc.querySelectorAll("script, style").forEach((el) => el.remove());
+      const terms = jumpHighlightQuery
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (terms.length === 0) return html;
 
-      // Highlight query terms inside HTML text nodes. This runs only when opening via jump navigation.
-      try {
-        const highlightDoc = parser.parseFromString(html, "text/html");
-        highlightDoc.querySelectorAll("script, style").forEach((el) => el.remove());
-        const terms = jumpHighlightQuery
-          .split(/\s+/)
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .slice(0, 8);
-        if (terms.length === 0) return html;
+      const walker = highlightDoc.createTreeWalker(highlightDoc.body, NodeFilter.SHOW_TEXT);
+      const regex = new RegExp(`(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
 
-        const walker = highlightDoc.createTreeWalker(highlightDoc.body, NodeFilter.SHOW_TEXT);
-        const regex = new RegExp(`(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
-
-        const textNodes: Text[] = [];
-        while (walker.nextNode()) {
-          const node = walker.currentNode as Text;
-          if (!node.nodeValue || !node.nodeValue.trim()) continue;
-          textNodes.push(node);
-        }
-
-        for (const node of textNodes) {
-          const value = node.nodeValue || "";
-          if (!regex.test(value)) continue;
-          regex.lastIndex = 0;
-          const frag = highlightDoc.createDocumentFragment();
-          let last = 0;
-          let match: RegExpExecArray | null;
-          while ((match = regex.exec(value)) !== null) {
-            const start = match.index;
-            const end = start + match[0].length;
-            if (start > last) frag.append(value.slice(last, start));
-            const mark = highlightDoc.createElement("mark");
-            mark.setAttribute("data-search-highlight", "true");
-            mark.style.background = "rgba(245, 158, 11, 0.35)"; // amber
-            mark.style.borderRadius = "2px";
-            mark.textContent = value.slice(start, end);
-            frag.append(mark);
-            last = end;
-          }
-          if (last < value.length) frag.append(value.slice(last));
-          node.parentNode?.replaceChild(frag, node);
-        }
-
-        html = highlightDoc.documentElement.outerHTML;
-      } catch {
-        // If highlighting fails, fall back to unmodified HTML.
+      const textNodes: Text[] = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (!node.nodeValue || !node.nodeValue.trim()) continue;
+        textNodes.push(node);
       }
 
-      return html;
+      for (const node of textNodes) {
+        const value = node.nodeValue || "";
+        if (!regex.test(value)) continue;
+        regex.lastIndex = 0;
+        const frag = highlightDoc.createDocumentFragment();
+        let last = 0;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(value)) !== null) {
+          const start = match.index;
+          const end = start + match[0].length;
+          if (start > last) frag.append(value.slice(last, start));
+          const mark = highlightDoc.createElement("mark");
+          mark.setAttribute("data-search-highlight", "true");
+          mark.style.background = "rgba(245, 158, 11, 0.35)"; // amber
+          mark.style.borderRadius = "2px";
+          mark.textContent = value.slice(start, end);
+          frag.append(mark);
+          last = end;
+        }
+        if (last < value.length) frag.append(value.slice(last));
+        node.parentNode?.replaceChild(frag, node);
+      }
+
+      return highlightDoc.documentElement.outerHTML;
     } catch {
-      return htmlSource;
+      return html;
     }
   }, [htmlSource, settings.documents.webImportPreserveImages, jumpHighlightQuery, currentDocument]);
 
@@ -6168,17 +6157,20 @@ export function DocumentViewer({
       doc.querySelectorAll('style:not(#html-viewer-styles), link[rel="stylesheet"]').forEach((el) => {
         el.remove();
       });
-      const isImportedArticle = Boolean(doc.querySelector('.inc-article, .ltx_document'));
+      doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'));
+      const isImportedArticle = Boolean(
+        doc.querySelector('.inc-article, .inc-body, .ltx_document, .inc-raw'),
+      );
       const readingColumnMax = isImportedArticle ? '68ch' : '850px';
 
       let style = doc.getElementById("html-viewer-styles") as HTMLStyleElement | null;
-    if (!style) {
-      style = doc.createElement("style");
-      style.id = "html-viewer-styles";
-      doc.head.appendChild(style);
-    }
+      if (!style) {
+        style = doc.createElement("style");
+        style.id = "html-viewer-styles";
+        doc.head.appendChild(style);
+      }
 
-    const fs = settings.documents.htmlSettings;
+      const fs = settings.documents.htmlSettings;
     const fontFamilyMap: Record<string, string> = {
       serif: "Georgia, 'Times New Roman', serif",
       "sans-serif": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -6509,6 +6501,15 @@ export function DocumentViewer({
       article.inc-article .inc-body {
         margin-top: 1.25rem !important;
         color: ${fg} !important;
+      }
+      article.inc-article .inc-body p,
+      article.inc-article .inc-body li,
+      article.inc-article .inc-body td,
+      article.inc-article .inc-body th,
+      article.inc-article .inc-body div,
+      article.inc-article .inc-body span:not(.ltx_note_mark) {
+        color: ${fg} !important;
+        -webkit-text-fill-color: ${fg} !important;
       }
       /* LaTeXML / legacy arXiv HTML inside imported articles */
       .ltx_document {
