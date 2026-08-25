@@ -24,7 +24,7 @@ import { runTask } from "./tasks/runTask";
 import type { AITaskDefinition } from "./tasks/types";
 import { ensureCloudAiDisclosure } from "../privacy/cloudAiDisclosure";
 import { getActiveCloudConfig } from "./providers/cloudProvider";
-import { providerAllowsKeylessAccess } from "../utils/llmProviderUtils";
+import { providerAllowsKeylessAccess } from "../../utils/llmProviderUtils";
 import { AIError } from "./errors";
 import {
   DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS,
