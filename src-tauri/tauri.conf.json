@@ -4,7 +4,7 @@
   "version": "2.7.0",
   "identifier": "com.plethora.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "bash scripts/tauri-before-dev.sh",
     "devUrl": "http://127.0.0.1:15173",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
