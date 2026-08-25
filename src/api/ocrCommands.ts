@@ -20,6 +20,7 @@ export interface OCRConfig {
   nougat_path?: string;
   glm_ocr?: GLMOCRConfig;
   mistral_ocr?: MistralOCRConfig;
+  prefer_windows_system_ocr?: boolean;
 }
 
 export interface GoogleDocumentAIConfig {

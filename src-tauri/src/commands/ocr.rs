@@ -687,6 +687,7 @@ fn format_for_provider(provider_type: OCRProviderType) -> &'static str {
     match provider_type {
         OCRProviderType::Marker | OCRProviderType::Nougat | OCRProviderType::Glmocr => "markdown",
         OCRProviderType::Mistral => "html",
+        OCRProviderType::WindowsSystem => "text",
         _ => "text",
     }
 }
@@ -997,7 +998,16 @@ fn resolve_provider_type(
 ) -> Result<OCRProviderType> {
     match provider {
         Some(value) => parse_provider_type(value),
-        None => Ok(processor.get_default_provider()),
+        None => {
+            let config = processor.get_config();
+            if config.prefer_windows_system_ocr
+                && processor.is_provider_available(OCRProviderType::WindowsSystem)
+            {
+                Ok(OCRProviderType::WindowsSystem)
+            } else {
+                Ok(processor.get_default_provider())
+            }
+        }
     }
 }
 
@@ -1012,6 +1022,7 @@ fn parse_provider_type(provider: &str) -> Result<OCRProviderType> {
         "nougat" => Ok(OCRProviderType::Nougat),
         "glm" => Ok(OCRProviderType::Glmocr),
         "mistral" => Ok(OCRProviderType::Mistral),
+        "windows-system" | "windows_system" => Ok(OCRProviderType::WindowsSystem),
         _ => Err(PlethoraError::Internal(format!(
             "Unknown provider: {}",
             provider

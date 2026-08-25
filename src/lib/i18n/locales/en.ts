@@ -3202,6 +3202,12 @@ export const en: Dict = {
   // New keys added for llama.cpp/vLLM runtime setup and full i18n coverage
   "ocrSettings.tesseract": "Tesseract (Local)",
   "ocrSettings.tesseractDesc": "Open-source OCR engine running locally",
+  "ocrSettings.windowsSystem": "Windows System OCR",
+  "ocrSettings.windowsSystemDesc": "On-device text recognition via Windows AI (Win11 24H2+)",
+  "ocrSettings.windowsSystemBadge": "On-device",
+  "ocrSettings.preferWindowsSystemOcr": "Prefer Windows System OCR",
+  "ocrSettings.preferWindowsSystemOcrDesc":
+    "Use Windows System OCR automatically when available (import, PDF OCR, auto-extract)",
   "ocrSettings.glmOcrProviderDesc": "Multimodal OCR via llama.cpp or vLLM server",
   "ocrSettings.glmBadge": "GPU recommended",
   "ocrSettings.googleDocAiProviderDesc": "Google's cloud-based document AI service",

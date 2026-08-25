@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "windows_lm_warmup",
     "windows_lm_ensure_ready",
     "windows_ocr_status",
+    "windows_ocr_recognize",
     "windows_lm_diagnostics",
 ];
 

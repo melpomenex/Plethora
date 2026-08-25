@@ -111,6 +111,8 @@ pub enum OCRProviderType {
     Glmocr,
     #[serde(rename = "mistral")]
     Mistral,
+    #[serde(rename = "windows-system")]
+    WindowsSystem,
 }
 
 /// OCR result with text and metadata
@@ -1763,6 +1765,97 @@ impl OCRProvider for MistralProvider {
     }
 }
 
+/// Windows System OCR via WinRT TextRecognizer (Windows 11 24H2+, NPU-class hardware).
+pub struct WindowsSystemOCRProvider;
+
+impl WindowsSystemOCRProvider {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl std::fmt::Debug for WindowsSystemOCRProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowsSystemOCRProvider").finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl OCRProvider for WindowsSystemOCRProvider {
+    fn provider_type(&self) -> OCRProviderType {
+        OCRProviderType::WindowsSystem
+    }
+
+    async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
+        let image_data = tokio::fs::read(image_path)
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read image: {}", e)))?;
+        self.process_image_bytes(&image_data).await
+    }
+
+    async fn process_image_bytes(&self, image_data: &[u8]) -> Result<OCRResult> {
+        let start = std::time::Instant::now();
+        let recognized = plethora_windows_intelligence::recognize_text_from_image_bytes(image_data)
+            .map_err(|e| PlethoraError::Internal(format!("{e}")))?;
+
+        let lines: Vec<TextLine> = recognized
+            .lines
+            .iter()
+            .map(|line| TextLine {
+                text: line.text.clone(),
+                confidence: line.confidence,
+                bbox: BoundingBox {
+                    left: line.left,
+                    top: line.top,
+                    right: line.right,
+                    bottom: line.bottom,
+                },
+            })
+            .collect();
+
+        let line_count = if lines.is_empty() {
+            recognized.text.lines().count()
+        } else {
+            lines.len()
+        };
+        let word_count = recognized.text.split_whitespace().count();
+        let processing_time_ms = start.elapsed().as_millis() as u64;
+
+        Ok(OCRResult {
+            text: recognized.text,
+            confidence: recognized.confidence,
+            line_count,
+            word_count,
+            processing_time_ms,
+            provider: OCRProviderType::WindowsSystem,
+            metadata: serde_json::json!({
+                "engine": "Windows System OCR",
+                "winrt": "Microsoft.Windows.AI.Imaging.TextRecognizer"
+            }),
+            lines,
+        })
+    }
+
+    fn is_available(&self) -> bool {
+        plethora_windows_intelligence::ocr_is_available()
+    }
+
+    fn unavailability_guidance(&self) -> Option<String> {
+        if self.is_available() {
+            return None;
+        }
+        Some(
+            "Windows System OCR requires Windows 11 24H2+, package identity, and compatible on-device AI hardware. \
+             Check Settings > AI > On-device or run Windows AI diagnostics."
+                .to_string(),
+        )
+    }
+
+    fn provider_name(&self) -> &str {
+        "Windows System OCR"
+    }
+}
+
 /// Create OCR provider from type and config
 pub fn create_provider(
     provider_type: OCRProviderType,
@@ -1808,6 +1901,7 @@ pub fn create_provider(
             })?;
             Ok(Box::new(MistralProvider::new(mistral_config.clone())))
         }
+        OCRProviderType::WindowsSystem => Ok(Box::new(WindowsSystemOCRProvider::new())),
     }
 }
 

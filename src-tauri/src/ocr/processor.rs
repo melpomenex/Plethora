@@ -90,6 +90,12 @@ impl OCRProcessor {
             }
         }
 
+        if let Ok(provider) = create_provider(OCRProviderType::WindowsSystem, &self.config) {
+            if provider.is_available() {
+                available.push(OCRProviderType::WindowsSystem);
+            }
+        }
+
         available
     }
 

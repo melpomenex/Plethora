@@ -106,6 +106,7 @@ function buildOCRConfigFromSettings(settings: ReturnType<typeof useSettingsStore
           model: undefined,
         }
       : undefined,
+    prefer_windows_system_ocr: settings.preferWindowsSystemOcr ?? false,
   };
 }
 
