@@ -1,13 +1,9 @@
 // Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
-// B — add-apple-foundation-models-provider
+// B — add-apple-foundation-models-provider (iOS wrapper over shared core)
 
 import Foundation
 import Tauri
-
-#if canImport(FoundationModels)
-import FoundationModels
-#endif
 
 struct FmGenerateArgs: Decodable {
   var requestId: String?
@@ -15,6 +11,8 @@ struct FmGenerateArgs: Decodable {
   var systemInstruction: String?
   var maxOutputTokens: Int?
   var temperature: Double?
+  var schemaName: String?
+  var structured: Bool?
 }
 
 struct FmCancelArgs: Decodable {
@@ -22,94 +20,119 @@ struct FmCancelArgs: Decodable {
 }
 
 final class AppleFoundationModelsBridge {
-  private var cancelled = Set<String>()
+  private let core = FmBridgeCore()
 
   func featureState() -> FeatureStatePayload {
-    #if canImport(FoundationModels)
-    if #available(iOS 26.0, *) {
-      return FeatureStatePayload.unavailable("model_not_ready")
+    let sem = DispatchSemaphore(value: 0)
+    var state = FeatureStatePayload.unavailable("unsupported_os")
+    Task {
+      state = Self.mapState(await core.featureState())
+      sem.signal()
     }
-    #endif
-    return FeatureStatePayload.unavailable("unsupported_os")
+    sem.wait()
+    return state
   }
 
   func availability(_ invoke: Invoke) {
-    let state = featureState()
-    var obj: JSObject = ["status": state.status]
-    if let reason = state.reason {
-      obj["reason"] = reason
+    Task {
+      let detail = await core.availabilityDetail()
+      invoke.resolve(detail)
     }
-    invoke.resolve(obj)
   }
 
   func generate(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(FmGenerateArgs.self)
-    #if canImport(FoundationModels)
-    if #available(iOS 26.0, *) {
-      generateWithFoundationModels(invoke, args)
-      return
+    Task {
+      do {
+        let request = Self.toRequest(args)
+        let response = try await core.generate(request)
+        invoke.resolve([
+          "requestId": response.requestId,
+          "text": response.text,
+        ])
+      } catch {
+        let mapped = await core.mapError(error)
+        rejectCoded(invoke, mapped.code, mapped.message)
+      }
     }
-    #endif
-    rejectCoded(invoke, "unsupported_os", "Foundation Models require iOS 26+")
   }
 
   func generateStream(_ invoke: Invoke) throws {
-    try generate(invoke)
+    let args = try invoke.parseArgs(FmGenerateArgs.self)
+    Task {
+      do {
+        let request = Self.toRequest(args)
+        let response = try await core.generateStream(request) { partial in
+          invoke.emit("apple-fm://text", [
+            "requestId": request.requestId ?? "",
+            "text": partial,
+          ])
+        }
+        invoke.resolve([
+          "requestId": response.requestId,
+          "text": response.text,
+        ])
+        invoke.emit("apple-fm://complete", [
+          "requestId": response.requestId,
+          "text": response.text,
+        ])
+      } catch {
+        let mapped = await core.mapError(error)
+        invoke.emit("apple-fm://error", [
+          "requestId": args.requestId ?? "",
+          "code": mapped.code,
+          "message": mapped.message,
+        ])
+        rejectCoded(invoke, mapped.code, mapped.message)
+      }
+    }
   }
 
   func cancel(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(FmCancelArgs.self)
     if let id = args.requestId {
-      cancelled.insert(id)
+      Task { await core.cancel(requestId: id) }
     }
     invoke.resolve(["ok": true])
   }
 
   func countTokens(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(FmGenerateArgs.self)
-    let text = (args.systemInstruction ?? "") + (args.text ?? "")
-    let estimate = max(1, text.split { $0.isWhitespace || $0.isNewline }.count)
-    invoke.resolve(["inputTokens": estimate, "tokenLimit": 4096])
-  }
-
-  func warmup(_ invoke: Invoke) {
-    invoke.resolve(["ok": true])
-  }
-
-  #if canImport(FoundationModels)
-  @available(iOS 26.0, *)
-  private func generateWithFoundationModels(_ invoke: Invoke, _ args: FmGenerateArgs) {
-    let requestId = args.requestId ?? UUID().uuidString
-    let prompt = args.text ?? ""
     Task {
       do {
-        let model = SystemLanguageModel.default
-        let session = LanguageModelSession(model: model)
-        if let system = args.systemInstruction, !system.isEmpty {
-          // Instructions stay on the TS task; fold only if the session API
-          // has no separate instructions field in this SDK.
-          let _ = system
-        }
-        let response = try await session.respond(to: prompt)
-        if self.cancelled.contains(requestId) {
-          rejectCoded(invoke, "cancelled", "Request cancelled")
-          return
-        }
+        let count = try await core.countTokens(Self.toRequest(args))
         invoke.resolve([
-          "requestId": requestId,
-          "text": String(describing: response),
+          "inputTokens": count.inputTokens,
+          "tokenLimit": count.tokenLimit,
+          "contextSize": count.contextSize as Any,
         ])
       } catch {
-        let message = error.localizedDescription
-        if message.localizedCaseInsensitiveContains("private cloud")
-          || message.localizedCaseInsensitiveContains("Private Cloud Compute")
-        {
-          rejectCoded(invoke, "pcc_required", "On-device generation required Private Cloud Compute")
-          return
-        }
-        rejectCoded(invoke, "inference_failed", message)
+        let mapped = await core.mapError(error)
+        rejectCoded(invoke, mapped.code, mapped.message)
       }
     }
   }
-  #endif
+
+  func warmup(_ invoke: Invoke) {
+    Task {
+      await core.warmup()
+      invoke.resolve(["ok": true])
+    }
+  }
+
+  private static func toRequest(_ args: FmGenerateArgs) -> FmGenerateRequest {
+    FmGenerateRequest(
+      requestId: args.requestId,
+      text: args.text,
+      systemInstruction: args.systemInstruction,
+      maxOutputTokens: args.maxOutputTokens,
+      temperature: args.temperature,
+      schemaName: args.schemaName,
+      structured: args.structured
+    )
+  }
+
+  private static func mapState(_ state: FmFeatureState) -> FeatureStatePayload {
+    FeatureStatePayload(status: state.status, reason: state.reason)
+  }
 }
