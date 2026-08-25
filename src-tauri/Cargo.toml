@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+tauri-winres = "0.1"
 
 [dependencies]
 # Pin to 2.11.0 to avoid the is_local_url() regression in 2.11.1+ (GHSA-7gmj-67g7-phm9)

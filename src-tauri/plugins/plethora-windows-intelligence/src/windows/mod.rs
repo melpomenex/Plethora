@@ -1,11 +1,11 @@
 //! Windows desktop probes and command dispatch.
 
-use windows::Win32::System::ApplicationInstallationAndServicing::GetCurrentPackageFullName;
-use windows::Win32::System::SystemInformation::{RtlGetVersion, OSVERSIONINFOEXW};
-use windows::core::HRESULT;
-
 use crate::{Error, FeatureState, WindowsIntelligenceSnapshot, PACKAGE_IDENTITY_MISSING, UNSUPPORTED_OS};
 use crate::winrt;
+
+mod sparse_package;
+
+pub use sparse_package::{current_package_identity, try_register_sparse_package};
 
 /// Windows 11 24H2 (build 26100) minimum for stable Windows AI APIs.
 pub const MIN_WIN11_AI_BUILD: u32 = 26100;
@@ -17,54 +17,24 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Returns package full name when running inside an MSIX/AppX identity.
-pub fn current_package_identity() -> Option<String> {
-    let mut len = 0u32;
-    unsafe {
-        let _ = GetCurrentPackageFullName(&mut len, None);
-        if len == 0 {
-            return None;
-        }
-        let mut buf = vec![0u16; len as usize];
-        match GetCurrentPackageFullName(&mut len, Some(buf.as_mut_ptr())) {
-            Ok(()) => {
-                let end = len.saturating_sub(1) as usize;
-                let name = String::from_utf16_lossy(&buf[..end]);
-                if name.is_empty() {
-                    None
-                } else {
-                    Some(name)
-                }
-            }
-            Err(e) if e.code() == HRESULT::from(windows::Win32::Foundation::APPMODEL_ERROR_NO_PACKAGE) => {
-                None
-            }
-            Err(_) => None,
-        }
-    }
-}
-
-/// Authoritative OS build number via RtlGetVersion (not the deprecated GetVersion).
-pub fn windows_build_number() -> Option<u32> {
+pub fn meets_ai_os_requirement() -> bool {
+    use windows::Win32::System::SystemInformation::{RtlGetVersion, OSVERSIONINFOEXW};
     let mut info = OSVERSIONINFOEXW {
         dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOEXW>() as u32,
         ..Default::default()
     };
     unsafe {
         if RtlGetVersion(&mut info as *mut _ as *mut _).is_err() {
-            return None;
+            return false;
         }
     }
-    Some(info.dwBuildNumber)
-}
-
-pub fn meets_ai_os_requirement() -> bool {
-    windows_build_number()
-        .map(|build| build >= MIN_WIN11_AI_BUILD)
-        .unwrap_or(false)
+    info.dwBuildNumber >= MIN_WIN11_AI_BUILD
 }
 
 pub fn capabilities_snapshot() -> WindowsIntelligenceSnapshot {
+    if current_package_identity().is_none() {
+        let _ = try_register_sparse_package();
+    }
     let package_identity = current_package_identity();
     let has_identity = package_identity.is_some();
     let os_ok = meets_ai_os_requirement();
@@ -149,12 +119,13 @@ pub fn ocr_status() -> Result<serde_json::Value, Error> {
 }
 
 fn preflight_inference() -> Result<(), Error> {
-    if current_package_identity().is_none() {
-        return Err(Error::new(
-            PACKAGE_IDENTITY_MISSING,
-            "Windows AI APIs require MSIX package identity",
-        ));
-    }
+    sparse_package::ensure_package_identity().map_err(|e| {
+        if e.code == PACKAGE_IDENTITY_MISSING {
+            e
+        } else {
+            Error::new(PACKAGE_IDENTITY_MISSING, e.message)
+        }
+    })?;
     if !meets_ai_os_requirement() {
         return Err(Error::new(
             UNSUPPORTED_OS,
@@ -162,6 +133,27 @@ fn preflight_inference() -> Result<(), Error> {
         ));
     }
     Ok(())
+}
+
+pub fn lm_diagnostics() -> serde_json::Value {
+    let snap = capabilities_snapshot();
+    serde_json::json!({
+        "windowsOs": snap.windows_os,
+        "packageIdentity": snap.package_identity,
+        "languageModel": snap.language_model,
+        "ocr": snap.ocr,
+        "osMeetsMinimum": meets_ai_os_requirement(),
+        "phiBridgeAvailable": winrt::bridge_available(),
+        "phiReadyState": winrt::get_ready_state(),
+        "lafTokenConfigured": std::env::var(winrt::LAF_TOKEN_ENV)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false),
+        "sparseMsixCandidates": sparse_package::sparse_msix_candidates()
+            .into_iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>(),
+        "checkedAt": snap.checked_at,
+    })
 }
 
 #[cfg(test)]

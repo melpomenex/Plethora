@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { invokeCommand as invoke } from "../lib/tauri";
 import { useI18n } from "../lib/i18n";
 import {
   BookOpen,
@@ -10,6 +9,15 @@ import {
   Sparkle,
   TextT,
 } from "@phosphor-icons/react";
+import { generateFlashcardsWithRouter } from "../lib/ai/generateFlashcardsRouter";
+import { runTask } from "../lib/ai/tasks/runTask";
+import {
+  workflowKeyPointsTask,
+  workflowQaTask,
+  workflowSimplifyTask,
+  workflowSummarizeTask,
+  workflowTitleTask,
+} from "../lib/ai/tasks/definitions/workflowTasks";
 
 type WorkflowType =
   | "flashcards"
@@ -79,9 +87,10 @@ export function AIWorkflowsPage() {
 
       switch (selectedWorkflow) {
         case "flashcards":
-          result = await invoke<string>("generate_flashcards_from_content", {
-            content: input,
-          });
+          const cards = await generateFlashcardsWithRouter(input, { count: 5 });
+          result = cards
+            .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
+            .join("\n\n");
           break;
         case "qa":
           if (!question.trim()) {
@@ -89,38 +98,44 @@ export function AIWorkflowsPage() {
             setIsProcessing(false);
             return;
           }
-          result = await invoke<string>("answer_question", {
+          const qa = await runTask(workflowQaTask, {
+            content: input,
             question,
-            context: input,
           });
+          result = qa.text;
           break;
         case "summarize":
-          result = await invoke<string>("summarize_content", {
+          const summarized = await runTask(workflowSummarizeTask, {
             content: input,
           });
+          result = summarized.text;
           break;
         case "keypoints":
-          result = await invoke<string>("extract_key_points", {
+          const keyPoints = await runTask(workflowKeyPointsTask, {
             content: input,
+            count: 5,
           });
+          result = keyPoints.text;
           break;
         case "simplify":
-          result = await invoke<string>("simplify_content", {
+          const simplified = await runTask(workflowSimplifyTask, {
             content: input,
+            level: "highschool",
           });
+          result = simplified.text;
           break;
         case "title":
-          result = await invoke<string>("generate_title", {
-            content: input,
-          });
+          const titled = await runTask(workflowTitleTask, { content: input });
+          result = titled.text;
           break;
         default:
           result = t("integrations.unknownWorkflow");
       }
 
       setOutput(result);
-    } catch (error: any) {
-      setOutput(`Error: ${error}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setOutput(`Error: ${message}`);
     } finally {
       setIsProcessing(false);
     }

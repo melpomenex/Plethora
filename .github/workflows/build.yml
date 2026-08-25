@@ -67,6 +67,10 @@ jobs:
           $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
           Write-Host "Updater signing disabled for non-release build"
 
+      - name: Build Windows sparse identity package
+        shell: pwsh
+        run: ./scripts/build-windows-sparse-package.ps1
+
       - name: Build Tauri application (Windows)
         run: npx tauri build --bundles nsis
         env:

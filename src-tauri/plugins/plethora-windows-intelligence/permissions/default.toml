@@ -13,5 +13,6 @@ permissions = [
   "allow-windows-lm-cancel",
   "allow-windows-lm-warmup",
   "allow-windows-lm-ensure-ready",
-  "allow-windows-ocr-status"
+  "allow-windows-ocr-status",
+  "allow-windows-lm-diagnostics"
 ]

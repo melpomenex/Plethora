@@ -111,6 +111,16 @@ jobs:
         working-directory: src-tauri
         run: cargo check -p plethora-windows-intelligence && cargo test -p plethora-windows-intelligence
 
+      - name: Install Windows App SDK (Phi Silica bridge)
+        shell: pwsh
+        run: |
+          nuget install Microsoft.WindowsAppSDK -OutputDirectory $env:USERPROFILE\.nuget\packages -ExcludeVersion
+          echo "WINDOWS_APP_SDK_ROOT=$env:USERPROFILE\.nuget\packages\Microsoft.WindowsAppSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build sparse identity package
+        shell: pwsh
+        run: ./scripts/build-windows-sparse-package.ps1
+
       - name: Check main crate (Windows)
         working-directory: src-tauri
         run: cargo check -p plethora-tauri

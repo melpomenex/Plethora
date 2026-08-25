@@ -78,6 +78,32 @@ Denies the windows_lm_cancel command without any pre-configured scope.
 <tr>
 <td>
 
+`plethora-windows-intelligence:allow-windows-lm-diagnostics`
+
+</td>
+<td>
+
+Enables the windows_lm_diagnostics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-windows-intelligence:deny-windows-lm-diagnostics`
+
+</td>
+<td>
+
+Denies the windows_lm_diagnostics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `plethora-windows-intelligence:allow-windows-lm-ensure-ready`
 
 </td>
