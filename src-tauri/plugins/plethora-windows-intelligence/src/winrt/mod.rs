@@ -2,7 +2,7 @@
 
 mod native_bridge;
 
-pub use native_bridge::{bridge_available, get_ready_state};
+pub use native_bridge::{bridge_available, get_ocr_ready_state, get_ready_state, try_unlock_laf};
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -18,6 +18,11 @@ pub const MAX_PROMPT_BYTES: usize = 128 * 1024;
 
 /// Env var holding the LAF unlock token (never committed to the repo).
 pub const LAF_TOKEN_ENV: &str = "PLETHORA_WINDOWS_AI_LAF_TOKEN";
+/// Optional override for the LAF feature id (default: Phi Silica language model).
+pub const LAF_FEATURE_ID_ENV: &str = "PLETHORA_WINDOWS_AI_LAF_FEATURE_ID";
+/// Attestation string from Microsoft LAF email (required with token).
+pub const LAF_ATTESTATION_ENV: &str = "PLETHORA_WINDOWS_AI_LAF_ATTESTATION";
+const DEFAULT_LAF_FEATURE_ID: &str = "com.microsoft.windows.ai.languagemodel";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelInitPhase {
@@ -121,7 +126,22 @@ pub fn ocr_feature_state(platform_ready: bool) -> FeatureState {
     if !platform_ready {
         return FeatureState::unavailable(WINRT_BINDINGS_PENDING);
     }
-    FeatureState::unavailable(WINRT_BINDINGS_PENDING)
+    if !native_bridge::bridge_available() {
+        return FeatureState::unavailable(WINRT_BINDINGS_PENDING);
+    }
+    match native_bridge::get_ocr_ready_state() {
+        Some(READY) => FeatureState {
+            status: "available".into(),
+            reason: None,
+        },
+        Some(NOT_READY) => FeatureState {
+            status: "downloadable".into(),
+            reason: Some("model_not_ready".into()),
+        },
+        Some(NOT_SUPPORTED) => FeatureState::unavailable("unsupported_hardware"),
+        Some(other) => FeatureState::unavailable(format!("ocr_ready_state_{other}")),
+        None => FeatureState::unavailable(WINRT_BINDINGS_PENDING),
+    }
 }
 
 pub fn image_description_feature_state(platform_ready: bool) -> FeatureState {
@@ -173,7 +193,7 @@ fn extract_prompt(payload: &serde_json::Value) -> Result<String, Error> {
     extract_generation_input(payload).map(|(combined, _)| combined)
 }
 
-/// Placeholder for `LimitedAccessFeatures.TryUnlockFeature` once WinRT is wired.
+/// Attempt `LimitedAccessFeatures.TryUnlockFeature` when token + attestation are configured.
 pub fn try_unlock_laf_feature() -> Result<bool, Error> {
     let token = std::env::var(LAF_TOKEN_ENV).map_err(|_| {
         Error::new(crate::LIMITED_ACCESS_DENIED, "LAF token not configured")
@@ -184,9 +204,33 @@ pub fn try_unlock_laf_feature() -> Result<bool, Error> {
             "LAF token not configured",
         ));
     }
-    // Real implementation will call WinRT TryUnlockFeature with the token.
-    let _ = token;
-    Ok(false)
+    let attestation = std::env::var(LAF_ATTESTATION_ENV).unwrap_or_default();
+    if attestation.trim().is_empty() {
+        return Err(Error::new(
+            crate::LIMITED_ACCESS_DENIED,
+            "LAF attestation not configured (set PLETHORA_WINDOWS_AI_LAF_ATTESTATION)",
+        ));
+    }
+    let feature_id = std::env::var(LAF_FEATURE_ID_ENV)
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|_| DEFAULT_LAF_FEATURE_ID.to_string());
+    if !native_bridge::bridge_available() {
+        return Err(Error::new(
+            WINRT_BINDINGS_PENDING,
+            "LAF unlock requires the Phi Silica C++/WinRT bridge",
+        ));
+    }
+  match native_bridge::try_unlock_laf(&feature_id, token.trim(), attestation.trim()) {
+        Some(0) => Ok(true),
+        Some(status) => Err(Error::new(
+            crate::LIMITED_ACCESS_DENIED,
+            format!("LAF unlock returned status {status}"),
+        )),
+        None => Err(Error::new(
+            crate::LIMITED_ACCESS_DENIED,
+            "LAF unlock call failed",
+        )),
+    }
 }
 
 fn ensure_platform_ready_for_inference() -> Result<(), Error> {
@@ -201,6 +245,12 @@ fn ensure_platform_ready_for_inference() -> Result<(), Error> {
             WINRT_BINDINGS_PENDING,
             "Phi Silica C++/WinRT bridge was not compiled (Windows App SDK required at build time)",
         ));
+    }
+    if std::env::var(LAF_ATTESTATION_ENV)
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+    {
+        let _ = try_unlock_laf_feature();
     }
     Ok(())
 }
@@ -225,11 +275,30 @@ pub fn generate(payload: serde_json::Value) -> Result<serde_json::Value, Error> 
 }
 
 pub fn generate_stream(
-    _app: tauri::AppHandle<tauri::Wry>,
+    app: tauri::AppHandle<tauri::Wry>,
     payload: serde_json::Value,
 ) -> Result<serde_json::Value, Error> {
-    // Streaming uses the same sync path until WinRT streaming events are wired.
-    generate(payload)
+    use tauri::Emitter;
+    let request_id = payload
+        .get("requestId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("windows-lm")
+        .to_string();
+    let result = generate(payload)?;
+    if let Some(text) = result.get("text").and_then(|v| v.as_str()) {
+        let _ = app.emit(
+            "windows-lm://text",
+            serde_json::json!({ "requestId": request_id, "text": text }),
+        );
+        let complete = serde_json::json!({
+            "requestId": request_id,
+            "text": text,
+            "finishReason": result.get("finishReason").and_then(|v| v.as_str()).unwrap_or("stop"),
+            "baseModelName": result.get("baseModelName").and_then(|v| v.as_str()).unwrap_or("phi-silica"),
+        });
+        let _ = app.emit("windows-lm://complete", complete);
+    }
+    Ok(result)
 }
 
 pub fn cancel(_payload: serde_json::Value) -> Result<serde_json::Value, Error> {
@@ -257,9 +326,11 @@ fn map_bridge_error(msg: &str) -> Error {
 }
 
 pub fn ocr_status() -> Result<serde_json::Value, Error> {
+    let state = ocr_feature_state(true);
     Ok(serde_json::json!({
-        "status": "unavailable",
-        "reason": WINRT_BINDINGS_PENDING,
+        "status": state.status,
+        "reason": state.reason,
+        "readyState": native_bridge::get_ocr_ready_state(),
     }))
 }
 

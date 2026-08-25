@@ -13,6 +13,7 @@ identity, OS version, and WinRT readiness before serving Phi Silica requests.
 - `allow-windows-lm-warmup`
 - `allow-windows-lm-ensure-ready`
 - `allow-windows-ocr-status`
+- `allow-windows-lm-diagnostics`
 
 ## Permission Table
 

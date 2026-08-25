@@ -145,7 +145,11 @@ pub fn lm_diagnostics() -> serde_json::Value {
         "osMeetsMinimum": meets_ai_os_requirement(),
         "phiBridgeAvailable": winrt::bridge_available(),
         "phiReadyState": winrt::get_ready_state(),
+        "ocrReadyState": winrt::get_ocr_ready_state(),
         "lafTokenConfigured": std::env::var(winrt::LAF_TOKEN_ENV)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false),
+        "lafAttestationConfigured": std::env::var(winrt::LAF_ATTESTATION_ENV)
             .map(|v| !v.trim().is_empty())
             .unwrap_or(false),
         "sparseMsixCandidates": sparse_package::sparse_msix_candidates()

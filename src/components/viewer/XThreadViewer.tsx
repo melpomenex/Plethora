@@ -19,7 +19,7 @@ import { useToast } from "../common/Toast";
 import { useDocumentStore } from "../../stores";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { resolveTwitterThreadAssistantContext } from "../../utils/assistantContext";
-import { answerQuestion, extractKeyPoints, summarizeContent } from "../../api/ai";
+import { answerPassage, keyTermsPassage, summarizePassage } from "../../lib/ai/passageAI";
 import * as documentsApi from "../../api/documents";
 import { createExtract } from "../../api/extracts";
 import { XPostCard } from "./XPostCard";
@@ -275,12 +275,17 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
       try {
         let text = "";
         if (action === "summary") {
-          text = await summarizeContent(context, 220);
+          const res = await summarizePassage(context, { maxWords: 220 });
+          text = res.text;
         } else if (action === "insights") {
-          const points = await extractKeyPoints(context, 5);
-          text = points.map((p, i) => `${i + 1}. ${p}`).join("\n");
+          const res = await keyTermsPassage(context, { count: 5 });
+          text = res.text;
         } else {
-          text = await answerQuestion(askInput.trim() || "Summarize the key argument of this thread.", context);
+          const res = await answerPassage(
+            askInput.trim() || "Summarize the key argument of this thread.",
+            context
+          );
+          text = res.text;
         }
         setSheetOutput({ text });
       } catch (err) {

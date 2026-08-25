@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { answerQuestion } from "../api/ai";
+import { suggestTags } from "../lib/ai/extractAI";
 
 export interface TagSuggestion {
   tag: string;
@@ -25,73 +25,35 @@ export function useAITagSuggestions(): UseAITagSuggestionsReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const suggestTags = useCallback(async (content: string, title?: string): Promise<TagSuggestion[]> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Use a limited portion of content for tag analysis
-      const contentPreview = content.slice(0, 2000);
-
-      const prompt = `Analyze the following ${title ? `titled "${title}"` : ""} content and suggest relevant tags.
-
-Content preview:
-${contentPreview}
-
-Please respond with a JSON array of tag suggestions. Each suggestion should have:
-- tag: the suggested tag (lowercase, no spaces, use hyphens if needed)
-- confidence: "high", "medium", or "low"
-- category: "topic", "type", "difficulty", or "custom"
-
-Example format:
-[{"tag":"machine-learning","confidence":"high","category":"topic"},{"tag":"tutorial","confidence":"medium","category":"type"}]
-
-Provide 3-7 relevant tags. Only respond with the JSON array, no additional text.`;
-
-      const response = await answerQuestion(prompt, contentPreview);
-
-      let parsedTags: TagSuggestion[] = [];
+  const suggestTagsForContent = useCallback(
+    async (content: string, title?: string): Promise<TagSuggestion[]> => {
+      setIsLoading(true);
+      setError(null);
 
       try {
-        // Try to extract JSON from the response
-        const jsonMatch = response.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          parsedTags = JSON.parse(jsonMatch[0]);
-        }
-      } catch {
-        // If parsing fails, extract tags from text
-        const tagMatches = response.match(/"tag":\s*"([^"]+)"/g);
-        if (tagMatches) {
-          parsedTags = tagMatches.map((match, index) => {
-            const tag = match.replace(/"tag":\s*"([^"]+)"/, "$1");
-            return {
-              tag,
-              confidence: index < 3 ? "high" : "medium",
-              category: "custom" as const,
-            };
-          });
-        }
+        const contentPreview = content.slice(0, 2000);
+        const tags = await suggestTags(
+          title ? `${title}\n\n${contentPreview}` : contentPreview
+        );
+
+        const validSuggestions: TagSuggestion[] = tags.map((tag, index) => ({
+          tag,
+          confidence: index < 2 ? "high" : "medium",
+          category: "custom",
+        }));
+
+        setSuggestions(validSuggestions);
+        return validSuggestions;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : "Failed to suggest tags";
+        setError(errorMessage);
+        return [];
+      } finally {
+        setIsLoading(false);
       }
-
-      const validSuggestions = parsedTags
-        .filter((s) => s.tag && typeof s.tag === "string")
-        .map((s) => ({
-          tag: s.tag.toLowerCase().replace(/\s+/g, "-"),
-          confidence: s.confidence || "medium",
-          category: s.category || "custom",
-        }))
-        .slice(0, 7);
-
-      setSuggestions(validSuggestions);
-      return validSuggestions;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to suggest tags";
-      setError(errorMessage);
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const clearSuggestions = useCallback(() => {
     setSuggestions([]);
@@ -102,7 +64,7 @@ Provide 3-7 relevant tags. Only respond with the JSON array, no additional text.
     suggestions,
     isLoading,
     error,
-    suggestTags,
+    suggestTags: suggestTagsForContent,
     clearSuggestions,
   };
 }

@@ -75,7 +75,7 @@ TypeScript entry: `getWindowsIntelligenceSnapshot()` in `src/lib/ai/windows/capa
 
 **Hardware validation:** Settings → On-device AI → **Diagnostics** invokes `windows_lm_diagnostics` (package identity, bridge availability, ready state, LAF token presence, sparse MSIX search paths). On physical Copilot+ hardware, also run `scripts/smoke-windows-ai-diagnostics.ps1`.
 
-**Limited Access Feature (LAF):** Stable Phi Silica may require `LimitedAccessFeatures.TryUnlockFeature`. Token from env `PLETHORA_WINDOWS_AI_LAF_TOKEN` at runtime only — never committed. Missing token → `limited_access_denied`.
+**Limited Access Feature (LAF):** Stable Phi Silica requires `LimitedAccessFeatures.TryUnlockFeature` with feature id `com.microsoft.windows.ai.languagemodel` (override via `PLETHORA_WINDOWS_AI_LAF_FEATURE_ID`). Set `PLETHORA_WINDOWS_AI_LAF_TOKEN` and `PLETHORA_WINDOWS_AI_LAF_ATTESTATION` from Microsoft's LAF email — never commit. Missing token → `limited_access_denied`.
 
 **Readiness states** (mapped to `FeatureState`):
 
@@ -164,6 +164,20 @@ Windows AI APIs / stubs on other OSes
 Foundry Local bypasses Tauri — pure HTTP from the webview to `127.0.0.1`.
 
 Commands accept bounded prompts, typed JSON payloads, no arbitrary shell execution over IPC.
+
+---
+
+## Known gaps (honest close-out)
+
+| Area | Status |
+|------|--------|
+| Phi Silica on Copilot+ hardware | Bridge + LAF wired; needs physical device + Microsoft token |
+| WinRT token streaming | Full response emitted as one chunk + `complete` event |
+| OCR / imaging inference | `TextRecognizer::GetReadyState` probe; no import routing yet |
+| Store MSIX | Dev-signed artifact on release; no Store pipeline |
+| Aion Instruct | Microsoft plans Phi Silica replacement; monitor platform docs |
+
+Legacy Rust `summarize_content` / `generate_title` remain as **cloud-only** `cloudExecutor` fallbacks for tasks that pin `kind: "cloud"`.
 
 ---
 
