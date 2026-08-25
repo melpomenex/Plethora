@@ -23,6 +23,9 @@ import {
   LEARNING_MATERIAL_SCHEMA,
   MAX_CARDS_PER_CONCEPT,
   MAX_LEARNING_CARDS,
+  MAX_LEARNING_CONCEPTS,
+  MAX_LEARNING_PREREQUISITES,
+  MAX_LEARNING_TAGS,
   validateLearningMaterialProposal,
   type LearningMaterialProposal,
 } from "../../schemas/learningMaterial";
@@ -59,7 +62,7 @@ const LEARN_THIS_CORE_INSTRUCTION = [
   "definition -> definition or qa; enumeration -> cloze; process -> process (ordered steps); comparison -> comparison (A-vs-B); formula -> formula (conceptual); causeEffect -> causeEffect (why-how); dateEvent -> qa; example -> example (apply).",
   "Cloze cards MUST quote the source sentence verbatim in clozeText with the deletion wrapped as {{c1::answer}}; the deletion text must appear word-for-word in the passage.",
   "Every answer MUST be stated in the passage — never add outside knowledge. Each concept may be tested by at most 2 cards. Do not invent questions about content the passage does not contain.",
-  "Set importance (0.0-1.0) by how central the passage is to understanding the document, list the key concepts, any prerequisite concepts a learner needs first, up to 6 short tags, and a 1-2 sentence rationale.",
+  "Set importance (0.0-1.0) by how central the passage is to understanding the document, list at most 8 key concepts (not every phrase in the passage), any prerequisite concepts a learner needs first, up to 6 short tags, and a 1-2 sentence rationale.",
   "Return ONLY the JSON object.",
 ].join("\n");
 
@@ -92,17 +95,34 @@ export const learnThisTask: AITaskDefinition<LearnThisInput, LearningMaterialPro
 };
 
 /**
- * Enforce the spec caps as caps, not failures: keep the first
- * `MAX_LEARNING_CARDS` cards (the proposal's importance ordering) and at most
- * `MAX_CARDS_PER_CONCEPT` cards per concept, preserving order. Returns the
- * original object reference when nothing changes.
+ * Enforce the spec caps as caps, not failures: trim list fields and keep the
+ * first `MAX_LEARNING_CARDS` cards (the proposal's importance ordering) and at
+ * most `MAX_CARDS_PER_CONCEPT` cards per concept, preserving order. Returns
+ * the original object reference when nothing changes.
  */
 export function enforceLearnThisCaps(
   output: unknown
 ): unknown {
-  if (!isRecord(output) || !Array.isArray(output.suggestedCards)) {
-    return output;
+  if (!isRecord(output)) return output;
+
+  const next: Record<string, unknown> = { ...output };
+  let changed = false;
+
+  const trimArray = (key: keyof typeof next, max: number) => {
+    const value = next[key];
+    if (!Array.isArray(value) || value.length <= max) return;
+    next[key] = value.slice(0, max);
+    changed = true;
+  };
+
+  trimArray("concepts", MAX_LEARNING_CONCEPTS);
+  trimArray("prerequisites", MAX_LEARNING_PREREQUISITES);
+  trimArray("tags", MAX_LEARNING_TAGS);
+
+  if (!Array.isArray(output.suggestedCards)) {
+    return changed ? next : output;
   }
+
   const cards = output.suggestedCards as unknown[];
   const kept: unknown[] = [];
   const perConcept = new Map<string, number>();
@@ -119,8 +139,12 @@ export function enforceLearnThisCaps(
     }
     kept.push(card);
   }
-  if (kept.length === cards.length) return output;
-  return { ...output, suggestedCards: kept };
+  if (kept.length !== cards.length) {
+    next.suggestedCards = kept;
+    changed = true;
+  }
+
+  return changed ? next : output;
 }
 
 /**

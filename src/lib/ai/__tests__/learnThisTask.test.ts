@@ -21,6 +21,7 @@ import { isFailedOutcome, isValidOutcome } from "../schemas/common";
 import {
   MAX_CARDS_PER_CONCEPT,
   MAX_LEARNING_CARDS,
+  MAX_LEARNING_CONCEPTS,
   type LearningMaterialProposal,
 } from "../schemas/learningMaterial";
 
@@ -133,6 +134,14 @@ describe("enforceLearnThisCaps (spec: cap enforcement)", () => {
     expect(enforceLearnThisCaps(proposal)).toBe(proposal);
   });
 
+  it("keeps only the first MAX_LEARNING_CONCEPTS concepts", () => {
+    const capped = enforceLearnThisCaps(
+      makeProposal({ concepts: Array.from({ length: MAX_LEARNING_CONCEPTS + 5 }, (_, i) => `concept-${i}`) })
+    ) as LearningMaterialProposal;
+    expect(capped.concepts).toHaveLength(MAX_LEARNING_CONCEPTS);
+    expect(capped.concepts[0]).toBe("concept-0");
+  });
+
   it("is a no-op for non-candidate payloads", () => {
     expect(enforceLearnThisCaps(null)).toBe(null);
     expect(enforceLearnThisCaps("nope")).toBe("nope");
@@ -168,6 +177,25 @@ describe("learnThisTask.validate (two-stage, design D5/D16)", () => {
     const outcome = learnThisTask.validate!(proposal, input);
     // The envelope survives (flagging happens per-candidate downstream).
     expect(isValidOutcome(outcome)).toBe(true);
+  });
+
+  it("keeps an over-long concept list with ungrounded cards via the shape-only path", () => {
+    const proposal = makeProposal({
+      concepts: Array.from({ length: MAX_LEARNING_CONCEPTS + 4 }, (_, i) => `concept-${i}`),
+      suggestedCards: [
+        {
+          cardType: "definition",
+          conceptKeys: ["entropy"],
+          question: "Define entropy.",
+          answer: "Entropy is purple cheese riding a unicycle through hyperspace.",
+        },
+      ],
+    });
+    const outcome = learnThisTask.validate!(proposal, input);
+    expect(isValidOutcome(outcome)).toBe(true);
+    if (isValidOutcome(outcome)) {
+      expect(outcome.value.concepts).toHaveLength(MAX_LEARNING_CONCEPTS);
+    }
   });
 
   it("still requires cloze cards to carry a deletion marker", () => {
