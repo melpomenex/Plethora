@@ -1731,10 +1731,7 @@ export const fr: Dict = {
   "learningSettings.scopedOverrides": "Remplacements FSRS scopés",
   "learningSettings.scopedOverridesDesc":
     "La priorité est globale, paquet, tag. Les remplacements par tag priment quand les deux correspondent.",
-  "learningSettings.setZeroUnlimited": "Mettre à 0 pour des révisions illimitées",
-  "learningSettings.adaptiveDesc":
-    "Plethora Adaptive -- utilise une matrice d'augmentation de stabilité pour le calcul des intervalles",
-  "learningSettings.classicDesc": "Un planificateur simple et prévisible pour les utilisateurs qui préfèrent un modèle de programmation plus simple.",
+  "learningSettings.setZeroUnlimited": "Mettre à 0 pour des révisions illimitées",  "learningSettings.classicDesc": "Un planificateur simple et prévisible pour les utilisateurs qui préfèrent un modèle de programmation plus simple.",
   "learningSettings.adaptiveDesc": "Un planificateur adaptatif qui ajuste en continu le moment des révisions selon vos performances et votre mémoire.",
   "learningSettings.precisionDesc": "Le planificateur le plus avancé de Plethora : il modélise plus finement les performances de l'apprenant pour optimiser la rétention et le calendrier.",
   "learningSettings.spacedRepetition": "Algorithme de répétition espacée",

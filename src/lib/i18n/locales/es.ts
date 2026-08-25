@@ -1724,10 +1724,7 @@ export const es: Dict = {
   "learningSettings.scopedOverrides": "Overrides de FSRS con ámbito",
   "learningSettings.scopedOverridesDesc":
     "La precedencia es global, mazo, etiqueta. Los overrides de etiqueta ganan cuando coinciden ambos.",
-  "learningSettings.setZeroUnlimited": "Establece a 0 para repasos ilimitados",
-  "learningSettings.adaptiveDesc":
-    "Plethora Adaptive — usa matriz de incremento de estabilidad para cálculo de intervalos",
-  "learningSettings.classicDesc": "Un planificador sencillo y predecible para quienes prefieren un modelo de programación más simple.",
+  "learningSettings.setZeroUnlimited": "Establece a 0 para repasos ilimitados",  "learningSettings.classicDesc": "Un planificador sencillo y predecible para quienes prefieren un modelo de programación más simple.",
   "learningSettings.adaptiveDesc": "Un planificador adaptativo que ajusta continuamente el momento de repaso según tu rendimiento y tu memoria.",
   "learningSettings.precisionDesc": "El planificador más avanzado de Plethora: modela el rendimiento del estudiante con más detalle para optimizar la retención y el calendario de repaso.",
   "learningSettings.spacedRepetition": "Algoritmo de repetición espaciada",

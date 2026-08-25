@@ -1722,10 +1722,7 @@ export const de: Dict = {
   "learningSettings.scopedOverrides": "Bereichsbezogene FSRS-Überschreibungen",
   "learningSettings.scopedOverridesDesc":
     "Priorität: Global, Deck, Tag. Tag-Überschreibungen haben Vorrang, wenn beide zutreffen.",
-  "learningSettings.setZeroUnlimited": "Auf 0 setzen für unbegrenzte Wiederholungen",
-  "learningSettings.adaptiveDesc":
-    "Plethora Adaptive – verwendet Matrix der Stabilitätszunahme zur Intervallberechnung",
-  "learningSettings.classicDesc": "Ein unkomplizierter, vorhersehbarer Scheduler für Nutzer, die ein einfaches Scheduling-Modell bevorzugen.",
+  "learningSettings.setZeroUnlimited": "Auf 0 setzen für unbegrenzte Wiederholungen",  "learningSettings.classicDesc": "Ein unkomplizierter, vorhersehbarer Scheduler für Nutzer, die ein einfaches Scheduling-Modell bevorzugen.",
   "learningSettings.adaptiveDesc": "Ein adaptiver Scheduler, der Wiederholungszeitpunkte fortlaufend an deine Leistung und dein Erinnerungsverhalten anpasst.",
   "learningSettings.precisionDesc": "Plethoras fortschrittlichster Scheduler, der Lernerverhalten detaillierter modelliert, um Behalten und Wiederholungszeitpunkte zu optimieren.",
   "learningSettings.spacedRepetition": "Verteilte-Wiederholung-Algorithmus",

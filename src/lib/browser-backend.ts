@@ -493,7 +493,7 @@ async function buildBrowserArenaPreview(
     };
 }
 
-async function applySm20ReviewBrowser(
+async function applyPrecisionReviewBrowser(
     item: db.LearningItem,
     rating: number,
     algorithmType?: string,
@@ -2716,7 +2716,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             const selection = (args.arena_selection ?? args.arenaSelection) as ArenaSelection | undefined;
 
             if (!selection) {
-                return toCamelCase(await applySm20ReviewBrowser(
+                return toCamelCase(await applyPrecisionReviewBrowser(
                     item,
                     rating,
                     algorithmType,
@@ -2771,7 +2771,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             }
 
             const previousCollection = structuredClone(collection);
-            const updated = await applySm20ReviewBrowser(
+            const updated = await applyPrecisionReviewBrowser(
                 item,
                 rating,
                 algorithmType,
