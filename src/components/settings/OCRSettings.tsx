@@ -19,6 +19,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { isTauri, listen, openExternal, openFilePicker } from "../../lib/tauri";
+import { getWindowsIntelligenceSnapshot, isWindowsDesktop } from "../../lib/ai/windows/capabilities";
 import { useI18n } from "../../lib/i18n";
 import { ensureOCRConfig } from "../../utils/documentAutoExtract";
 import {
@@ -37,7 +38,7 @@ import {
 
 interface OCRSettingsProps {
   settings: {
-    provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm" | "mistral";
+    provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm" | "mistral" | "windows-system";
     language: string;
     autoOCR: boolean;
     googleProjectId?: string;
@@ -57,6 +58,7 @@ interface OCRSettingsProps {
     glmOllamaPath?: string;
     mistralApiKey?: string;
     preferLocal: boolean;
+    preferWindowsSystemOcr?: boolean;
     mathOcrEnabled: boolean;
     mathOcrCommand?: string;
     mathOcrModelDir?: string;
@@ -68,8 +70,28 @@ interface OCRSettingsProps {
 
 export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
   const { t } = useI18n();
+  const [windowsOcrAvailable, setWindowsOcrAvailable] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri() || !isWindowsDesktop()) return;
+    getWindowsIntelligenceSnapshot()
+      .then((snap) => setWindowsOcrAvailable(snap.ocr?.status === "available"))
+      .catch(() => setWindowsOcrAvailable(false));
+  }, []);
 
   const OCR_PROVIDERS = [
+    ...(isWindowsDesktop() && windowsOcrAvailable
+      ? [
+          {
+            id: "windows-system",
+            name: t("ocrSettings.windowsSystem"),
+            description: t("ocrSettings.windowsSystemDesc"),
+            icon: Scan,
+            isCloud: false,
+            badge: t("ocrSettings.windowsSystemBadge"),
+          },
+        ]
+      : []),
     {
       id: "tesseract",
       name: t("ocrSettings.tesseract"),
@@ -552,6 +574,37 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             ))}
           </select>
         </div>
+
+        {isWindowsDesktop() && windowsOcrAvailable && (
+          <div className="bg-card border border-border rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.preferWindowsSystemOcr")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("ocrSettings.preferWindowsSystemOcrDesc")}
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  onUpdateSettings({
+                    preferWindowsSystemOcr: !settings.preferWindowsSystemOcr,
+                  })
+                }
+                className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
+                  settings.preferWindowsSystemOcr ? "bg-primary" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                    settings.preferWindowsSystemOcr ? "left-7" : "left-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Google Document AI Configuration */}
         {settings.provider === "google" && (

@@ -201,7 +201,7 @@ interface SegmentationSettings {
  * OCR Settings
  */
 interface OCRSettings {
-  provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm" | "mistral";
+  provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm" | "mistral" | "windows-system";
   language: string;
   autoOCR: boolean;
   tesseract_path?: string;
@@ -223,6 +223,7 @@ interface OCRSettings {
   glmOllamaPath?: string;
   mistralApiKey?: string;
   preferLocal: boolean;
+  preferWindowsSystemOcr?: boolean;
   mathOcrEnabled: boolean;
   mathOcrCommand?: string;
   mathOcrModelDir?: string;
@@ -1102,6 +1103,7 @@ export const defaultSettings: Settings = {
       glmOllamaPath: undefined,
       mistralApiKey: undefined,
       preferLocal: true,
+      preferWindowsSystemOcr: false,
       mathOcrEnabled: false,
       mathOcrCommand: "nougat",
       mathOcrModelDir: undefined,

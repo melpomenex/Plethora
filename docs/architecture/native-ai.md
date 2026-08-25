@@ -55,6 +55,7 @@ Rust Tauri plugin exposing typed commands:
 - `windows_capabilities` — snapshot with per-feature readiness
 - `windows_lm_generate` / `windows_lm_generate_stream` / `windows_lm_cancel` / `windows_lm_warmup`
 - `windows_ocr_status`
+- `windows_ocr_recognize`
 - `windows_lm_diagnostics` — extended hardware validation snapshot
 
 TypeScript entry: `getWindowsIntelligenceSnapshot()` in `src/lib/ai/windows/capabilities.ts`.
@@ -63,7 +64,7 @@ TypeScript entry: `getWindowsIntelligenceSnapshot()` in `src/lib/ai/windows/capa
 |---|---|---|
 | LanguageModel / Phi Silica | `Microsoft.Windows.AI.Text` | generate, summarize, classify, structured text tasks |
 | TextSummarizer / TextRewriter | same | optional fast paths |
-| TextRecognizer (OCR) | `Microsoft.Windows.AI.Imaging` | import OCR routing |
+| TextRecognizer (OCR) | `Microsoft.Windows.AI.Imaging` | `ocr_image_bytes` / import pipeline via `WindowsSystem` provider |
 | ImageDescriptionGenerator | Imaging | image registry |
 | Embeddings via LM | Text | optional; library index stays cross-platform |
 
@@ -173,7 +174,7 @@ Commands accept bounded prompts, typed JSON payloads, no arbitrary shell executi
 |------|--------|
 | Phi Silica on Copilot+ hardware | Bridge + LAF wired; needs physical device + Microsoft token |
 | WinRT token streaming | Full response emitted as one chunk + `complete` event |
-| OCR / imaging inference | `TextRecognizer::GetReadyState` probe; no import routing yet |
+| OCR / imaging inference | `TextRecognizer::RecognizeTextFromImageAsync` wired through `WindowsSystemOCRProvider` |
 | Store MSIX | Dev-signed artifact on release; no Store pipeline |
 | Aion Instruct | Microsoft plans Phi Silica replacement; monitor platform docs |
 

@@ -4,8 +4,10 @@ use crate::{Error, FeatureState, WindowsIntelligenceSnapshot, PACKAGE_IDENTITY_M
 use crate::winrt;
 
 mod sparse_package;
+mod ocr;
 
 pub use sparse_package::{current_package_identity, try_register_sparse_package};
+pub use ocr::{recognize, MAX_IMAGE_BYTES};
 
 /// Windows 11 24H2 (build 26100) minimum for stable Windows AI APIs.
 pub const MIN_WIN11_AI_BUILD: u32 = 26100;
@@ -100,6 +102,10 @@ pub fn lm_warmup(payload: serde_json::Value) -> Result<serde_json::Value, Error>
 pub fn lm_ensure_ready(payload: serde_json::Value) -> Result<serde_json::Value, Error> {
     preflight_inference()?;
     winrt::ensure_ready(payload)
+}
+
+pub fn ocr_recognize(image_data: &[u8]) -> Result<crate::WindowsOcrRecognizeResult, Error> {
+    recognize(image_data)
 }
 
 pub fn ocr_status() -> Result<serde_json::Value, Error> {

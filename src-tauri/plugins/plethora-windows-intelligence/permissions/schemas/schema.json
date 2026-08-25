@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the windows_lm_warmup command without any pre-configured scope."
         },
         {
+          "description": "Enables the windows_ocr_recognize command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-windows-ocr-recognize",
+          "markdownDescription": "Enables the windows_ocr_recognize command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the windows_ocr_recognize command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-windows-ocr-recognize",
+          "markdownDescription": "Denies the windows_ocr_recognize command without any pre-configured scope."
+        },
+        {
           "description": "Enables the windows_ocr_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-windows-ocr-status",
@@ -391,10 +403,10 @@
           "markdownDescription": "Denies the windows_ocr_status command without any pre-configured scope."
         },
         {
-          "description": "Allows the Windows on-device intelligence plugin commands. Off Windows the\nRust shims return platform_unsupported; on Windows the plugin probes package\nidentity, OS version, and WinRT readiness before serving Phi Silica requests.\n\n#### This default permission set includes:\n\n- `allow-windows-capabilities`\n- `allow-windows-lm-generate`\n- `allow-windows-lm-generate-stream`\n- `allow-windows-lm-cancel`\n- `allow-windows-lm-warmup`\n- `allow-windows-lm-ensure-ready`\n- `allow-windows-ocr-status`\n- `allow-windows-lm-diagnostics`",
+          "description": "Allows the Windows on-device intelligence plugin commands. Off Windows the\nRust shims return platform_unsupported; on Windows the plugin probes package\nidentity, OS version, and WinRT readiness before serving Phi Silica requests.\n\n#### This default permission set includes:\n\n- `allow-windows-capabilities`\n- `allow-windows-lm-generate`\n- `allow-windows-lm-generate-stream`\n- `allow-windows-lm-cancel`\n- `allow-windows-lm-warmup`\n- `allow-windows-lm-ensure-ready`\n- `allow-windows-ocr-status`\n- `allow-windows-ocr-recognize`\n- `allow-windows-lm-diagnostics`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the Windows on-device intelligence plugin commands. Off Windows the\nRust shims return platform_unsupported; on Windows the plugin probes package\nidentity, OS version, and WinRT readiness before serving Phi Silica requests.\n\n#### This default permission set includes:\n\n- `allow-windows-capabilities`\n- `allow-windows-lm-generate`\n- `allow-windows-lm-generate-stream`\n- `allow-windows-lm-cancel`\n- `allow-windows-lm-warmup`\n- `allow-windows-lm-ensure-ready`\n- `allow-windows-ocr-status`\n- `allow-windows-lm-diagnostics`"
+          "markdownDescription": "Allows the Windows on-device intelligence plugin commands. Off Windows the\nRust shims return platform_unsupported; on Windows the plugin probes package\nidentity, OS version, and WinRT readiness before serving Phi Silica requests.\n\n#### This default permission set includes:\n\n- `allow-windows-capabilities`\n- `allow-windows-lm-generate`\n- `allow-windows-lm-generate-stream`\n- `allow-windows-lm-cancel`\n- `allow-windows-lm-warmup`\n- `allow-windows-lm-ensure-ready`\n- `allow-windows-ocr-status`\n- `allow-windows-ocr-recognize`\n- `allow-windows-lm-diagnostics`"
         }
       ]
     }

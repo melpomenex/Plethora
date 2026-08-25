@@ -13,6 +13,7 @@ identity, OS version, and WinRT readiness before serving Phi Silica requests.
 - `allow-windows-lm-warmup`
 - `allow-windows-lm-ensure-ready`
 - `allow-windows-ocr-status`
+- `allow-windows-ocr-recognize`
 - `allow-windows-lm-diagnostics`
 
 ## Permission Table
@@ -202,6 +203,32 @@ Enables the windows_lm_warmup command without any pre-configured scope.
 <td>
 
 Denies the windows_lm_warmup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-windows-intelligence:allow-windows-ocr-recognize`
+
+</td>
+<td>
+
+Enables the windows_ocr_recognize command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-windows-intelligence:deny-windows-ocr-recognize`
+
+</td>
+<td>
+
+Denies the windows_ocr_recognize command without any pre-configured scope.
 
 </td>
 </tr>

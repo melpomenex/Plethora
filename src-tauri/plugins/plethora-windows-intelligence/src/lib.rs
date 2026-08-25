@@ -9,6 +9,7 @@
 //! - `windows_capabilities` — capability snapshot
 //! - `windows_lm_*` — Phi Silica / LanguageModel generate, stream, cancel, warmup
 //! - `windows_ocr_status` — OCR readiness probe
+//! - `windows_ocr_recognize` — OCR inference on image bytes
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -69,6 +70,25 @@ impl FeatureState {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowsOcrLine {
+    pub text: String,
+    pub confidence: f64,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowsOcrRecognizeResult {
+    pub text: String,
+    pub confidence: f64,
+    pub lines: Vec<WindowsOcrLine>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowsIntelligenceSnapshot {
@@ -102,6 +122,34 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Whether Windows System OCR is currently available on this machine.
+pub fn ocr_is_available() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let snap = windows::capabilities_snapshot();
+        snap.ocr.status == "available"
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// Recognize text from encoded image bytes using Windows System OCR.
+pub fn recognize_text_from_image_bytes(
+    image_data: &[u8],
+) -> Result<WindowsOcrRecognizeResult, Error> {
+    #[cfg(target_os = "windows")]
+    {
+        windows::recognize(image_data)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = image_data;
+        Err(not_windows("recognize_text_from_image_bytes"))
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -220,6 +268,32 @@ mod commands {
     }
 
     #[tauri::command]
+    pub async fn windows_ocr_recognize(
+        payload: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        let body = payload.unwrap_or_else(|| serde_json::json!({}));
+        #[cfg(target_os = "windows")]
+        {
+            let image_data = body
+                .get("imageData")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| Error::new("invalid_argument", "Missing imageData (base64)"))?;
+            let bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                image_data.trim(),
+            )
+            .map_err(|e| Error::new("invalid_argument", format!("Invalid base64 imageData: {e}")))?;
+            let result = windows::ocr_recognize(&bytes)?;
+            Ok(serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({})))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = body;
+            Err(not_windows("windows_ocr_recognize"))
+        }
+    }
+
+    #[tauri::command]
     pub async fn windows_lm_diagnostics() -> Result<serde_json::Value, Error> {
         #[cfg(target_os = "windows")]
         {
@@ -245,6 +319,7 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::windows_lm_warmup,
             commands::windows_lm_ensure_ready,
             commands::windows_ocr_status,
+            commands::windows_ocr_recognize,
             commands::windows_lm_diagnostics,
         ])
         .build()

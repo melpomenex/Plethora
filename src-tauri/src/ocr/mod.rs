@@ -41,6 +41,9 @@ pub struct OCRConfig {
     pub glm_ocr: Option<GLMOCRConfig>,
     /// Mistral OCR configuration (cloud)
     pub mistral_ocr: Option<MistralOCRConfig>,
+    /// When true, prefer Windows System OCR when available and no explicit provider override.
+    #[serde(default)]
+    pub prefer_windows_system_ocr: bool,
 }
 
 /// Google Document AI configuration
@@ -95,6 +98,7 @@ impl Default for OCRConfig {
             nougat_path: None,
             glm_ocr: None,
             mistral_ocr: None,
+            prefer_windows_system_ocr: false,
         }
     }
 }

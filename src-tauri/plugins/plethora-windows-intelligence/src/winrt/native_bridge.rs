@@ -22,6 +22,14 @@ mod ffi {
             attestation_utf8: *const c_char,
         ) -> c_int;
         pub fn plethora_ocr_get_ready_state() -> c_int;
+        pub fn plethora_ocr_recognize_image(
+            image_data: *const u8,
+            image_len: c_uint,
+            out_buf: *mut c_char,
+            out_buf_len: c_uint,
+            err_buf: *mut c_char,
+            err_buf_len: c_uint,
+        ) -> c_int;
     }
 
     pub fn bridge_available() -> bool {
@@ -85,6 +93,29 @@ mod ffi {
             Err(String::from_utf8_lossy(&err[..nul]).to_string())
         }
     }
+
+    pub fn recognize_image(image_data: &[u8]) -> Result<String, String> {
+        if !bridge_available() {
+            return Err("winrt_bindings_pending".into());
+        }
+        let mut out = vec![0u8; 512 * 1024];
+        let mut err = vec![0u8; 512];
+        let rc = ffi::plethora_ocr_recognize_image(
+            image_data.as_ptr(),
+            image_data.len() as c_uint,
+            out.as_mut_ptr() as *mut c_char,
+            out.len() as c_uint,
+            err.as_mut_ptr() as *mut c_char,
+            err.len() as c_uint,
+        );
+        if rc == 0 {
+            let nul = out.iter().position(|&b| b == 0).unwrap_or(out.len());
+            Ok(String::from_utf8_lossy(&out[..nul]).to_string())
+        } else {
+            let nul = err.iter().position(|&b| b == 0).unwrap_or(err.len());
+            Err(String::from_utf8_lossy(&err[..nul]).to_string())
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -102,6 +133,9 @@ mod ffi {
         None
     }
     pub fn generate(_prompt: &str, _max_tokens: u32) -> Result<String, String> {
+        Err("winrt_bindings_pending".into())
+    }
+    pub fn recognize_image(_image_data: &[u8]) -> Result<String, String> {
         Err("winrt_bindings_pending".into())
     }
 }

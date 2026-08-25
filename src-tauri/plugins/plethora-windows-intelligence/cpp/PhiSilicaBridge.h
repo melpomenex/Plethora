@@ -33,6 +33,19 @@ int32_t plethora_phi_try_unlock_laf(
 /** TextRecognizer ready state as int, or negative when unavailable. */
 int32_t plethora_ocr_get_ready_state(void);
 
+/**
+ * Recognize text from encoded image bytes (JPEG/PNG/etc). Writes UTF-8 JSON to
+ * out_buf: {"text":"...","confidence":...,"lines":[{"text":"...","confidence":...,
+ * "left":...,"top":...,"right":...,"bottom":...}]}. Returns 0 on success.
+ */
+int32_t plethora_ocr_recognize_image(
+    const uint8_t* image_data,
+    uint32_t image_len,
+    char* out_buf,
+    uint32_t out_buf_len,
+    char* err_buf,
+    uint32_t err_buf_len);
+
 #ifdef __cplusplus
 }
 #endif
