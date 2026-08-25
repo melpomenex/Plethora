@@ -5869,5 +5869,17 @@ export const es: Dict = {
   "onDeviceAi.licensedPacksDescription": "Modelos opcionales. Nunca incluidos en la instalación. Cancela o elimina cuando quieras.",
   "onDeviceAi.packSize": "{size} MB",
   "onDeviceAi.packDelete": "Eliminar",
-  "onDeviceAi.packCancel": "Cancelar descarga"
+  "onDeviceAi.packCancel": "Cancelar descarga",
+
+  "onDeviceAi.appleFoundationStatus.available": "Listo",
+  "onDeviceAi.appleFoundationStatus.device_not_eligible": "No compatible",
+  "onDeviceAi.appleFoundationStatus.apple_intelligence_disabled": "Desactivado",
+  "onDeviceAi.appleFoundationStatus.unsupported_os": "SO no compatible",
+  "onDeviceAi.appleFoundationStatus.platform_unsupported": "No compatible",
+  "onDeviceAi.appleFoundationDetail.available": "Los resúmenes y las tarjetas usan Apple Foundation Models en este Mac: privado, sin conexión y gratis.",
+  "onDeviceAi.appleFoundationDetail.model_not_ready": "Apple Intelligence está instalando el modelo en el dispositivo. Se usarán proveedores en la nube hasta que termine.",
+  "onDeviceAi.appleFoundationDetail.device_not_eligible": "Este Mac no cumple los requisitos de hardware de Apple Intelligence.",
+  "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "Activa Apple Intelligence en Ajustes del sistema → Apple Intelligence y Siri.",
+  "onDeviceAi.appleFoundationDetail.unsupported_os": "Requiere macOS 26 o posterior con soporte de Apple Intelligence.",
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "Apple Foundation Models no están disponibles en esta plataforma."
 };

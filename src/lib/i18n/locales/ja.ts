@@ -5784,5 +5784,17 @@ export const ja: Dict = {
   "onDeviceAi.licensedPacksDescription": "任意モデルです。インストール時には同梱しません。いつでもキャンセルまたは削除できます。",
   "onDeviceAi.packSize": "{size} MB",
   "onDeviceAi.packDelete": "削除",
-  "onDeviceAi.packCancel": "ダウンロードをキャンセル"
+  "onDeviceAi.packCancel": "ダウンロードをキャンセル",
+
+  "onDeviceAi.appleFoundationStatus.available": "準備完了",
+  "onDeviceAi.appleFoundationStatus.device_not_eligible": "非対応",
+  "onDeviceAi.appleFoundationStatus.apple_intelligence_disabled": "無効",
+  "onDeviceAi.appleFoundationStatus.unsupported_os": "非対応 OS",
+  "onDeviceAi.appleFoundationStatus.platform_unsupported": "非対応",
+  "onDeviceAi.appleFoundationDetail.available": "要約とフラッシュカードはこの Mac の Apple Foundation Models で実行されます。プライベート、オフライン、無料です。",
+  "onDeviceAi.appleFoundationDetail.model_not_ready": "Apple Intelligence がオンデバイスモデルをインストール中です。完了するまでクラウドプロバイダーが使われます。",
+  "onDeviceAi.appleFoundationDetail.device_not_eligible": "この Mac は Apple Intelligence のハードウェア要件を満たしていません。",
+  "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "システム設定 → Apple Intelligence と Siri で Apple Intelligence をオンにしてください。",
+  "onDeviceAi.appleFoundationDetail.unsupported_os": "Apple Intelligence に対応した macOS 26 以降が必要です。",
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "このプラットフォームでは Apple Foundation Models は利用できません。"
 };

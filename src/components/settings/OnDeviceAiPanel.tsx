@@ -26,8 +26,10 @@ import {
 import {
   getAppleIntelligenceSnapshot,
   isAppleOsPlatform,
+  resetAppleIntelligenceCache,
 } from "../../lib/ai/apple/capabilities";
-import type { AppleIntelligenceSnapshot } from "../../lib/ai/apple/types";
+import type { AppleFeatureState } from "../../lib/ai/apple/types";
+import { nativePlatform } from "../../lib/tauri";
 import { OnDeviceProcessingBadge } from "../common/OnDeviceProcessingBadge";
 import { listLicensedModels } from "../../lib/ai/modelLicense";
 import { ToastType, useToastStore } from "../common/Toast";
@@ -40,6 +42,65 @@ const STATUS_KEY: Record<OnDeviceAiStatus["status"], string> = {
   unavailable: "unavailable",
 };
 
+const APPLE_FOUNDATION_REASONS = [
+  "model_not_ready",
+  "device_not_eligible",
+  "apple_intelligence_disabled",
+  "unsupported_os",
+  "platform_unsupported",
+] as const;
+
+type AppleFoundationReason = (typeof APPLE_FOUNDATION_REASONS)[number];
+
+function isMacOsPlatform(): boolean {
+  const platform = nativePlatform();
+  return platform === "macos" || platform === "darwin";
+}
+
+function resolveAppleFoundationReason(
+  state: AppleFeatureState | undefined,
+  foundationReason?: string,
+): AppleFoundationReason | "available" | "unknown" {
+  if (!state) return "unknown";
+  if (state.status === "available") return "available";
+  if (state.status === "downloading" || state.reason === "model_not_ready") {
+    return "model_not_ready";
+  }
+  const reason = state.reason ?? foundationReason;
+  if (reason && (APPLE_FOUNDATION_REASONS as readonly string[]).includes(reason)) {
+    return reason as AppleFoundationReason;
+  }
+  return "unknown";
+}
+
+function appleFoundationStatusKey(
+  resolved: ReturnType<typeof resolveAppleFoundationReason>,
+): string {
+  switch (resolved) {
+    case "available":
+      return "onDeviceAi.appleFoundationStatus.available";
+    case "model_not_ready":
+      return "onDeviceAi.status.downloading";
+    case "device_not_eligible":
+      return "onDeviceAi.appleFoundationStatus.device_not_eligible";
+    case "apple_intelligence_disabled":
+      return "onDeviceAi.appleFoundationStatus.apple_intelligence_disabled";
+    case "unsupported_os":
+      return "onDeviceAi.appleFoundationStatus.unsupported_os";
+    case "platform_unsupported":
+      return "onDeviceAi.appleFoundationStatus.platform_unsupported";
+    default:
+      return "onDeviceAi.status.unavailable";
+  }
+}
+
+function appleFoundationDetailKey(
+  resolved: ReturnType<typeof resolveAppleFoundationReason>,
+): string {
+  if (resolved === "unknown") return "onDeviceAi.appleUnavailable";
+  return `onDeviceAi.appleFoundationDetail.${resolved}`;
+}
+
 export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const { settings, updateSettings } = useSettingsStore();
   const addToast = useToastStore((s) => s.addToast);
@@ -47,6 +108,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
 
   const android = isOnDeviceAiSupportedPlatform();
   const appleOs = isAppleOsPlatform();
+  const macOs = appleOs && isMacOsPlatform();
 
   const [status, setStatus] = useState<OnDeviceAiStatus | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -81,6 +143,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   }, []);
 
   const refreshApple = useCallback(async () => {
+    resetAppleIntelligenceCache();
     setAppleSnap(await getAppleIntelligenceSnapshot());
   }, []);
 
@@ -254,6 +317,11 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
   const embedProgressText =
     embedPercent != null && embedDownloading ? ` ${embedPercent}%` : "";
 
+  const appleFoundationResolved = appleSnap
+    ? resolveAppleFoundationReason(appleSnap.foundationModels, appleSnap.foundationReason)
+    : "unknown";
+  const appleFoundationAvailable = appleFoundationResolved === "available";
+
   return (
     <SettingsSection
       title={t("onDeviceAi.sectionTitle")}
@@ -400,19 +468,69 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
         </>
       )}
 
-      {appleOs && (
+      {macOs && (
+        <>
+          <SettingsRow
+            label={t("onDeviceAi.appleFoundationLabel")}
+            description={
+              appleSnap
+                ? t(appleFoundationDetailKey(appleFoundationResolved))
+                : t("onDeviceAi.checking")
+            }
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {appleSnap ? t(appleFoundationStatusKey(appleFoundationResolved)) : "…"}
+              </span>
+              {appleFoundationAvailable && <OnDeviceProcessingBadge />}
+              <button
+                type="button"
+                onClick={() => void refreshApple()}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                {t("onDeviceAi.refresh")}
+              </button>
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            label={t("onDeviceAi.appleCoreAiTitle")}
+            description={
+              settings.features.appleCoreAI
+                ? t("onDeviceAi.appleCoreAiOn")
+                : t("onDeviceAi.appleCoreAiOff")
+            }
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("onDeviceAi.appleCoreAiLocal")}
+            </span>
+          </SettingsRow>
+        </>
+      )}
+
+      {appleOs && !macOs && (
         <>
           <SettingsRow
             label={t("onDeviceAi.appleSectionTitle")}
             description={
               appleSnap?.foundationModels.status === "available"
-                ? t("onDeviceAi.appleFoundationLabel")
+                ? t("onDeviceAi.appleFoundationDetail.available")
                 : appleSnap
-                  ? `${t("onDeviceAi.appleUnavailable")} (${appleSnap.foundationModels.reason ?? appleSnap.foundationReason ?? "unavailable"})`
+                  ? t(
+                      appleFoundationDetailKey(
+                        resolveAppleFoundationReason(
+                          appleSnap.foundationModels,
+                          appleSnap.foundationReason,
+                        ),
+                      ),
+                    )
                   : t("onDeviceAi.checking")
             }
           >
-            <OnDeviceProcessingBadge />
+            <div className="flex items-center gap-3">
+              {appleSnap?.foundationModels.status === "available" && (
+                <OnDeviceProcessingBadge />
+              )}
+            </div>
           </SettingsRow>
           <SettingsRow
             label={t("onDeviceAi.appleCoreAiTitle")}

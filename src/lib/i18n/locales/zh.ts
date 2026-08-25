@@ -5700,5 +5700,17 @@ export const zh: Dict = {
   "onDeviceAi.licensedPacksDescription": "可选模型。安装时不会捆绑。可随时取消或删除。",
   "onDeviceAi.packSize": "{size} MB",
   "onDeviceAi.packDelete": "删除",
-  "onDeviceAi.packCancel": "取消下载"
+  "onDeviceAi.packCancel": "取消下载",
+
+  "onDeviceAi.appleFoundationStatus.available": "就绪",
+  "onDeviceAi.appleFoundationStatus.device_not_eligible": "不符合条件",
+  "onDeviceAi.appleFoundationStatus.apple_intelligence_disabled": "已关闭",
+  "onDeviceAi.appleFoundationStatus.unsupported_os": "系统版本不支持",
+  "onDeviceAi.appleFoundationStatus.platform_unsupported": "平台不支持",
+  "onDeviceAi.appleFoundationDetail.available": "摘要与闪卡通过本 Mac 上的 Apple 基础模型运行——私密、离线、免费。",
+  "onDeviceAi.appleFoundationDetail.model_not_ready": "Apple 智能正在安装端侧模型，完成前将使用云端服务。",
+  "onDeviceAi.appleFoundationDetail.device_not_eligible": "此 Mac 不符合 Apple 智能的硬件要求。",
+  "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "请在「系统设置 → Apple 智能与 Siri」中开启 Apple 智能。",
+  "onDeviceAi.appleFoundationDetail.unsupported_os": "需要 macOS 26 或更高版本并支持 Apple 智能。",
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "此平台不支持 Apple 基础模型。"
 };
