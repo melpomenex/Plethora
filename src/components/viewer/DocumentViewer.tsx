@@ -5673,6 +5673,7 @@ export function DocumentViewer({
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlSource, "text/html");
+      doc.querySelectorAll("style, link[rel='stylesheet']").forEach((el) => el.remove());
       if (!preserveImages) {
         const styleTag = doc.createElement("style");
         styleTag.textContent = `
@@ -6162,7 +6163,15 @@ export function DocumentViewer({
       const doc = frame?.contentDocument;
       if (!doc) return;
 
-    let style = doc.getElementById("html-viewer-styles") as HTMLStyleElement | null;
+      // Publisher stylesheets (arXiv LaTeXML, etc.) fight the reader theme —
+      // especially on dark backgrounds where they pin ink colors to near-black.
+      doc.querySelectorAll('style:not(#html-viewer-styles), link[rel="stylesheet"]').forEach((el) => {
+        el.remove();
+      });
+      const isImportedArticle = Boolean(doc.querySelector('.inc-article, .ltx_document'));
+      const readingColumnMax = isImportedArticle ? '68ch' : '850px';
+
+      let style = doc.getElementById("html-viewer-styles") as HTMLStyleElement | null;
     if (!style) {
       style = doc.createElement("style");
       style.id = "html-viewer-styles";
@@ -6248,9 +6257,9 @@ export function DocumentViewer({
         font-size: ${fs.fontSize}px !important;
         line-height: ${fs.lineHeight} !important;
         font-family: ${ff} !important;
-        max-width: 850px !important;
+        max-width: ${readingColumnMax} !important;
         margin: 0 auto !important;
-        padding: 1.5rem !important;
+        padding: 1.5rem 1.25rem !important;
       }
       /* Strip cosmetic inline styles from all elements so theme tokens apply */
       body * {
@@ -6463,9 +6472,10 @@ export function DocumentViewer({
       }
       /* Canonical imported article layout (inc-article pipeline). */
       article.inc-article {
-        max-width: 78ch !important;
+        max-width: 100% !important;
         margin: 0 auto !important;
         padding: 0 !important;
+        color: ${fg} !important;
       }
       article.inc-article header {
         margin-bottom: 1.75rem !important;
@@ -6498,6 +6508,42 @@ export function DocumentViewer({
       }
       article.inc-article .inc-body {
         margin-top: 1.25rem !important;
+        color: ${fg} !important;
+      }
+      /* LaTeXML / legacy arXiv HTML inside imported articles */
+      .ltx_document {
+        max-width: 100% !important;
+        margin: 0 auto !important;
+        color: ${fg} !important;
+      }
+      .ltx_document .ltx_p,
+      .ltx_document p,
+      .ltx_document li,
+      .ltx_document dt,
+      .ltx_document dd,
+      .ltx_document th,
+      .ltx_document td,
+      .ltx_document h1,
+      .ltx_document h2,
+      .ltx_document h3,
+      .ltx_document h4,
+      .ltx_document h5,
+      .ltx_document h6,
+      .inc-article .inc-body p,
+      .inc-article .inc-body li,
+      .inc-article .inc-body td,
+      .inc-article .inc-body th,
+      .inc-article .inc-body span:not(.ltx_note_mark) {
+        color: inherit !important;
+        -webkit-text-fill-color: inherit !important;
+      }
+      .ltx_page_navbar,
+      .arxiv-html-header,
+      .ds-announcement,
+      .ds-site-footer,
+      .ltx_TOC,
+      dialog {
+        display: none !important;
       }
       article.inc-article .inc-hero img {
         display: block !important;
