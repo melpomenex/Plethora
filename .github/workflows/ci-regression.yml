@@ -83,6 +83,38 @@ jobs:
         env:
           RUST_MIN_STACK: 33554432
 
+  windows-native-ai-compile:
+    name: Windows native AI compile check
+    runs-on: windows-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Increase Rust stack size (Windows)
+        run: echo "RUST_MIN_STACK=33554432" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check Windows intelligence plugin
+        working-directory: src-tauri
+        run: cargo check -p plethora-windows-intelligence && cargo test -p plethora-windows-intelligence
+
+      - name: Check main crate (Windows)
+        working-directory: src-tauri
+        run: cargo check -p plethora-tauri
+
   bundle-size:
     runs-on: ubuntu-latest
     needs: test

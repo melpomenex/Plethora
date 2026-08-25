@@ -411,7 +411,9 @@ interface AISettings {
   preferredOnDeviceProviderId?:
     | "ondevice-gemini-nano"
     | "ondevice-apple-foundation"
-    | "ondevice-apple-coreai";
+    | "ondevice-apple-coreai"
+    | "ondevice-windows-system"
+    | "ondevice-foundry-local";
   /**
    * Whether an on-device failure may automatically retry on a configured
    * cloud provider (design D27). Default **false** since ai-billing-safety
@@ -711,6 +713,10 @@ interface FeatureFlags {
   appleNaturalLanguageEmbeddings: boolean;
   /** Phase 4; default off until iOS 27 catalog work is ready. */
   appleCoreAI: boolean;
+  /** Windows System AI (Phi Silica) via plethora-windows-intelligence. */
+  windowsSystemAi: boolean;
+  /** Experimental WinRT structured-output paths on Windows desktop. */
+  windowsAiExperimental: boolean;
 }
 
 /**
@@ -907,6 +913,13 @@ export interface LanguageLearningSettings {
   showUnavailableProviders: boolean;
 }
 
+/** Foundry Local (Windows Tier-2 on-device LLM runtime). */
+export interface FoundryLocalSettings {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+}
+
 /**
  * Main Settings Interface
  */
@@ -930,6 +943,7 @@ export interface Settings {
   rssSummary: RSSSummarySettings;
   youtube: YouTubeSettings;
   features: FeatureFlags;
+  foundryLocal: FoundryLocalSettings;
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
   handsFreeStudy: HandsFreeStudySettings;
@@ -1264,6 +1278,13 @@ export const defaultSettings: Settings = {
     appleVisionScan: true,
     appleNaturalLanguageEmbeddings: true,
     appleCoreAI: false,
+    windowsSystemAi: true,
+    windowsAiExperimental: false,
+  },
+  foundryLocal: {
+    enabled: false,
+    baseUrl: "http://127.0.0.1:52725",
+    model: "",
   },
   audioReviewMode: {
     enabled: false,
@@ -1586,6 +1607,14 @@ export const useSettingsStore = create<SettingsState>()(
           rssSummary: { ...defaultSettings.rssSummary, ...persisted.rssSummary },
           youtube: { ...defaultSettings.youtube, ...persisted.youtube },
           features: { ...defaultSettings.features, ...persisted.features },
+          foundryLocal: {
+            ...defaultSettings.foundryLocal,
+            ...persisted.foundryLocal,
+            model:
+              persisted.foundryLocal?.model ??
+              (persisted.foundryLocal as { modelAlias?: string } | undefined)?.modelAlias ??
+              defaultSettings.foundryLocal.model,
+          },
           audioReviewMode: { ...defaultSettings.audioReviewMode, ...persisted.audioReviewMode },
           embedding: { ...defaultSettings.embedding, ...persisted.embedding },
           handsFreeStudy: mergeHandsFreeStudySettings(persisted.handsFreeStudy),

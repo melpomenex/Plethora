@@ -19,6 +19,7 @@ import { recordTaskDiagnostic } from "../diagnostics";
 import { AIError, isCancelledError, toAIError } from "../errors";
 import { appleFmSupportsNativeSchema } from "../apple/nativeSchemas";
 import { APPLE_FOUNDATION_PROVIDER_ID } from "../providers/appleFoundationProvider";
+import { getRoutingProviders } from "../providers";
 import { requestCloudFallback } from "../provider";
 import type {
   AIModelCapabilities,
@@ -282,14 +283,32 @@ async function executeTask<I, O>(
     // is set or the ai-fallback consent surface is approved. A denial stops
     // the operation (the original error surfaces to the caller's UI), and a
     // user cancellation or on-device safety refusal never re-sends content.
-    if (
-      provider.kind === "ondevice" &&
+  const cloudFallbackEligible =
+      (provider.kind === "ondevice" || provider.kind === "local-model") &&
       !options.kind &&
       !options.provider &&
       !options.signal?.aborted &&
       mapped.category !== "Cancelled" &&
-      mapped.category !== "SafetyBlocked"
-    ) {
+      mapped.category !== "SafetyBlocked" &&
+      mapped.category !== "CapabilityUnavailable" &&
+      mapped.category !== "ModelDownloadRequired" &&
+      mapped.category !== "Busy";
+
+    if (cloudFallbackEligible) {
+      const all = getRoutingProviders();
+      const failedIdx = all.findIndex((p) => p.id === provider.id);
+      if (failedIdx >= 0) {
+        for (const next of all.slice(failedIdx + 1).filter((p) => p.kind !== "cloud")) {
+          const altRoute = await resolveTaskRoute(task, { providers: [next] }).catch(() => null);
+          if (!altRoute) continue;
+          try {
+            return await executeTask(task, input, { ...options, provider: next });
+          } catch {
+            // Try remaining on-device / local-model providers before cloud.
+          }
+        }
+      }
+
       const cloudRoute = await resolveTaskRoute(task, { kind: "cloud" }).catch(() => null);
       if (cloudRoute && (await requestCloudFallback(task.id))) {
         try {

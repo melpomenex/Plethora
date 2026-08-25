@@ -91,6 +91,9 @@ plethora-android-search = { path = "plugins/plethora-android-search" }
 # NaturalLanguage, Core AI). Non-Apple targets return platform_unsupported.
 # See plugins/plethora-apple-intelligence/.
 plethora-apple-intelligence = { path = "plugins/plethora-apple-intelligence" }
+# Windows on-device intelligence (Phi Silica / Windows AI APIs). Non-Windows
+# targets return platform_unsupported. See plugins/plethora-windows-intelligence/.
+plethora-windows-intelligence = { path = "plugins/plethora-windows-intelligence" }
 window-vibrancy = "0.6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

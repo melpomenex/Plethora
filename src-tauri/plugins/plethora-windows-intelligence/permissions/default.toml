@@ -1,0 +1,17 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the Windows on-device intelligence plugin commands. Off Windows the
+Rust shims return platform_unsupported; on Windows the plugin probes package
+identity, OS version, and WinRT readiness before serving Phi Silica requests.
+"""
+permissions = [
+  "allow-windows-capabilities",
+  "allow-windows-lm-generate",
+  "allow-windows-lm-generate-stream",
+  "allow-windows-lm-cancel",
+  "allow-windows-lm-warmup",
+  "allow-windows-lm-ensure-ready",
+  "allow-windows-ocr-status"
+]
