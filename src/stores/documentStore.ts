@@ -1,5 +1,6 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import { Document, Extract } from "../types";
+import type { DocumentMetadata } from "../types/document";
 import * as documentsApi from "../api/documents";
 import * as segmentationApi from "../api/segmentation";
 import { isKindleClippingsFilename } from "../utils/kindleClippingsImport";
@@ -8,14 +9,16 @@ import { openKindleImportDialog } from "./kindleImportDialogStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSmartTaggingQueueStore } from "./smartTaggingQueueStore";
-import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
+import { importFromUrl as importFromUrlUtil, importArxivPdf } from "../utils/documentImport";
 import { importArticle } from "../utils/articleImport/importPipeline";
 import type { ArticleImportOutcome } from "../utils/articleImport/importPipeline";
 import { importRawFallbackPage } from "../utils/articleImport/rawFallback";
 import { ArticleImportError } from "../utils/articleImport/errors";
 import { normalizeArticleUrl } from "../utils/articleImport/urlNormalizer";
+import { parseArxivInput, resolveImportSource } from "../utils/articleImport/arxivResolver";
 import { EXTRACTOR_VERSION, SNAPSHOT_MAX_AGE_DAYS } from "../utils/articleImport/extractor-config";
 import type { WebArticleProvenance } from "../types/document";
+import { getArxivPaper, type ArxivPaper } from "../api/arxiv";
 import { resolveImportCategory } from "../utils/importCategory";
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
@@ -106,7 +109,7 @@ function isDirectFileUrl(url: string): boolean {
  *  metadata + canonical source_url + cover) → tags/category/priority. */
 async function persistWebArticleOutcome(
   outcome: ArticleImportOutcome,
-  options: { extraTags?: string[]; rawFallback?: boolean } = {}
+  options: NewDocumentPersistencePolicy = {}
 ): Promise<Document> {
   const { article, diagnostics } = outcome;
   const hostname = hostnameOf(outcome.canonicalUrl);
@@ -173,7 +176,7 @@ async function persistWebArticleOutcome(
     }
   }
 
-  const metadata = {
+  const metadata: DocumentMetadata = {
     source: diagnostics.originalUrl,
     fetchedAt: now,
     language: article.language ?? "en",
@@ -184,30 +187,181 @@ async function persistWebArticleOutcome(
     wordCount: article.stats.words,
     readingTime: Math.ceil(article.stats.words / 250),
     webArticle: provenance,
+    ...options.metadata,
   };
 
-  const updated = await documentsApi.updateWebArticle(
-    doc.id,
-    article.contentHtml,
-    metadata,
-    outcome.canonicalUrl,
-    article.heroImage
-  );
+  try {
+    const updated = await documentsApi.updateWebArticle(
+      doc.id,
+      article.contentHtml,
+      metadata,
+      outcome.canonicalUrl,
+      article.heroImage
+    );
 
-  const tags = Array.from(
-    new Set(["web-import", ...(hostname && hostname !== "web" ? [hostname] : []), ...(options.extraTags ?? [])])
-  );
-  const finalDoc = await documentsApi.updateDocument(updated.id, {
-    ...updated,
-    tags,
-    category: "Web Import",
-    prioritySlider: 50,
-    priorityScore: 5,
-  } as Document);
+    const tags = Array.from(
+      new Set(["web-import", ...(hostname && hostname !== "web" ? [hostname] : []), ...(options.extraTags ?? [])])
+    );
+    const finalDoc = await documentsApi.updateDocument(updated.id, {
+      ...updated,
+      tags,
+      category: options.category ?? "Web Import",
+      priorityRating: options.priorityRating ?? updated.priorityRating ?? 0,
+      prioritySlider: options.prioritySlider ?? 50,
+      priorityScore: options.priorityScore ?? 5,
+    } as Document);
 
-  useSmartTaggingQueueStore.getState().enqueue(finalDoc.id);
+    useSmartTaggingQueueStore.getState().enqueue(finalDoc.id);
+    return finalDoc;
+  } catch (error) {
+    // A provisionally created shell must not survive as a misleading HTML
+    // document when canonical content/provenance persistence fails.
+    try {
+      await documentsApi.deleteDocument(doc.id);
+    } catch (cleanupError) {
+      console.warn("[documentStore] failed to clean up provisional web article", cleanupError);
+    }
+    throw error;
+  }
+}
 
-  return finalDoc;
+type CanonicalMetadataAugmentation = Partial<
+  Pick<
+    DocumentMetadata,
+    'arxivId' | 'arxivUrl' | 'pdfUrl' | 'htmlUrl' | 'keywords' | 'subject' | 'createdAt'
+  >
+>;
+
+interface NewDocumentPersistencePolicy {
+  extraTags?: string[];
+  category?: string;
+  priorityRating?: number;
+  prioritySlider?: number;
+  priorityScore?: number;
+  metadata?: CanonicalMetadataAugmentation;
+  rawFallback?: boolean;
+}
+
+interface CanonicalArticleImportOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: { stage: string; detail?: string }) => void;
+  policy?: NewDocumentPersistencePolicy;
+  resolvePolicy?: () => Promise<NewDocumentPersistencePolicy>;
+}
+
+function arxivPersistencePolicy(
+  identity: NonNullable<ReturnType<typeof parseArxivInput>>,
+  paper?: ArxivPaper | null
+): NewDocumentPersistencePolicy {
+  const categories = paper?.categories ?? [];
+  return {
+    extraTags: ['arxiv', 'research', ...categories.slice(0, 3)],
+    category: 'Research Papers',
+    priorityRating: 0,
+    prioritySlider: 0,
+    priorityScore: 7,
+    metadata: {
+      arxivId: identity.paperId,
+      arxivUrl: identity.absUrl,
+      pdfUrl: identity.pdfUrl,
+      htmlUrl: identity.htmlUrl,
+      keywords: categories,
+      subject: paper?.primaryCategory,
+      createdAt: paper?.published,
+    },
+  };
+}
+
+/** Shared future-article orchestration used by generic and dedicated HTML. */
+async function importCanonicalArticle(
+  url: string,
+  options: CanonicalArticleImportOptions,
+  set: StoreApi<DocumentState>['setState']
+): Promise<Document> {
+  const normalized = normalizeArticleUrl(url);
+  if (!normalized.valid) {
+    const error = new ArticleImportError('invalid_url', normalized.error);
+    set({
+      error: error.message,
+      isImporting: false,
+      importProgress: { current: 0, total: 0 },
+    });
+    throw error;
+  }
+  const source = resolveImportSource(normalized.normalized);
+  const dedupeKey = source.canonicalUrl;
+
+  const inFlight = inflightUrlImports.get(dedupeKey);
+  if (inFlight) return inFlight;
+
+  const surfaceExisting = async (candidateUrl: string): Promise<Document | null> => {
+    try {
+      const existingId = await documentsApi.findDocumentIdBySourceUrl(candidateUrl);
+      return existingId ? await documentsApi.getDocument(existingId) : null;
+    } catch (error) {
+      console.warn("[DocumentStore] dedupe lookup failed (non-fatal)", error);
+      return null;
+    }
+  };
+
+  const promise = (async (): Promise<Document> => {
+    const preExisting = await surfaceExisting(dedupeKey);
+    if (preExisting) {
+      set({ importProgress: { current: 1, total: 1, fileName: preExisting.title } });
+      return preExisting;
+    }
+
+    if (!snapshotRetentionSwept && isTauri()) {
+      snapshotRetentionSwept = true;
+      void documentsApi
+        .cleanupSourceSnapshots(SNAPSHOT_MAX_AGE_DAYS)
+        .catch((error) => console.warn("[documentStore] snapshot retention sweep failed", error));
+    }
+
+    set({
+      importProgress: {
+        current: 0,
+        total: 1,
+        fileName: `Extracting article from ${hostnameOf(source.canonicalUrl)}...`,
+      },
+    });
+    const outcome = await importArticle(url, {
+      signal: options.signal,
+      onProgress: options.onProgress,
+    });
+
+    const postExisting = await surfaceExisting(outcome.canonicalUrl);
+    if (postExisting) return postExisting;
+
+    const policy = options.resolvePolicy
+      ? await options.resolvePolicy()
+      : (options.policy ?? {});
+    const doc = await persistWebArticleOutcome(outcome, policy);
+    set((state) => ({
+      documents: [...state.documents, doc],
+      importProgress: { current: 1, total: 1, fileName: doc.title },
+    }));
+    return doc;
+  })();
+  inflightUrlImports.set(dedupeKey, promise);
+
+  try {
+    return await promise;
+  } catch (error) {
+    set({
+      error:
+        error instanceof ArticleImportError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : 'Failed to import from URL',
+      importProgress: { current: 0, total: 0 },
+    });
+    throw error;
+  } finally {
+    if (inflightUrlImports.get(dedupeKey) === promise) inflightUrlImports.delete(dedupeKey);
+    set({ isImporting: false });
+  }
 }
 
 
@@ -382,7 +536,11 @@ interface DocumentState {
   importTwitterThread: (url: string, collectionId?: string) => Promise<Document>;
   /** Delete every stored raw-source snapshot (retention setting off). */
   deleteAllSourceSnapshots: () => Promise<number>;
-  importFromArxiv: (arxivIdOrUrl: string, format?: 'pdf' | 'html') => Promise<Document>;
+  importFromArxiv: (
+    arxivIdOrUrl: string,
+    format?: 'pdf' | 'html',
+    paper?: ArxivPaper
+  ) => Promise<Document>;
   openFilePickerAndImport: () => Promise<Document[]>;
   segmentDocument: (documentId: string, fileType?: string) => Promise<number>;
   setExtracts: (extracts: Extract[]) => void;
@@ -1095,93 +1253,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
     }
 
-    // ── Article pipeline path ────────────────────────────────────────────
-    const normalized = normalizeArticleUrl(url);
-    const dedupeKey = normalized.valid ? normalized.normalized : url;
-
-    // Coalesce rapid re-shares of the same URL into one import.
-    const inflight = inflightUrlImports.get(dedupeKey);
-    if (inflight) {
-      return inflight;
-    }
-
-    // Canonical-URL dedupe: surface the existing document instead of a dupe.
-    const surfaceExisting = async (): Promise<Document | null> => {
-      try {
-        const existingId = await documentsApi.findDocumentIdBySourceUrl(dedupeKey);
-        if (existingId) {
-          const existing = await documentsApi.getDocument(existingId);
-          if (existing) return existing;
-        }
-      } catch (e) {
-        console.warn("[DocumentStore] dedupe lookup failed (non-fatal)", e);
-      }
-      return null;
-    };
-
-    // Register the in-flight promise BEFORE any await so a rapid re-share
-    // coalesces even while the pre-create dedupe lookup is still running.
-    const promise = (async (): Promise<Document> => {
-      const preExisting = await surfaceExisting();
-      if (preExisting) {
-        set({ isImporting: false, importProgress: { current: 1, total: 1, fileName: preExisting.title } });
-        return preExisting;
-      }
-
-      // Session-lazy snapshot retention sweep (180 days).
-      if (!snapshotRetentionSwept && isTauri()) {
-        snapshotRetentionSwept = true;
-        void documentsApi
-          .cleanupSourceSnapshots(SNAPSHOT_MAX_AGE_DAYS)
-          .catch((e) => console.warn("[documentStore] snapshot retention sweep failed", e));
-      }
-
-      set({ importProgress: { current: 0, total: 1, fileName: `Extracting article from ${hostnameOf(url)}...` } });
-      const outcome = await importArticle(url, {
-        signal: options?.signal,
-        onProgress: options?.onProgress,
-      });
-
-      // Post-fetch dedupe: the canonical URL is authoritative once known.
-      try {
-        const canonicalId = await documentsApi.findDocumentIdBySourceUrl(outcome.canonicalUrl);
-        if (canonicalId) {
-          const existing = await documentsApi.getDocument(canonicalId);
-          if (existing) return existing;
-        }
-      } catch (e) {
-        console.warn("[DocumentStore] canonical dedupe lookup failed (non-fatal)", e);
-      }
-
-      const doc = await persistWebArticleOutcome(outcome);
-
-      set((state) => ({
-        documents: [...state.documents, doc],
-        importProgress: { current: 1, total: 1, fileName: doc.title }
-      }));
-      return doc;
-    })();
-    inflightUrlImports.set(dedupeKey, promise);
-
-    try {
-      return await promise;
-    } catch (error) {
-      console.error('[DocumentStore] Article import failed:', error);
-      set({
-        error:
-          error instanceof ArticleImportError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : 'Failed to import from URL',
-        isImporting: false,
-        importProgress: { current: 0, total: 0 }
-      });
-      throw error;
-    } finally {
-      inflightUrlImports.delete(dedupeKey);
-      set({ isImporting: false });
-    }
+    return importCanonicalArticle(
+      url,
+      { signal: options?.signal, onProgress: options?.onProgress },
+      set
+    );
   },
 
   importRawPageFromUrl: async (url, options) => {
@@ -1465,12 +1541,42 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
   },
 
-  importFromArxiv: async (arxivIdOrUrl, format: 'pdf' | 'html' = 'pdf') => {
+  importFromArxiv: async (arxivIdOrUrl, format: 'pdf' | 'html' = 'pdf', paper) => {
     set({ isImporting: true, error: null, importProgress: { current: 0, total: 2, fileName: 'Fetching paper metadata...' } });
 
+    if (format === 'html') {
+      const identity = parseArxivInput(arxivIdOrUrl);
+      if (!identity) {
+        const error = new Error('Invalid Arxiv ID or URL');
+        set({
+          error: error.message,
+          isImporting: false,
+          importProgress: { current: 0, total: 0 },
+        });
+        throw error;
+      }
+      return importCanonicalArticle(
+        identity.absUrl,
+        {
+          resolvePolicy: async () => {
+            let resolvedPaper = paper;
+            if (!resolvedPaper) {
+              try {
+                resolvedPaper = (await getArxivPaper(identity.paperId)) ?? undefined;
+              } catch (error) {
+                console.warn('[DocumentStore] arXiv metadata enrichment failed (non-fatal)', error);
+              }
+            }
+            return arxivPersistencePolicy(identity, resolvedPaper);
+          },
+        },
+        set
+      );
+    }
+
     try {
-      // Use existing utility to fetch from Arxiv
-      const docData = await importFromArxivUtil(arxivIdOrUrl, format);
+      // PDF remains on the existing metadata/download/persistence contract.
+      const docData = await importArxivPdf(arxivIdOrUrl);
 
       set({ importProgress: { current: 1, total: 2, fileName: 'Creating document...' } });
 

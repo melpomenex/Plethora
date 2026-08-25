@@ -21,7 +21,7 @@ vi.mock("../collectionStore", () => ({
 }));
 vi.mock("../../utils/documentImport", () => ({
   importFromUrl: vi.fn(),
-  importFromArxiv: vi.fn(),
+  importArxivPdf: vi.fn(),
 }));
 vi.mock("../../lib/tauri", () => ({ listen: vi.fn(), isTauri: () => false, isNativeMobile: () => false }));
 vi.mock("../../lib/feedback", () => ({ emitFeedback: emitFeedbackMock }));
