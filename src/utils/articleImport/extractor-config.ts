@@ -9,7 +9,7 @@
 
 /** Bump whenever scorer weights/thresholds or normalization semantics change
  * in a way that could alter extraction outcomes. Persisted with each import. */
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Scoring thresholds (design D3)

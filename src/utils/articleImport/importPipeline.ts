@@ -409,6 +409,7 @@ export async function importArticle(
   const sanitized = await sanitizeArticleHtml(normalizedArticleResult.article.contentHtml);
   timer.mark('sanitization', sanitizeStart);
   throwIfAborted(signal);
+  diagnostics.normalizationWarnings.push(...sanitized.warnings);
 
   // 12. Degenerate-sanitization detection.
   const preText = normalizedArticleResult.article.textContent;
