@@ -16,6 +16,7 @@
  */
 
 import type { ExtractionCandidate } from '../../types';
+import { extractArxivHtml } from './arxiv';
 
 export type SiteExtractor = (doc: Document, url: string) => ExtractionCandidate | null;
 
@@ -27,7 +28,12 @@ interface SiteRule {
   extract: SiteExtractor;
 }
 
-const RULES: readonly SiteRule[] = [];
+const RULES: readonly SiteRule[] = [
+  {
+    domain: 'arxiv.org',
+    extract: extractArxivHtml,
+  },
+];
 
 /** Registry lookup for a URL's host — the first extractor in the chain. */
 export function siteSpecificExtractorFor(url: string): SiteExtractor | null {

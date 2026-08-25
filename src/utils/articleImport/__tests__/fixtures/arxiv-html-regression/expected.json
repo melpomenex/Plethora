@@ -1,0 +1,21 @@
+{
+  "url": "https://arxiv.org/html/2410.07524v1",
+  "title": "Upcycling Large Language Models into Mixture of Experts",
+  "authors": ["Ethan He", "Abhinav Khattar"],
+  "minWords": 400,
+  "mustContain": [
+    "mixture-of-experts",
+    "MoE",
+    "MMLU",
+    "virtual group"
+  ],
+  "mustNotContain": [
+    "Learn more",
+    "Report Issue",
+    "Toggle navigation",
+    "arXiv is now an independent nonprofit"
+  ],
+  "expectedExtractor": "site:arxiv.org",
+  "confidenceAtLeast": "medium",
+  "minImages": 1
+}

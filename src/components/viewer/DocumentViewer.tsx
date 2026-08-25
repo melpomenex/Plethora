@@ -6461,6 +6461,62 @@ export function DocumentViewer({
         margin: 1em 0 !important;
         font-style: italic !important;
       }
+      /* Canonical imported article layout (inc-article pipeline). */
+      article.inc-article {
+        max-width: 78ch !important;
+        margin: 0 auto !important;
+        padding: 0 !important;
+      }
+      article.inc-article header {
+        margin-bottom: 1.75rem !important;
+        padding-bottom: 1rem !important;
+        border-bottom: 1px solid ${border} !important;
+      }
+      article.inc-article .inc-publication {
+        color: ${mutedFg} !important;
+        font-size: 0.8rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.06em !important;
+        margin: 0 0 0.5rem !important;
+      }
+      article.inc-article .inc-title {
+        font-size: 2rem !important;
+        line-height: 1.2 !important;
+        margin: 0 0 0.5rem !important;
+        border-bottom: none !important;
+        padding-bottom: 0 !important;
+      }
+      article.inc-article .inc-dek {
+        color: ${mutedFg} !important;
+        font-size: 1.05rem !important;
+        margin: 0 0 0.75rem !important;
+      }
+      article.inc-article .inc-byline {
+        color: ${mutedFg} !important;
+        font-size: 0.9rem !important;
+        margin: 0 !important;
+      }
+      article.inc-article .inc-body {
+        margin-top: 1.25rem !important;
+      }
+      article.inc-article .inc-hero img {
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        margin: 0 auto !important;
+        border-radius: 6px !important;
+      }
+      article.inc-article .inc-body table {
+        display: block !important;
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+      }
+      article.inc-article math,
+      article.inc-article .ltx_equation {
+        overflow-x: auto !important;
+        max-width: 100% !important;
+      }
       a { color: ${primary} !important;
         text-decoration: underline !important;
         text-underline-offset: 2px !important;

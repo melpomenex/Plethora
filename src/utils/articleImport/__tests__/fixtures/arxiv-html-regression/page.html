@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Upcycling Large Language Models into Mixture of Experts</title>
+</head>
+<body>
+<div class="ds-announcement">arXiv is now an independent nonprofit! <a href="#">Learn more</a></div>
+<header class="arxiv-html-header"><nav class="html-header-nav"><a href="#">Report Issue</a><a href="#">Toggle navigation</a></nav></header>
+<nav class="ltx_page_navbar"><nav class="ltx_TOC"><ol><li class="ltx_tocentry"><a href="#S1">Introduction</a></li></ol></nav></nav>
+<article class="ltx_document ltx_authors_1line" lang="en">
+<h1 class="ltx_title ltx_title_document">Upcycling Large Language Models into Mixture of Experts</h1>
+<div class="ltx_authors">
+<span class="ltx_creator ltx_role_author"><span class="ltx_personname">Ethan He</span></span>
+<span class="ltx_creator ltx_role_author"><span class="ltx_personname">Abhinav Khattar</span></span>
+<span class="ltx_creator ltx_role_author"><span class="ltx_personname">Ryan Prenger</span></span>
+</div>
+<div id="abstract1" class="ltx_abstract"><h6 class="ltx_title ltx_title_abstract">Abstract</h6>
+<div class="ltx_para"><p class="ltx_p">Upcycling pre-trained dense language models into sparse mixture-of-experts (MoE) models is an efficient approach to increase the model capacity of already trained models. However, optimal techniques for upcycling at scale remain unclear. In this work, we conduct an extensive study of upcycling methods and hyperparameters for billion-parameter scale language models. We propose a novel “virtual group” initialization scheme and weight scaling approach to enable upcycling into fine-grained MoE architectures. Through ablations, we find that upcycling outperforms continued dense model training. In addition, we show that softmax-then-topK expert routing improves over topK-then-softmax approach and higher granularity MoEs can help improve accuracy. Finally, we upcycled Nemotron-4 15B on 1T tokens and compared it to a continuously trained version of the same model on the same 1T tokens: the continuous trained model achieved 65.3% MMLU, whereas the upcycled model achieved 67.6%. Our results offer insights and best practices to effectively leverage upcycling for building MoE language models.</p></div>
+</div>
+<section id="S1" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
+<div class="ltx_para"><p class="ltx_p">Sparse Mixture of Experts (MoE) models are becoming increasingly popular since they can help achieve better accuracy without a commensurate increase in model training compute. Upcycling pre-trained dense language models into sparse mixture-of-experts models has emerged as an efficient approach to increase model capacity without the need for training from scratch. By leveraging the knowledge captured in existing dense checkpoints, upcycling enables the creation of large-scale mixture-of-experts models while reducing the computational cost and time required for training.</p></div>
+<div class="ltx_para"><p class="ltx_p">Most previous work on upcycling either does not provide details into how their models were upcycled, or provides experiments only at a small scale. To improve general knowledge on upcycling methods, we therefore publish this study of upcycling methods and best practices for billion-parameter scale language models.</p></div>
+<div class="ltx_para"><p class="ltx_p">In this work, we conduct an extensive study of upcycling techniques and hyperparameters. Our contributions include training recipes to consistently upcycle billion-parameter scale LLMs, a comprehensive study of learning rate and batch size, and a novel virtual group initialization scheme for fine-grained MoE architectures.</p></div>
+</section>
+<section id="S2" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">2 </span>Methodology</h2>
+<div class="ltx_para"><p class="ltx_p">In this work, we only investigate MoEs on the MLP layer of the transformer. These layers comprise the majority of compute and treat each token individually, avoiding issues with kv-cache consistency. A routing layer routes the tokens to a subset of multiple possible MLP layers.</p></div>
+<figure class="ltx_figure" id="S2.F1">
+<img src="x1.png" class="ltx_graphics" alt="MoE diagram">
+<figcaption class="ltx_caption">Figure 1: Converting pre-trained dense checkpoint into Mixture of Experts.</figcaption>
+</figure>
+<div class="ltx_para"><p class="ltx_p">The standard MoE router formulation performs a softmax on router logits followed by a topK. The activations from the experts are then multiplied by the softmax probability.</p></div>
+<table class="ltx_tabular">
+<thead><tr><th>Model</th><th>MMLU</th></tr></thead>
+<tbody><tr><td>Continuous dense</td><td>65.3%</td></tr><tr><td>Upcycled MoE</td><td>67.6%</td></tr></tbody>
+</table>
+<div class="ltx_para"><p class="ltx_p">We compare upcycling with both topK-then-softmax and softmax-then-topK in topK greater than one regime. Granularity introduces a new degree of freedom as every expert can be reduced in size while keeping overall FLOPs count the same.</p></div>
+<div class="ltx_para"><p class="ltx_p">Inline math example: <math alttext="a+b^2"><mrow><mi>a</mi><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup></mrow></math> and display equation below.</p></div>
+<div class="ltx_equationgroup">
+<div class="ltx_equation"><math display="block"><mrow><mi>E</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><mi>FFN</mi><mo>(</mo><mi>x</mi><mo>)</mo></mrow></math></div>
+</div>
+</section>
+<section id="Sx1" class="ltx_bibliography">
+<h2 class="ltx_title ltx_title_bibliography">References</h2>
+<ul class="ltx_biblist">
+<li class="ltx_bibitem"><span class="ltx_tag">[1]</span> Shazeer et al., Outrageously Large Neural Networks.</li>
+<li class="ltx_bibitem"><span class="ltx_tag">[2]</span> Lepikhin et al., GShard.</li>
+</ul>
+</section>
+</article>
+</body>
+</html>

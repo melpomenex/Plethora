@@ -12,6 +12,8 @@
 import {
   ACCEPT_FLOOR,
   CANDIDATE_DIAGNOSTICS_LIMIT,
+  EMERGENCY_ACCEPT_FLOOR,
+  EMERGENCY_MIN_WORDS,
   MIN_WORDS,
   SANITIZE_FAIL_RATIO,
   SANITIZE_WARN_RATIO,
@@ -33,12 +35,14 @@ import { extractPageMetadata, resolveArticleMetadata } from './metadataExtractor
 import { runDefuddle } from './engines/defuddleExtractor';
 import { runReadability } from './engines/readabilityExtractor';
 import { siteSpecificExtractorFor } from './engines/site-specific';
+import { runSemanticExtraction } from './engines/semanticExtractor';
 import { scoreCandidate, selectBestCandidate } from './scorer';
 import { normalizeArticle } from './articleNormalizer';
 import { normalizeImages } from './imageNormalizer';
 import { sanitizeArticleHtml } from './sanitizer';
 import { getRenderedCapture, RenderedCaptureError } from './renderedFallback/captureClient';
 import { siteNameFromUrl } from './urlNormalizer';
+import { resolveImportSource } from './arxivResolver';
 import { createStageTimer } from './stageTimer';
 import type {
   ArticleImportDiagnostics,
@@ -129,6 +133,15 @@ async function runExtractionChain(
     }
   }
 
+  if (!enginePrefix) {
+    try {
+      const semanticResult = runSemanticExtraction(cloneForEngine(doc, url));
+      if (semanticResult) candidates.push(semanticResult);
+    } catch {
+      // Semantic failure degrades silently.
+    }
+  }
+
   const defuddleStart = performance.now();
   const defuddleResult = await runDefuddle(cloneForEngine(doc, url), url);
   timer.mark('defuddle', defuddleStart);
@@ -157,6 +170,13 @@ function needsRenderedFallback(best: ScoredCandidate | null, totalCandidates: nu
   return best.confidence === 'low' || best.candidate.stats.words < MIN_WORDS;
 }
 
+function isEmergencyUsable(best: ScoredCandidate | null): boolean {
+  if (!best) return false;
+  return (
+    best.candidate.stats.words >= EMERGENCY_MIN_WORDS && best.score >= EMERGENCY_ACCEPT_FLOOR
+  );
+}
+
 /**
  * Run the article pipeline for one URL. Throws ArticleImportError on failure;
  * resolves with the normalized article + full diagnostics on success.
@@ -181,9 +201,12 @@ export async function importArticle(
     throw new ArticleImportError('invalid_url', normalized.error);
   }
 
+  const source = resolveImportSource(normalized.normalized);
+  const importWarnings: string[] = [];
+
   // 2. Fetch.
   progress('fetching');
-  const fetched = await fetchArticleSource(normalized.normalized, timer, signal);
+  const fetched = await fetchArticleSource(source.fetchUrl, timer, signal);
   throwIfAborted(signal);
 
   // 3. Parse.
@@ -197,13 +220,18 @@ export async function importArticle(
   const meta = extractPageMetadata(doc);
   timer.mark('metadata', metadataStart);
 
-  const canonicalUrl = resolveCanonicalUrl(meta, fetched.finalUrl, normalized.normalized);
-  const hostname = siteNameFromUrl(fetched.finalUrl) ?? siteNameFromUrl(normalized.normalized) ?? '';
+  const metadataCanonical = resolveCanonicalUrl(meta, fetched.finalUrl, normalized.normalized);
+  const canonicalUrl = source.arxiv ? source.canonicalUrl : metadataCanonical;
+  const assetBaseUrl = source.arxiv ? source.assetBaseUrl : metadataCanonical;
+  const hostname =
+    source.arxiv ? 'arXiv' : (siteNameFromUrl(fetched.finalUrl) ?? siteNameFromUrl(normalized.normalized) ?? '');
 
   const diagnostics: ArticleImportDiagnostics = {
     originalUrl: normalized.original,
     canonicalUrl,
     resolvedUrl: fetched.finalUrl,
+    sourceClassification: source.classification,
+    importWarnings,
     fetch: {
       status: fetched.status,
       contentType: fetched.contentType,
@@ -215,9 +243,9 @@ export async function importArticle(
   };
 
   // 5. Competing extraction on independent clones.
-  progress('extracting', 'Running Defuddle + Readability');
+  progress('extracting', 'Running extractors');
   const extractionStart = performance.now();
-  let candidates = await runExtractionChain(doc, canonicalUrl, timer);
+  let candidates = await runExtractionChain(doc, assetBaseUrl, timer);
   timer.mark('extraction', extractionStart);
 
   // 6. Score.
@@ -233,8 +261,10 @@ export async function importArticle(
 
   // 7. Rendered-page fallback when static confidence is insufficient.
   let best = selectBestCandidate(scored);
+  const staticBestBeforeRender = best;
   let renderedFallbackUsed = false;
   let renderFallbackReason: string | undefined;
+  let emergencyStaticAcceptance = false;
 
   if (needsRenderedFallback(best, scored.length)) {
     renderFallbackReason =
@@ -251,19 +281,30 @@ export async function importArticle(
     let renderedHtml: string | null = null;
     const capture = getRenderedCapture();
     if (!capture) {
-      throw new ArticleImportError('rendered_unavailable', undefined, {
-        cause: renderFallbackReason,
-        retriable: false,
-      });
-    }
-    try {
-      const result = await capture.capture(canonicalUrl, undefined, signal);
-      renderedHtml = result.html;
-    } catch (err) {
-      if (err instanceof RenderedCaptureError) {
-        captureError = err;
+      if (isEmergencyUsable(staticBestBeforeRender)) {
+        best = staticBestBeforeRender;
+        renderedFallbackUsed = true;
+        emergencyStaticAcceptance = true;
+        importWarnings.push(
+          'JavaScript rendering is unavailable on this platform; imported static article content instead.'
+        );
       } else {
-        captureError = new RenderedCaptureError('failed', String(err));
+        throw new ArticleImportError('rendered_unavailable', undefined, {
+          cause: renderFallbackReason,
+          retriable: false,
+        });
+      }
+    } else {
+      try {
+        const captureUrl = source.arxiv?.htmlUrl ?? canonicalUrl;
+        const result = await capture.capture(captureUrl, undefined, signal);
+        renderedHtml = result.html;
+      } catch (err) {
+        if (err instanceof RenderedCaptureError) {
+          captureError = err;
+        } else {
+          captureError = new RenderedCaptureError('failed', String(err));
+        }
       }
     }
     timer.mark('renderedFallback', fallbackStart);
@@ -283,47 +324,60 @@ export async function importArticle(
         (meta as unknown as Record<string, unknown>)[key] = value;
       }
       meta.conflicts.push(...renderedMeta.conflicts);
-      const renderedCandidates = await runExtractionChain(renderedDoc, canonicalUrl, timer, 'rendered-');
+      const renderedCandidates = await runExtractionChain(renderedDoc, assetBaseUrl, timer, 'rendered-');
       const renderedScored = renderedCandidates.map((candidate) =>
         scoreCandidate(candidate, scorerContext)
       );
       scored = [...scored, ...renderedScored];
       best = selectBestCandidate(scored);
-    } else {
-      // Capture failed: surface typed. Cancellation aborts outright; the
-      // platform matrix maps unavailable → rendered_unavailable and
-      // timeout/failure → rendered_failed (spec: a timed-out capture fails
-      // typed rather than silently accepting the low-confidence static result).
-      const reason = captureError?.reason;
+    } else if (captureError) {
+      const reason = captureError.reason;
       if (reason === 'canceled') {
         throw new ArticleImportError('canceled', undefined, { retriable: false });
       }
-      if (reason === 'unavailable') {
+      if (isEmergencyUsable(staticBestBeforeRender)) {
+        best = staticBestBeforeRender;
+        emergencyStaticAcceptance = true;
+        importWarnings.push(
+          reason === 'unavailable'
+            ? 'This page could not be rendered for enhancement; imported static article content instead.'
+            : 'Rendered capture timed out; imported static article content instead.'
+        );
+      } else if (reason === 'unavailable') {
         throw new ArticleImportError('rendered_unavailable', undefined, {
           cause: renderFallbackReason,
           retriable: false,
         });
+      } else {
+        throw new ArticleImportError('rendered_failed', undefined, {
+          cause: captureError.message ?? renderFallbackReason,
+        });
       }
-      throw new ArticleImportError('rendered_failed', undefined, {
-        cause: captureError?.message ?? renderFallbackReason,
-      });
     }
   }
 
   diagnostics.candidates = scored.slice(0, CANDIDATE_DIAGNOSTICS_LIMIT).map(candidateDiagnostic);
   diagnostics.renderedFallbackUsed = renderedFallbackUsed;
   diagnostics.renderedFallbackReason = renderFallbackReason;
+  diagnostics.importWarnings = importWarnings;
 
   // 8. Acceptance: successful execution alone is never acceptance.
-  if (!best || best.candidate.stats.words < MIN_WORDS || best.score < ACCEPT_FLOOR) {
+  const meetsNormalFloor =
+    !!best && best.candidate.stats.words >= MIN_WORDS && best.score >= ACCEPT_FLOOR;
+  const meetsEmergencyFloor = emergencyStaticAcceptance && isEmergencyUsable(best);
+
+  if (!best || best.candidate.stats.words === 0) {
+    throw new ArticleImportError('empty_content');
+  }
+  if (!meetsNormalFloor && !meetsEmergencyFloor) {
     diagnostics.failureReason = 'low_confidence';
     throw new ArticleImportError('low_confidence', undefined, {
       cause: renderFallbackReason ?? 'no candidate cleared the acceptance floor',
       retriable: false,
     });
   }
-  if (best.candidate.stats.words === 0) {
-    throw new ArticleImportError('empty_content');
+  if (meetsEmergencyFloor && !meetsNormalFloor) {
+    diagnostics.normalizationWarnings.push('imported with reduced extraction confidence');
   }
 
   // 9. Metadata resolution with deterministic precedence.
@@ -345,7 +399,7 @@ export async function importArticle(
     siteName: resolvedMeta.siteName,
     language: resolvedMeta.language,
     heroImage: resolvedMeta.heroImage,
-    baseUrl: canonicalUrl,
+    baseUrl: assetBaseUrl,
   });
   timer.mark('articleNormalization', articleStart);
   diagnostics.normalizationWarnings.push(...normalizedArticleResult.warnings);
