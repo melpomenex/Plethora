@@ -1871,8 +1871,9 @@ export const en: Dict = {
   "knowledgeFormulation.commandDescription": "Formulate atomic flashcards following Dr. Piotr Wozniak's 20 Rules",
   "knowledgeFormulation.reminderTitle": "Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation",
   "knowledgeFormulation.reminderSubtitle": "Effective flashcards must be atomic, clear, and resistant to interference. Use /20rules across Studio, Document Q&A, and the Assistant to generate cards adhering to the Minimum Information Principle, cloze mnemonic anchors, and high applicability.",
-  "flashcardStudio.noLlmProvider": "No LLM provider configured",
-  "flashcardStudio.noLlmProviderDesc": "Add or enable a provider in Settings → AI Providers.",
+  "flashcardStudio.noLlmProvider": "No AI provider available",
+  "flashcardStudio.noLlmProviderDesc":
+    "Enable Apple Intelligence in Settings → On-device AI, or add a cloud provider in Settings → AI Providers.",
   "flashcardStudio.noNotebookSelected": "No NotebookLM notebook selected",
   "flashcardStudio.noNotebookSelectedDesc": "Choose a NotebookLM notebook in the provider bar.",
   "flashcardStudio.cardsGenerated": "{count} cards generated",
