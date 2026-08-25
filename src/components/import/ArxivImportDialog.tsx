@@ -158,7 +158,7 @@ export function ArxivImportDialog({ isOpen, onClose, onOpenDocument }: ArxivImpo
 
     try {
       // Use the store's importFromArxiv method which handles everything
-      const doc = await importFromArxiv(paper.id, importFormat);
+      const doc = await importFromArxiv(paper.id, importFormat, paper);
       
       // Reload documents to show the new import
       await loadDocuments();

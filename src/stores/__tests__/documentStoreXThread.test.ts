@@ -24,7 +24,7 @@ vi.mock("../collectionStore", () => ({
 }));
 vi.mock("../../utils/documentImport", () => ({
   importFromUrl: vi.fn(),
-  importFromArxiv: vi.fn(),
+  importArxivPdf: vi.fn(),
 }));
 const isTauriMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("../../lib/tauri", () => ({
