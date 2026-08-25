@@ -1375,6 +1375,57 @@ Konfigurieren Sie KI-Anbieter für die Kartengenerierung:
 - Max. Token
 - Systemaufforderung
 
+#### On-Device Apple Intelligence (Mac & iPhone)
+
+Auf unterstützten Apple-Geräten kann Plethora viele KI-Funktionen mit **Apple Foundation Models** ausführen — Apples eingebautes On-Device-Sprachmodell. Dies ist getrennt von Cloud-Anbietern (OpenAI, Ollama usw.) und **erfordert keinen API-Schlüssel**.
+
+**Was es ist:** On-Device-Textgenerierung für Aufgaben wie automatisches Tagging, Zusammenfassen, Lernkartenerstellung und Antworten in „Bibliothek fragen“.
+
+**Was es nicht ist:** Apple Foundation Models **transkribieren** weder Videos noch Audio, **lesen** Text nicht vor (TTS) und **analysieren** keine Fotos. Verwenden Sie für diese Aufgaben die Plethora-Einstellungen **Audiotranskription** und **Text-zu-Sprache**.
+
+**Voraussetzungen:**
+- **Mac:** macOS 26 oder neuer, Apple Silicon, Apple Intelligence in den Systemeinstellungen aktiviert
+- **iPhone / iPad:** iOS 26 oder neuer, Apple Intelligence aktiviert, kompatibles Gerät
+
+**So aktivieren Sie es:**
+1. Öffnen Sie **Einstellungen → KI-Anbieter-Einstellungen**
+2. Scrollen Sie zu **On-Device-KI**
+3. Aktivieren Sie **On-Device-KI bevorzugen**
+4. Prüfen Sie, dass **Foundation Models** (oder **Apple Intelligence**) den Status **Bereit** anzeigt
+
+Wenn der Status **Bereit** ist, nutzt Plethora automatisch die On-Device-Apple-KI für unterstützte Aufgaben. Sie müssen Apple nicht zur Cloud-Anbieterliste hinzufügen.
+
+**Was Sie mit der On-Device-Apple-KI tun können:**
+
+| Funktion | On-Device möglich? |
+|----------|-------------------|
+| Automatisches Tagging | Ja |
+| Zusammenfassen / Passage erklären | Ja |
+| Bibliothek fragen (Antworten aus Ihrer Bibliothek) | Ja |
+| Lernkarten aus Text generieren | Ja |
+| Kernpunkte extrahieren, Studienfragen | Ja |
+| Studio-Überprüfungshinweise | Ja |
+| Videos oder Hörbücher transkribieren | Nein — verwenden Sie **Einstellungen → Audiotranskription** |
+| Text vorlesen (TTS) | Nein — verwenden Sie **Einstellungen → Text-zu-Sprache** |
+| Bilder beschreiben / OCR | Nein — verwenden Sie OCR- oder Vision-Funktionen |
+
+**Datenschutz:**
+- Die Verarbeitung erfolgt standardmäßig **auf Ihrem Gerät**
+- **Cloud-Fallback erlauben** ist standardmäßig deaktiviert — wenn die On-Device-KI eine Aufgabe nicht abschließen kann, sendet Plethora Ihre Inhalte **nicht** still an einen kostenpflichtigen Cloud-Anbieter
+- Sie können Cloud-Fallback aktivieren, wenn Plethora bei nicht verfügbarer On-Device-KI mit Ihrem konfigurierten Cloud-Anbieter erneut versuchen soll
+
+**Wenn der Status nicht „Bereit“ ist:**
+
+| Status | Bedeutung | Was Sie versuchen können |
+|--------|-----------|--------------------------|
+| Bereit | On-Device-KI ist verfügbar | KI-Funktionen normal nutzen |
+| Wird heruntergeladen… | Systemmodell wird noch installiert | Warten, dann in On-Device-KI auf **Aktualisieren** tippen |
+| Deaktiviert | Apple Intelligence ist aus | Apple Intelligence in den Systemeinstellungen aktivieren |
+| Nicht berechtigt | Gerät oder Region wird nicht unterstützt | Stattdessen einen Cloud- oder lokalen Anbieter verwenden |
+| Nicht unterstütztes OS | macOS/iOS unter Version 26 | System aktualisieren oder einen anderen Anbieter verwenden |
+
+**Tipp:** Lange Dokumente werden automatisch verarbeitet — Plethora teilt sie in Abschnitte auf, die in das On-Device-Kontextfenster passen, und führt die Ergebnisse zusammen. Sie müssen dies nicht konfigurieren.
+
 #### Automatische Generierung
 
 **Kartenerstellung:**

@@ -1398,6 +1398,57 @@ Configure AI providers for card generation:
 - Max tokens
 - System prompt
 
+#### On-Device Apple Intelligence (Mac & iPhone)
+
+On supported Apple devices, Plethora can run many AI features using **Apple Foundation Models** — Apple's built-in on-device language model. This is separate from cloud providers (OpenAI, Ollama, etc.) and **does not require an API key**.
+
+**What it is:** On-device text generation for tasks like smart tagging, summarizing, flashcard generation, and Ask Library answers.
+
+**What it is not:** Apple Foundation Models does **not** transcribe videos or audio, does **not** read text aloud (TTS), and does **not** analyze photos. Use Plethora's **Audio Transcription** and **TTS** settings for those jobs.
+
+**Requirements:**
+- **Mac:** macOS 26 or later, Apple Silicon, Apple Intelligence turned on in System Settings
+- **iPhone / iPad:** iOS 26 or later, Apple Intelligence enabled, compatible device
+
+**How to turn it on:**
+1. Open **Settings → AI Provider Settings**
+2. Scroll to **On-device AI**
+3. Turn on **Prefer on-device AI**
+4. Check that **Foundation Models** (or **Apple Intelligence**) shows **Ready**
+
+When Ready, Plethora automatically uses on-device Apple AI for supported tasks. You do not add Apple to the cloud provider list.
+
+**What you can do with on-device Apple AI:**
+
+| Feature | Works on-device? |
+|---------|------------------|
+| Smart Tagging | Yes |
+| Summarize / explain a passage | Yes |
+| Ask Library (answers from your library) | Yes |
+| Generate flashcards from text | Yes |
+| Extract key points, study questions | Yes |
+| Studio review hints | Yes |
+| Transcribe videos or audiobooks | No — use **Settings → Audio Transcription** |
+| Read text aloud (TTS) | No — use **Settings → Text-to-Speech** |
+| Describe images / OCR | No — use OCR or vision features |
+
+**Privacy:**
+- Processing stays **on your device** by default
+- **Allow cloud fallback** is off by default — if on-device AI cannot complete a task, Plethora will **not** silently send your content to a paid cloud provider
+- You can enable cloud fallback if you want Plethora to retry with your configured cloud provider when on-device AI is unavailable
+
+**If status is not Ready:**
+
+| Status | What it means | What to try |
+|--------|---------------|-------------|
+| Ready | On-device AI is available | Start using AI features normally |
+| Downloading… | System model is still installing | Wait, then tap **Refresh** in On-device AI |
+| Disabled | Apple Intelligence is off | Enable Apple Intelligence in System Settings |
+| Not eligible | Device or region does not support it | Use a cloud or local provider instead |
+| Unsupported OS | macOS/iOS below version 26 | Update your system, or use another provider |
+
+**Tip:** Long documents are handled automatically — Plethora splits them into chunks that fit the on-device context window, then combines the results. You do not need to configure this.
+
 #### Auto-Generation
 
 **Card Generation:**
