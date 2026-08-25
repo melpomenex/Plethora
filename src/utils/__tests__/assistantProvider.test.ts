@@ -15,9 +15,21 @@ describe("assistant provider persistence", () => {
   });
 
   it("isAssistantProviderId accepts every known provider", () => {
-    for (const id of ["openai", "anthropic", "gemini", "deepseek", "ollama", "openrouter"]) {
+    for (const id of [
+      "openai",
+      "anthropic",
+      "gemini",
+      "deepseek",
+      "ollama",
+      "openrouter",
+      "ondevice-apple-foundation",
+    ]) {
       expect(isAssistantProviderId(id)).toBe(true);
     }
+  });
+
+  it("isAssistantProviderId accepts ondevice-apple-foundation", () => {
+    expect(isAssistantProviderId("ondevice-apple-foundation")).toBe(true);
   });
 
   it("isAssistantProviderId rejects unknown values", () => {
@@ -56,6 +68,12 @@ describe("assistant provider persistence", () => {
     persistAssistantProvider("openrouter");
     // Simulate a page reload: fresh read from the same storage.
     expect(getStoredAssistantProvider()).toBe("openrouter");
+  });
+
+  it("persists and restores ondevice-apple-foundation", () => {
+    persistAssistantProvider("ondevice-apple-foundation");
+    expect(localStorage.getItem(KEY)).toBe("ondevice-apple-foundation");
+    expect(getStoredAssistantProvider()).toBe("ondevice-apple-foundation");
   });
 
   it("does not throw when localStorage.setItem is unavailable", () => {
