@@ -7,12 +7,15 @@
 #if defined(PLETHORA_PHI_SILICA_CPP) && defined(_WIN32)
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Microsoft.Windows.AI.h>
 #include <winrt/Microsoft.Windows.AI.Text.h>
+#include <winrt/Microsoft.Windows.AI.Imaging.h>
 
 using namespace winrt;
 using namespace Microsoft::Windows::AI;
 using namespace Microsoft::Windows::AI::Text;
+using namespace Microsoft::Windows::AI::Imaging;
 
 static std::string narrow(const winrt::hstring& hs) {
   std::wstring ws(hs.c_str());
@@ -84,6 +87,32 @@ extern "C" int32_t plethora_phi_cancel(const char* request_id_utf8) {
   return 0;
 }
 
+extern "C" int32_t plethora_phi_try_unlock_laf(
+    const char* feature_id_utf8,
+    const char* token_utf8,
+    const char* attestation_utf8) {
+  if (!feature_id_utf8 || !token_utf8 || !attestation_utf8) return -2;
+  try {
+    init_apartment();
+    auto status = Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
+        winrt::to_hstring(feature_id_utf8),
+        winrt::to_hstring(token_utf8),
+        winrt::to_hstring(attestation_utf8));
+    return static_cast<int32_t>(status);
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" int32_t plethora_ocr_get_ready_state(void) {
+  try {
+    init_apartment();
+    return static_cast<int32_t>(TextRecognizer::GetReadyState());
+  } catch (...) {
+    return -1;
+  }
+}
+
 #else
 
 extern "C" int32_t plethora_phi_bridge_available(void) { return 0; }
@@ -112,5 +141,17 @@ extern "C" int32_t plethora_phi_cancel(const char* request_id_utf8) {
   (void)request_id_utf8;
   return 0;
 }
+
+extern "C" int32_t plethora_phi_try_unlock_laf(
+    const char* feature_id_utf8,
+    const char* token_utf8,
+    const char* attestation_utf8) {
+  (void)feature_id_utf8;
+  (void)token_utf8;
+  (void)attestation_utf8;
+  return -1;
+}
+
+extern "C" int32_t plethora_ocr_get_ready_state(void) { return -1; }
 
 #endif

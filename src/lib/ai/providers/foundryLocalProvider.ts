@@ -75,7 +75,7 @@ export class FoundryLocalProvider implements AIProvider {
     return {
       ...DEAD_CAPS,
       textGeneration: ready,
-      structuredGeneration: false,
+      structuredGeneration: ready,
       streaming: ready,
       offlineAvailable: ready,
       downloadState: downloadStateFrom(snap.status),

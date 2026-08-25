@@ -24,6 +24,15 @@ int32_t plethora_phi_cancel(const char* request_id_utf8);
 /** 1 when C++/WinRT bridge compiled and linked, 0 when stubs. */
 int32_t plethora_phi_bridge_available(void);
 
+/** LimitedAccessFeatureStatus as int, or negative on error. */
+int32_t plethora_phi_try_unlock_laf(
+    const char* feature_id_utf8,
+    const char* token_utf8,
+    const char* attestation_utf8);
+
+/** TextRecognizer ready state as int, or negative when unavailable. */
+int32_t plethora_ocr_get_ready_state(void);
+
 #ifdef __cplusplus
 }
 #endif

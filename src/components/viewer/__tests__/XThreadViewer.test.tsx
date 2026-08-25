@@ -8,9 +8,9 @@ import { XTHREAD_SCROLL_EVENT } from "../xthreadNav";
 const openExternalMock = vi.fn();
 const createExtractMock = vi.fn();
 const openTwitterThreadMock = vi.fn();
-const answerQuestionMock = vi.fn();
-const summarizeContentMock = vi.fn();
-const extractKeyPointsMock = vi.fn();
+const summarizePassageMock = vi.fn();
+const keyTermsPassageMock = vi.fn();
+const answerPassageMock = vi.fn();
 const importTwitterThreadMock = vi.fn();
 const isMobileMock = vi.hoisted(() => vi.fn(() => false));
 
@@ -22,10 +22,10 @@ vi.mock("../../../lib/tauri", () => ({
 vi.mock("../../../api/extracts", () => ({
   createExtract: (...args: unknown[]) => createExtractMock(...args),
 }));
-vi.mock("../../../api/ai", () => ({
-  answerQuestion: (...args: unknown[]) => answerQuestionMock(...args),
-  summarizeContent: (...args: unknown[]) => summarizeContentMock(...args),
-  extractKeyPoints: (...args: unknown[]) => extractKeyPointsMock(...args),
+vi.mock("../../../lib/ai/passageAI", () => ({
+  summarizePassage: (...args: unknown[]) => summarizePassageMock(...args),
+  keyTermsPassage: (...args: unknown[]) => keyTermsPassageMock(...args),
+  answerPassage: (...args: unknown[]) => answerPassageMock(...args),
 }));
 vi.mock("../../../api/documents", () => ({
   importTwitterThread: (...args: unknown[]) => importTwitterThreadMock(...args),
@@ -127,9 +127,9 @@ beforeEach(() => {
   openExternalMock.mockReset();
   createExtractMock.mockReset();
   openTwitterThreadMock.mockReset();
-  answerQuestionMock.mockReset();
-  summarizeContentMock.mockReset();
-  extractKeyPointsMock.mockReset();
+  summarizePassageMock.mockReset();
+  keyTermsPassageMock.mockReset();
+  answerPassageMock.mockReset();
   importTwitterThreadMock.mockReset();
   isMobileMock.mockReturnValue(false);
 });
@@ -283,7 +283,7 @@ describe("XThreadViewer", () => {
 
   it("opens the mobile toolbar and assistant sheet (Ask) with thread-scoped AI", async () => {
     isMobileMock.mockReturnValue(true);
-    answerQuestionMock.mockResolvedValue("The thread argues X.");
+    answerPassageMock.mockResolvedValue({ text: "The thread argues X.", truncated: false });
     renderThread();
     expect(screen.getByTestId("x-thread-mobile-toolbar")).toBeInTheDocument();
 
@@ -296,7 +296,7 @@ describe("XThreadViewer", () => {
     fireEvent.submit(input.closest("form")!);
 
     await vi.waitFor(() => {
-      expect(answerQuestionMock).toHaveBeenLastCalledWith(
+      expect(answerPassageMock).toHaveBeenLastCalledWith(
         "Explain post 1",
         expect.stringContaining("[Post 1 by @janeresearch]")
       );

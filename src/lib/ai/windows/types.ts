@@ -25,6 +25,8 @@ export interface WindowsLmDiagnostics {
   phiBridgeAvailable?: boolean;
   phiReadyState?: number | null;
   lafTokenConfigured?: boolean;
+  lafAttestationConfigured?: boolean;
+  ocrReadyState?: number | null;
   sparseMsixCandidates?: string[];
   checkedAt?: number;
   platform?: string;

@@ -16,6 +16,12 @@ mod ffi {
             err_buf_len: c_uint,
         ) -> c_int;
         pub fn plethora_phi_cancel(request_id_utf8: *const c_char) -> c_int;
+        pub fn plethora_phi_try_unlock_laf(
+            feature_id_utf8: *const c_char,
+            token_utf8: *const c_char,
+            attestation_utf8: *const c_char,
+        ) -> c_int;
+        pub fn plethora_ocr_get_ready_state() -> c_int;
     }
 
     pub fn bridge_available() -> bool {
@@ -31,11 +37,40 @@ mod ffi {
         }
     }
 
+    pub fn get_ocr_ready_state() -> Option<i32> {
+        let v = ffi::plethora_ocr_get_ready_state();
+        if v < 0 {
+            None
+        } else {
+            Some(v)
+        }
+    }
+
+    pub fn try_unlock_laf(feature_id: &str, token: &str, attestation: &str) -> Option<i32> {
+        if !bridge_available() {
+            return None;
+        }
+        let feature = std::ffi::CString::new(feature_id).ok()?;
+        let token_c = std::ffi::CString::new(token).ok()?;
+        let attestation_c = std::ffi::CString::new(attestation).ok()?;
+        let rc = ffi::plethora_phi_try_unlock_laf(
+            feature.as_ptr(),
+            token_c.as_ptr(),
+            attestation_c.as_ptr(),
+        );
+        if rc < 0 {
+            None
+        } else {
+            Some(rc)
+        }
+    }
+
     pub fn generate(prompt: &str, max_tokens: u32) -> Result<String, String> {
+        let prompt_c = std::ffi::CString::new(prompt).map_err(|_| "invalid_argument".to_string())?;
         let mut out = vec![0u8; 64 * 1024];
         let mut err = vec![0u8; 512];
         let rc = ffi::plethora_phi_generate(
-            prompt.as_ptr() as *const c_char,
+            prompt_c.as_ptr(),
             max_tokens,
             out.as_mut_ptr() as *mut c_char,
             out.len() as c_uint,
@@ -58,6 +93,12 @@ mod ffi {
         false
     }
     pub fn get_ready_state() -> Option<i32> {
+        None
+    }
+    pub fn get_ocr_ready_state() -> Option<i32> {
+        None
+    }
+    pub fn try_unlock_laf(_feature_id: &str, _token: &str, _attestation: &str) -> Option<i32> {
         None
     }
     pub fn generate(_prompt: &str, _max_tokens: u32) -> Result<String, String> {

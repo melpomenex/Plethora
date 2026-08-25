@@ -105,6 +105,16 @@ function Assert-RequiredSidecars {
   } else {
     throw "$Label missing NotebookLM sidecar under $RootPath"
   }
+
+  $identityMsix = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "PlethoraIdentity.msix" -and $_.Length -gt 0 } |
+    Select-Object -First 1
+
+  if ($identityMsix) {
+    Write-Host "$Label found Windows AI identity package: $($identityMsix.FullName)"
+  } else {
+    throw "$Label missing non-empty PlethoraIdentity.msix (Windows sparse package identity)"
+  }
 }
 
 if ($msiFiles) {

@@ -19,11 +19,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { getExtracts, deleteExtract, type Extract } from "../../api/extracts";
-import { summarizeContent, extractKeyPoints, generateQuestions } from "../../api/ai";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
-import { runAiAction } from "../../lib/ai/provider";
-import { withOnDeviceRun } from "../../lib/ai/onDeviceRunStore";
-import { summarize as summarizeOnDevice } from "../../lib/ai/onDeviceAI";
 import { analyzeExtract } from "../../lib/ai/extractAI";
 import { cn } from "../../utils";
 import { RichContentRenderer } from "../common/RichContentRenderer";

@@ -1,4 +1,7 @@
-import { answerQuestion } from "../api/ai";
+import { runTask } from "../lib/ai/tasks/runTask";
+import { conversationalFollowUpTask } from "../lib/ai/tasks/definitions/workflowTasks";
+import { runAiAction } from "../lib/ai/provider";
+import { fnv1aHash } from "../lib/ai/providers/types";
 
 export interface ConversationalAssessment {
   id: string;
@@ -12,17 +15,31 @@ export interface ConversationalAssessment {
 
 const STORAGE_KEY = "plethora.conversational-review-assessments";
 
-export async function requestTutorFollowUp(topic: string, userResponse: string): Promise<{ question: string; score: number; feedback: string }> {
-  const prompt = [
-    `You are a study tutor. Topic: ${topic}.`,
-    `Student response: ${userResponse}`,
-    "Ask one concise probing follow-up question, then provide a score 0-100 and one-sentence feedback.",
-    'Respond as JSON: {"question":"...","score":85,"feedback":"..."}',
-  ].join("\n");
+export async function requestTutorFollowUp(
+  topic: string,
+  userResponse: string
+): Promise<{ question: string; score: number; feedback: string }> {
+  const targetId = fnv1aHash(`conversational\u0000${topic}\u0000${userResponse.slice(0, 512)}`);
+  const result = await runAiAction(
+    {
+      onDevice: () =>
+        runTask(conversationalFollowUpTask, { topic, userResponse }, {
+          targetId,
+          kind: "ondevice",
+        }),
+      cloud: () =>
+        runTask(conversationalFollowUpTask, { topic, userResponse }, {
+          targetId,
+          kind: "cloud",
+        }),
+    },
+    "Conversational follow-up"
+  );
 
-  const raw = await answerQuestion(prompt, topic);
+  const text = result?.text ?? "";
   try {
-    const parsed = JSON.parse(raw);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
     const score = Number(parsed.score);
     return {
       question: String(parsed.question || "Can you explain one concrete example?"),
@@ -33,7 +50,7 @@ export async function requestTutorFollowUp(topic: string, userResponse: string):
     return {
       question: "Can you explain this in your own words with one example?",
       score: 0,
-      feedback: raw.slice(0, 200),
+      feedback: text.slice(0, 200),
     };
   }
 }

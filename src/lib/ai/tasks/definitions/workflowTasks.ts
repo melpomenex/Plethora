@@ -2,14 +2,7 @@
  * AI workflow tasks for the legacy AI Workflows page — routed through runTask.
  */
 
-import {
-  answerQuestion,
-  extractKeyPoints,
-  generateTitle,
-  simplifyContent,
-  summarizeContent,
-  type SimplificationLevel,
-} from "../../../api/ai";
+import { answerQuestion, extractKeyPoints, generateTitle, simplifyContent, summarizeContent, type SimplificationLevel } from "../../../api/ai";
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../containment";
 import { registerTasks } from "../registry";
 import type { AITaskDefinition } from "../types";
@@ -138,10 +131,45 @@ export const workflowQaTask: AITaskDefinition<WorkflowQaInput, string> = {
   cloudExecutor: ({ content, question }) => answerQuestion(question, content),
 };
 
+export interface ConversationalFollowUpInput {
+  topic: string;
+  userResponse: string;
+}
+
+export const conversationalFollowUpTask: AITaskDefinition<ConversationalFollowUpInput, string> = {
+  id: "conversational-follow-up",
+  taskType: "prompt",
+  modelClass: "full",
+  systemInstruction: workflowSystem(
+    "You are a study tutor. Grade the student response, ask one probing follow-up, and return ONLY JSON."
+  ),
+  buildInput: ({ topic, userResponse }) => ({
+    text: [
+      `Topic: ${topic}`,
+      `Student response: ${userResponse}`,
+      "Ask one concise probing follow-up question, then provide a score 0-100 and one-sentence feedback.",
+      'Respond as JSON only: {"question":"...","score":85,"feedback":"..."}',
+    ].join("\n"),
+  }),
+  outputKind: "text",
+  maxOutputTokens: 256,
+  timeoutMs: 120_000,
+  cloudExecutor: ({ topic, userResponse }) => {
+    const prompt = [
+      `You are a study tutor. Topic: ${topic}.`,
+      `Student response: ${userResponse}`,
+      "Ask one concise probing follow-up question, then provide a score 0-100 and one-sentence feedback.",
+      'Respond as JSON: {"question":"...","score":85,"feedback":"..."}',
+    ].join("\n");
+    return answerQuestion(prompt, topic);
+  },
+};
+
 registerTasks(
   workflowSummarizeTask,
   workflowTitleTask,
   workflowKeyPointsTask,
   workflowSimplifyTask,
-  workflowQaTask
+  workflowQaTask,
+  conversationalFollowUpTask
 );
