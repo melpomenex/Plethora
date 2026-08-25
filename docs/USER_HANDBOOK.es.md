@@ -1426,6 +1426,67 @@ Cuando aparece Listo, Plethora usa automáticamente la IA de Apple en el disposi
 
 **Consejo:** Los documentos largos se gestionan automáticamente: Plethora los divide en fragmentos que caben en la ventana de contexto del dispositivo y combina los resultados. No tiene que configurar nada.
 
+#### IA local en Windows (Windows 11)
+
+En el escritorio de Windows, Plethora puede ejecutar tareas de IA **en su PC** sin enviar el contenido de su biblioteca a OpenAI, Anthropic u otras API en la nube que configure por separado. Windows ofrece dos rutas complementarias en el dispositivo:
+
+1. **IA del sistema en el dispositivo** — API de IA integradas de Windows para texto y OCR cuando su PC y versión de Windows las admiten
+2. **Foundry Local** — servidor local opcional compatible con OpenAI que usted instala (funciona en muchas GPU, incluso sin NPU Copilot+)
+
+Estas rutas son independientes de los proveedores en la nube y **no usan su clave API de OpenAI** a menos que active la reserva en la nube.
+
+**Qué es:** Generación de texto en el dispositivo para etiquetado inteligente, resumir pasajes, ideas de tarjetas, respuestas de Preguntar a la biblioteca y atajos de flujo de trabajo — más **OCR del sistema Windows** para PDF e imágenes escaneadas cuando está activado en **Configuración → Documentos → OCR**.
+
+**Qué no es:** La IA del sistema en el dispositivo **no transcribe** audio ni vídeo (use **Configuración → Transcripción de audio**), **no lee** texto en voz alta (use **Configuración → Texto a voz**) y **no funciona en todos los PC con Windows**. Las funciones NPU Copilot+ (IA de texto Phi Silica y OCR del sistema Windows) requieren hardware y versiones de Windows que muchos PC de juegos no cumplen — **Foundry Local**, **Tesseract** o un proveedor en la nube siguen siendo las opciones prácticas.
+
+**Requisitos:**
+- **Windows 11 versión 24H2 o posterior** (compilación 26100+) para las comprobaciones de estado de la IA del sistema
+- **Identidad de paquete** registrada en la instalación (el instalador de Windows de Plethora registra automáticamente una identidad MSIX sparse; si falla, la IA del sistema permanece inactiva)
+- **Hardware Copilot+ / NPU** para el modelo de idioma Phi Silica de Microsoft — muchas GPU discretas (por ejemplo GeForce antiguas) no pueden usar la IA de texto de nivel 1 aunque Foundry Local funcione bien
+- **Foundry Local:** cualquier PC con Windows donde instale y active la runtime de Foundry Local
+
+**Cómo activarlo:**
+1. Abra **Configuración → Proveedores de IA**
+2. Desplácese a **IA en el dispositivo**
+3. Active **Preferir IA en el dispositivo**
+4. Revise las filas de estado de **IA del sistema en el dispositivo** y **Foundry Local**
+
+Con **Preferir IA en el dispositivo** activado, Plethora intenta primero la IA del sistema en Windows, luego Foundry Local si está habilitado, antes de su proveedor en la nube — salvo que **Permitir reserva en la nube** esté desactivado (entonces los fallos permanecen en el dispositivo).
+
+**Qué puede hacer:**
+
+| Función | IA del sistema en el dispositivo | Foundry Local |
+|---------|----------------------------------|---------------|
+| Etiquetado inteligente | Cuando está listo | Cuando runtime + modelo listos |
+| Resumir / explicar un pasaje | Cuando está listo | Cuando está listo |
+| Preguntar a la biblioteca | Cuando está listo | Cuando está listo |
+| Generar tarjetas desde texto | Cuando está listo | Cuando está listo |
+| OCR en importación / PDF (OCR del sistema Windows) | Cuando OCR listo | No — use Tesseract u OCR en la nube |
+| Transcribir audio o vídeo | No | No |
+| Leer texto en voz alta (TTS) | No | No |
+
+**Documentos → OCR:** Si aparece **OCR del sistema Windows** en **Configuración → Documentos → OCR**, selecciónelo directamente o active **Preferir OCR del sistema Windows** para usarlo automáticamente en importación y OCR de PDF cuando esté disponible. Usa la misma base de IA de Windows y recurre a Tesseract o su proveedor OCR elegido si no está disponible.
+
+**Privacidad:**
+- **Preferir IA en el dispositivo** dirige primero las tareas admitidas a backends en el dispositivo
+- **Permitir reserva en la nube** está desactivado por defecto — Plethora **no** envía en silencio su biblioteca a API en la nube de pago si falla la IA en el dispositivo
+- Foundry Local mantiene la inferencia en su máquina; solo se contacta su endpoint local configurado
+
+**Si el estado no es Listo:**
+
+| Estado | Qué significa | Qué probar |
+|--------|---------------|------------|
+| Disponible / Listo | La función está preparada | Use la IA con normalidad; abra **Diagnóstico** si algo falla |
+| Descargable / Descargando… | El modelo de IA de Windows aún no está instalado | Espere la actualización o instalación del modelo, luego **Actualizar** |
+| Identidad de paquete faltante | MSIX sparse no registrado | Reinstale o repare Plethora; revise rutas MSIX en **Diagnóstico** |
+| Acceso limitado denegado | Phi Silica necesita desbloqueo LAF de Microsoft | Solo configuración avanzada; no necesario para Foundry Local |
+| Hardware no compatible | El PC no tiene la NPU requerida para esta función | Active **Foundry Local**, use proveedor en la nube o Tesseract para OCR |
+| SO no compatible | Compilación de Windows inferior a 24H2 | Actualice Windows o use Foundry Local / nube |
+
+Abra **Configuración → IA en el dispositivo → Diagnóstico** en Windows para identidad de paquete, disponibilidad del bridge, estado OCR y salud del endpoint Foundry Local.
+
+**Consejo:** En un PC de juegos con GPU potente pero sin NPU Copilot+, **Foundry Local** suele ser la ruta realista de IA en el dispositivo. El estado de la IA del sistema sigue siendo útil para ver por qué Phi Silica u OCR del sistema Windows no están disponibles en su hardware.
+
 #### Generación automática
 
 **Generación de tarjeta:**

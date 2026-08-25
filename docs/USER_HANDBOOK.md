@@ -1449,6 +1449,67 @@ When Ready, Plethora automatically uses on-device Apple AI for supported tasks. 
 
 **Tip:** Long documents are handled automatically — Plethora splits them into chunks that fit the on-device context window, then combines the results. You do not need to configure this.
 
+#### On-Device Windows AI (Windows 11)
+
+On Windows desktop, Plethora can run AI tasks **on your PC** without sending your library content to OpenAI, Anthropic, or other cloud APIs you configure separately. Windows offers two complementary on-device paths:
+
+1. **System On-Device AI** — built-in Windows AI APIs for text tasks and OCR when your PC and Windows version support them
+2. **Foundry Local** — an optional OpenAI-compatible local server you install yourself (works on many GPUs, including hardware without a Copilot+ NPU)
+
+These paths are separate from cloud providers and **do not use your OpenAI API key** unless you enable cloud fallback.
+
+**What it is:** On-device text generation for smart tagging, summarizing passages, flashcard ideas, Ask Library answers, and workflow shortcuts — plus **Windows System OCR** for scanned PDFs and images when enabled under **Settings → Documents → OCR**.
+
+**What it is not:** System On-Device AI does **not** transcribe audio or video (use **Settings → Audio Transcription**), does **not** read text aloud (use **Settings → Text-to-Speech**), and does **not** run on every Windows PC. Copilot+ NPU features (Phi Silica text AI and Windows System OCR) require hardware and Windows builds many gaming PCs do not meet — **Foundry Local**, **Tesseract**, or a cloud provider remain the practical options there.
+
+**Requirements:**
+- **Windows 11 version 24H2 or later** (build 26100+) for System On-Device AI status checks
+- **Package identity** registered at install (Plethora's Windows installer registers a sparse MSIX identity automatically; if registration fails, System On-Device AI stays inactive)
+- **Copilot+ / NPU-class hardware** for Microsoft's Phi Silica language model — many discrete GPUs (for example older GeForce cards) cannot use Tier 1 text AI even when Foundry Local works well
+- **Foundry Local:** any Windows PC where you install and enable the Foundry Local runtime
+
+**How to turn it on:**
+1. Open **Settings → AI Provider Settings**
+2. Scroll to **On-device AI**
+3. Turn on **Prefer on-device AI**
+4. Review **System On-Device AI** and **Foundry Local** status rows
+
+When **Prefer on-device AI** is on, Plethora tries System On-Device AI first on Windows, then Foundry Local if enabled, before your configured cloud provider — unless **Allow cloud fallback** is off, in which case failures stay on-device.
+
+**What you can do:**
+
+| Feature | System On-Device AI | Foundry Local |
+|---------|---------------------|---------------|
+| Smart tagging | When Ready | When runtime + model Ready |
+| Summarize / explain a passage | When Ready | When Ready |
+| Ask Library | When Ready | When Ready |
+| Generate flashcards from text | When Ready | When Ready |
+| OCR on import / PDF (Windows System OCR) | When OCR Ready | No — use Tesseract or cloud OCR |
+| Transcribe audio or video | No | No |
+| Read text aloud (TTS) | No | No |
+
+**Documents → OCR:** When **Windows System OCR** appears in **Settings → Documents → OCR**, select it directly or enable **Prefer Windows System OCR** to use it automatically for import and PDF OCR when available. It uses the same Windows AI stack as above and falls back to Tesseract or your chosen OCR provider when unavailable.
+
+**Privacy:**
+- **Prefer on-device AI** routes supported tasks to on-device backends first
+- **Allow cloud fallback** is off by default — Plethora will **not** silently send your library content to paid cloud APIs when on-device AI fails
+- Foundry Local keeps inference on your machine; only your configured local endpoint is contacted
+
+**If status is not Ready:**
+
+| Status | What it means | What to try |
+|--------|---------------|-------------|
+| Available / Ready | Feature is ready | Use AI features normally; open **Diagnostics** if something still fails |
+| Downloadable / Downloading | Windows AI model not installed yet | Wait for Windows Update or model install, then tap **Refresh** |
+| Package identity missing | Sparse MSIX not registered | Reinstall or repair Plethora; check sparse MSIX paths in **Diagnostics** |
+| Limited access denied | Phi Silica needs a Microsoft LAF unlock | Advanced setup only; not required for Foundry Local |
+| Unsupported hardware | PC lacks required NPU for this Windows AI feature | Enable **Foundry Local**, use a cloud provider, or use Tesseract for OCR |
+| Unsupported OS | Windows build below 24H2 | Update Windows or use Foundry Local / cloud |
+
+Open **Settings → On-device AI → Diagnostics** on Windows for package identity, bridge availability, OCR ready state, and Foundry Local endpoint health.
+
+**Tip:** On a gaming PC with a strong GPU but no Copilot+ NPU, **Foundry Local** is usually the realistic on-device AI path. System On-Device AI status is still useful to see why Phi Silica or Windows System OCR are unavailable on your hardware.
+
 #### Auto-Generation
 
 **Card Generation:**

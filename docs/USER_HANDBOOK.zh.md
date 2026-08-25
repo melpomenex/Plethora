@@ -1426,6 +1426,67 @@ Plethora 提供完整的备份和恢复系统来保护您的学习数据并在�
 
 **提示：** 长文档会自动处理 — Plethora 会将其拆分为适合设备端上下文窗口的片段，然后合并结果。您无需手动配置此项。
 
+#### 设备端 Windows AI（Windows 11）
+
+在 Windows 桌面上，Plethora 可以在 **您的 PC 上** 运行 AI 任务，而无需将图书馆内容发送到您另行配置的 OpenAI、Anthropic 等云端 API。Windows 提供两条互补的设备端路径：
+
+1. **系统设备端 AI** — 当您的 PC 和 Windows 版本支持时，使用内置 Windows AI API 处理文本和 OCR
+2. **Foundry Local** — 您自行安装的可选 OpenAI 兼容本地服务器（适用于许多 GPU，包括没有 Copilot+ NPU 的机器）
+
+这些路径与云端提供商分开，除非您启用云端回退，**不会使用您的 OpenAI API 密钥**。
+
+**它是什么：** 设备端文本生成，用于智能标签、段落摘要、卡片思路、向图书馆提问的回答和工作流快捷操作 — 以及在 **设置 → 文档 → OCR** 中启用时的扫描 PDF 与图片 **Windows 系统 OCR**。
+
+**它不是什么：** 系统设备端 AI **不会** 转录音频或视频（请使用 **设置 → 音频转录**），**不会** 朗读文本（请使用 **设置 → 文字转语音**），也 **并非在所有 Windows PC 上都能运行**。Copilot+ NPU 功能（Phi Silica 文本 AI 与 Windows 系统 OCR）需要许多游戏 PC 无法满足的硬件和 Windows 版本 — **Foundry Local**、**Tesseract** 或云端提供商仍是实用选择。
+
+**要求：**
+- 系统设备端 AI 状态检查需要 **Windows 11 24H2 或更高版本**（内部版本 26100+）
+- 安装时注册 **包标识**（Plethora 的 Windows 安装程序会自动注册 sparse MSIX 标识；若失败，系统设备端 AI 保持不可用）
+- Microsoft Phi Silica 语言模型需要 **Copilot+ / NPU 级硬件** — 许多独立 GPU（例如较旧的 GeForce）即使 Foundry Local 运行良好也无法使用 Tier 1 文本 AI
+- **Foundry Local：** 任何安装并启用 Foundry Local 运行时的 Windows PC
+
+**如何开启：**
+1. 打开 **设置 → AI 提供商**
+2. 滚动到 **设备端 AI**
+3. 开启 **优先使用设备端 AI**
+4. 查看 **系统设备端 AI** 和 **Foundry Local** 状态行
+
+开启 **优先使用设备端 AI** 后，Plethora 在 Windows 上会先尝试系统设备端 AI，再在 Foundry Local 已启用时尝试它，最后才使用您配置的云端提供商 — 若 **允许云端回退** 关闭，失败时仍停留在设备端。
+
+**您可以做什么：**
+
+| 功能 | 系统设备端 AI | Foundry Local |
+|------|---------------|---------------|
+| 智能标签 | 就绪时 | 运行时与模型就绪时 |
+| 摘要 / 解释段落 | 就绪时 | 就绪时 |
+| 向图书馆提问 | 就绪时 | 就绪时 |
+| 从文本生成卡片 | 就绪时 | 就绪时 |
+| 导入 / PDF OCR（Windows 系统 OCR） | OCR 就绪时 | 否 — 使用 Tesseract 或云端 OCR |
+| 转录音频或视频 | 否 | 否 |
+| 朗读文本（TTS） | 否 | 否 |
+
+**文档 → OCR：** 当 **设置 → 文档 → OCR** 中出现 **Windows 系统 OCR** 时，可直接选择，或开启 **优先使用 Windows 系统 OCR**，在可用时自动用于导入和 PDF OCR。它使用相同的 Windows AI 栈，不可用时回退到 Tesseract 或您选择的 OCR 提供商。
+
+**隐私：**
+- **优先使用设备端 AI** 会先将支持的任务路由到设备端后端
+- **允许云端回退** 默认关闭 — 设备端 AI 失败时，Plethora **不会** 悄悄将图书馆内容发送到付费云端 API
+- Foundry Local 将推理保留在您的机器上；仅联系您配置的本地端点
+
+**如果状态不是「就绪」：**
+
+| 状态 | 含义 | 建议操作 |
+|------|------|----------|
+| 可用 / 就绪 | 功能已可用 | 正常使用 AI；若仍有问题请打开 **诊断** |
+| 可下载 / 正在下载… | Windows AI 模型尚未安装 | 等待 Windows 更新或模型安装，然后 **刷新** |
+| 缺少包标识 | sparse MSIX 未注册 | 重新安装或修复 Plethora；在 **诊断** 中检查 MSIX 路径 |
+| 受限访问被拒绝 | Phi Silica 需要 Microsoft LAF 解锁 | 仅高级配置；Foundry Local 不需要 |
+| 硬件不支持 | PC 缺少此 Windows AI 功能所需的 NPU | 启用 **Foundry Local**、使用云端提供商或 Tesseract 做 OCR |
+| 系统版本不支持 | Windows 内部版本低于 24H2 | 更新 Windows 或使用 Foundry Local / 云端 |
+
+在 Windows 上打开 **设置 → 设备端 AI → 诊断**，查看包标识、桥接可用性、OCR 就绪状态和 Foundry Local 端点健康状况。
+
+**提示：** 在拥有强劲 GPU 但没有 Copilot+ NPU 的游戏 PC 上，**Foundry Local** 通常是现实的设备端 AI 路径。系统设备端 AI 状态仍有助于了解 Phi Silica 或 Windows 系统 OCR 在您的硬件上不可用的原因。
+
 #### 自动生成
 
 **卡牌生成：**
