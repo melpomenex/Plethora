@@ -1091,6 +1091,9 @@ export const zh: Dict = {
   "assistant.openAssistant": "打开助手",
   "assistant.placeholder": "询问你的文档，或输入 /help 查看命令...",
   "assistant.runningToolCalls": "正在运行工具调用...",
+  "assistant.providerAppleFoundation": "Apple Intelligence",
+  "assistant.appleFoundationUnavailable": "此设备无法使用 Apple Intelligence。请在系统设置中启用，或在设备端 AI 设置中打开助手开关。",
+  "assistant.appleFoundationImagesStripped": "未发送图片 — Apple Intelligence 在助手中尚不支持视觉功能。",
   "assistant.shareConversation": "分享对话",
   "assistant.shareExport": "分享/导出",
   "assistant.title": "助手",
@@ -5712,5 +5715,7 @@ export const zh: Dict = {
   "onDeviceAi.appleFoundationDetail.device_not_eligible": "此 Mac 不符合 Apple 智能的硬件要求。",
   "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "请在「系统设置 → Apple 智能与 Siri」中开启 Apple 智能。",
   "onDeviceAi.appleFoundationDetail.unsupported_os": "需要 macOS 26 或更高版本并支持 Apple 智能。",
-  "onDeviceAi.appleFoundationDetail.platform_unsupported": "此平台不支持 Apple 基础模型。"
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "此平台不支持 Apple 基础模型。",
+  "onDeviceAi.assistantAppleFoundationLabel": "在助手中使用",
+  "onDeviceAi.assistantAppleFoundationDescription": "在助手面板中将 Apple Intelligence 显示为提供商，用于私密、本地的文档对话。"
 };

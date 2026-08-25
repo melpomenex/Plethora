@@ -20,7 +20,7 @@ import {
   Waves,
 } from "@phosphor-icons/react";
 import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
-import { getStoredAssistantProvider, persistAssistantProvider } from "../utils/assistantProvider";
+import { getStoredAssistantProvider, persistAssistantProvider, type AssistantProviderId } from "../utils/assistantProvider";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueueStore } from "../stores/queueStore";
 import type { QueueItem } from "../types/queue";
@@ -581,7 +581,7 @@ export function QueueScrollPage() {
   const transcriptCacheRef = useRef<Map<string, string>>(new Map());
   const transcriptFetchInFlightRef = useRef<Set<string>>(new Set());
 
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() =>
+  const [selectedProvider, setSelectedProvider] = useState<AssistantProviderId>(() =>
     getStoredAssistantProvider("openai"),
   );
   const [isFullscreen, setIsFullscreen] = useState(false);

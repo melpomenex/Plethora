@@ -788,6 +788,9 @@ export const ja: Dict = {
   "assistant.openAssistant": "アシスタントを開く",
   "assistant.placeholder": "ドキュメントについて質問するか、/help と入力してコマンドを表示...",
   "assistant.runningToolCalls": "ツールを実行中...",
+  "assistant.providerAppleFoundation": "Apple Intelligence",
+  "assistant.appleFoundationUnavailable": "このデバイスでは Apple Intelligence を利用できません。システム設定で有効にするか、オンデバイス AI 設定でアシスタントのトグルをオンにしてください。",
+  "assistant.appleFoundationImagesStripped": "画像は送信されませんでした — Apple Intelligence はアシスタントでの画像認識にまだ対応していません。",
   "assistant.shareConversation": "会話を共有",
   "assistant.shareExport": "共有/エクスポート",
   "assistant.title": "アシスタント",
@@ -5796,5 +5799,7 @@ export const ja: Dict = {
   "onDeviceAi.appleFoundationDetail.device_not_eligible": "この Mac は Apple Intelligence のハードウェア要件を満たしていません。",
   "onDeviceAi.appleFoundationDetail.apple_intelligence_disabled": "システム設定 → Apple Intelligence と Siri で Apple Intelligence をオンにしてください。",
   "onDeviceAi.appleFoundationDetail.unsupported_os": "Apple Intelligence に対応した macOS 26 以降が必要です。",
-  "onDeviceAi.appleFoundationDetail.platform_unsupported": "このプラットフォームでは Apple Foundation Models は利用できません。"
+  "onDeviceAi.appleFoundationDetail.platform_unsupported": "このプラットフォームでは Apple Foundation Models は利用できません。",
+  "onDeviceAi.assistantAppleFoundationLabel": "アシスタントで使用",
+  "onDeviceAi.assistantAppleFoundationDescription": "アシスタントパネルで Apple Intelligence をプロバイダーとして表示し、プライベートなオンデバイスでのドキュメントチャットを利用します。"
 };

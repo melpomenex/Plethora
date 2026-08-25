@@ -33,7 +33,7 @@ import {
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
-import { chatWithContext, type LLMMessage, type LLMMessageContentPart } from "../../api/llm";
+import { chatWithContext, type LLMMessage, type LLMMessageContentPart, type LLMProvider } from "../../api/llm";
 import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
 import { renderMarkdown } from "../../utils/markdown";
 import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
@@ -46,8 +46,17 @@ import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } fro
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
-import { getStoredAssistantProvider, persistAssistantProvider } from "../../utils/assistantProvider";
-import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
+import {
+  APPLE_FM_ASSISTANT_PROVIDER,
+  getStoredAssistantProvider,
+  isAppleFmAssistantProvider,
+  persistAssistantProvider,
+  type AssistantProviderId,
+} from "../../utils/assistantProvider";
+import { runAssistantAppleFmChat } from "../../lib/ai/assistant/assistantAppleFmChat";
+import { appleFmAvailability } from "../../lib/ai/apple/foundation";
+import { getAppleIntelligenceSnapshot, isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
+import { providerRequiresApiKey, type ConfiguredLLMProvider } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
@@ -143,8 +152,8 @@ interface AssistantPanelProps {
   onWidthChange?: (width: number) => void;
   position?: AssistantPosition;
   onPositionChange?: (position: AssistantPosition) => void;
-  selectedProvider?: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
-  onProviderChange?: (provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => void;
+  selectedProvider?: AssistantProviderId;
+  onProviderChange?: (provider: AssistantProviderId) => void;
   appendContextMessages?: boolean;
   /** Fill the host width and disable the desktop drag handle (used by mobile sheets). */
   fillContainer?: boolean;
@@ -315,9 +324,13 @@ export function AssistantPanel({
   const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
   const toast = useToast();
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() =>
+  const [selectedProvider, setSelectedProvider] = useState<AssistantProviderId>(() =>
     getStoredAssistantProvider("openai"),
   );
+  const assistantUseAppleFoundation = useSettingsStore(
+    (s) => s.settings.ai.assistantUseAppleFoundation === true,
+  );
+  const [appleFmAvailable, setAppleFmAvailable] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -343,6 +356,28 @@ export function AssistantPanel({
   const [isInputHovered, setIsInputHovered] = useState(false);
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
   const aiControls = useSettingsStore((state) => state.settings.ai.aiControls);
+
+  useEffect(() => {
+    if (!isAppleOsPlatform()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [snap, avail] = await Promise.all([
+          getAppleIntelligenceSnapshot(),
+          appleFmAvailability(),
+        ]);
+        if (cancelled) return;
+        const ready =
+          snap.foundationModels.status === "available" || avail.status === "available";
+        setAppleFmAvailable(ready);
+      } catch {
+        if (!cancelled) setAppleFmAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const studyDecks = useStudyDeckStore((state) => state.decks);
   const storedDocumentTitle = useDocumentStore((state) => {
     const documentId = context?.documentId;
@@ -457,6 +492,9 @@ export function AssistantPanel({
 
   // Clean, human-friendly model name formatter
   const getFriendlyModelName = (providerId: string, rawModelName?: string) => {
+    if (isAppleFmAssistantProvider(providerId as AssistantProviderId)) {
+      return appleFmProviderLabel;
+    }
     if (!rawModelName) {
       if (providerId === "openai") return "GPT-4o";
       if (providerId === "anthropic") return "Claude 3.5 Sonnet";
@@ -524,12 +562,15 @@ export function AssistantPanel({
   };
 
   // Provider configuration active status checker
-  const getProviderStatus = (providerId: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => {
+  const getProviderStatus = (providerId: AssistantProviderId) => {
+    if (isAppleFmAssistantProvider(providerId)) {
+      return assistantUseAppleFoundation && appleFmAvailable ? "active" : "not-configured";
+    }
     const config = configuredProvidersList.find(p => p.provider === providerId);
     if (!config) return "not-configured";
     if (!config.enabled) return "disabled";
     
-    const requiresKey = providerRequiresApiKey(providerId, config.baseUrl || "");
+    const requiresKey = providerRequiresApiKey(providerId as ConfiguredLLMProvider, config.baseUrl || "");
     const hasKey = config.apiKey && config.apiKey.trim().length > 0;
     
     if (requiresKey && !hasKey) return "key-missing";
@@ -642,9 +683,22 @@ export function AssistantPanel({
     setAttachedImages([]);
   };
 
-  const providers = [
+  const appleFmProviderLabel = useMemo(() => {
+    const label = t("assistant.providerAppleFoundation");
+    return label === "assistant.providerAppleFoundation" ? "Apple Intelligence" : label;
+  }, [t]);
+
+  const providers = useMemo(() => {
+    const list: Array<{
+      id: AssistantProviderId;
+      name: string;
+      icon: typeof Sparkle;
+      color: string;
+      gradient: string;
+      breathingDot: string;
+    }> = [
     { 
-      id: "openai", 
+      id: "openai" as const, 
       name: "OpenAI", 
       icon: Sparkle, 
       color: "text-emerald-500",
@@ -652,7 +706,7 @@ export function AssistantPanel({
       breathingDot: "bg-emerald-500 shadow-[0_0_8px_#10b981]",
     },
     { 
-      id: "anthropic", 
+      id: "anthropic" as const, 
       name: "Anthropic", 
       icon: ChatCircle, 
       color: "text-orange-500",
@@ -660,7 +714,7 @@ export function AssistantPanel({
       breathingDot: "bg-orange-500 shadow-[0_0_8px_#f97316]",
     },
     {
-      id: "gemini",
+      id: "gemini" as const,
       name: "Gemini",
       icon: Sparkle,
       color: "text-blue-400",
@@ -668,7 +722,7 @@ export function AssistantPanel({
       breathingDot: "bg-blue-400 shadow-[0_0_8px_#60a5fa]",
     },
     { 
-      id: "ollama", 
+      id: "ollama" as const, 
       name: "Ollama", 
       icon: Code, 
       color: "text-cyan-500",
@@ -676,7 +730,7 @@ export function AssistantPanel({
       breathingDot: "bg-cyan-500 shadow-[0_0_8px_#06b6d4]",
     },
     {
-      id: "openrouter",
+      id: "openrouter" as const,
       name: "OpenRouter",
       icon: Gear,
       color: "text-purple-500",
@@ -684,14 +738,28 @@ export function AssistantPanel({
       breathingDot: "bg-purple-500 shadow-[0_0_8px_#a855f7]",
     },
     {
-      id: "deepseek",
+      id: "deepseek" as const,
       name: "DeepSeek",
       icon: Waves,
       color: "text-blue-500",
       gradient: "from-blue-500/15 to-sky-500/5 hover:from-blue-500/20",
       breathingDot: "bg-blue-500 shadow-[0_0_8px_#3b82f6]",
     },
-  ];
+    ];
+
+    if (assistantUseAppleFoundation && appleFmAvailable) {
+      list.push({
+        id: APPLE_FM_ASSISTANT_PROVIDER,
+        name: appleFmProviderLabel,
+        icon: Sparkle,
+        color: "text-slate-500",
+        gradient: "from-slate-500/15 to-zinc-500/5 hover:from-slate-500/20",
+        breathingDot: "bg-slate-500 shadow-[0_0_8px_#64748b]",
+      });
+    }
+
+    return list;
+  }, [appleFmAvailable, appleFmProviderLabel, assistantUseAppleFoundation]);
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -1202,105 +1270,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const promptSectionNodes = mentionResolution.nodes;
 
     try {
-      // Get all providers to check if selected provider exists but is disabled
-      const allProviders = useLLMProvidersStore.getState().providers;
-      const enabledProviders = useLLMProvidersStore.getState().getEnabledProviders();
-
-      const selectedTypeProvider = allProviders.find((p) => p.provider === effectiveProvider);
-
-      if (!selectedTypeProvider) {
-        // Provider doesn't exist at all
-        const availableTypes = enabledProviders.map((p) => p.provider).join(", ");
-        return {
-          content: `No ${effectiveProvider} provider configured. Available providers: ${availableTypes || "None"}. Please add an API key in Settings.`,
-        };
-      }
-
-      if (!selectedTypeProvider.enabled) {
-        // Provider exists but is disabled
-        return {
-          content: `The ${effectiveProvider} provider is configured but disabled. Please enable it in Settings, or select a different provider.`,
-        };
-      }
-
-      if (providerRequiresApiKey(selectedTypeProvider.provider, selectedTypeProvider.baseUrl) && (!selectedTypeProvider.apiKey || !selectedTypeProvider.apiKey.trim())) {
-        return {
-          content: `${effectiveProvider} provider found but API key is empty. Please remove and re-add the provider in Settings.`,
-        };
-      }
-
-      const provider = selectedTypeProvider;
-
-      // Convert messages to LLM format
-      // NOTE: conversation history comes BEFORE the current user prompt so the LLM
-      // sees correct turn ordering: system → [past turns...] → current user message
       const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
       const effectivePrompt = isTwentyRules
         ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following the 20 Rules of Knowledge Formulation.")
         : prompt;
-
-      const llmMessages: LLMMessage[] = [
-        {
-          role: "system" as const,
-          content: toolInstruction,
-        },
-        ...(contextData.conversationHistory as Message[]).map((m) => {
-          if (m.images && m.images.length > 0) {
-            const parts: LLMMessageContentPart[] = [];
-            if (m.content.trim()) {
-              parts.push({ type: "text", text: m.content });
-            }
-            for (const img of m.images) {
-              parts.push({ type: "image_url", imageUrl: img.dataUrl });
-            }
-            return {
-              role: m.role as "system" | "user" | "assistant",
-              content: parts,
-            };
-          }
-          return {
-            role: m.role as "system" | "user" | "assistant",
-            content: m.content,
-          };
-        }),
-        {
-          role: "user" as const,
-          content: effectivePrompt,
-        },
-      ];
-
       const currentUserImages = contextData.currentUserImages as AttachedImage[] | undefined;
-      let imagesStripped = false;
-      const modelName = (provider.model || effectiveProvider) as string;
-
-      if (currentUserImages && currentUserImages.length > 0) {
-        const hasVision = supportsVision(effectiveProvider, modelName);
-        if (!hasVision) {
-          // Strip images from the current user message in llmMessages
-          // The current user message is the last user message in the array
-          const lastUserIdx = llmMessages.map((m) => m.role).lastIndexOf("user");
-          if (lastUserIdx >= 0) {
-            llmMessages[lastUserIdx] = {
-              ...llmMessages[1],
-              content: prompt, // plain text only
-            };
-          }
-          imagesStripped = true;
-        } else {
-          const parts: LLMMessageContentPart[] = [];
-          if (prompt.trim()) {
-            parts.push({ type: "text", text: prompt });
-          }
-          for (const img of currentUserImages) {
-            parts.push({ type: "image_url", imageUrl: img.dataUrl });
-          }
-          const lastUserIdx2 = llmMessages.map((m) => m.role).lastIndexOf("user");
-          llmMessages[lastUserIdx2] = {
-            role: "user" as const,
-            content: parts,
-          };
-        }
-      }
+      let resolvedUserPrompt = effectivePrompt;
 
       const llmContext = contextData.currentContext as AssistantContext;
       const contextWindow = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
@@ -1318,11 +1293,6 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       let finalResolvedContent = resolvedContext.content ?? "";
       let sourceContext: SectionSourceReference | undefined;
-      // Selection mentions carry exactly the selected text; structural sections
-      // resolve against the document's canonical text. Both are combined below.
-      // Timed media sections already carry their authoritative transcript text,
-      // just like a live text selection. They must not be reconciled against
-      // flattened documents.content, which has no chapter character offsets.
       const selectionNodes = promptSectionNodes.filter(
         (n) => n.source === "selection" || n.source === "media-transcript",
       );
@@ -1339,27 +1309,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       if (sectionNodes.length > 0 && llmContext?.type === "document") {
         const documentId = llmContext.documentId;
-        // Pseudo-document contexts (podcast transcripts carry no documentId;
-        // scroll-mode assistants use `extract:<id>` ids) have no document row
-        // behind them, so structural document-text resolution can never
-        // succeed. `#` mentions there resolve against the attached content.
         const realDocumentId = documentId && !documentId.startsWith("extract:") ? documentId : null;
         const attachedKey = documentId || "attached-content";
 
         let sectionText: string;
         let resolutionFlat: SectionNode[];
         if (realDocumentId) {
-          // Section resolution occasionally misses on the very first request
-          // right after a document opens or a section is picked (the
-          // just-fetched canonical text can momentarily disagree with the
-          // TOC/heading offsets the section was picked against) and then
-          // succeeds immediately on an identical retry — users were seeing
-          // this as "reselect and resend". One transparent retry absorbs that
-          // transient miss instead of surfacing it. The retry also rebuilds
-          // the section tree from the freshly fetched text: the hook's tree
-          // can still be built from partial/older content when a message is
-          // sent right after the document opens, and resolving against that
-          // stale tree is exactly what forced the manual resend.
           sectionText = await loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText });
           resolutionFlat = assistantSectionFlat;
         } else {
@@ -1410,8 +1365,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           userQuestion: prompt.replace(/#{([^}]+)}/g, "").trim(),
           focusLabel: [...focused.labels, ...selectionNodes.map((n) => n.title)].join(", "),
         });
-        const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
-        if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
+        resolvedUserPrompt = request.userPromptContent;
       } else if (selectionNodes.length > 0) {
         finalResolvedContent = selectionContext;
         sourceContext = {
@@ -1434,18 +1388,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           ? resolvedContext.content.trim()
           : "";
 
-      // The viewer-supplied context is frequently unusable for PDFs — the
-      // page-window text may not have been emitted yet (status "loading") or
-      // the live/stored/OCR text came up empty (status "unavailable"). In that
-      // case, fall back to the same authoritative text source Document Q&A
-      // uses: stored document content, then the Rust text extractor. Without
-      // this, the Assistant throws "Document context is unavailable..." on
-      // PDFs that Document Q&A reads without issue.
       let usedDocumentFallback = false;
       if ((!contextContent || resolvedContext.status !== "ready")
           && llmContext?.type === "document" && llmContext.documentId
-          // An explicitly attached selection IS the requested context — never
-          // replace it with the whole document text.
           && selectionNodes.length === 0) {
         const fallbackText = (await loadDocumentQaText(
           llmContext.documentId,
@@ -1458,14 +1403,131 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
       }
 
-      // When an explicit selection is attached it IS the context — don't throw
-      // just because the viewer's page-window context isn't ready yet.
       const hasExplicitSelectionContext = selectionNodes.length > 0 && selectionContext.trim().length > 0;
       if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext) || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
       }
 
-      // Build context object for LLM API - ensure required fields are valid
+      if (isAppleFmAssistantProvider(effectiveProvider)) {
+        if (!assistantUseAppleFoundation || !appleFmAvailable) {
+          return {
+            content: "Apple Intelligence is not available. Enable it in Settings → AI → On-device AI.",
+          };
+        }
+
+        let imagesStripped = false;
+        if (currentUserImages && currentUserImages.length > 0) {
+          imagesStripped = true;
+        }
+
+        const appleFmUserPrompt = sectionNodes.length > 0
+          ? (prompt.replace(/#{([^}]+)}/g, "").trim() || effectivePrompt)
+          : effectivePrompt;
+        const fmResponse = await runAssistantAppleFmChat({
+          systemInstruction: toolInstruction,
+          conversationHistory: (contextData.conversationHistory as Message[]).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          userPrompt: appleFmUserPrompt,
+          documentContext: contextContent || undefined,
+          maxOutputTokens: contextWindowTokens,
+        });
+
+        return {
+          content: fmResponse.content,
+          imagesStripped,
+          modelName: appleFmProviderLabel,
+          sourceContext,
+        };
+      }
+
+      const allProviders = useLLMProvidersStore.getState().providers;
+      const enabledProviders = useLLMProvidersStore.getState().getEnabledProviders();
+
+      const selectedTypeProvider = allProviders.find((p) => p.provider === effectiveProvider);
+
+      if (!selectedTypeProvider) {
+        const availableTypes = enabledProviders.map((p) => p.provider).join(", ");
+        return {
+          content: `No ${effectiveProvider} provider configured. Available providers: ${availableTypes || "None"}. Please add an API key in Settings.`,
+        };
+      }
+
+      if (!selectedTypeProvider.enabled) {
+        return {
+          content: `The ${effectiveProvider} provider is configured but disabled. Please enable it in Settings, or select a different provider.`,
+        };
+      }
+
+      if (providerRequiresApiKey(selectedTypeProvider.provider, selectedTypeProvider.baseUrl) && (!selectedTypeProvider.apiKey || !selectedTypeProvider.apiKey.trim())) {
+        return {
+          content: `${effectiveProvider} provider found but API key is empty. Please remove and re-add the provider in Settings.`,
+        };
+      }
+
+      const provider = selectedTypeProvider;
+
+      const llmMessages: LLMMessage[] = [
+        {
+          role: "system" as const,
+          content: toolInstruction,
+        },
+        ...(contextData.conversationHistory as Message[]).map((m) => {
+          if (m.images && m.images.length > 0) {
+            const parts: LLMMessageContentPart[] = [];
+            if (m.content.trim()) {
+              parts.push({ type: "text", text: m.content });
+            }
+            for (const img of m.images) {
+              parts.push({ type: "image_url", imageUrl: img.dataUrl });
+            }
+            return {
+              role: m.role as "system" | "user" | "assistant",
+              content: parts,
+            };
+          }
+          return {
+            role: m.role as "system" | "user" | "assistant",
+            content: m.content,
+          };
+        }),
+        {
+          role: "user" as const,
+          content: resolvedUserPrompt,
+        },
+      ];
+
+      let imagesStripped = false;
+      const modelName = (provider.model || effectiveProvider) as string;
+
+      if (currentUserImages && currentUserImages.length > 0) {
+        const hasVision = supportsVision(effectiveProvider, modelName);
+        if (!hasVision) {
+          const lastUserIdx = llmMessages.map((m) => m.role).lastIndexOf("user");
+          if (lastUserIdx >= 0) {
+            llmMessages[lastUserIdx] = {
+              role: "user",
+              content: prompt,
+            };
+          }
+          imagesStripped = true;
+        } else {
+          const parts: LLMMessageContentPart[] = [];
+          if (prompt.trim()) {
+            parts.push({ type: "text", text: prompt });
+          }
+          for (const img of currentUserImages) {
+            parts.push({ type: "image_url", imageUrl: img.dataUrl });
+          }
+          const lastUserIdx2 = llmMessages.map((m) => m.role).lastIndexOf("user");
+          llmMessages[lastUserIdx2] = {
+            role: "user" as const,
+            content: parts,
+          };
+        }
+      }
+
       const llmContextData = {
         type: llmContext?.type || "general",
         documentId: llmContext?.documentId,
@@ -1476,9 +1538,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
       };
 
-      // Call the LLM API
       const response = await chatWithContext(
-        effectiveProvider,
+        effectiveProvider as LLMProvider,
         provider.model,
         llmMessages,
         llmContextData,
@@ -2647,7 +2708,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const currentProvider = providers.find((p) => p.id === effectiveProvider);
 
-  const handleProviderChange = (providerId: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => {
+  const handleProviderChange = (providerId: AssistantProviderId) => {
     setSelectedProvider(providerId);
     onProviderChange?.(providerId);
   };
@@ -2709,12 +2770,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                   effectiveProvider === "openai" ? "bg-emerald-400" :
                   effectiveProvider === "anthropic" ? "bg-orange-400" :
-                  effectiveProvider === "ollama" ? "bg-cyan-400" : "bg-purple-400"
+                  effectiveProvider === "ollama" ? "bg-cyan-400" :
+                  isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-400" : "bg-purple-400"
                 }`}></span>
                 <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
                   effectiveProvider === "openai" ? "bg-emerald-500" :
                   effectiveProvider === "anthropic" ? "bg-orange-500" :
-                  effectiveProvider === "ollama" ? "bg-cyan-500" : "bg-purple-500"
+                  effectiveProvider === "ollama" ? "bg-cyan-500" :
+                  isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-500" : "bg-purple-500"
                 }`}></span>
               </span>
 
@@ -2788,17 +2851,18 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   <div className="space-y-1.5 pt-1">
                     {providers.map((provider) => {
                       const provConfig = configuredProvidersList.find(p => p.provider === provider.id);
-                      const status = getProviderStatus(provider.id as any);
+                      const status = getProviderStatus(provider.id);
                       const isActive = effectiveProvider === provider.id;
-                      const hasVision = provConfig ? supportsVision(provider.id as any, provConfig.model) : false;
+                      const hasVision = provConfig ? supportsVision(provider.id, provConfig.model) : false;
                       const isMini = provConfig ? provConfig.model.toLowerCase().includes("mini") || provConfig.model.toLowerCase().includes("haiku") : false;
+                      const isAppleFm = isAppleFmAssistantProvider(provider.id);
 
                       return (
                         <div
                           key={provider.id}
                           onClick={() => {
                             if (status !== "not-configured") {
-                              handleProviderChange(provider.id as any);
+                              handleProviderChange(provider.id);
                               setIsModelDropdownOpen(false);
                             } else {
                               handleOpenSettingsToAI();
@@ -2843,11 +2907,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                           </div>
 
                           {/* Model details and Capability Badges */}
-                          {provConfig && (
+                          {(provConfig || isAppleFm) && (
                             <div className="mt-2 space-y-1.5 pl-7">
-                              <div className="text-[10px] font-mono text-muted-foreground truncate" title={provConfig.model}>
-                                {provConfig.model}
-                              </div>
+                              {provConfig && (
+                                <div className="text-[10px] font-mono text-muted-foreground truncate" title={provConfig.model}>
+                                  {provConfig.model}
+                                </div>
+                              )}
                               
                               {/* Capabilities tags */}
                               <div className="flex flex-wrap gap-1">
@@ -2856,7 +2922,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                                     <Eye className="w-2 h-2" /> Vision
                                   </span>
                                 )}
-                                {provider.id === "ollama" ? (
+                                {isAppleFm ? (
+                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/10">
+                                    <Cpu className="w-2.5 h-2.5" /> On-device
+                                  </span>
+                                ) : provider.id === "ollama" ? (
                                   <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/10">
                                     <Cpu className="w-2.5 h-2.5" /> Local
                                   </span>
