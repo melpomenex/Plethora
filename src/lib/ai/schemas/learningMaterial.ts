@@ -25,6 +25,9 @@ import {
 
 export const MAX_LEARNING_CARDS = 8;
 export const MAX_CARDS_PER_CONCEPT = 2;
+export const MAX_LEARNING_CONCEPTS = 12;
+export const MAX_LEARNING_PREREQUISITES = 10;
+export const MAX_LEARNING_TAGS = 10;
 
 /** Card types a proposal may carry, mapped from knowledge type (design D16). */
 export const LEARNING_CARD_TYPES = [
@@ -315,14 +318,14 @@ export function validateLearningMaterialProposal(
     errors
   );
   const concepts = checkStringArray(normalized.concepts, "concepts", errors, {
-    max: 12,
+    max: MAX_LEARNING_CONCEPTS,
     maxLength: 120,
   });
   const prerequisites = checkStringArray(normalized.prerequisites, "prerequisites", errors, {
-    max: 10,
+    max: MAX_LEARNING_PREREQUISITES,
     maxLength: 120,
   });
-  const tags = checkStringArray(normalized.tags, "tags", errors, { max: 10, maxLength: 40 });
+  const tags = checkStringArray(normalized.tags, "tags", errors, { max: MAX_LEARNING_TAGS, maxLength: 40 });
   const rationale = checkString(normalized.rationale, "rationale", errors, { maxLength: 1200 });
 
   const cards: LearningCardCandidate[] = [];
