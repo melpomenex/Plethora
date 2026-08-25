@@ -571,6 +571,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   deleteDocument: async (id) => {
+    // Deleting a source document cascades its audio edition; revoke any live
+    // synthesized section URLs first (eliminate-long-running-memory-growth
+    // 5.2). Dynamic import avoids a documentStore → edition-store static
+    // cycle.
+    try {
+      const { getAudioEditionByDocument } = await import("../api/audioEditions");
+      const { getAudioEditionSections } = await import("../api/audioEditions");
+      const { revokeSectionAudioUrls } = await import("./audioEditionGenerationStore");
+      const edition = await getAudioEditionByDocument(id);
+      if (edition) {
+        const sections = await getAudioEditionSections(edition.id);
+        revokeSectionAudioUrls(sections.map((s) => s.id));
+      }
+    } catch {
+      /* edition teardown is best-effort */
+    }
     await documentsApi.deleteDocument(id);
     set((state) => ({
       documents: state.documents.filter((doc) => doc.id !== id),

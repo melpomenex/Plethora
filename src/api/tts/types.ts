@@ -12,7 +12,10 @@ export type TTSProviderId =
   | "openai"
   | "openai-compatible"
   | "android"
-  | "plethora";
+  | "plethora"
+  /** Scenario-harness-only synthetic provider (no network, no voices);
+   *  registered exclusively by the memory-scenario host. */
+  | "scenario-synth";
 
 export type TTSProviderKind = "cloud" | "local";
 

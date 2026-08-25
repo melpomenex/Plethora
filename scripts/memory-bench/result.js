@@ -11,6 +11,7 @@
  */
 
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname } from "node:path";
 
 function readFile(path) {
@@ -21,10 +22,40 @@ function readFile(path) {
   }
 }
 
+function runCapture(command, args) {
+  try {
+    return execFileSync(command, args, { encoding: "utf8", timeout: 5_000 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Machine-profile fields recorded with every result. */
-export function collectEnvironment({ appVersion = null, buildProfile = null } = {}) {
+export function collectEnvironment(
+  { appVersion = null, buildProfile = null, platform = process.platform } = {},
+) {
+  if (platform === "darwin") {
+    // macOS (eliminate-long-running-memory-growth, task 2.6): WKWebView ships
+    // with the OS, so the "web engine version" IS the OS version; there is no
+    // display server to report.
+    const osVersion = runCapture("sw_vers", ["-productVersion"]);
+    return {
+      platform,
+      platformKind: "darwin",
+      osRelease: osVersion,
+      kernel: runCapture("uname", ["-r"]),
+      webkitGtkVersion: osVersion,
+      appVersion,
+      buildProfile,
+      cpuModel: runCapture("sysctl", ["-n", "machdep.cpu.brand_string"]),
+      totalRamBytes: Number(runCapture("sysctl", ["-n", "hw.memsize"])),
+      displayServer: null,
+      cwd: process.cwd(),
+    };
+  }
   return {
-    platform: process.platform,
+    platform,
+    platformKind: "linux",
     osRelease: readOsRelease(),
     kernel: readKernel(),
     webkitGtkVersion: null, // filled by the driver when detectable

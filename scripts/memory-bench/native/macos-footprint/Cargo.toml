@@ -1,0 +1,22 @@
+[package]
+name = "macos-footprint"
+version = "0.1.0"
+edition = "2021"
+description = "Memory-bench helper: per-process physical footprint of a process tree via proc_pid_rusage (eliminate-long-running-memory-growth, task 2.1)"
+publish = false
+
+# Standalone build tool invoked by scripts/memory-bench/macos-footprint.js.
+# Deliberately NOT part of the app's cargo workspace: nothing here ships in
+# the app binary (design D3).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "macos_footprint"
+path = "src/lib.rs"
+
+[[bin]]
+name = "macos-footprint"
+path = "src/main.rs"

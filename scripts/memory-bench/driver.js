@@ -29,7 +29,8 @@ import { buildScenarioStages } from "./scenario.js";
 import { createControlServer } from "./control.js";
 import { waitForSettle } from "./settle.js";
 import { discoverProcesses } from "./discovery.js";
-import { aggregateSample, readProcessSample } from "./sample.js";
+import { aggregateSample, readProcessSample, treeHeadlineBytes } from "./sample.js";
+import { sampleMacOsTree, ensureHelperBuilt } from "./macos-footprint.js";
 import { writeResult, collectEnvironment } from "./result.js";
 import { sleep } from "./util.js";
 
@@ -76,10 +77,20 @@ async function defaultSampleTree({ procRoot, launchedPid, runId }) {
   return sample;
 }
 
-/** Sample one tree-Pss value from the live app processes. */
-async function readTreePssVia(sampler, { procRoot, launchedPid, runId }) {
+/** macOS sampler: native helper → normalized shared sample shape (task 2.7). */
+async function darwinSampleTree({ launchedPid, runId }) {
+  return sampleMacOsTree({ launchedPid, runId });
+}
+
+/** Platform dispatch: collector selection only — scenarios are shared (D2). */
+function platformSampleTree(platform) {
+  return platform === "darwin" ? darwinSampleTree : defaultSampleTree;
+}
+
+/** Sample one headline tree value (Pss on Linux, footprint on macOS). */
+async function readTreePssVia(sampler, { procRoot, launchedPid, runId }, platform = process.platform) {
   const sample = await sampler({ procRoot, launchedPid, runId });
-  return sample.total.Pss ?? 0;
+  return treeHeadlineBytes(sample, platform);
 }
 
 /**
@@ -99,29 +110,37 @@ export async function runScenario(deps) {
     spawnApp,
     startControl = null,
     appClient = null,
-    sampleTree = defaultSampleTree,
+    sampleTree = null,
     options,
   } = deps;
+  const tree = sampleTree ?? platformSampleTree(options.platform ?? process.platform);
   const {
     runId = randomUUID(),
     cycleCount,
+    ttsCycles,
+    editionCycles,
+    editionSections,
+    soak = null,
     corpusDir,
     outputPath,
     procRoot = "/proc",
     settle = {},
     stepTimeoutMs = 60_000,
+    syntheticLeakMbPerCycle = 0,
   } = options;
 
-  // 1. Platform gate: unsupported -> no result file.
-  const platform = checkMemoryCollectionSupported({ procRoot });
-  if (!platform.supported) {
+  // 1. Platform gate: unsupported -> no result file. (`platform` is
+  // overridable for tests; production runs use process.platform.)
+  const platform = options.platform ?? process.platform;
+  const gate = checkMemoryCollectionSupported({ platform, procRoot });
+  if (!gate.supported) {
     if (options.allowUnsupportedPlatform) {
-      log(`WARNING: platform not supported for measurement (${platform.reason}); running anyway (debug-only, numbers are NOT comparable)`);
+      log(`WARNING: platform not supported for measurement (${gate.reason}); running anyway (debug-only, numbers are NOT comparable)`);
     } else {
       return {
         ok: false,
         reliable: false,
-        reason: `unsupported environment: ${platform.reason}`,
+        reason: `unsupported environment: ${gate.reason}`,
         resultWritten: false,
       };
     }
@@ -165,6 +184,10 @@ export async function runScenario(deps) {
     PLETHORA_MEMORY_CONTROL: control.url,
     [RUN_ID_ENV]: runId,
     PLETHORA_MEMORY_CORPUS_DIR: corpus.corpusDir,
+    // Gate self-test (D11): retain N MB per cycle step in the scenario host.
+    ...(syntheticLeakMbPerCycle > 0
+      ? { PLETHORA_MEMORY_SYNTHETIC_LEAK_MB_PER_CYCLE: String(syntheticLeakMbPerCycle) }
+      : {}),
     // Deterministic harness runs: never auto-import the demo books into the
     // benchmark data dir.
     SKIP_DEMO_IMPORT: "1",
@@ -178,11 +201,19 @@ export async function runScenario(deps) {
   }
 
   const startedAtIso = new Date().toISOString();
-  const phases = buildScenarioStages({ cycleCount });
+  const phases = buildScenarioStages({
+    cycleCount,
+    ...(ttsCycles != null ? { ttsCycles } : {}),
+    ...(editionCycles != null ? { editionCycles } : {}),
+    ...(editionSections != null ? { editionSections } : {}),
+    ...(soak ? { soak } : {}),
+  });
   const samples = [];
   let reliable = true;
   let unreliableReason = null;
   let hardFailure = null;
+  /** Whether the app supports the `diagnostics` op (disabled on first error). */
+  let diagnosticsSupported = true;
 
   // A fake app client (tests) may take over the app side of the protocol.
   if (appClient) appClient(control.url, runId);
@@ -236,6 +267,31 @@ export async function runScenario(deps) {
 
       if (hardFailure) break;
 
+      // Idle-soak phase (task 4.2): hold the app idle, sampling the tree
+      // periodically; every sample is keyed by elapsed seconds so the
+      // comparator can compute a post-warmup slope over the soak series.
+      if (phase.soak) {
+        const soakStart = Date.now();
+        log(`soak phase "${phase.key}" for ${Math.round(phase.soak.durationMs / 60000)} min (sample every ${phase.soak.sampleIntervalMs / 1000}s)`);
+        while (Date.now() - soakStart < phase.soak.durationMs) {
+          await sleep(phase.soak.sampleIntervalMs);
+          const elapsedSec = Math.round((Date.now() - soakStart) / 1000);
+          const sample = await tree({ procRoot, launchedPid: child.pid, runId });
+          samples.push({
+            key: `${phase.key}/${elapsedSec}`,
+            stage: phase.key,
+            cycle: elapsedSec,
+            soakElapsedSec: elapsedSec,
+            settled: true,
+            settleReadings: [],
+            processes: sample.processes,
+            total: sample.total,
+          });
+          log(`soak sample at +${elapsedSec}s: ${Math.round((sample.total?.Pss ?? 0) / 1024 / 1024)} MB`);
+        }
+        continue;
+      }
+
       // Settle step: the app waits for its own quiescence and reports it.
       let appQuiescent = false;
       if (phase.steps.length > 0 || phase.key === "idle-fresh" || phase.key === "idle-final") {
@@ -250,7 +306,8 @@ export async function runScenario(deps) {
       }
 
       const settleOutcome = await waitForSettle({
-        readTreePss: () => readTreePssVia(sampleTree, { procRoot, launchedPid: child.pid, runId }),
+        readTreePss: () =>
+          readTreePssVia(tree, { procRoot, launchedPid: child.pid, runId }, platform),
         appQuiescent: async () => appQuiescent,
         settle,
       });
@@ -260,13 +317,35 @@ export async function runScenario(deps) {
         unreliableReason = `phase "${phase.key}": ${settleOutcome.reason}`;
       }
 
-      const sample = await sampleTree({ procRoot, launchedPid: child.pid, runId });
+      // Resource-lifetime diagnostics (task 3.6): ask the app for its
+      // snapshot right before the sample is taken, and record it alongside
+      // the stage's process-memory sample. First failure (e.g. an older
+      // frontend without the op) disables further requests.
+      let diagnostics = undefined;
+      if (diagnosticsSupported) {
+        try {
+          const diagStep = { step: nextStepNumber(), op: "diagnostics" };
+          await pushWithTimeout(control, diagStep, Math.min(stepTimeoutMs, 30_000));
+          const report = await control.waitForReport(diagStep.step, Math.min(stepTimeoutMs, 30_000));
+          if (report.status === "error") {
+            diagnosticsSupported = false;
+            log(`diagnostics op unsupported (${report.error ?? "error"}); disabling for this run`);
+          } else if (report.diagnostics != null) {
+            diagnostics = report.diagnostics;
+          }
+        } catch {
+          diagnosticsSupported = false;
+        }
+      }
+
+      const sample = await tree({ procRoot, launchedPid: child.pid, runId });
       samples.push({
         key: phase.key,
         stage: phase.key.split("/")[0],
         cycle: phase.key.includes("/") ? Number(phase.key.split("/").pop()) : null,
         settled: settleOutcome.settled,
         settleReadings: settleOutcome.readings,
+        ...(diagnostics !== undefined ? { diagnostics } : {}),
         processes: sample.processes,
         total: sample.total,
       });
@@ -292,7 +371,7 @@ export async function runScenario(deps) {
 
   // The result is written even for unreliable runs — the failure is visible in
   // the file and the gate refuses to compare unreliable numbers.
-  const environment = collectEnvironment();
+  const environment = collectEnvironment({ platform: options.platform ?? process.platform });
   const result = writeResult({
     path: outputPath,
     samples,
@@ -322,6 +401,11 @@ function parseArgs(argv) {
   const options = {
     app: DEFAULT_APP,
     cycles: 8,
+    ttsCycles: undefined,
+    editionCycles: undefined,
+    editionSections: undefined,
+    soak: null,
+    syntheticLeakMb: 0,
     corpusDir: DEFAULT_CORPUS_DIR,
     output: DEFAULT_OUTPUT,
     settle: {},
@@ -335,6 +419,11 @@ function parseArgs(argv) {
     switch (arg) {
       case "--app": options.app = next(); break;
       case "--cycles": options.cycles = Number(next()); break;
+      case "--tts-cycles": options.ttsCycles = Number(next()); break;
+      case "--edition-cycles": options.editionCycles = Number(next()); break;
+      case "--edition-sections": options.editionSections = Number(next()); break;
+      case "--soak": options.soak = next(); break;
+      case "--synthetic-leak-mb": options.syntheticLeakMb = Number(next()); break;
       case "--corpus-dir": options.corpusDir = resolve(next()); break;
       case "--output": options.output = resolve(next()); break;
       case "--settle-jitter": options.settle.maxRelativeJitter = Number(next()); break;
@@ -357,6 +446,13 @@ const USAGE = `Usage: node scripts/memory-bench/driver.js [options]
 Options:
   --app <binary>            app binary (default: src-tauri/target/debug/plethora-tauri)
   --cycles <n>              repeated open/close cycle count (default 8)
+  --tts-cycles <n>          TTS synthesize/play/dispose cycles (default 12; alternating
+                            persistent-cache hit/miss variants — task 4.1)
+  --edition-cycles <n>      audio-edition generate/cancel/retry/delete cycles (default 6)
+  --edition-sections <k>    sections per edition cycle (default 4)
+  --soak <tier>             append an idle-soak stage sampled periodically:
+                            quick (5 min), dev (30 min), nightly (4 h), extended (11 h)
+  --synthetic-leak-mb <n>   gate self-test: app retains n MB per cycle step (D11)
   --corpus-dir <path>       corpus directory (default .bench/corpus)
   --output <path>           result file (default .bench/memory-result.json)
   --settle-jitter <f>       tree-Pss jitter fraction (default 0.01)
@@ -393,6 +489,15 @@ async function main() {
     process.exit(2);
   }
 
+  // macOS: the collector needs the native helper — build it if missing
+  // (task 2.7). Failure falls through to the platform gate's refusal below.
+  if (process.platform === "darwin" && !ensureHelperBuilt()) {
+    console.error(
+      "macOS memory collection requires the native helper; build failed — see errors above",
+    );
+    process.exit(2);
+  }
+
   const outcome = await runScenario({
     spawnApp: (env) => {
       const child = spawn(options.app, [], {
@@ -420,6 +525,11 @@ async function main() {
     },
     options: {
       cycleCount: options.cycles,
+      ...(options.ttsCycles != null ? { ttsCycles: options.ttsCycles } : {}),
+      ...(options.editionCycles != null ? { editionCycles: options.editionCycles } : {}),
+      ...(options.editionSections != null ? { editionSections: options.editionSections } : {}),
+      ...(options.soak ? { soak: options.soak } : {}),
+      syntheticLeakMbPerCycle: options.syntheticLeakMb || 0,
       corpusDir: options.corpusDir,
       outputPath: options.output,
       settle: options.settle,

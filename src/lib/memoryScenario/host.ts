@@ -14,14 +14,34 @@
 
 import { getMemoryScenarioConfig } from "./config";
 import { fetchManifest, pollStep, postReport } from "./client";
-import { executeStep } from "./executor";
+import { executeStep, configureSyntheticLeak } from "./executor";
 import { waitForQuiescence, resetQuiescence } from "./quiescence";
 import { markBusy, isBusy } from "./activity";
+import { setDiagnosticsEnabled } from "../../diagnostics/gate";
+import { registerScenarioSynthAdapter } from "../../api/tts/registry";
+import { scenarioSynthAdapter } from "./scenarioSynth";
+import { info as nativeLogInfo, warn as nativeLogWarn } from "@tauri-apps/plugin-log";
 import type { MemoryScenarioStep } from "./types";
 
 const POLL_RETRY_MS = 1_000;
 /** Fail the run after this many consecutive poll errors (the app reports and stops). */
 const MAX_CONSECUTIVE_POLL_ERRORS = 10;
+
+/**
+ * Harness-visible log: console AND the native logger (Stdout target on
+ * desktop). A failed overnight soak must name the JS-side cause in the
+ * driver's captured output (D10 failed-run artifacts) — console alone is
+ * invisible in a desktop WKWebView.
+ */
+function harnessLog(message: string, kind: "info" | "warn" = "info"): void {
+  if (kind === "warn") {
+    console.warn(message);
+    void nativeLogWarn(message).catch(() => {});
+  } else {
+    console.log(message);
+    void nativeLogInfo(message).catch(() => {});
+  }
+}
 
 let running = false;
 
@@ -31,12 +51,19 @@ let running = false;
  */
 export async function startMemoryScenario(): Promise<void> {
   if (running) return;
-  console.log("[memoryScenario] host starting; fetching scenario config");
+  harnessLog("[memoryScenario] host starting; fetching scenario config");
   const config = await getMemoryScenarioConfig();
-  console.log("[memoryScenario] config:", config ? "present" : "null (inert)");
+  harnessLog(`[memoryScenario] config: ${config ? "present" : "null (inert)"}`);
   if (!config) return; // Inert: no harness environment.
 
   running = true;
+  // Harness mode arms the diagnostics surface (D6/D9: aggregate error
+  // recording + liveness heartbeat + owned-URL bookkeeping) and installs the
+  // scenario-only synthetic TTS provider (task 4.1). None of this exists in
+  // an ordinary session.
+  setDiagnosticsEnabled(true);
+  registerScenarioSynthAdapter(scenarioSynthAdapter);
+  configureSyntheticLeak(config.syntheticLeakMbPerCycle ?? 0);
   // Enable the activity counter BEFORE any step can mark busy.
   window.__memoryScenarioEnabled = true;
 
@@ -44,7 +71,7 @@ export async function startMemoryScenario(): Promise<void> {
   try {
     manifest = await fetchManifest(config.controlUrl, config.runId);
   } catch (error) {
-    console.warn("[memoryScenario] cannot fetch manifest:", error);
+    harnessLog(`[memoryScenario] cannot fetch manifest: ${error instanceof Error ? error.message : String(error)}`, "warn");
     postReport(config.controlUrl, config.runId, {
       step: -1,
       status: "error",
@@ -60,6 +87,15 @@ export async function startMemoryScenario(): Promise<void> {
       const polled = await pollStep(config.controlUrl, config.runId);
       if (polled.kind === "done") break;
       if (polled.kind === "error") {
+        if (consecutiveErrors === 0) {
+          // Surface the first poll error to the driver immediately (visible
+          // in its stderr) instead of only after giving up.
+          void postReport(config.controlUrl, config.runId, {
+            step: -3,
+            status: "error",
+            error: `poll error: ${polled.message}`,
+          });
+        }
         consecutiveErrors += 1;
         if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
           postReport(config.controlUrl, config.runId, {
@@ -118,6 +154,7 @@ async function runStep(
       status: result.ok ? "done" : "error",
       tabId: result.tabId,
       error: result.error,
+      diagnostics: result.diagnostics,
       quiescent: step.op === "settle" ? quiescence.quiescent : undefined,
       quiescence: step.op === "settle" ? quiescence : undefined,
     });

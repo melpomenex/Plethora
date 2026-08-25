@@ -1,7 +1,8 @@
 # Memory Profile
 
 This document is the evidence home for Incrementum's runtime memory behavior on
-Linux. It is written in phases by the change
+Linux, and for the macOS long-running growth investigation (2026-08, below).
+The Linux phases are written by the change
 `bound-runtime-memory-and-gate` (see `openspec/changes/bound-runtime-memory-and-gate/`):
 
 - **Phase 1 (this file's first section):** how tabs, document bytes, and
@@ -14,6 +15,250 @@ Linux. It is written in phases by the change
 Every fix task in the change cites a finding from this document.
 
 ---
+
+## macOS long-running growth — ~74 GB incident (2026-08)
+
+Evidence home for the change `eliminate-long-running-memory-growth`
+(see `openspec/changes/eliminate-long-running-memory-growth/`).
+
+### Incident
+
+- **Observation:** macOS reported a footprint of approximately **74 GB** for
+  the Plethora process tree after the app was left running **~10+ hours
+  overnight** with no deliberate workload.
+- **Machine:** Mac mini, Apple silicon (ARM64), macOS (version recorded with
+  the first harness run — Phase 1 task 2.6). Web engine: WKWebView via
+  Tauri **2.11.0** (pinned `=2.11.0`) / wry **0.55.1**.
+- **Build:** debug build at the 2026-08-23 batch (HEAD of the incident window;
+  exact commit not recorded — the session was not instrumented).
+- **Not captured:** no per-process breakdown, no vmmap/leaks/sample artifacts,
+  no JS heap snapshots. **Attribution to a process, resource category, or
+  leak-vs-high-water class is not established.** Every finding below is marked
+  **verified code hazard, magnitude unattributed**.
+- **If it recurs before the harness lands:** run
+  `bash scripts/memory-bench/capture-tree.sh` immediately (see below) — it
+  captures the per-process artifacts this incident lacks.
+
+### Verified findings at HEAD (2026-08-24), with introduction evidence
+
+`git log -S` was run for each mechanism (evidence recorded 2026-08-24).
+Mechanisms 1, 2, 4 (hardening), 5, and 7 entered in the 2026-08-19 →
+2026-08-23 reliability/feature batch. Mechanisms 3 and 6 predate the window —
+they are long-standing hazards the audit surfaced, not fresh regressions, and
+they are in scope because the incident platform (macOS/WKWebView) was never
+measured before.
+
+| # | Mechanism (**verified code hazard, magnitude unattributed**) | Location (HEAD) | Introduced (`git log -S`) | Bounded? |
+|---|------|----------|-----------|----------|
+| 1 | Global error/rejection history pushed per occurrence in **every build incl. production**; a repeating error grows it without limit (10 h × ~2 M frames ≈ millions of `{type,message,stack}` objects) | `src/main.tsx:91-93,115-117` (`window.__plethoraTestErrors`) | `4570af60` 2026-08-23 (iOS reliability harness) | No — no cap, no dedup |
+| 2 | Module-global `Map` of section-id → `blob:` URL for synthesized audio; no cap, no revoke on replace (re-synthesis orphans the old URL's Blob), none on edition delete/cancel/teardown; `AudiobookViewer` pins every ready section as a live playlist source | `src/stores/audioEditionGenerationStore.ts:58,232`; consumed at `src/components/viewer/AudiobookViewer.tsx:939-960` | `acf89b62`/`58fef98e` 2026-08-19 (audio editions) | No |
+| 3 | TTS cache opens a **new IndexedDB connection per operation** (`indexedDB.open` per call) and never `close()`s it; repeated lookups accumulate `IDBDatabase` handles | `src/utils/ttsCache.ts:26-48`; call sites `ttsCache.ts:232,258,297,309,326,343` | `0fffab9d` 2026-04-26 (predates window) | No |
+| 4 | TTS cache eviction cursoring the **entire store and materializing every cached `ArrayBuffer`** into a JS array to pick victims; triggered after every over-size put — steady-state synthesis re-reads up to the whole 500 MB cache into the WebContent process per put | `src/utils/ttsCache.ts:175-228` (`ensureCacheSize`), triggered at `:283` | payload materialization: `271115f8` 2026-08-19 (cache itself `0fffab9d` 2026-04-26) | No |
+| 5 | Permanent 1 s `setInterval` heartbeat for the whole app lifetime in all builds (`data-plethora-heartbeat`); the bootstrap twin correctly stops on settle | `src/main.tsx:580-583`; bounded twin `src/main-bootstrap.ts:86-114` | `4570af60` 2026-08-23 | Lifecycle only |
+| 6 | Desktop (incl. macOS) audiobook/podcast playback reads the **entire file** into an `ArrayBuffer` → `Blob` → object URL; mobile already streams via `get_media_stream_url` | `src/components/viewer/AudiobookViewer.tsx:1685-1696`; podcast-download fallback sibling above it | `078ee133` 2026-04-21 (predates window) | No |
+| 7 | ~40 `URL.createObjectURL` call sites / ~50 revokes with no central ownership; every persistent-cache hit mints a fresh Blob+URL from the stored `ArrayBuffer` | e.g. `src/api/tts.ts:211,217`, `src/api/tts/providers/shared.ts:85`, `providers/openrouter.ts:102`; correct pattern at `src/components/common/ReaderTTSControls.tsx:994-996` | cache-hit minting: `271115f8` 2026-08-19; provider sites `bf910d38` 2026-07-31 | Per-site |
+
+### Accumulator audit of the 2026-08-19 → 2026-08-23 batch (Phase 0, task 1.3)
+
+Every module-level `Map`/`Set`/array and `window.*` assignment added to `src/`
+in that window was enumerated from the diff
+(`git diff 91d04a40..122ce6bd -- src/`, where `91d04a40` is the last commit
+before 2026-08-19) and each site read and classified (audit run 2026-08-24):
+
+| Module-level state introduced in the window | Verdict |
+|---|---|
+| `src/main.tsx` — `window.__plethoraTestErrors` array | **Unbounded** — finding 1 |
+| `src/stores/audioEditionGenerationStore.ts` — `sectionAudioBlobCache: Map<string,string>` | **Unbounded** — finding 2 |
+| `audioEditionGenerationStore.ts` — `pausedJobIds`/`cancelledJobIds: Set` | Bounded — ids removed on resume/restart; tracks live jobs |
+| `src/api/audioEditions.ts` — `browserEditionStore`/`browserSectionStore`/`browserAnchorStore` (PWA in-memory backend) | Bounded-by-usage — mirror persisted entities, deleted in `deleteAudioEdition`; browser mode only |
+| `src/api/listeningSessions.ts` — `browserSessionStore`/`browserSessionItemsStore` | Bounded-by-usage — same pattern |
+| `src/utils/listeningSessionService.ts` — `activeSessions: Map` | Bounded — closed on inactivity (2 min)/content change |
+| `src/utils/remoteMediaDispatcher.ts` — `acceptedEventIds: Map` | Bounded — pruned past a dedupe window; `lastCaptureBySession` one entry per session, cleared |
+| `src/utils/firstViewDiagnostics.ts` — `samples` array, `seenChunks`/`seenViews` Sets | Dev/opt-in gated — inert in production builds (no pushes when the gate is off) |
+| `src/stores/documentStore.ts` — `threadCache: Map` | Bounded — TTL-evicted on access |
+| `src/api/tts/dedup.ts` — `inflight: Map` | Bounded — deleted in `finally` |
+| `src/utils/aiBillingConsent.ts` — `deniedThisSession: Set` | Bounded — one entry per provider |
+| `PAID_PROVIDERS`, `STOPWORDS`, `BLOCK_TAGS`, `OS_VISIBLE_STATES`, `CATALOG_BY_ID` | Bounded — static constants |
+| mock-db maps (`mockEditions` etc.) | Test/bench files only — never shipped |
+
+No *additional* unbounded global accumulator beyond findings 1 and 2 was found
+in the window. The only new `window.*` assignments were
+`__plethoraReactRoot` (a root handle) and feature-detect polyfills.
+
+### Phase 0 capture tooling
+
+`scripts/memory-bench/capture-tree.sh <rootPid>` snapshots the whole Plethora
+process tree: `ps` table, per-pid `vmmap -summary`, `leaks`, and a 10 s
+`sample`, timestamped into `.bench/tree-captures/<UTC-timestamp>/`. It is a
+**manual diagnostic artifact, not a collector** — run it first if the incident
+recurs. (See also Phase 4 §"manual deep-attribution workflow" for the
+checkpoints A–F protocol.)
+
+### Object-URL ownership conversions (Phase 4-fix, task 5.7)
+
+| Site | Owner | Bounded by what |
+|---|---|---|
+| TTS provider results (`providers/shared.ts` `binaryResult`, `providers/openrouter.ts`) | `tts-synthesis` | caller revoke (ReaderTTSControls already does) + registry observability |
+| Persistent-cache hits (`api/tts.ts`, v2 + legacy keys) | `tts-cache-hit` + cache key | caller revoke; every playback's mint is now observable |
+| Synthesized section audio (`audioEditionGenerationStore`) | `edition-section` + section id (via the store LRU) | LRU caps (24 entries / 192 MB), revoke on evict/replace, revoke on edition delete / job cancel / source-document delete |
+| Desktop whole-file playback fallback (`desktopAudioSource.ts`) | `desktop-audio-fallback` | streaming default; fallback materialization refused >256 MiB by the backend before transfer |
+| Edition-dialog voice audition (`CreateAudioEditionDialog.tsx`) | `edition-audition` | revoke on replace / ended / error / dialog dismiss (previously never revoked) |
+
+Audit verdicts for the remaining media-path `createObjectURL` sites (no
+conversion needed — each is already bounded): `localMediaSource.ts` (one URL
+per viewer; `revokeSrcOnDispose` honored on source swap and unmount in
+`DocumentViewer.tsx:1068,2704`), `MediaLibrary.tsx` and `RSSReader.tsx`
+(download-link pattern, revoked immediately after click), `VideoPlayer.tsx`
+(screenshot download, revoked after click).
+
+None of the findings above is yet shown to *be* the 74 GB; each is a verified
+code hazard whose magnitude the change's attribution phases must establish.
+macOS measurement, soak tiers, resource diagnostics, and the fix/verification
+phases are specified in the change above; results land here as they are
+produced.
+
+### macOS harness status (2026-08-25)
+
+The macOS collector, driver dispatch, environment collection, TTS/edition
+stages, soak tiers, synthetic-leak injection, and the diagnostics op are
+implemented and unit-tested (12 native-helper tests, 12 collector tests, the
+full script suite). Two e2e attempts against the debug build from this
+writing session did not complete:
+
+- The driver launches the app, the webview URL loads, and the Rust side is
+  healthy — but the webview's JavaScript never executed (server-side logging
+  in `get_memory_scenario_config` proves the config command was never
+  invoked, and the control server saw zero requests). Window enumeration
+  shows a windowed process with no visible window: WKWebView defers page
+  execution for windows that never become visible, and this session's shell
+  cannot attach windows to the interactive GUI session.
+
+**To record the "before" numbers (tasks 2.7/2.8/4.4)**, run from an
+interactive (physically attended or screen-shared) login on the Mac mini:
+
+```bash
+npm run build && (cd src-tauri && cargo build)
+node scripts/memory-bench/driver.js --output .bench/memory-result-macos-before.json \
+  > .bench/before.log 2>&1          # reader + tts + edition stages
+node scripts/memory-bench/driver.js --soak=nightly --output .bench/soak-before.json \
+  > .bench/soak-before.log 2>&1     # overnight, unattended (README §tiers)
+```
+
+The harness host now logs through the native logger, so a failed run names
+the JS-side cause in the captured log (design D10 failed-run artifacts).
+
+### Manual deep-attribution workflow (task 6.1, design D10)
+
+Fixed checkpoints over one profiling session on macOS, executed with
+Instruments + Safari Web Inspector against the debug build:
+
+| Checkpoint | State | Capture |
+|---|---|---|
+| **A** | Fresh idle, 60 s after launch | Allocations generation mark, VM Tracker, WKWebView heap snapshot, `capture-tree.sh` |
+| **B** | One document open (large PDF), settled | same set |
+| **C** | Document closed, 60 s idle | same set — *everything unexpected still alive here gets its retaining path recorded* |
+| **D** | 25 open/close cycles | same set |
+| **E** | 100 open/close cycles (or 25 TTS + 25 edition cycles) | same set |
+| **F** | Idle soak ≥ 1 h (or the tail of a `nightly` tier run) | same set |
+
+Procedure:
+
+1. **Instruments** (Xcode → Open Developer Tool → Instruments), attach to the
+   `plethora-tauri` process:
+   - **Allocations** with *generation marks* at every checkpoint — the
+     generation delta between C→D→E separates steady-state churn from
+     retained growth.
+   - **Leaks** at C and E — names non-JS native leaks.
+   - **VM Tracker** at every checkpoint — classifies dirty/clean/swapped per
+     region (WebKit backing stores show up here).
+2. **WKWebView JS heap snapshots**: run the app, then Safari → Develop →
+   [Mac mini] → Plethora webview → heap snapshot at each checkpoint. Compare
+   A/B/C/D/E for: `ArrayBuffer`, `Uint8Array`, `Blob`, strings, detached DOM
+   nodes, `HTMLCanvasElement`, `ImageData`, pdf.js objects
+   (`PDFDocumentProxy`, page buffers), media elements (`HTMLAudioElement`),
+   listener closures, reader/store objects.
+3. **CLI artifacts** at every checkpoint:
+   `bash scripts/memory-bench/capture-tree.sh <pid>` (ps + vmmap + leaks +
+   10 s sample, timestamped).
+4. **Retaining paths**: for everything unexpected alive at C, record the
+   retaining path from the heap snapshot (who holds it: URL registry? store
+   state? closure? WebKit internal?).
+
+**Classification buckets** (task 6.2): for each finding, record one of —
+*live-reachable* (JS/DOM retains it), *allocator high-water* (freed but not
+returned; VM Tracker shows it), *WebKit backing store* (dirty memory outside
+the JS heap), *reclaimable cache*, or *true native leak* (Leaks tool).
+Allocator remedies remain forbidden without high-water evidence
+(predecessor D13). **Status: documented; execution pending an attended
+session (see harness status above).**
+
+### Gate self-test and baselines (tasks 8.3/8.4 — procedure)
+
+1. Run the harness with
+   `node scripts/memory-bench/driver.js --synthetic-leak-mb 1 …` sized to
+   stay under every peak ceiling: `check-memory-budget.mjs` must FAIL on
+   `idle-growth-per-hour` / the cycle ratchets while every peak metric
+   passes — proving the slope catches what the ceiling hides (the slope math
+   itself is unit-tested on linear / plateau / noisy fixture series).
+2. Record macOS baselines into `scripts/memory-baselines.json` per the
+   existing conventions (machine profile with `platformKind: "darwin"`,
+   per-metric baseline + allowances, ratchet parameters, soak parameters),
+   then sanity-check: doubling a gated metric fails; repeated unchanged runs
+   on the same machine pass.
+3. Nightly soak on the Mac mini against the fixed build, artifacts kept on
+   failure (per README §"Operating procedure").
+
+**Status: procedures implemented; empirical runs pending the attended
+session.**
+
+### Architecture/lifetime model as implemented (task 8.6, code state)
+
+- **URL ownership**: every synthesized/cache-hit audio URL is created through
+  the owned-URL registry (`src/diagnostics/ownedObjectUrl.ts`) with an owner
+  category; the registry stores metadata only (never the Blob), is inert in
+  production (no bookkeeping writes when the gate is off), and reports
+  per-owner counts/bytes through `getDiagnosticSnapshot()`.
+- **Section audio cache**: bounded LRU (24 entries / 192 MB documented caps)
+  with revoke on evict/replace, and revoke-all on edition deletion, job
+  cancellation, and source-document deletion. Playback resolves a working
+  set (current + next 2 sections) from section records with boundary
+  prefetch; an N-section edition no longer pins N blob URLs.
+- **TTS cache**: one promise-cached shared IndexedDB connection (closed on
+  `clearAudioCache` and pagehide); eviction picks victims from a metadata-only
+  index and deletes by key — payload ArrayBuffers are never materialized to
+  choose victims; cache hits update metadata instead of rewriting payloads;
+  a one-time key-only backfill sizes pre-v3 entries on first access.
+- **Error recording**: bounded signature aggregation (≤64 distinct,
+  lowest-count-oldest evicted; messages normalized and truncated; one sample
+  stack per signature), inert in production unless the diagnostics switch is
+  armed; the iOS reliability harness contract moves to
+  `getDiagnosticSnapshot().errors`.
+- **Test-only timers**: the permanent heartbeat installs only behind the
+  same gate (`src/diagnostics/livenessHeartbeat.ts`).
+- **Desktop audio playback**: streams through the native media server by
+  default; the whole-file fallback is bounded by the backend's 256 MiB
+  pre-materialization refusal.
+
+### Remaining limitations (honest state at close of implementation)
+
+1. The macOS **before/after numbers, attribution, Instruments workflow
+   execution, nightly soaks, and baselines** are pending an attended GUI
+   session (see "macOS harness status"): WKWebView pages do not execute when
+   spawned windowless from this machine's remote shell.
+2. The synthetic-leak **gate self-test run** (live harness + comparator) and
+   the optional CI macOS soak job decision (task 8.5) are likewise pending;
+   the slope/ratchet math itself is fixture-tested.
+3. `sectionAudioBlobCache`'s byte cap uses the adapter-reported
+   `audioData.byteLength` (falling back to registry estimates) — providers
+   that return URLs without `audioData` size their entries by count only.
+4. Edition `audioFilePath` values persisted in the DB are session blob URLs;
+   the working set re-resolves through the live cache first, but a section
+   never re-synthesized after its URL's session died falls back to the stale
+   path (pre-existing behavior; the disk-backed edition target in D7 is the
+   systematic fix).
+
+---
+
 
 ## Phase 1 — Data-flow map (how memory is held today)
 

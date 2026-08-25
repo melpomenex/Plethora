@@ -49,6 +49,17 @@
       },
       "sha256": "bc315d26ac6d183fa3ece1826a2aabd2bfeb426140d40a434e7bdc75a4f8feee",
       "description": "Deterministic 5-chapter EPUB"
+    },
+    "long-text-1": {
+      "fileName": "long-text-1.txt",
+      "type": "text",
+      "source": {
+        "kind": "generated",
+        "script": "corpus.js#long-text",
+        "paragraphs": 200
+      },
+      "sha256": "ee43153fc95e58b69f4d696e197c1eb7da549c5a4da9b227303243c1d099b1bf",
+      "description": "Deterministic ~170 KB text (eliminate-long-running-memory-growth task 4.1): deterministic synthesis volume for tts-cycles / edition-cycles"
     }
   }
 }

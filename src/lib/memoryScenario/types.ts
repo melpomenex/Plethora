@@ -14,6 +14,9 @@ export interface MemoryScenarioConfig {
   controlUrl: string;
   runId: string;
   corpusDir?: string | null;
+  /** Synthetic leak injection (task 4.3): MB retained per cycle step;
+   *  present only when PLETHORA_MEMORY_SYNTHETIC_LEAK_MB_PER_CYCLE is set. */
+  syntheticLeakMbPerCycle?: number | null;
 }
 
 /** Corpus manifest served by the driver: corpusId -> file name in corpusDir. */
@@ -28,7 +31,13 @@ export type MemoryScenarioStep =
   | { step: number; op: "closeTab"; tabId: string }
   | { step: number; op: "closeAll" }
   | { step: number; op: "settle" }
-  | { step: number; op: "quit" };
+  | { step: number; op: "quit" }
+  /** One TTS cycle: synthesize → play → stop → dispose (task 4.1). */
+  | { step: number; op: "ttsCycle"; variant: "hit" | "miss"; cycle: number }
+  /** One audio-edition cycle: create → generate → cancel → delete (task 4.1). */
+  | { step: number; op: "editionCycle"; sections: number; cycle: number }
+  /** Report the resource-lifetime diagnostic snapshot (task 3.6). */
+  | { step: number; op: "diagnostics" };
 
 /** Report the app POSTs after each step. */
 export interface MemoryScenarioReport {
@@ -45,6 +54,8 @@ export interface MemoryScenarioReport {
     pendingTabsSave: boolean;
     stabilizationElapsedMs: number;
   };
+  /** Diagnostic snapshot for `diagnostics` steps (task 3.6). */
+  diagnostics?: unknown;
   error?: string;
 }
 

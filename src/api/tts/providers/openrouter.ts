@@ -4,6 +4,7 @@ import { mapHttpError, readProviderMessage, TTSServiceError } from "../errors";
 import { getCatalog, type CatalogResult } from "../catalog";
 import type { TTSAdapterContext, TTSModelInfo, TTSProviderAdapter, TTSVoiceInfo } from "../types";
 import { audioMime, fetchBinary } from "./shared";
+import { createOwnedObjectUrl } from "../../../diagnostics/ownedObjectUrl";
 
 export const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
 
@@ -99,7 +100,7 @@ export const openrouterAdapter: TTSProviderAdapter = {
         body: JSON.stringify(body),
       }, format);
       return {
-        audioUrl: URL.createObjectURL(new Blob([binary.data], { type: binary.mimeType || audioMime(format) })),
+        audioUrl: createOwnedObjectUrl(new Blob([binary.data], { type: binary.mimeType || audioMime(format) }), { owner: "tts-synthesis", ownerId: request.model }),
         audioData: binary.data,
         mimeType: binary.mimeType || audioMime(format),
         rawOutput: { provider: "openrouter", model: request.model, voice: selectedVoice.voice, offlineCatalog: catalog.offline },

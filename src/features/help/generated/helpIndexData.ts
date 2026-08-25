@@ -15,7 +15,7 @@ export interface GeneratedHelpIndex {
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
   "corpusHash": "sha256:d69e5cb2b45978f2a2e9bd1070f3201d78f4fee70f3e19c6a1a6363f8c76a085",
-  "generatedAt": "2026-08-23T16:50:58.965Z",
+  "generatedAt": "2026-08-25T00:21:59.394Z",
   "totalDocs": 75,
   "totalChunks": 226,
   "aliasMap": {

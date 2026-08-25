@@ -32,6 +32,7 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 30_000 })
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.searchParams.get("run") !== runId) {
+      console.error(`[control] REJECTED ${req.method} ${url.pathname} (run id mismatch)`);
       res.writeHead(403).end("run id mismatch");
       return;
     }
@@ -49,6 +50,7 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 30_000 })
       }
       const pending = pendingSteps.shift();
       if (pending) {
+        console.error(`[control] /step -> ${pending.step.step} (${pending.step.op})`);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ step: pending.step }));
         pending.resolve();
@@ -58,10 +60,16 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 30_000 })
       const timer = setTimeout(() => {
         const idx = waiters.indexOf(entry);
         if (idx >= 0) waiters.splice(idx, 1);
+        console.error(`[control] /step hold elapsed (204) — ${waiters.length} waiter(s) remain`);
         res.writeHead(204).end();
       }, pollHoldMs);
       const entry = { res, timer };
       waiters.push(entry);
+      req.on("close", () => {
+        if (waiters.includes(entry)) {
+          console.error("[control] /step wait aborted by client before hold elapsed");
+        }
+      });
       return;
     }
     if (req.method === "POST" && path === "/report") {
@@ -77,6 +85,7 @@ export function createControlServer({ runId, getManifest, pollHoldMs = 30_000 })
             res.writeHead(400).end("report.step must be a number");
             return;
           }
+          console.error(`[control] /report step=${report.step} status=${report.status}${report.error ? ` error=${String(report.error).slice(0, 200)}` : ""}`);
           reports.set(report.step, report);
           const waitersForStep = reportWaiters.get(report.step) ?? [];
           reportWaiters.delete(report.step);

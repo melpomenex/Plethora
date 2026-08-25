@@ -37,6 +37,42 @@ export function sha256OfFile(path) {
 }
 
 /**
+ * Deterministic long-text fixture (task 4.1): the tts-cycles / edition-cycles
+ * stages synthesize a deterministic VOLUME from this text (no network, no
+ * paid providers). Purely procedural — identical on every machine.
+ */
+export function buildLongText({ paragraphs = 200, wordsPerSentence = 16 } = {}) {
+  const subjects = ["memory", "footprint", "cache", "edition", "section", "reader", "webkit", "harness", "cycle", "settle"];
+  const verbs = ["measures", "bounds", "retains", "evicts", "samples", "reports", "revoke", "converges", "monotonic", "attributes"];
+  const objects = ["the process tree", "every section", "each cache entry", "the working set", "a bounded ring", "the baseline", "the ratchet", "an owned URL", "the soak tier", "the quiet app"];
+  const lines = [];
+  let state = 12345;
+  const rand = () => {
+    // xorshift32 — deterministic "randomness".
+    state ^= state << 13; state >>>= 0;
+    state ^= state >> 17;
+    state ^= state << 5; state >>>= 0;
+    return state;
+  };
+  for (let p = 0; p < paragraphs; p++) {
+    const sentences = [];
+    const sentenceCount = 3 + (rand() % 4);
+    for (let s = 0; s < sentenceCount; s++) {
+      const parts = [];
+      const wordCount = wordsPerSentence - 4 + (rand() % 8);
+      for (let w = 0; w < wordCount; w += 3) {
+        parts.push(
+          `${subjects[rand() % subjects.length]} ${verbs[rand() % verbs.length]} ${objects[rand() % objects.length]}`,
+        );
+      }
+      sentences.push(`Paragraph ${p} sentence ${s}: ${parts.join(", ")}.`);
+    }
+    lines.push(sentences.join(" "));
+  }
+  return `${lines.join("\n\n")}\n`;
+}
+
+/**
  * Produce the bytes for one corpus item from its manifest source entry.
  * @returns {Buffer} the item's content
  */
@@ -52,6 +88,9 @@ export function renderCorpusItem(item) {
     }
     if (source.script === "generate-fixture-epub.mjs") {
       return Buffer.from(buildEpub({ chapters: source.chapters ?? 3, title: source.title }));
+    }
+    if (source.script === "corpus.js#long-text") {
+      return Buffer.from(buildLongText({ paragraphs: source.paragraphs ?? 200 }), "utf8");
     }
     throw new Error(`unsupported generated corpus script: ${source.script}`);
   }

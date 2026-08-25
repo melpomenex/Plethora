@@ -6,6 +6,11 @@ export function hasTTSGeneration(key: string): boolean {
   return inflight.has(key);
 }
 
+/** Live in-flight generation count (diagnostics snapshot, task 3.5). */
+export function getTTSInFlightCount(): number {
+  return inflight.size;
+}
+
 export function getOrCreateTTSGeneration(key: string, factory: () => Promise<GenerateSpeechResult>, signal?: AbortSignal): Promise<GenerateSpeechResult> {
   const existing = inflight.get(key);
   if (existing) return existing;

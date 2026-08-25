@@ -7,9 +7,9 @@
 ## 2. Liveness Oracle & Application Telemetry
 
 - [ ] 2.1 Update `src/main-bootstrap.ts` and `src/main.tsx` to set machine-readable DOM status markers: `data-plethora-mounted="true"`, `data-plethora-ready="true"`, and `data-plethora-active-tab="<tab>"`.
-- [ ] 2.2 Implement monotonic JS heartbeat counter in `src/main-bootstrap.ts` / `src/main.tsx` updating `document.body.setAttribute("data-plethora-heartbeat", String(counter))` every 500ms.
+- [ ] 2.2 Implement monotonic JS heartbeat counter in `src/main-bootstrap.ts` / `src/main.tsx` updating `document.body.setAttribute("data-plethora-heartbeat", String(counter))` every 500ms. (Updated by `eliminate-long-running-memory-growth` D9: the permanent main.tsx heartbeat is gated behind the diagnostics/harness switch — the reliability harness arms it via `setDiagnosticsEnabled(true)` / `PLETHORA_MEMORY_*`-style harness env.)
 - [ ] 2.3 Add native test command `ping_health` in `src-tauri/src/lib.rs` returning status, process timestamp, and resident memory size (`memory_rss`).
-- [ ] 2.4 Add global error forwarder in `src/main.tsx`: capture `window.onerror`, `unhandledrejection`, and React `ErrorBoundary` failures into `window.__plethoraTestErrors` and forward to `console.error` and `os_log` via native logger.
+- [ ] 2.4 Add global error forwarder in `src/main.tsx`: capture `window.onerror`, `unhandledrejection`, and React `ErrorBoundary` failures and forward to `console.error` and `os_log` via native logger. (Updated by `eliminate-long-running-memory-growth` D6: the recording surface is the bounded aggregate recorder `src/diagnostics/errorRecorder.ts` — consumers read `getDiagnosticSnapshot().errors` (`{ signature, type, message, sampleStack?, count, firstSeen, lastSeen }[]`), NOT the removed unbounded `window.__plethoraTestErrors` array; the recorder is armed by the same diagnostics/harness switch.)
 - [ ] 2.5 Add Rust panic hook in `src-tauri/src/lib.rs` that logs structured panic info to stderr and writes a panic marker file when running in test builds.
 
 ## 3. Smoke Test Harness Implementation

@@ -6,6 +6,7 @@ import { installPromiseCompat } from "./utils/promiseCompat";
 import "./lib/brandMigration";
 import { migratedGetItem } from "./lib/brandMigration";
 import { installUint8ArrayCompat } from "./utils/uint8ArrayCompat";
+import { recordError } from "./diagnostics/errorRecorder";
 
 if (typeof window !== 'undefined') {
   // Check for PWA Share Target redirect before React starts bootstrapping
@@ -87,11 +88,10 @@ if (typeof window !== 'undefined') {
     // Only replace the app UI during initial bootstrap. After React mounts,
     const isMounted = root?.getAttribute("data-plethora-mounted") === "true";
     console.error("[Global Error]", e.error ?? message);
-    try {
-      const w = window as unknown as { __plethoraTestErrors?: Array<{ type: string; message: string; stack?: string }> };
-      w.__plethoraTestErrors = w.__plethoraTestErrors || [];
-      w.__plethoraTestErrors.push({ type: "error", message: String(message), stack: e.error?.stack });
-    } catch {}
+    // Bounded, duplicate-aggregating recorder (eliminate-long-running-memory-
+    // growth D6): one record per signature, capped, inert unless diagnostics
+    // are enabled — replaces the unbounded __plethoraTestErrors array.
+    recordError({ type: "error", message: String(message), stack: e.error?.stack });
 
     if (root && !isMounted) {
       const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -111,11 +111,7 @@ if (typeof window !== 'undefined') {
     }
 
     console.error("[Unhandled Rejection]", message);
-    try {
-      const w = window as unknown as { __plethoraTestErrors?: Array<{ type: string; message: string; stack?: string }> };
-      w.__plethoraTestErrors = w.__plethoraTestErrors || [];
-      w.__plethoraTestErrors.push({ type: "unhandledrejection", message, stack: reason?.stack });
-    } catch {}
+    recordError({ type: "unhandledrejection", message, stack: reason?.stack });
   });
 }
 
@@ -131,6 +127,7 @@ import { initializePWA } from "./lib/pwa";
 import { isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
+import { installLivenessHeartbeat } from "./diagnostics/livenessHeartbeat";
 
 const MainLayout = lazy(() => import("./components/layout/MainLayout").then(({ MainLayout: layout }) => ({ default: layout })));
 const DevPerformanceMonitor = lazy(() => import("./components/common/PerformanceMonitor").then(({ DevPerformanceMonitor: monitor }) => ({ default: monitor })));
@@ -576,9 +573,10 @@ if (typeof document !== "undefined") {
       })
       .catch(() => {});
   }
-  let mainHeartbeat = 0;
-  window.setInterval(() => {
-    mainHeartbeat++;
-    document.body.setAttribute("data-plethora-heartbeat", String(mainHeartbeat));
-  }, 1000);
+  // Reliability-harness liveness probe (D9): the permanent 1 s heartbeat
+  // exists for the harness's ui_hang detection, so it runs only when the
+  // diagnostics/harness gate is armed — never in an ordinary production
+  // session. The bootstrap-phase twin (main-bootstrap.ts) already stops on
+  // startup settle.
+  installLivenessHeartbeat();
 }

@@ -31,6 +31,13 @@ function makeFakeApp({ onOpen, hangAfterSteps = Infinity } = {}) {
     closeAll: async (step) => ({ step: step.step, status: "done" }),
     settle: async (step) => ({ step: step.step, status: "done", quiescent: true }),
     quit: async (step) => ({ step: step.step, status: "done" }),
+    ttsCycle: async (step) => ({ step: step.step, status: "done" }),
+    editionCycle: async (step) => ({ step: step.step, status: "done" }),
+    diagnostics: async (step) => ({
+      step: step.step,
+      status: "done",
+      diagnostics: { takenAt: 0, ownedObjectUrls: { total: { count: 0, bytes: 0 }, byOwner: {} } },
+    }),
   };
 
   return async (url, runId) => {
@@ -212,7 +219,7 @@ test("an unsupported platform produces no result file", async (t) => {
     spawnApp: fakeSpawn.spawnApp,
     appClient: makeFakeApp(),
     sampleTree: makeStableSampler(),
-    options: { ...baseOptions, outputPath, procRoot: "/nonexistent-proc" },
+    options: { ...baseOptions, outputPath, platform: "linux", procRoot: "/nonexistent-proc" },
   });
   assert.equal(outcome.ok, false);
   assert.match(outcome.reason, /unsupported environment/);

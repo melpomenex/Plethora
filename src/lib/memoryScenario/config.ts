@@ -3,8 +3,8 @@
  *
  * The webview cannot read process environment variables, so the Rust command
  * `get_memory_scenario_config` is the single bridge: it returns the harness
- * config only when INCREMENTUM_MEMORY_SCENARIO and INCREMENTUM_MEMORY_CONTROL
- * are both set in the launched app's environment, and null otherwise.
+ * config only when PLETHORA_MEMORY_SCENARIO and PLETHORA_MEMORY_CONTROL are
+ * both set in the launched app's environment, and null otherwise.
  */
 
 import { invokeCommand } from "../tauri";

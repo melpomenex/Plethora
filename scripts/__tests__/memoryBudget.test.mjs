@@ -170,7 +170,7 @@ test("a per-cycle leak fails the ratchet while every peak metric passes", () => 
   // Peak metrics stay within their thresholds…
   assert.ok(!out.failures.some((f) => f.includes('"four-tabs-total"')));
   // …but the ratchet catches the per-cycle leak.
-  assert.ok(out.failures.some((f) => f.includes("[single-cycles] ratchet")));
+  assert.ok(out.failures.some((f) => f.includes("[single-cycles/tree] ratchet")));
 });
 
 test("a bounded high-water mark passes the ratchet", () => {
@@ -304,3 +304,109 @@ test("running the gate never modifies the baselines file (task 11.11)", async (t
 });
 
 import { dirname } from "node:path";
+
+// ---------------------------------------------------------------------------
+// Soak + per-role metrics (eliminate-long-running-memory-growth, task 8.2)
+// ---------------------------------------------------------------------------
+
+import { extractSoakMetrics } from "../check-memory-budget.mjs";
+
+const MB = 1024 * 1024;
+
+function soakSample(elapsedSec, pssBytes) {
+  return {
+    key: `idle-soak/${elapsedSec}`,
+    stage: "idle-soak",
+    cycle: elapsedSec,
+    settled: true,
+    settleReadings: [],
+    processes: [{ pid: 1, present: true, role: "native", values: { Pss: pssBytes } }],
+    total: { Pss: pssBytes },
+  };
+}
+
+test("soak slope math on fixture series (task 8.2)", () => {
+  // Perfectly linear growth: 1 MB per minute over 30 s samples.
+  const linear = [];
+  for (let t = 30; t <= 600; t += 30) linear.push(soakSample(t, 100 * MB + (t / 60) * MB));
+  const metrics = extractSoakMetrics({ samples: linear });
+  assert.ok(Math.abs(metrics["idle-growth-per-hour"] - 60 * MB) < 2 * MB, `slope ${metrics["idle-growth-per-hour"]}`);
+
+  // Stable high-water (rises for 3 min, then plateaus): slope ≈ 0 once the
+  // warm-up window (the documented soakWarmUpSamples parameter) has skipped
+  // the legitimate rise.
+  const plateau = [];
+  for (let t = 30; t <= 600; t += 30) {
+    const pss = t <= 180 ? 100 * MB + (t / 60) * 20 * MB : 160 * MB;
+    plateau.push(soakSample(t, pss));
+  }
+  const plateauMetrics = extractSoakMetrics({ samples: plateau }, { soakWarmUpSamples: 6 });
+  assert.ok(Math.abs(plateauMetrics["idle-growth-per-hour"]) < 5 * MB);
+  assert.ok(Math.abs(plateauMetrics["soak-final-vs-reference"]) < 10 * MB);
+
+  // Noisy but bounded: ±2 MB jitter around a flat line.
+  const noisy = [];
+  let seed = 1;
+  for (let t = 30; t <= 600; t += 30) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    noisy.push(soakSample(t, 150 * MB + (seed % 5) * MB));
+  }
+  const noisyMetrics = extractSoakMetrics({ samples: noisy });
+  assert.ok(Math.abs(noisyMetrics["idle-growth-per-hour"]) < 30 * MB);
+
+  // No soak stage -> nulls (the metric is absent, never invented).
+  assert.deepEqual(extractSoakMetrics({ samples: [soakSample(0, 1)] }), {
+    "idle-growth-per-hour": null,
+    "soak-final-vs-reference": null,
+  });
+});
+
+test("a leak confined to web-content fails its role ratchet while the tree passes", () => {
+  const base = {
+    reliable: true,
+    environment: { platformKind: "linux" },
+    corpus: { itemHashes: {} },
+  };
+  const cycleSample = (cycle, treePss, nativePss, webPss) => ({
+    key: `single-cycles/${cycle}`,
+    stage: "single-cycles",
+    cycle,
+    settled: true,
+    settleReadings: [],
+    processes: [
+      { pid: 1, present: true, role: "native", values: { Pss: nativePss } },
+      { pid: 2, present: true, role: "web-content", values: { Pss: webPss } },
+    ],
+    total: { Pss: treePss },
+  });
+  // Tree total flat at 300 MB; web-content grows 30 MB/cycle while native
+  // shrinks correspondingly — only the role view exposes the leak.
+  const samples = [];
+  for (let c = 0; c < 8; c++) {
+    samples.push(cycleSample(c, 300 * MB, 200 * MB - c * 30 * MB, 100 * MB + c * 30 * MB));
+  }
+  const result = { ...base, samples };
+  const metrics = extractMetrics(result);
+  assert.equal(metrics["peak-total"], 300 * MB); // every peak ceiling passes
+  const outcome = compareMemoryResults({
+    result,
+    baselines: {
+      machineProfile: { platformKind: "linux" },
+      metrics: {},
+      ratchet: { warmUpCycles: 2, slopePerCycleAllowanceBytes: 8 * MB },
+    },
+  });
+  assert.equal(outcome.usable, true);
+  const webFailures = outcome.failures.filter((f) => f.includes("web-content"));
+  assert.ok(webFailures.length > 0, "web-content ratchet must fail");
+  const treeFailures = outcome.failures.filter((f) => f.includes("/tree]"));
+  assert.equal(treeFailures.length, 0, "tree ratchet stays within allowance");
+});
+
+test("soak metrics flow through extractMetrics and can gate", () => {
+  const soak = [];
+  for (let t = 30; t <= 600; t += 30) soak.push(soakSample(t, 100 * MB + (t / 60) * 50 * MB));
+  const metrics = extractMetrics({ samples: soak });
+  assert.ok(metrics["idle-growth-per-hour"] > 40 * MB);
+  assert.ok(metrics["soak-final-vs-reference"] > 100 * MB);
+});

@@ -43,6 +43,7 @@ const DEFAULT_ALLOWANCES = {
 /** Machine-profile fields that materially affect the numbers. */
 export const PROFILE_FIELDS = [
   "platform",
+  "platformKind",
   "osRelease",
   "kernel",
   "webkitGtkVersion",
@@ -79,7 +80,38 @@ export function extractMetrics(result) {
     "native-pss": peakProcessRole(samples, "native"),
     "web-content-pss": peakProcessRole(samples, "web-content"),
   };
-  return metrics;
+  // Soak metrics (task 8.2): present only when the run included an idle-soak
+  // stage; baselines decide whether they are gated.
+  const soak = extractSoakMetrics(result);
+  return { ...metrics, ...soak };
+}
+
+/**
+ * Soak metrics (task 8.2 / design D11): `idle-growth-per-hour` is the
+ * post-warm-up OLS slope over the periodic soak samples (bytes/sec →
+ * bytes/hour); `soak-final-vs-reference` is the last sample minus the
+ * warmed-up reference window median. A leak that hides under every peak
+ * ceiling shows up here as a non-zero slope.
+ */
+export function extractSoakMetrics(result, params = {}) {
+  const soak = (result.samples ?? [])
+    .filter((s) => s.stage === "idle-soak" && Number.isFinite(s.total?.Pss ?? NaN))
+    .sort((a, b) => (a.cycle ?? 0) - (b.cycle ?? 0));
+  if (soak.length < 2) {
+    return { "idle-growth-per-hour": null, "soak-final-vs-reference": null };
+  }
+  const warmUpSamples = params.soakWarmUpSamples ?? 2;
+  const referenceWindow = params.referenceWindow ?? 3;
+  const warmed = soak.slice(Math.min(warmUpSamples, Math.max(0, soak.length - 2)));
+  const xs = warmed.map((s) => s.cycle ?? 0); // elapsed seconds
+  const ys = warmed.map((s) => s.total.Pss);
+  const slopePerHour = olsSlope(xs, ys) * 3600;
+  const reference = median(warmed.slice(0, referenceWindow).map((s) => s.total.Pss));
+  const final = warmed[warmed.length - 1].total.Pss;
+  return {
+    "idle-growth-per-hour": slopePerHour,
+    "soak-final-vs-reference": final - reference,
+  };
 }
 
 function lastCycleTotal(samples) {
@@ -317,18 +349,31 @@ export function compareMemoryResults({ result, baselines }) {
     }
   }
 
-  // Ratchet criterion over the cycle stages (task 11.3).
+  // Ratchet criterion over the cycle stages (task 11.3), now with per-role
+  // variants (task 8.2): the same final-vs-reference and slope allowances,
+  // evaluated separately for the tree total and the `native` /
+  // `web-content` roles — a leak confined to the WebContent process must
+  // fail even when the tree total hides it under its allowance.
   const ratchetParams = baselines.ratchet ?? {};
   const ratchet = [];
+  const roleTotal = (sample, role) => {
+    if (role === "tree") return sample.total?.Pss ?? null;
+    const bytes = (sample.processes ?? [])
+      .filter((p) => p.present && p.role === role)
+      .reduce((sum, p) => sum + (p.values?.Pss ?? 0), 0);
+    return bytes > 0 ? bytes : null;
+  };
   for (const stage of ["single-cycles", "multi-cycles"]) {
-    const cycles = (result.samples ?? [])
-      .filter((s) => s.stage === stage && s.cycle != null && Number.isFinite(s.total?.Pss ?? NaN))
-      .map((s) => ({ cycle: s.cycle, totalPss: s.total.Pss }))
-      .sort((a, b) => a.cycle - b.cycle);
-    if (cycles.length === 0) continue;
-    const outcome = evaluateRatchet(cycles, ratchetParams);
-    ratchet.push({ stage, ...outcome });
-    for (const f of outcome.failures) failures.push(`[${stage}] ${f}`);
+    for (const role of ["tree", "native", "web-content"]) {
+      const cycles = (result.samples ?? [])
+        .filter((s) => s.stage === stage && s.cycle != null && roleTotal(s, role) != null)
+        .map((s) => ({ cycle: s.cycle, totalPss: roleTotal(s, role) }))
+        .sort((a, b) => a.cycle - b.cycle);
+      if (cycles.length === 0) continue;
+      const outcome = evaluateRatchet(cycles, ratchetParams);
+      ratchet.push({ stage, role, ...outcome });
+      for (const f of outcome.failures) failures.push(`[${stage}/${role}] ${f}`);
+    }
   }
 
   const evaluation = {
@@ -406,7 +451,8 @@ export function main(argv = process.argv) {
     const ref = r.reference == null ? "—" : formatBytes(r.reference);
     const final = r.final == null ? "—" : formatBytes(r.final);
     const slope = r.slope == null ? "—" : `${formatBytes(r.slope)}/cycle`;
-    console.log(`[memory-budget] ratchet ${r.stage}: reference ${ref}, final ${final}, slope ${slope}`);
+    const role = r.role ? `/${r.role}` : "";
+    console.log(`[memory-budget] ratchet ${r.stage}${role}: reference ${ref}, final ${final}, slope ${slope}`);
   }
 
   for (const w of outcome.warnings) {
