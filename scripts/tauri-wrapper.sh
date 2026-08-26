@@ -4,6 +4,13 @@ set -euo pipefail
 cmd="${1:-}"
 shift || true
 
+# Establish explicit Tauri frontend intent for every native build/dev path.
+case "$cmd" in
+  dev|build|android|ios)
+    export PLETHORA_TAURI=1
+    ;;
+esac
+
 if [[ "$cmd" == "build" ]]; then
   # On Arch Linux and other modern distros, linuxdeploy's bundled strip binary
   # doesn't support the .relr.dyn section (type 0x13) in newer ELF binaries.

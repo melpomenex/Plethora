@@ -145,8 +145,23 @@ async function persistWebArticleOutcome(
       finalImageCount: diagnostics.finalImageCount,
       timings: diagnostics.timings,
       failureReason: diagnostics.failureReason,
+      assets: diagnostics.assets,
     },
   };
+
+  if (diagnostics.assets?.assetIds?.length) {
+    provenance.articleAssets = {
+      assetIds: diagnostics.assets.assetIds,
+      diagnostics: {
+        discovered: diagnostics.assets.discovered,
+        imported: diagnostics.assets.imported,
+        reused: diagnostics.assets.reused,
+        failed: diagnostics.assets.failed,
+        rejected: diagnostics.assets.rejected,
+        totalBytes: diagnostics.assets.totalBytes,
+      },
+    };
+  }
 
   const collectionId = useCollectionStore.getState().activeCollectionId;
   const doc = await documentsApi.createDocument(
@@ -328,6 +343,7 @@ async function importCanonicalArticle(
     const outcome = await importArticle(url, {
       signal: options.signal,
       onProgress: options.onProgress,
+      preserveImages: useSettingsStore.getState().settings.documents.webImportPreserveImages,
     });
 
     const postExisting = await surfaceExisting(outcome.canonicalUrl);
@@ -540,6 +556,17 @@ interface DocumentState {
     arxivIdOrUrl: string,
     format?: 'pdf' | 'html',
     paper?: ArxivPaper
+  ) => Promise<Document>;
+  /**
+   * Explicit repair/re-extract for eligible web/arXiv HTML documents.
+   * Requires network access; does not run automatically on document open.
+   */
+  reimportCanonicalArticle: (
+    documentId: string,
+    options?: {
+      signal?: AbortSignal;
+      onProgress?: (progress: { stage: string; detail?: string }) => void;
+    }
   ) => Promise<Document>;
   openFilePickerAndImport: () => Promise<Document[]>;
   segmentDocument: (documentId: string, fileType?: string) => Promise<number>;
@@ -1630,6 +1657,91 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to import from Arxiv',
         isImporting: false,
         importProgress: { current: 0, total: 0 }
+      });
+      throw error;
+    }
+  },
+
+  reimportCanonicalArticle: async (documentId, options) => {
+    const existing = await documentsApi.getDocument(documentId);
+    if (!existing || existing.fileType !== "html") {
+      throw new Error("Document is not an HTML article eligible for canonical re-import");
+    }
+    const repairUrl =
+      existing.metadata?.webArticle?.canonicalUrl ??
+      existing.metadata?.htmlUrl ??
+      existing.metadata?.arxivUrl ??
+      existing.metadata?.url ??
+      existing.metadata?.originalUrl ??
+      existing.filePath;
+    if (!repairUrl?.startsWith("http")) {
+      throw new Error("No canonical source URL available for re-import (network required)");
+    }
+    set({
+      isImporting: true,
+      error: null,
+      importProgress: { current: 0, total: 1, fileName: "Re-extracting article…" },
+    });
+    try {
+      const outcome = await importArticle(repairUrl, {
+        signal: options?.signal,
+        onProgress: options?.onProgress,
+        preserveImages: useSettingsStore.getState().settings.documents.webImportPreserveImages,
+      });
+      const updated = await documentsApi.updateWebArticle(
+        existing.id,
+        outcome.article.contentHtml,
+        {
+          ...existing.metadata,
+          webArticle: {
+            ...(existing.metadata?.webArticle ?? {
+              originalUrl: outcome.diagnostics.originalUrl,
+              resolvedUrl: outcome.resolvedUrl,
+              extractor: outcome.diagnostics.selected?.engine ?? "unknown",
+              extractionScore: outcome.diagnostics.selected?.score ?? 0,
+              extractionConfidence: outcome.diagnostics.selected?.confidence ?? "low",
+              extractionVersion: EXTRACTOR_VERSION,
+              importedAt: new Date().toISOString(),
+            }),
+            canonicalUrl: outcome.canonicalUrl,
+            resolvedUrl: outcome.resolvedUrl,
+            extractor: outcome.diagnostics.selected?.engine ?? "unknown",
+            extractionScore: outcome.diagnostics.selected?.score ?? 0,
+            extractionConfidence: outcome.diagnostics.selected?.confidence ?? "low",
+            extractionVersion: EXTRACTOR_VERSION,
+            importedAt: new Date().toISOString(),
+            articleAssets: outcome.diagnostics.assets?.assetIds?.length
+              ? {
+                  assetIds: outcome.diagnostics.assets.assetIds,
+                  diagnostics: {
+                    discovered: outcome.diagnostics.assets.discovered,
+                    imported: outcome.diagnostics.assets.imported,
+                    reused: outcome.diagnostics.assets.reused,
+                    failed: outcome.diagnostics.assets.failed,
+                    rejected: outcome.diagnostics.assets.rejected,
+                    totalBytes: outcome.diagnostics.assets.totalBytes,
+                  },
+                }
+              : undefined,
+            diagnostics: outcome.diagnostics,
+          },
+          fetchedAt: new Date().toISOString(),
+          wordCount: outcome.article.stats.words,
+        },
+        outcome.canonicalUrl,
+        outcome.article.heroImage
+      );
+      set((state) => ({
+        documents: state.documents.map((d) => (d.id === updated.id ? updated : d)),
+        isImporting: false,
+        importProgress: { current: 1, total: 1, fileName: updated.title },
+      }));
+      return updated;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "Canonical re-import failed",
+        isImporting: false,
+        importProgress: { current: 0, total: 0 },
       });
       throw error;
     }

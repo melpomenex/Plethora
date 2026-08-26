@@ -391,7 +391,7 @@ describe("canonical arXiv HTML orchestration", () => {
     expect(dedicatedMetadata.webArticle).toMatchObject({
       canonicalUrl: genericMetadata.webArticle.canonicalUrl,
       extractor: genericMetadata.webArticle.extractor,
-      extractionVersion: 3,
+      extractionVersion: 4,
     });
     expect(importArticleMock).toHaveBeenCalledWith(
       "https://arxiv.org/abs/2410.07524v1",

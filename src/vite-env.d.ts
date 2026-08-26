@@ -11,3 +11,6 @@ interface ImportMeta {
 declare const __PLETHORA_APP_VERSION__: string;
 declare const __PLETHORA_GIT_SHA__: string;
 declare const __PLETHORA_BUILD_ID__: string;
+declare const __PLETHORA_BUILD_PROFILE__: string;
+declare const __PLETHORA_RUNTIME_TARGET__: string;
+declare const __PWA_MODE__: boolean;

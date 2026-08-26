@@ -112,6 +112,18 @@ export interface WebArticleProvenance {
   }>;
   /** Full pipeline diagnostics (stage timings, fetch info, warnings). */
   diagnostics?: unknown;
+  /** Image asset ids ingested for durable offline figures. */
+  articleAssets?: {
+    assetIds: string[];
+    diagnostics?: {
+      discovered: number;
+      imported: number;
+      reused: number;
+      failed: number;
+      rejected: number;
+      totalBytes: number;
+    };
+  };
 }
 
 export interface DocumentMetadata {

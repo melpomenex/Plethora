@@ -7,6 +7,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { scanForForbiddenStoreArtifacts } from "./src/lib/storeProfileGuard";
 import { parseBuildProfile } from "./src/lib/buildProfile";
+import { resolveViteBuildTargets, type RuntimeTargetEnv } from "./src/lib/runtimeTarget";
+import { writeFileSync } from "node:fs";
 
 // @ts-expect-error process is a nodejs global
 const rawHost = process.env.TAURI_DEV_HOST;
@@ -32,16 +34,8 @@ const appBuildId = process.env.VITE_MARKETING_BUILD_ID?.trim() || `${appVersion}
 
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }) => {
-  const isProd = mode === "production";
-  const isTauriBuild = Boolean(
-    process.env.PLETHORA_TAURI ||
-    process.env.INCREMENTUM_TAURI ||
-      process.env.TAURI_DEV_HOST ||
-      process.env.TAURI_PLATFORM ||
-      process.env.TAURI_ARCH ||
-      process.env.TAURI_FAMILY
-  );
-  const isPWA = mode === "pwa" || (!isTauriBuild && isProd);
+  const env = process.env as RuntimeTargetEnv;
+  const { runtimeTarget, isTauriBuild, isPWA, isProd } = resolveViteBuildTargets(env, mode);
 
   const plugins = [
     react({ fastRefresh: !isTauriBuild }),
@@ -65,6 +59,24 @@ export default defineConfig(async ({ mode }) => {
               violations.join("\n")
           );
         }
+      },
+    },
+    {
+      name: "plethora-build-metadata",
+      writeBundle() {
+        const metadata = {
+          target: runtimeTarget,
+          profile: buildProfile,
+          version: appVersion,
+          gitSha,
+          buildId: appBuildId,
+          builtAt: new Date().toISOString(),
+        };
+        writeFileSync(
+          path.resolve(__dirname, "dist/plethora-build-metadata.json"),
+          `${JSON.stringify(metadata, null, 2)}\n`,
+          "utf8"
+        );
       },
     },
   ];
@@ -94,6 +106,7 @@ export default defineConfig(async ({ mode }) => {
 
     define: {
       __PWA_MODE__: JSON.stringify(isPWA),
+      __PLETHORA_RUNTIME_TARGET__: JSON.stringify(runtimeTarget),
       __PLETHORA_BUILD_PROFILE__: JSON.stringify(buildProfile),
       __PLETHORA_APP_VERSION__: JSON.stringify(appVersion),
       __PLETHORA_GIT_SHA__: JSON.stringify(gitSha),

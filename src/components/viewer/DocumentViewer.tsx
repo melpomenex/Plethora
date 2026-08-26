@@ -176,6 +176,7 @@ import type { SectionNode } from "../../utils/sectionIndex";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 import { classifyHtmlReader } from "./htmlReader/documentKind";
 import { prepareHtmlDocument } from "./htmlReader/prepareHtmlDocument";
+import { useArticleAssetRenderUrls } from "./htmlReader/useArticleAssetRenderUrls";
 import {
   buildArticleReaderStyles,
   syncCanonicalOverflowAccessibility,
@@ -5663,6 +5664,10 @@ export function DocumentViewer({
     }
   }, [currentDocument?.id, htmlReaderClassification.diagnostics]);
 
+  const articleAssetRenderUrls = useArticleAssetRenderUrls(
+    htmlReaderClassification.kind === "canonical-article" ? htmlSource : undefined
+  );
+
   const htmlForDisplay = useMemo(() => {
     if (!htmlSource) {
       if (isEditableBrowserArticleDocument(currentDocument)) {
@@ -5696,6 +5701,7 @@ export function DocumentViewer({
         title: currentDocument?.title || "",
         baseUrl,
         preserveImages,
+        assetRenderUrls: articleAssetRenderUrls,
       });
     }
 
@@ -5707,6 +5713,7 @@ export function DocumentViewer({
       title: currentDocument?.title || "",
       baseUrl,
       preserveImages,
+      assetRenderUrls: articleAssetRenderUrls,
     });
     if (!jumpHighlightQuery) return html;
 
@@ -5765,6 +5772,7 @@ export function DocumentViewer({
     jumpHighlightQuery,
     currentDocument,
     htmlReaderClassification.kind,
+    articleAssetRenderUrls,
   ]);
 
   const isOcrHtml = docType === "pdf" && pdfViewMode === "ocr-html" && ocrResult?.format === "html";

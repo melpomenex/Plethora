@@ -40,6 +40,7 @@ import { scoreCandidate, selectBestCandidate } from './scorer';
 import { normalizeArticle } from './articleNormalizer';
 import { normalizeImages } from './imageNormalizer';
 import { sanitizeArticleHtml } from './sanitizer';
+import { ingestArticleAssets } from './articleAssetIngestor';
 import { getRenderedCapture, RenderedCaptureError } from './renderedFallback/captureClient';
 import { siteNameFromUrl } from './urlNormalizer';
 import { resolveImportSource } from './arxivResolver';
@@ -411,9 +412,27 @@ export async function importArticle(
   throwIfAborted(signal);
   diagnostics.normalizationWarnings.push(...sanitized.warnings);
 
+  // 11b. Durable asset ingestion (optional; remote → plethora-asset://).
+  const assetStart = performance.now();
+  const assetOutcome = await ingestArticleAssets(sanitized.html, {
+    preserveImages: options.preserveImages,
+    referrerUrl: canonicalUrl,
+    signal,
+  });
+  timer.mark('assetIngestion', assetStart);
+  throwIfAborted(signal);
+  diagnostics.assets = assetOutcome.diagnostics;
+  if (assetOutcome.diagnostics.failed > 0) {
+    diagnostics.normalizationWarnings.push(
+      `${assetOutcome.diagnostics.failed} article image(s) could not be imported`
+    );
+  }
+
+  const persistedHtml = assetOutcome.html;
+
   // 12. Degenerate-sanitization detection.
   const preText = normalizedArticleResult.article.textContent;
-  const postDoc = parseHtml(sanitized.html);
+  const postDoc = parseHtml(persistedHtml);
   const postText = normalizeWhitespace(postDoc.body?.textContent ?? '');
   const retained = preText.length > 0 ? postText.length / preText.length : 1;
   diagnostics.sanitization = {
@@ -456,7 +475,7 @@ export async function importArticle(
 
   const article: NormalizedArticle = {
     ...normalizedArticleResult.article,
-    contentHtml: sanitized.html,
+    contentHtml: persistedHtml,
     textContent: postText,
     stats: {
       words: finalWords,
