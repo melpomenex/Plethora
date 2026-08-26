@@ -125,6 +125,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
 import { isTauri } from "./lib/tauri";
+import { logBuildFingerprint } from "./lib/buildDiagnostics";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
 import { installLivenessHeartbeat } from "./diagnostics/livenessHeartbeat";
@@ -261,6 +262,10 @@ void installConsoleLogcatBridge();
 
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
+
+if (import.meta.env.DEV) {
+  logBuildFingerprint();
+}
 
 // Dynamically load only a user-selected webfont. Default UI is system-ui.
 try {
