@@ -220,8 +220,12 @@ function resolveInternal(fromFile, href) {
 const hrefRe = /(?:href)=["']([^"']+)["']/gi;
 for (const file of htmlFiles) {
   const html = readFileSync(file, 'utf8');
+  // Client-side scripts construct links at runtime (e.g. the docs search
+  // combobox emits `href="${s.url}"` templates). Their text is not served as
+  // markup, so strip script bodies before scanning for internal hrefs.
+  const markup = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
   let match;
-  while ((match = hrefRe.exec(html))) {
+  while ((match = hrefRe.exec(markup))) {
     const href = match[1];
     if (href.startsWith('http') && !href.includes('useplethora.com')) continue;
     if (href.startsWith('data:') || href.startsWith('javascript:')) continue;

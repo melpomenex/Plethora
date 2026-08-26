@@ -252,7 +252,10 @@ body {
   padding: 0.45rem;
   border-radius: 0.7rem;
   background: #1c1917;
-  box-shadow: var(--shadow-frame);
+  /* Hairline separates stacked frames from same-tone surfaces in dark mode */
+  box-shadow:
+    0 0 0 1px var(--elevated-hairline),
+    var(--shadow-frame);
 }
 
 .device-desk img {
@@ -277,7 +280,9 @@ body {
   background: #111;
   border-radius: 1.55rem;
   padding: 0.55rem 0.38rem 0.65rem;
-  box-shadow: var(--shadow-frame);
+  box-shadow:
+    0 0 0 1px var(--elevated-hairline),
+    var(--shadow-frame);
 }
 
 .phone-bezel img {

@@ -28,8 +28,8 @@
       type="button"
       class="theme-btn"
       data-theme-set="system"
-      title="System theme"
-      aria-label="System theme"
+      title="Auto — follow system setting"
+      aria-label="Auto — follow system theme"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect width="20" height="14" x="2" y="3" rx="2"></rect>
@@ -125,41 +125,12 @@
 </style>
 
 <script>
-  function setupThemeToggles() {
-    const root = document.documentElement;
-    const buttons = document.querySelectorAll<HTMLButtonElement>('[data-theme-set]');
-    if (!buttons.length) return;
+  import { refreshThemeControls, setupThemeControls } from '../../scripts/theme-control.ts';
 
-    function refreshActiveButtons() {
-      const current = root.dataset.theme || 'system';
-      buttons.forEach((btn) => {
-        const isCurrent = btn.dataset.themeSet === current;
-        btn.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
-      });
-    }
-
-    buttons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const targetTheme = btn.dataset.themeSet as 'light' | 'dark' | 'system';
-        if (!targetTheme) return;
-
-        localStorage.setItem('plethora-theme', targetTheme);
-        root.dataset.theme = targetTheme;
-
-        const isDark =
-          targetTheme === 'dark' ||
-          (targetTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        root.dataset.effectiveTheme = isDark ? 'dark' : 'light';
-        root.style.colorScheme = isDark ? 'dark' : 'light';
-
-        refreshActiveButtons();
-        window.dispatchEvent(new CustomEvent('plethora-theme-change', { detail: { theme: targetTheme, isDark } }));
-      });
-    });
-
-    refreshActiveButtons();
-  }
-
-  setupThemeToggles();
-  document.addEventListener('astro:page-load', setupThemeToggles);
+  setupThemeControls();
+  refreshThemeControls();
+  document.addEventListener('astro:page-load', () => {
+    setupThemeControls();
+    refreshThemeControls();
+  });
 </script>
