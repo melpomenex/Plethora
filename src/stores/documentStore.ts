@@ -9,7 +9,7 @@ import { openKindleImportDialog } from "./kindleImportDialogStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSmartTaggingQueueStore } from "./smartTaggingQueueStore";
-import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
+import { importFromUrl as importFromUrlUtil, importArxivPdf as importArxivPdfUtil } from "../utils/documentImport";
 import { importArticle } from "../utils/articleImport/importPipeline";
 import type { ArticleImportOutcome } from "../utils/articleImport/importPipeline";
 import { importRawFallbackPage } from "../utils/articleImport/rawFallback";
@@ -1603,7 +1603,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
     try {
       // PDF remains on the existing metadata/download/persistence contract.
-      const docData = await importFromArxivUtil(arxivIdOrUrl);
+      const docData = await importArxivPdfUtil(arxivIdOrUrl);
 
       set({ importProgress: { current: 1, total: 2, fileName: 'Creating document...' } });
 
