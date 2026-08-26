@@ -21,11 +21,11 @@
 
 ## 3. CTA hierarchy + dev-state copy removal (P0)
 
-- [ ] 3.1 Rework `HomeCtas.astro` per D5 state table (enabled: Get Plethora / demo; disabled: coming-soon primary + secondary label swap); delete `.cta-note` disclaimer everywhere.
-- [ ] 3.2 Give hero/close primary CTAs violet treatment with hover glow-shadow + pressed displacement; ghost secondary gets hover underline/border states.
-- [ ] 3.3 Rewrite `HomePlatforms.astro` heading/body to visitor-facing launch-state chips derived from `DOWNLOADS.platforms[*].status/message`; remove manifest-speak sentence.
-- [ ] 3.4 Rewrite `HomePricingTeaser.astro` copy to remove “Checkout is not live” / internal-direction phrasing while staying claim-safe; link through to `/pricing`.
-- [ ] 3.5 Sweep remaining homepage sections for implementation-state sentences; rewrite or relocate into honest user-facing wording; run banned-phrases + claims gates.
+- [x] 3.1 Rework `HomeCtas.astro` per D5 state table (enabled: Get Plethora / demo; disabled: coming-soon primary + secondary label swap); delete `.cta-note` disclaimer everywhere.
+- [x] 3.2 Give hero/close primary CTAs violet treatment with hover glow-shadow + pressed displacement; ghost secondary gets hover underline/border states.
+- [x] 3.3 Rewrite `HomePlatforms.astro` heading/body to visitor-facing launch-state chips derived from `DOWNLOADS.platforms[*].status/message`; remove manifest-speak sentence.
+- [x] 3.4 Rewrite `HomePricingTeaser.astro` copy to remove “Checkout is not live” / internal-direction phrasing while staying claim-safe; link through to `/pricing`.
+- [x] 3.5 Sweep remaining homepage sections for implementation-state sentences; rewrite or relocate into honest user-facing wording; run banned-phrases + claims gates.
 
 ## 4. Controls, header, navigation (P2 chrome)
 

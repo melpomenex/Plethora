@@ -1,17 +1,22 @@
 ---
+import { loadLaunchFlags } from '../../config/launch.ts';
 import { PLANS } from '../../config/plans.ts';
 
+const flags = loadLaunchFlags();
 const free = PLANS.find((plan) => plan.id === 'free');
 const pro = PLANS.find((plan) => plan.id === 'pro');
 const month = pro?.intervalPrices?.month;
 const year = pro?.intervalPrices?.year;
+const priceNote = flags.checkoutEnabled
+  ? 'Storefronts set local prices at checkout.'
+  : 'Storefronts will set local prices for your region when checkout opens.';
 ---
 
 <section id="pricing" class="home-section wrap" aria-labelledby="pricing-heading">
   <h2 id="pricing-heading">Free to read. Pro when you want more machine.</h2>
   <p data-claim-pending="true">
-    Reading stays on the local floor. Pro is the intended paid layer for sync, hosted
-    intelligence, and cloud compute. Checkout is not live.
+    Reading stays free on the local floor of your own device. Pro adds sync, hosted intelligence,
+    and cloud compute on top.
   </p>
   <div class="plan-split">
     <div>
@@ -29,7 +34,7 @@ const year = pro?.intervalPrices?.year;
           </p>
         )
       }
-      <p>Storefronts set local prices. These figures are display direction only.</p>
+      <p>{priceNote}</p>
     </div>
   </div>
   <p>

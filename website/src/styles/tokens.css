@@ -38,6 +38,7 @@
   /* Accents, focus, and selections */
   --accent: #7c3aed;
   --accent-hover: #6d28d9;
+  --on-accent: #ffffff;
   --focus-ring: #7c3aed;
   --selection-bg: #ddd6fe;
   --selection-text: #1c1916;
@@ -125,6 +126,7 @@
 
   --accent: #a78bfa;
   --accent-hover: #c4b5fd;
+  --on-accent: #1c1526;
   --focus-ring: #a78bfa;
   --selection-bg: #4c1d95;
   --selection-text: #f4efe6;
@@ -164,6 +166,7 @@
 
     --accent: #a78bfa;
     --accent-hover: #c4b5fd;
+    --on-accent: #1c1526;
     --focus-ring: #a78bfa;
     --selection-bg: #4c1d95;
     --selection-text: #f4efe6;

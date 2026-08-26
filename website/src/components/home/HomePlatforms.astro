@@ -1,33 +1,35 @@
 ---
-import { DOWNLOADS, type DownloadAvailability } from '../../config/downloads.ts';
-import { PLATFORM_IDS, type PlatformId } from '../../config/platforms.ts';
+import { DOWNLOADS, PLATFORM_LABELS, type DownloadAvailability } from '../../config/downloads.ts';
+import { PLATFORM_IDS } from '../../config/platforms.ts';
 
-const labels: Record<PlatformId, string> = {
-  windows: 'Windows',
-  macos: 'macOS',
-  linux: 'Linux',
-  ios: 'iOS',
-  android: 'Android',
-};
-
-function availabilityCopy(item: DownloadAvailability): string {
-  if (item.status === 'live' || item.status === 'store') return 'Available';
-  return item.message;
+/** Honest visitor-facing state per manifest status (no manifest-speak). */
+function chip(item: DownloadAvailability): string {
+  switch (item.status) {
+    case 'live':
+    case 'store':
+      return 'Available';
+    case 'coming-soon':
+      return 'In final testing';
+    case 'disabled':
+      return 'Planned';
+  }
 }
 ---
 
 <section id="platforms" class="home-section wrap" aria-labelledby="platforms-heading">
-  <h2 id="platforms-heading">Desktop and mobile, when the builds exist.</h2>
-  <p>Availability comes from the download manifest. Nothing here invents a store URL.</p>
+  <h2 id="platforms-heading">Desktop and mobile.</h2>
+  <p>
+    One reading library on every device you use. Plethora is built for the five platforms below.
+  </p>
   <ul class="platform-list">
     {
       PLATFORM_IDS.map((id) => {
         const item = DOWNLOADS.platforms[id];
         return (
           <li>
-            <strong>{labels[id]}</strong>
-            <span class="avail" data-status={item.status}>
-              {availabilityCopy(item)}
+            <strong>{PLATFORM_LABELS[id]}</strong>
+            <span class="avail platform-chip" data-status={item.status}>
+              {chip(item)}
             </span>
           </li>
         );

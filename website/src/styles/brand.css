@@ -172,19 +172,36 @@ body {
   color: var(--paper);
 }
 
-.btn-primary.is-soon {
-  background: var(--ink-soft);
-  border-color: var(--ink-soft);
+/*
+ * Violet marks the primary action moments (hero + close) — the accent use
+ * case on the homepage body, never spread across all buttons (D6).
+ */
+.btn-accent {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+.btn-accent:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgb(28 25 22 / 0.18);
+}
+
+.btn-accent:active {
+  filter: brightness(0.94);
 }
 
 .btn-ghost {
   background: transparent;
   color: var(--ink);
+  border-color: var(--line);
 }
 
-.cta-note {
-  font-size: 0.8125rem;
-  color: var(--muted);
+.btn-ghost:hover {
+  border-color: var(--line-strong);
+  text-decoration: underline;
+  text-underline-offset: 0.22em;
 }
 
 /* Hero */
@@ -630,6 +647,26 @@ html.is-document-hidden .peck-passage {
   margin-top: var(--space-2);
   font-size: 0.875rem;
   color: var(--muted);
+}
+
+/* Launch-state chips: quiet labels, not neon badges */
+.platform-chip {
+  display: inline-block;
+  margin-top: var(--space-2);
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+  font-size: 0.78rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.platform-chip[data-status='live'],
+.platform-chip[data-status='store'] {
+  border-color: var(--ink-soft);
+  color: var(--ink);
 }
 
 /* Pricing teaser: two columns, not a feature-card trio */
