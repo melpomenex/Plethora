@@ -29,11 +29,11 @@
 
 ## 4. Controls, header, navigation (P2 chrome)
 
-- [ ] 4.1 Introduce `--radius-control` token (~7px) applied to buttons/tabs/inputs only; confirm cards/panels retain editorial radius; add hover/pressed state refinements to control styles.
-- [ ] 4.2 Replace theme toggle group with compact control (disclosure menu or segmented icons per open-question decision) meeting the ≤44px height, keyboard, visible-selection requirements.
-- [ ] 4.3 Adjust `routes.ts` nav flags + footer links to achieve product-style nav set (Features · How it works · Demo · Pricing · Docs + distinct Get-Plethora action; Downloads reachable from footer).
-- [ ] 4.4 Make header sticky-with-stuck-state via sentinel IntersectionObserver per D7 (translucent background guarded by `@supports`, solid under forced-colors/reduced-transparency, ≤200ms transitions, no layout shift).
-- [ ] 4.5 Keyboard/a11y test pass on new header + theme control (focus order, Esc/arrow handling, aria-expanded/pressed semantics).
+- [x] 4.1 Introduce `--radius-control` token (~7px) applied to buttons/tabs/inputs only; confirm cards/panels retain editorial radius; add hover/pressed state refinements to control styles.
+- [x] 4.2 Replace theme toggle group with compact control (disclosure menu or segmented icons per open-question decision) meeting the ≤44px height, keyboard, visible-selection requirements.
+- [x] 4.3 Adjust `routes.ts` nav flags + footer links to achieve product-style nav set (Features · How it works · Demo · Pricing · Docs + distinct Get-Plethora action; Downloads reachable from footer).
+- [x] 4.4 Make header sticky-with-stuck-state via sentinel IntersectionObserver per D7 (translucent background guarded by `@supports`, solid under forced-colors/reduced-transparency, ≤200ms transitions, no layout shift).
+- [x] 4.5 Keyboard/a11y test pass on new header + theme control (focus order, Esc/arrow handling, aria-expanded/pressed semantics).
 
 ## 5. Reading Desk recomposition (P1)
 

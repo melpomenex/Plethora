@@ -1,6 +1,6 @@
 .reading-desk {
   --showcase-panel-radius: 0.875rem;
-  --showcase-control-radius: 0.25rem;
+  --showcase-control-radius: 7px;
   position: relative;
   color: var(--ink);
   font-family: var(--font-ui);

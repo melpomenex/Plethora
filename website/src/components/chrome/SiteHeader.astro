@@ -2,10 +2,13 @@
 import chirpUrl from '../../assets/brand/plethora-chirp.svg?url';
 import ThemeToggle from './ThemeToggle.astro';
 import { COPY } from '../../config/copy.ts';
+import { loadLaunchFlags } from '../../config/launch.ts';
 import { SITE_ROUTES } from '../../config/routes.ts';
 
+const flags = loadLaunchFlags();
 const current = Astro.url.pathname.replace(/\/$/, '') || '/';
 const links = SITE_ROUTES.filter((route) => route.inPrimaryNav && route.path !== '/');
+const ctaLabel = flags.downloadsEnabled ? 'Get Plethora' : 'Get Plethora';
 ---
 
 <header class="site-header" data-testid="site-header">
@@ -28,8 +31,17 @@ const links = SITE_ROUTES.filter((route) => route.inPrimaryNav && route.path !==
       </ul>
     </nav>
     <ThemeToggle />
+    <a
+      class="btn btn-primary header-cta"
+      href="/downloads"
+      data-cta="get-plethora"
+      data-cta-mode={flags.downloadsEnabled ? 'enabled' : 'coming-soon'}
+    >
+      {ctaLabel}
+    </a>
   </div>
 </header>
+<div class="header-sentinel" aria-hidden="true" data-header-sentinel="header"></div>
 
 <style>
   .site-header-actions {
@@ -37,4 +49,48 @@ const links = SITE_ROUTES.filter((route) => route.inPrimaryNav && route.path !==
     align-items: center;
     gap: var(--space-4);
   }
+
+  .header-cta {
+    min-height: 2.25rem;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .header-sentinel {
+    height: 0;
+  }
 </style>
+
+<script>
+  /**
+   * Stuck-header treatment (D7). The hero page renders a sentinel at the
+   * hero's end (data-header-sentinel="hero"); elsewhere the zero-height
+   * sibling beside the header engages the treatment immediately after a
+   * header-height of scroll. Only color/background/border/shadow animate
+   * (<= 200ms); geometry never changes, so content below never shifts.
+   */
+  function setupStuckHeader() {
+    const header = document.querySelector<HTMLElement>('[data-testid="site-header"]');
+    if (!header) return;
+    const sentinel =
+      document.querySelector('[data-header-sentinel="hero"]') ??
+      document.querySelector('[data-header-sentinel="header"]') ??
+      header;
+
+    // Per-element guard: survives module reuse across Astro page swaps.
+    if (header.dataset.stuckWired === 'true') return;
+    header.dataset.stuckWired = 'true';
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const topEntry = entries[entries.length - 1];
+        header.classList.toggle('is-stuck', !topEntry.isIntersecting);
+      },
+      { rootMargin: '-1px 0px 0px 0px', threshold: 0 },
+    );
+    observer.observe(sentinel);
+  }
+
+  setupStuckHeader();
+  document.addEventListener('astro:page-load', setupStuckHeader);
+</script>

@@ -22,7 +22,6 @@
         <path d="m6.34 17.66-1.41 1.41"></path>
         <path d="m19.07 4.93-1.41 1.41"></path>
       </svg>
-      <span class="theme-label">Light</span>
     </button>
     <button
       type="button"
@@ -36,7 +35,6 @@
         <line x1="8" x2="16" y1="21" y2="21"></line>
         <line x1="12" x2="12" y1="17" y2="21"></line>
       </svg>
-      <span class="theme-label">Auto</span>
     </button>
     <button
       type="button"
@@ -48,7 +46,6 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
       </svg>
-      <span class="theme-label">Dark</span>
     </button>
   </fieldset>
 </div>
@@ -59,11 +56,12 @@
     align-items: center;
   }
 
+  /* Compact icon-only segmented control: <= 44px tall, visible selection */
   .theme-toggle-group {
     display: inline-flex;
     align-items: center;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--radius-control);
     padding: 2px;
     margin: 0;
     background: var(--paper-2);
@@ -85,17 +83,15 @@
   .theme-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.5rem;
+    justify-content: center;
+    width: 34px;
+    height: 30px;
+    padding: 0;
     border: none;
     background: transparent;
     color: var(--muted);
-    font-family: var(--font-ui);
-    font-size: 0.75rem;
-    font-weight: 500;
-    border-radius: var(--radius);
+    border-radius: calc(var(--radius-control) - 2px);
     cursor: pointer;
-    line-height: 1;
     transition: color 0.15s ease, background-color 0.15s ease;
   }
 
@@ -112,15 +108,6 @@
   .theme-btn:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 1px;
-  }
-
-  @media (max-width: 640px) {
-    .theme-label {
-      display: none;
-    }
-    .theme-btn {
-      padding: 0.3rem 0.4rem;
-    }
   }
 </style>
 

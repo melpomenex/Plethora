@@ -46,7 +46,7 @@ export const SITE_ROUTES: SiteRoute[] = [
     description: 'Desktop and mobile downloads for Plethora.',
     owner: 'E',
     navLabel: 'Downloads',
-    inPrimaryNav: true,
+    inPrimaryNav: false,
   },
   {
     path: '/demo',

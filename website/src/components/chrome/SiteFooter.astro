@@ -9,6 +9,7 @@ const legalLinks = SITE_ROUTES.filter((route) =>
     route.path,
   ),
 );
+const productLinks = SITE_ROUTES.filter((route) => ['/downloads'].includes(route.path));
 const audienceLinks = SITE_ROUTES.filter((route) =>
   [
     '/students',
@@ -35,6 +36,17 @@ const audienceLinks = SITE_ROUTES.filter((route) =>
       )
     }
   </p>
+  <nav aria-label="Product">
+    <ul class="site-nav">
+      {
+        productLinks.map((route) => (
+          <li>
+            <a href={route.path}>{route.navLabel}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
   <nav aria-label="Legal">
     <ul class="site-nav">
       {

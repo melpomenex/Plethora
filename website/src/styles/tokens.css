@@ -91,6 +91,8 @@
   --device-screen-radius: 1.7rem;
 
   --radius: 2px;
+  /* Interactive controls only (buttons, tabs, inputs) — cards keep --radius */
+  --radius-control: 7px;
   --shadow-frame: 0.4rem 0.85rem 1.8rem rgb(28 25 22 / 0.14);
 
   --z-skip: 40;

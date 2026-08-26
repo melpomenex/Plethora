@@ -27,6 +27,9 @@ body {
 }
 
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -37,6 +40,40 @@ body {
   padding-block: 0.7rem;
   border-bottom: 1px solid var(--line);
   background: var(--paper);
+  /* Only paint animates when stuck; geometry is frozen so nothing shifts */
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* Subtly stuck (D7): near-solid paper, stronger hairline, small shadow.
+   Blur is progressive enhancement only. */
+@supports (backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px)) {
+  .site-header.is-stuck {
+    background: color-mix(in srgb, var(--paper) 92%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+}
+
+.site-header.is-stuck {
+  border-bottom-color: var(--line-strong);
+  box-shadow: 0 1px 12px rgb(28 25 22 / 0.06);
+}
+
+/* Reduced transparency / forced colors: solid, no blur */
+@media (prefers-reduced-transparency: reduce) {
+  .site-header.is-stuck {
+    background: var(--paper);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .site-header.is-stuck {
+    background: var(--paper);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .site-mark {
@@ -160,7 +197,7 @@ body {
   letter-spacing: 0.01em;
   text-decoration: none;
   white-space: nowrap;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
 }
 
 .btn:active {
@@ -170,6 +207,11 @@ body {
 .btn-primary {
   background: var(--ink);
   color: var(--paper);
+}
+
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--ink) 86%, var(--paper));
+  box-shadow: 0 2px 8px rgb(28 25 22 / 0.18);
 }
 
 /*
@@ -206,12 +248,23 @@ body {
 
 /* Hero */
 .home-hero {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   gap: var(--space-6);
   align-items: center;
   padding-block: var(--space-6) var(--space-8);
   min-height: min(36rem, 100dvh);
+}
+
+/* Stuck-header trigger: zero-size, parked at the hero's bottom edge */
+.hero-sentinel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 .home-hero h1 {

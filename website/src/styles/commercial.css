@@ -84,9 +84,14 @@
   font: inherit;
   padding: 0.35rem 0.75rem;
   border: 1px solid var(--line);
+  border-radius: var(--radius-control);
   background: var(--surface-card);
   color: var(--ink);
   cursor: pointer;
+}
+
+.interval-toggle button:hover {
+  border-color: var(--line-strong);
 }
 
 .interval-toggle button[aria-pressed='true'] {
