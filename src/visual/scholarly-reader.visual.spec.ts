@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 async function openReader(page: Page, theme = 'biolume-abyss'): Promise<void> {
   await page.goto(`/scholarly-reader-harness.html?theme=${theme}`);
@@ -11,6 +12,59 @@ async function openReader(page: Page, theme = 'biolume-abyss'): Promise<void> {
 }
 
 test.describe('canonical scholarly reader computed contract', () => {
+  test('reader styles survive the packaged Tauri CSP and theme changes', async ({ page }) => {
+    const { app } = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+    const nonce = 'reader-regression-nonce';
+    // Tauri adds a fresh nonce to bundled styles and style-src at runtime.
+    // The srcdoc reader inherits that policy, including nonce enforcement.
+    const csp = app.security.csp.replace(/style-src\s+([^;]+)/, `style-src $1 'nonce-${nonce}'`);
+    const entryHtml = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+    const carrier = entryHtml.split('</head>')[0].match(/<style id="plethora-style-nonce"><\/style>/)?.[0];
+    expect(carrier, 'the app must keep its nonce carrier outside the React root').toBeTruthy();
+    await page.route('**/scholarly-reader-harness.html?*', async (route) => {
+      const response = await route.fetch();
+      const html = (await response.text())
+        .replace('<head>', `<head>${carrier!.replace('<style', `<style nonce="${nonce}"`)}`)
+        .replace(/<style>/g, `<style nonce="${nonce}">`);
+      await route.fulfill({ response, body: html, headers: { ...response.headers(), 'content-security-policy': csp } });
+    });
+    await page.goto('/scholarly-reader-harness.html?theme=biolume-abyss');
+    await page.locator('#scholarly-reader-shell[data-ready="true"]').waitFor();
+
+    const initial = await page.evaluate(() => {
+      const doc = document.querySelector<HTMLIFrameElement>('#scholarly-reader-frame')!.contentDocument!;
+      const style = doc.querySelector<HTMLStyleElement>('#html-viewer-styles')!;
+      return {
+        applied: style.sheet !== null,
+        nonce: style.nonce,
+        foreground: getComputedStyle(doc.body).color,
+      };
+    });
+    expect(initial.applied).toBe(true);
+    expect(initial.nonce).toBe(nonce);
+    expect(initial.foreground).toBe('rgb(224, 242, 254)');
+
+    const updated = await page.evaluate(() => {
+      const doc = document.querySelector<HTMLIFrameElement>('#scholarly-reader-frame')!.contentDocument!;
+      const style = doc.querySelector<HTMLStyleElement>('#html-viewer-styles')!;
+      window.__scholarlyReaderHarness.setTheme('snow');
+      // A fix must authorize only the app-owned stylesheet, not relax CSP.
+      const untrusted = doc.createElement('style');
+      untrusted.textContent = 'body { color: rgb(255, 0, 0) !important; }';
+      doc.head.appendChild(untrusted);
+      return {
+        sameStyle: style === doc.querySelector('#html-viewer-styles'),
+        applied: style.sheet !== null,
+        foreground: getComputedStyle(doc.body).color,
+        untrustedBlocked: untrusted.sheet === null,
+      };
+    });
+    expect(updated.sameStyle).toBe(true);
+    expect(updated.applied).toBe(true);
+    expect(updated.foreground).not.toBe(initial.foreground);
+    expect(updated.untrustedBlocked).toBe(true);
+  });
+
   test('contrast, semantics, measure, focus, figure, and zoom remain readable', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openReader(page, 'biolume-abyss');

@@ -176,6 +176,7 @@ import type { SectionNode } from "../../utils/sectionIndex";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 import { classifyHtmlReader } from "./htmlReader/documentKind";
 import { prepareHtmlDocument } from "./htmlReader/prepareHtmlDocument";
+import { ensureReaderStylesheet } from "./htmlReader/readerStylesheet";
 import { useArticleAssetRenderUrls } from "./htmlReader/useArticleAssetRenderUrls";
 import {
   buildArticleReaderStyles,
@@ -6228,12 +6229,7 @@ export function DocumentViewer({
         doc.querySelectorAll('[style]').forEach((element) => element.removeAttribute('style'));
       }
 
-      let style = doc.getElementById('html-viewer-styles') as HTMLStyleElement | null;
-      if (!style) {
-        style = doc.createElement('style');
-        style.id = 'html-viewer-styles';
-        (doc.head ?? doc.documentElement).appendChild(style);
-      }
+      const style = ensureReaderStylesheet(doc);
 
       const rootStyle = getComputedStyle(document.documentElement);
       const tokens = resolveReaderThemeTokens(
