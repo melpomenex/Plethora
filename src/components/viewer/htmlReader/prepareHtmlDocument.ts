@@ -1,4 +1,6 @@
 import { processHtmlContent } from '../../../utils/documentImport';
+import { isArticleAssetUrl, parseArticleAssetUrl } from '../../../utils/articleImport/articleAssetScheme';
+import { isBlockedMediaHost } from '../../../utils/articleImport/mediaUrlPolicy';
 import type { HtmlReaderKind } from './documentKind';
 
 export interface PrepareHtmlDocumentInput {
@@ -7,6 +9,8 @@ export interface PrepareHtmlDocumentInput {
   title: string;
   baseUrl: string;
   preserveImages: boolean;
+  /** Map of article asset id → render URL (typically data: URLs from the registry). */
+  assetRenderUrls?: Readonly<Record<string, string>>;
 }
 
 function safeBaseUrl(value: string): string {
@@ -23,7 +27,9 @@ function safeBaseUrl(value: string): string {
 function safeImageUrl(value: string, baseUrl: string): string | null {
   try {
     const url = new URL(value, baseUrl);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (isBlockedMediaHost(url.toString())) return null;
+    return url.toString();
   } catch {
     return null;
   }
@@ -67,12 +73,23 @@ export function prepareHtmlDocument(input: PrepareHtmlDocumentInput): string {
       image.remove();
       return;
     }
-    const resolved = safeImageUrl(image.getAttribute('src') ?? '', baseUrl);
-    if (!resolved) {
-      image.remove();
-      return;
+    const rawSrc = image.getAttribute('src') ?? '';
+    if (isArticleAssetUrl(rawSrc)) {
+      const assetId = parseArticleAssetUrl(rawSrc);
+      const renderUrl = assetId ? input.assetRenderUrls?.[assetId] : undefined;
+      if (!renderUrl) {
+        image.remove();
+        return;
+      }
+      image.src = renderUrl;
+    } else {
+      const resolved = safeImageUrl(rawSrc, baseUrl);
+      if (!resolved) {
+        image.remove();
+        return;
+      }
+      image.src = resolved;
     }
-    image.src = resolved;
     image.removeAttribute('srcset');
     image.removeAttribute('sizes');
     image.loading = image.closest('.inc-hero') ? 'eager' : 'lazy';

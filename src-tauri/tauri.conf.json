@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bash scripts/tauri-before-dev.sh",
     "devUrl": "http://127.0.0.1:15173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "PLETHORA_TAURI=1 npm run build && node scripts/verify-frontend-build.mjs --expect-target=tauri",
     "frontendDist": "../dist"
   },
   "app": {

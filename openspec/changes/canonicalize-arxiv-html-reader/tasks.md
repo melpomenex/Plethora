@@ -62,4 +62,13 @@
 - [x] 8.1 Run the targeted article-import, sanitizer, store, theme-token, classifier, preparation, and computed-style test suites and resolve every failure without weakening the spec assertions.
 - [ ] 8.2 Run `npm run test:visual`, inspect all four scholarly reader baselines at their actual sizes, and confirm no unrelated snapshot changes.
 - [ ] 8.3 Run `npx tsc --noEmit`, `npm run build:check`, `npm run test:scripts`, and `npm run bench:check`; do not update performance or bundle baselines unless the change is intentional and documented under the repository gate protocol.
+
+## 9. Durable Article Assets
+
+- [x] 9.1 Add `articleAssetIngestor.ts` with SSRF-safe fetch, deduplication, diagnostics, and `plethora-asset:` URL rewriting.
+- [x] 9.2 Integrate ingestion into `importPipeline.ts` gated by `webImportPreserveImages`.
+- [x] 9.3 Extend sanitizer and `prepareHtmlDocument` for `plethora-asset:` resolution.
+- [x] 9.4 Persist asset IDs in `WebArticleProvenance` and resolve at reader time.
+- [x] 9.5 Add hermetic tests including arXiv `2410.07524v1` fixture and offline reader regression.
+- [x] 9.6 Add production Tauri target + canonical reader parity test.
 - [x] 8.4 Audit the final diff against every scenario in the four delta specs, confirm the arXiv PDF path and existing stored bodies are unchanged, and record any intentionally deferred canonical-reprocess or non-canonical-reader work as a separate future change rather than expanding this one.

@@ -172,6 +172,7 @@ export interface StageTimings {
   renderedFallback?: number;
   articleNormalization?: number;
   sanitization?: number;
+  assetIngestion?: number;
 }
 
 /** Bounded per-candidate record persisted in metadata (max
@@ -217,6 +218,17 @@ export interface ArticleImportDiagnostics {
   sourceClassification?: string;
   /** Non-blocking import warnings surfaced to users/diagnostics. */
   importWarnings?: string[];
+  /** Durable article image ingestion summary. */
+  assets?: {
+    discovered: number;
+    imported: number;
+    reused: number;
+    failed: number;
+    rejected: number;
+    totalBytes: number;
+    assetIds: string[];
+    failures?: Array<{ sourceUrl: string; reason: string; message?: string }>;
+  };
 }
 
 /** Progress events emitted by the pipeline for UI states. */
@@ -247,4 +259,6 @@ export interface ImportArticleOptions {
   platformCaps?: PlatformCaptureCaps;
   /** Progress callback for UI states. */
   onProgress?: (progress: ArticleImportProgress) => void;
+  /** When false, skip durable image ingestion (display-time strip still applies). */
+  preserveImages?: boolean;
 }

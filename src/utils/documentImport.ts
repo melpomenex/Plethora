@@ -6,7 +6,7 @@
 import { Document } from '../types/document';
 import { fetchUrlContent, readDocumentFile } from '../api/documents';
 import { isTauri } from '../lib/tauri';
-import { arxivHtmlAssetBase, parseArxivInput, arxivPaperRef } from './articleImport/arxivResolver';
+import { arxivHtmlAssetBase, parseArxivInput } from './articleImport/arxivResolver';
 
 /**
  * CORS proxies for browser mode
@@ -443,41 +443,23 @@ export async function importFromUrl(
   }
 }
 
-/**
- * Import paper from Arxiv
- */
-export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'pdf'): Promise<Omit<Document, 'id'>> {
+/** Import an arXiv PDF through the legacy binary-download path. HTML imports
+ * are canonical articles and are orchestrated exclusively by documentStore. */
+export async function importArxivPdf(input: string): Promise<Omit<Document, 'id'>> {
   try {
     const identity = parseArxivInput(input);
     if (!identity) {
       throw new Error('Invalid Arxiv ID or URL');
     }
-    const arxivId = arxivPaperRef(identity);
 
     const metadata = await fetchArxivMetadata(identity.paperId);
-
-    // Download PDF or HTML using the backend fetch function
-    const isHtml = format === 'html';
-    const downloadUrl = isHtml ? identity.htmlUrl : identity.pdfUrl;
-    const fetched = await fetchUrlContent(downloadUrl);
-    const pdfUrl = identity.pdfUrl;
-
-    let content = metadata.abstract;
-    if (isHtml) {
-      try {
-        const fileBytes = await readDocumentFile(fetched.file_path);
-        const htmlContent = new TextDecoder('utf-8').decode(fileBytes);
-        content = processHtmlContent(htmlContent, downloadUrl, metadata.title, true);
-      } catch (error) {
-        console.warn('Failed to process ArXiv HTML content:', error);
-      }
-    }
+    const fetched = await fetchUrlContent(identity.pdfUrl);
 
     const document: Omit<Document, 'id'> = {
       title: metadata.title,
       filePath: fetched.file_path,
-      fileType: isHtml ? 'html' : 'pdf',
-      content: content,
+      fileType: 'pdf',
+      content: metadata.abstract,
       contentHash: await generateHash(fetched.file_path),
       category: 'Research Papers',
       tags: [
@@ -504,7 +486,6 @@ export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'p
         arxivId: identity.paperId,
         arxivUrl: identity.absUrl,
         pdfUrl: identity.pdfUrl,
-        htmlUrl: isHtml ? identity.htmlUrl : undefined,
         originalFileName: fetched.file_name,
       },
     };

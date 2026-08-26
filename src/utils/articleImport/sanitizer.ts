@@ -8,6 +8,7 @@
  */
 
 import { loadDomPurify } from './engineLoader';
+import { isBlockedMediaHost } from './mediaUrlPolicy';
 import {
   isAllowedScholarlyAccessibilityAttribute,
   isGeneratedScholarlyId,
@@ -99,9 +100,11 @@ function isAllowedLinkScheme(url: string): boolean {
 function isAllowedMediaScheme(url: string): boolean {
   const trimmed = url.trim().toLowerCase();
   if (trimmed.startsWith('#')) return false;
+  if (trimmed.startsWith('plethora-asset:')) return true;
+  if (isBlockedMediaHost(trimmed)) return false;
   try {
     const parsed = new URL(trimmed);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'plethora-asset:';
   } catch {
     return !/^[a-z][a-z0-9+.-]*:/i.test(trimmed);
   }

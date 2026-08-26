@@ -9,7 +9,7 @@
 
 /** Bump whenever scorer weights/thresholds or normalization semantics change
  * in a way that could alter extraction outcomes. Persisted with each import. */
-export const EXTRACTOR_VERSION = 3;
+export const EXTRACTOR_VERSION = 4;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Scoring thresholds (design D3)
@@ -183,6 +183,19 @@ export const LAZY_SRC_ATTRIBUTES: readonly string[] = [
   'data-original',
   'data-ll-src',
 ] as const;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Article asset ingestion
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Maximum images ingested per article import. */
+export const ARTICLE_ASSET_MAX_COUNT = 64;
+/** Maximum bytes per individual article image (matches registry cap). */
+export const ARTICLE_ASSET_MAX_BYTES = 10 * 1024 * 1024;
+/** Maximum aggregate bytes for all images in one import. */
+export const ARTICLE_ASSET_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
+/** Parallel remote image fetches during import. */
+export const ARTICLE_ASSET_FETCH_CONCURRENCY = 4;
 
 // ──────────────────────────────────────────────────────────────────────────
 // URL normalization (design D4)
