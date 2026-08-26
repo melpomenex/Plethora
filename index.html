@@ -27,6 +27,9 @@
     <link rel="manifest" href="/manifest.json?v=2026-08-17" />
 
     <title>Plethora</title>
+    <!-- Tauri nonces bundled styles. Keep a nonce carrier outside #root so
+         reader styles can inherit it after React removes the boot frame. -->
+    <style id="plethora-style-nonce"></style>
     <script>
       (function () {
         const isDevHost =

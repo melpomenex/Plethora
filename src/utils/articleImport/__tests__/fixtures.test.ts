@@ -35,6 +35,19 @@ vi.mock('../fetchClient', async (importOriginal) => {
   };
 });
 
+// This corpus checks extraction URLs before registry rewriting. Image fetching
+// and persistence have their own articleAssetIngestor suite; never let this
+// otherwise-offline corpus attempt real image downloads.
+vi.mock('../articleAssetIngestor', () => ({
+  ingestArticleAssets: async (html: string) => ({
+    html,
+    diagnostics: {
+      discovered: 0, imported: 0, reused: 0, failed: 0, rejected: 0,
+      totalBytes: 0, assetIds: [], failures: [],
+    },
+  }),
+}));
+
 import { importArticle } from '../importPipeline';
 import { ArticleImportError } from '../errors';
 import {

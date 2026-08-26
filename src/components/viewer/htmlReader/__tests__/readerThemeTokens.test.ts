@@ -4,6 +4,7 @@ import { contrastRatio, parseColor, flattenOverBase } from '../../../../themes/c
 import { resolveReaderThemeTokens } from '../readerThemeTokens';
 import { buildArticleReaderStyles } from '../articleReaderStyles';
 import { buildCompatibilityReaderStyles } from '../compatibilityReaderStyles';
+import { ensureReaderStylesheet } from '../readerStylesheet';
 
 function ratio(foreground: string, background: string): number {
   const fg = parseColor(foreground)!;
@@ -53,6 +54,31 @@ describe('resolveReaderThemeTokens', () => {
 describe('reader stylesheet boundaries', () => {
   const tokens = resolveReaderThemeTokens({}, biolumeAbyssTheme);
   const settings = { fontSize: 16, lineHeight: 1.6, fontFamily: 'serif' as const };
+
+  it('inherits the host style nonce and reuses the sheet across theme updates', () => {
+    const carrier = document.createElement('style');
+    carrier.id = 'plethora-style-nonce';
+    carrier.nonce = 'host-style-nonce';
+    document.head.appendChild(carrier);
+    try {
+      const doc = document.implementation.createHTMLDocument('Reader');
+      const style = ensureReaderStylesheet(doc);
+      expect(style.nonce).toBe('host-style-nonce');
+      style.textContent = buildArticleReaderStyles(tokens, settings);
+      expect(ensureReaderStylesheet(doc)).toBe(style);
+      expect(doc.querySelectorAll('#html-viewer-styles')).toHaveLength(1);
+    } finally {
+      carrier.remove();
+    }
+  });
+
+  it('works without a nonce in dev and never trusts a carrier in imported HTML', () => {
+    const doc = document.implementation.createHTMLDocument('Reader');
+    doc.body.innerHTML = '<style id="plethora-style-nonce" nonce="untrusted"></style>';
+    const style = ensureReaderStylesheet(doc);
+    expect(style.nonce).toBe('');
+    expect(doc.head.contains(style)).toBe(true);
+  });
 
   it('owns canonical semantics without a destructive descendant reset', () => {
     const css = buildArticleReaderStyles(tokens, settings);
