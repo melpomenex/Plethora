@@ -16,7 +16,7 @@
     "preview": "vite preview",
     "preview:pwa": "vite preview --mode pwa",
     "tauri": "bash scripts/tauri-wrapper.sh",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "bash scripts/tauri-wrapper.sh dev",
     "tauri:build": "tauri build",
     "tauri:build:debug": "tauri build --debug",
     "tauri:build:linux": "tauri build --bundles deb,rpm",

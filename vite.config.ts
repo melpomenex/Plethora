@@ -79,6 +79,23 @@ export default defineConfig(async ({ mode }) => {
         );
       },
     },
+    // Dev-only probe so tauri-wrapper can refuse a stale non-Tauri Vite server.
+    {
+      name: "plethora-dev-build-target",
+      configureServer(server) {
+        const metadata = {
+          target: runtimeTarget,
+          profile: buildProfile,
+          version: appVersion,
+          gitSha,
+          buildId: appBuildId,
+        };
+        server.middlewares.use("/plethora-build-target.json", (_req, res) => {
+          res.setHeader("Content-Type", "application/json");
+          res.end(`${JSON.stringify(metadata)}\n`);
+        });
+      },
+    },
   ];
 
   return {

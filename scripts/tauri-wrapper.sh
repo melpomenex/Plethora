@@ -75,8 +75,30 @@ EOF
     return 1
   }
 
+  dev_server_is_tauri() {
+    if ! command -v curl >/dev/null 2>&1; then
+      return 1
+    fi
+    curl -fsS --max-time 2 "$dev_url/plethora-build-target.json" 2>/dev/null | grep -q '"target":"tauri"'
+  }
+
+  stop_dev_server() {
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true
+      sleep 0.5
+    fi
+  }
+
   if dev_server_ready; then
-    echo "Reusing existing dev server on 127.0.0.1:$port"
+    if dev_server_is_tauri; then
+      echo "Reusing existing Tauri dev server on 127.0.0.1:$port"
+    else
+      echo "Non-Tauri dev server detected on 127.0.0.1:$port — restarting with PLETHORA_TAURI=1"
+      stop_dev_server
+      npm run dev -- --host 127.0.0.1 --port "$port" --strictPort &
+      vite_pid=$!
+      started_vite=1
+    fi
   else
     npm run dev -- --host 127.0.0.1 --port "$port" --strictPort &
     vite_pid=$!
