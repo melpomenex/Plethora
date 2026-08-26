@@ -9,15 +9,15 @@
 
 ## 2. Hero composition (P0)
 
-- [ ] 2.1 Rebuild `.device-collage` into `.hero-stage` wrapper with shared perspective; implement desktop frame sizing `clamp(30rem, 38vw, 40rem)` and grid shift toward ~0.85fr/1.15fr in `brand.css`.
-- [ ] 2.2 Implement controlled grid escape ≥1280px with overflow-bounded right bleed; confirm zero horizontal overflow at 320–1728px test widths.
-- [ ] 2.3 Tune depth transforms per D3 (desktop rotateY ≈ −14°, rotateX 2°, rotateZ −0.5°; phone mirrored smaller set), overlap 15–20% of desktop width, staggered vertical silhouettes, z-order phone-front.
-- [ ] 2.4 Build distinct shadow stacks: wide soft ground shadow (desktop) vs tight contact shadow + subtle drop (phone); hero-specific, not global `--shadow-frame`.
-- [ ] 2.5 Implement generic premium phone frame per D4 (rim gradient, chamfer, inset screen shadow, thickness edge, speaker/camera suppressed <240px) as shared device tokens in `tokens.css`.
-- [ ] 2.6 Upgrade Reading Desk `__phone-frame` + simulator mobile frame to consume the same device tokens for visual convergence.
-- [ ] 2.7 Mobile fallback (<768px): headline→lede→CTAs→large mobile device on paper mat; desktop capture removed from mobile hero and reappears in Reading Desk; 768–1279px reduced-angle variant.
-- [ ] 2.8 Update hero `<picture>` sizes/srcset hints for the new rendered width; keep eager/fetchpriority=high limited to hero sources; re-measure LCP image weight against D11 caps.
-- [ ] 2.9 Visual QA pass: capture hero at 1440×900, 1728×1117 both themes; check screenshot text legibility under perspective at 100%/200% zoom; tune rotations/sizes within spec bands.
+- [x] 2.1 Rebuild `.device-collage` into `.hero-stage` wrapper with shared perspective; implement desktop frame sizing `clamp(30rem, 38vw, 40rem)` and grid shift toward ~0.85fr/1.15fr in `brand.css`.
+- [x] 2.2 Implement controlled grid escape ≥1280px with overflow-bounded right bleed; confirm zero horizontal overflow at 320–1728px test widths.
+- [x] 2.3 Tune depth transforms per D3 (desktop rotateY ≈ −14°, rotateX 2°, rotateZ −0.5°; phone mirrored smaller set), overlap 15–20% of desktop width, staggered vertical silhouettes, z-order phone-front.
+- [x] 2.4 Build distinct shadow stacks: wide soft ground shadow (desktop) vs tight contact shadow + subtle drop (phone); hero-specific, not global `--shadow-frame`.
+- [x] 2.5 Implement generic premium phone frame per D4 (rim gradient, chamfer, inset screen shadow, thickness edge, speaker/camera suppressed <240px) as shared device tokens in `tokens.css`.
+- [x] 2.6 Upgrade Reading Desk `__phone-frame` + simulator mobile frame to consume the same device tokens for visual convergence.
+- [x] 2.7 Mobile fallback (<768px): headline→lede→CTAs→large mobile device on paper mat; desktop capture removed from mobile hero and reappears in Reading Desk; 768–1279px reduced-angle variant.
+- [x] 2.8 Update hero `<picture>` sizes/srcset hints for the new rendered width; keep eager/fetchpriority=high limited to hero sources; re-measure LCP image weight against D11 caps.
+- [x] 2.9 Visual QA pass: capture hero at 1440×900, 1728×1117 both themes; check screenshot text legibility under perspective at 100%/200% zoom; tune rotations/sizes within spec bands.
 
 ## 3. CTA hierarchy + dev-state copy removal (P0)
 

@@ -155,13 +155,20 @@
   bottom: 0;
   width: clamp(9.5rem, 20vw, 13.5rem);
   overflow: hidden;
-  border: 0.38rem solid #211d26;
-  border-radius: 1.65rem;
-  background: #211d26;
+  /* Shared device tokens (hero phone) so desk + hero read as one hardware */
+  padding: clamp(0.3rem, 3%, 0.4rem);
+  border-radius: calc(var(--device-rim-radius) * 0.72);
+  background: var(--device-rim-gradient);
   box-shadow:
+    inset 0 0 0 2px var(--device-chamfer-color),
     0 0 0 1px var(--elevated-hairline),
     0.65rem 0.9rem 2rem rgb(39 29 50 / 0.24);
   transform: translateY(2%);
+}
+
+.reading-desk__phone-frame .showcase-scene-image {
+  border-radius: calc(var(--device-screen-radius) * 0.72);
+  box-shadow: var(--device-screen-inset-shadow);
 }
 
 .showcase-scene-image {
@@ -419,7 +426,8 @@
 .showcase-simulator--mobile .showcase-product-stage__pan {
   width: min(100%, 24.375rem);
   margin-inline: auto;
-  border-inline: 0.35rem solid #211d26;
+  /* Same hardware chrome as the hero/desk phone */
+  border-inline: 0.35rem solid var(--device-chamfer-color);
 }
 
 .showcase-detail-hint {

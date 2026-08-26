@@ -3,38 +3,55 @@ import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
 
 const desk = getShowcaseAsset('library.ready', 'desktop')!;
 const phone = getShowcaseAsset('library.ready', 'mobile')!;
+
+/*
+ * Truthful sizes hints for the recomposed stage: the desktop frame renders
+ * at clamp(30rem, 38vw, 40rem) with a rightward grid escape at >=1280px;
+ * the phone pairs at roughly half the desktop width.
+ */
+const DESK_SIZES = '(min-width: 1280px) 38vw, (min-width: 768px) 30rem, 88vw';
+const PHONE_SIZES = '(min-width: 1280px) 19vw, (min-width: 768px) 15rem, 74vw';
 ---
 
-<div class="device-collage" aria-label="Plethora product scenes">
-  <figure class="device-frame device-desk">
-    <picture>
-      <source type="image/avif" srcset={sourceSet(desk.formats.avif)} sizes="(max-width: 767px) 0px, 448px" />
-      <source type="image/webp" srcset={sourceSet(desk.formats.webp)} sizes="(max-width: 767px) 0px, 448px" />
-      <img
-        src={desk.formats.png.at(-1)!.path}
-        alt={desk.accessibleDescription}
-        width={desk.intrinsicSize.width}
-        height={desk.intrinsicSize.height}
-        loading="eager"
-        decoding="async"
-        fetchpriority="high"
-      />
-    </picture>
-  </figure>
-  <figure class="device-frame device-phone">
-    <div class="phone-bezel">
+<div class="hero-stage">
+  <figure class="stage-desk" data-device-frame="desk">
+    <div class="desk-frame">
       <picture>
-        <source type="image/avif" srcset={sourceSet(phone.formats.avif)} sizes="176px" />
-        <source type="image/webp" srcset={sourceSet(phone.formats.webp)} sizes="176px" />
+        <source type="image/avif" srcset={sourceSet(desk.formats.avif)} sizes={DESK_SIZES} />
+        <source type="image/webp" srcset={sourceSet(desk.formats.webp)} sizes={DESK_SIZES} />
         <img
-          src={phone.formats.png.at(-1)!.path}
-          alt={phone.accessibleDescription}
-          width={phone.intrinsicSize.width}
-          height={phone.intrinsicSize.height}
+          src={desk.formats.png.at(-1)!.path}
+          alt={desk.accessibleDescription}
+          width={desk.intrinsicSize.width}
+          height={desk.intrinsicSize.height}
           loading="eager"
           decoding="async"
+          fetchpriority="high"
         />
       </picture>
+    </div>
+    <span class="desk-base" aria-hidden="true"></span>
+  </figure>
+  <figure class="stage-phone" data-device-frame="phone">
+    <div class="phone-device">
+      <span class="device-sensor" aria-hidden="true">
+        <span class="device-speaker"></span>
+        <span class="device-camera"></span>
+      </span>
+      <div class="phone-screen">
+        <picture>
+          <source type="image/avif" srcset={sourceSet(phone.formats.avif)} sizes={PHONE_SIZES} />
+          <source type="image/webp" srcset={sourceSet(phone.formats.webp)} sizes={PHONE_SIZES} />
+          <img
+            src={phone.formats.png.at(-1)!.path}
+            alt={phone.accessibleDescription}
+            width={phone.intrinsicSize.width}
+            height={phone.intrinsicSize.height}
+            loading="eager"
+            decoding="async"
+          />
+        </picture>
+      </div>
     </div>
   </figure>
 </div>
