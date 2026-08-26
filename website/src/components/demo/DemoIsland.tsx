@@ -40,37 +40,43 @@ const CHAPTERS: ReadonlyArray<{
   id: ShowcaseChapter;
   title: string;
   body: string;
+  caption: string;
 }> = [
   {
     id: 'Collect',
     title: 'Build a working library.',
-    body: 'Keep an essay beside books, audio, PDFs, and notes, with the next useful action already in view.',
+    body: 'Keep a document beside books, audio, PDFs, and notes, with the next useful action already in view.',
+    caption: 'The document arrives in the library.',
   },
   {
     id: 'Read',
     title: 'Return to the exact thought.',
-    body: 'Plethora reopens the essay where recognition starts to diverge from recall.',
+    body: 'Plethora reopens the document where recognition starts to diverge from recall.',
+    caption: 'Reopened exactly where you stopped.',
   },
   {
     id: 'Understand',
     title: 'Work with the passage.',
     body: 'Select the claim in context, then choose only the actions the real reader supports.',
+    caption: 'Select the passage; real actions appear.',
   },
   {
     id: 'Remember',
     title: 'Turn reading into retrieval.',
     body: 'Create a focused prompt, reveal the answer later, and grade what you could actually recall.',
+    caption: 'The claim becomes a review prompt.',
   },
   {
     id: 'Return',
     title: 'Let the idea come back.',
     body: 'The review is scheduled, and the remembered claim returns beside its neighboring ideas.',
+    caption: 'Scheduled, then remembered beside its neighbors.',
   },
 ];
 
 const SCENE_LABELS: Readonly<Record<string, string>> = {
   'library.ready': 'Library ready',
-  'reader.open': 'Essay open',
+  'reader.open': 'Document open',
   'reader.selected': 'Passage selected',
   'remember.preview': 'Card preview',
   'review.question': 'Review question',
@@ -462,65 +468,91 @@ export default function DemoIsland({
       data-demo-island
       onKeyDown={handleKeyDown}
     >
-      <header className="reading-desk__intro">
-        <p className="reading-desk__label">Reading Desk</p>
-        <h2 id="reading-desk-title">
-          {variant === 'page' ? 'Try the Plethora flow.' : 'From first read to useful recall.'}
-        </h2>
-        <p>
-          Follow one licensed, fictional reading through the real Plethora interface, from library to connected recall.
-        </p>
-      </header>
+      {variant === 'page' && (
+        <header className="reading-desk__intro">
+          <p className="reading-desk__label">Reading Desk</p>
+          <h2 id="reading-desk-title">Try the Plethora flow.</h2>
+          <p>
+            Follow one licensed, fictional reading through the real Plethora interface, from library to connected recall.
+          </p>
+        </header>
+      )}
 
       {variant === 'homepage' ? (
         <div className="reading-desk__narrative">
-          <ol className="reading-desk__chapters" aria-label="Reading Desk chapters">
-            {CHAPTERS.map((chapter) => {
-              const sceneId = NARRATIVE_SCENES[chapter.id];
-              const mobileAsset = getShowcaseAsset(sceneId, 'mobile')!;
-              return (
-                <li
-                  key={chapter.id}
-                  ref={(element) => {
-                    if (element) chapterRefs.current.set(chapter.id, element);
-                    else chapterRefs.current.delete(chapter.id);
-                  }}
-                  className={chapter.id === activeChapter ? 'is-active' : ''}
-                  data-chapter={chapter.id}
-                  aria-current={chapter.id === activeChapter ? 'step' : undefined}
-                >
-                  <p className="reading-desk__chapter-name">{chapter.id}</p>
-                  <h3>{chapter.title}</h3>
-                  <p>{chapter.body}</p>
-                  <div className="reading-desk__chapter-media">
-                    {hasHydrated || chapter.id === 'Collect' ? (
-                      <SceneImage
-                        asset={mobileAsset}
-                        sizes="(max-width: 767px) calc(100vw - 40px), 390px"
-                      />
+          <div className="reading-desk__rail">
+            <header className="reading-desk__intro">
+              <p className="reading-desk__label">Reading Desk</p>
+              <h2 id="reading-desk-title">
+                {variant === 'page' ? 'Try the Plethora flow.' : 'From first read to useful recall.'}
+              </h2>
+              <p>
+                Follow one licensed, fictional reading through the real Plethora interface, from
+                library to connected recall.
+              </p>
+            </header>
+            <ol className="reading-desk__chapters" aria-label="Reading Desk chapters">
+              {CHAPTERS.map((chapter, chapterIndex) => {
+                const sceneId = NARRATIVE_SCENES[chapter.id];
+                const mobileAsset = getShowcaseAsset(sceneId, 'mobile')!;
+                return (
+                  <li
+                    key={chapter.id}
+                    ref={(element) => {
+                      if (element) chapterRefs.current.set(chapter.id, element);
+                      else chapterRefs.current.delete(chapter.id);
+                    }}
+                    className={chapter.id === activeChapter ? 'is-active' : ''}
+                    data-chapter={chapter.id}
+                    aria-current={chapter.id === activeChapter ? 'step' : undefined}
+                  >
+                    <div className="reading-desk__mini-rail" aria-hidden="true">
+                      {CHAPTERS.map((entry, entryIndex) => (
+                        <span
+                          key={entry.id}
+                          className={entryIndex === chapterIndex ? 'is-active' : ''}
+                        >
+                          {String(entryIndex + 1).padStart(2, '0')}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="reading-desk__chapter-name">{chapter.id}</p>
+                    <h3>{chapter.title}</h3>
+                    <p>{chapter.body}</p>
+                    <div className="reading-desk__chapter-media">
+                      {hasHydrated || chapter.id === 'Collect' ? (
+                        <SceneImage
+                          asset={mobileAsset}
+                          sizes="(max-width: 767px) min(88vw, 26rem), min(88vw, 26rem)"
+                        />
+                      ) : null}
+                    </div>
+                    {chapter.id === 'Remember' ? (
+                      <a
+                        ref={takeoverRef}
+                        className="showcase-button showcase-button--primary reading-desk__takeover"
+                        href="/demo?scene=review.question&layout=mobile"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          dispatch({ type: 'takeover', sceneId });
+                        }}
+                      >
+                        Try the flow
+                      </a>
                     ) : null}
-                  </div>
-                  {chapter.id === 'Remember' ? (
-                    <a
-                      ref={takeoverRef}
-                      className="showcase-button showcase-button--primary reading-desk__takeover"
-                      href="/demo?scene=review.question&layout=mobile"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        dispatch({ type: 'takeover', sceneId });
-                      }}
-                    >
-                      Try the flow
-                    </a>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
 
           <div className="reading-desk__stage" aria-label={`${activeChapter} product scene`}>
             {state.mode === 'narrative' ? (
-              <div className="reading-desk__device-composition" data-chapter-stage={activeChapter}>
+              <div
+                key={activeChapter}
+                className="reading-desk__device-composition scene-fade"
+                data-chapter-stage={activeChapter}
+              >
                 <div className="reading-desk__desktop-frame">
                   <SceneImage
                     asset={desktopNarrativeAsset}
@@ -537,6 +569,9 @@ export default function DemoIsland({
                     onAssetFailure={handleAssetFailure}
                   />
                 </div>
+                <p className="reading-desk__stage-caption">
+                  {CHAPTERS.find((chapter) => chapter.id === activeChapter)?.caption}
+                </p>
               </div>
             ) : (
               <SimulatorStage

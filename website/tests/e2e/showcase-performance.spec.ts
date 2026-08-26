@@ -15,7 +15,9 @@ test('short initial viewport does not request the showcase island or later scene
     requested.filter((url) => /showcase\/v2/.test(url)).join('\n'),
   ).toBe(false);
 
-  await page.getByRole('link', { name: 'Try the interactive demo', exact: true }).first().click();
+  // Secondary hero CTA: label varies by launch flag ("Try the interactive demo"
+  // when downloads are enabled, "See what it does" otherwise) — target the hook.
+  await page.locator('a[data-cta="try-demo"]').first().click();
   await expect(page.locator('[data-demo-island]')).toBeInViewport();
   await expect.poll(() => requested.some((url) => /DemoIsland\.[^.]+\.js/.test(url))).toBe(true);
 });

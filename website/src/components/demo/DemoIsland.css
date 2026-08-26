@@ -7,7 +7,7 @@
 }
 
 .reading-desk--homepage {
-  padding-block: clamp(4.5rem, 8vw, 8rem);
+  padding-block: clamp(2.5rem, 5vw, 4.5rem);
   border-block: 1px solid var(--line);
   background:
     linear-gradient(90deg, transparent 0 18%, rgb(91 33 182 / 0.035) 18% 18.08%, transparent 18.08%),
@@ -30,6 +30,22 @@
   width: auto;
   margin-inline: 0;
   margin-bottom: var(--space-7);
+}
+
+/* Homepage rail: the intro lives inside the narrative grid so the heading
+   and the sticky product stage are visible together on entry (D8.1) */
+.reading-desk__rail {
+  position: relative;
+}
+
+.reading-desk__rail .reading-desk__intro {
+  width: auto;
+  margin: 0 0 var(--space-5);
+}
+
+.reading-desk__rail .reading-desk__intro h2 {
+  max-width: 12ch;
+  font-size: clamp(2.2rem, 3.4vw, 3.3rem);
 }
 
 .reading-desk__label {
@@ -66,14 +82,27 @@
 }
 
 .reading-desk__chapters {
+  position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* Persistent progress track on the rail's left edge */
+.reading-desk__chapters::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 1.25rem;
+  bottom: 2rem;
+  width: 1px;
+  background: var(--line);
+}
+
 .reading-desk__chapters > li {
-  min-height: 72vh;
-  padding: clamp(3rem, 14vh, 8rem) 0;
+  position: relative;
+  min-height: clamp(24rem, 52vh, 42rem);
+  padding: clamp(2rem, 9vh, 4.5rem) 0 clamp(2rem, 9vh, 4.5rem) 2.6rem;
   opacity: 0.48;
   transition: opacity 240ms ease;
 }
@@ -83,11 +112,80 @@
 }
 
 .reading-desk__chapters > li:last-child {
-  min-height: 44vh;
+  min-height: 40vh;
 }
 
 .reading-desk__chapters > li.is-active {
   opacity: 1;
+}
+
+/* Numbered chapter markers on the track */
+.reading-desk__chapters > li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: calc(clamp(2rem, 9vh, 4.5rem) + 0.35rem);
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  min-width: 1.7rem;
+  height: 1.7rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background-color 240ms ease, border-color 240ms ease, color 240ms ease;
+}
+
+.reading-desk__chapters > li:first-child::before {
+  top: calc(1rem + 0.35rem);
+}
+
+.reading-desk__chapters > li:nth-child(1)::before { content: '01'; }
+.reading-desk__chapters > li:nth-child(2)::before { content: '02'; }
+.reading-desk__chapters > li:nth-child(3)::before { content: '03'; }
+.reading-desk__chapters > li:nth-child(4)::before { content: '04'; }
+.reading-desk__chapters > li:nth-child(5)::before { content: '05'; }
+
+.reading-desk__chapters > li.is-active::before {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+/* Progress fill: segment under each visited chapter turns violet */
+.reading-desk__chapters > li::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2.6rem;
+  bottom: -1rem;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background-color 240ms ease;
+}
+
+.reading-desk__rail:has(.reading-desk__chapters > li:nth-child(1).is-active)
+  .reading-desk__chapters
+  > li:nth-child(-n + 1)::after,
+.reading-desk__rail:has(.reading-desk__chapters > li:nth-child(2).is-active)
+  .reading-desk__chapters
+  > li:nth-child(-n + 2)::after,
+.reading-desk__rail:has(.reading-desk__chapters > li:nth-child(3).is-active)
+  .reading-desk__chapters
+  > li:nth-child(-n + 3)::after,
+.reading-desk__rail:has(.reading-desk__chapters > li:nth-child(4).is-active)
+  .reading-desk__chapters
+  > li:nth-child(-n + 4)::after,
+.reading-desk__rail:has(.reading-desk__chapters > li:nth-child(5).is-active)
+  .reading-desk__chapters
+  > li:nth-child(-n + 5)::after {
+  background: var(--accent);
 }
 
 .reading-desk__chapter-name {
@@ -123,9 +221,45 @@
   position: sticky;
   top: 5.5rem;
   min-width: 0;
-  min-height: min(75vh, 47rem);
+  min-height: min(72vh, 42rem);
   display: grid;
   align-items: center;
+}
+
+.reading-desk__stage-caption {
+  margin: var(--space-4) 0 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+}
+
+/* Chapter-change continuity: the frames persist; the scene fades/drifts in.
+   Keyed off the existing active-chapter state (no new JS state machine). */
+@media (prefers-reduced-motion: no-preference) {
+  .reading-desk .scene-fade {
+    animation: scene-arrive 300ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+  }
+}
+
+@keyframes scene-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reading-desk.is-offscreen .scene-fade {
+  animation: none;
+}
+
+/* Per-chapter numbered mini-progress strip (compact presentation) */
+.reading-desk__mini-rail {
+  display: none;
 }
 
 .reading-desk__device-composition {
@@ -483,9 +617,20 @@
     display: block;
   }
 
+  .reading-desk__rail .reading-desk__intro {
+    margin-bottom: 0;
+  }
+
+  .reading-desk__chapters::before,
+  .reading-desk__chapters > li::before,
+  .reading-desk__chapters > li::after {
+    display: none;
+  }
+
   .reading-desk__chapters > li {
     min-height: 0;
     padding: var(--space-7) 0;
+    padding-left: 0;
     opacity: 1;
   }
 
@@ -493,14 +638,41 @@
     padding-top: 0;
   }
 
+  .reading-desk__mini-rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0 0 var(--space-3);
+  }
+
+  .reading-desk__mini-rail span {
+    padding: 0.14rem 0.42rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .reading-desk__mini-rail span.is-active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--paper);
+  }
+
   .reading-desk__chapter-media {
     display: block;
-    width: min(100%, 24.375rem);
+    width: min(88vw, 26rem);
     margin-top: var(--space-5);
     overflow: hidden;
-    border: 0.35rem solid #211d26;
-    border-radius: 1.65rem;
-    box-shadow: var(--shadow-frame);
+    border: 0.35rem solid var(--device-chamfer-color);
+    border-radius: calc(var(--device-rim-radius) * 0.72);
+    background: var(--device-rim-gradient);
+    padding: clamp(0.3rem, 3%, 0.4rem);
+    box-shadow:
+      inset 0 0 0 2px var(--device-chamfer-color),
+      var(--shadow-frame);
   }
 
   .reading-desk__stage {

@@ -37,12 +37,12 @@
 
 ## 5. Reading Desk recomposition (P1)
 
-- [ ] 5.1 Merge intro into narrative grid: left rail column (kicker/H2/lede/chapters) with sticky stage right; heading+stage simultaneity at ≥1024px×≥700px verified.
-- [ ] 5.2 Reduce section padding/intro margins and chapter min-heights per D8 numbers; preserve total scroll length for observer thresholds.
-- [ ] 5.3 Build numbered chapter rail with violet active indicator + progress track movement (CSS-only keyed off existing active-chapter class/state).
-- [ ] 5.4 Add persistent-frame scene continuity: crossfade/drift scene images and captions on chapter change using existing observer output; write document-based caption copy per D10 table.
-- [ ] 5.5 Improve ≤64rem presentation: horizontal numbered mini-progress strip, larger inline chapter screenshots `min(88vw, 26rem)`; keep interactive takeover behaviors intact.
-- [ ] 5.6 Re-run showcase Playwright suites (keyboard hotspots, responsive snapshots, reduced motion, performance spec); update snapshots intentionally and record before/after chapter-activation parity in an automated scroll test.
+- [x] 5.1 Merge intro into narrative grid: left rail column (kicker/H2/lede/chapters) with sticky stage right; heading+stage simultaneity at ≥1024px×≥700px verified.
+- [x] 5.2 Reduce section padding/intro margins and chapter min-heights per D8 numbers; preserve total scroll length for observer thresholds.
+- [x] 5.3 Build numbered chapter rail with violet active indicator + progress track movement (CSS-only keyed off existing active-chapter class/state).
+- [x] 5.4 Add persistent-frame scene continuity: crossfade/drift scene images and captions on chapter change using existing observer output; write document-based caption copy per D10 table.
+- [x] 5.5 Improve ≤64rem presentation: horizontal numbered mini-progress strip, larger inline chapter screenshots `min(88vw, 26rem)`; keep interactive takeover behaviors intact.
+- [x] 5.6 Re-run showcase Playwright suites (keyboard hotspots, responsive snapshots, reduced motion, performance spec); update snapshots intentionally and record before/after chapter-activation parity in an automated scroll test.
 
 ## 6. Section storytelling (P1)
 
