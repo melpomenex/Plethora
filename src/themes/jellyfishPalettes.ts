@@ -103,6 +103,12 @@ export function createJellyfishScenicCSS(
 ): string {
   const accentSoft = accentRgb;
   return `
+    :root[data-theme-id="${themeId}"] body,
+    :root[data-theme-id="${themeId}"] #root,
+    :root[data-theme-id="${themeId}"] .adaptive-shell-root {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     :root[data-theme-id="${themeId}"] .app-shell {
       background: ${shellTint} !important;
       background-color: ${shellTint} !important;
@@ -122,6 +128,14 @@ export function createJellyfishScenicCSS(
     :root[data-theme-id="${themeId}"] .sidebar-item-active {
       background: rgba(${accentSoft}, 0.14) !important;
       border-left: 3px solid ${accent} !important;
+    }
+    :root[data-theme-id="${themeId}"] .bg-card,
+    :root[data-theme-id="${themeId}"] .card,
+    :root[data-theme-id="${themeId}"] [data-card="true"] {
+      background: ${glassPanel} !important;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(${accentSoft}, 0.18) !important;
     }
     :root[data-theme-id="${themeId}"] .glass-panel,
     :root[data-theme-id="${themeId}"] .glass-panel-light,

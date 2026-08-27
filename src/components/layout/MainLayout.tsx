@@ -18,7 +18,6 @@ import { ToastType, useToast } from "../common/Toast";
 import { MobileLayoutWrapper } from "../mobile/MobileLayoutWrapper";
 import { MarketingCaptureHost } from "../dev/MarketingCaptureHost";
 import { useMobileShell } from "../../hooks/useMobileShell";
-const ThemeBackdrop = lazy(() => import("../common/ThemeBackdrop").then(({ ThemeBackdrop: backdrop }) => ({ default: backdrop })));
 const KeyboardShortcutsHelp = lazy(() => import("../common/KeyboardShortcutsHelp").then(({ KeyboardShortcutsHelp: help }) => ({ default: help })));
 const ImageSaveOverlay = lazy(() => import("../viewer/ImageSaveOverlay").then(({ ImageSaveOverlay: overlay }) => ({ default: overlay })));
 const OcclusionComposerHost = lazy(() => import("../occlusion/OcclusionComposerHost").then(({ OcclusionComposerHost: host }) => ({ default: host })));
@@ -42,6 +41,7 @@ import { useShareTarget } from "../../hooks/useShareTarget";
 import { useExternalOpen } from "../../hooks/useExternalOpen";
 import { useWebviewRecovery } from "../../lib/webviewRecovery";
 import { useLifecycleCheckpoint } from "../../lib/lifecycleCheckpoint";
+import { cn } from "../../utils";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
@@ -75,6 +75,27 @@ function getActiveTabPane() {
   const pane = useTabsStore.getState().findPaneById(paneIds[0]);
   if (!pane || pane.type !== "tabs") return null;
   return pane;
+}
+
+/** Tabbed shell root — scenic backdrop is mounted in AdaptiveAppScaffold. */
+function AppShellRoot({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      {...tourAnchor("shellRoot")}
+      className={cn(
+        "app-shell relative flex min-h-0 w-full h-full overflow-hidden bg-background",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function MainLayout() {
@@ -1340,12 +1361,8 @@ export function MainLayout() {
     // Toolbar on the left
     if (toolbarPosition === "left") {
       return (
-        <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
-          <Suspense fallback={null}>
-            <ThemeBackdrop />
-          </Suspense>
-
-          <div className="relative z-10 flex w-full overflow-hidden">
+        <AppShellRoot className="w-full">
+          <div className="flex w-full h-full min-h-0 overflow-hidden">
             {/* Toolbar - Left side - Hidden on mobile */}
             {!isMobile && (
               <div className="flex-shrink-0 hidden md:block h-full">
@@ -1365,19 +1382,15 @@ export function MainLayout() {
               <CommandCenter />
             </Suspense>
           </div>
-        </div>
+        </AppShellRoot>
       );
     }
 
     // Toolbar on the right
     if (toolbarPosition === "right") {
       return (
-        <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
-          <Suspense fallback={null}>
-            <ThemeBackdrop />
-          </Suspense>
-
-          <div className="relative z-10 flex w-full overflow-hidden">
+        <AppShellRoot className="w-full">
+          <div className="flex w-full h-full min-h-0 overflow-hidden">
             {/* Tabbed Interface - takes remaining space */}
             <div className="flex-1 min-w-0 h-full" data-vimium-scroll>
               <Tabs />
@@ -1397,18 +1410,14 @@ export function MainLayout() {
               <CommandCenter />
             </Suspense>
           </div>
-        </div>
+        </AppShellRoot>
       );
     }
 
     // Default: Toolbar on top
     return (
-      <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex flex-col w-full overflow-hidden bg-background">
-        <Suspense fallback={null}>
-          <ThemeBackdrop />
-        </Suspense>
-
-        <div className="relative z-10 flex flex-1 min-h-0 flex-col">
+      <AppShellRoot className="flex-col flex-1">
+        <div className="flex flex-1 min-h-0 flex-col">
           {/* Toolbar - Fixed at top - Hidden on mobile */}
           {!isMobile && (
             <div className="flex-shrink-0 hidden md:block">
@@ -1428,7 +1437,7 @@ export function MainLayout() {
             <CommandCenter />
           </Suspense>
         </div>
-      </div>
+      </AppShellRoot>
     );
   };
 

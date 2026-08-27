@@ -711,11 +711,19 @@
   }
 
   .theme-backdrop {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: 0;
     overflow: hidden;
     pointer-events: none;
+  }
+
+  /* Scenic animated themes paint on a fixed canvas behind the shell. */
+  :root[data-theme-animation] body,
+  :root[data-theme-animation] #root,
+  :root[data-theme-animation] .adaptive-shell-root {
+    background: transparent !important;
+    background-color: transparent !important;
   }
 
   .theme-backdrop-canvas {
