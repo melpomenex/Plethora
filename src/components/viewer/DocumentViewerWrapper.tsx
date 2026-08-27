@@ -200,6 +200,10 @@ export function DocumentViewer({
     }
   }, [documentId, languageModeEnabled]);
 
+  const languageContentFingerprint = useMemo(
+    () => currentDoc?.dateModified ?? currentDoc?.id ?? documentId,
+    [currentDoc?.dateModified, currentDoc?.id, documentId],
+  );
   const languageSource = useMemo(() => {
     const type = currentDoc?.fileType || "text";
     const isMedia = type === "youtube" || type === "video" || type === "audio";
@@ -217,16 +221,16 @@ export function DocumentViewer({
     return {
       contentType: isMedia ? "media" as const : "document" as const,
       contentId: documentId,
-      contentFingerprint: `${documentId}:${currentDoc?.content?.length ?? 0}`,
+      contentFingerprint: `${documentId}:${languageContentFingerprint}`,
       text: currentDoc?.content,
       source: {
         sourceType,
         documentId: isMedia ? undefined : documentId,
         mediaId: isMedia ? documentId : undefined,
-        contentFingerprint: `${documentId}:${currentDoc?.content?.length ?? 0}`,
+        contentFingerprint: `${documentId}:${languageContentFingerprint}`,
       },
     };
-  }, [currentDoc?.content, currentDoc?.fileType, documentId]);
+  }, [currentDoc?.content, currentDoc?.fileType, documentId, languageContentFingerprint]);
 
   const languageSourceAnchor = languageSource.source;
   const languageSurface = languageSource.contentType === "media" ? "video" as const : openedFrom === "queue" ? "queue" as const : "reader" as const;
@@ -234,14 +238,22 @@ export function DocumentViewer({
   const activeProfile = useLanguageProfileStore((state) => state.activeProfile);
   const projectionEpoch = useLanguageProfileStore((state) => state.projectionEpoch);
   const [hostRefreshToken, setHostRefreshToken] = useState(0);
+  const documentLanguage = useMemo(() => {
+    const metadata = currentDoc?.metadata;
+    if (!metadata || typeof metadata !== "object") return "";
+    const language = (metadata as { language?: string }).language;
+    return typeof language === "string" ? language : "";
+  }, [currentDoc?.metadata]);
   const detectionEvidence = useMemo<DetectionEvidence | null>(() => {
-    const metadata = currentDoc?.metadata as { language?: string } | undefined;
-    const language = metadata?.language || activeProfile?.targetLanguage;
+    const language = documentLanguage || activeProfile?.targetLanguage;
     if (!language) return null;
-    return { language, detector: metadata?.language ? "document-metadata" : "active-profile", source: "reader" };
-  }, [activeProfile?.targetLanguage, currentDoc?.metadata]);
+    return { language, detector: documentLanguage ? "document-metadata" : "active-profile", source: "reader" };
+  }, [activeProfile?.targetLanguage, documentLanguage]);
 
+  const projectionEpochRef = useRef(projectionEpoch);
   useEffect(() => {
+    if (projectionEpochRef.current === projectionEpoch) return;
+    projectionEpochRef.current = projectionEpoch;
     setHostRefreshToken((value) => value + 1);
   }, [projectionEpoch]);
 

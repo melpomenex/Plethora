@@ -22,6 +22,8 @@ function audioRangeFromAnchor(anchor: LanguageHostActionDetail["sourceAnchor"]):
 export function LanguageReaderActionOverlay() {
   const { snapshot } = useLanguageLearningHost();
   const tts = useTTS({ lang: snapshot.profile?.targetLanguage ?? "en-US" });
+  const speakRef = useRef(tts.speak);
+  speakRef.current = tts.speak;
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [session, setSession] = useState<SentenceModeSession | null>(null);
   const [segments, setSegments] = useState<readonly SentenceSegment[]>([]);
@@ -55,7 +57,7 @@ export function LanguageReaderActionOverlay() {
           text,
           resolution: alignment ? { kind: "original", tier: "exact", alignment } : { kind: "fallback", reason: "missing" },
           playOriginal: (resolved) => { window.dispatchEvent(new CustomEvent("plethora-language-original-audio-range", { detail: { documentId: detail.source.contentId, ...resolved.range } })); },
-          speakTts: (value) => tts.speak(value),
+          speakTts: (value) => speakRef.current(value),
         }).catch(() => undefined);
         return;
       }
@@ -63,7 +65,7 @@ export function LanguageReaderActionOverlay() {
     };
     window.addEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
     return () => window.removeEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
-  }, [snapshot.hostId, tts]);
+  }, [snapshot.hostId]);
 
   const adapter = useMemo(() => {
     if (!request) return null;

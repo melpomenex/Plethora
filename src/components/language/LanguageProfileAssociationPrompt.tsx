@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useLanguageProfileStore } from "../../stores/languageProfileStore";
 import type { ContentType } from "../../types/languageProfile";
 
@@ -13,7 +14,11 @@ export function LanguageProfileAssociationPrompt({
   contentId,
   onAssociated,
 }: LanguageProfileAssociationPromptProps) {
-  const profiles = useLanguageProfileStore((state) => state.profiles.filter((profile) => profile.lifecycle === "active"));
+  const allProfiles = useLanguageProfileStore((state) => state.profiles);
+  const profiles = useMemo(
+    () => allProfiles.filter((profile) => profile.lifecycle === "active"),
+    [allProfiles],
+  );
   const activeProfileId = useLanguageProfileStore((state) => state.activeProfileId);
   const associateContent = useLanguageProfileStore((state) => state.associateContent);
 
