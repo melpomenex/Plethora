@@ -11,6 +11,10 @@ case "$cmd" in
     ;;
 esac
 
+# Deep ACL expansion during Tauri context creation needs a large compiler/runtime
+# stack (see vendor/tauri-codegen-2.6.3 and tauri-apps/tauri#9882).
+export RUST_MIN_STACK="${RUST_MIN_STACK:-33554432}"
+
 if [[ "$cmd" == "build" ]]; then
   # On Arch Linux and other modern distros, linuxdeploy's bundled strip binary
   # doesn't support the .relr.dyn section (type 0x13) in newer ELF binaries.

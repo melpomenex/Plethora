@@ -19,7 +19,7 @@
     "screenshot-overlay"
   ],
   "permissions": [
-    "default",
+    "app-command-acl",
     "core:default",
     "core:window:default",
     "core:window:allow-show",

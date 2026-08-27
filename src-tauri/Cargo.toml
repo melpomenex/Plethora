@@ -285,6 +285,9 @@ opt-level = 3
 [profile.dev]
 debug = 0
 incremental = false
+# Tauri embeds the full ACL manifest in debug_assertions builds; with 700+ app
+# commands that blows the 8MiB context-creation stack (tauri-apps/tauri#9882).
+debug-assertions = false
 
 [dev-dependencies]
 filetime = "0.2"
@@ -301,3 +304,6 @@ systemstat = { git = "https://github.com/melpomenex/systemstat", branch = "fix-a
 # freezes iOS simulator boots mid-module-waterfall. The patch dispatches the
 # did* sequence onto the GCD main queue asynchronously instead.
 wry = { path = "../vendor/wry-0.55.1" }
+# Plethora has 700+ app command ACL entries; Tauri's default 8MiB context thread
+# overflows during permission expansion (tauri-apps/tauri#9882).
+tauri-codegen = { path = "../vendor/tauri-codegen-2.6.3" }
