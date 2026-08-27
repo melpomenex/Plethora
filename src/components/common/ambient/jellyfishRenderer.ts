@@ -6,7 +6,7 @@
  * animations are disabled. Deterministic tests: `window.__plethoraJellyfishFreeze`.
  */
 
-import type { JellyfishPalette } from '../../themes/jellyfishPalettes';
+import type { JellyfishPalette } from '../../../themes/jellyfishPalettes';
 
 /** Deterministic PRNG for particle layout (mulberry32). */
 function seededRandom(seed: number): () => number {
@@ -42,7 +42,7 @@ export interface JellyfishAnimOptions {
   onResize: (fn: () => void) => void;
 }
 
-interface Particle {
+export interface JellyfishParticle {
   nx: number;
   ny: number;
   z: number;
@@ -51,7 +51,7 @@ interface Particle {
   phase: number;
 }
 
-interface JellyfishState {
+export interface JellyfishState {
   nx: number;
   ny: number;
   driftPhase: number;
@@ -75,28 +75,26 @@ function rgba(hex: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-function layoutJellyfish(cv: HTMLCanvasElement): JellyfishState {
+export function layoutJellyfish(cv: HTMLCanvasElement): JellyfishState {
   const isPhone = cv.width < 600;
-  const isLandscape = cv.width > cv.height;
   const unit = Math.min(cv.width, cv.height);
-  const scale = unit * (isPhone ? 0.055 : 0.075);
-  let nx = isPhone ? 0.68 : 0.74;
-  let ny = isPhone ? 0.22 : 0.28;
-  if (isLandscape && cv.width < 900) {
-    nx = 0.78;
-    ny = 0.35;
-  }
+  // The original 5.5–7.5% scale produced a small glowing dot. The visual
+  // direction calls for one unmistakable scenic subject, so the bell now
+  // spans roughly a quarter of the short viewport edge.
+  const scale = Math.max(44, Math.min(260, unit * (isPhone ? 0.13 : 0.165)));
   return {
-    nx,
-    ny,
+    // Keep the hero centered horizontally. `ny` anchors the bell above the
+    // midpoint so the long oral arms center the complete silhouette.
+    nx: 0.5,
+    ny: isPhone ? 0.24 : 0.28,
     driftPhase: 0.4,
     pulsePhase: 0,
     scale,
   };
 }
 
-function initParticles(count: number, rand: () => number): Particle[] {
-  const particles: Particle[] = [];
+function initParticles(count: number, rand: () => number): JellyfishParticle[] {
+  const particles: JellyfishParticle[] = [];
   for (let i = 0; i < count; i++) {
     particles.push({
       nx: rand(),
@@ -159,7 +157,7 @@ function drawCaustics(
 function drawParticles(
   ctx: CanvasRenderingContext2D,
   cv: HTMLCanvasElement,
-  particles: Particle[],
+  particles: JellyfishParticle[],
   palette: JellyfishPalette,
   time: number,
   animate: boolean,
@@ -191,27 +189,186 @@ function drawTentacles(
   time: number,
   animate: boolean,
 ): void {
-  const count = 7;
-  const tentacleLen = scale * 1.8;
+  const count = 12;
   for (let i = 0; i < count; i++) {
-    const spread = (i / (count - 1) - 0.5) * bellRx * 1.4;
+    const spread = (i / (count - 1) - 0.5) * bellRx * 1.55;
     const startX = x + spread;
-    const startY = y + bellRy * 0.55;
-    const phase = time * 0.001 + i * 0.7;
-    const sway = animate ? Math.sin(phase) * scale * 0.15 : Math.sin(i) * scale * 0.05;
-    const midX = startX + sway;
-    const midY = startY + tentacleLen * 0.45;
-    const endX = startX + sway * 1.4 + Math.sin(phase * 0.8) * scale * 0.08;
+    const startY = y + bellRy * 0.32;
+    const phase = (animate ? time * 0.00105 : 0.65) + i * 0.62;
+    const tentacleLen = scale * (2.35 + (i % 4) * 0.2);
+    const sway = Math.sin(phase) * scale * 0.2;
+    const counterSway = Math.sin(phase * 0.72 + 1.4) * scale * 0.24;
     const endY = startY + tentacleLen;
 
     ctx.beginPath();
     ctx.moveTo(startX, startY);
-    ctx.quadraticCurveTo(midX, midY, endX, endY);
-    ctx.strokeStyle = rgba(palette.tentacle, 0.22 + (i % 3) * 0.04);
-    ctx.lineWidth = Math.max(0.6, scale * 0.018);
+    ctx.bezierCurveTo(
+      startX + sway,
+      startY + tentacleLen * 0.28,
+      startX + counterSway,
+      startY + tentacleLen * 0.68,
+      startX + sway * 0.5 + counterSway * 0.65,
+      endY,
+    );
+    ctx.strokeStyle = rgba(palette.tentacle, 0.42 + (i % 3) * 0.05);
+    ctx.lineWidth = Math.max(0.9, scale * 0.015);
     ctx.lineCap = 'round';
     ctx.stroke();
   }
+}
+
+function drawOralArms(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  bellRx: number,
+  bellRy: number,
+  scale: number,
+  palette: JellyfishPalette,
+  time: number,
+  animate: boolean,
+): void {
+  const count = 5;
+  for (let i = 0; i < count; i++) {
+    const offset = (i / (count - 1) - 0.5) * bellRx * 0.88;
+    const startX = x + offset;
+    const startY = y + bellRy * 0.26;
+    const phase = (animate ? time * 0.00082 : 0.9) + i * 0.92;
+    const armLen = scale * (2.05 + (i % 3) * 0.22);
+    const firstSway = Math.sin(phase) * scale * 0.34;
+    const secondSway = -Math.sin(phase * 1.18 + 0.65) * scale * 0.45;
+    const endX = startX + firstSway * 0.35 + secondSway * 0.72;
+    const endY = startY + armLen;
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.bezierCurveTo(
+      startX + firstSway,
+      startY + armLen * 0.28,
+      startX + secondSway,
+      startY + armLen * 0.7,
+      endX,
+      endY,
+    );
+    ctx.strokeStyle = rgba(i % 2 === 0 ? palette.jellySecondary : palette.jellyPrimary, 0.34);
+    ctx.lineWidth = Math.max(4, scale * (0.085 + (i % 2) * 0.02));
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.bezierCurveTo(
+      startX + firstSway,
+      startY + armLen * 0.28,
+      startX + secondSway,
+      startY + armLen * 0.7,
+      endX,
+      endY,
+    );
+    ctx.strokeStyle = rgba(palette.jellyCore, 0.58);
+    ctx.lineWidth = Math.max(1.2, scale * 0.018);
+    ctx.stroke();
+  }
+}
+
+function traceBellPath(
+  ctx: CanvasRenderingContext2D,
+  bellRx: number,
+  bellRy: number,
+): void {
+  const rimY = bellRy * 0.34;
+  ctx.beginPath();
+  ctx.moveTo(-bellRx, rimY);
+  ctx.bezierCurveTo(
+    -bellRx * 0.98,
+    -bellRy * 0.42,
+    -bellRx * 0.58,
+    -bellRy * 0.92,
+    0,
+    -bellRy,
+  );
+  ctx.bezierCurveTo(
+    bellRx * 0.58,
+    -bellRy * 0.92,
+    bellRx * 0.98,
+    -bellRy * 0.42,
+    bellRx,
+    rimY,
+  );
+
+  const scallops = 6;
+  for (let i = 0; i < scallops; i++) {
+    const segment = (bellRx * 2) / scallops;
+    const endX = bellRx - segment * (i + 1);
+    const controlX = bellRx - segment * (i + 0.5);
+    const controlY = rimY + bellRy * (i % 2 === 0 ? 0.18 : 0.08);
+    ctx.quadraticCurveTo(controlX, controlY, endX, rimY);
+  }
+  ctx.closePath();
+}
+
+function drawBell(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  bellRx: number,
+  bellRy: number,
+  scale: number,
+  palette: JellyfishPalette,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const bodyGrad = ctx.createRadialGradient(
+    -bellRx * 0.2,
+    -bellRy * 0.48,
+    bellRx * 0.04,
+    0,
+    -bellRy * 0.08,
+    bellRx * 1.08,
+  );
+  bodyGrad.addColorStop(0, rgba(palette.jellyCore, 0.9));
+  bodyGrad.addColorStop(0.42, rgba(palette.jellyPrimary, 0.68));
+  bodyGrad.addColorStop(0.78, rgba(palette.jellySecondary, 0.4));
+  bodyGrad.addColorStop(1, rgba(palette.jellySecondary, 0.12));
+  traceBellPath(ctx, bellRx, bellRy);
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+  ctx.strokeStyle = rgba(palette.jellyCore, 0.82);
+  ctx.lineWidth = Math.max(1.2, scale * 0.018);
+  ctx.stroke();
+
+  // Radial bell ribs give the hero the luminous anatomical structure visible
+  // in the concept instead of reading as an undifferentiated oval.
+  for (let i = -3; i <= 3; i++) {
+    const endX = (i / 3) * bellRx * 0.78;
+    ctx.beginPath();
+    ctx.moveTo(i * bellRx * 0.035, -bellRy * 0.88);
+    ctx.quadraticCurveTo(endX * 0.72, -bellRy * 0.2, endX, bellRy * 0.32);
+    ctx.strokeStyle = rgba(palette.jellyCore, i === 0 ? 0.58 : 0.34);
+    ctx.lineWidth = Math.max(0.75, scale * 0.009);
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(-bellRx * 0.88, bellRy * 0.28);
+  ctx.bezierCurveTo(
+    -bellRx * 0.45,
+    bellRy * 0.5,
+    bellRx * 0.45,
+    bellRy * 0.5,
+    bellRx * 0.88,
+    bellRy * 0.28,
+  );
+  ctx.strokeStyle = rgba(palette.jellyCore, 0.72);
+  ctx.lineWidth = Math.max(1.2, scale * 0.017);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.ellipse(0, -bellRy * 0.28, bellRx * 0.3, bellRy * 0.28, 0, 0, Math.PI * 2);
+  ctx.fillStyle = rgba(palette.jellyCore, 0.32);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawJellyfish(
@@ -222,31 +379,26 @@ function drawJellyfish(
   time: number,
   animate: boolean,
 ): void {
-  const driftT = animate ? time * 0.00008 : 0;
-  const pulseT = animate ? time * 0.001 : 0.5;
-  const nx =
-    jelly.nx +
-    Math.sin(driftT + jelly.driftPhase) * 0.04 +
-    Math.sin(driftT * 0.6 + 1.2) * 0.02;
-  const ny =
-    jelly.ny +
-    Math.cos(driftT * 0.7 + jelly.driftPhase) * 0.025 +
-    Math.sin(driftT * 0.4) * 0.015;
+  const driftT = (time / 24000) * Math.PI * 2;
+  const pulseT = (time / 5800) * Math.PI * 2 + jelly.pulsePhase;
+  const nx = jelly.nx + (animate
+    ? Math.sin(driftT + jelly.driftPhase) * 0.025 + Math.sin(driftT * 1.8) * 0.005
+    : 0);
+  const ny = jelly.ny + (animate
+    ? Math.cos(driftT * 0.82 + jelly.driftPhase) * 0.024 + Math.sin(pulseT) * 0.008
+    : 0);
   const x = nx * cv.width;
-  const y = ny * cv.height;
+  const y = ny * cv.height - (animate ? Math.sin(pulseT) * jelly.scale * 0.045 : 0);
   const scale = jelly.scale;
 
-  const pulse =
-    1 +
-    Math.sin(pulseT * 0.9) * 0.1 +
-    Math.sin(pulseT * 1.7 + 0.5) * 0.04;
-  const bellRy = scale * 0.9 * pulse;
-  const bellRx = scale * (1.02 + Math.sin(pulseT * 0.7) * 0.04);
+  const contraction = Math.sin(pulseT);
+  const bellRy = scale * (0.82 + contraction * 0.1);
+  const bellRx = scale * (1.04 - contraction * 0.045);
 
-  const glowR = scale * 2.8;
+  const glowR = scale * 3.25;
   const glow = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-  glow.addColorStop(0, rgba(palette.glowPrimary, 0.14));
-  glow.addColorStop(0.45, rgba(palette.glowSecondary, 0.06));
+  glow.addColorStop(0, rgba(palette.glowPrimary, 0.34));
+  glow.addColorStop(0.42, rgba(palette.glowSecondary, 0.14));
   glow.addColorStop(1, rgba(palette.glowSecondary, 0));
   ctx.beginPath();
   ctx.arc(x, y, glowR, 0, Math.PI * 2);
@@ -254,28 +406,8 @@ function drawJellyfish(
   ctx.fill();
 
   drawTentacles(ctx, x, y, bellRx, bellRy, scale, palette, time, animate);
-
-  ctx.save();
-  ctx.translate(x, y);
-  const bodyGrad = ctx.createRadialGradient(0, -bellRy * 0.2, 0, 0, 0, bellRx);
-  bodyGrad.addColorStop(0, rgba(palette.jellyCore, 0.55));
-  bodyGrad.addColorStop(0.5, rgba(palette.jellyPrimary, 0.35));
-  bodyGrad.addColorStop(1, rgba(palette.jellySecondary, 0.12));
-  ctx.beginPath();
-  ctx.ellipse(0, 0, bellRx, bellRy, 0, 0, Math.PI * 2);
-  ctx.fillStyle = bodyGrad;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.ellipse(0, bellRy * 0.15, bellRx * 0.55, bellRy * 0.35, 0, 0, Math.PI);
-  ctx.fillStyle = rgba(palette.jellySecondary, 0.25);
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.ellipse(0, -bellRy * 0.25, bellRx * 0.35, bellRy * 0.25, 0, 0, Math.PI * 2);
-  ctx.fillStyle = rgba(palette.jellyCore, 0.35);
-  ctx.fill();
-  ctx.restore();
+  drawOralArms(ctx, x, y, bellRx, bellRy, scale, palette, time, animate);
+  drawBell(ctx, x, y, bellRx, bellRy, scale, palette);
 }
 
 export function drawJellyfishFrame(
@@ -283,7 +415,7 @@ export function drawJellyfishFrame(
   cv: HTMLCanvasElement,
   palette: JellyfishPalette,
   jelly: JellyfishState,
-  particles: Particle[],
+  particles: JellyfishParticle[],
   time: number,
   animate: boolean,
 ): void {

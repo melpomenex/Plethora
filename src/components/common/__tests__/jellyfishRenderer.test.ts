@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveJellyfishPalette } from '../../../themes/jellyfishPalettes';
-import { drawJellyfishFrame, runJellyfishAnimation } from '../ambient/jellyfishRenderer';
+import {
+  drawJellyfishFrame,
+  layoutJellyfish,
+  runJellyfishAnimation,
+} from '../ambient/jellyfishRenderer';
 
 function createMockContext(): CanvasRenderingContext2D {
   const gradient = { addColorStop: vi.fn() };
@@ -17,6 +21,7 @@ function createMockContext(): CanvasRenderingContext2D {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     quadraticCurveTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
     closePath: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
@@ -29,6 +34,18 @@ function createMockContext(): CanvasRenderingContext2D {
 }
 
 describe('jellyfishRenderer', () => {
+  it('lays out a large hero jellyfish on the horizontal centerline', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 800;
+
+    const jelly = layoutJellyfish(canvas);
+
+    expect(jelly.nx).toBe(0.5);
+    expect(jelly.scale).toBeGreaterThanOrEqual(100);
+    expect(jelly.scale * 2).toBeGreaterThanOrEqual(canvas.height * 0.25);
+  });
+
   it('drawJellyfishFrame invokes canvas draw calls', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 800;
@@ -48,6 +65,31 @@ describe('jellyfishRenderer', () => {
     drawJellyfishFrame(ctx, canvas, palette, jelly, particles, 1500, false);
     expect(ctx.clearRect).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalled();
+    expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(25);
+  });
+
+  it('keeps the static hero centered and makes animated swimming perceptible', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 800;
+    const palette = resolveJellyfishPalette('deep-ocean-glow');
+    const jelly = layoutJellyfish(canvas);
+
+    const staticCtx = createMockContext();
+    drawJellyfishFrame(staticCtx, canvas, palette, jelly, [], 0, false);
+    const staticX = vi.mocked(staticCtx.translate).mock.calls[0][0];
+    expect(staticX).toBe(canvas.width / 2);
+
+    const firstCtx = createMockContext();
+    const laterCtx = createMockContext();
+    drawJellyfishFrame(firstCtx, canvas, palette, jelly, [], 0, true);
+    drawJellyfishFrame(laterCtx, canvas, palette, jelly, [], 6000, true);
+    const firstX = vi.mocked(firstCtx.translate).mock.calls[0][0];
+    const laterX = vi.mocked(laterCtx.translate).mock.calls[0][0];
+
+    expect(Math.abs(firstX - canvas.width / 2)).toBeLessThan(canvas.width * 0.06);
+    expect(Math.abs(laterX - canvas.width / 2)).toBeLessThan(canvas.width * 0.06);
+    expect(Math.abs(laterX - firstX)).toBeGreaterThan(15);
   });
 
   it('staticOnly mode does not schedule RAF', () => {
