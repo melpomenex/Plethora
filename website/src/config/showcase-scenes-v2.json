@@ -69,7 +69,7 @@
           }
         }
       ],
-      "narration": "A populated library keeps the essay beside the rest of the reading desk.",
+      "narration": "A populated library keeps the document beside the rest of the reading desk.",
       "predecessor": null,
       "required": true,
       "requiredLayouts": [
@@ -87,7 +87,7 @@
       "transition": "focus"
     },
     {
-      "accessibleDescription": "The fictional highlighting essay open at 24 percent reading progress.",
+      "accessibleDescription": "The fictional highlighting document open at 24 percent reading progress.",
       "actions": [
         {
           "id": "select-passage",
@@ -123,7 +123,7 @@
           }
         }
       ],
-      "narration": "The essay reopens where recognition and recall diverge.",
+      "narration": "The document reopens where recognition and recall diverge.",
       "predecessor": "library.ready",
       "required": true,
       "requiredLayouts": [

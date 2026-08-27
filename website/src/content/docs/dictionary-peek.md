@@ -16,7 +16,7 @@ sourcePath: "docs/product/features/language/dictionary-peek.md"
 # Dictionary Peek Card
 
 ## Purpose
-Provides instantaneous, zero-latency in-context dictionary definitions and pronunciations without navigating away from the reading surface.
+Provides instantaneous, zero-latency in-context dictionary definitions and pronunciations without leaving the page you are reading.
 
 ## User-Facing Behavior
 - Floating popover showing:

@@ -43,7 +43,7 @@
     },
     {
       "id": "eink",
-      "statement": "An e-ink mode is available for compatible reading surfaces.",
+      "statement": "An e-ink mode is available for compatible reading devices.",
       "status": "shipping",
       "evidencePaths": ["docs/product/features/platform/eink-mode.md"],
       "allowedSurfaces": ["features", "pricing"],

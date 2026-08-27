@@ -57,10 +57,10 @@
 
 ## 7. Terminology migration + gates
 
-- [ ] 7.1 Apply essay→document edits per D10 table (HomeCapture, HomeRead, HomeConnect, HomeRemember, DemoIsland.tsx chapters/labels, showcase-scenes-v2.json narrations/accessibilityDescriptions, asset-manifest.json alts); keep `readers.md` genre listing.
-- [ ] 7.2 Update unit tests asserting changed strings (`machine.test.ts`, `DemoIsland.test.ts`, any alt consumers); run catalog parse + `npm run check:assets`.
-- [ ] 7.3 Rename user-facing surface usage (eink claim statement → devices) and sweep rendered pages/content; create whitelist of technical `surface` identifiers in the check config.
-- [ ] 7.4 Extend dist banned-phrase/check tooling with `essay(s)` production-copy grep (+ whitelist) and surface(s) report mode; add fixture tests for the gate.
+- [x] 7.1 Apply essay→document edits per D10 table (HomeCapture, HomeRead, HomeConnect, HomeRemember, DemoIsland.tsx chapters/labels, showcase-scenes-v2.json narrations/accessibilityDescriptions, asset-manifest.json alts); keep `readers.md` genre listing.
+- [x] 7.2 Update unit tests asserting changed strings (`machine.test.ts`, `DemoIsland.test.ts`, any alt consumers); run catalog parse + `npm run check:assets`.
+- [x] 7.3 Rename user-facing surface usage (eink claim statement → devices) and sweep rendered pages/content; create whitelist of technical `surface` identifiers in the check config.
+- [x] 7.4 Extend dist banned-phrase/check tooling with `essay(s)` production-copy grep (+ whitelist) and surface(s) report mode; add fixture tests for the gate.
 
 ## 8. Screenshot/asset quality (P2)
 

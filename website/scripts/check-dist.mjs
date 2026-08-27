@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findEssayViolations, findSurfaceUsages } from './lib/copy-terms.mjs';
 
 const websiteRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(websiteRoot, 'dist');
@@ -218,6 +219,8 @@ function resolveInternal(fromFile, href) {
 }
 
 const hrefRe = /(?:href)=["']([^"']+)["']/gi;
+const essayViolations = [];
+const surfaceUsages = [];
 for (const file of htmlFiles) {
   const html = readFileSync(file, 'utf8');
   // Client-side scripts construct links at runtime (e.g. the docs search
@@ -234,6 +237,25 @@ for (const file of htmlFiles) {
       fail(`${relative(dist, file)} broken internal link ${href} (${result.pathname})`);
     }
   }
+
+  // Terminology gate: document/device discipline for user-facing copy.
+  essayViolations.push(...findEssayViolations(html, file));
+  surfaceUsages.push(...findSurfaceUsages(html, file));
+}
+
+for (const violation of essayViolations) {
+  fail(
+    `${violation.route} uses "${violation.word}" in production copy — frame it as a document ` +
+      `(genre listings belong on allowlisted pages only): …${violation.context}…`,
+  );
+}
+if (essayViolations.length === 0) {
+  console.log('check:dist: essay-free production copy (genre allowlist honored)');
+}
+for (const usage of surfaceUsages) {
+  console.log(
+    `check:dist: [report] ${usage.route} uses "${usage.word}" — prefer devices for hardware: …${usage.context}…`,
+  );
 }
 
 if (indexing === 'index') {
