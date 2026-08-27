@@ -174,12 +174,20 @@ const beats = [
         index += 1;
         apply();
         schedule();
+      } else {
+        // Resting at the scheduled beat; re-entry must not restart.
+        stage.dataset.beatState = 'done';
       }
     };
 
     const schedule = () => {
       const hold = SEQUENCE[index].holdMs;
       if (hold > 0) timer = setTimeout(advance, hold);
+    };
+
+    const resume = () => {
+      stage.dataset.beatState = 'running';
+      schedule();
     };
 
     const start = () => {
@@ -208,11 +216,10 @@ const beats = [
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting && !document.hidden) {
-            if (stage.dataset.beatState !== 'running' && stage.dataset.beatState !== 'done') {
+            if (stage.dataset.beatState === 'paused') {
+              resume();
+            } else if (stage.dataset.beatState !== 'running' && stage.dataset.beatState !== 'done') {
               start();
-            } else if (stage.dataset.beatState === 'paused') {
-              stage.dataset.beatState = 'running';
-              schedule();
             }
           } else if (stage.dataset.beatState === 'running') {
             stage.dataset.beatState = 'paused';
