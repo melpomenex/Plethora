@@ -104,7 +104,7 @@
       ]
     },
     "updater": {
-      "active": true,
+      "active": false,
       "endpoints": [
         "https://github.com/melpomenex/Plethora/releases/latest/download/latest.json"
       ],
