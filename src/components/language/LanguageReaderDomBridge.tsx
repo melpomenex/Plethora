@@ -82,15 +82,15 @@ function fixedPdfAnchors(
 /** Mounts the existing read-only adapters into HTML/Markdown/EPUB content. */
 export function LanguageReaderDomBridge({ root, surface, sourceId, contentSelector, pdfTextLayerRoots = [], pdfCanonicalPages = new Map() }: LanguageReaderDomBridgeProps) {
   const host = useOptionalLanguageLearningHost();
-  if (!host) return null;
-  const { snapshot } = host;
+  const snapshot = host?.snapshot;
+  const ready = snapshot?.status === "ready" && Boolean(snapshot.profile);
 
   useEffect(() => {
     let disposed = false;
     const contentRoot = contentSelector && root && "querySelector" in root
       ? root.querySelector(contentSelector)
       : root;
-    if (snapshot.status !== "ready" || !snapshot.profile) return;
+    if (!ready || !snapshot?.profile) return;
     if (surface !== "pdf-fixed" && !contentRoot) return;
 
     const profile = snapshot.profile;
@@ -174,7 +174,7 @@ export function LanguageReaderDomBridge({ root, surface, sourceId, contentSelect
       clearLanguageAnnotationSpans(contentRoot);
       adapter?.dispose();
     };
-  }, [contentSelector, pdfCanonicalPages, pdfTextLayerRoots, root, snapshot.profile, snapshot.status, sourceId, surface]);
+  }, [contentSelector, pdfCanonicalPages, pdfTextLayerRoots, ready, root, snapshot?.profile, sourceId, surface]);
 
   return null;
 }

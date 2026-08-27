@@ -17,12 +17,12 @@ export interface LanguageTranscriptDomBridgeProps {
 /** Vocabulary overlays for transcript segment text without owning playback. */
 export function LanguageTranscriptDomBridge({ container, segments, sourceId }: LanguageTranscriptDomBridgeProps) {
   const host = useOptionalLanguageLearningHost();
-  if (!host) return null;
-  const { snapshot } = host;
+  const snapshot = host?.snapshot;
+  const ready = snapshot?.status === "ready" && Boolean(snapshot.profile);
 
   useEffect(() => {
     let disposed = false;
-    if (!container || snapshot.status !== "ready" || !snapshot.profile) return;
+    if (!ready || !container || !snapshot?.profile) return;
     const profile = snapshot.profile;
     const segmentRoots = Array.from(container.querySelectorAll<HTMLElement>("[data-language-transcript-segment]"));
     if (segmentRoots.length === 0) return;
@@ -92,7 +92,7 @@ export function LanguageTranscriptDomBridge({ container, segments, sourceId }: L
       disposed = true;
       for (const root of segmentRoots) clearLanguageAnnotationSpans(root);
     };
-  }, [container, segments, snapshot.profile, snapshot.status, sourceId]);
+  }, [container, ready, segments, snapshot?.profile, sourceId]);
 
   return null;
 }

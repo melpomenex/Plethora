@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLanguageProfileStore } from "../stores/languageProfileStore";
 import { LanguageLearningHostController } from "../lib/languageHost";
-import { LANGUAGE_HOST_CAPABILITY_NAMES } from "../lib/languageHost";
+import { LANGUAGE_HOST_CAPABILITY_NAMES, sourceFingerprint } from "../lib/languageHost";
 import type {
   LanguageHostCapability,
   LanguageHostCapabilityName,
@@ -46,7 +46,7 @@ function initialSnapshot(props: LanguageLearningHostProviderProps): LanguageHost
   return {
     hostId: props.hostId,
     surface: props.surface,
-    status: "resolving",
+    status: props.languageModeEnabled ? "resolving" : "disabled",
     source: props.source,
     profileContext: null,
     profile: null,
@@ -54,6 +54,23 @@ function initialSnapshot(props: LanguageLearningHostProviderProps): LanguageHost
       LANGUAGE_HOST_CAPABILITY_NAMES.map((name) => [name, { name, available: false, offline: false, reason: "missing-source" as const }]),
     ) as LanguageHostSnapshot["capabilities"],
     epoch: 0,
+  };
+}
+
+function mergeResolvedSnapshot(
+  next: LanguageHostSnapshot,
+  resolveCapabilities: LanguageLearningHostProviderProps["resolveCapabilities"],
+  surface: LanguageHostSurface,
+): LanguageHostSnapshot {
+  if (next.status !== "ready" || !next.profile || !resolveCapabilities) return next;
+  return {
+    ...next,
+    capabilities: {
+      ...next.capabilities,
+      ...Object.fromEntries(
+        Object.entries(resolveCapabilities({ surface, profile: next.profile })).map(([name, capability]) => [name, capability]),
+      ),
+    } as LanguageHostSnapshot["capabilities"],
   };
 }
 
@@ -69,40 +86,43 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
   const controller = controllerRef.current;
   const [snapshot, setSnapshot] = useState(() => initialSnapshot(props));
   const [refreshToken, setRefreshToken] = useState(0);
+  const sourceRef = useRef(props.source);
+  sourceRef.current = props.source;
+  const resolveCapabilitiesRef = useRef(props.resolveCapabilities);
+  resolveCapabilitiesRef.current = props.resolveCapabilities;
+  const resolveProfileContextRef = useRef(resolveProfileContext);
+  resolveProfileContextRef.current = resolveProfileContext;
+  const resolvedSourceFingerprint = sourceFingerprint(props.source);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
   useEffect(() => {
     let mounted = true;
+    const currentSource = sourceRef.current;
     const input: LanguageHostResolutionInput = {
       hostId: props.hostId,
       surface: props.surface,
-      source: props.source,
+      source: currentSource,
       languageModeEnabled: props.languageModeEnabled,
       explicitProfileId: props.explicitProfileId,
       capabilities: props.capabilities,
-      resolveProfile: () => resolveProfileContext(
-        props.source.contentType,
-        props.source.contentId,
+      resolveProfile: () => resolveProfileContextRef.current(
+        currentSource.contentType,
+        currentSource.contentId,
         props.explicitProfileId,
       ),
     };
     setSnapshot(initialSnapshot(props));
     void controller.resolve(input).then((next) => {
       if (!mounted) return;
-      if (next.status === "ready" && next.profile && props.resolveCapabilities) {
-        setSnapshot({
-          ...next,
-          capabilities: {
-            ...next.capabilities,
-            ...Object.fromEntries(
-              Object.entries(props.resolveCapabilities({ surface: props.surface, profile: next.profile })).map(([name, capability]) => [name, capability]),
-            ),
-          } as LanguageHostSnapshot["capabilities"],
-        });
-        return;
-      }
-      setSnapshot(next);
+      setSnapshot(mergeResolvedSnapshot(next, resolveCapabilitiesRef.current, props.surface));
+    }).catch((error) => {
+      if (!mounted) return;
+      setSnapshot({
+        ...initialSnapshot(props),
+        status: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
     });
     return () => {
       mounted = false;
@@ -110,26 +130,35 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
     };
   }, [
     controller,
-    resolveProfileContext,
-    props.resolveCapabilities,
+    props.capabilities,
     props.explicitProfileId,
     props.hostId,
     props.languageModeEnabled,
-    props.source,
     props.surface,
     refreshToken,
+    resolvedSourceFingerprint,
+  ]);
+
+  const contextValue = useMemo<LanguageLearningHostContextValue>(() => ({
+    snapshot,
+    refresh,
+    controller,
+    shadowingProviders: props.shadowingProviders ?? [],
+    writingProvider: props.writingProvider,
+    pronunciationManifest: props.pronunciationManifest,
+    readingAssistRegistry: props.readingAssistRegistry,
+  }), [
+    controller,
+    props.pronunciationManifest,
+    props.readingAssistRegistry,
+    props.shadowingProviders,
+    props.writingProvider,
+    refresh,
+    snapshot,
   ]);
 
   return (
-    <LanguageLearningHostContext.Provider value={{
-      snapshot,
-      refresh,
-      controller,
-      shadowingProviders: props.shadowingProviders ?? [],
-      writingProvider: props.writingProvider,
-      pronunciationManifest: props.pronunciationManifest,
-      readingAssistRegistry: props.readingAssistRegistry,
-    }}>
+    <LanguageLearningHostContext.Provider value={contextValue}>
       {props.children}
     </LanguageLearningHostContext.Provider>
   );

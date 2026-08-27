@@ -7,7 +7,7 @@ import {
 } from "./capabilities";
 
 export interface LanguageHostProductionBindings {
-  resolveCapabilities: (profile: import("../../types/languageProfile").LanguageProfile) => Partial<Record<LanguageHostCapabilityName, LanguageHostCapability>>;
+  resolveCapabilities: (input: { surface: LanguageHostSurface; profile: import("../../types/languageProfile").LanguageProfile }) => Partial<Record<LanguageHostCapabilityName, LanguageHostCapability>>;
   shadowingProviders: ReturnType<typeof createProductionLanguageHostBindings>["shadowingProviders"];
   writingProvider: ReturnType<typeof createProductionLanguageHostBindings>["writingProvider"];
   pronunciationManifest: ReturnType<typeof createProductionLanguageHostBindings>["pronunciationManifest"];
@@ -18,7 +18,8 @@ export interface LanguageHostProductionBindings {
 export function useLanguageHostProductionBindings(surface: LanguageHostSurface): LanguageHostProductionBindings {
   const bindings = useMemo(() => createProductionLanguageHostBindings(), []);
   const resolveCapabilities = useCallback(
-    (profile: LanguageProfile) => resolveLanguageHostCapabilities({ surface, profile }),
+    (input: { surface: LanguageHostSurface; profile: LanguageProfile }) =>
+      resolveLanguageHostCapabilities({ surface: input.surface ?? surface, profile: input.profile }),
     [surface],
   );
   return { ...bindings, resolveCapabilities };
