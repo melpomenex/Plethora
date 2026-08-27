@@ -304,6 +304,11 @@ describe("CloudProvider", () => {
     expect(
       capabilitiesFromCloudConfig(providerConfig({ provider: "ollama" })).contextTokens
     ).toBe(8192);
+    expect(
+      capabilitiesFromCloudConfig(
+        providerConfig({ provider: "ollama", contextWindowTokens: 16384, maxTokens: 2048 })
+      ).contextTokens
+    ).toBe(16384);
     // Design D5: cloud uses the strict-JSON fallback, never native schemas.
     expect(capabilitiesFromCloudConfig(providerConfig()).structuredGeneration).toBe(false);
     expect(capabilitiesFromCloudConfig(providerConfig()).vision).toBe(true);
@@ -333,6 +338,33 @@ describe("CloudProvider", () => {
     expect(res.text).toBe("cloud says hi");
     expect(res.usage?.inputTokens).toBe(5);
     expect(chunks).toEqual(["cloud says hi"]);
+  });
+
+  it("passes Ollama policy without conflating contextTokens with maxOutputTokens", async () => {
+    useLLMProvidersStore.setState({
+      providers: [
+        providerConfig({
+          provider: "ollama",
+          apiKey: "",
+          model: "llama3.2",
+          maxTokens: 2048,
+          contextWindowTokens: 16384,
+        }),
+      ],
+    });
+    const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
+      expect(request.maxTokens).toBe(2048);
+      expect(request.policy?.maxOutputTokens).toBe(2048);
+      expect(request.policy?.configuredContextTokens).toBe(16384);
+      expect(request.policy?.maxOutputTokens).not.toBe(request.policy?.configuredContextTokens);
+      return { content: "local ok" };
+    });
+    const cloud = new CloudProvider({ chat });
+    await cloud.generateStream(
+      { requestId: "ollama-1", text: "hello", maxOutputTokens: 2048 },
+      { stream: false }
+    );
+    expect(chat).toHaveBeenCalledOnce();
   });
 
   it("streams chunks and reports cancellation when aborted mid-stream", async () => {

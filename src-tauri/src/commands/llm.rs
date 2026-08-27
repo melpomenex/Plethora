@@ -4,9 +4,21 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+use crate::ai::llm_policy::{
+    resolve_request_policy, LlmRequestPolicy, PolicyResolutionInput, DEFAULT_MAX_OUTPUT_TOKENS,
+};
+use crate::ai::ollama_chat::{
+    build_ollama_chat_body, classify_ollama_error, log_ollama_send, normalize_ollama_base_url,
+    ollama_chat_url, ollama_show_url, ollama_tags_url, parse_ollama_show_details,
+    sanitize_ollama_error, OllamaErrorKind, OllamaNativeResponse, OllamaNativeStreamChunk,
+};
+use crate::ai::prompt_budget::{
+    assemble_context_with_budget, build_context_prompt as assemble_context_prompt,
+    BudgetMessage, ContextBudgetInput,
+};
 use crate::ai::stream_registry::{StreamRequestRegistry, DEFAULT_MAX_STREAM_REQUESTS};
 
-const DEFAULT_MAX_TOKENS: usize = 2000;
+const DEFAULT_MAX_TOKENS: usize = DEFAULT_MAX_OUTPUT_TOKENS;
 
 // Event names for streaming
 const LLM_STREAM_CHUNK: &str = "llm:stream:chunk";
@@ -279,44 +291,89 @@ struct AnthropicStreamDelta {
     text: Option<String>,
 }
 
-// Ollama API Types (OpenAI-compatible)
-#[derive(Debug, Serialize)]
-struct OllamaRequest {
-    model: String,
-    messages: Vec<OpenAIMessage>,
-    stream: bool,
-    options: OllamaOptions,
+fn policy_or_default(
+    provider: &str,
+    max_tokens: usize,
+    policy: Option<LlmRequestPolicy>,
+) -> LlmRequestPolicy {
+    if let Some(p) = policy {
+        return p.clamped();
+    }
+    resolve_request_policy(&PolicyResolutionInput {
+        provider: provider.to_string(),
+        max_output_override: Some(if max_tokens == 0 {
+            DEFAULT_MAX_TOKENS
+        } else {
+            max_tokens
+        }),
+        apply_ollama_default_guard: provider.eq_ignore_ascii_case("ollama"),
+        ..Default::default()
+    })
 }
 
-#[derive(Debug, Serialize)]
-struct OllamaOptions {
-    temperature: f64,
-    num_predict: usize,
+fn ollama_messages_json(messages: Vec<LLMMessage>) -> Result<serde_json::Value, String> {
+    serde_json::to_value(map_openai_messages(messages)?)
+        .map_err(|e| format!("Failed to serialize Ollama messages: {e}"))
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaResponse {
-    message: OpenAIResponseMessageContent,
-    prompt_eval_count: Option<usize>,
-    eval_count: Option<usize>,
+fn resolve_policy_from_context(
+    provider: &str,
+    context: &LLMContextRequest,
+    max_tokens: Option<usize>,
+) -> LlmRequestPolicy {
+    let legacy = context.context_window_tokens;
+    if legacy.is_some()
+        && context.max_output_tokens.is_none()
+        && context.prompt_budget_tokens.is_none()
+    {
+        tracing::debug!(
+            context_window_tokens = ?legacy,
+            "legacy context_window_tokens used as prompt-budget hint"
+        );
+    }
+    resolve_request_policy(&PolicyResolutionInput {
+        provider: provider.to_string(),
+        configured_context_override: context.configured_context_tokens,
+        max_output_override: context.max_output_tokens.or(max_tokens),
+        prompt_budget_hint: context.prompt_budget_tokens.or(legacy),
+        apply_ollama_default_guard: provider.eq_ignore_ascii_case("ollama"),
+        ..Default::default()
+    })
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaStreamChunk {
-    done: bool,
-    message: Option<OllamaStreamMessage>,
-    prompt_eval_count: Option<usize>,
-    eval_count: Option<usize>,
+fn budget_messages_from_llm(messages: &[LLMMessage]) -> Vec<BudgetMessage> {
+    messages
+        .iter()
+        .map(|m| BudgetMessage {
+            role: m.role.clone(),
+            content: extract_text_from_message_content(&m.content).unwrap_or_default(),
+        })
+        .collect()
 }
 
-#[derive(Debug, Deserialize)]
-struct OllamaStreamMessage {
-    role: String,
-    content: String,
+fn llm_messages_from_budget(messages: Vec<BudgetMessage>) -> Vec<LLMMessage> {
+    messages
+        .into_iter()
+        .map(|m| LLMMessage {
+            role: m.role,
+            content: LLMMessageContent::Text(m.content),
+        })
+        .collect()
+}
+
+fn read_memory_file(app: &AppHandle) -> Option<String> {
+    use tauri::Manager;
+    let app_dir = app.path().app_data_dir().ok()?;
+    let memory_file = app_dir.join("memories").join("MEMORY.md");
+    if !memory_file.exists() {
+        return None;
+    }
+    std::fs::read_to_string(&memory_file).ok()
 }
 
 // Non-streaming commands
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn llm_chat(
     provider: String,
     model: Option<String>,
@@ -325,14 +382,12 @@ pub async fn llm_chat(
     max_tokens: usize,
     api_key: Option<String>,
     base_url: Option<String>,
+    policy: Option<LlmRequestPolicy>,
 ) -> Result<LLMResponse, String> {
     let client = Client::new();
     let model = normalize_model(model, &provider);
-    let max_tokens = if max_tokens == 0 {
-        DEFAULT_MAX_TOKENS
-    } else {
-        max_tokens
-    };
+    let policy = policy_or_default(&provider, max_tokens, policy);
+    let max_tokens = policy.max_output_tokens;
     let base_url = normalize_base_url(base_url, &provider);
     let api_key = normalize_api_key(api_key);
     let requires_api_key = provider_requires_api_key(&provider, &base_url);
@@ -377,7 +432,7 @@ pub async fn llm_chat(
                 &model,
                 messages,
                 temperature,
-                max_tokens,
+                &policy,
                 &base_url,
             )
             .await?
@@ -401,6 +456,7 @@ pub async fn llm_chat(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn llm_chat_with_context(
     app: AppHandle,
     provider: String,
@@ -409,101 +465,82 @@ pub async fn llm_chat_with_context(
     context: LLMContextRequest,
     api_key: Option<String>,
     base_url: Option<String>,
+    max_tokens: Option<usize>,
 ) -> Result<LLMResponse, String> {
-    use tauri::Manager;
     let latest_user_message = messages
         .iter()
         .rev()
         .find(|message| message.role == "user")
         .and_then(|message| extract_text_from_message_content(&message.content));
 
-    let requested_max_tokens = context.context_window_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
+    let policy = resolve_policy_from_context(&provider, &context, max_tokens);
+    let memory_content = if context.memory_enabled.unwrap_or(false) {
+        read_memory_file(&app)
+    } else {
+        None
+    };
 
-    let mut context_prompt = build_context_prompt(&context, latest_user_message.as_deref());
+    let last_user_idx = messages.iter().rposition(|m| m.role == "user");
+    let (history_src, last_user, trailing) = match last_user_idx {
+        Some(i) => (&messages[..i], Some(messages[i].clone()), &messages[i + 1..]),
+        None => (messages.as_slice(), None, &messages[0..0]),
+    };
 
-    // Inject long-term memory if enabled
-    if context.memory_enabled.unwrap_or(false) {
-        if let Ok(app_dir) = app.path().app_data_dir() {
-            let memory_file = app_dir.join("memories").join("MEMORY.md");
-            if memory_file.exists() {
-                if let Ok(memory_content) = std::fs::read_to_string(&memory_file) {
-                    context_prompt
-                        .push_str("\n\n### USER LONG-TERM MEMORY (Facts & Preferences)\n");
-                    context_prompt.push_str("The following is your persistent, long-term memory about the user. Use these facts and preferences to personalize your responses and be more helpful, personable, and accurate:\n");
-                    context_prompt.push_str(&memory_content);
-                    context_prompt.push_str("\n------------------------------------\n");
-                }
-            }
-        }
-    }
+    let assembled = assemble_context_with_budget(
+        &provider,
+        &ContextBudgetInput {
+            context_type: context.r#type.clone(),
+            document_id: context.document_id.clone(),
+            url: context.url.clone(),
+            selection: context.selection.clone(),
+            content: context.content.clone(),
+            memory_content,
+            history: budget_messages_from_llm(history_src),
+            current_user_message: latest_user_message.clone(),
+        },
+        &policy,
+    )
+    .map_err(|overflow| overflow.user_message())?;
 
     let mut initial_messages = vec![LLMMessage {
         role: "system".to_string(),
-        content: LLMMessageContent::Text(context_prompt),
+        content: LLMMessageContent::Text(assembled.system_prompt),
     }];
-    initial_messages.extend(messages.clone());
+    initial_messages.extend(llm_messages_from_budget(assembled.history));
+    if let Some(user) = last_user {
+        initial_messages.push(user);
+    }
+    initial_messages.extend(trailing.iter().cloned());
 
-    match llm_chat(
-        provider.clone(),
-        model.clone(),
-        initial_messages,
-        0.7,
-        requested_max_tokens,
-        api_key.clone(),
-        base_url.clone(),
-    )
-    .await
-    {
+    let estimated_prompt = assembled.estimated_prompt_tokens;
+    let send = || {
+        llm_chat(
+            provider.clone(),
+            model.clone(),
+            initial_messages.clone(),
+            0.7,
+            policy.max_output_tokens,
+            api_key.clone(),
+            base_url.clone(),
+            Some(policy),
+        )
+    };
+
+    match send().await {
         Ok(response) => Ok(response),
-        Err(error) if provider == "ollama" && should_retry_ollama_with_smaller_context(&error) => {
-            let fallback_context_window =
-                reduced_ollama_context_window(context.context_window_tokens);
-            let fallback_max_tokens = reduced_ollama_max_tokens(requested_max_tokens);
-            let mut reduced_context = context.clone();
-            reduced_context.context_window_tokens = Some(fallback_context_window);
-
-            // Re-build context prompt for Ollama retry
-            let mut retry_context_prompt =
-                build_context_prompt(&reduced_context, latest_user_message.as_deref());
-            if context.memory_enabled.unwrap_or(false) {
-                if let Ok(app_dir) = app.path().app_data_dir() {
-                    let memory_file = app_dir.join("memories").join("MEMORY.md");
-                    if memory_file.exists() {
-                        if let Ok(memory_content) = std::fs::read_to_string(&memory_file) {
-                            retry_context_prompt
-                                .push_str("\n\n### USER LONG-TERM MEMORY (Facts & Preferences)\n");
-                            retry_context_prompt.push_str("The following is your persistent, long-term memory about the user. Use these facts and preferences to personalize your responses and be more helpful, personable, and accurate:\n");
-                            retry_context_prompt.push_str(&memory_content);
-                            retry_context_prompt
-                                .push_str("\n------------------------------------\n");
-                        }
-                    }
-                }
-            }
-
-            let mut retry_messages = vec![LLMMessage {
-                role: "system".to_string(),
-                content: LLMMessageContent::Text(retry_context_prompt),
-            }];
-            retry_messages.extend(messages);
-
-            llm_chat(
-                provider,
-                model,
-                retry_messages,
-                0.7,
-                fallback_max_tokens,
-                api_key,
-                base_url,
-            )
-            .await
-            .map_err(|retry_error| {
-                format!(
-                    "{}. Retried Ollama with reduced context/max tokens and it still failed: {}",
-                    error, retry_error
-                )
+        Err(error)
+            if provider == "ollama"
+                && classify_ollama_error(&error) == OllamaErrorKind::TransientEof =>
+        {
+            send().await.map_err(|retry_error| {
+                sanitize_ollama_error(&retry_error, Some(&policy), Some(estimated_prompt))
             })
         }
+        Err(error) if provider == "ollama" => Err(sanitize_ollama_error(
+            &error,
+            Some(&policy),
+            Some(estimated_prompt),
+        )),
         Err(error) => Err(error),
     }
 }
@@ -521,14 +558,12 @@ pub async fn llm_stream_chat(
     api_key: Option<String>,
     base_url: Option<String>,
     request_id: Option<String>,
+    policy: Option<LlmRequestPolicy>,
 ) -> Result<(), String> {
     let client = Client::new();
     let model = normalize_model(model, &provider);
-    let max_tokens = if max_tokens == 0 {
-        DEFAULT_MAX_TOKENS
-    } else {
-        max_tokens
-    };
+    let policy = policy_or_default(&provider, max_tokens, policy);
+    let max_tokens = policy.max_output_tokens;
     let base_url = normalize_base_url(base_url, &provider);
     let api_key = normalize_api_key(api_key);
     let requires_api_key = provider_requires_api_key(&provider, &base_url);
@@ -600,7 +635,7 @@ pub async fn llm_stream_chat(
                     &model,
                     messages,
                     temperature,
-                    max_tokens,
+                    &policy,
                     &base_url,
                 )
                 .await
@@ -928,104 +963,85 @@ async fn stream_ollama(
     model: &str,
     messages: Vec<LLMMessage>,
     temperature: f64,
-    max_tokens: usize,
+    policy: &LlmRequestPolicy,
     base_url: &str,
 ) -> Result<(), String> {
-    let request = OllamaRequest {
-        model: model.to_string(),
-        messages: map_openai_messages(messages)?,
-        stream: true,
-        options: OllamaOptions {
-            temperature,
-            num_predict: max_tokens,
-        },
+    let messages_json = ollama_messages_json(messages)?;
+    let request = build_ollama_chat_body(model, &messages_json, true, policy, temperature);
+    log_ollama_send("ollama", model, policy, 0);
+
+    let emit_sanitized = |error: &str| {
+        let sanitized = sanitize_ollama_error(error, Some(policy), None);
+        emit_stream_event(
+            app,
+            LLM_STREAM_ERROR,
+            serde_json::json!({ "error": sanitized }),
+        );
+        sanitized
     };
 
     let response = client
-        .post(format!("{}/chat/completions", base_url))
+        .post(ollama_chat_url(base_url))
         .json(&request)
         .send()
         .await
-        .map_err(|e| {
-            emit_stream_event(
-                app,
-                LLM_STREAM_ERROR,
-                serde_json::json!({
-                    "error": format!("Ollama API request failed: {}", e)
-                }),
-            );
-            format!("Ollama API request failed: {}", e)
-        })?;
+        .map_err(|e| emit_sanitized(&format!("Ollama API request failed: {}", e)))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        emit_stream_event(
-            app,
-            LLM_STREAM_ERROR,
-            serde_json::json!({
-                "error": format!("Ollama API error ({}): {}", status, error_text)
-            }),
-        );
-        return Err(format!("Ollama API error ({}): {}", status, error_text));
+        tracing::debug!(status = %status, "ollama stream error (raw body omitted from user event)");
+        return Err(emit_sanitized(&format!(
+            "Ollama API error ({}): {}",
+            status, error_text
+        )));
     }
 
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
-
-    // Coalesce token deltas before emitting to avoid one IPC event per token.
     let mut chunk_buf = String::new();
     let mut last_flush = std::time::Instant::now();
 
     while let Some(item) = stream.next().await {
-        let chunk = item.map_err(|e| {
-            emit_stream_event(
-                app,
-                LLM_STREAM_ERROR,
-                serde_json::json!({
-                    "error": format!("Stream error: {}", e)
-                }),
-            );
-            format!("Stream error: {}", e)
-        })?;
-
+        let chunk = item.map_err(|e| emit_sanitized(&format!("Stream error: {}", e)))?;
         buffer.extend_from_slice(&chunk);
-        let data = String::from_utf8_lossy(&buffer);
 
-        for line in data.lines() {
+        let data = String::from_utf8_lossy(&buffer);
+        let mut consumed = 0usize;
+        for line in data.split_inclusive('\n') {
+            if !line.ends_with('\n') {
+                break;
+            }
+            consumed += line.len();
             let line = line.trim();
-            if line.is_empty() || line == "data: [DONE]" {
+            if line.is_empty() {
                 continue;
             }
-
-            if let Some(json_str) = line.strip_prefix("data: ") {
-                if let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(json_str) {
-                    if let Some(choice) = chunk_data.choices.first() {
-                        if let Some(content) = &choice.delta.content {
-                            chunk_buf.push_str(content);
-
-                            let finished = choice.finish_reason.is_some();
-                            if finished
-                                || last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
-                                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
-                            {
-                                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, finished);
-                            }
-
-                            if finished {
-                                emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
-                                return Ok(());
-                            }
-                        }
+            let json_str = line.strip_prefix("data: ").unwrap_or(line);
+            if json_str == "[DONE]" {
+                continue;
+            }
+            if let Ok(chunk_data) = serde_json::from_str::<OllamaNativeStreamChunk>(json_str) {
+                if let Some(content) = chunk_data.delta_content() {
+                    chunk_buf.push_str(content);
+                    if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                        || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+                    {
+                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
                     }
+                }
+                if chunk_data.done {
+                    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, true);
+                    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+                    return Ok(());
                 }
             }
         }
-
-        buffer.clear();
+        if consumed > 0 {
+            buffer.drain(..consumed);
+        }
     }
 
-    // Final flush for any remaining buffered text.
     flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
     emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
     Ok(())
@@ -1329,10 +1345,8 @@ pub async fn llm_get_models(
         }
         "ollama" => {
             let client = Client::new();
-            let url = normalize_base_url(base_url, "ollama");
-            // /api/tags is the native Ollama endpoint (strip /v1 suffix if present)
-            let tags_url = url.replace("/v1", "").replace("/chat/completions", "");
-            fetch_ollama_models(&client, &tags_url).await
+            let url = normalize_ollama_base_url(&normalize_base_url(base_url, "ollama"));
+            fetch_ollama_models(&client, &url).await
         }
         "openrouter" => {
             let api_key = normalize_api_key(api_key);
@@ -1698,21 +1712,15 @@ async fn call_ollama_with_url(
     model: &str,
     messages: Vec<LLMMessage>,
     temperature: f64,
-    max_tokens: usize,
+    policy: &LlmRequestPolicy,
     base_url: &str,
 ) -> Result<LLMResponse, String> {
-    let request = OllamaRequest {
-        model: model.to_string(),
-        messages: map_openai_messages(messages)?,
-        stream: false,
-        options: OllamaOptions {
-            temperature,
-            num_predict: max_tokens,
-        },
-    };
+    let messages_json = ollama_messages_json(messages)?;
+    let request = build_ollama_chat_body(model, &messages_json, false, policy, temperature);
+    log_ollama_send("ollama", model, policy, 0);
 
     let response = client
-        .post(format!("{}/chat/completions", base_url))
+        .post(ollama_chat_url(base_url))
         .json(&request)
         .send()
         .await
@@ -1721,6 +1729,7 @@ async fn call_ollama_with_url(
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
+        tracing::debug!(status = %status, "ollama chat error (raw body not forwarded)");
         return Err(format!("Ollama API error ({}): {}", status, error_text));
     }
 
@@ -1728,24 +1737,25 @@ async fn call_ollama_with_url(
         .text()
         .await
         .map_err(|e| format!("Failed to read Ollama response: {}", e))?;
-    let openai_response: OpenAIResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+    let native: OllamaNativeResponse = serde_json::from_str(&body).map_err(|e| {
+        format!("Failed to parse Ollama response: {}", e)
+    })?;
 
-    let choice = openai_response
-        .choices
-        .into_iter()
-        .next()
-        .ok_or_else(|| "Ollama response contained no choices".to_string())?;
-
+    let prompt_tokens = native.prompt_eval_count.unwrap_or(0);
+    let completion_tokens = native.eval_count.unwrap_or(0);
     Ok(LLMResponse {
-        content: choice.message.text(),
-        usage: openai_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens(),
-            completion_tokens: u.completion_tokens(),
-            total_tokens: u.total_tokens(),
-            prompt_cache_hit_tokens: None,
-            prompt_cache_miss_tokens: None,
-        }),
+        content: native.content(),
+        usage: if prompt_tokens > 0 || completion_tokens > 0 {
+            Some(LLMUsage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens.saturating_add(completion_tokens),
+                prompt_cache_hit_tokens: None,
+                prompt_cache_miss_tokens: None,
+            })
+        } else {
+            None
+        },
     })
 }
 
@@ -1869,7 +1879,7 @@ async fn test_anthropic_connection(
 
 async fn test_ollama_connection(client: &Client, base_url: &str) -> Result<bool, String> {
     let response = client
-        .get(format!("{}/tags", base_url.replace("/v1", "")))
+        .get(ollama_tags_url(base_url))
         .send()
         .await
         .map_err(|e| format!("Connection failed: {}", e))?;
@@ -2210,9 +2220,33 @@ async fn fetch_anthropic_models(
     Ok(models)
 }
 
+async fn fetch_ollama_model_details(
+    client: &Client,
+    base_url: &str,
+    name: &str,
+) -> Result<crate::ai::ollama_chat::OllamaModelDetails, String> {
+    let response = client
+        .post(ollama_show_url(base_url))
+        .json(&serde_json::json!({ "name": name }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch Ollama model details: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Ollama show error ({})",
+            response.status()
+        ));
+    }
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama show response: {e}"))?;
+    Ok(parse_ollama_show_details(&payload))
+}
+
 async fn fetch_ollama_models(client: &Client, base_url: &str) -> Result<Vec<ModelInfo>, String> {
     let response = client
-        .get(format!("{}/api/tags", base_url))
+        .get(ollama_tags_url(base_url))
         .send()
         .await
         .map_err(|e| format!("Failed to connect to Ollama at {}: {}", base_url, e))?;
@@ -2278,6 +2312,21 @@ async fn fetch_ollama_models(client: &Client, base_url: &str) -> Result<Vec<Mode
         return Err(
             "No models found in Ollama. Run `ollama pull <model>` to install one.".to_string(),
         );
+    }
+
+    let detail_futs = result.iter().map(|m| {
+        let client = client.clone();
+        let base = base_url.to_string();
+        let id = m.id.clone();
+        async move { (id.clone(), fetch_ollama_model_details(&client, &base, &id).await.ok()) }
+    });
+    let details = futures_util::future::join_all(detail_futs).await;
+    for (id, detail) in details {
+        if let Some(detail) = detail {
+            if let Some(model) = result.iter_mut().find(|m| m.id == id) {
+                model.context_length = detail.context_length.or(detail.default_num_ctx);
+            }
+        }
     }
 
     result.sort_by(|a, b| a.id.cmp(&b.id));
@@ -2379,7 +2428,12 @@ fn normalize_base_url(base_url: Option<String>, provider: &str) -> String {
     if url.trim().is_empty() {
         return fallback;
     }
-    url.trim_end_matches('/').to_string()
+    let trimmed = url.trim_end_matches('/').to_string();
+    if provider == "ollama" {
+        normalize_ollama_base_url(&trimmed)
+    } else {
+        trimmed
+    }
 }
 
 fn get_default_base_url(provider: &str) -> String {
@@ -2388,111 +2442,28 @@ fn get_default_base_url(provider: &str) -> String {
         "anthropic" => "https://api.anthropic.com/v1".to_string(),
         "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
         "deepseek" => "https://api.deepseek.com/v1".to_string(),
-        "ollama" => "http://localhost:11434/v1".to_string(),
+        "ollama" => "http://localhost:11434".to_string(),
         "openrouter" => "https://openrouter.ai/api/v1".to_string(),
         _ => "".to_string(),
     }
 }
 
 fn build_context_prompt(context: &LLMContextRequest, latest_user_message: Option<&str>) -> String {
-    let mut instructions = String::from(
-        "Use the provided context to answer the user's request. \
-If the user asks for a summary, summarize the relevant context. \
-If the answer is not in the provided context, say so.",
-    );
-
-    instructions.push('\n');
-
-    match context.r#type.as_str() {
-        "document" => {
-            let mut prompt = format!(
-                "The user is viewing a document{}.",
-                context
-                    .document_id
-                    .as_ref()
-                    .map(|id| format!(" (ID: {})", id))
-                    .unwrap_or_default()
-            );
-
-            if let Some(selection) = context.selection.as_ref() {
-                if !selection.trim().is_empty() {
-                    prompt.push_str(&format!("\nSelected text: \"{}\"", selection));
-                }
-            }
-
-            if let Some(content) = context.content.as_ref() {
-                let excerpt = select_relevant_excerpt(
-                    content,
-                    context.context_window_tokens,
-                    latest_user_message,
-                );
-                if !excerpt.trim().is_empty() {
-                    prompt.push_str("\nDocument content (excerpt):\n");
-                    prompt.push_str(&excerpt);
-                }
-            }
-
-            instructions.push_str(&prompt);
-            instructions
-        }
-        "web" => {
-            let mut prompt = format!(
-                "The user is browsing the web page: {}.",
-                context.url.as_deref().unwrap_or("Unknown")
-            );
-
-            if let Some(selection) = context.selection.as_ref() {
-                if !selection.trim().is_empty() {
-                    prompt.push_str(&format!("\nSelected text: \"{}\"", selection));
-                }
-            }
-
-            if let Some(content) = context.content.as_ref() {
-                let excerpt = select_relevant_excerpt(
-                    content,
-                    context.context_window_tokens,
-                    latest_user_message,
-                );
-                if !excerpt.trim().is_empty() {
-                    prompt.push_str("\nPage content (excerpt):\n");
-                    prompt.push_str(&excerpt);
-                }
-            }
-
-            instructions.push_str(&prompt);
-            instructions
-        }
-        "video" => {
-            let mut prompt = String::from("The user is watching a video.");
-
-            if let Some(selection) = context.selection.as_ref() {
-                if !selection.trim().is_empty() {
-                    prompt.push_str(&format!("\nSelected text: \"{}\"", selection));
-                }
-            }
-
-            if let Some(content) = context.content.as_ref() {
-                let excerpt = select_relevant_excerpt(
-                    content,
-                    context.context_window_tokens,
-                    latest_user_message,
-                );
-                if !excerpt.trim().is_empty() {
-                    prompt.push_str("\nTranscript (excerpt):\n");
-                    prompt.push_str(&excerpt);
-                }
-            }
-
-            instructions.push_str(&prompt);
-            instructions
-        }
-        _ => {
-            instructions.push_str("You are a helpful assistant.");
-            instructions
-        }
-    }
+    let excerpt_budget = context
+        .prompt_budget_tokens
+        .or(context.context_window_tokens);
+    assemble_context_prompt(
+        &context.r#type,
+        context.document_id.as_deref(),
+        context.url.as_deref(),
+        context.selection.as_deref(),
+        context.content.as_deref(),
+        excerpt_budget,
+        latest_user_message,
+    )
 }
 
+#[allow(dead_code)]
 fn prepend_context_message(
     messages: Vec<LLMMessage>,
     context: &LLMContextRequest,
@@ -2620,171 +2591,6 @@ fn parse_data_url(url: &str) -> Option<(String, String)> {
     Some((media_type.to_string(), data.trim().to_string()))
 }
 
-fn should_retry_ollama_with_smaller_context(error: &str) -> bool {
-    let lowered = error.to_ascii_lowercase();
-    lowered.contains("unexpected eof")
-        || (lowered.contains("ollama api error (500") && lowered.contains("api_error"))
-}
-
-fn reduced_ollama_context_window(context_window_tokens: Option<usize>) -> usize {
-    let current = context_window_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
-    current.min(512).max(256)
-}
-
-fn reduced_ollama_max_tokens(max_tokens: usize) -> usize {
-    max_tokens.min(512).max(256)
-}
-
-fn select_relevant_excerpt(
-    content: &str,
-    context_window_tokens: Option<usize>,
-    user_query: Option<&str>,
-) -> String {
-    let max_chars = estimate_context_chars(context_window_tokens);
-    let mut char_indices: Vec<usize> = content.char_indices().map(|(i, _)| i).collect();
-    char_indices.push(content.len());
-    let total_chars = char_indices.len().saturating_sub(1);
-
-    if total_chars <= max_chars {
-        return content.to_string();
-    }
-
-    let query_terms = user_query.map(extract_query_terms).unwrap_or_default();
-
-    if query_terms.is_empty() {
-        return content.chars().take(max_chars).collect();
-    }
-
-    let mut best_chunks: Vec<(usize, usize, usize)> = Vec::new(); // (score, start, end)
-    let chunk_len = max_chars.clamp(400, 1200).min(total_chars);
-    let overlap = 200.min(chunk_len / 3);
-    let mut start_char = 0;
-
-    while start_char < total_chars {
-        let end_char = (start_char + chunk_len).min(total_chars);
-        let start = char_indices[start_char];
-        let end = char_indices[end_char];
-        let chunk = &content[start..end];
-        let score = score_chunk(chunk, &query_terms);
-        best_chunks.push((score, start, end));
-
-        if end_char == total_chars {
-            break;
-        }
-        start_char = end_char.saturating_sub(overlap);
-    }
-
-    best_chunks.sort_by(|a, b| b.0.cmp(&a.0));
-    let mut selected = String::new();
-
-    for (score, start, end) in best_chunks {
-        if score == 0 && !selected.is_empty() {
-            break;
-        }
-        let chunk = &content[start..end];
-        let selected_chars = selected.chars().count();
-        let chunk_chars = chunk.chars().count();
-        if selected_chars + chunk_chars + 12 > max_chars {
-            break;
-        }
-        if !selected.is_empty() {
-            selected.push_str("\n\n[...]\n\n");
-        }
-        selected.push_str(chunk);
-        if selected.chars().count() >= max_chars {
-            break;
-        }
-    }
-
-    if selected.is_empty() {
-        content.chars().take(max_chars).collect()
-    } else {
-        selected
-    }
-}
-
-fn estimate_context_chars(context_window_tokens: Option<usize>) -> usize {
-    let tokens = context_window_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
-    tokens.saturating_mul(4)
-}
-
-fn extract_query_terms(query: &str) -> Vec<String> {
-    let stop_words = [
-        "the",
-        "and",
-        "or",
-        "of",
-        "to",
-        "in",
-        "a",
-        "an",
-        "is",
-        "are",
-        "was",
-        "were",
-        "what",
-        "how",
-        "why",
-        "when",
-        "where",
-        "which",
-        "who",
-        "summarize",
-        "summary",
-        "chapter",
-        "page",
-        "book",
-        "document",
-        "this",
-        "that",
-    ];
-
-    let mut terms: Vec<String> = query
-        .to_lowercase()
-        .split(|ch: char| !ch.is_alphanumeric())
-        .filter(|term| term.len() >= 4)
-        .filter(|term| !stop_words.contains(term))
-        .map(|term| term.to_string())
-        .collect();
-
-    let chars: Vec<(usize, char)> = query.char_indices().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        if !chars[index].1.is_ascii_digit() {
-            index += 1;
-            continue;
-        }
-
-        let start = chars[index].0;
-        let mut end = query.len();
-        let mut cursor = index;
-        while cursor < chars.len() && (chars[cursor].1.is_ascii_digit() || chars[cursor].1 == '.') {
-            cursor += 1;
-        }
-        if cursor < chars.len() {
-            end = chars[cursor].0;
-        }
-
-        let candidate = query[start..end].trim();
-        if candidate.contains('.') && candidate.len() >= 3 {
-            terms.push(candidate.to_lowercase());
-        }
-        index = cursor;
-    }
-
-    terms.sort();
-    terms.dedup();
-    terms
-}
-
-fn score_chunk(chunk: &str, terms: &[String]) -> usize {
-    let chunk_lower = chunk.to_lowercase();
-    terms
-        .iter()
-        .map(|term| chunk_lower.matches(term).count())
-        .sum()
-}
-
 // Types for Tauri commands
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2838,7 +2644,16 @@ pub struct LLMContextRequest {
     pub url: Option<String>,
     pub selection: Option<String>,
     pub content: Option<String>,
+    /// Deprecated: migration shim — treated as a prompt-budget hint only.
+    #[serde(default)]
     pub context_window_tokens: Option<usize>,
+    #[serde(default)]
+    pub prompt_budget_tokens: Option<usize>,
+    #[serde(default)]
+    pub configured_context_tokens: Option<usize>,
+    #[serde(default)]
+    pub max_output_tokens: Option<usize>,
+    #[serde(default)]
     pub memory_enabled: Option<bool>,
 }
 
@@ -2931,5 +2746,37 @@ mod tests {
         let legacy = pricing_of("legacy-keys").expect("legacy-keys pricing");
         assert_price(legacy.cache_read, 0.001);
         assert_price(legacy.cache_write, 0.002);
+    }
+
+    #[test]
+    fn openai_request_uses_max_output_not_context() {
+        // Test 6: cloud serialization still uses max_tokens from policy output only.
+        let req = OpenAIRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![],
+            temperature: 0.7,
+            max_tokens: 2048,
+            stream: None,
+        };
+        let value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value["max_tokens"], 2048);
+        assert!(value.get("num_ctx").is_none());
+        assert!(value.get("options").is_none());
+    }
+
+    #[test]
+    fn context_overflow_does_not_classify_as_transient() {
+        // Test 8: overflow must not take the shrink-retry path (removed).
+        let kind = classify_ollama_error(
+            "request (8581 tokens) exceeds the available context size (4096 tokens)",
+        );
+        assert_eq!(kind, OllamaErrorKind::ContextOverflow);
+        assert_ne!(kind, OllamaErrorKind::TransientEof);
+    }
+
+    #[test]
+    fn ollama_chat_url_is_native_api() {
+        assert!(ollama_chat_url("http://localhost:11434/v1").ends_with("/api/chat"));
+        assert!(!ollama_chat_url("http://localhost:11434/v1").contains("/v1"));
     }
 }

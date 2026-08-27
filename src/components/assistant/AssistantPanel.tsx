@@ -34,6 +34,7 @@ import {
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
 import { chatWithContext, type LLMMessage, type LLMMessageContentPart, type LLMProvider } from "../../api/llm";
+import { resolveRequestPolicy } from "../../api/llm/policy";
 import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
 import { renderMarkdown } from "../../utils/markdown";
 import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
@@ -1279,9 +1280,30 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       const llmContext = contextData.currentContext as AssistantContext;
       const contextWindow = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
-      const effectiveContextWindow = llmContext?.contextWindowTokens && llmContext.contextWindowTokens > 0
-        ? llmContext.contextWindowTokens
-        : contextWindow;
+      const isOllama = effectiveProvider === "ollama";
+      const providerConfig = useLLMProvidersStore
+        .getState()
+        .providers.find((p) => p.provider === effectiveProvider && p.enabled)
+        ?? useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider);
+      const policy = resolveRequestPolicy({
+        provider: effectiveProvider,
+        providerMaxOutput: providerConfig?.maxTokens,
+        maxOutputOverride: providerConfig?.maxTokens,
+        perModelOverride: providerConfig?.model
+          ? providerConfig.modelContextWindows?.[providerConfig.model]
+          : undefined,
+        providerContextTokens: providerConfig?.contextWindowTokens,
+        globalContextTokens: contextWindow,
+        autoPreset: providerConfig?.contextWindowPreset === "auto",
+        applyOllamaDefaultGuard: isOllama,
+      });
+      const promptBudget = policy.promptBudgetTokens;
+      const frontendTrimRatio = isOllama ? 1 : 0.7;
+      const effectiveContextWindow = isOllama
+        ? promptBudget
+        : (llmContext?.contextWindowTokens && llmContext.contextWindowTokens > 0
+          ? llmContext.contextWindowTokens
+          : contextWindow);
       const resolvedContext = llmContext?.resolveForPrompt
         ? await llmContext.resolveForPrompt(prompt)
         : {
@@ -1302,7 +1324,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       let selectionContext = "";
       let selectionTruncated = false;
       if (selectionNodes.length > 0) {
-        const built = buildSelectionFocusedContext(selectionNodes, { maxTokens: effectiveContextWindow });
+        const built = buildSelectionFocusedContext(selectionNodes, { maxTokens: effectiveContextWindow, trimRatio: frontendTrimRatio });
         selectionContext = built.content;
         selectionTruncated = built.truncated;
       }
@@ -1326,7 +1348,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           sectionNodes,
           resolutionFlat,
           sectionText,
-          { documentId: attachedKey, maxTokens: effectiveContextWindow, includeNeighbors: true },
+          { documentId: attachedKey, maxTokens: effectiveContextWindow, includeNeighbors: true, trimRatio: frontendTrimRatio },
         );
         if (!focused.ok && realDocumentId) {
           sectionText = await loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText });
@@ -1339,7 +1361,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             sectionNodes,
             freshFlat,
             sectionText,
-            { documentId: realDocumentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
+            { documentId: realDocumentId, maxTokens: effectiveContextWindow, includeNeighbors: true, trimRatio: frontendTrimRatio },
           );
         }
         if (!focused.ok) {
@@ -1534,7 +1556,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         url: llmContext?.url,
         selection: llmContext?.selection,
         content: finalResolvedContent || contextContent,
-        contextWindowTokens: effectiveContextWindow,
+        contextWindowTokens: promptBudget,
+        promptBudgetTokens: promptBudget,
+        configuredContextTokens: policy.configuredContextTokens,
+        maxOutputTokens: policy.maxOutputTokens,
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
       };
 

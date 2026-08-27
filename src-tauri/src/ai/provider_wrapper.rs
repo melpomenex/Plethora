@@ -134,10 +134,20 @@ impl AIProvider {
                     models.openrouter_model.clone(),
                 )))
             }
-            LLMProviderType::Ollama => Ok(AIProvider::Ollama(OllamaProvider::new(
-                local_settings.ollama_base_url.clone(),
-                models.ollama_model.clone(),
-            ))),
+            LLMProviderType::Ollama => {
+                let model = models.ollama_model.clone();
+                let ctx = local_settings
+                    .ollama_model_context_windows
+                    .as_ref()
+                    .and_then(|map| map.get(&model).copied())
+                    .or(local_settings.ollama_context_tokens)
+                    .unwrap_or(crate::ai::llm_policy::STACK_B_CONTEXT_DEFAULT);
+                Ok(AIProvider::Ollama(OllamaProvider::with_context_tokens(
+                    local_settings.ollama_base_url.clone(),
+                    model,
+                    ctx,
+                )))
+            }
             LLMProviderType::DeepSeek => {
                 let api_key = api_keys
                     .deepseek
@@ -192,6 +202,12 @@ pub struct LocalSettings {
     /// the provider registry).
     #[serde(default = "default_deepseek_base_url")]
     pub deepseek_base_url: String,
+    /// Configured Ollama runtime context (`num_ctx`). Unset → Stack B uses 4096.
+    #[serde(default)]
+    pub ollama_context_tokens: Option<usize>,
+    /// Optional per-model Ollama context overrides.
+    #[serde(default)]
+    pub ollama_model_context_windows: Option<std::collections::HashMap<String, usize>>,
 }
 
 fn default_openai_base_url() -> String {
@@ -220,6 +236,8 @@ impl Default for LocalSettings {
             ollama_base_url: "http://localhost:11434".to_string(),
             openai_base_url: default_openai_base_url(),
             deepseek_base_url: default_deepseek_base_url(),
+            ollama_context_tokens: None,
+            ollama_model_context_windows: None,
         }
     }
 }

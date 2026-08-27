@@ -73,7 +73,7 @@ export function useOcclusionSuggestions(asset: ImageAsset | null, session: Occlu
           visionProvider.provider,
           visionProvider.model,
           messages,
-          { type: "general", contextWindowTokens: visionProvider.maxTokens },
+          { type: "general", maxOutputTokens: visionProvider.maxTokens },
           visionProvider.apiKey,
           visionProvider.baseUrl?.trim() || undefined,
           visionProvider.temperature,

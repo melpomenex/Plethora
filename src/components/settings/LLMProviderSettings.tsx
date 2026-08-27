@@ -18,6 +18,15 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { getAvailableModels, type ModelInfo } from "../../api/llm";
+import {
+  CONTEXT_WINDOW_PRESET_VALUES,
+  MIN_PROMPT_HEADROOM,
+  formatAutoResolvedLabel,
+  isContextComboValid,
+  resolveConfiguredContextForProvider,
+  type ContextWindowPreset,
+} from "../../api/llm/policy";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 
 export interface LLMProviderConfig {
@@ -33,6 +42,9 @@ export interface LLMProviderConfig {
   temperature: number;
   maxTokens: number;
   systemPrompt?: string;
+  contextWindowTokens?: number;
+  contextWindowPreset?: ContextWindowPreset;
+  modelContextWindows?: Record<string, number>;
 }
 
 interface LLMProviderSettingsProps {
@@ -84,7 +96,7 @@ const PROVIDER_INFO = {
   ollama: {
     name: "Ollama",
     description: "Local LLM models (Llama, Mistral, etc.)",
-    baseUrl: "http://localhost:11434/v1",
+    baseUrl: "http://localhost:11434",
     defaultModel: "llama3.2",
     icon: "💻",
     models: ["llama3.2", "mistral", "codellama", "phi3", "deepseek-coder"],
@@ -118,6 +130,7 @@ export function LLMProviderSettings({
   onTestConnection,
 }: LLMProviderSettingsProps) {
   const { t } = useI18n();
+  const globalContextTokens = useSettingsStore((s) => s.settings.ai.maxTokens);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProviderConfig | null>(null);
   const [newProviderType, setNewProviderType] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">("openai");
@@ -127,6 +140,9 @@ export function LLMProviderSettings({
   const [newProviderModel, setNewProviderModel] = useState("");
   const [newProviderTemperature, setNewProviderTemperature] = useState(0.7);
   const [newProviderMaxTokens, setNewProviderMaxTokens] = useState(4096);
+  const [newProviderContextTokens, setNewProviderContextTokens] = useState(8192);
+  const [newProviderContextPreset, setNewProviderContextPreset] = useState<ContextWindowPreset>("8k");
+  const [contextValidationError, setContextValidationError] = useState<string | null>(null);
   const [newProviderSystemPrompt, setNewProviderSystemPrompt] = useState("");
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
@@ -152,6 +168,9 @@ export function LLMProviderSettings({
     setNewProviderModel(provider.model);
     setNewProviderTemperature(provider.temperature ?? 0.7);
     setNewProviderMaxTokens(provider.maxTokens ?? 4096);
+    setNewProviderContextTokens(provider.contextWindowTokens ?? 8192);
+    setNewProviderContextPreset(provider.contextWindowPreset ?? (provider.contextWindowTokens ? "custom" : "8k"));
+    setContextValidationError(null);
     setNewProviderSystemPrompt(provider.systemPrompt ?? "");
     setShowAddForm(true);
 
@@ -172,7 +191,49 @@ export function LLMProviderSettings({
     setNewProviderModel("");
     setNewProviderTemperature(0.7);
     setNewProviderMaxTokens(4096);
+    setNewProviderContextTokens(8192);
+    setNewProviderContextPreset("8k");
+    setContextValidationError(null);
     setNewProviderSystemPrompt("");
+  };
+
+  const selectedModelInfo = (dynamicModels[newProviderType] || []).find((m) => m.id === newProviderModel);
+  const resolvedOllamaContext = resolveConfiguredContextForProvider(
+    {
+      provider: newProviderType,
+      contextWindowTokens: newProviderContextTokens,
+      contextWindowPreset: newProviderContextPreset,
+      maxTokens: newProviderMaxTokens,
+      model: newProviderModel,
+    },
+    newProviderModel,
+    globalContextTokens,
+    selectedModelInfo?.context_length,
+  );
+
+  const persistContextFields = () =>
+    newProviderType === "ollama"
+      ? {
+          contextWindowTokens: resolvedOllamaContext,
+          contextWindowPreset: newProviderContextPreset,
+        }
+      : {};
+
+  const validateOllamaContext = () => {
+    if (newProviderType !== "ollama") {
+      setContextValidationError(null);
+      return true;
+    }
+    if (!isContextComboValid(resolvedOllamaContext, newProviderMaxTokens)) {
+      setContextValidationError(
+        t("llmProvider.validationContextTooSmall", {
+          headroom: String(MIN_PROMPT_HEADROOM),
+        }),
+      );
+      return false;
+    }
+    setContextValidationError(null);
+    return true;
   };
 
   const handleAddProvider = () => {
@@ -190,6 +251,7 @@ export function LLMProviderSettings({
       });
     }
 
+    if (!validateOllamaContext()) return;
     onAddProvider({
       provider: newProviderType,
       name: newProviderName || info.name,
@@ -201,6 +263,7 @@ export function LLMProviderSettings({
       temperature: newProviderTemperature,
       maxTokens: newProviderMaxTokens,
       systemPrompt: newProviderSystemPrompt || undefined,
+      ...persistContextFields(),
     });
   };
 
@@ -215,6 +278,7 @@ export function LLMProviderSettings({
       });
     }
 
+    if (!validateOllamaContext()) return;
     onUpdateProvider(editingProvider.id, {
       name: newProviderName,
       apiKey: newProviderApiKey,
@@ -224,10 +288,12 @@ export function LLMProviderSettings({
       temperature: newProviderTemperature,
       maxTokens: newProviderMaxTokens,
       systemPrompt: newProviderSystemPrompt || undefined,
+      ...persistContextFields(),
     });
   };
 
   const handleSubmit = () => {
+    if (!validateOllamaContext()) return;
     if (isEditing) {
       handleSaveProvider();
     } else {
@@ -241,6 +307,9 @@ export function LLMProviderSettings({
     setNewProviderModel("");
     setNewProviderTemperature(0.7);
     setNewProviderMaxTokens(4096);
+    setNewProviderContextTokens(8192);
+    setNewProviderContextPreset("8k");
+    setContextValidationError(null);
     setNewProviderSystemPrompt("");
     setDynamicModels({});
     setShowAddForm(false);
@@ -254,6 +323,9 @@ export function LLMProviderSettings({
     setNewProviderModel("");
     setNewProviderTemperature(0.7);
     setNewProviderMaxTokens(4096);
+    setNewProviderContextTokens(8192);
+    setNewProviderContextPreset("8k");
+    setContextValidationError(null);
     setNewProviderSystemPrompt("");
     setDynamicModels({});
     setOllamaStatus(null);
@@ -398,7 +470,10 @@ export function LLMProviderSettings({
                           Model: <span className="font-mono">{provider.model}</span>
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Temp: {provider.temperature?.toFixed(1)} · Max tokens: {provider.maxTokens ?? "default"}
+                          Temp: {provider.temperature?.toFixed(1)} · {t("llmProvider.maxResponseTokens")}: {provider.maxTokens ?? "default"}
+                          {provider.provider === "ollama" && provider.contextWindowTokens
+                            ? ` · ${t("llmProvider.contextWindow")}: ${provider.contextWindowTokens}`
+                            : ""}
                         </p>
                         {provider.systemPrompt && (
                           <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">
@@ -698,10 +773,10 @@ export function LLMProviderSettings({
             </div>
           </div>
 
-          {/* Max Tokens */}
+          {/* Max response tokens */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
-              Max Tokens
+              {t("llmProvider.maxResponseTokens")}
             </label>
             <NumericInput
               min={1}
@@ -711,6 +786,67 @@ export function LLMProviderSettings({
               className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
             />
           </div>
+
+          {newProviderType === "ollama" && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                {t("llmProvider.contextWindow")}
+              </label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {(["auto", "4k", "8k", "16k", "32k", "64k", "custom"] as ContextWindowPreset[]).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => {
+                      setNewProviderContextPreset(preset);
+                      if (preset !== "auto" && preset !== "custom") {
+                        setNewProviderContextTokens(CONTEXT_WINDOW_PRESET_VALUES[preset]);
+                      }
+                    }}
+                    className={`px-2 py-1 text-xs rounded-lg border ${
+                      newProviderContextPreset === preset
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border text-foreground"
+                    }`}
+                  >
+                    {preset === "auto" ? t("llmProvider.presetAuto") : preset.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              {newProviderContextPreset !== "auto" && (
+                <NumericInput
+                  min={1024}
+                  max={131072}
+                  step={1024}
+                  value={newProviderContextTokens}
+                  onChange={(value) => {
+                    setNewProviderContextPreset("custom");
+                    setNewProviderContextTokens(value);
+                  }}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
+                />
+              )}
+              {newProviderContextPreset === "auto" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatAutoResolvedLabel(resolvedOllamaContext)}
+                </p>
+              )}
+              {selectedModelInfo?.context_length ? (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t("llmProvider.modelMaximum", { n: String(selectedModelInfo.context_length) })}
+                </p>
+              ) : null}
+              {resolvedOllamaContext > 8192 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  {t("llmProvider.contextWarning")}
+                </p>
+              )}
+              {contextValidationError && (
+                <p className="text-xs text-destructive mt-1">{contextValidationError}</p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">{t("llmProvider.contextWindowHelp")}</p>
+            </div>
+          )}
 
           {/* System Prompt */}
           <div>

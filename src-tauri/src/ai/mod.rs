@@ -10,6 +10,9 @@
 pub mod embedding_config;
 pub mod embeddings;
 pub mod flashcard_generator;
+pub mod llm_policy;
+pub mod ollama_chat;
+pub mod prompt_budget;
 pub mod prompts;
 pub mod provider_wrapper;
 pub mod providers;

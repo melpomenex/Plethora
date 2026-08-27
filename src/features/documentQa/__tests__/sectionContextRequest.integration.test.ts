@@ -96,6 +96,47 @@ describe("Document Q&A focused-section provider boundary", () => {
     },
   );
 
+  it("sends distinct budget and output fields for ollama", async () => {
+    const fullContent = "# Overview\nGeneral material.\n# Evidence\nThe decisive body phrase is forty-two.\n# Appendix\nUnrelated notes.";
+    const { flat } = buildDocumentSections(fullContent);
+    const selected = flat.find((section) => section.title === "Evidence")!;
+    const focused = resolveSectionFocusedContext([selected], flat, fullContent, {
+      documentId: "doc-1",
+      maxTokens: 1000,
+    });
+    expect(focused.ok).toBe(true);
+
+    const documentContext = `Document: Test Paper\nFocused Section(s): ${focused.labels.join(", ")}\n\n${focused.content}`;
+    const request = createDocumentQaRequestContent({
+      documentContext,
+      userQuestion: "What is the decisive result?",
+      focusLabel: focused.labels.join(", "),
+    });
+
+    await chatWithContext(
+      "ollama",
+      "llama3.2",
+      [{ role: "user", content: request.userPromptContent }],
+      {
+        type: "document",
+        documentId: "doc-1",
+        content: request.contextContent,
+        configuredContextTokens: 16384,
+        promptBudgetTokens: 12000,
+        maxOutputTokens: 2048,
+      },
+    );
+
+    expect(mockInvokeCommand).toHaveBeenCalledOnce();
+    const [, args] = mockInvokeCommand.mock.calls[0];
+    expect(args.provider).toBe("ollama");
+    expect(args.context.configuredContextTokens).toBe(16384);
+    expect(args.context.maxOutputTokens).toBe(2048);
+    expect(args.context.promptBudgetTokens).toBe(12000);
+    expect(args.maxTokens).toBe(2048);
+    expect(args.maxTokens).not.toBe(16384);
+  });
+
   it("keeps a non-opening EPUB chapter isolated for card creation", () => {
     const epubText = "<h1>Chapter One</h1><p>Opening material.</p><h1>Chapter Two</h1><p>Unique EPUB card source.</p><h1>Chapter Three</h1><p>Closing material.</p>";
     const { flat } = buildDocumentSections(epubText);

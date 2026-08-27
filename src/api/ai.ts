@@ -53,6 +53,8 @@ export interface LocalSettings {
   timeout_secs: number;
   openai_base_url?: string;
   deepseek_base_url?: string;
+  ollama_context_tokens?: number;
+  ollama_model_context_windows?: Record<string, number>;
 }
 
 /**
