@@ -234,6 +234,15 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
   };
 
   // Group themes by variant
+  const jellyfishThemes = themes
+    .filter((t) =>
+      t.effects?.backgroundAnimation === 'jellyfish' &&
+      (t.id === 'deep-ocean-glow' ||
+        t.id === 'bioluminescent-flow' ||
+        t.id === 'deep-sea-neon' ||
+        t.id === 'abyssal-dream'),
+    )
+    .sort(themeSort);
   const darkThemes = themes.filter((t) => t.variant === "dark").sort(themeSort);
   const lightThemes = themes.filter((t) => t.variant === "light").sort(themeSort);
 
@@ -275,6 +284,29 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Jellyfish animated family */}
+          {jellyfishThemes.length > 0 && (
+            <section>
+              <h3
+                className="text-sm font-semibold mb-3 uppercase tracking-wide flex items-center gap-1.5"
+                style={{ color: theme.colors.textSecondary }}
+              >
+                <Sparkle className="w-3.5 h-3.5" />
+                Jellyfish
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {jellyfishThemes.map((t) => (
+                  <ThemeGalleryCard
+                    key={t.id}
+                    theme={t}
+                    isSelected={theme.id === t.id}
+                    onClick={() => handleSelectTheme(t.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Light Themes */}
           {lightThemes.length > 0 && (
             <section>

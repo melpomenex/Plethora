@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useBattery } from "../../contexts/BatteryContext";
+import { runJellyfishAnimation } from "./ambient/jellyfishRenderer";
+import { resolveJellyfishPalette } from "../../themes/jellyfishPalettes";
 
 /* ------------------------------------------------------------------ */
 /*  Animation type registry – each key is a self-contained renderer   */
@@ -25,6 +27,10 @@ type AnimCtx = {
   frame: (id: number) => void;
   /** Returns true if enough time has elapsed to render a frame */
   shouldRender: (timestamp: number) => boolean;
+  /** Shared ambient renderer palette (jellyfish family). */
+  ambientPaletteId?: string;
+  /** Draw one static frame without RAF (reduced motion / animations off). */
+  staticOnly?: boolean;
 };
 
 type AnimFn = (a: AnimCtx) => void;
@@ -1315,6 +1321,21 @@ const _ANIM: Record<string, AnimFn> = {
       frame(requestAnimationFrame(draw));
     })();
   },
+
+  /* ── jellyfish (shared palette-driven ambient family) ───────── */
+  jellyfish({ cv, ctx, density, frame, shouldRender, onResize, ambientPaletteId, staticOnly }) {
+    const palette = resolveJellyfishPalette(ambientPaletteId);
+    runJellyfishAnimation({
+      cv,
+      ctx,
+      density,
+      palette,
+      staticOnly: staticOnly ?? false,
+      frame,
+      shouldRender,
+      onResize,
+    });
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -1337,6 +1358,7 @@ export function ThemeBackdrop() {
   const [isVisible, setIsVisible] = useState(!document.hidden);
 
   const animation = theme.effects?.backgroundAnimation;
+  const ambientPaletteId = theme.effects?.ambientPaletteId ?? theme.id;
   const { onBattery, battery: _battery } = useBattery();
   const density = settings.animationFrequency;
   // Reduce density when on battery (50% reduction)
@@ -1358,6 +1380,7 @@ export function ThemeBackdrop() {
     if (typeof window === "undefined" || !window.matchMedia) return false;
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   });
+  const staticOnly = !animationsEnabled || prefersReducedMotion;
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -1474,6 +1497,8 @@ export function ThemeBackdrop() {
       onResize(fn: () => void) { animationResizeFnRef.current = fn; },
       frame(id: number) { animIdRef.current = id; },
       shouldRender,
+      ambientPaletteId,
+      staticOnly,
     });
 
     return () => {
@@ -1487,12 +1512,22 @@ export function ThemeBackdrop() {
       document.querySelectorAll(".anim-flash").forEach(e => e.remove());
       curTypeRef.current = null;
     };
-  }, [animation, density, suspended, isVisible, effectiveDensity]);
+  }, [
+    animation,
+    ambientPaletteId,
+    density,
+    suspended,
+    isVisible,
+    effectiveDensity,
+    animationsEnabled,
+    prefersReducedMotion,
+    staticOnly,
+  ]);
 
-  // Master gate: the user (or the OS reduced-motion preference) can turn all
-  // theme animation off. On native mobile `animationsEnabled` defaults to
-  // false, which replaces the old unconditional hard-skip.
-  if (!animation || suspended || !animationsEnabled || prefersReducedMotion) return null;
+  if (!animation || suspended) return null;
+  // Non-jellyfish themes stay off when motion is disabled; jellyfish shows a static frame.
+  if (!animationsEnabled && animation !== 'jellyfish') return null;
+  if (prefersReducedMotion && animation !== 'jellyfish') return null;
 
   return (
     <div aria-hidden="true" className="theme-backdrop">

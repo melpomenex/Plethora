@@ -10,7 +10,19 @@ import { legacyIndexThemes } from './legacyIndex';
 // chunk and defeat ThemeContext's lazy import of the full registry).
 // Re-exported here so this module stays the single public theme registry.
 import { milkyMatchaTheme, superGameBroTheme, biolumeAbyssTheme } from './fallback';
+import {
+  abyssalDreamTheme,
+  bioluminescentFlowTheme,
+  deepOceanGlowTheme,
+  deepSeaNeonTheme,
+} from './jellyfishThemes';
 export { milkyMatchaTheme, superGameBroTheme, biolumeAbyssTheme };
+export {
+  deepOceanGlowTheme,
+  bioluminescentFlowTheme,
+  deepSeaNeonTheme,
+  abyssalDreamTheme,
+};
 
 // Modern Dark Theme
 export const modernDarkTheme: Theme = {
@@ -4816,6 +4828,10 @@ export const builtInThemes: Theme[] = [
   neonPulseTheme,
   emberDuskTheme,
   abyssalDepthsTheme,
+  deepOceanGlowTheme,
+  bioluminescentFlowTheme,
+  deepSeaNeonTheme,
+  abyssalDreamTheme,
   pearlHazeTheme,
   goldenHourTheme,
   seafoamBreezeTheme,
