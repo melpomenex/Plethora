@@ -484,4 +484,31 @@ mod tests {
         // Math
         assert!(text.contains("Mathematical: ∑(x) = ∫ f(t) dt ≠ ∞."));
     }
+
+    #[test]
+    fn large_style_block_extracts_quickly() {
+        // Regression: the <style>/<script> skipper once lowercased the whole
+        // accumulated buffer per char (O(N²)), hanging imports on books with
+        // large embedded stylesheets (e.g. a 13 MB Victory Belt epub with
+        // ~100 KB CSS blocks). 400 KB of CSS must finish near-instantly.
+        let css: String = "p { margin: 0; text-indent: 1.5em; font-family: Athelas; }\n".repeat(6_500);
+        let html = format!(
+            "<html><head><style type=\"text/css\">{}</style></head>\
+             <body><p>before</p><p>after</p></body></html>",
+            css
+        );
+
+        let start = std::time::Instant::now();
+        let text = extract_text_from_html(&html);
+        let elapsed = start.elapsed();
+
+        assert!(text.contains("before"));
+        assert!(text.contains("after"));
+        assert!(!text.contains("margin"), "CSS must not leak into text");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "extraction took {:?} — quadratic path regression?",
+            elapsed
+        );
+    }
 }
