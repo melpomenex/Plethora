@@ -64,6 +64,7 @@ mod screenshot;
 // Android/iOS never compile the tray code.
 #[cfg(desktop)]
 mod tray;
+mod external_open;
 
 mod epub_server;
 mod media_server;
@@ -839,7 +840,44 @@ pub fn run() {
         }
     }
 
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance must register before every other plugin (upstream requirement).
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, argv, cwd| {
+                external_open::on_second_instance(app, argv, cwd);
+            },
+        ));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static RECOVERY_COUNT: AtomicU32 = AtomicU32::new(0);
+        builder = builder.on_web_content_process_terminate(move |webview| {
+            let count = RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            let label = webview.label().to_string();
+            tracing::warn!(
+                "[WebviewRecovery] content process terminated: {}",
+                label
+            );
+            let app = webview.app_handle();
+            let _ = app.emit(
+                "webview-content-process-terminated",
+                serde_json::json!({
+                    "label": label,
+                    "recoveryCount": count,
+                }),
+            );
+            if let Err(err) = webview.reload() {
+                tracing::error!("[WebviewRecovery] reload failed: {err}");
+            }
+        });
+    }
+
+    builder = builder
         // Logging — registered first so every other plugin's init is captured.
         // On Android, TargetKind::Stdout is auto-routed through android_logger
         // to Logcat (see tauri-plugin-log src/lib.rs ~line 589), which is what
@@ -1140,6 +1178,7 @@ pub fn run() {
             // code that might set one (e.g. database recovery) runs.
             startup_notice::register(&app_handle);
             app.manage(BackendReadyState::default());
+            app.manage(external_open::PendingExternalOpens::default());
 
             let result: anyhow::Result<()> = tauri::async_runtime::block_on(async {
                 // Instantly register critical managed states with lazy/placeholder values.
@@ -1584,6 +1623,9 @@ pub fn run() {
                     {
                         let _ = window.hide_menu();
                     }
+
+                    #[cfg(desktop)]
+                    external_open::queue_startup_args(&app_handle);
                 }
 
                 app.state::<BackendReadyState>().mark_ready();
@@ -1626,6 +1668,7 @@ pub fn run() {
             commands::set_active_language_profile,
             commands::associate_language_profile_content,
             commands::get_language_profile_associations,
+            external_open::take_pending_external_opens,
             commands::resolve_language_profile_context,
             commands::get_language_profile_suggestion,
             commands::dismiss_language_profile_suggestion,
@@ -2383,6 +2426,9 @@ pub fn run() {
             sync::sync_pull,
             sync::sync_generate_recovery_key,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            external_open::on_run_event(&app_handle, &event);
+        });
 }

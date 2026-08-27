@@ -5,24 +5,19 @@
  * useDocumentStore, and creates notifications with immediate "Open" action.
  */
 
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   completePendingShares,
   fetchPendingShares,
-  mapManifestToProvenance,
   registerShareListener,
   retryPendingShares,
 } from "../lib/shareTarget";
+import { processSharedBatch } from "../lib/importRouting";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
-import { createDocument, updateDocument } from "../api/documents";
-import { DocumentViewer } from "../components/viewer/DocumentViewer";
-import { TextT } from "@phosphor-icons/react";
 import type { SharedBatch, SharedItem } from "../types/share";
-import { ArticleImportError } from "../utils/articleImport/errors";
-import { urlDetectorUtils } from "./useURLDetector";
 
 export function useShareTarget() {
   const toast = useToast();
@@ -30,182 +25,26 @@ export function useShareTarget() {
   const isProcessingRef = useRef(false);
 
   useEffect(() => {
-    /**
-     * Route one normalized batch through the import pipeline. Resolves with
-     * `{ imported, failed }` so claimed staged batches (which carry an `id`)
-     * can be acknowledged or released for retry exactly once.
-     */
-    const handleBatch = async (
-      batch: SharedBatch
-    ): Promise<{ imported: number; failed: number }> => {
+    const deps = {
+      t,
+      toast,
+      getDocumentStore: () => useDocumentStore.getState(),
+      getTabsStore: () => useTabsStore.getState(),
+      openExternal: async (url: string) => {
+        const { openExternal } = await import("../lib/tauri");
+        await openExternal(url);
+      },
+    };
+
+    const handleBatch = async (batch: SharedBatch) => {
       if (!batch.items || batch.items.length === 0) return { imported: 0, failed: 0 };
       if (isProcessingRef.current) return { imported: 0, failed: 0 };
       isProcessingRef.current = true;
-
-      const { importFromUrl, openTwitterThread, importFromFiles, loadDocuments } =
-        useDocumentStore.getState();
-      const addTab = useTabsStore.getState().addTab;
-
-      const toastId = toast.info(
-        t("mainLayout.importingSharedLink"),
-        batch.items.length > 1
-          ? `${batch.items.length} items`
-          : batch.items[0].title || batch.items[0].url || batch.items[0].fileName || "Shared content",
-        { duration: 0 }
-      );
-
-      const importedDocs: any[] = [];
-      let typedUrlFailures = 0;
-      let failedCount = 0;
-
       try {
-        // 1. Process URLs
-        const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
-        for (const item of urlItems) {
-          if (!item.url) continue;
-          try {
-            if (urlDetectorUtils.isTwitterURL(item.url)) {
-              const doc = await openTwitterThread(item.url);
-              importedDocs.push(doc);
-            } else {
-              const doc = await importFromUrl(item.url);
-              importedDocs.push(doc);
-            }
-          } catch (e) {
-            failedCount += 1;
-            console.error("[Share Target] Failed to import shared URL:", item.url, e);
-            // Typed failure: show the reason with a retry action (or "Open
-            // original" for non-retriable extraction failures). No document
-            // was created — the user decides what happens next.
-            if (e instanceof ArticleImportError) {
-              typedUrlFailures += 1;
-              const reason = t(`shareImport.error.${e.code}`);
-              const openOriginal = () => {
-                void import("../lib/tauri").then(({ openExternal }) =>
-                  openExternal(item.url as string)
-                );
-              };
-              toast.error(t("mainLayout.importFailed"), reason, {
-                duration: 12000,
-                action: e.retriable
-                  ? {
-                      label: t("common.retry"),
-                      onClick: () => {
-                        importFromUrl(item.url as string)
-                          .then(() => void loadDocuments())
-                          .catch(() => undefined);
-                      },
-                    }
-                  : e.openOriginalUseful
-                    ? { label: t("webImport.openOriginal"), onClick: openOriginal }
-                    : undefined,
-              });
-            }
-          }
-        }
-
-        // 2. Process staged files
-        const fileItems = batch.items.filter(
-          (i) => i.type === "file" && i.filePath
-        );
-        if (fileItems.length > 0) {
-          const paths = fileItems.map((f) => f.filePath as string);
-          try {
-            const docs = await importFromFiles(paths);
-            importedDocs.push(...docs);
-          } catch (e) {
-            failedCount += fileItems.length;
-            console.error("[Share Target] Failed to import shared files:", paths, e);
-          }
-        }
-
-        // 3. Process text snippets / notes
-        const textItems = batch.items.filter(
-          (i) => i.type === "text" && i.text
-        );
-        for (const item of textItems) {
-          if (!item.text) continue;
-          try {
-            const title = item.title || item.text.slice(0, 50).trim() || "Shared Note";
-            const doc = await createDocument(
-              title,
-              `note://${Date.now()}`,
-              "markdown"
-            );
-            // Attach share provenance (additive metadata merge) when the
-            // batch carries a staged-manifest id.
-            if (batch.id) {
-              try {
-                const provenance = mapManifestToProvenance(
-                  {
-                    id: batch.id,
-                    receivedAt: batch.timestamp,
-                    items: [{ kind: "text", text: item.text, title }],
-                  },
-                  "share_extension"
-                );
-                await updateDocument(doc.id, {
-                  ...doc,
-                  metadata: { ...doc.metadata, ...provenance },
-                } as any);
-              } catch (metaErr) {
-                console.warn("[Share Target] Failed to persist share provenance:", metaErr);
-              }
-            }
-            importedDocs.push(doc);
-          } catch (e) {
-            failedCount += 1;
-            console.error("[Share Target] Failed to create document from shared text:", e);
-          }
-        }
-
-        toast.dismiss(toastId);
-
-        if (importedDocs.length > 0) {
-          const firstDoc = importedDocs[0];
-          toast.success(
-            t("mainLayout.importedSuccessfully"),
-            importedDocs.length === 1
-              ? firstDoc.title || t("mainLayout.sharedLinkAdded")
-              : `${importedDocs.length} documents imported`,
-            {
-              duration: 10000,
-              action: {
-                label: t("mainLayout.open"),
-                onClick: () => {
-                  addTab({
-                    title: firstDoc.title,
-                    icon: React.createElement(TextT, { className: "w-4 h-4 text-muted-foreground" }),
-                    type: "document-viewer",
-                    content: DocumentViewer,
-                    closable: true,
-                    data: { documentId: firstDoc.id },
-                  });
-                },
-              },
-            }
-          );
-          void loadDocuments();
-        } else if (typedUrlFailures === 0) {
-          // Typed failures already showed their own actionable toast.
-          toast.error(
-            t("mainLayout.importFailed"),
-            "Could not process shared content"
-          );
-        }
-      } catch (err) {
-        failedCount += batch.items.length;
-        toast.dismiss(toastId);
-        console.error("[Share Target] Failed to process shared batch:", err);
-        toast.error(
-          t("mainLayout.importFailed"),
-          err instanceof Error ? err.message : String(err)
-        );
+        return await processSharedBatch(batch, deps);
       } finally {
         isProcessingRef.current = false;
       }
-
-      return { imported: importedDocs.length, failed: failedCount };
     };
 
     // Check PWA query parameter in hash route: #/?shared_url=... or #/?shared_text=...
@@ -239,13 +78,6 @@ export function useShareTarget() {
 
     const unsubscribe = registerShareListener(handleBatch);
 
-    // Cold-start drain: consume batches queued before the listener was
-    // registered (Android pending queue / iOS App Group staged manifests).
-    // The native side returns-and-clears, so this never double-delivers with
-    // registerShareListener's own pending-batch return. Claimed staged
-    // batches (id present) are completed on success or released for a
-    // bounded retry with a visible notice when items failed (e.g. offline
-    // URL fetch); the Rust reader enforces the retry bound.
     void fetchPendingShares().then(async (batches) => {
       for (const batch of batches) {
         const result = await handleBatch(batch);
@@ -257,7 +89,7 @@ export function useShareTarget() {
           toast.warning(
             t("shareTarget.pendingSharesTitle"),
             t("shareTarget.pendingSharesMessage"),
-            { duration: 8000 }
+            { duration: 8000 },
           );
         }
       }

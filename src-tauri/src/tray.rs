@@ -28,11 +28,6 @@
 //! not intercept `CloseRequested` and does not convert close into
 //! minimize-to-tray. The tray only adds convenience actions (Show/Hide/Quit);
 //! Quit calls [`AppHandle::exit`], which terminates the process.
-//!
-//! ## Known limitation
-//!
-//! Single-instance handling is not implemented, so launching a second copy
-//! spawns a second process (unchanged from before this change).
 
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
