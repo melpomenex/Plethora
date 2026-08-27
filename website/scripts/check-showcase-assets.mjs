@@ -89,6 +89,36 @@ export function checkShowcaseAssets() {
   if (totalBytes > budgets.maxVersionedAssetSetBytes) {
     errors.push(`showcase set is ${totalBytes} bytes, over ${budgets.maxVersionedAssetSetBytes}`);
   }
+
+  // Hero transfer caps (refine-useplethora-visual-product-storytelling D11):
+  // per-image cap on the largest above-the-fold source and a total cap for
+  // everything the homepage hero loads eagerly.
+  const basePath = String(active.assetBasePath);
+  for (const [name, cap] of Object.entries(budgets.perImageCaps ?? {})) {
+    const file = resolve(websiteRoot, 'public', basePath.replace(/^\//, ''), name);
+    if (!existsSync(file)) continue; // variant absent from this set (e.g. 480 pending)
+    const bytes = statSync(file).size;
+    if (bytes > cap) {
+      errors.push(`${name} is ${bytes} bytes, over the ${cap}-byte hero cap`);
+    }
+  }
+  if (Array.isArray(budgets.aboveTheFoldImages) && Number.isFinite(budgets.maxAboveTheFoldBytes)) {
+    let foldBytes = 0;
+    let missing = 0;
+    for (const name of budgets.aboveTheFoldImages) {
+      const file = resolve(websiteRoot, 'public', basePath.replace(/^\//, ''), name);
+      if (!existsSync(file)) {
+        missing += 1;
+        continue;
+      }
+      foldBytes += statSync(file).size;
+    }
+    if (missing === 0 && foldBytes > budgets.maxAboveTheFoldBytes) {
+      errors.push(
+        `above-the-fold hero images total ${foldBytes} bytes, over ${budgets.maxAboveTheFoldBytes}`,
+      );
+    }
+  }
   return { ok: errors.length === 0, errors, totalBytes, fileCount: files.size };
 }
 

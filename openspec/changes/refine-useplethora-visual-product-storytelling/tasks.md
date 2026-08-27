@@ -64,9 +64,9 @@
 
 ## 8. Screenshot/asset quality (P2)
 
-- [ ] 8.1 Audit current captures against D11 quality checklist (dimensions, no debug UI, consistent library/theme, DPI headroom at new render sizes); record findings.
-- [ ] 8.2 If phone softness confirmed: request/add 480px mobile breakpoint via existing marketing capture pipeline (scripts/marketing + manifest regeneration), preserving hash/provenance policy; otherwise document skip rationale.
-- [ ] 8.3 Update `scripts/showcase-budgets.json` + check-dist caps (hero AVIF ≤140KB @1440w, above-the-fold total cap); verify CI passes.
+- [x] 8.1 Audit current captures against D11 quality checklist (dimensions, no debug UI, consistent library/theme, DPI headroom at new render sizes); record findings.
+- [x] 8.2 If phone softness confirmed: request/add 480px mobile breakpoint via existing marketing capture pipeline (scripts/marketing + manifest regeneration), preserving hash/provenance policy; otherwise document skip rationale.
+- [x] 8.3 Update `scripts/showcase-budgets.json` + check-dist caps (hero AVIF ≤140KB @1440w, above-the-fold total cap); verify CI passes.
 
 ## 9. Cross-cutting validation + rollout evidence
 
