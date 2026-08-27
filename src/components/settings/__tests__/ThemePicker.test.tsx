@@ -43,8 +43,8 @@ describe("ThemePicker", () => {
     // lazily loads.
     expect(await screen.findByText("Dracula")).toBeInTheDocument();
     expect(screen.getByText("Midnight")).toBeInTheDocument();
-    // The panel reports the full count (172 built-in + any custom themes).
-    expect(screen.getAllByText("172 themes").length).toBeGreaterThan(0);
+    // The panel reports the full count (176 built-in + any custom themes).
+    expect(screen.getAllByText("177 themes").length).toBeGreaterThan(0);
   });
 
   it("filters the list by search text", async () => {
@@ -83,6 +83,7 @@ describe("ThemePicker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Animated" }));
     expect(screen.getByText("Neon Grid")).toBeInTheDocument();
+    expect(screen.getByText("Deep Ocean Glow")).toBeInTheDocument();
     expect(screen.queryByText("Dracula")).not.toBeInTheDocument();
   });
 

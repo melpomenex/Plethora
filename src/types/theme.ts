@@ -96,6 +96,8 @@ export interface ThemeShadows {
 
 export interface ThemeEffects {
   backgroundAnimation?: string;
+  /** Palette key for shared ambient renderers (e.g. jellyfish family). */
+  ambientPaletteId?: string;
 }
 
 export interface Theme {
@@ -189,6 +191,10 @@ export const BUILTIN_THEMES = {
   SEAFOAM_BREEZE: 'seafoam-breeze',
   ROSE_QUARTZ: 'rose-quartz',
   ALPINE_SNOW: 'alpine-snow',
+  DEEP_OCEAN_GLOW: 'deep-ocean-glow',
+  BIOLUMINESCENT_FLOW: 'bioluminescent-flow',
+  DEEP_SEA_NEON: 'deep-sea-neon',
+  ABYSSAL_DREAM: 'abyssal-dream',
 } as const;
 
 export type BuiltInThemeId = typeof BUILTIN_THEMES[keyof typeof BUILTIN_THEMES];
