@@ -95,6 +95,7 @@ EOF
     else
       echo "Non-Tauri dev server detected on 127.0.0.1:$port — restarting with PLETHORA_TAURI=1"
       stop_dev_server
+      bash scripts/clean-frontend-artifacts.sh
       npm run dev -- --host 127.0.0.1 --port "$port" --strictPort &
       vite_pid=$!
       started_vite=1

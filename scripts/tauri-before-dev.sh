@@ -28,6 +28,7 @@ if dev_server_ready; then
     lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true
     sleep 0.5
   fi
+  bash scripts/clean-frontend-artifacts.sh
 fi
 
 export PLETHORA_TAURI=1
