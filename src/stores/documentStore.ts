@@ -139,6 +139,8 @@ async function persistWebArticleOutcome(
       selected: diagnostics.selected,
       renderedFallbackUsed: diagnostics.renderedFallbackUsed,
       renderedFallbackReason: diagnostics.renderedFallbackReason,
+      resourceBase: diagnostics.resourceBase,
+      media: diagnostics.media,
       normalizationWarnings: diagnostics.normalizationWarnings,
       sanitization: diagnostics.sanitization,
       finalTextChars: diagnostics.finalTextChars,
@@ -158,6 +160,7 @@ async function persistWebArticleOutcome(
         reused: diagnostics.assets.reused,
         failed: diagnostics.assets.failed,
         rejected: diagnostics.assets.rejected,
+        degradedToRemote: diagnostics.assets.degradedToRemote,
         totalBytes: diagnostics.assets.totalBytes,
       },
     };
@@ -1667,8 +1670,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (!existing || existing.fileType !== "html") {
       throw new Error("Document is not an HTML article eligible for canonical re-import");
     }
+    // Repair-URL precedence (design D6): the resolved (final) document URL
+    // first — a versioned document re-imports from the version it came from
+    // rather than silently jumping to latest — then the canonical identity
+    // URL, then the stored arXiv HTML/abs URLs. arXiv bare /abs/ stays valid
+    // for versionless documents (latest semantics).
+    const webArticle = existing.metadata?.webArticle;
     const repairUrl =
-      existing.metadata?.webArticle?.canonicalUrl ??
+      webArticle?.resolvedUrl ??
+      webArticle?.canonicalUrl ??
       existing.metadata?.htmlUrl ??
       existing.metadata?.arxivUrl ??
       existing.metadata?.url ??
@@ -1719,6 +1729,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
                     reused: outcome.diagnostics.assets.reused,
                     failed: outcome.diagnostics.assets.failed,
                     rejected: outcome.diagnostics.assets.rejected,
+                    degradedToRemote: outcome.diagnostics.assets.degradedToRemote,
                     totalBytes: outcome.diagnostics.assets.totalBytes,
                   },
                 }

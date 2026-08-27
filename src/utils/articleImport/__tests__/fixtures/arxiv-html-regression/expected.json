@@ -21,11 +21,18 @@
   "expectedExtractor": "site:arxiv.org",
   "confidenceAtLeast": "medium",
   "mustContainImageUrls": [
-    "https://arxiv.org/html/2410.07524v1/moe-routing.svg"
+    "https://arxiv.org/html/2410.07524v1/upcycle.png",
+    "https://arxiv.org/html/2410.07524v1/moe-routing.svg",
+    "https://arxiv.org/static/base/icons/arxiv-logo.png"
+  ],
+  "mustNotContainImageUrls": [
+    "https://arxiv.org/html/2410.07524v1/2410.07524v1/moe-routing.svg",
+    "https://arxiv.org/html/2410.07524v1/2410.07524v1/upcycle.png",
+    "data:text/html"
   ],
   "expectedFigureCaptions": [
     "Figure 1: Converting pre-trained dense checkpoint into Mixture of Experts.",
     "Table 1: Wide benchmark comparison."
   ],
-  "minImages": 1
+  "minImages": 3
 }

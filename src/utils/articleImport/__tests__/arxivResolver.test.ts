@@ -19,7 +19,16 @@ describe('arxivResolver', () => {
     expect(resolved.canonicalUrl).toBe('https://arxiv.org/abs/2410.07524v1');
   });
 
-  it('adds trailing slash to html asset base URLs', () => {
+  it('returns the fetch URL verbatim as the import asset base (no slash hack)', () => {
+    const resolved = resolveImportSource('https://arxiv.org/abs/2410.07524v1');
+    expect(resolved.assetBaseUrl).toBe('https://arxiv.org/html/2410.07524v1');
+    expect(resolved.assetBaseUrl.endsWith('/')).toBe(false);
+    // Versionless entry points keep their verbatim shape too.
+    const versionless = resolveImportSource('2410.07524');
+    expect(versionless.assetBaseUrl).toBe('https://arxiv.org/html/2410.07524');
+  });
+
+  it('keeps arxivHtmlAssetBase only as the legacy reader repair', () => {
     expect(arxivHtmlAssetBase('https://arxiv.org/html/2410.07524v1')).toBe(
       'https://arxiv.org/html/2410.07524v1/'
     );

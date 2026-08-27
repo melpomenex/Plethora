@@ -119,12 +119,10 @@ export function processPlainTextContent(rawText: string, title: string): string 
     .join('')}</article></body></html>`;
 }
 
-/** Resolve a canonical/source URL to the base used for relative image and asset URLs. */
+/** Resolve a document URL to the base used for relative image and asset URLs
+ * at display time. Generic candidates pass through VERBATIM (hash stripped
+ * only) — standards URL semantics, no host-specific path edits. */
 export function resolveHtmlReaderBaseUrl(candidate: string): string {
-  const arxiv = parseArxivInput(candidate);
-  if (arxiv) {
-    return arxivHtmlAssetBase(arxiv.htmlUrl);
-  }
   try {
     const url = new URL(candidate);
     url.hash = '';
@@ -140,24 +138,43 @@ export function resolveHtmlReaderBaseUrl(candidate: string): string {
   }
 }
 
-/** Pick the best source URL for display-time HTML repair on a stored document. */
-export function resolveDocumentHtmlBaseUrl(doc: {
-  filePath?: string | null;
-  metadata?: {
-    source?: string;
-    htmlUrl?: string;
-    webArticle?: { canonicalUrl?: string };
-  } | null;
-}): string {
+/** Pick the base for display-time repair of residual relative URLs on a
+ * stored document. Precedence (fix-imported-html-resource-resolution D4):
+ * the persisted resolved (final) document URL, then the stored arXiv HTML
+ * URL, then the original source URL, then the file path — the canonical
+ * identity URL is demoted to a last-resort fallback because it declares
+ * article identity, not where assets were served from.
+ *
+ * `legacy-arxiv` documents are the one exception: that corpus was imported
+ * with old bare-relative markup that resolves under the historical
+ * trailing-slash arXiv base, so they keep that repair (D4 exception). */
+export function resolveDocumentHtmlBaseUrl(
+  doc: {
+    filePath?: string | null;
+    metadata?: {
+      source?: string;
+      htmlUrl?: string;
+      webArticle?: { canonicalUrl?: string; resolvedUrl?: string };
+    } | null;
+  },
+  readerKind?: string
+): string {
   const candidates = [
-    doc.metadata?.webArticle?.canonicalUrl,
+    doc.metadata?.webArticle?.resolvedUrl,
     doc.metadata?.htmlUrl,
     doc.metadata?.source,
     doc.filePath,
+    doc.metadata?.webArticle?.canonicalUrl,
   ].filter((value): value is string => Boolean(value?.trim()));
 
   for (const candidate of candidates) {
     if (/^https?:\/\//i.test(candidate)) {
+      if (readerKind === 'legacy-arxiv') {
+        const arxiv = parseArxivInput(candidate);
+        if (arxiv) {
+          return arxivHtmlAssetBase(arxiv.htmlUrl);
+        }
+      }
       return resolveHtmlReaderBaseUrl(candidate);
     }
   }
@@ -213,14 +230,22 @@ export function processHtmlContent(rawHtml: string, baseUrl: string, title: stri
         image.getAttribute('data-lazy-src'),
         image.getAttribute('data-original'),
         image.getAttribute('src'),
-      ].find((value) => value && !value.startsWith('data:'));
+      ]
+        .map((value) => value?.trim())
+        .find((value) => value && !value.startsWith('data:'));
 
-      if (candidate) {
-        try {
-          image.setAttribute('src', new URL(candidate, baseHref).toString());
-        } catch {
-          image.setAttribute('src', candidate);
-        }
+      // No usable candidate after lazy-attribute resolution: remove the img
+      // instead of leaving it (or pointing it at the base) — a source-less
+      // img renders the WebView's broken-image placeholder.
+      if (!candidate) {
+        image.remove();
+        return;
+      }
+
+      try {
+        image.setAttribute('src', new URL(candidate, baseHref).toString());
+      } catch {
+        image.setAttribute('src', candidate);
       }
 
       // Captured srcset values often retain lazy placeholders or candidates

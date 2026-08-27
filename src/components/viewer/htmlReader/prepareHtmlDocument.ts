@@ -25,8 +25,13 @@ function safeBaseUrl(value: string): string {
 }
 
 function safeImageUrl(value: string, baseUrl: string): string | null {
+  // An empty/whitespace src must NEVER resolve against the base: URL('')
+  // yields the base itself, pointing the <img> at an HTML page and painting
+  // the WebView's broken-image placeholder. No usable source ⇒ no image.
+  const trimmed = value.trim();
+  if (!trimmed) return null;
   try {
-    const url = new URL(value, baseUrl);
+    const url = new URL(trimmed, baseUrl);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     if (isBlockedMediaHost(url.toString())) return null;
     return url.toString();

@@ -23,7 +23,10 @@ export interface SourceResolution {
   classification: SourceClassification;
   /** URL passed to `fetchArticleSource`. */
   fetchUrl: string;
-  /** Base for relative image/asset resolution (trailing slash when required). */
+  /** Base for relative image/asset resolution — the fetch URL VERBATIM. The
+   * pipeline re-anchors this after fetch via `resolveEffectiveResourceBase`
+   * (doc `<base href>` → final URL → requested URL); never a slash-mutated
+   * or canonical-metadata URL. */
   assetBaseUrl: string;
   canonicalUrl: string;
   arxiv?: ArxivIdentity;
@@ -81,7 +84,12 @@ function buildIdentity(paperId: string, version: number | undefined, sourceUrl: 
   };
 }
 
-/** Ensure arXiv HTML asset base URLs end with `/` for path-relative images. */
+/** Legacy reader repair: arXiv pages imported before the canonical pipeline
+ * stored bare-relative image srcs that only resolve under a trailing-slash
+ * base. RETAINED ONLY for `legacy-arxiv` documents at display time — the
+ * import path resolves resources against the verbatim document URL (see
+ * resourceBase.ts; current arXiv markup uses version-prefixed srcs where the
+ * slash hack doubles the version directory into a 404). */
 export function arxivHtmlAssetBase(htmlUrl: string): string {
   try {
     const u = new URL(htmlUrl);
@@ -131,7 +139,10 @@ export function resolveImportSource(normalizedUrl: string): SourceResolution {
   }
 
   const fetchUrl = arxiv.htmlUrl;
-  const assetBaseUrl = arxivHtmlAssetBase(fetchUrl);
+  // Verbatim: current arXiv markup uses version-prefixed relative srcs that
+  // resolve correctly against the plain document URL. The historical
+  // trailing-slash base doubled the version directory into 404s.
+  const assetBaseUrl = fetchUrl;
   return {
     classification: 'arxiv',
     fetchUrl,

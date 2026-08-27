@@ -41,6 +41,11 @@ import { normalizeArticle } from './articleNormalizer';
 import { normalizeImages } from './imageNormalizer';
 import { sanitizeArticleHtml } from './sanitizer';
 import { ingestArticleAssets } from './articleAssetIngestor';
+import {
+  docBaseHref,
+  resolveEffectiveResourceBase,
+  stripBaseElements,
+} from './resourceBase';
 import { getRenderedCapture, RenderedCaptureError } from './renderedFallback/captureClient';
 import { siteNameFromUrl } from './urlNormalizer';
 import { resolveImportSource } from './arxivResolver';
@@ -216,14 +221,28 @@ export async function importArticle(
   timer.mark('parse', parseStart);
   const sourceWords = countWords(normalizeWhitespace(doc.body?.textContent ?? ''));
 
+  // 3b. Effective resource base (design D1/D2): safe doc `<base href>` →
+  // final URL verbatim → requested URL. Canonical/og/JSON-LD URLs are article
+  // identity, never resource bases. `<base>` elements are stripped before
+  // engine extraction and persistence — engines infer their own bases and
+  // persisted HTML must never depend on one.
+  const baseHref = docBaseHref(doc);
+  stripBaseElements(doc);
+  const resourceBase = resolveEffectiveResourceBase({
+    requestedUrl: source.fetchUrl,
+    finalUrl: fetched.finalUrl,
+    docBaseHref: baseHref,
+  });
+  const assetBaseUrl = resourceBase.base;
+
   // 4. Metadata (before the original DOM is consumed).
   const metadataStart = performance.now();
   const meta = extractPageMetadata(doc);
   timer.mark('metadata', metadataStart);
 
   const metadataCanonical = resolveCanonicalUrl(meta, fetched.finalUrl, normalized.normalized);
+  // Canonical URL is identity-only (dedupe/provenance); never a resource base.
   const canonicalUrl = source.arxiv ? source.canonicalUrl : metadataCanonical;
-  const assetBaseUrl = source.arxiv ? source.assetBaseUrl : metadataCanonical;
   const hostname =
     source.arxiv ? 'arXiv' : (siteNameFromUrl(fetched.finalUrl) ?? siteNameFromUrl(normalized.normalized) ?? '');
 
@@ -232,6 +251,7 @@ export async function importArticle(
     canonicalUrl,
     resolvedUrl: fetched.finalUrl,
     sourceClassification: source.classification,
+    resourceBase: { base: resourceBase.base, source: resourceBase.source },
     importWarnings,
     fetch: {
       status: fetched.status,
@@ -315,6 +335,7 @@ export async function importArticle(
       // Re-run the engines + scorer on the rendered DOM; rendered candidates
       // compete with the static pool purely by score.
       const renderedDoc = parseHtml(renderedHtml);
+      stripBaseElements(renderedDoc);
       // Hydrated pages carry metadata the static shell lacked (or lied
       // about): re-extract and merge, rendered values winning where present.
       const renderedMeta = extractPageMetadata(renderedDoc);
@@ -404,6 +425,11 @@ export async function importArticle(
   });
   timer.mark('articleNormalization', articleStart);
   diagnostics.normalizationWarnings.push(...normalizedArticleResult.warnings);
+  diagnostics.media = {
+    discovered: normalizedArticleResult.imageReport.discovered,
+    absolutized: normalizedArticleResult.imageReport.absolutized,
+    dropped: normalizedArticleResult.imageReport.droppedImages,
+  };
 
   // 11. Sanitize (the security boundary).
   const sanitizeStart = performance.now();

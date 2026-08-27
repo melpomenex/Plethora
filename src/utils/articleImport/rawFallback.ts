@@ -14,7 +14,11 @@ import { normalizeWhitespace, parseHtml, countWords } from './domUtils';
 import { extractPageMetadata, resolveArticleMetadata } from './metadataExtractor';
 import { normalizeImages } from './imageNormalizer';
 import { sanitizeArticleHtml } from './sanitizer';
-import { arxivHtmlAssetBase, parseArxivInput } from './arxivResolver';
+import {
+  docBaseHref,
+  resolveEffectiveResourceBase,
+  stripBaseElements,
+} from './resourceBase';
 import { siteNameFromUrl, normalizeArticleUrl } from './urlNormalizer';
 import { resolveCanonicalUrl } from './importPipeline';
 import { createStageTimer } from './stageTimer';
@@ -45,15 +49,24 @@ export async function importRawFallbackPage(
   const resolved = resolveArticleMetadata(meta, {}, hostname);
   const canonicalUrl = resolveCanonicalUrl(meta, fetched.finalUrl, normalized.normalized);
 
+  // Same effective-resource-base contract as the canonical pipeline (D1):
+  // doc `<base href>` → final URL → requested URL. `<base>` elements are
+  // stripped before persistence; the canonical URL is identity-only.
+  const baseHref = docBaseHref(doc);
+  stripBaseElements(doc);
+  const resourceBase = resolveEffectiveResourceBase({
+    requestedUrl: normalized.normalized,
+    finalUrl: fetched.finalUrl,
+    docBaseHref: baseHref,
+  });
+
   // Full page (the point of the escape hatch): body content, images
   // normalized (absolute URLs, no tracking pixels), then sanitized.
   const body = doc.createElement('div');
   while (doc.body.firstChild) {
     body.appendChild(doc.body.firstChild);
   }
-  const arxiv = parseArxivInput(canonicalUrl);
-  const imageBaseUrl = arxiv ? arxivHtmlAssetBase(arxiv.htmlUrl) : canonicalUrl;
-  const imageReport = normalizeImages(body, imageBaseUrl);
+  const imageReport = normalizeImages(body, resourceBase.base);
 
   const sanitized = await sanitizeArticleHtml(body.innerHTML);
   const postDoc = parseHtml(sanitized.html);
@@ -85,6 +98,12 @@ export async function importRawFallbackPage(
     originalUrl: normalized.original,
     canonicalUrl,
     resolvedUrl: fetched.finalUrl,
+    resourceBase: { base: resourceBase.base, source: resourceBase.source },
+    media: {
+      discovered: imageReport.discovered,
+      absolutized: imageReport.absolutized,
+      dropped: imageReport.droppedImages,
+    },
     fetch: {
       status: fetched.status,
       contentType: fetched.contentType,

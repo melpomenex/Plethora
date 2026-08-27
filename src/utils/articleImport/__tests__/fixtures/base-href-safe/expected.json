@@ -1,0 +1,17 @@
+{
+  "url": "https://base.example.com/articles/feature",
+  "title": "Served From a CDN Base",
+  "minWords": 180,
+  "mustContain": [
+    "Figure One, served from the declared base"
+  ],
+  "mustContainImageUrls": [
+    "https://cdn.base-fixtures.org/assets/img/foo.png",
+    "https://cdn.base-fixtures.org/assets/bar.png"
+  ],
+  "mustNotContainImageUrls": [
+    "https://base.example.com/articles/img/foo.png",
+    "<base"
+  ],
+  "confidenceAtLeast": "medium"
+}

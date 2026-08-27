@@ -121,6 +121,8 @@ export interface WebArticleProvenance {
       reused: number;
       failed: number;
       rejected: number;
+      /** Figures degraded to their remote URL after failed ingestion. */
+      degradedToRemote?: number;
       totalBytes: number;
     };
   };

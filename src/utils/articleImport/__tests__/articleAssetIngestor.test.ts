@@ -55,18 +55,48 @@ describe("ingestArticleAssets", () => {
     expect(ingestRemoteImage).not.toHaveBeenCalled();
   });
 
-  it("degrades gracefully when an image fetch fails", async () => {
+  it("degrades failed fetches to the retained remote URL instead of stripping src", async () => {
     ingestRemoteImage.mockRejectedValue(new Error("HTTP 404"));
 
     const html =
-      '<figure><img src="https://example.com/missing.png" alt="lost"><figcaption>Caption</figcaption></figure>';
+      '<figure><img src="https://example.com/missing.png" srcset="https://example.com/missing.png 2x" sizes="100vw" alt="lost"><figcaption>Caption</figcaption></figure>';
     const result = await ingestArticleAssets(html);
 
     expect(result.diagnostics.failed).toBe(1);
+    expect(result.diagnostics.degradedToRemote).toBe(1);
     expect(result.html).toContain("Caption");
-    expect(result.html).not.toContain('src="https://example.com/missing.png"');
+    expect(result.html).toContain('src="https://example.com/missing.png"');
     const doc = new DOMParser().parseFromString(result.html, "text/html");
-    expect(doc.querySelector("img")?.hasAttribute("src")).toBe(false);
+    const img = doc.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://example.com/missing.png");
+    expect(img?.hasAttribute("srcset")).toBe(false);
+    expect(img?.hasAttribute("sizes")).toBe(false);
+  });
+
+  it("degrades timeouts, too-large, and aggregate-limit rejections to the remote URL", async () => {
+    ingestRemoteImage.mockImplementation(async (url: string) => {
+      if (url.includes("slow")) throw new Error("timeout");
+      if (url.includes("huge")) throw new Error("image exceeds max bytes");
+      throw new Error("aggregate limit");
+    });
+
+    const html =
+      '<img src="https://example.com/slow.png">' +
+      '<img src="https://example.com/huge.png">' +
+      '<img src="https://example.com/capped.png">';
+    const result = await ingestArticleAssets(html);
+
+    expect(result.diagnostics.imported).toBe(0);
+    expect(result.html).toContain('src="https://example.com/slow.png"');
+    expect(result.html).toContain('src="https://example.com/huge.png"');
+    expect(result.html).toContain('src="https://example.com/capped.png"');
+  });
+
+  it("cancellation stays fatal: no partially rewritten article", async () => {
+    ingestRemoteImage.mockRejectedValue(new Error("canceled"));
+
+    const html = '<img src="https://example.com/gone.png">';
+    await expect(ingestArticleAssets(html)).rejects.toThrow("canceled");
   });
 
   it("deduplicates identical source URLs", async () => {

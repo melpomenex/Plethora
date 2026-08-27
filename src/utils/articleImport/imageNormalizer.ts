@@ -15,6 +15,10 @@ import {
 } from './extractor-config';
 
 export interface ImageNormalizationReport {
+  /** Total imgs seen during normalization. */
+  discovered: number;
+  /** Imgs that resolved to an absolute http(s) URL and survived policy. */
+  absolutized: number;
   droppedImages: number;
   warnings: string[];
 }
@@ -120,11 +124,12 @@ export function normalizeImages(
   container: HTMLElement,
   baseUrl: string
 ): ImageNormalizationReport {
-  const report: ImageNormalizationReport = { droppedImages: 0, warnings: [] };
+  const report: ImageNormalizationReport = { discovered: 0, absolutized: 0, droppedImages: 0, warnings: [] };
 
   // First pass: resolve each img to its final absolute URL.
   const resolved = new Map<HTMLImageElement, string>();
   container.querySelectorAll('img').forEach((img) => {
+    report.discovered += 1;
     // <picture> sources take precedence when they carry real URLs.
     const picture = img.closest('picture');
     if (picture) {
@@ -165,6 +170,7 @@ export function normalizeImages(
       report.droppedImages += 1;
       continue;
     }
+    report.absolutized += 1;
     img.setAttribute('src', url);
     for (const attr of [...LAZY_SRC_ATTRIBUTES, 'srcset', 'data-srcset', 'sizes']) {
       img.removeAttribute(attr);

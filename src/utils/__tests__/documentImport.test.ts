@@ -109,10 +109,10 @@ describe("processHtmlContent", () => {
     expect(parsed.body.textContent).not.toContain("Related navigation");
   });
 
-  it("strips publisher styles and resolves arXiv images from abs canonical URLs", () => {
+  it("strips publisher styles and resolves images against the verbatim base", () => {
     const html = processHtmlContent(
       '<style>p{color:#000}</style><article class="inc-article"><div class="inc-body"><p style="color:#111">Text</p><img src="x1.png" alt="Figure"></div></article>',
-      "https://arxiv.org/abs/2410.07524v1",
+      "https://arxiv.org/html/2410.07524v1",
       "Paper",
       true,
     );
@@ -122,33 +122,117 @@ describe("processHtmlContent", () => {
       [...parsed.querySelectorAll("style")].some((style) => style.textContent?.includes("color:#000")),
     ).toBe(false);
     expect(parsed.querySelector("p")?.getAttribute("style")).toBeNull();
+    // Standards resolution: 'x1.png' against the verbatim (no-slash) document
+    // URL replaces the last path segment — exactly what a browser computes.
     expect(parsed.querySelector("img")?.getAttribute("src")).toBe(
-      "https://arxiv.org/html/2410.07524v1/x1.png",
+      "https://arxiv.org/html/x1.png",
     );
     expect(parsed.querySelector("base")?.getAttribute("href")).toBe(
-      "https://arxiv.org/html/2410.07524v1/",
+      "https://arxiv.org/html/2410.07524v1",
     );
+  });
+
+  it("removes imgs with no usable source after lazy-attribute resolution", () => {
+    const html = processHtmlContent(
+      '<article><img alt="No source"><img src="" alt="Empty"><img src="  " alt="Blank"><img src="data:image/gif;base64,R0lGOD" alt="Placeholder"><img src="real.png" alt="Real"></article>',
+      "https://example.com/article/",
+      "Article",
+      true,
+    );
+
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const imgs = [...parsed.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].getAttribute("src")).toBe("https://example.com/article/real.png");
   });
 });
 
 describe("resolveHtmlReaderBaseUrl", () => {
-  it("maps arXiv abs URLs to the HTML asset directory", () => {
-    expect(resolveHtmlReaderBaseUrl("https://arxiv.org/abs/2410.07524v1")).toBe(
-      "https://arxiv.org/html/2410.07524v1/",
+  it("passes generic http(s) candidates through verbatim (hash stripped only)", () => {
+    expect(resolveHtmlReaderBaseUrl("https://arxiv.org/html/2410.07524v1")).toBe(
+      "https://arxiv.org/html/2410.07524v1",
+    );
+    expect(resolveHtmlReaderBaseUrl("https://example.com/a/b#section")).toBe(
+      "https://example.com/a/b",
+    );
+    // No host-specific slash mutation for arXiv shapes either.
+    expect(resolveHtmlReaderBaseUrl("https://arxiv.org/abs/2410.07524")).toBe(
+      "https://arxiv.org/abs/2410.07524",
     );
   });
 });
 
 describe("resolveDocumentHtmlBaseUrl", () => {
-  it("prefers the pipeline canonical URL for web imports", () => {
+  const doc = (metadata: Record<string, unknown>, filePath?: string) => ({
+    filePath,
+    metadata,
+  });
+
+  it("prefers the persisted resolvedUrl and never the canonical identity URL", () => {
     expect(
-      resolveDocumentHtmlBaseUrl({
-        filePath: "https://arxiv.org/abs/2410.07524v1",
-        metadata: {
-          webArticle: { canonicalUrl: "https://arxiv.org/abs/2410.07524v1" },
-        },
-      }),
+      resolveDocumentHtmlBaseUrl(
+        doc({
+          webArticle: {
+            resolvedUrl: "https://arxiv.org/html/2410.07524v2",
+            canonicalUrl: "https://arxiv.org/abs/2410.07524",
+          },
+          htmlUrl: "https://arxiv.org/html/2410.07524v2",
+          source: "https://arxiv.org/abs/2410.07524",
+        }),
+        "canonical-article"
+      )
+    ).toBe("https://arxiv.org/html/2410.07524v2");
+  });
+
+  it("falls through htmlUrl → source → filePath before the canonical URL", () => {
+    expect(
+      resolveDocumentHtmlBaseUrl(doc({ htmlUrl: "https://arxiv.org/html/2410.1" }), "legacy-arxiv")
+    ).toBe("https://arxiv.org/html/2410.1/");
+    expect(
+      resolveDocumentHtmlBaseUrl(doc({ source: "https://example.com/source-page" }), "raw-html")
+    ).toBe("https://example.com/source-page");
+    expect(
+      resolveDocumentHtmlBaseUrl(doc({}, "https://example.com/file-path"), "browser-capture")
+    ).toBe("https://example.com/file-path");
+    expect(
+      resolveDocumentHtmlBaseUrl(
+        doc({ webArticle: { canonicalUrl: "https://example.com/canon" } }),
+        "canonical-article"
+      )
+    ).toBe("https://example.com/canon");
+  });
+
+  it("keeps the trailing-slash arXiv repair ONLY for legacy-arxiv documents", () => {
+    // Legacy corpus: bare-relative stored srcs resolve under the slash base.
+    expect(
+      resolveDocumentHtmlBaseUrl(
+        doc({
+          htmlUrl: "https://arxiv.org/html/2410.07524v1",
+          source: "https://arxiv.org/abs/2410.07524v1",
+        }),
+        "legacy-arxiv"
+      )
     ).toBe("https://arxiv.org/html/2410.07524v1/");
+    // An abs-URL candidate also maps to the slash html base for legacy docs.
+    expect(
+      resolveDocumentHtmlBaseUrl(
+        doc({ source: "https://arxiv.org/abs/2410.07524v1" }),
+        "legacy-arxiv"
+      )
+    ).toBe("https://arxiv.org/html/2410.07524v1/");
+    // Canonical / raw-fallback / browser-capture use the verbatim URL.
+    for (const kind of ["canonical-article", "canonical-raw-fallback", "browser-capture", "raw-html"]) {
+      expect(
+        resolveDocumentHtmlBaseUrl(
+          doc({
+            webArticle: { resolvedUrl: "https://arxiv.org/html/2410.07524v1" },
+            source: "https://arxiv.org/abs/2410.07524v1",
+          }),
+          kind
+        ),
+        `${kind} must use the verbatim resolved URL`
+      ).toBe("https://arxiv.org/html/2410.07524v1");
+    }
   });
 });
 
