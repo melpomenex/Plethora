@@ -29,6 +29,13 @@ describe('jellyfish theme registration', () => {
     }
   });
 
+  it('scenic CSS exposes the backdrop through shell and card surfaces', () => {
+    const css = jellyfishThemes[0].customCSS ?? '';
+    expect(css).toContain('.adaptive-shell-root');
+    expect(css).toContain('.bg-card');
+    expect(css).toContain('backdrop-filter');
+  });
+
   it('uses distinct primary colors per variant', () => {
     const primaries = jellyfishThemes.map((t) => t.colors.primary);
     const unique = new Set(primaries);
