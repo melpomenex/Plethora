@@ -19,6 +19,7 @@
     "screenshot-overlay"
   ],
   "permissions": [
+    "default",
     "core:default",
     "core:window:default",
     "core:window:allow-show",
