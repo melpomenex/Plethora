@@ -3,6 +3,7 @@ import ConsentSlot from '../components/chrome/ConsentSlot.astro';
 import SiteFooter from '../components/chrome/SiteFooter.astro';
 import SiteHeader from '../components/chrome/SiteHeader.astro';
 import SkipLink from '../components/chrome/SkipLink.astro';
+import Analytics from '@vercel/analytics/astro';
 import { canonicalUrl, loadLaunchFlags } from '../config/launch.ts';
 import { COPY } from '../config/copy.ts';
 import { routeByPath } from '../config/routes.ts';
@@ -60,5 +61,10 @@ const noindex = flags.indexing === 'noindex' || Astro.props.noindex === true;
     </main>
     <SiteFooter />
     <ConsentSlot />
+    {
+      /* Vercel Web Analytics: same-origin script (/_vercel/insights), rendered
+         only when the analytics launch flag is on (see .env.example). */
+      flags.analyticsEnabled && <Analytics />
+    }
   </body>
 </html>

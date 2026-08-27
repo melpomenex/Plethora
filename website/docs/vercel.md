@@ -20,6 +20,14 @@ Never run `vercel link` in CI without an explicit project id on a trusted machin
 
 See `website/.env.example` and `website/README.md`. Preview and staging stay `PUBLIC_INDEXING=noindex`. Production may set `index` only after launch blockers clear (`website/src/config/launch-blockers.ts`).
 
+## Web Analytics
+
+Vercel Web Analytics renders from `BaseLayout` only when
+`PUBLIC_ANALYTICS_ENABLED=true` (same convention as the other launch flags).
+The script is same-origin (`/_vercel/insights/*`), so the strict CSP needs no
+changes; it no-ops outside Vercel deployments. Enable the project's Web
+Analytics in the Vercel dashboard to see traffic.
+
 No secrets belong in `PUBLIC_*`. Server-only vars, if any later, stay in the Vercel dashboard — never committed.
 
 ## Coexistence
