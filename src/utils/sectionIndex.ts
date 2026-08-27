@@ -648,12 +648,12 @@ export function sliceWithNeighbors(
 export function buildSectionFocusedContext(
   sections: SectionNode[],
   fullContent?: string,
-  options: { includeNeighbors?: boolean; maxTokens?: number; radiusChars?: number } = {}
+  options: { includeNeighbors?: boolean; maxTokens?: number; radiusChars?: number; trimRatio?: number } = {}
 ): string {
-  const { includeNeighbors = true, maxTokens = 4000, radiusChars = 300 } = options;
+  const { includeNeighbors = true, maxTokens = 4000, radiusChars = 300, trimRatio = 0.7 } = options;
   if (sections.length === 0) return "";
 
-  const maxChars = Math.floor(maxTokens * 4 * 0.7);
+  const maxChars = Math.floor(maxTokens * 4 * trimRatio);
 
   const blocks: string[] = [];
   let totalChars = 0;
@@ -840,9 +840,10 @@ export function resolveSectionFocusedContext(
     maxTokens?: number;
     includeNeighbors?: boolean;
     radiusChars?: number;
+    trimRatio?: number;
   } = {}
 ): FocusedSectionContextResult {
-  const { documentId, maxTokens = 4000, includeNeighbors = true, radiusChars = 300 } = options;
+  const { documentId, maxTokens = 4000, includeNeighbors = true, radiusChars = 300, trimRatio = 0.7 } = options;
   const unresolved: SectionContextDiagnostic[] = [];
   const resolved: SectionNode[] = [];
   const contentHash = hashSectionContent(fullContent);
@@ -933,7 +934,7 @@ export function resolveSectionFocusedContext(
     }
   }
 
-  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * 0.7));
+  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * trimRatio));
   const headerChars = groups.reduce((sum, group) => sum + group.labels.join(", ").length + 24, 0);
   const bodyBudget = Math.max(128, maxChars - headerChars);
   const perGroupBudget = Math.max(96, Math.floor(bodyBudget / Math.max(1, groups.length)));
@@ -1244,10 +1245,10 @@ export function truncateTextToBudget(value: string, maxChars: number): { text: s
  */
 export function buildSelectionFocusedContext(
   selections: SectionNode[],
-  options: { maxTokens?: number } = {}
+  options: { maxTokens?: number; trimRatio?: number } = {}
 ): { content: string; truncated: boolean; labels: string[] } {
-  const { maxTokens = 4000 } = options;
-  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * 0.7));
+  const { maxTokens = 4000, trimRatio = 0.7 } = options;
+  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * trimRatio));
   const blocks: string[] = [];
   const labels: string[] = [];
   let truncated = false;
@@ -1286,6 +1287,7 @@ export function resolveMixedSectionFocusedContext(
     maxTokens?: number;
     includeNeighbors?: boolean;
     radiusChars?: number;
+    trimRatio?: number;
   } = {},
 ): FocusedSectionContextResult {
   const directSources = new Set<SectionNode["source"]>(["selection", "media-transcript"]);
@@ -1347,7 +1349,7 @@ export function resolveMixedSectionFocusedContext(
   if (structural && !structural.ok) return structural;
 
   const direct = directResolved.length > 0
-    ? buildSelectionFocusedContext(directResolved, { maxTokens: options.maxTokens })
+    ? buildSelectionFocusedContext(directResolved, { maxTokens: options.maxTokens, trimRatio: options.trimRatio })
     : { content: "", truncated: false, labels: [] };
   const blocks = [structural?.content, direct.content].filter(Boolean) as string[];
   const sections = [...(structural?.sections ?? []), ...directResolved];

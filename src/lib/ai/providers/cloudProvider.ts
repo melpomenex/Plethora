@@ -19,6 +19,7 @@ import {
   type LLMResponse,
 } from "../../../api/llm";
 import { useLLMProvidersStore, type LLMProviderConfig } from "../../../stores/llmProvidersStore";
+import { resolveRequestPolicy } from "../../../api/llm/policy";
 import { providerAllowsKeylessAccess } from "../../../utils/llmProviderUtils";
 import { AIError, aiErrorFromCloud } from "../errors";
 import type {
@@ -94,7 +95,11 @@ export function capabilitiesFromCloudConfig(
     toolCalling: false,
     reasoning: cloudModelSupportsReasoning(config.model),
     embeddings: false,
-    contextTokens: config.provider === "ollama" ? 8192 : 128000,
+    // Configured runtime ceiling for local models — not the model's theoretical max.
+    contextTokens:
+      config.provider === "ollama"
+        ? (config.contextWindowTokens ?? 8192)
+        : 128000,
     streaming: true,
     prefixCaching: config.provider === "anthropic" || config.provider === "deepseek",
     offlineAvailable: config.provider === "ollama",
@@ -154,6 +159,15 @@ export class CloudProvider implements AIProvider {
       maxTokens: req.maxOutputTokens ?? config.maxTokens,
       apiKey: config.apiKey || undefined,
       baseUrl: config.baseUrl,
+      policy: resolveRequestPolicy({
+        provider: config.provider,
+        providerMaxOutput: config.maxTokens,
+        maxOutputOverride: req.maxOutputTokens ?? config.maxTokens,
+        providerContextTokens: config.contextWindowTokens,
+        perModelOverride: config.modelContextWindows?.[config.model],
+        autoPreset: config.contextWindowPreset === "auto",
+        applyOllamaDefaultGuard: config.provider === "ollama",
+      }),
     };
 
     if (opts.stream === false || (opts.stream !== true && !opts.onChunk)) {

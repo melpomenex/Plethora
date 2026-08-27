@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { generateId } from '../utils/id';
 import type { ModelInfo } from '../api/llm';
+import type { ContextWindowPreset } from '../api/llm/policy';
 import { providerAllowsKeylessAccess } from '../utils/llmProviderUtils';
 import { invokeCommand, isTauri } from '../lib/tauri';
 
@@ -18,6 +19,11 @@ export interface LLMProviderConfig {
   temperature: number;
   maxTokens: number;
   systemPrompt?: string;
+  /** Configured runtime context for local models (Ollama `num_ctx`). */
+  contextWindowTokens?: number;
+  contextWindowPreset?: ContextWindowPreset;
+  /** Optional per-model context overrides keyed by model id. */
+  modelContextWindows?: Record<string, number>;
 }
 
 interface LLMProvidersState {
@@ -104,6 +110,12 @@ export async function syncPrimaryProviderToNativeAI(
             deepseek_base_url: provider.provider === 'deepseek' && provider.baseUrl?.trim()
               ? provider.baseUrl.trim()
               : 'https://api.deepseek.com/v1',
+            ollama_context_tokens: provider.provider === 'ollama'
+              ? (provider.contextWindowTokens ?? 4096)
+              : undefined,
+            ollama_model_context_windows: provider.provider === 'ollama'
+              ? provider.modelContextWindows
+              : undefined,
           },
         },
       });
@@ -167,8 +179,24 @@ export const useLLMProvidersStore = create<LLMProvidersState>()(
     }),
     {
       name: 'llm-providers-storage',
-      version: 0,
-      migrate: (persisted: unknown) => persisted as LLMProvidersState,
+      version: 1,
+      migrate: (persisted: unknown, version: number) => {
+        const state = persisted as LLMProvidersState;
+        if (!state?.providers) return state;
+        if (version < 1) {
+          state.providers = state.providers.map((provider) => {
+            if (provider.provider !== 'ollama' || provider.contextWindowTokens != null) {
+              return provider;
+            }
+            const globalFallback = 8192;
+            return {
+              ...provider,
+              contextWindowTokens: Math.max(globalFallback, 8192),
+            };
+          });
+        }
+        return state;
+      },
       // Persist API keys in localStorage for now
       // TODO: Implement proper encryption or use system keychain
       partialize: (state) => ({

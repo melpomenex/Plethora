@@ -6,6 +6,10 @@
 //! - OpenRouter (multi-provider)
 //! - Ollama (local models)
 
+use super::llm_policy::{LlmRequestPolicy, STACK_B_CONTEXT_DEFAULT};
+use super::ollama_chat::{
+    build_ollama_chat_body, log_ollama_send, normalize_ollama_base_url, ollama_chat_url,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -444,19 +448,67 @@ pub struct OllamaProvider {
     base_url: String,
     model: String,
     client: reqwest::Client,
+    context_tokens: usize,
 }
 
 impl OllamaProvider {
     pub fn new(base_url: String, model: String) -> Self {
+        Self::with_context_tokens(base_url, model, STACK_B_CONTEXT_DEFAULT)
+    }
+
+    pub fn with_context_tokens(base_url: String, model: String, context_tokens: usize) -> Self {
         Self {
-            base_url,
+            base_url: normalize_ollama_base_url(&base_url),
             model,
             client: reqwest::Client::new(),
+            context_tokens: if context_tokens == 0 {
+                STACK_B_CONTEXT_DEFAULT
+            } else {
+                context_tokens
+            },
         }
     }
 
     pub fn model_name(&self) -> &str {
         &self.model
+    }
+
+    fn request_policy(&self, max_tokens: u32) -> LlmRequestPolicy {
+        LlmRequestPolicy {
+            configured_context_tokens: self.context_tokens,
+            prompt_budget_tokens: self
+                .context_tokens
+                .saturating_sub(max_tokens as usize)
+                .max(1),
+            output_reserve_tokens: (max_tokens as usize).max(1),
+            max_output_tokens: (max_tokens as usize).max(1),
+        }
+        .clamped()
+    }
+
+    pub fn chat_body(&self, request: &ChatCompletionRequest) -> serde_json::Value {
+        let messages: Vec<_> = request
+            .messages
+            .iter()
+            .map(|m| {
+                json!({
+                    "role": match m.role {
+                        MessageRole::System => "system",
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                    },
+                    "content": m.content,
+                })
+            })
+            .collect();
+        let policy = self.request_policy(request.max_tokens);
+        build_ollama_chat_body(
+            &self.model,
+            &json!(messages),
+            request.stream,
+            &policy,
+            request.temperature as f64,
+        )
     }
 
     /// List available models
@@ -510,33 +562,10 @@ impl LLMProvider for OllamaProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, String> {
-        let url = format!("{}/api/chat", self.base_url);
-
-        // Ollama uses a slightly different format
-        let messages: Vec<_> = request
-            .messages
-            .iter()
-            .map(|m| {
-                json!({
-                    "role": match m.role {
-                        MessageRole::System => "system",
-                        MessageRole::User => "user",
-                        MessageRole::Assistant => "assistant",
-                    },
-                    "content": m.content,
-                })
-            })
-            .collect();
-
-        let body = json!({
-            "model": self.model,
-            "messages": messages,
-            "stream": false,
-            "options": {
-                "temperature": request.temperature,
-                "num_predict": request.max_tokens,
-            }
-        });
+        let url = ollama_chat_url(&self.base_url);
+        let body = self.chat_body(request);
+        let policy = self.request_policy(request.max_tokens);
+        log_ollama_send("ollama", &self.model, &policy, 0);
 
         let response = self
             .client
@@ -550,7 +579,12 @@ impl LLMProvider for OllamaProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("Ollama error {}: {}", status, error_text));
+            tracing::debug!(status = %status, "stack B ollama error (raw body not forwarded)");
+            return Err(crate::ai::ollama_chat::sanitize_ollama_error(
+                &format!("Ollama error {}: {}", status, error_text),
+                Some(&policy),
+                None,
+            ));
         }
 
         let json: serde_json::Value = response
@@ -563,9 +597,8 @@ impl LLMProvider for OllamaProvider {
             .unwrap_or("")
             .to_string();
 
-        // Ollama doesn't provide token counts in the same way
-        let input_tokens = 0;
-        let output_tokens = 0;
+        let input_tokens = json["prompt_eval_count"].as_u64().unwrap_or(0) as u32;
+        let output_tokens = json["eval_count"].as_u64().unwrap_or(0) as u32;
         let finish_reason = json["done"]
             .as_bool()
             .map(|d| if d { "stop" } else { "unknown" })
@@ -584,5 +617,44 @@ impl LLMProvider for OllamaProvider {
         // Try to check if Ollama is running
         // This is a basic check - in production you might want a health check
         true
+    }
+}
+
+#[cfg(test)]
+mod ollama_stack_b_tests {
+    use super::*;
+
+    #[test]
+    fn stack_b_sends_num_ctx_from_synced_config() {
+        // Test 11
+        let provider = OllamaProvider::with_context_tokens(
+            "http://localhost:11434/v1".to_string(),
+            "llama3.2".to_string(),
+            16384,
+        );
+        let request = ChatCompletionRequest {
+            messages: vec![Message::user("hi")],
+            temperature: 0.7,
+            max_tokens: 2048,
+            stream: false,
+        };
+        let body = provider.chat_body(&request);
+        assert_eq!(body["options"]["num_ctx"], 16384);
+        assert_eq!(body["options"]["num_predict"], 2048);
+        assert_eq!(body["stream"], false);
+    }
+
+    #[test]
+    fn stack_b_defaults_to_conservative_4096() {
+        let provider = OllamaProvider::new("http://localhost:11434".to_string(), "llama3.2".to_string());
+        let request = ChatCompletionRequest {
+            messages: vec![Message::user("hi")],
+            temperature: 0.2,
+            max_tokens: 512,
+            stream: false,
+        };
+        let body = provider.chat_body(&request);
+        assert_eq!(body["options"]["num_ctx"], STACK_B_CONTEXT_DEFAULT);
+        assert_eq!(body["options"]["num_predict"], 512);
     }
 }

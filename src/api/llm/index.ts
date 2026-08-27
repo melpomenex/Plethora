@@ -4,6 +4,30 @@
  */
 
 import { invokeCommand, listen, type UnlistenFn } from "../../lib/tauri";
+import { resolveRequestPolicy, type LlmRequestPolicy } from "./policy";
+
+export type {
+  ContextWindowPreset,
+  LlmRequestPolicy,
+  PolicyResolutionInput,
+  ProviderLike,
+} from "./policy";
+export {
+  AUTO_CONTEXT_CEILING,
+  AUTO_CONTEXT_FLOOR,
+  AUTO_CONTEXT_PRESET,
+  CONSERVATIVE_CONTEXT_FALLBACK,
+  CONTEXT_WINDOW_PRESET_VALUES,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  MIN_PROMPT_HEADROOM,
+  OLLAMA_MIGRATION_CONTEXT,
+  formatAutoResolvedLabel,
+  isContextComboValid,
+  resolveAutoContext,
+  resolveConfiguredContext,
+  resolveConfiguredContextForProvider,
+  resolveRequestPolicy,
+} from "./policy";
 
 export type LLMProvider = "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
 
@@ -40,6 +64,8 @@ export interface LLMRequest {
    * `code: "cancelled"`.
    */
   requestId?: string;
+  /** Optional resolved request policy (Ollama `num_ctx` / cloud `max_tokens`). */
+  policy?: LlmRequestPolicy;
 }
 
 export interface LLMResponse {
@@ -62,7 +88,14 @@ export interface LLMContext {
   url?: string;
   selection?: string;
   content?: string;
+  /**
+   * @deprecated Prompt-budget hint only. Prefer `promptBudgetTokens` and
+   * `configuredContextTokens`. Must not be used as max output tokens.
+   */
   contextWindowTokens?: number;
+  promptBudgetTokens?: number;
+  configuredContextTokens?: number;
+  maxOutputTokens?: number;
   memoryEnabled?: boolean;
 }
 
@@ -81,9 +114,10 @@ export async function chatWithLLM(request: LLMRequest): Promise<LLMResponse> {
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0.7,
-    maxTokens: request.maxTokens ?? 2000,
+    maxTokens: request.maxTokens ?? request.policy?.maxOutputTokens ?? 2000,
     apiKey: request.apiKey,
     baseUrl: request.baseUrl,
+    policy: request.policy,
   });
 }
 
@@ -136,27 +170,39 @@ export async function chatWithContext(
     ? [{ role: "system" as const, content: systemPrompt }, ...messages]
     : messages;
 
-  const effectiveMaxTokens = maxTokens ?? context.contextWindowTokens ?? 4096;
+  const policy = resolveRequestPolicy({
+    provider,
+    providerMaxOutput: maxTokens,
+    maxOutputOverride: maxTokens,
+    configuredContextOverride: context.configuredContextTokens,
+    promptBudgetHint: context.promptBudgetTokens ?? context.contextWindowTokens,
+    applyOllamaDefaultGuard: provider === "ollama",
+  });
 
   const args = {
     provider,
     model,
     messages: effectiveMessages,
     temperature: temperature ?? 0.7,
-    maxTokens: effectiveMaxTokens,
+    maxTokens: policy.maxOutputTokens,
     context: {
       type: context.type,
       documentId: context.documentId,
       url: context.url,
       selection: context.selection,
       content: normalizedContent,
-      contextWindowTokens: effectiveMaxTokens,
+      // Keep legacy field as prompt-budget hint for older backends.
+      contextWindowTokens: context.promptBudgetTokens ?? context.contextWindowTokens,
+      promptBudgetTokens: context.promptBudgetTokens ?? policy.promptBudgetTokens,
+      configuredContextTokens: context.configuredContextTokens ?? policy.configuredContextTokens,
+      maxOutputTokens: context.maxOutputTokens ?? policy.maxOutputTokens,
       contextFromRelatedCards,
       documentSnippetLength,
       memoryEnabled: context.memoryEnabled,
     },
     apiKey,
     baseUrl,
+    policy,
   };
 
   return await invokeCommand<LLMResponse>("llm_chat_with_context", args);
@@ -235,10 +281,11 @@ export async function streamChatWithLLM(
       model: request.model,
       messages: request.messages,
       temperature: request.temperature ?? 0.7,
-      maxTokens: request.maxTokens ?? 2000,
+      maxTokens: request.maxTokens ?? request.policy?.maxOutputTokens ?? 2000,
       apiKey: request.apiKey,
       baseUrl: request.baseUrl,
       requestId: request.requestId,
+      policy: request.policy,
     });
   } finally {
     // Final synchronous flush of any buffered text, then clean up listeners
@@ -361,7 +408,7 @@ export const PROVIDER_CONFIGS = {
   },
   ollama: {
     name: "Ollama",
-    baseUrl: "http://localhost:11434/v1",
+    baseUrl: "http://localhost:11434",
     defaultModel: "llama3.2",
     models: ["llama3.2", "mistral", "codellama", "phi3"],
   },

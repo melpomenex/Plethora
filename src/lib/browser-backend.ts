@@ -4306,7 +4306,16 @@ const commandHandlers: Record<string, CommandHandler> = {
         const provider = args.provider as string;
         const model = args.model as string | undefined;
         const messages = args.messages as Array<{ role: string; content: string }>;
-        const context = args.context as { type: string; documentId?: string; content?: unknown; selection?: string; contextWindowTokens?: number };
+        const context = args.context as {
+          type: string;
+          documentId?: string;
+          content?: unknown;
+          selection?: string;
+          contextWindowTokens?: number;
+          promptBudgetTokens?: number;
+          configuredContextTokens?: number;
+          maxOutputTokens?: number;
+        };
         const apiKey = args.apiKey as string | undefined;
         const baseUrl = args.baseUrl as string | undefined;
 
@@ -4350,9 +4359,16 @@ const commandHandlers: Record<string, CommandHandler> = {
             return value.slice(0, maxChars);
         };
 
+        const promptBudget = context.promptBudgetTokens
+            ?? context.contextWindowTokens;
+        const maxOutput = context.maxOutputTokens
+            && context.maxOutputTokens > 0
+            ? context.maxOutputTokens
+            : 2000;
+
         const normalizedContent = trimContext(
             normalizeContextContent(context.content),
-            context.contextWindowTokens
+            promptBudget
         );
 
         let contextPrompt = '';
@@ -4391,9 +4407,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             model,
             messages: messagesWithContext,
             temperature: 0.7,
-            maxTokens: context.contextWindowTokens && context.contextWindowTokens > 0
-                ? context.contextWindowTokens
-                : 2000,
+            maxTokens: maxOutput,
             apiKey,
             baseUrl,
         });

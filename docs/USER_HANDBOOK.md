@@ -1526,9 +1526,15 @@ Open **Settings → On-device AI → Diagnostics** on Windows for package identi
 #### Context Window
 
 **Token Limits:**
-- Max tokens per request
+- Max tokens per request (response length)
 - Context from related cards
 - Document snippet length
+
+**Local models (Ollama):**
+- **Context window** is the runtime KV-cache size sent as `num_ctx` (how much prompt + response can fit). Start at 8K–16K; higher values use more GPU/RAM.
+- **Max response tokens** is a separate cap on generated length (`num_predict`). It is not the context window.
+- Auto resolves to a practical value between 4K and 16K — never the model's theoretical maximum.
+- Cloud providers still use only the max-response setting for output length.
 
 ---
 

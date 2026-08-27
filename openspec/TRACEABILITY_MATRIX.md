@@ -58,3 +58,10 @@ All 9 changes implemented and integrated on branch `integration/openspec-batch` 
 | 18 | Fast Cloud Transcription theming | settings-and-appearance-ux | `feat/settings-ux` | Complete |
 | 19 | Hugging Face TTS/STT model manager | huggingface-speech-model-manager | `feat/hf-speech-models` | Complete (platform limitation: desktop HF TTS models are detect/install/register only — desktop sherpa sidecar is STT-only) |
 | 20 | Tray/menu-bar/status icon | native-tray-integration | `feat/system-tray` | Complete (GUI runtime verification pending on a live desktop session; single-instance documented as limitation) |
+
+## Related later changes (outside the 20-item workload)
+
+| Change | Specs | Notes |
+| --- | --- | --- |
+| `fix-ollama-context-window-handling` | `llm-token-budget`, `ollama-chat-configuration` | Separates configured context / prompt budget / max output; native Ollama `/api/chat` with `num_ctx`. Not part of the original 20-item matrix. |
+
