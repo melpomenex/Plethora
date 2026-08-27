@@ -22,6 +22,15 @@ export const PLACEHOLDER_BUILD_ID = "placeholder-unreleased";
 
 /** @typedef {{ id: string, kind: string, surface: string, platform: string, viewport: string, theme: 'light'|'dark'|'eink', width: number, height: number, alt: string, required: boolean }} CaptureSpec */
 
+/**
+ * Capture-request note (refine-useplethora-visual-product-storytelling D11):
+ * the website hero renders the mobile capture up to ~20rem (320 CSS px), so
+ * at DPR 2 the 390-wide source upscales ~1.64x and reads soft. The next
+ * capture run SHOULD raise the five iphone specs to a 480x1039 CSS viewport
+ * (sourceType: playwright-css-viewport) and regenerate the manifest;
+ * encode-product-images.mjs already emits both 390 and 480 variants for
+ * such a set without changing the current one.
+ */
 /** @type {CaptureSpec[]} */
 export const CAPTURE_SPECS = [
   {
@@ -33,7 +42,7 @@ export const CAPTURE_SPECS = [
     theme: "light",
     width: 390,
     height: 844,
-    alt: "Plethora library showing the memory, sleep, and learning demo shelf: essay, lecture, methods PDF, and James excerpt.",
+    alt: "Plethora library showing the memory, sleep, and learning demo shelf: document, lecture, methods PDF, and James excerpt.",
     required: true,
   },
   {
@@ -45,7 +54,7 @@ export const CAPTURE_SPECS = [
     theme: "light",
     width: 390,
     height: 844,
-    alt: "Reader open on the highlighting essay with a passage extract queued for encoding.",
+    alt: "Reader open on the highlighting document with a passage extract queued for encoding.",
     required: true,
   },
   {

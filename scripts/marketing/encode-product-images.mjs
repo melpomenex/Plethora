@@ -80,7 +80,15 @@ export async function encodeShowcaseV2Images({ captureSet: captureSetInput, root
     for (const capture of manifest.captures) {
       const source = join(captureSet, capture.filename);
       const sourceBytes = await readFile(source);
-      const widths = capture.layout === "desktop" ? [720, capture.intrinsicSize.width] : [capture.intrinsicSize.width];
+      // Mobile renders reach ~20rem (320 CSS px) in the site hero, so a 480px
+      // variant keeps ~1.5x headroom at DPR 2 once captures land at 480 wide
+      // (refine-useplethora-visual-product-storytelling D11). Widths above the
+      // capture's intrinsic size are filtered out so current 390-wide sets
+      // encode exactly as before — same files, same hashes, provenance intact.
+      const widths =
+        capture.layout === "desktop"
+          ? [720, capture.intrinsicSize.width]
+          : [390, 480].filter((width) => width <= capture.intrinsicSize.width);
       const formats = {};
       for (const format of ["avif", "webp", "png"]) {
         formats[format] = [];
