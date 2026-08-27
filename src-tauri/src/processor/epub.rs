@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::processor::ExtractedContent;
 use base64::{engine::general_purpose, Engine as _};
 use epub::doc::EpubDoc;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
 /// Represents a chapter in an EPUB file
@@ -76,15 +76,34 @@ fn extract_text_from_html(html: &str) -> String {
             tag_body.push(tc);
         }
 
+        // XHTML self-closing form (`<script src="kobo.js"/>`, present in every
+        // chapter of Kobo/Adobe-converted EPUBs). The element has no separate
+        // close tag, so the raw-text skip below must not run — scanning for a
+        // `</script>` that never exists swallowed the rest of the chapter.
+        let self_closing = tag_body.ends_with('/');
+
         let name = tag_name(&tag_body);
 
         // Skip raw text content of <style>/<script> entirely.
-        if name == "style" || name == "script" {
-            let close = format!("</{}", name);
-            let mut buffer = String::new();
+        if !self_closing && (name == "style" || name == "script") {
+            let close_chars: Vec<char> = format!("</{}", name).chars().collect();
+            // Match the close tag against a rolling window of the last
+            // close_chars.len() consumed chars. Re-lowercasing the whole
+            // consumed span per character (the old approach) is O(N^2) and a
+            // missing close tag pegged a core for minutes per chapter. The
+            // close tag is ASCII, so ASCII case-folding is equivalent here.
+            let mut window: VecDeque<char> = VecDeque::with_capacity(close_chars.len());
             for sc in chars.by_ref() {
-                buffer.push(sc);
-                if buffer.to_lowercase().ends_with(&close) {
+                window.push_back(sc);
+                if window.len() > close_chars.len() {
+                    window.pop_front();
+                }
+                if window.len() == close_chars.len()
+                    && window
+                        .iter()
+                        .zip(&close_chars)
+                        .all(|(w, c)| w.to_ascii_lowercase() == *c)
+                {
                     for tc in chars.by_ref() {
                         if tc == '>' {
                             break;
@@ -153,6 +172,18 @@ fn should_extract_text(mime: &str) -> bool {
 
 /// Extract full content from an EPUB file including all chapters
 pub async fn extract_epub_content(file_path: &str) -> Result<ExtractedContent> {
+    let owned_path = file_path.to_string();
+    tokio::task::spawn_blocking(move || extract_epub_content_blocking(&owned_path))
+        .await
+        .map_err(|e| {
+            crate::error::PlethoraError::Internal(format!("EPUB extraction task panicked: {}", e))
+        })?
+}
+
+/// Blocking core of [`extract_epub_content`]: zip inflation and per-chapter
+/// HTML text extraction are pure CPU, so they run on the blocking pool rather
+/// than an async runtime worker (same design as the PDF extractor).
+fn extract_epub_content_blocking(file_path: &str) -> Result<ExtractedContent> {
     let path = Path::new(file_path);
 
     let mut doc = EpubDoc::new(file_path).map_err(|e| {
@@ -368,6 +399,55 @@ mod tests {
         assert!(text.contains("As for an English lady, the real chapter body begins here."));
         assert!(text.contains("Subsection prose continues the argument."));
         assert!(!text.contains("DARWIN COMES OF AGE As for an English"));
+    }
+
+    #[test]
+    fn self_closing_script_does_not_swallow_chapter_body() {
+        // Kobo/Adobe-converted EPUBs carry a self-closed script reference in
+        // every chapter head with no </script> anywhere in the file. Treated
+        // as an opener, the raw-text skip scanned for the missing close tag
+        // to end of chapter: the body was discarded and the O(N^2) scan
+        // pegged a core for minutes (a 13MB book took ~18 minutes to import
+        // as a ~2KB husk).
+        let html = "<html><head>\
+            <script type=\"text/javascript\" src=\"../../js/kobo.js\"/>\
+            </head><body>\
+            <h1>Chapter 5</h1>\
+            <p>The real body starts here and must survive.</p>\
+            <p>So must the paragraph after it.</p>\
+            </body></html>";
+        let text = extract_text_from_html(html);
+        assert!(text.contains("Chapter 5"));
+        assert!(text.contains("The real body starts here and must survive."));
+        assert!(text.contains("So must the paragraph after it."));
+    }
+
+    #[test]
+    fn self_closing_style_keeps_following_body() {
+        let html = "<html><head><style type=\"text/css\"/></head>\
+            <body><p>Body after a self-closed style.</p></body></html>";
+        let text = extract_text_from_html(html);
+        assert!(text.contains("Body after a self-closed style."));
+    }
+
+    #[test]
+    fn mixed_case_close_tag_still_ends_style_skip() {
+        let html = "<html><head><STYLE>p { margin: 0 }</STYLE></head>\
+            <body><p>Body after mixed-case style.</p></body></html>";
+        let text = extract_text_from_html(html);
+        assert!(!text.contains("margin"));
+        assert!(text.contains("Body after mixed-case style."));
+    }
+
+    #[test]
+    fn closed_script_body_is_still_skipped() {
+        let html = "<html><body>\
+            <script type=\"text/javascript\">window.alert('x')</script>\
+            <p>Visible after a properly closed script.</p>\
+            </body></html>";
+        let text = extract_text_from_html(html);
+        assert!(!text.contains("alert"));
+        assert!(text.contains("Visible after a properly closed script."));
     }
 
     #[test]
