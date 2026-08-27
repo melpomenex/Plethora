@@ -1,9 +1,43 @@
-<section id="understand" class="home-section home-understand wrap" aria-labelledby="understand-heading">
-  <div class="inset">
-    <h2 id="understand-heading">Ask about this passage.</h2>
-    <p data-claim-pending="true">
-      Look up a word. Ask a question grounded in the paragraph on screen, not a generic chat
-      about the topic. Models stay a choice you make.
-    </p>
+---
+import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
+
+const selected = getShowcaseAsset('reader.selected', 'desktop')!;
+---
+
+<section id="understand" class="home-section home-understand" aria-labelledby="understand-heading">
+  <div class="wrap understand-grid">
+    <div class="inset">
+      <h2 id="understand-heading">Ask about this passage.</h2>
+      <blockquote class="understand-passage">
+        Sleep is not downtime. It is when the day becomes something you can keep.
+      </blockquote>
+      <p data-claim-pending="true">
+        Select the sentence and the reader offers what it actually supports — look a word up,
+        question the paragraph on screen, not a generic chat about the topic. Models stay a choice
+        you make.
+      </p>
+    </div>
+    <figure class="understand-proof">
+      <picture>
+        <source
+          type="image/avif"
+          srcset={sourceSet(selected.formats.avif)}
+          sizes="(min-width: 1024px) 48vw, 90vw"
+        />
+        <source
+          type="image/webp"
+          srcset={sourceSet(selected.formats.webp)}
+          sizes="(min-width: 1024px) 48vw, 90vw"
+        />
+        <img
+          src={selected.formats.png.at(-1)!.path}
+          alt={selected.accessibleDescription}
+          width={selected.intrinsicSize.width}
+          height={selected.intrinsicSize.height}
+          loading="lazy"
+          decoding="async"
+        />
+      </picture>
+    </figure>
   </div>
 </section>

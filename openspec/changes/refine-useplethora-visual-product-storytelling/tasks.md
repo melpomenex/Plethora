@@ -46,14 +46,14 @@
 
 ## 6. Section storytelling (P1)
 
-- [ ] 6.1 Capture section → product-proof band per D9: format strip retained + real `library.ready` crop with one-per-view fragment-convergence animation (offscreen pause, reduced-motion static).
-- [ ] 6.2 Add REMEMBER IT capability list with per-item claim mapping; extend `claims.json` `allowedSurfaces` to homepage only for verified shipping rows (`saved-position`, `local-tts`, `dictionary-peek` candidates) and mark or omit non-qualifying items (image occlusion decision documented in PR).
-- [ ] 6.3 Read section: real reader scenes (desktop crop + mobile panel) with return-to-position caption; TTS/e-ink mentions claim-gated.
-- [ ] 6.4 Understand section: passage excerpt + real `reader.selected` contextual-action presentation; no chat UI.
-- [ ] 6.5 Remember climax: full-width ink-inverted band; finite five-beat sequence (passage → Peck extraction moment → remember.preview → review.question/review.answer reveal interaction → schedule chip over review.scheduled timeline) with Replay control and reduced-motion filmstrip fallback.
-- [ ] 6.6 Connect section: replace note-pair wireframe with real `connections.context` presentation plus relationship highlight overlay or side captions (decision rule from D9).
-- [ ] 6.7 Trust section: positive ownership copy (“Your knowledge is yours.” direction) mapped to trust-capable public rows (`local-first-library`, `local-backups-export`, `byo-ai`) with deeper data-handling link; remove disclaimers.
-- [ ] 6.8 Problem/pricing/platforms rhythm pass: oversized pull-quote scale for Problem; consolidate width/scale variety record documenting each band's treatment.
+- [x] 6.1 Capture section → product-proof band per D9: format strip retained + real `library.ready` crop with one-per-view fragment-convergence animation (offscreen pause, reduced-motion static).
+- [x] 6.2 Add REMEMBER IT capability list with per-item claim mapping; extend `claims.json` `allowedSurfaces` to homepage only for verified shipping rows (`saved-position`, `local-tts`, `dictionary-peek` candidates) and mark or omit non-qualifying items (image occlusion decision documented in PR).
+- [x] 6.3 Read section: real reader scenes (desktop crop + mobile panel) with return-to-position caption; TTS/e-ink mentions claim-gated.
+- [x] 6.4 Understand section: passage excerpt + real `reader.selected` contextual-action presentation; no chat UI.
+- [x] 6.5 Remember climax: full-width ink-inverted band; finite five-beat sequence (passage → Peck extraction moment → remember.preview → review.question/review.answer reveal interaction → schedule chip over review.scheduled timeline) with Replay control and reduced-motion filmstrip fallback.
+- [x] 6.6 Connect section: replace note-pair wireframe with real `connections.context` presentation plus relationship highlight overlay or side captions (decision rule from D9).
+- [x] 6.7 Trust section: positive ownership copy (“Your knowledge is yours.” direction) mapped to trust-capable public rows (`local-first-library`, `local-backups-export`, `byo-ai`) with deeper data-handling link; remove disclaimers.
+- [x] 6.8 Problem/pricing/platforms rhythm pass: oversized pull-quote scale for Problem; consolidate width/scale variety record documenting each band's treatment.
 
 ## 7. Terminology migration + gates
 

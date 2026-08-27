@@ -1,11 +1,50 @@
-<section id="connect" class="home-section wrap" aria-labelledby="connect-heading">
-  <h2 id="connect-heading">The same essay, two notes, one link.</h2>
-  <p data-claim-pending="true">
-    Connection is a caption you write between things you already captured, not a decorative graph.
-  </p>
-  <div class="note-pair">
-    <p class="note">Slow-wave sleep replays the day’s traces.</p>
-    <p class="note-join">linked</p>
-    <p class="note">What you rehearse tonight is easier to retrieve next week.</p>
+---
+import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
+
+const connections = getShowcaseAsset('connections.context', 'desktop')!;
+---
+
+<section id="connect" class="home-section home-connect" aria-labelledby="connect-heading">
+  <div class="wrap connect-grid">
+    <div class="connect-copy">
+      <h2 id="connect-heading">The same document, two ideas, one link.</h2>
+      <p data-claim-pending="true">
+        Connection is a caption you write between things you already captured — not a decorative
+        graph. Open either idea later and the relationship travels with it.
+      </p>
+      <ul class="connect-captions">
+        <li>
+          <strong>Recognition is cheap. Recall is the skill.</strong>
+          <span>An extract from the reading.</span>
+        </li>
+        <li>
+          <strong>Effort is a teaching signal.</strong>
+          <span>A note linked to it on purpose.</span>
+        </li>
+      </ul>
+    </div>
+    <figure class="connect-proof">
+      <picture>
+        <source
+          type="image/avif"
+          srcset={sourceSet(connections.formats.avif)}
+          sizes="(min-width: 1024px) 54vw, 90vw"
+        />
+        <source
+          type="image/webp"
+          srcset={sourceSet(connections.formats.webp)}
+          sizes="(min-width: 1024px) 54vw, 90vw"
+        />
+        <img
+          src={connections.formats.png.at(-1)!.path}
+          alt={connections.accessibleDescription}
+          width={connections.intrinsicSize.width}
+          height={connections.intrinsicSize.height}
+          loading="lazy"
+          decoding="async"
+        />
+      </picture>
+      <figcaption>Two related items and the caption that connects them, in the real app.</figcaption>
+    </figure>
   </div>
 </section>

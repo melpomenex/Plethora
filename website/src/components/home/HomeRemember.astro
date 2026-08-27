@@ -1,16 +1,243 @@
 ---
-import KnowledgePeck from './KnowledgePeck.astro';
+import peckUrl from '../../assets/brand/knowledge-peck.svg?url';
+import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
+
+const preview = getShowcaseAsset('remember.preview', 'desktop')!;
+const question = getShowcaseAsset('review.question', 'desktop')!;
+const answer = getShowcaseAsset('review.answer', 'desktop')!;
+const scheduled = getShowcaseAsset('review.scheduled', 'desktop')!;
+
+/*
+ * Finite five-beat sequence on real captures: passage -> Knowledge Peck
+ * extraction -> remember.preview -> review.question (tappable reveal to
+ * review.answer) -> schedule chip over review.scheduled. One pass per view,
+ * resting at the scheduled beat; Replay restarts it. Under reduced motion
+ * the same DOM lays out as a static annotated filmstrip (no duplication).
+ */
+const beats = [
+  { id: 'passage', caption: 'A passage you selected.' },
+  { id: 'extract', caption: 'Knowledge Peck lifts the claim out.' },
+  { id: 'preview', caption: 'It becomes a focused card.' },
+  { id: 'question', caption: 'Later, the question returns.' },
+  { id: 'scheduled', caption: 'Graded, then scheduled before it slips.' },
+];
 ---
 
-<section id="remember" class="home-section home-remember" aria-labelledby="remember-heading">
-  <div class="wrap remember-layout">
-    <div>
+<section id="remember" class="home-section home-remember band-graphite" aria-labelledby="remember-heading">
+  <div class="wrap">
+    <div class="remember-intro">
       <h2 id="remember-heading">Then keep it.</h2>
-      <p data-claim-pending="true">
-        A line from the sleep essay becomes a card. Review it later, when it is about to slip:
-        basic, cloze, question, multiple choice, image occlusion, spaced over time.
+      <p class="remember-lede" data-claim-pending="true">
+        A line from the sleep document becomes a card. Review it when it is about to slip, spaced
+        over time.
       </p>
     </div>
-    <KnowledgePeck />
+
+    <div class="remember-sequence" data-motion-scene data-beat-stage data-beat="passage">
+      <div class="beat-screen">
+        <div class="beat beat-passage" data-beat-panel="passage" data-beat-caption-text="A passage you selected.">
+          <blockquote class="beat-passage-text">
+            Sleep is not downtime. It is when the day becomes something you can keep.
+          </blockquote>
+        </div>
+        <div class="beat beat-extract" data-beat-panel="extract" data-beat-caption-text="Knowledge Peck lifts the claim out.">
+          <img class="beat-bird" src={peckUrl} width="160" height="160" alt="" loading="lazy" />
+          <p class="beat-extract-line">…the claim lifts out.</p>
+        </div>
+        <div class="beat beat-scene" data-beat-panel="preview" data-beat-caption-text="It becomes a focused card.">
+          <picture>
+            <source type="image/avif" srcset={sourceSet(preview.formats.avif)} sizes="(min-width: 900px) 640px, 88vw" />
+            <source type="image/webp" srcset={sourceSet(preview.formats.webp)} sizes="(min-width: 900px) 640px, 88vw" />
+            <img
+              src={preview.formats.png.at(-1)!.path}
+              alt={preview.accessibleDescription}
+              width={preview.intrinsicSize.width}
+              height={preview.intrinsicSize.height}
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+        </div>
+        <div class="beat beat-scene" data-beat-panel="question" data-beat-caption-text="Later, the question returns.">
+          <picture>
+            <source type="image/avif" srcset={sourceSet(question.formats.avif)} sizes="(min-width: 900px) 640px, 88vw" />
+            <source type="image/webp" srcset={sourceSet(question.formats.webp)} sizes="(min-width: 900px) 640px, 88vw" />
+            <img
+              src={question.formats.png.at(-1)!.path}
+              alt={question.accessibleDescription}
+              width={question.intrinsicSize.width}
+              height={question.intrinsicSize.height}
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+          <button type="button" class="beat-reveal" data-beat-reveal>
+            Show answer
+          </button>
+        </div>
+        <div class="beat beat-scene" data-beat-panel="answer" data-beat-caption-text="You answer honestly.">
+          <picture>
+            <source type="image/avif" srcset={sourceSet(answer.formats.avif)} sizes="(min-width: 900px) 640px, 88vw" />
+            <source type="image/webp" srcset={sourceSet(answer.formats.webp)} sizes="(min-width: 900px) 640px, 88vw" />
+            <img
+              src={answer.formats.png.at(-1)!.path}
+              alt={answer.accessibleDescription}
+              width={answer.intrinsicSize.width}
+              height={answer.intrinsicSize.height}
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+        </div>
+        <div class="beat beat-scene" data-beat-panel="scheduled" data-beat-caption-text="Graded, then scheduled before it slips.">
+          <picture>
+            <source type="image/avif" srcset={sourceSet(scheduled.formats.avif)} sizes="(min-width: 900px) 640px, 88vw" />
+            <source type="image/webp" srcset={sourceSet(scheduled.formats.webp)} sizes="(min-width: 900px) 640px, 88vw" />
+            <img
+              src={scheduled.formats.png.at(-1)!.path}
+              alt={scheduled.accessibleDescription}
+              width={scheduled.intrinsicSize.width}
+              height={scheduled.intrinsicSize.height}
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+          <span class="schedule-chip" data-schedule-chip>Scheduled · before it slips</span>
+        </div>
+      </div>
+
+      <div class="remember-hud">
+        <ol class="beat-dots" aria-hidden="true">
+          {beats.map((beat) => <li data-beat-dot={beat.id}></li>)}
+        </ol>
+        <p class="beat-caption" data-beat-caption>A passage you selected.</p>
+        <button type="button" class="beat-replay" data-beat-replay>
+          Replay
+        </button>
+      </div>
+    </div>
   </div>
 </section>
+
+<script>
+  /**
+   * Remember beats engine: a finite, one-pass-per-view sequence driven by
+   * the shared motion-scene observer's is-in-view class (see HomeCapture).
+   * Offscreen/hidden runs pause via is-paused. Reduced motion never starts
+   * the engine; CSS lays the same panels out as a static filmstrip.
+   */
+  const SEQUENCE: Array<{ id: string; holdMs: number }> = [
+    { id: 'passage', holdMs: 1400 },
+    { id: 'extract', holdMs: 1600 },
+    { id: 'preview', holdMs: 1600 },
+    { id: 'question', holdMs: 8000 }, // rests until revealed or timeout
+    { id: 'answer', holdMs: 1400 },
+    { id: 'scheduled', holdMs: 0 }, // final beat; engine rests
+  ];
+
+  function setupBeatStage(stage: HTMLElement) {
+    if (stage.dataset.beatWired === 'true') return;
+    stage.dataset.beatWired = 'true';
+
+    const caption = stage.querySelector<HTMLElement>('[data-beat-caption]');
+    const captions: Record<string, string> = {};
+    stage.querySelectorAll<HTMLElement>('[data-beat-panel]').forEach((panel) => {
+      captions[panel.dataset.beatPanel!] = panel.dataset.beatCaptionText ?? '';
+    });
+
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let index = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const apply = () => {
+      const beat = SEQUENCE[index];
+      stage.dataset.beat = beat.id;
+      stage.querySelectorAll<HTMLElement>('[data-beat-dot]').forEach((dot) => {
+        dot.setAttribute(
+          'data-beat-dot-state',
+          dot.dataset.beatDot === beat.id ? 'current' : 'idle',
+        );
+      });
+      if (caption && captions[beat.id]) caption.textContent = captions[beat.id];
+    };
+
+    const stop = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const advance = () => {
+      stop();
+      if (index < SEQUENCE.length - 1) {
+        index += 1;
+        apply();
+        schedule();
+      }
+    };
+
+    const schedule = () => {
+      const hold = SEQUENCE[index].holdMs;
+      if (hold > 0) timer = setTimeout(advance, hold);
+    };
+
+    const start = () => {
+      if (prefersReduced.matches || stage.dataset.beatState === 'done') return;
+      index = 0;
+      apply();
+      stage.dataset.beatState = 'running';
+      schedule();
+    };
+
+    stage.querySelector('[data-beat-reveal]')?.addEventListener('click', () => {
+      if (SEQUENCE[index].id === 'question') {
+        // Reveal answers the question beat, then continues to the schedule.
+        index = SEQUENCE.findIndex((beat) => beat.id === 'answer');
+        apply();
+        schedule();
+      }
+    });
+
+    stage.querySelector('[data-beat-replay]')?.addEventListener('click', () => {
+      stage.dataset.beatState = '';
+      start();
+    });
+
+    new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !document.hidden) {
+            if (stage.dataset.beatState !== 'running' && stage.dataset.beatState !== 'done') {
+              start();
+            } else if (stage.dataset.beatState === 'paused') {
+              stage.dataset.beatState = 'running';
+              schedule();
+            }
+          } else if (stage.dataset.beatState === 'running') {
+            stage.dataset.beatState = 'paused';
+            stop();
+          }
+        }
+      },
+      { threshold: 0.35 },
+    ).observe(stage);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && stage.dataset.beatState === 'running') {
+        stage.dataset.beatState = 'paused';
+        stop();
+      }
+    });
+
+    // Arrive pre-seeded at the first beat so SSR paint is stable.
+    index = 0;
+    apply();
+    stage.dataset.beatState = 'armed';
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-beat-stage]').forEach(setupBeatStage);
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-beat-stage]').forEach(setupBeatStage);
+  });
+</script>

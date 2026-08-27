@@ -105,7 +105,7 @@
       "statement": "A dictionary peek is available while reading.",
       "status": "shipping",
       "evidencePaths": ["docs/product/features/language/dictionary-peek.md"],
-      "allowedSurfaces": ["features", "pricing"],
+      "allowedSurfaces": ["homepage", "features", "pricing"],
       "public": true
     },
     {
@@ -113,7 +113,7 @@
       "statement": "System and local text-to-speech can read documents where the platform supports it.",
       "status": "shipping",
       "evidencePaths": ["docs/product/features/tts/playback-engines.md"],
-      "allowedSurfaces": ["features", "pricing"],
+      "allowedSurfaces": ["homepage", "features", "pricing"],
       "public": true
     },
     {
@@ -121,7 +121,7 @@
       "statement": "Reading position is restored when you return to a document.",
       "status": "shipping",
       "evidencePaths": ["docs/product/features/reading/position-restore.md"],
-      "allowedSurfaces": ["features", "pricing"],
+      "allowedSurfaces": ["homepage", "features", "pricing"],
       "public": true
     },
     {

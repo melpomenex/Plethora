@@ -1,14 +1,61 @@
 ---
-import { COPY } from '../../config/copy.ts';
+import { getClaim } from '../../config/claims.ts';
+
+/*
+ * Trust-capable public rows only (local-first-library, local-backups-export,
+ * byo-ai — all public with the trust surface). Each point carries a
+ * data-claim attribute back to its row; the deeper link is the
+ * data-handling documentation. Rows are validated at build time so an
+ * unpublished claim fails the build instead of shipping.
+ */
+for (const id of ['local-first-library', 'local-backups-export', 'byo-ai']) {
+  const claim = getClaim(id);
+  if (!claim || !claim.public) {
+    throw new Error(`Trust copy references unavailable claim: ${id}`);
+  }
+}
+
+const trustPoints = [
+  {
+    title: 'Local first.',
+    body: 'Your library lives on the machine in front of you, not behind an account.',
+    claim: 'local-first-library',
+  },
+  {
+    title: 'Export everything.',
+    body: 'Backups and Anki package export are built in, so leaving is easy on purpose.',
+    claim: 'local-backups-export',
+  },
+  {
+    title: 'Bring your own AI.',
+    body: 'Models stay a choice you make, with your keys and your providers.',
+    claim: 'byo-ai',
+  },
+];
 ---
 
 <section id="trust" class="home-section home-trust" aria-labelledby="trust-heading">
   <div class="wrap">
-    <h2 id="trust-heading">{COPY.trustHeading}</h2>
-    <p data-claim-pending="true">
-      Plethora is built so your library can live on the machine in front of you. Export what you
-      put in. This page does not claim zero-knowledge sync, live AnkiConnect, or a working store
-      checkout.
+    <h2 id="trust-heading">Your knowledge is yours.</h2>
+    <ul class="trust-points">
+      {
+        trustPoints.map((point) => (
+          <li data-claim={point.claim}>
+            <strong>{point.title}</strong>
+            <span>{point.body}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="trust-more">
+      <a href="/privacy">How Plethora handles your data</a>
     </p>
   </div>
 </section>
+
+<style>
+  .trust-more {
+    margin: var(--space-5) 0 0;
+    font-size: 0.95rem;
+  }
+</style>

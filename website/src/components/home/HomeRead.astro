@@ -1,8 +1,65 @@
-<section id="read" class="home-section wrap" aria-labelledby="read-heading">
-  <h2 id="read-heading">Open it. Leave it. Return on the same line.</h2>
-  <p class="story-caption">Tonight’s essay stays in the same place you stopped.</p>
-  <p data-claim-pending="true">
-    Reading is built for long work: pick up where you stopped, move through a library in small
-    passes, listen when you cannot look, and use a quieter display when you want less light.
-  </p>
+---
+import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
+
+const readerDesktop = getShowcaseAsset('reader.open', 'desktop')!;
+const readerMobile = getShowcaseAsset('reader.open', 'mobile')!;
+---
+
+<section id="read" class="home-section home-read" aria-labelledby="read-heading">
+  <div class="wrap read-grid">
+    <div class="read-copy">
+      <h2 id="read-heading">Open it. Leave it. Return on the same line.</h2>
+      <p class="story-caption">Tonight’s document stays exactly where you stopped.</p>
+      <p data-claim-pending="true">
+        Reading is built for long work: pick up where you stopped, move through a library in small
+        passes, and listen when you cannot look.
+      </p>
+    </div>
+    <div class="read-proof">
+      <figure class="read-desktop">
+        <picture>
+          <source
+            type="image/avif"
+            srcset={sourceSet(readerDesktop.formats.avif)}
+            sizes="(min-width: 1024px) 52vw, 90vw"
+          />
+          <source
+            type="image/webp"
+            srcset={sourceSet(readerDesktop.formats.webp)}
+            sizes="(min-width: 1024px) 52vw, 90vw"
+          />
+          <img
+            src={readerDesktop.formats.png.at(-1)!.path}
+            alt={readerDesktop.accessibleDescription}
+            width={readerDesktop.intrinsicSize.width}
+            height={readerDesktop.intrinsicSize.height}
+            loading="lazy"
+            decoding="async"
+          />
+        </picture>
+      </figure>
+      <figure class="read-mobile">
+        <div class="phone-device read-phone">
+          <span class="device-sensor" aria-hidden="true">
+            <span class="device-speaker"></span>
+            <span class="device-camera"></span>
+          </span>
+          <div class="phone-screen">
+            <picture>
+              <source type="image/avif" srcset={sourceSet(readerMobile.formats.avif)} sizes="150px" />
+              <source type="image/webp" srcset={sourceSet(readerMobile.formats.webp)} sizes="150px" />
+              <img
+                src={readerMobile.formats.png.at(-1)!.path}
+                alt={readerMobile.accessibleDescription}
+                width={readerMobile.intrinsicSize.width}
+                height={readerMobile.intrinsicSize.height}
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+          </div>
+        </div>
+      </figure>
+    </div>
+  </div>
 </section>

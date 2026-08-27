@@ -1,14 +1,123 @@
 ---
+import { getShowcaseAsset, sourceSet } from '../demo/showcase.ts';
+
 const formats = ['Books', 'PDFs', 'Articles', 'Audio', 'Video', 'Notes'];
+
+const library = getShowcaseAsset('library.ready', 'desktop')!;
+const reader = getShowcaseAsset('reader.open', 'desktop')!;
+const preview = getShowcaseAsset('review.question', 'desktop')!;
+const review = getShowcaseAsset('review.scheduled', 'desktop')!;
+
+/*
+ * REMEMBER IT list is claim-gated: every non-pending item maps to a public
+ * claims.json row whose allowedSurfaces include the homepage. Image occlusion
+ * is omitted (its evidence targets the authoring UX; features page owns it),
+ * and Connections keeps the established pending marker (no public row yet).
+ */
+const rememberItems = [
+  { label: 'Spaced repetition', pending: false },
+  { label: 'Incremental reading', pending: false },
+  { label: 'Flashcards', pending: false },
+  { label: 'Saved positions', pending: false },
+  { label: 'Read aloud', pending: false },
+  { label: 'Connections', pending: true },
+];
 ---
 
-<section id="capture" class="home-section wrap" aria-labelledby="capture-heading">
-  <h2 id="capture-heading">One library. Whatever you read next.</h2>
-  <p data-claim-pending="true">
-    The walkthrough follows one essay on sleep and memory. Capture is where that essay lands
-    beside the rest of a working library, not in another single-purpose inbox.
-  </p>
-  <ul class="format-strip">
-    {formats.map((name) => <li>{name}</li>)}
-  </ul>
+<section id="capture" class="home-section home-capture" aria-labelledby="capture-heading">
+  <div class="wrap capture-band">
+    <div class="capture-copy">
+      <p class="capture-kicker">Read anything</p>
+      <h2 id="capture-heading">One library. Whatever you read next.</h2>
+      <p class="capture-lede" data-claim-pending="true">
+        The walkthrough follows one document on sleep and memory. Capture is where that document
+        lands beside the rest of a working library, not in another single-purpose inbox.
+      </p>
+      <ul class="format-strip">
+        {formats.map((name) => <li>{name}</li>)}
+      </ul>
+
+      <p class="capture-kicker remember-kicker">Remember it</p>
+      <ul class="remember-list">
+        {rememberItems.map((item) => <li data-claim-pending={item.pending ? 'true' : undefined}>{item.label}</li>)}
+      </ul>
+    </div>
+
+    <figure class="capture-proof" data-motion-scene aria-label="Captured moments settling into the Plethora library">
+      <div class="capture-frame">
+        <picture>
+          <source type="image/avif" srcset={sourceSet(library.formats.avif)} sizes="(min-width: 1024px) 46vw, 88vw" />
+          <source type="image/webp" srcset={sourceSet(library.formats.webp)} sizes="(min-width: 1024px) 46vw, 88vw" />
+          <img
+            src={library.formats.png.at(-1)!.path}
+            alt={library.accessibleDescription}
+            width={library.intrinsicSize.width}
+            height={library.intrinsicSize.height}
+            loading="lazy"
+            decoding="async"
+          />
+        </picture>
+      </div>
+      <span class="fragment fragment-reader" aria-hidden="true">
+        <img src={reader.formats.png.at(-1)!.path} alt="" loading="lazy" decoding="async" />
+      </span>
+      <span class="fragment fragment-preview" aria-hidden="true">
+        <img src={preview.formats.png.at(-1)!.path} alt="" loading="lazy" decoding="async" />
+      </span>
+      <span class="fragment fragment-review" aria-hidden="true">
+        <img src={review.formats.png.at(-1)!.path} alt="" loading="lazy" decoding="async" />
+      </span>
+      <figcaption class="sr-only">
+        Real Plethora captures — the reader, a card preview, and a review schedule — settling into
+        the library.
+      </figcaption>
+    </figure>
+  </div>
 </section>
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
+
+<script>
+  /*
+   * Shared motion-scene wiring for the homepage: toggles is-in-view /
+   * is-paused on every [data-motion-scene] (capture fragments, the Remember
+   * band's beats). Runs once; Astro dedupes the bundled module.
+   */
+  function syncMotion() {
+    const hidden = document.hidden;
+    document.documentElement.classList.toggle('is-document-hidden', hidden);
+    for (const scene of document.querySelectorAll('[data-motion-scene]')) {
+      scene.classList.toggle('is-paused', hidden);
+    }
+  }
+
+  const scenes = document.querySelectorAll('[data-motion-scene]');
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        entry.target.classList.toggle('is-in-view', entry.isIntersecting);
+        if (!entry.isIntersecting) {
+          entry.target.classList.add('is-paused');
+        } else if (!document.hidden) {
+          entry.target.classList.remove('is-paused');
+        }
+      }
+    },
+    { threshold: 0.2 },
+  );
+  for (const scene of scenes) io.observe(scene);
+  document.addEventListener('visibilitychange', syncMotion);
+  syncMotion();
+</script>
