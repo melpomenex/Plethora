@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookOpenText, GraduationCap, Lightbulb, SpeakerHigh, Translate as TranslateIcon, X } from "@phosphor-icons/react";
 import { DictionaryPeek, type DictionaryPeekTarget } from "../viewer/selectionInteraction/DictionaryPeek";
 import { useLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import type { SourceAnchor } from "../../types/languageLexicon";
-import { dispatchLanguageHostAction } from "../../lib/languageHost";
+import { dispatchLanguageHostAction, LANGUAGE_HOST_ACTION_EVENT } from "../../lib/languageHost";
 import { languageAnnotationStyleText } from "../../lib/languageHighlighting";
 import { dispatchTopLanguagePracticeRecommendation } from "../../lib/languagePractice";
 
@@ -31,6 +31,15 @@ export function LanguageReaderHostPanel({
 }: LanguageReaderHostPanelProps) {
   const { snapshot } = useLanguageLearningHost();
   const [peekOpen, setPeekOpen] = useState(false);
+  useEffect(() => {
+    const onAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ action?: string; hostId?: string }>).detail;
+      if (detail?.action === "open-peek" && detail.hostId === snapshot.hostId) setPeekOpen(true);
+    };
+    window.addEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
+    return () => window.removeEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
+  }, [snapshot.hostId]);
+
   const trimmedSelection = selectedText.trim();
   const canAct = snapshot.status === "ready" && trimmedSelection.length > 0;
   const profile = snapshot.profile;

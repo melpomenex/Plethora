@@ -1699,6 +1699,7 @@ export function LocalVideoPlayer({
                   className="h-full"
                   isPlaying={isPlaying}
                   playbackRate={playbackRate}
+                  languageSourceId={documentId ?? sourceKey}
                 />
               )}
             </div>

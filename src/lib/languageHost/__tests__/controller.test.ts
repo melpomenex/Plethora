@@ -59,11 +59,16 @@ describe("LanguageLearningHostController", () => {
     expect(resolveProfile).not.toHaveBeenCalled();
   });
 
-  it("resolves a ready profile-scoped host", async () => {
-    const snapshot = await new LanguageLearningHostController().resolve(input());
+  it("resolves a ready profile-scoped host with explicit capabilities", async () => {
+    const snapshot = await new LanguageLearningHostController().resolve(input({
+      capabilities: {
+        practice: { name: "practice", available: true, offline: true },
+      },
+    }));
     expect(snapshot.status).toBe("ready");
     expect(snapshot.profile?.targetLanguage).toBe("es");
     expect(snapshot.capabilities.practice.available).toBe(true);
+    expect(snapshot.capabilities.translation.available).toBe(false);
   });
 
   it("rejects a late resolution after invalidation", async () => {

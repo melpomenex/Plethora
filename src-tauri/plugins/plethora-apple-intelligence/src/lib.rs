@@ -423,6 +423,30 @@ mod commands {
     stub_cmd!(apple_coreai_cancel, "coreaiCancel");
     stub_cmd!(apple_coreai_count_tokens, "coreaiCountTokens");
     stub_cmd!(apple_coreai_warmup, "coreaiWarmup");
+
+    #[tauri::command]
+    pub async fn apple_translate_sentence(
+        app: AppHandle<Wry>,
+        state: State<'_, AppleIntelligence>,
+        payload: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        let body = payload.unwrap_or_else(|| serde_json::json!({}));
+        #[cfg(target_os = "ios")]
+        {
+            let _ = app;
+            call_mobile(state.inner(), "translateSentence", body)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = state;
+            macos_bridge::translate_sentence(body)
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            let _ = (app, state, body);
+            Err(not_apple("apple_translate_sentence"))
+        }
+    }
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -466,6 +490,7 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::apple_coreai_cancel,
             commands::apple_coreai_count_tokens,
             commands::apple_coreai_warmup,
+            commands::apple_translate_sentence,
         ])
         .setup(|app, api| {
             let plugin = init_mobile(app.app_handle(), api)?;

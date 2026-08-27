@@ -12,7 +12,7 @@ vi.mock("../../../contexts/LanguageLearningHostContext", () => ({
       status: "ready",
       source: { source: { sourceType: "text", sourceId: "doc" }, contentType: "document", contentId: "doc", contentFingerprint: "fp" },
       profile: { id: "p", name: "Spanish", targetLanguage: "es", baseLanguage: "en" },
-      capabilities: Object.fromEntries(["translation", "originalAudio", "tutor", "readingAssist"].map((name) => [name, { name, available: true, offline: true }])),
+      capabilities: Object.fromEntries(["translation", "originalAudio", "tutor", "readingAssist", "practice", "peek"].map((name) => [name, { name, available: true, offline: true }])),
       epoch: 1,
     },
   }),

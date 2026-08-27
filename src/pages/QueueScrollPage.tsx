@@ -26,7 +26,7 @@ import { useQueueStore } from "../stores/queueStore";
 import type { QueueItem } from "../types/queue";
 import { useDocumentStore } from "../stores/documentStore";
 import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
-import { DocumentViewer } from "../components/viewer/DocumentViewer";
+import { DocumentViewer } from "../components/viewer/DocumentViewerWrapper";
 import { AudiobookViewer } from "../components/viewer/AudiobookViewer";
 import { FlashcardScrollItem } from "../components/review/FlashcardScrollItem";
 import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
@@ -4058,6 +4058,7 @@ export function QueueScrollPage() {
               <DocumentViewer
                 key={renderedItem.documentId}
                 documentId={renderedItem.documentId!}
+                openedFrom="queue"
                 embedded={true}
                 hideRatingOrbs={true}
                 onSelectionChange={setSelection}

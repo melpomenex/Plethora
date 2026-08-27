@@ -26,6 +26,7 @@ import { XPostCard } from "./XPostCard";
 import { XThreadSkeleton } from "./XThreadSkeleton";
 import { XThreadErrorState } from "./XThreadErrorState";
 import { XTHREAD_SCROLL_EVENT, XTHREAD_HIGHLIGHT_MS, type XThreadScrollDetail } from "./xthreadNav";
+import { LanguageReaderDomBridge } from "../language/LanguageReaderDomBridge";
 import { CheckCircle, ArrowSquareOut, FloppyDisk, DotsThree, CaretLeft, CaretUp, CaretDown, X as XIcon, PaperPlaneTilt, Sparkle, ListBullets, Question, NotePencil } from "@phosphor-icons/react";
 
 export interface XThreadViewerProps {
@@ -73,6 +74,7 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
   const openTwitterThread = useDocumentStore((s) => s.openTwitterThread);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const [threadRoot, setThreadRoot] = useState<HTMLDivElement | null>(null);
   // Selection adapter state
   const [selection, setSelection] = useState<{
     text: string;
@@ -353,7 +355,10 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
 
   return (
     <div
-      ref={containerRef}
+      ref={(element) => {
+        containerRef.current = element;
+        setThreadRoot(element);
+      }}
       data-testid="x-thread-viewer"
       data-thread-root={thread.rootId}
       className={cn(
@@ -706,6 +711,11 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
           ))}
         </div>
       )}
+      <LanguageReaderDomBridge
+        root={threadRoot}
+        surface="html"
+        sourceId={doc.id}
+      />
     </div>
   );
 }

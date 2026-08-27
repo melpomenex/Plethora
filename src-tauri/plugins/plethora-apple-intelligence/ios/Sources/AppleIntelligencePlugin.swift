@@ -42,6 +42,7 @@ public class AppleIntelligencePlugin: Plugin {
   let nl = AppleNaturalLanguageBridge()
   let foundation = AppleFoundationModelsBridge()
   let coreAI = AppleCoreAIBridge()
+  let translation = AppleTranslationBridge()
 
   @objc public func capabilities(_ invoke: Invoke) throws {
     let _ = try? invoke.parseArgs(EmptyArgs.self)
@@ -91,6 +92,8 @@ public class AppleIntelligencePlugin: Plugin {
   @objc public func coreaiCancel(_ invoke: Invoke) throws { coreAI.cancel(invoke) }
   @objc public func coreaiCountTokens(_ invoke: Invoke) throws { try coreAI.countTokens(invoke) }
   @objc public func coreaiWarmup(_ invoke: Invoke) throws { coreAI.warmup(invoke) }
+
+  @objc public func translateSentence(_ invoke: Invoke) throws { translation.translate(invoke) }
 
   private func currentSnapshot() -> JSObject {
     let fm = foundation.featureState()

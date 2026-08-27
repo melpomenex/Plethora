@@ -103,3 +103,99 @@ impl Repository {
         rows.iter().map(from_row).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Database;
+    use crate::models::language_profile::LanguageProfileCreate;
+    use std::path::PathBuf;
+
+    async fn repository() -> Repository {
+        let database = Database::new(PathBuf::from(":memory:")).await.expect("database");
+        database.migrate().await.expect("migrations");
+        Repository::new(database.pool().clone())
+    }
+
+    async fn create_profile_id(repo: &Repository) -> String {
+        let profile = repo
+            .create_language_profile(
+                LanguageProfileCreate {
+                    name: "Spanish".to_string(),
+                    target_language: "es".to_string(),
+                    base_language: "en".to_string(),
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("profile");
+        profile.id
+    }
+
+    fn sample_attempt(profile_id: &str, id: &str, source_id: &str) -> LanguagePracticeAttempt {
+        LanguagePracticeAttempt {
+            id: id.to_string(),
+            profile_id: profile_id.to_string(),
+            mode: "dictation".to_string(),
+            status: "submitted".to_string(),
+            source_type: Some("document".to_string()),
+            source_id: Some(source_id.to_string()),
+            source_fingerprint: Some("fp-1".to_string()),
+            prompt_text: "Hola".to_string(),
+            raw_response: Some("hola".to_string()),
+            normalized_response: Some("hola".to_string()),
+            comparison: Some(serde_json::json!({ "exact": true, "score": 1.0, "errors": [] })),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_and_get_round_trip() {
+        let repo = repository().await;
+        let profile_id = create_profile_id(&repo).await;
+        let attempt = sample_attempt(&profile_id, "attempt-1", "doc-1");
+        let saved = repo.upsert_language_practice_attempt(attempt).await.unwrap();
+        assert_eq!(saved.id, "attempt-1");
+        assert_eq!(saved.raw_response.as_deref(), Some("hola"));
+        let loaded = repo.get_language_practice_attempt(&profile_id, "attempt-1").await.unwrap();
+        assert_eq!(loaded.prompt_text, "Hola");
+        assert_eq!(loaded.comparison.as_ref().and_then(|value| value.get("exact")).and_then(|value| value.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn list_filters_by_source_and_delete_removes_attempt() {
+        let repo = repository().await;
+        let profile_id = create_profile_id(&repo).await;
+        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-1", "doc-1")).await.unwrap();
+        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-2", "doc-2")).await.unwrap();
+
+        let filtered = repo.list_language_practice_attempts(&profile_id, Some("doc-1"), 10).await.unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "attempt-1");
+
+        assert!(repo.delete_language_practice_attempt(&profile_id, "attempt-1").await.unwrap());
+        let remaining = repo.list_language_practice_attempts(&profile_id, None, 10).await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "attempt-2");
+    }
+
+    #[tokio::test]
+    async fn purge_expired_and_export_ordered() {
+        let repo = repository().await;
+        let profile_id = create_profile_id(&repo).await;
+        let mut expired = sample_attempt(&profile_id, "expired", "doc-1");
+        expired.retention_expires_at = Some(100);
+        let mut fresh = sample_attempt(&profile_id, "fresh", "doc-1");
+        fresh.retention_expires_at = Some(9_999);
+        repo.upsert_language_practice_attempt(expired).await.unwrap();
+        repo.upsert_language_practice_attempt(fresh).await.unwrap();
+
+        let removed = repo.purge_expired_language_practice_attempts(&profile_id, 500).await.unwrap();
+        assert_eq!(removed, 1);
+        let exported = repo.export_language_practice_attempts(&profile_id).await.unwrap();
+        assert_eq!(exported.len(), 1);
+        assert_eq!(exported[0].id, "fresh");
+    }
+}

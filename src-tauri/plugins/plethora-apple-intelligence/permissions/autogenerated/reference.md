@@ -941,6 +941,32 @@ Denies the apple_spotlight_status command without any pre-configured scope.
 <tr>
 <td>
 
+`plethora-apple-intelligence:allow-apple-translate-sentence`
+
+</td>
+<td>
+
+Enables the apple_translate_sentence command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-translate-sentence`
+
+</td>
+<td>
+
+Denies the apple_translate_sentence command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `plethora-apple-intelligence:allow-apple-vision-cancel`
 
 </td>

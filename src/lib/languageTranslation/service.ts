@@ -4,6 +4,8 @@ import { createTranslationCacheKey, translationCacheIdentity, type TranslationCa
 import { cancelledTranslationError, TranslationError, toTranslationError } from "./error";
 import { canonicalizeTranslationLanguageTag, type CanonicalTranslationRequest, type TranslationRequest } from "./request";
 import { TranslationProviderRegistry, createTranslationProviderRegistry, type TranslationProviderSelection } from "./registry";
+import { createAiTranslationProvider } from "./aiTranslate";
+import { createAppleTranslationProvider } from "./appleTranslate";
 import { createMlKitTranslationProvider } from "./mlkitTranslate";
 import { type StoredTranslationResult, type TranslationResult } from "./result";
 import {
@@ -330,7 +332,11 @@ export function createTranslationService(options: TranslationServiceOptions = {}
   if (options.registry) return new TranslationService(options);
   return new TranslationService({
     ...options,
-    registry: createTranslationProviderRegistry([createMlKitTranslationProvider()]),
+    registry: createTranslationProviderRegistry([
+      createMlKitTranslationProvider(),
+      createAppleTranslationProvider(),
+      createAiTranslationProvider(),
+    ]),
   });
 }
 

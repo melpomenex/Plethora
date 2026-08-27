@@ -10,8 +10,9 @@ import {
 } from "./types";
 
 const DEFAULT_CAPABILITY: Omit<LanguageHostCapability, "name"> = {
-  available: true,
-  offline: true,
+  available: false,
+  offline: false,
+  reason: "unsupported-capability",
 };
 
 function defaultCapabilities(

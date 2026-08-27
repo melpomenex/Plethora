@@ -703,6 +703,18 @@
           "markdownDescription": "Denies the apple_spotlight_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the apple_translate_sentence command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apple-translate-sentence",
+          "markdownDescription": "Enables the apple_translate_sentence command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apple_translate_sentence command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apple-translate-sentence",
+          "markdownDescription": "Denies the apple_translate_sentence command without any pre-configured scope."
+        },
+        {
           "description": "Enables the apple_vision_cancel command without any pre-configured scope.",
           "type": "string",
           "const": "allow-apple-vision-cancel",

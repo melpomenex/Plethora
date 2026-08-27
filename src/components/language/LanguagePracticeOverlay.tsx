@@ -6,6 +6,7 @@ import { acceptPracticeEvidence, createPracticeAttempt, recommendationPreview, r
 import { LANGUAGE_PRACTICE_RECOMMENDATION_EVENT, type LanguagePracticeRecommendationDetail } from "../../lib/languagePractice";
 import type { PracticeAttempt, PracticeMode } from "../../lib/languagePractice";
 import { canStartCapture, createConfiguredShadowingProviders, createShadowingSession, ShadowingRecognitionService } from "../../lib/languageShadowing";
+import { isGroqConfigured } from "../../api/groqTranscription";
 import { advertisedPronunciationDimensions, canProvidePronunciation, evaluatePronunciationFeedback, type PronunciationFeedbackResult } from "../../lib/languagePronunciation";
 import type { ShadowingFlow, ShadowingSttRoute } from "../../lib/languageShadowing";
 import type { PracticeSource } from "../../lib/languagePractice";
@@ -49,6 +50,8 @@ function newAttempt(request: LanguageHostActionDetail, mode: PracticeMode): Prac
 export function LanguagePracticeOverlay() {
   const { snapshot, shadowingProviders, writingProvider, pronunciationManifest } = useLanguageLearningHost();
   const configuredShadowingProviders = shadowingProviders ?? [];
+  const shadowingAvailable = configuredShadowingProviders.length > 0 || isGroqConfigured();
+  const writingAvailable = Boolean(writingProvider);
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [mode, setMode] = useState<PracticeMode>("dictation");
   const [shadowingFlow, setShadowingFlow] = useState<ShadowingFlow>("listen-first");
@@ -91,14 +94,22 @@ export function LanguagePracticeOverlay() {
     const onAction = (event: Event) => {
       const detail = (event as CustomEvent<LanguageHostActionDetail>).detail;
       if (!detail || detail.hostId !== snapshot.hostId || detail.action !== "practice") return;
+      const requested = detail.practiceMode ?? "dictation";
+      const resolvedMode: PracticeMode = requested === "shadowing" && shadowingAvailable
+        ? "shadowing"
+        : requested === "writing" && writingAvailable
+          ? "writing"
+          : requested === "pronunciation" && Boolean(pronunciationManifest?.configured)
+            ? "pronunciation"
+            : "dictation";
       setRequest(detail);
-      setMode(detail.practiceMode ?? "dictation");
+      setMode(resolvedMode);
       setShadowingFlow("listen-first");
-      setShadowingSttRoute("local");
+      setShadowingSttRoute(configuredShadowingProviders.some((provider) => provider.route === "local") ? "local" : isGroqConfigured() ? "cloud" : "local");
       setRecognitionStatus("idle");
       setWritingPromptMode("current-document");
       setAcceptedWritingCorrections(new Set());
-      setAttempt(newAttempt(detail, detail.practiceMode ?? "dictation"));
+      setAttempt(newAttempt(detail, resolvedMode));
       setAnswer("");
       setRevealed(false);
       setError(null);
@@ -111,7 +122,7 @@ export function LanguagePracticeOverlay() {
     };
     window.addEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
     return () => window.removeEventListener(LANGUAGE_HOST_ACTION_EVENT, onAction);
-  }, [snapshot.hostId]);
+  }, [configuredShadowingProviders, pronunciationManifest?.configured, shadowingAvailable, snapshot.hostId, writingAvailable]);
 
   useEffect(() => {
     const onRecommendation = (event: Event) => {
@@ -438,6 +449,12 @@ export function LanguagePracticeOverlay() {
   const effectivePronunciationManifest = pronunciationManifest ?? { providerId: "none", providerVersion: "none", capabilities: [], languages: [], sendsAudioOffDevice: false, maxAudioMs: 0, configured: false } as const;
   const pronunciationDimensions = snapshot.profile ? advertisedPronunciationDimensions(effectivePronunciationManifest, snapshot.profile.targetLanguage) : [];
   const pronunciationAvailable = Boolean(snapshot.profile && canProvidePronunciation(effectivePronunciationManifest, "transcription", snapshot.profile.targetLanguage));
+  const modeAvailable = (candidate: PracticeMode): boolean => {
+    if (candidate === "dictation") return true;
+    if (candidate === "shadowing") return shadowingAvailable;
+    if (candidate === "writing") return writingAvailable;
+    return pronunciationAvailable;
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" data-language-practice-overlay="true">
@@ -449,7 +466,18 @@ export function LanguagePracticeOverlay() {
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Practice mode">
           {(["dictation", "shadowing", "writing", "pronunciation"] as PracticeMode[]).map((candidate) => (
-            <button key={candidate} type="button" role="tab" aria-selected={mode === candidate} className={`rounded-md border px-2.5 py-1.5 text-xs ${mode === candidate ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"}`} onClick={() => setMode(candidate)}>{candidate[0]!.toUpperCase() + candidate.slice(1)}</button>
+            <button
+              key={candidate}
+              type="button"
+              role="tab"
+              aria-selected={mode === candidate}
+              disabled={!modeAvailable(candidate)}
+              title={modeAvailable(candidate) ? undefined : candidate === "shadowing" ? "Configure local speech recognition or Groq for shadowing." : candidate === "writing" ? "Configure an AI provider for writing practice." : "Pronunciation scoring is unavailable for this language."}
+              className={`rounded-md border px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-40 ${mode === candidate ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"}`}
+              onClick={() => modeAvailable(candidate) && setMode(candidate)}
+            >
+              {candidate[0]!.toUpperCase() + candidate.slice(1)}
+            </button>
           ))}
         </div>
         <div className="mt-4 rounded-xl bg-muted/50 p-4 text-center text-lg leading-relaxed" aria-live="polite">

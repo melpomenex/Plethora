@@ -29,6 +29,12 @@ import { LanguageReaderActionOverlay } from "../language/LanguageReaderActionOve
 import { LanguageTutorHost } from "../language/LanguageTutorHost";
 import { LanguagePracticeOverlay } from "../language/LanguagePracticeOverlay";
 import { LanguageReadingAssistOverlay } from "../language/LanguageReadingAssistOverlay";
+import { LanguageProfileSuggestionBanner } from "../common/LanguageProfileSuggestionBanner";
+import { LanguageProfileAssociationPrompt } from "../language/LanguageProfileAssociationPrompt";
+import { useLanguageHostProductionBindings } from "../../lib/languageHost";
+import { useLanguageProfileStore } from "../../stores/languageProfileStore";
+import type { DetectionEvidence, ContentType } from "../../types/languageProfile";
+import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import type { SourceAnchor } from "../../types/languageLexicon";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 
@@ -49,9 +55,52 @@ interface DocumentViewerWithAssistantProps {
   hideRatingOrbs?: boolean;
   /** Render the document in the Audio Edition player (AudiobooksTab Listen). */
   listenToEdition?: boolean;
+  /** When true, the viewer is embedded inside another surface (e.g. Queue Scroll). */
+  embedded?: boolean;
+  onSelectionChange?: (selection: string) => void;
+  onScrollPositionChange?: (state: { pageNumber?: number; scrollPercent?: number }) => void;
+  onPdfContextTextChange?: (text: string) => void;
+  onPdfOcrContextTextChange?: (text: string | null) => void;
+  contextPageWindow?: number;
+  onExtractCreated?: (extract: import("../../types/document").Extract, sourceContext?: ExtractSourceContext) => void;
+  extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
+  onEnded?: () => void;
+  onArchive?: () => void;
+  onVideoContextChange?: (context: {
+    videoId: string;
+    title?: string;
+    transcript?: string;
+    currentTime?: number;
+    duration?: number;
+  } | null) => void;
+  onMediaSectionsChange?: (sections: SectionNode[]) => void;
   /** Deterministic real-reader state used only by the explicit marketing capture host. */
   captureReader?: MarketingSceneApplication["reader"];
   captureCardPreview?: MarketingSceneApplication["cardPreview"];
+}
+
+function LanguageProfileAssociationGate({
+  contentType,
+  contentId,
+  onAssociated,
+}: {
+  contentType: ContentType;
+  contentId: string;
+  onAssociated: () => void;
+}) {
+  const host = useOptionalLanguageLearningHost();
+  const associations = useLanguageProfileStore((state) => state.associations);
+  const disabled = associations.some((association) => association.contentType === contentType && association.contentId === contentId && association.mode === "disabled");
+  if (!host || host.snapshot.status !== "unavailable" || disabled) {
+    return null;
+  }
+  return (
+    <LanguageProfileAssociationPrompt
+      contentType={contentType}
+      contentId={contentId}
+      onAssociated={onAssociated}
+    />
+  );
 }
 
 export function DocumentViewer({
@@ -65,6 +114,18 @@ export function DocumentViewer({
   openedFrom,
   hideRatingOrbs,
   listenToEdition,
+  embedded,
+  onSelectionChange: onSelectionChangeProp,
+  onScrollPositionChange: onScrollPositionChangeProp,
+  onPdfContextTextChange: onPdfContextTextChangeProp,
+  onPdfOcrContextTextChange: onPdfOcrContextTextChangeProp,
+  contextPageWindow,
+  onExtractCreated,
+  extractPostCreateBehavior,
+  onEnded,
+  onArchive,
+  onVideoContextChange: onVideoContextChangeProp,
+  onMediaSectionsChange: onMediaSectionsChangeProp,
   captureReader,
   captureCardPreview,
 }: DocumentViewerWithAssistantProps) {
@@ -76,6 +137,10 @@ export function DocumentViewer({
   useReadingSessionTracker({ documentId, isActive: isActiveTab });
 
   const [selection, setSelection] = useState("");
+  const handleSelectionChange = useCallback((value: string) => {
+    setSelection(value);
+    onSelectionChangeProp?.(value);
+  }, [onSelectionChangeProp]);
   const [languageModeEnabled, setLanguageModeEnabled] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(`plethora.language-mode.${documentId}`) === "on";
@@ -164,6 +229,21 @@ export function DocumentViewer({
   }, [currentDoc?.content, currentDoc?.fileType, documentId]);
 
   const languageSourceAnchor = languageSource.source;
+  const languageSurface = languageSource.contentType === "media" ? "video" as const : openedFrom === "queue" ? "queue" as const : "reader" as const;
+  const languageBindings = useLanguageHostProductionBindings(languageSurface);
+  const activeProfile = useLanguageProfileStore((state) => state.activeProfile);
+  const projectionEpoch = useLanguageProfileStore((state) => state.projectionEpoch);
+  const [hostRefreshToken, setHostRefreshToken] = useState(0);
+  const detectionEvidence = useMemo<DetectionEvidence | null>(() => {
+    const metadata = currentDoc?.metadata as { language?: string } | undefined;
+    const language = metadata?.language || activeProfile?.targetLanguage;
+    if (!language) return null;
+    return { language, detector: metadata?.language ? "document-metadata" : "active-profile", source: "reader" };
+  }, [activeProfile?.targetLanguage, currentDoc?.metadata]);
+
+  useEffect(() => {
+    setHostRefreshToken((value) => value + 1);
+  }, [projectionEpoch]);
 
   useEffect(() => {
     selectionRef.current = selection;
@@ -215,7 +295,8 @@ export function DocumentViewer({
   const handleMediaSectionsChange = useCallback((sections: SectionNode[]) => {
     setMediaSections(sections);
     if (documentId) setSharedMediaSections(documentId, sections);
-  }, [documentId, setSharedMediaSections]);
+    onMediaSectionsChangeProp?.(sections);
+  }, [documentId, onMediaSectionsChangeProp, setSharedMediaSections]);
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -474,19 +555,47 @@ export function DocumentViewer({
 
   const documentViewer = (
     <LanguageLearningHostProvider
+      key={`lang-host:${documentId}:${projectionEpoch}:${hostRefreshToken}`}
       hostId={`document-reader:${documentId}`}
-      surface={languageSource.contentType === "media" ? "video" : openedFrom === "queue" ? "queue" : "reader"}
+      surface={languageSurface}
       source={languageSource}
       languageModeEnabled={languageModeEnabled}
+      resolveCapabilities={languageBindings.resolveCapabilities}
+      shadowingProviders={languageBindings.shadowingProviders}
+      writingProvider={languageBindings.writingProvider}
+      pronunciationManifest={languageBindings.pronunciationManifest}
+      readingAssistRegistry={languageBindings.readingAssistRegistry}
     >
       <div
         className="relative flex-1 h-full min-h-0 overflow-hidden"
         style={{ minWidth: READER_MIN_WIDTH }}
       >
+        {languageModeEnabled && detectionEvidence && (
+          <div className="pointer-events-none absolute left-3 right-3 top-3 z-20">
+            <div className="pointer-events-auto mx-auto max-w-lg">
+              <LanguageProfileSuggestionBanner
+                contentType={languageSource.contentType}
+                contentId={languageSource.contentId}
+                evidence={detectionEvidence}
+              />
+            </div>
+          </div>
+        )}
+        {languageModeEnabled && (
+          <LanguageProfileAssociationGate
+            contentType={languageSource.contentType}
+            contentId={languageSource.contentId}
+            onAssociated={() => setHostRefreshToken((value) => value + 1)}
+          />
+        )}
         <BaseDocumentViewer
         documentId={documentId}
-        onSelectionChange={setSelection}
-        onScrollPositionChange={setScrollState}
+        embedded={embedded}
+        onSelectionChange={handleSelectionChange}
+        onScrollPositionChange={(state) => {
+          setScrollState(state);
+          onScrollPositionChangeProp?.(state);
+        }}
         initialViewMode={initialViewMode}
         highlightQuery={highlightQuery}
         initialJump={initialJump}
@@ -494,11 +603,24 @@ export function DocumentViewer({
         listenToEdition={listenToEdition}
         focusedExtractId={focusedExtractId}
         extractSourceContext={extractSourceContext}
-        onPdfContextTextChange={setPdfContextText}
-        onPdfOcrContextTextChange={setPdfOcrContextText}
-        contextPageWindow={2}
-        onVideoContextChange={setVideoContext}
+        onPdfContextTextChange={(text) => {
+          setPdfContextText(text);
+          onPdfContextTextChangeProp?.(text);
+        }}
+        onPdfOcrContextTextChange={(text) => {
+          setPdfOcrContextText(text);
+          onPdfOcrContextTextChangeProp?.(text);
+        }}
+        contextPageWindow={contextPageWindow ?? 2}
+        onVideoContextChange={(context) => {
+          setVideoContext(context);
+          onVideoContextChangeProp?.(context);
+        }}
         onMediaSectionsChange={handleMediaSectionsChange}
+        onExtractCreated={onExtractCreated}
+        extractPostCreateBehavior={extractPostCreateBehavior}
+        onEnded={onEnded}
+        onArchive={onArchive}
         openedFrom={openedFrom}
         hideRatingOrbs={hideRatingOrbs}
         captureReader={captureReader}
@@ -518,6 +640,10 @@ export function DocumentViewer({
       </div>
     </LanguageLearningHostProvider>
   );
+
+  if (embedded) {
+    return documentViewer;
+  }
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">

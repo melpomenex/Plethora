@@ -8862,6 +8862,13 @@ export function DocumentViewer({
           sourceId={currentDocument.id}
         />
       )}
+      {docType === "pdf" && pdfViewMode === "ocr-html" && iframeElement?.contentDocument && (
+        <LanguageReaderDomBridge
+          root={iframeElement.contentDocument}
+          surface="html"
+          sourceId={currentDocument.id}
+        />
+      )}
     </div>
   );
 }
