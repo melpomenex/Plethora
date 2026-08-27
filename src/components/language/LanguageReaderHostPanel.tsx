@@ -72,119 +72,121 @@ export function LanguageReaderHostPanel({
     <>
       <style data-language-host-style>{languageAnnotationStyleText()}</style>
       <div
-        className="pointer-events-auto absolute bottom-3 left-1/2 z-30 flex max-w-[min(96vw,680px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-card/95 px-2.5 py-2 text-xs shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute bottom-3 left-1/2 z-30 w-[min(calc(100vw-1.5rem),42rem)] -translate-x-1/2 overflow-hidden rounded-lg border border-border bg-card/95 px-2.5 py-2 text-xs shadow-lg backdrop-blur"
         data-language-reader-host="true"
       >
-        <BookOpenText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-        <span className="max-w-[180px] truncate text-muted-foreground" title={profile?.name ?? "Language Mode"}>
-          {snapshot.status === "ready" ? `${profile?.name ?? "Language Mode"} · ${profile?.targetLanguage}` : "Language Mode"}
-        </span>
-        <button
-          type="button"
-          className="rounded-md border border-border px-2 py-1 font-medium hover:bg-muted"
-          aria-pressed={languageModeEnabled}
-          onClick={() => onLanguageModeChange(!languageModeEnabled)}
-        >
-          {languageModeEnabled ? "On" : "Enable"}
-        </button>
-        {snapshot.status === "resolving" ? (
-          <span className="text-muted-foreground" role="status">Loading…</span>
-        ) : snapshot.status !== "ready" ? (
-          <span className="text-muted-foreground" role="status">
-            {snapshot.status === "disabled" ? "Off" : snapshot.status === "unavailable" ? "No profile for this source" : "Unavailable"}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <BookOpenText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <span className="min-w-0 max-w-[10rem] truncate text-muted-foreground sm:max-w-[12rem]" title={profile?.name ?? "Language Mode"}>
+            {snapshot.status === "ready" ? `${profile?.name ?? "Language Mode"} · ${profile?.targetLanguage}` : "Language Mode"}
           </span>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="rounded-md border border-border px-2 py-1 font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct}
-              onClick={() => setPeekOpen(true)}
-              aria-label={canAct ? `Open Language Peek for ${trimmedSelection}` : "Select a word to open Language Peek"}
-            >
-              Peek
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct}
-              onClick={() => dispatchAction("practice")}
-              aria-label={canAct ? `Practice ${trimmedSelection}` : "Select text to practice"}
-            >
-              <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
-              Practice
-            </button>
-            <button
-              type="button"
-              className="hidden rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex"
-              disabled={!canAct}
-              onClick={() => dispatchTopLanguagePracticeRecommendation({
-                candidates: [{ id: `${snapshot.source.contentId}:${trimmedSelection}`, profileId: profile?.id ?? "", sourceType: snapshot.source.contentType, sourceId: snapshot.source.contentId, sourceFingerprint: snapshot.source.contentFingerprint ?? "", title: trimmedSelection, topics: [], coverageStatus: "pending", qualityScore: 0.5, freshnessScore: 1, lifecycle: "candidate" }],
-                interests: [],
-                detail: { hostId: snapshot.hostId, source: snapshot.source, sourceAnchor, profileId: profile?.id ?? "", languageTag: profile?.targetLanguage ?? "", origin: "reader" },
-              })}
-            >
-              Recommend
-            </button>
-            <button
-              type="button"
-              className="hidden rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex"
-              disabled={!canAct}
-              onClick={() => dispatchAction("sentence-mode")}
-              aria-label="Open Sentence Mode"
-            >
-              Sentence
-            </button>
-            <button
-              type="button"
-              className="hidden rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex"
-              disabled={!canAct}
-              onClick={() => dispatchAction("tutor")}
-              aria-label="Ask language tutor"
-            >
-              Tutor
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted sm:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct || !snapshot.capabilities.translation.available}
-              onClick={() => dispatchAction("translate")}
-              aria-label="Translate selected text"
-            >
-              <TranslateIcon className="h-3.5 w-3.5" aria-hidden="true" />
-              Translate
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted sm:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct || !snapshot.capabilities.originalAudio.available}
-              onClick={() => dispatchAction("replay")}
-              aria-label="Replay selected sentence"
-            >
-              <SpeakerHigh className="h-3.5 w-3.5" aria-hidden="true" />
-              Replay
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted sm:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct || !snapshot.capabilities.tutor.available}
-              onClick={() => dispatchAction("tutor")}
-              aria-label="Explain selected text"
-            >
-              <Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />
-              Explain
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted sm:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canAct || !snapshot.capabilities.readingAssist.available}
-              onClick={() => dispatchAction("reading-assist")}
-              aria-label="Open reading assist"
-            >
-              Assist
-            </button>
-          </>
-        )}
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted"
+            aria-pressed={languageModeEnabled}
+            onClick={() => onLanguageModeChange(!languageModeEnabled)}
+          >
+            {languageModeEnabled ? "On" : "Enable"}
+          </button>
+          {snapshot.status === "resolving" ? (
+            <span className="text-muted-foreground" role="status">Loading…</span>
+          ) : snapshot.status !== "ready" ? (
+            <span className="min-w-0 text-muted-foreground" role="status">
+              {snapshot.status === "disabled" ? "Off" : snapshot.status === "unavailable" ? "No profile for this source" : "Unavailable"}
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct}
+                onClick={() => setPeekOpen(true)}
+                aria-label={canAct ? `Open Language Peek for ${trimmedSelection}` : "Select a word to open Language Peek"}
+              >
+                Peek
+              </button>
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct}
+                onClick={() => dispatchAction("practice")}
+                aria-label={canAct ? `Practice ${trimmedSelection}` : "Select text to practice"}
+              >
+                <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
+                Practice
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted lg:inline-flex"
+                disabled={!canAct}
+                onClick={() => dispatchTopLanguagePracticeRecommendation({
+                  candidates: [{ id: `${snapshot.source.contentId}:${trimmedSelection}`, profileId: profile?.id ?? "", sourceType: snapshot.source.contentType, sourceId: snapshot.source.contentId, sourceFingerprint: snapshot.source.contentFingerprint ?? "", title: trimmedSelection, topics: [], coverageStatus: "pending", qualityScore: 0.5, freshnessScore: 1, lifecycle: "candidate" }],
+                  interests: [],
+                  detail: { hostId: snapshot.hostId, source: snapshot.source, sourceAnchor, profileId: profile?.id ?? "", languageTag: profile?.targetLanguage ?? "", origin: "reader" },
+                })}
+              >
+                Recommend
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted lg:inline-flex"
+                disabled={!canAct}
+                onClick={() => dispatchAction("sentence-mode")}
+                aria-label="Open Sentence Mode"
+              >
+                Sentence
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted lg:inline-flex"
+                disabled={!canAct}
+                onClick={() => dispatchAction("tutor")}
+                aria-label="Ask language tutor"
+              >
+                Tutor
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct || !snapshot.capabilities.translation.available}
+                onClick={() => dispatchAction("translate")}
+                aria-label="Translate selected text"
+              >
+                <TranslateIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="hidden sm:inline">Translate</span>
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted md:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct || !snapshot.capabilities.originalAudio.available}
+                onClick={() => dispatchAction("replay")}
+                aria-label="Replay selected sentence"
+              >
+                <SpeakerHigh className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="hidden sm:inline">Replay</span>
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted lg:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct || !snapshot.capabilities.tutor.available}
+                onClick={() => dispatchAction("tutor")}
+                aria-label="Explain selected text"
+              >
+                <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Explain
+              </button>
+              <button
+                type="button"
+                className="hidden shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-muted lg:inline-flex disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAct || !snapshot.capabilities.readingAssist.available}
+                onClick={() => dispatchAction("reading-assist")}
+                aria-label="Open reading assist"
+              >
+                Assist
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {peekTarget && (
         <DictionaryPeek
