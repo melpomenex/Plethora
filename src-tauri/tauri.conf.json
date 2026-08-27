@@ -52,6 +52,52 @@
       "bin/notebooklm-runtime",
       "windows/sparse/out/PlethoraIdentity.msix"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["pdf"],
+        "mimeType": "application/pdf",
+        "name": "PDF Document",
+        "description": "Portable Document Format",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["epub"],
+        "mimeType": "application/epub+zip",
+        "name": "EPUB Ebook",
+        "description": "Electronic Publication",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["md", "markdown"],
+        "mimeType": "text/markdown",
+        "name": "Markdown Document",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["html", "htm"],
+        "mimeType": "text/html",
+        "name": "HTML Document",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["txt"],
+        "mimeType": "text/plain",
+        "name": "Plain Text",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["apkg"],
+        "mimeType": "application/octet-stream",
+        "name": "Anki Package",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["mp3", "m4a", "m4b", "wav", "aac", "ogg", "flac", "opus", "wma"],
+        "mimeType": "audio/*",
+        "name": "Audio",
+        "role": "Viewer"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

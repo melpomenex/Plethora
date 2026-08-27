@@ -10,7 +10,7 @@ links = "plethora-android-nlp"
 tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
-tauri = { version = "=2.11.0", features = ["unstable"] }
+tauri = { version = "=2.11.5", features = ["unstable"] }
 serde = "1"
 serde_json = "1"
 thiserror = "1"

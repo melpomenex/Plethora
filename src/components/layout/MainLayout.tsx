@@ -39,6 +39,9 @@ const TourHost = lazy(() => import("../onboarding/tour/TourHost").then(({ TourHo
 import type { TourControl, TourNavigationAdapter } from "../onboarding/tour/TourHost";
 import { useOnboardingAutoOpen } from "../onboarding/tour/useOnboardingAutoOpen";
 import { useShareTarget } from "../../hooks/useShareTarget";
+import { useExternalOpen } from "../../hooks/useExternalOpen";
+import { useWebviewRecovery } from "../../lib/webviewRecovery";
+import { useLifecycleCheckpoint } from "../../lib/lifecycleCheckpoint";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
@@ -511,6 +514,9 @@ export function MainLayout() {
 
   // Handle native Android/iOS and PWA share targets
   useShareTarget();
+  useExternalOpen();
+  useWebviewRecovery();
+  useLifecycleCheckpoint();
 
   // Auto-save session on background/close
   useEffect(() => {
