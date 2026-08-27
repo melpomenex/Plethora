@@ -22,3 +22,67 @@ test('device frames reserve width/height or aspect-ratio', async ({ page }) => {
 
   expect(missing, missing.join('\n')).toEqual([]);
 });
+
+
+test('hero stage children keep CLS-safe sizing', async ({ page }) => {
+  await page.goto('/');
+  const report = await page.evaluate(() => {
+    const stage = document.querySelector('.hero-stage');
+    if (!stage) return { present: false };
+    const desk = stage.querySelector<HTMLElement>('.stage-desk');
+    const phone = stage.querySelector<HTMLElement>('.phone-device');
+    const screen = stage.querySelector<HTMLElement>('.phone-screen');
+    const safe = (el: HTMLElement | null) => {
+      if (!el) return 'missing';
+      const style = getComputedStyle(el);
+      const hasAspect = style.aspectRatio && style.aspectRatio !== 'auto';
+      const img = el.querySelector('img');
+      const hasHw = Boolean(img?.getAttribute('width') && img?.getAttribute('height'));
+      return hasAspect || hasHw ? 'ok' : 'unsized';
+    };
+    return {
+      present: true,
+      desk: safe(desk),
+      phone: safe(phone),
+      screen: safe(screen),
+    };
+  });
+
+  expect(report.present, 'hero stage present on homepage').toBe(true);
+  expect(report.desk).toBe('ok');
+  expect(report.phone).toBe('ok');
+  expect(report.screen).toBe('ok');
+});
+
+const WIDTHS = [320, 390, 768, 1024, 1280, 1440, 1728];
+
+test.describe('document overflow regression', () => {
+  for (const width of WIDTHS) {
+    test(`no horizontal overflow at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await page.waitForLoadState('networkidle');
+
+      const overflow = await page.evaluate(() => {
+        const doc = document.documentElement;
+        return {
+          scrollWidth: doc.scrollWidth,
+          clientWidth: doc.clientWidth,
+        };
+      });
+      expect(
+        overflow.scrollWidth - overflow.clientWidth,
+        `document scrollWidth ${overflow.scrollWidth} vs clientWidth ${overflow.clientWidth} at ${width}px`,
+      ).toBeLessThanOrEqual(0);
+
+      // The hero's rotated devices must stay inside the clipped viewport too.
+      const heroBleed = await page.evaluate(() => {
+        const hero = document.querySelector('.home-hero');
+        if (!hero) return 0;
+        const rect = hero.getBoundingClientRect();
+        return Math.max(0, Math.round(rect.right - window.innerWidth));
+      });
+      expect(heroBleed, `hero extends ${heroBleed}px past the viewport at ${width}px`).toBeLessThanOrEqual(0);
+    });
+  }
+});

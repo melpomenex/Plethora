@@ -27,7 +27,9 @@ const ESSAY_WORD = /\bessays?\b/gi;
 const SURFACE_WORD = /\bsurfaces?\b/gi;
 
 function stripScripts(html) {
-  return html.replace(SCRIPT_BLOCK, '').replace(STYLE_BLOCK, '');
+  // Remove non-copy regions first (client templates, CSS tokens), then drop
+  // tags so attribute names like data-surface never read as visible copy.
+  return html.replace(SCRIPT_BLOCK, '').replace(STYLE_BLOCK, '').replace(/<[^>]*>/g, ' ');
 }
 
 function relativeRoute(filePath) {

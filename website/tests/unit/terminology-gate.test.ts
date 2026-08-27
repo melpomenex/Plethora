@@ -73,4 +73,9 @@ describe('terminology gate: surface report mode', () => {
     const usages = findSurfaceUsages(html, '/site/dist/docs/some-guide/index.html');
     assert.equal(usages[0].route, '/docs/some-guide');
   });
+
+  it('never reports attribute names like data-surface', () => {
+    const html = '<a href="/downloads" data-surface="hero">Get Plethora</a>';
+    assert.deepEqual(findSurfaceUsages(html, FIXTURE_PATH), []);
+  });
 });

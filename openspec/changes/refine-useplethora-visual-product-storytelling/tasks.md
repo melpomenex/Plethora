@@ -70,10 +70,10 @@
 
 ## 9. Cross-cutting validation + rollout evidence
 
-- [ ] 9.1 Extend device-frames e2e to hero-stage children (aspect-ratio/width-height present; CLS guards) and add overflow regression spec across 320/390/768/1024/1280/1440/1728.
-- [ ] 9.2 Matrix screenshot capture: light+dark × {390×844, 768×1024, 1024×768, 1440×900, 1728×1117} top-of-page + full-page, into `website/docs/review/refine-storytelling/`.
-- [ ] 9.3 Reduced-motion, keyboard, and forced-colors manual verification recorded in the review doc (include OS-level reduce-motion toggle result for hero/Peck/proof animations).
-- [ ] 9.4 Performance verification: run showcase-performance suite + spot Lighthouse pass; confirm budgets (JS total unchanged outside existing islands; LCP element measured; CLS < 0.02).
-- [ ] 9.5 Write/refresh anti-generic attestation (banned-pattern table) inside the review doc citing new hero/sections.
-- [ ] 9.6 Full gate chain locally: `npm run check && npm test && npm run build && npm run check:dist && npm run check:assets && npx playwright test` from `website/`; fix or file follow-ups.
-- [ ] 9.7 `openspec validate refine-useplethora-visual-product-storytelling --strict` passes; tasks checked off progressively per batch (P0 → P1 → P2) with commits direct to `main` per repo workflow.
+- [x] 9.1 Extend device-frames e2e to hero-stage children (aspect-ratio/width-height present; CLS guards) and add overflow regression spec across 320/390/768/1024/1280/1440/1728.
+- [x] 9.2 Matrix screenshot capture: light+dark × {390×844, 768×1024, 1024×768, 1440×900, 1728×1117} top-of-page + full-page, into `website/docs/review/refine-storytelling/`.
+- [x] 9.3 Reduced-motion, keyboard, and forced-colors manual verification recorded in the review doc (include OS-level reduce-motion toggle result for hero/Peck/proof animations).
+- [x] 9.4 Performance verification: run showcase-performance suite + spot Lighthouse pass; confirm budgets (JS total unchanged outside existing islands; LCP element measured; CLS < 0.02).
+- [x] 9.5 Write/refresh anti-generic attestation (banned-pattern table) inside the review doc citing new hero/sections.
+- [x] 9.6 Full gate chain locally: `npm run check && npm test && npm run build && npm run check:dist && npm run check:assets && npx playwright test` from `website/`; fix or file follow-ups.
+- [x] 9.7 `openspec validate refine-useplethora-visual-product-storytelling --strict` passes; tasks checked off progressively per batch (P0 → P1 → P2) with commits direct to `main` per repo workflow.
