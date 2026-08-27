@@ -1679,6 +1679,7 @@ export function YouTubeViewer({
                   compact={isCompactMobile}
                   isPlaying={isPlaying}
                   playbackRate={playbackRate}
+                  languageSourceId={documentId}
                 />
               )}
             </div>

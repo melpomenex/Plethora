@@ -9,6 +9,7 @@ import {
   Lightning,
 } from "@phosphor-icons/react";
 import { KaraokeText } from "./KaraokeText";
+import { LanguageTranscriptDomBridge } from "../language/LanguageTranscriptDomBridge";
 import { synthesizeWordTimings, type WordTiming } from "../../utils/wordTimings";
 
 /**
@@ -95,6 +96,10 @@ interface TranscriptSyncProps {
   showSpeakers?: boolean;
   onExport?: () => void;
   onSelectionChange?: (text: string) => void;
+  /**
+   * When set, vocabulary state overlays are projected onto transcript segment text.
+   */
+  languageSourceId?: string;
   className?: string;
   /**
    * Whether to render the built-in header (title, copy/export, search input).
@@ -326,6 +331,7 @@ const TranscriptRow = React.memo(function TranscriptRow({
 
           {/* Text */}
           <span
+            data-language-transcript-segment={segment.id}
             className={`${compact ? "text-[15px] leading-6" : "text-sm"} ${
               isActive ? "text-foreground font-medium" : "text-foreground/90"
             }`}
@@ -375,6 +381,7 @@ export function TranscriptSync({
   compact = false,
   isPlaying = false,
   playbackRate = 1,
+  languageSourceId,
 }: TranscriptSyncProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
@@ -393,6 +400,7 @@ export function TranscriptSync({
   // catches up or the user seeks.
   const [followPausedByUser, setFollowPausedByUser] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [transcriptContainer, setTranscriptContainer] = useState<HTMLDivElement | null>(null);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
   const highlightedSegmentRef = useRef<HTMLDivElement>(null);
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -908,7 +916,10 @@ export function TranscriptSync({
           </button>
         )}
       <div
-        ref={containerRef}
+        ref={(element) => {
+          containerRef.current = element;
+          setTranscriptContainer(element);
+        }}
         className={`${className} transcript-scroll-container overflow-y-auto overscroll-contain ${compact ? "p-2.5 pb-4" : "p-4"} space-y-1`}
         style={{ touchAction: "pan-y", overscrollBehaviorY: "contain" }}
         data-transcript-scroll="true"
@@ -961,6 +972,13 @@ export function TranscriptSync({
           })
         )}
       </div>
+      {languageSourceId && (
+        <LanguageTranscriptDomBridge
+          container={transcriptContainer}
+          segments={segments}
+          sourceId={languageSourceId}
+        />
+      )}
       </div>
 
       {/* Footer with stats */}

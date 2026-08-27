@@ -1,0 +1,5 @@
+[
+  { "id": "s1", "text": "Hola, ¿cómo estás?", "startMs": 0, "endMs": 1800 },
+  { "id": "s2", "text": "Estoy aprendiendo español.", "startMs": 1800, "endMs": 4200 },
+  { "id": "s3", "text": "Mañana quiero viajar a Madrid.", "startMs": 4200, "endMs": 7000 }
+]

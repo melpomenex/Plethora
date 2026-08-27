@@ -22,6 +22,7 @@ extern "C" {
     fn plethora_fm_cancel(args_json: *const c_char) -> *mut c_char;
     fn plethora_fm_count_tokens(args_json: *const c_char) -> *mut c_char;
     fn plethora_fm_warmup() -> *mut c_char;
+    fn plethora_translate_sentence(args_json: *const c_char) -> *mut c_char;
     fn plethora_fm_free_string(s: *mut c_char);
 }
 
@@ -142,6 +143,19 @@ pub fn fm_warmup() -> Result<serde_json::Value, Error> {
     let ptr = unsafe { plethora_fm_warmup() };
     let json = take_string(ptr)?;
     Ok(serde_json::from_str(&json).unwrap_or(serde_json::json!({ "ok": true })))
+}
+
+pub fn translate_sentence(payload: serde_json::Value) -> Result<serde_json::Value, Error> {
+    let wrapped = if payload.get("request").is_some() {
+        payload
+    } else {
+        serde_json::json!({ "request": payload })
+    };
+    let args = CString::new(wrapped.to_string())
+        .map_err(|e| Error::new("invalid_argument", e.to_string()))?;
+    let ptr = unsafe { plethora_translate_sentence(args.as_ptr()) };
+    let json = take_string(ptr)?;
+    json_value_or_error(&json)
 }
 
 pub fn fm_capabilities_snapshot() -> Result<crate::AppleIntelligenceSnapshot, Error> {

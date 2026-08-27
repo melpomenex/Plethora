@@ -40,6 +40,7 @@ const COMMANDS: &[&str] = &[
     "apple_coreai_cancel",
     "apple_coreai_count_tokens",
     "apple_coreai_warmup",
+    "apple_translate_sentence",
 ];
 
 fn main() {
@@ -73,6 +74,7 @@ fn build_macos_swift() {
         manifest_dir.join("shared/FmBridgeCore.swift"),
         manifest_dir.join("shared/FmGenerables.swift"),
         manifest_dir.join("macos/Sources/MacFoundationBridge.swift"),
+        manifest_dir.join("macos/Sources/MacTranslationBridge.swift"),
     ];
 
     for src in &sources {
@@ -100,6 +102,7 @@ fn build_macos_swift() {
         cmd.arg(src);
     }
     cmd.args(["-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels"]);
+    cmd.args(["-Xlinker", "-weak_framework", "-Xlinker", "Translation"]);
     // Static Swift still references libswift_* at runtime; ensure the app can resolve them.
     cmd.args(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"]);
 
@@ -111,5 +114,6 @@ fn build_macos_swift() {
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=plethora_apple_fm");
     println!("cargo:rustc-link-arg=-Wl,-weak_framework,FoundationModels");
+    println!("cargo:rustc-link-arg=-Wl,-weak_framework,Translation");
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }

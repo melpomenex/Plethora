@@ -13,6 +13,7 @@ import type {
 import type { ShadowingRecognitionProvider } from "../lib/languageShadowing";
 import type { WritingProvider } from "../lib/languageWriting";
 import type { PronunciationProviderManifest } from "../lib/languagePronunciation";
+import type { ReadingAssistRegistry } from "../lib/languageReadingAssist";
 
 export interface LanguageLearningHostProviderProps {
   hostId: string;
@@ -24,6 +25,8 @@ export interface LanguageLearningHostProviderProps {
   shadowingProviders?: readonly ShadowingRecognitionProvider[];
   writingProvider?: WritingProvider;
   pronunciationManifest?: PronunciationProviderManifest;
+  readingAssistRegistry?: ReadingAssistRegistry;
+  resolveCapabilities?: (input: { surface: LanguageHostSurface; profile: NonNullable<LanguageHostSnapshot["profile"]> }) => Partial<Record<LanguageHostCapabilityName, LanguageHostCapability>>;
   children: ReactNode;
 }
 
@@ -34,6 +37,7 @@ export interface LanguageLearningHostContextValue {
   shadowingProviders: readonly ShadowingRecognitionProvider[];
   writingProvider?: WritingProvider;
   pronunciationManifest?: PronunciationProviderManifest;
+  readingAssistRegistry?: ReadingAssistRegistry;
 }
 
 const LanguageLearningHostContext = createContext<LanguageLearningHostContextValue | null>(null);
@@ -85,7 +89,20 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
     };
     setSnapshot(initialSnapshot(props));
     void controller.resolve(input).then((next) => {
-      if (mounted) setSnapshot(next);
+      if (!mounted) return;
+      if (next.status === "ready" && next.profile && props.resolveCapabilities) {
+        setSnapshot({
+          ...next,
+          capabilities: {
+            ...next.capabilities,
+            ...Object.fromEntries(
+              Object.entries(props.resolveCapabilities({ surface: props.surface, profile: next.profile })).map(([name, capability]) => [name, capability]),
+            ),
+          } as LanguageHostSnapshot["capabilities"],
+        });
+        return;
+      }
+      setSnapshot(next);
     });
     return () => {
       mounted = false;
@@ -94,7 +111,7 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
   }, [
     controller,
     resolveProfileContext,
-    props.capabilities,
+    props.resolveCapabilities,
     props.explicitProfileId,
     props.hostId,
     props.languageModeEnabled,
@@ -111,6 +128,7 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
       shadowingProviders: props.shadowingProviders ?? [],
       writingProvider: props.writingProvider,
       pronunciationManifest: props.pronunciationManifest,
+      readingAssistRegistry: props.readingAssistRegistry,
     }}>
       {props.children}
     </LanguageLearningHostContext.Provider>

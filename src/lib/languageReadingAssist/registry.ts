@@ -15,7 +15,9 @@ export class ReadingAssistRegistry {
   async run(request: ReadingAssistRequest, signal?: AbortSignal): Promise<ReadingAssistResult> {
     const provider = [...this.providers.values()].find((candidate) =>
       candidate.capabilities.kinds.includes(request.kind) &&
-      candidate.capabilities.languages.some((language) => request.languageTag.toLowerCase().startsWith(language.toLowerCase())) &&
+      candidate.capabilities.languages.some((language) =>
+        language === "*" || request.languageTag.toLowerCase().startsWith(language.toLowerCase()),
+      ) &&
       request.text.length <= candidate.capabilities.maxCodeUnits,
     );
     if (!provider) {
