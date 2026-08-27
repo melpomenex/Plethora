@@ -4,6 +4,7 @@
 - [x] 1.2 Create `src/components/common/ambient/jellyfishRenderer.ts` with draw + animation loop
 - [x] 1.3 Register `jellyfish` in `ThemeBackdrop.tsx` and extend `AnimCtx` with `themeId`, `paletteId`, `staticOnly`
 - [x] 1.4 Fix ThemeBackdrop effect deps and static-only mount path
+- [x] 1.5 Enlarge and center the scenic jellyfish, add anatomical bell/arm detail, and make swimming motion perceptible
 
 ## 2. Theme definitions
 
@@ -22,6 +23,7 @@
 - [x] 4.2 `jellyfishRenderer.test.ts` — static draw, deterministic freeze
 - [x] 4.3 Update ThemePicker test count if needed
 - [x] 4.4 Verify modeAccent and readerThemeTokens pass for new themes
+- [x] 4.5 Add regression coverage for centered layout, hero scale, draw complexity, and visible motion
 
 ## 5. Documentation
 

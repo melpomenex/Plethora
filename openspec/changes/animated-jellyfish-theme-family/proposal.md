@@ -5,7 +5,7 @@ Plethora already ships ~44 animated themes via `ThemeBackdrop` canvas renderers,
 ## What Changes
 
 - Add four selectable dark animated themes sharing one `jellyfish` canvas renderer: **Deep Ocean Glow**, **Bioluminescent Flow**, **Deep Sea Neon**, **Abyssal Dream**.
-- Introduce `src/themes/jellyfishPalettes.ts` for palette configs and `src/components/common/ambient/jellyfishRenderer.ts` for shared procedural rendering (gradient ocean, caustics, bell, tentacles, sparse particles).
+- Introduce `src/themes/jellyfishPalettes.ts` for palette configs and `src/components/common/ambient/jellyfishRenderer.ts` for shared procedural rendering (gradient ocean, caustics, a large centered bell, flowing oral arms, tentacles, sparse particles).
 - Extend `ThemeEffects` with optional `ambientPaletteId` to select palette variant while using `backgroundAnimation: 'jellyfish'`.
 - Add tiered glass `customCSS` per theme (nav translucent, reading surfaces opaque, popovers solid).
 - Fix `ThemeBackdrop` lifecycle: include `animationsEnabled` and `prefersReducedMotion` in effect dependencies; render **static** underwater frame when motion is reduced or animations disabled (instead of empty background).

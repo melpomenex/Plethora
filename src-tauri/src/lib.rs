@@ -801,7 +801,7 @@ pub fn run() {
 
     // Check for command line argument to clear window state
     #[cfg(all(
-        not(debug_assertions),
+        not(dev),
         not(any(target_os = "android", target_os = "ios"))
     ))]
     {
@@ -978,7 +978,7 @@ pub fn run() {
     // --features custom-protocol, so Tauri serves the bundled frontendDist via
     // tauri:// instead — the mobile WebView can't reach the loopback server.
     #[cfg(all(
-        not(debug_assertions),
+        not(dev),
         not(any(target_os = "android", target_os = "ios"))
     ))]
     {
@@ -997,7 +997,7 @@ pub fn run() {
     // whole window invisible. tauri.conf.json sets `center: true`, so with
     // POSITION disabled the window re-centers safely each launch.
     #[cfg(all(
-        not(debug_assertions),
+        not(dev),
         not(any(target_os = "android", target_os = "ios"))
     ))]
     {
@@ -1089,7 +1089,7 @@ pub fn run() {
 
                 if id == "clear-window-state" {
                     #[cfg(all(
-                        not(debug_assertions),
+                        not(dev),
                         not(any(target_os = "android", target_os = "ios"))
                     ))]
                     {
@@ -1151,7 +1151,7 @@ pub fn run() {
 
             // Verify window state file is valid JSON, delete if corrupted or empty
             #[cfg(all(
-                not(debug_assertions),
+                not(dev),
                 not(any(target_os = "android", target_os = "ios"))
             ))]
             {
@@ -1602,7 +1602,7 @@ pub fn run() {
                     // localhost:9527 there leaves the screen blank ("could not
                     // be loaded"), so skip the redirect on mobile.
                     #[cfg(all(
-                        not(debug_assertions),
+                        not(dev),
                         not(any(target_os = "android", target_os = "ios"))
                     ))]
                     if let Ok(url) = Url::parse(&format!("http://localhost:{LOCALHOST_PORT}/")) {

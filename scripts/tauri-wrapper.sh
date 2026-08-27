@@ -21,6 +21,10 @@ if [[ "$cmd" == "build" ]]; then
   # Use NO_STRIP=1 to skip stripping and let the system handle it.
   if [[ "$(uname -s)" == "Linux" ]]; then
     export NO_STRIP=1
+    # Cargo profile environment variables override Cargo.toml. Source the
+    # repository-owned memory envelope so a stale codegen-units=1 override
+    # cannot turn the main crate into a single oversized LLVM module.
+    source scripts/tauri-linux-build-env.sh
   fi
 fi
 

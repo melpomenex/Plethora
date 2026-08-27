@@ -6,6 +6,7 @@
 
 **Goals:**
 - One shared jellyfish renderer parameterized by four palettes.
+- One prominent centered jellyfish that remains visually legible through scenic glass surfaces.
 - Slow organic motion (4–7s pulse, 15–30s drift).
 - Static intentional frame for reduced motion / animations off.
 - Tiered glass surfaces preserving reader legibility.
@@ -52,8 +53,9 @@ Fix effect deps to include `animationsEnabled` and `prefersReducedMotion` (known
 ### 4. Composition
 
 - Normalized jellyfish position (nx, ny) with resize remap.
-- Desktop: upper-right band (nx ~0.72, ny ~0.28).
-- Phone (`cv.width < 600`): smaller scale, ny ~0.22.
+- Desktop: horizontally centered hero (nx = 0.5, ny ~0.28) with the bell spanning roughly one quarter of the short viewport edge and long arms centering the full silhouette vertically.
+- Phone (`cv.width < 600`): horizontally centered with a smaller scale and ny ~0.24.
+- Animated drift stays close to the centerline while the bell pulse and flowing arms make the swimming motion perceptible.
 - One primary jellyfish; particle count scales with `density` (base ~12).
 
 ### 5. Glass customCSS factory

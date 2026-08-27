@@ -48,8 +48,6 @@ export interface SixGradeRatingControlProps {
   showButtons?: boolean;
 }
 
-export type SixGradeRatingControlProps = SixGradeRatingControlProps;
-
 function TouchSixGradeRating({
   onSelect,
   enabled,

@@ -20,6 +20,10 @@ The system SHALL render jellyfish ambient backgrounds through a single `jellyfis
 - **WHEN** `bioluminescent-flow` is active
 - **THEN** the canvas renderer uses the teal/aqua palette from `JELLYFISH_PALETTES['bioluminescent-flow']` not hardcoded hex in the renderer
 
+#### Scenario: Centered scenic hero
+- **WHEN** a jellyfish theme renders on desktop or phone
+- **THEN** one large jellyfish is horizontally centered, remains clearly visible through scenic surfaces, and swims around the centerline with a pulsing bell and flowing arms
+
 #### Scenario: Theme switch destroys prior loop
 - **WHEN** the user switches from `deep-ocean-glow` to `snow`
 - **THEN** the jellyfish RAF loop is cancelled and no second loop remains active
