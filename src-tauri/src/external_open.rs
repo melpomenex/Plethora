@@ -155,6 +155,7 @@ pub fn dispatch(app: &AppHandle, payloads: Vec<ExternalOpenPayload>) {
 pub fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
+        #[cfg(desktop)]
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
@@ -225,10 +226,6 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
         }
         RunEvent::Resumed => {
             let _ = app.emit("app-lifecycle", serde_json::json!({ "phase": "resumed" }));
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        RunEvent::Suspended => {
-            let _ = app.emit("app-lifecycle", serde_json::json!({ "phase": "suspended" }));
         }
         _ => {}
     }
