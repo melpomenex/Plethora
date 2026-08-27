@@ -175,6 +175,7 @@ import { ItemStatsButton } from "../stats/ItemStatsButton";
 import type { SectionNode } from "../../utils/sectionIndex";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
 import { classifyHtmlReader } from "./htmlReader/documentKind";
+import { isReimportFromSourceEligible } from "./htmlReader/reimportEligibility";
 import { prepareHtmlDocument } from "./htmlReader/prepareHtmlDocument";
 import { ensureReaderStylesheet } from "./htmlReader/readerStylesheet";
 import { useArticleAssetRenderUrls } from "./htmlReader/useArticleAssetRenderUrls";
@@ -5665,6 +5666,38 @@ export function DocumentViewer({
     }
   }, [currentDocument?.id, htmlReaderClassification.diagnostics]);
 
+  // Explicit "Re-import from source" repair (fix-imported-html-resource-
+  // resolution D6): offered for canonical articles/raw-fallback imports and
+  // legacy arXiv HTML documents with a stored source URL. Never invoked
+  // automatically — requires deliberate user action and network access.
+  const [isReimporting, setIsReimporting] = useState(false);
+  const reimportFromSourceEligible = useMemo(
+    () =>
+      currentDocument &&
+      isReimportFromSourceEligible(
+        { fileType: currentDocument.fileType, metadata: currentDocument.metadata },
+        htmlReaderClassification.kind
+      ),
+    [currentDocument, htmlReaderClassification.kind]
+  );
+
+  const handleReimportFromSource = useCallback(async () => {
+    const docId = currentDocument?.id;
+    if (!docId || isReimporting) return;
+    setIsReimporting(true);
+    try {
+      await useDocumentStore.getState().reimportCanonicalArticle(docId);
+      toast.success(t("viewer.reimportSuccess"));
+    } catch (error) {
+      // Offline/HTTP failures surface actionably; the stored document is
+      // left unchanged by the store action.
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      toast.error(t("viewer.reimportFailed"), message);
+    } finally {
+      setIsReimporting(false);
+    }
+  }, [currentDocument?.id, isReimporting, t, toast]);
+
   const articleAssetRenderUrls = useArticleAssetRenderUrls(
     htmlReaderClassification.kind === "canonical-article" ? htmlSource : undefined
   );
@@ -5707,7 +5740,7 @@ export function DocumentViewer({
     }
 
     const preserveImages = settings.documents.webImportPreserveImages;
-    const baseUrl = resolveDocumentHtmlBaseUrl(currentDocument ?? {});
+    const baseUrl = resolveDocumentHtmlBaseUrl(currentDocument ?? {}, htmlReaderClassification.kind);
     let html = prepareHtmlDocument({
       html: htmlSource,
       kind: htmlReaderClassification.kind,
@@ -8100,6 +8133,26 @@ export function DocumentViewer({
                     ))}
                   </div>
                 </div>
+
+                {/* Explicit re-import repair for eligible web articles */}
+                {reimportFromSourceEligible && (
+                  <div className="pt-2 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={handleReimportFromSource}
+                      disabled={isReimporting}
+                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title={t("viewer.reimportFromSourceHint")}
+                    >
+                      {isReimporting ? (
+                        <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ArrowClockwise className="w-3.5 h-3.5" />
+                      )}
+                      {isReimporting ? t("viewer.reimporting") : t("viewer.reimportFromSource")}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

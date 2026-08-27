@@ -156,11 +156,14 @@ describe('article import fixture corpus', () => {
       'code-blocks',
       'lazy-images',
       'relative-image-urls',
+      'base-href-safe',
+      'base-href-malicious',
       'malformed-html',
       'js-rendered-shell',
       'jsonld-rich',
       'both-static-fail',
       'arxiv-html-regression',
+      'arxiv-html-regression-versionless',
       'static-usable-render-fails',
     ]) {
       expect(names, `missing fixture category: ${required}`).toContain(required);

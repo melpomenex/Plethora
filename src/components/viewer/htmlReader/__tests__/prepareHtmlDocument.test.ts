@@ -36,6 +36,26 @@ describe('prepareHtmlDocument', () => {
     expect(doc.querySelector('p')?.hasAttribute('onclick')).toBe(false);
   });
 
+  it('drops imgs with empty/missing src instead of resolving them to the base', () => {
+    const prepared = prepareHtmlDocument({
+      html:
+        '<article class="inc-article"><div class="inc-body">' +
+        '<img src="" alt="empty"><img alt="none"><img src="  " alt="blank">' +
+        '<img src="figures/real.png" alt="real"></div></article>',
+      kind: 'canonical-article',
+      title: 'Paper',
+      baseUrl: 'https://example.com/article/',
+      preserveImages: true,
+    });
+    const doc = new DOMParser().parseFromString(prepared, 'text/html');
+    const imgs = [...doc.querySelectorAll('img')];
+    // The empty/missing/blank imgs are removed — never resolved against the
+    // base (which would point them at the article's own HTML URL).
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].getAttribute('src')).toBe('https://example.com/article/figures/real.png');
+    expect(prepared).not.toContain('src="https://example.com/article/"');
+  });
+
   it('keeps MediaWiki/raw and OCR HTML on compatibility preparation', () => {
     const mediaWiki = prepareHtmlDocument({
       html: '<nav>Chrome</nav><div id="mw-content-text"><div class="mw-parser-output"><p>Article</p></div></div>',

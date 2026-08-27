@@ -8,8 +8,10 @@
  */
 
 /** Bump whenever scorer weights/thresholds or normalization semantics change
- * in a way that could alter extraction outcomes. Persisted with each import. */
-export const EXTRACTOR_VERSION = 4;
+ * in a way that could alter extraction outcomes. Persisted with each import.
+ * v5: effective-resource-base resolution (doc <base href> → final URL →
+ * requested URL) replaces canonical-URL/slash-hack bases. */
+export const EXTRACTOR_VERSION = 5;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Scoring thresholds (design D3)

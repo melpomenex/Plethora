@@ -9,7 +9,10 @@ import type { ExtractionCandidate } from '../types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export const ARXIV_FIXTURE_URL = 'https://arxiv.org/html/2410.07524v1/';
+/** Verbatim document URL — no trailing slash. Current arXiv markup uses
+ * version-prefixed relative figure srcs that resolve against this exactly
+ * as a browser would (slash-mutated bases double the version directory). */
+export const ARXIV_FIXTURE_URL = 'https://arxiv.org/html/2410.07524v1';
 
 export function readArticleFixture(name: string, file = 'page.html'): string {
   return readFileSync(join(here, 'fixtures', name, file), 'utf-8');

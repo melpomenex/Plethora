@@ -218,6 +218,19 @@ export interface ArticleImportDiagnostics {
   sourceClassification?: string;
   /** Non-blocking import warnings surfaced to users/diagnostics. */
   importWarnings?: string[];
+  /** Effective resource base every relative media URL was resolved against,
+   * plus which precedence rule selected it (fix-imported-html-resource-
+   * resolution D1/D9). */
+  resourceBase?: {
+    base: string;
+    source: 'doc-base' | 'final' | 'requested';
+  };
+  /** Bounded media-URL outcome counts for the winning candidate (D9). */
+  media?: {
+    discovered: number;
+    absolutized: number;
+    dropped: number;
+  };
   /** Durable article image ingestion summary. */
   assets?: {
     discovered: number;
@@ -225,6 +238,8 @@ export interface ArticleImportDiagnostics {
     reused: number;
     failed: number;
     rejected: number;
+    /** Figures whose ingestion failed and were degraded to their remote URL. */
+    degradedToRemote?: number;
     totalBytes: number;
     assetIds: string[];
     failures?: Array<{ sourceUrl: string; reason: string; message?: string }>;

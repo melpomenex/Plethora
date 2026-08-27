@@ -96,6 +96,7 @@ vi.mock("../kindleImportDialogStore", () => ({
 
 import { useDocumentStore } from "../documentStore";
 import { ArticleImportError } from "../../utils/articleImport/errors";
+import type { ArticleImportDiagnostics } from "../../utils/articleImport/types";
 import type { Document } from "../../types/document";
 
 function baseDoc(id: string): Document {
@@ -138,7 +139,7 @@ function pipelineOutcome(overrides: Record<string, unknown> = {}) {
       selected: { engine: "defuddle", score: 72, confidence: "high", words: 600, paragraphs: 20, images: 1 },
       normalizationWarnings: [],
       timings: {},
-    },
+    } as ArticleImportDiagnostics,
     rawHtml: "<html></html>",
     rawFilePath: "/tmp/raw.html",
     resolvedUrl: "https://example.com/a",
@@ -391,7 +392,7 @@ describe("canonical arXiv HTML orchestration", () => {
     expect(dedicatedMetadata.webArticle).toMatchObject({
       canonicalUrl: genericMetadata.webArticle.canonicalUrl,
       extractor: genericMetadata.webArticle.extractor,
-      extractionVersion: 4,
+      extractionVersion: 5,
     });
     expect(importArticleMock).toHaveBeenCalledWith(
       "https://arxiv.org/abs/2410.07524v1",
@@ -573,5 +574,147 @@ describe("documentStore.importRawPageFromUrl (escape hatch)", () => {
       useDocumentStore.getState().importRawPageFromUrl("https://example.com/gone")
     ).rejects.toMatchObject({ code: "network_failed" });
     expect(createDocumentMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("documentStore.reimportCanonicalArticle (explicit repair action)", () => {
+  function brokenArxivDoc(): Document {
+    return {
+      ...baseDoc("broken-1"),
+      title: "Broken Figures Paper",
+      filePath: "https://arxiv.org/abs/2410.07524v1",
+      category: "Research Papers",
+      tags: ["arxiv", "research"],
+      metadata: {
+        source: "https://arxiv.org/abs/2410.07524v1",
+        webArticle: {
+          originalUrl: "https://arxiv.org/abs/2410.07524v1",
+          canonicalUrl: "https://arxiv.org/abs/2410.07524v1",
+          resolvedUrl: "https://arxiv.org/html/2410.07524v1",
+          extractor: "site:arxiv.org",
+          extractionScore: 90,
+          extractionConfidence: "high",
+          extractionVersion: 4,
+          importedAt: "2026-08-01T00:00:00.000Z",
+          articleAssets: {
+            assetIds: ["stale-asset"],
+            diagnostics: { discovered: 1, imported: 0, reused: 0, failed: 1, rejected: 0, totalBytes: 0 },
+          },
+        },
+      },
+    } as Document;
+  }
+
+  it("repairs a broken import: re-imports from the resolvedUrl, replaces body and asset references", async () => {
+    const existing = brokenArxivDoc();
+    getDocumentMock.mockResolvedValue(existing);
+    const fixed = arxivOutcome();
+    fixed.article.contentHtml =
+      '<article class="inc-article"><div class="inc-body"><figure><img src="plethora-asset://fresh-asset"></figure></div></article>';
+    fixed.diagnostics = {
+      ...fixed.diagnostics,
+      assets: {
+        discovered: 1, imported: 1, reused: 0, failed: 0, rejected: 0, degradedToRemote: 0,
+        totalBytes: 900, assetIds: ["fresh-asset"], failures: [],
+      },
+      resourceBase: {
+        base: "https://arxiv.org/html/2410.07524v1",
+        source: "final",
+      },
+    };
+    importArticleMock.mockResolvedValue(fixed);
+    updateWebArticleMock.mockImplementation(async (_id: string, body: string) => ({
+      ...existing,
+      metadata: { ...existing.metadata },
+      content: body,
+    }));
+
+    const updated = await useDocumentStore.getState().reimportCanonicalArticle("broken-1");
+
+    // Repair URL = the persisted resolvedUrl (the version it came from),
+    // NOT the canonical /abs/ identity URL and not latest.
+    expect(importArticleMock).toHaveBeenCalledWith(
+      "https://arxiv.org/html/2410.07524v1",
+      expect.objectContaining({ preserveImages: undefined })
+    );
+    const [id, body, metadata] = updateWebArticleMock.mock.calls[0];
+    expect(id).toBe("broken-1");
+    expect(body).toContain("plethora-asset://fresh-asset");
+    expect(body).not.toContain("stale-asset");
+    expect(metadata.webArticle).toMatchObject({
+      canonicalUrl: fixed.canonicalUrl,
+      resolvedUrl: "https://arxiv.org/html/2410.07524v1",
+      extractionVersion: 5,
+      articleAssets: { assetIds: ["fresh-asset"] },
+    });
+    expect(metadata.webArticle.diagnostics.resourceBase).toEqual({
+      base: "https://arxiv.org/html/2410.07524v1",
+      source: "final",
+    });
+    // Identity/category/tags are preserved by the repair.
+    expect(updated.category).toBe("Research Papers");
+    expect(updated.tags).toEqual(["arxiv", "research"]);
+  });
+
+  it("legacy arXiv HTML documents re-import through the canonical pipeline and become canonical", async () => {
+    const legacy = {
+      ...baseDoc("legacy-1"),
+      title: "Legacy arXiv HTML",
+      metadata: {
+        arxivId: "2410.07524v1",
+        htmlUrl: "https://arxiv.org/html/2410.07524v1",
+        arxivUrl: "https://arxiv.org/abs/2410.07524v1",
+        source: "https://arxiv.org/abs/2410.07524v1",
+      },
+    } as Document;
+    getDocumentMock.mockResolvedValue(legacy);
+    const outcome = arxivOutcome();
+    importArticleMock.mockResolvedValue(outcome);
+    updateWebArticleMock.mockResolvedValue({
+      ...legacy,
+      metadata: { ...legacy.metadata },
+    });
+
+    await useDocumentStore.getState().reimportCanonicalArticle("legacy-1");
+
+    // htmlUrl (the stored arXiv HTML location) drives the repair before the
+    // abs identity URL.
+    expect(importArticleMock).toHaveBeenCalledWith("https://arxiv.org/html/2410.07524v1", expect.any(Object));
+    const metadata = updateWebArticleMock.mock.calls[0][2];
+    expect(metadata.webArticle).toMatchObject({
+      extractor: "site:arxiv.org",
+      canonicalUrl: "https://arxiv.org/abs/2410.07524v1",
+      resolvedUrl: "https://arxiv.org/html/2410.07524v1",
+      extractionVersion: 5,
+    });
+  });
+
+  it("offline failure fails actionably and leaves the stored document unchanged", async () => {
+    const existing = brokenArxivDoc();
+    getDocumentMock.mockResolvedValue(existing);
+    importArticleMock.mockRejectedValue(new ArticleImportError("network_failed"));
+
+    await expect(
+      useDocumentStore.getState().reimportCanonicalArticle("broken-1")
+    ).rejects.toMatchObject({ code: "network_failed" });
+
+    expect(updateWebArticleMock).not.toHaveBeenCalled();
+    expect(useDocumentStore.getState().isImporting).toBe(false);
+    expect(useDocumentStore.getState().error).toBeTruthy();
+  });
+
+  it("rejects documents that are not eligible HTML articles", async () => {
+    getDocumentMock.mockResolvedValue({ ...baseDoc("pdf-1"), fileType: "pdf" });
+    await expect(
+      useDocumentStore.getState().reimportCanonicalArticle("pdf-1")
+    ).rejects.toThrow(/not an HTML article/i);
+    expect(importArticleMock).not.toHaveBeenCalled();
+
+    const noUrl = { ...baseDoc("no-url"), metadata: {}, filePath: "local://x" };
+    getDocumentMock.mockResolvedValue(noUrl);
+    await expect(
+      useDocumentStore.getState().reimportCanonicalArticle("no-url")
+    ).rejects.toThrow(/No canonical source URL/i);
+    expect(importArticleMock).not.toHaveBeenCalled();
   });
 });

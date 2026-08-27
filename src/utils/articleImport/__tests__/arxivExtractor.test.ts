@@ -21,7 +21,9 @@ describe('extractArxivHtml', () => {
     expect(candidate!.stats.words).toBeGreaterThan(400);
     expect(candidate!.textContent).toContain('MMLU');
     expect(candidate!.textContent).not.toContain('Learn more');
-    expect(candidate!.contentHtml).toContain('./moe-routing.svg');
+    // Version-prefixed src survives extraction verbatim (absolutization is
+    // the pipeline's job, against the verbatim document URL).
+    expect(candidate!.contentHtml).toContain('2410.07524v1/moe-routing.svg');
     expect(candidate!.contentHtml).not.toMatch(/\bltx_|publisher-/);
   });
 
@@ -61,9 +63,13 @@ describe('extractArxivHtml', () => {
     expect(article!.querySelector('math[aria-label="a plus b squared"]')).not.toBeNull();
     expect(article!.querySelector('.inc-equation-number')?.textContent).toBe('(1)');
 
-    expect(article!.querySelector('figure img')?.getAttribute('src')).toBe(
-      'https://arxiv.org/html/2410.07524v1/moe-routing.svg'
+    const figureSrcs = Array.from(article!.querySelectorAll('figure img')).map(
+      (img) => img.getAttribute('src')
     );
+    expect(figureSrcs).toEqual([
+      'https://arxiv.org/html/2410.07524v1/upcycle.png',
+      'https://arxiv.org/html/2410.07524v1/moe-routing.svg',
+    ]);
     expect(article!.querySelector('figure figcaption')).not.toBeNull();
     expect(article!.querySelector('.inc-table-wrap > table')).not.toBeNull();
     expect(article!.querySelector('table th[scope="col"]')).not.toBeNull();

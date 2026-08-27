@@ -1,4 +1,5 @@
 {
+  "url": "https://rel.example.com/posts/2026/research/",
   "title": "The Best Hikes, With Maps",
   "minWords": 180,
   "mustContain": [
@@ -6,11 +7,15 @@
   ],
   "mustContainImageUrls": [
     "https://rel.example.com/posts/2026/images/ridge.jpg",
+    "https://cdn.rel.example.org/ridge-wide.jpg",
     "https://rel.example.com/assets/maps/lake-map.png",
     "https://rel.example.com/assets/maps/cover.jpg"
   ],
-  "mustNotContain": [
+  "mustNotContainImageUrls": [
     "../images/ridge.jpg",
+    "https://rel.example.com/images/ridge.jpg"
+  ],
+  "mustNotContain": [
     "All rights reserved"
   ],
   "confidenceAtLeast": "medium"

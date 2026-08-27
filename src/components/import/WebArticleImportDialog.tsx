@@ -31,6 +31,11 @@ import { useI18n } from "../../lib/i18n";
 import type { Document } from "../../types/document";
 import { isTauri } from "../../lib/tauri";
 import { ArticleImportError } from "../../utils/articleImport/errors";
+import {
+  docBaseHref,
+  resolveEffectiveResourceBase,
+  stripBaseElements,
+} from "../../utils/articleImport/resourceBase";
 
 interface WebArticleImportDialogProps {
   isOpen: boolean;
@@ -274,13 +279,19 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
       });
     });
 
-    // Add base tag for relative URLs
-    let baseTag = doc.querySelector('base');
-    if (!baseTag) {
-      baseTag = doc.createElement('base');
-      baseTag.href = new URL(baseUrl).origin + '/';
-      doc.head.insertBefore(baseTag, doc.head.firstChild);
-    }
+    // Base tag for relative URLs — the SAME effective-resource-base rule as
+    // the persisted import (doc <base href> → final URL → requested URL).
+    // The old `origin + '/'` base discarded the page path, so relative
+    // figures previewed against the site root and 404'd.
+    const declaredBase = docBaseHref(doc);
+    stripBaseElements(doc);
+    const { base: effectiveBase } = resolveEffectiveResourceBase({
+      requestedUrl: baseUrl,
+      docBaseHref: declaredBase,
+    });
+    const baseTag = doc.createElement('base');
+    baseTag.href = effectiveBase;
+    doc.head.insertBefore(baseTag, doc.head.firstChild);
 
     // Add custom styles for better preview
     const styleTag = doc.createElement('style');

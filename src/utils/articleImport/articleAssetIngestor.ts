@@ -3,7 +3,9 @@
  *
  * Discovers remote images in sanitized HTML, fetches through SSRF-guarded
  * infrastructure, deduplicates via the image registry, and rewrites `src`
- * to `plethora-asset://` logical URLs for offline rendering.
+ * to `plethora-asset://` logical URLs for offline rendering. Figures whose
+ * download fails degrade to their retained absolute remote URL (never a
+ * stripped src); only user cancellation aborts the import.
  */
 
 import { ingestImageBlob, ingestRemoteImage } from "../../api/image-registry";
@@ -44,6 +46,9 @@ export interface ArticleAssetDiagnostics {
   reused: number;
   failed: number;
   rejected: number;
+  /** Figures whose ingestion failed and were degraded to their remote URL
+   * (CSP already allows https: images — a live figure beats removal). */
+  degradedToRemote: number;
   totalBytes: number;
   assetIds: string[];
   failures: ArticleAssetFailure[];
@@ -76,6 +81,7 @@ function emptyDiagnostics(): ArticleAssetDiagnostics {
     reused: 0,
     failed: 0,
     rejected: 0,
+    degradedToRemote: 0,
     totalBytes: 0,
     assetIds: [],
     failures: [],
@@ -268,10 +274,16 @@ export async function ingestArticleAssets(
       img.setAttribute("src", toArticleAssetUrl(ingested.assetId));
       img.removeAttribute("srcset");
       img.removeAttribute("sizes");
-    } else if (src.startsWith("http://") || src.startsWith("https://")) {
-      img.removeAttribute("src");
+    } else {
+      // Ingestion failed for this figure: retain the already-absolutized
+      // remote http(s) URL instead of stripping src. CSP permits https:
+      // images, so the figure may still load from the live site — strictly
+      // better than removal, and the reader never sees an img whose src was
+      // rewritten to a non-image document URL. Only srcset/sizes go: they
+      // may still reference unabsolutized or stale candidates.
       img.removeAttribute("srcset");
       img.removeAttribute("sizes");
+      diagnostics.degradedToRemote += 1;
     }
   }
 

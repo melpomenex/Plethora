@@ -1,0 +1,31 @@
+{
+  "url": "https://arxiv.org/html/2410.07524",
+  "title": "Upcycling Large Language Models into Mixture of Experts",
+  "authors": ["Ethan He", "Abhinav Khattar"],
+  "minWords": 400,
+  "mustContain": [
+    "mixture-of-experts",
+    "MMLU",
+    "virtual group"
+  ],
+  "mustNotContain": [
+    "Learn more",
+    "Report Issue",
+    "Toggle navigation"
+  ],
+  "expectedExtractor": "site:arxiv.org",
+  "confidenceAtLeast": "medium",
+  "mustContainImageUrls": [
+    "https://arxiv.org/html/2410.07524v2/upcycle.png",
+    "https://arxiv.org/html/2410.07524v2/moe-routing.svg",
+    "https://arxiv.org/static/base/icons/arxiv-logo.png"
+  ],
+  "mustNotContainImageUrls": [
+    "https://arxiv.org/html/2410.07524/2410.07524v2/upcycle.png",
+    "data:text/html"
+  ],
+  "expectedFigureCaptions": [
+    "Figure 1: Converting pre-trained dense checkpoint into Mixture of Experts."
+  ],
+  "minImages": 3
+}

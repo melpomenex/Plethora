@@ -1,0 +1,17 @@
+{
+  "url": "https://base.example.com/articles/unsafe/",
+  "title": "Unsafe Base Declaration",
+  "minWords": 180,
+  "mustContain": [
+    "Figure One, resolved against the document URL"
+  ],
+  "mustContainImageUrls": [
+    "https://base.example.com/articles/unsafe/pic.png"
+  ],
+  "mustNotContainImageUrls": [
+    "https://base.example.com/evil-assets/pic.png",
+    "javascript:",
+    "<base"
+  ],
+  "confidenceAtLeast": "medium"
+}
