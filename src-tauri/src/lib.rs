@@ -19,6 +19,9 @@ mod demo;
 mod entitlements;
 pub mod error;
 mod generator;
+// Linux graphics policy: single owner of the WebKitGTK acceleration env
+// decision (PLETHORA_GPU_MODE), applied from main() before any webview.
+pub mod graphics;
 mod integrations;
 mod ipc_compat;
 mod kindle_clippings;

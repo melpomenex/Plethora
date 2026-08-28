@@ -172,6 +172,34 @@
     },
     "fingerprintDocument": {
       "cost": 0.2574
+    },
+    "ambient/plasma-canvas2d-frame-1080p": {
+      "cost": 12.7,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/jellyfish-draw-frame-1080p": {
+      "cost": 0.04453,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/rain-canvas2d-frame-1080p": {
+      "cost": 0.05252,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/quality-resolve-sweep": {
+      "cost": 0.02288,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/backing-size-sweep": {
+      "cost": 0.03116,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/effect-lookup-sweep": {
+      "cost": 0.03044,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
+    },
+    "ambient/scheduler-decision": {
+      "cost": 0.01706,
+      "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
     }
   }
 }

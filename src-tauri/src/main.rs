@@ -31,30 +31,30 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     {
+        use plethora_tauri_lib::graphics::GraphicsBackend;
+
         // Disable sandbox (required for YouTube iframe playback on WebKitGTK 2.44+)
         std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
 
-        // Conditional GPU acceleration (D8):
-        // Only disable HW accel for software renderers (llvmpipe, softpipe, swrast).
-        // Real GPU drivers (Mesa, NVIDIA proprietary) work fine with HW accel.
-        let mut needs_workaround = true; // Default to safe behavior
-        if let Ok(output) = std::process::Command::new("glxinfo").args(&["-B"]).output() {
-            if let Ok(renderer) = String::from_utf8(output.stdout) {
-                let is_software = renderer.contains("llvmpipe")
-                    || renderer.contains("softpipe")
-                    || renderer.contains("swrast");
-                needs_workaround = is_software;
-            }
-        }
-
-        if needs_workaround {
-            // Disable DMA-BUF renderer (fixes EGL display issues)
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            // Disable compositing mode (fixes white screen and video issues)
-            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-            // Disable hardware acceleration (required for YouTube video playback)
-            std::env::set_var("WEBKIT_DISABLE_HARDWARE_ACCELERATION", "1");
-        }
+        // Conditional GPU acceleration (D8), owned by the graphics policy
+        // module: healthy GPUs keep hardware acceleration, software
+        // rasterizers get the compatibility variable set, NVIDIA-under-X11
+        // drops only the DMABUF renderer (tauri#9394), and
+        // PLETHORA_GPU_MODE=hardware/software overrides detection.
+        let decision = plethora_tauri_lib::graphics::init();
+        early_log(&format!(
+            "[graphics] backend={} reason={} dmabuf={}",
+            match decision.backend {
+                GraphicsBackend::Hardware => "hardware",
+                GraphicsBackend::Compatibility => "compatibility",
+            },
+            decision.reason,
+            if decision.disable_dmabuf {
+                "disabled"
+            } else {
+                "enabled"
+            },
+        ));
 
         // Point GStreamer at bundled plugins when running from an AppImage
         if let Ok(appdir) = std::env::var("APPDIR") {
