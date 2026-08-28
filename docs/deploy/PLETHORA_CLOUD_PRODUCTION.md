@@ -4,15 +4,29 @@ This guide walks you from a fresh Ubuntu/Debian VPS to a running Plethora Cloud 
 
 **Architecture:** Disposable VPS (Caddy + API) → Neon PostgreSQL + Cloudflare R2. The VPS holds no authoritative customer data.
 
+**Initial production topology (Plethora Cloud):**
+
+```text
+Plethora API (HostingBy.Design VPS, Netherlands)
+        |
+        |  nearby European network path
+        v
+Neon PostgreSQL (AWS eu-central-1 / Frankfurt)
+        |
+        +---- Cloudflare R2 (EU object storage, `plethora-production` bucket)
+```
+
+The API server is generic PostgreSQL-compatible — it does not depend on Neon-specific features beyond a standard `DATABASE_URL`.
+
 ---
 
 ## Prerequisites
 
 | Service | Purpose |
 |---------|---------|
-| VPS | ~4 vCPU, 6 GB RAM, 100 GB NVMe, Ubuntu 22.04+ or Debian 12+ |
+| VPS | ~4 vCPU, 6 GB RAM, 100 GB NVMe, Ubuntu 22.04+ or Debian 12+ (Netherlands recommended for EU latency) |
 | Domain | e.g. `api.plethora.app` |
-| [Neon](https://neon.tech) | Managed PostgreSQL |
+| [Neon](https://neon.tech) | Managed PostgreSQL (`aws-eu-central-1` / Frankfurt for EU production) |
 | [Cloudflare R2](https://developers.cloudflare.com/r2/) | S3-compatible object storage |
 | [Cloudflare DNS](https://dash.cloudflare.com) | DNS + optional proxy (recommended) |
 | Apple Developer | App Store Server API credentials for billing |
@@ -70,12 +84,13 @@ cd Plethora
 
 Plethora production uses **Neon Lakebase Postgres only** — not Neon Auth, Object Storage, Functions, or other beta services. User files and artifacts stay in Cloudflare R2 (`S3_*`).
 
-1. Create or select project `plethora-production` at [console.neon.tech](https://console.neon.tech)
-2. Use the default `production` branch (or your primary branch)
-3. Copy **both** connection strings with `sslmode=require`:
+1. Create or select project `plethora-production` at [console.neon.tech](https://console.neon.tech) in region **AWS eu-central-1 (Frankfurt)** for EU production
+2. Database name: `plethora` (default Neon `neondb` also works; Frankfurt production uses `plethora`)
+3. Use the `production` branch (or your primary branch)
+4. Copy **both** connection strings with `sslmode=require`:
    - **Pooled** (`-pooler` hostname) → `DATABASE_URL` (API runtime)
    - **Direct** (no `-pooler`) → `DATABASE_URL_UNPOOLED` (migrations only)
-4. Set in `.env.production`:
+5. Set in `.env.production`:
    ```
    DATABASE_URL=<pooled connection string>
    DATABASE_URL_UNPOOLED=<direct connection string>
@@ -109,18 +124,99 @@ Production Compose uses `/health` for the container healthcheck so Docker does n
 
 ## 4. Configure Cloudflare R2
 
-1. Cloudflare dashboard → **R2** → **Create bucket** (e.g. `plethora-cloud`)
-2. **Manage R2 API Tokens** → Create token with read/write on that bucket
-3. Note the **endpoint** (format: `https://<account_id>.r2.cloudflarestorage.com`)
+Plethora uses the existing S3-compatible storage layer (`server/src/storage/`) with these **runtime** variables only:
+
+| Variable | Purpose |
+|----------|---------|
+| `S3_ENDPOINT` | R2 S3 API endpoint |
+| `S3_REGION` | `auto` for R2 |
+| `S3_BUCKET` | Bucket name (production: `plethora-production`) |
+| `S3_ACCESS_KEY_ID` | R2 S3 access key (not Cloudflare API token) |
+| `S3_SECRET_ACCESS_KEY` | R2 S3 secret key |
+
+Optional: `SYNC_BLOB_OFFLOAD_BYTES` (default `65536`) — ciphertext larger than this goes to R2 instead of Postgres.
+
+### 4a. Enable R2 (one-time)
+
+If Wrangler returns error `10042`, enable R2 in the Cloudflare dashboard first:
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → your account → **R2 Object Storage**
+2. Accept terms / enable R2 if prompted
+
+### 4b. Create EU production bucket
+
+Create bucket **`plethora-production`** with:
+
+| Setting | Value |
+|---------|-------|
+| Storage class | **Standard** |
+| Jurisdiction | **European Union (EU)** |
+| Location hint | **Western Europe** (`weur`) — optional |
+
+**Wrangler (after `npx wrangler login`):**
+
+```bash
+npx wrangler r2 bucket create plethora-production \
+  --jurisdiction eu \
+  --storage-class Standard
+```
+
+**Dashboard:** R2 → **Create bucket** → name `plethora-production` → jurisdiction **EU** → storage class **Standard**.
+
+Verify:
+
+```bash
+npx wrangler r2 bucket list
+npx wrangler r2 bucket info plethora-production
+```
+
+### 4c. EU S3 endpoint
+
+For **EU jurisdiction** buckets, use the jurisdiction-specific endpoint (not the global one):
+
+```text
+https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com
+```
+
+Find `<ACCOUNT_ID>` in Cloudflare dashboard → R2 → **Manage R2 API Tokens** (shown as Account ID), or from any R2 overview page.
 
 Set in `.env.production`:
-```
-S3_ENDPOINT=https://xxxxxxxx.r2.cloudflarestorage.com
+
+```bash
+S3_ENDPOINT=https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com
 S3_REGION=auto
-S3_BUCKET=plethora-cloud
-S3_ACCESS_KEY_ID=<from R2 token>
-S3_SECRET_ACCESS_KEY=<from R2 token>
+S3_BUCKET=plethora-production
+S3_ACCESS_KEY_ID=<from R2 API token>
+S3_SECRET_ACCESS_KEY=<from R2 API token — shown once>
 ```
+
+### 4d. Least-privilege R2 API token
+
+**Wrangler can create the bucket** (`wrangler r2 bucket create …`) but **cannot mint S3 Access Key / Secret Key** — those are only issued from the R2 dashboard (shown once).
+
+Cloudflare dashboard → **R2** → **Manage R2 API Tokens** → **Create API token**:
+
+1. **Permissions:** Object Read & Write
+2. **Scope:** Apply to **specific bucket(s)** → select `plethora-production` only
+3. Copy **Access Key ID** and **Secret Access Key** immediately (secret shown once)
+
+Do **not** use a global Cloudflare API token as Plethora's runtime credential.
+
+### 4e. Verify connectivity
+
+```bash
+set -a && source .env.production && set +a
+cd server && npm run verify:r2
+```
+
+This uploads a small test object under `__plethora_smoke__/`, verifies bytes, and deletes it.
+
+### Security notes
+
+- Bucket must remain **private** — do not enable public `r2.dev` access for user content
+- Presigned URL helpers exist in code but **no HTTP routes expose them yet**; sync blobs still flow API ↔ R2
+- CORS on the bucket is **not required** until client-direct presigned transfers are implemented
+- Production Compose has **no** local upload volume; object data is not authoritative on the VPS
 
 R2 durability/versioning is managed in Cloudflare. No blob backup from the VPS is required.
 

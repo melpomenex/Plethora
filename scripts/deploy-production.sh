@@ -41,6 +41,11 @@ if [[ "${PLETHORA_ENV:-production}" == "production" ]]; then
   [[ -n "${METRICS_TOKEN:-}" ]] || fail "METRICS_TOKEN is required in production"
 fi
 
+if [[ "${VERIFY_R2:-0}" == "1" ]]; then
+  log "Running R2 storage smoke test..."
+  (cd server && npm run verify:r2) || fail "R2 smoke test failed (set VERIFY_R2=0 to skip)"
+fi
+
 log "Using image: ${PLETHORA_CLOUD_IMAGE:-ghcr.io/melpomenex/plethora-cloud:latest}"
 log "API host: ${PLETHORA_API_HOST}"
 
