@@ -34,6 +34,7 @@
     "tauri:android:init": "tauri android init --ci",
     "tauri:android:dev": "bash scripts/tauri-wrapper.sh android dev --target aarch64",
     "tauri:android:build": "bash scripts/tauri-wrapper.sh android build --ci --target aarch64 --apk",
+    "tauri:android:build:store:aab": "bash scripts/android-store-build.sh",
     "tauri:ios:init": "tauri ios init --ci",
     "tauri:ios:dev:sim": "bash scripts/ios-test/bootstrap.sh && tauri ios dev \"iPhone 17 Pro\"",
     "tauri:ios:build:sim": "tauri ios build --ci --target aarch64-sim",

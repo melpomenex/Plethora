@@ -400,6 +400,14 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
 -- Play Store provider column on verified transactions
 ALTER TABLE store_transactions ADD COLUMN IF NOT EXISTS provider VARCHAR(50) NOT NULL DEFAULT 'appstore';
 
+-- Play purchase token hash for deduplicated lookups (never store raw tokens in indexed columns)
+ALTER TABLE store_transactions ADD COLUMN IF NOT EXISTS purchase_token_hash VARCHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_store_transactions_play_token
+  ON store_transactions(purchase_token_hash) WHERE purchase_token_hash IS NOT NULL;
+
+-- Play obfuscatedExternalAccountId is not always a UUID
+ALTER TABLE store_transactions ALTER COLUMN app_account_token TYPE VARCHAR(255);
+
 `;
 
 export async function migrate(): Promise<void> {

@@ -1,0 +1,16 @@
+# Static permission for the Tauri plugin listener registration commands.
+# Purchase updates are emitted on the
+# `plethora-playbilling-purchase-update` channel registered from the frontend
+# via `plugin:plethora-playbilling|registerListener`.
+
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-register-listener"
+description = "Allows registering native plugin event listeners (purchase updates)."
+commands.allow = ["registerListener"]
+
+[[permission]]
+identifier = "allow-remove-listener"
+description = "Allows removing native plugin event listeners."
+commands.allow = ["removeListener"]

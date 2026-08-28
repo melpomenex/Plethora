@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-playbilling-set-obfuscated-account-id"
+description = "Enables the playbilling_set_obfuscated_account_id command without any pre-configured scope."
+commands.allow = ["playbilling_set_obfuscated_account_id"]
+
+[[permission]]
+identifier = "deny-playbilling-set-obfuscated-account-id"
+description = "Denies the playbilling_set_obfuscated_account_id command without any pre-configured scope."
+commands.deny = ["playbilling_set_obfuscated_account_id"]

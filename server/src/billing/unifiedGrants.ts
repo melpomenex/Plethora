@@ -32,7 +32,7 @@ export function selectWinningGrantFromStored(
   const all = [...(appleGrant ? [appleGrant] : []), ...playGrants];
   if (all.length === 0) return null;
 
-  const rank = { revoked: 0, expired: 1, grace: 2, active: 3 } as const;
+  const rank = { revoked: 0, pending: 1, expired: 2, grace: 3, active: 4 } as const;
   return all.reduce((best, g) => {
     if (rank[g.status] !== rank[best.status]) {
       return rank[g.status] > rank[best.status] ? g : best;

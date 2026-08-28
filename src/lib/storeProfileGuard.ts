@@ -8,9 +8,15 @@
  * tested without running a build.
  */
 
+import { PLETHORA_LEGACY_API_URL } from "../config/apiUrl";
+
 export const FORBIDDEN_STORE_ARTIFACT_PATTERNS: readonly { pattern: RegExp; reason: string }[] = [
   { pattern: /https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/gi, reason: "dev/loopback HTTP endpoint" },
   { pattern: /wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])/gi, reason: "dev/loopback WebSocket endpoint" },
+  {
+    pattern: new RegExp(PLETHORA_LEGACY_API_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+    reason: "obsolete provisional API domain (use api.useplethora.com)",
+  },
 ];
 
 /** Returns a violation list (empty = clean). */

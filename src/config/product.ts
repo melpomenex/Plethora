@@ -8,17 +8,21 @@ export const PRODUCT_NAME = 'Plethora';
 export const PRODUCT_TAGLINE = 'Read anything. Learn everything.';
 export const PRODUCT_PROVISIONAL_DOMAIN = 'plethora.app';
 
+import { resolvePlethoraApiUrl } from './apiUrl';
+
 /**
  * Primary commercial API base URL.
  * Set VITE_PLETHORA_API_URL=off to disable cloud API calls (local-first mode).
- * Checks VITE_PLETHORA_API_URL, then legacy VITE_API_URL, defaulting to https://api.plethora.app.
+ * Defaults to https://api.useplethora.com when unset.
  */
-const _resolvedApiUrl =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLETHORA_API_URL) ||
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
-  'https://api.plethora.app';
+const _apiResolution = resolvePlethoraApiUrl({
+  VITE_PLETHORA_API_URL:
+    typeof import.meta !== 'undefined' ? import.meta.env?.VITE_PLETHORA_API_URL : undefined,
+  VITE_API_URL: typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_URL : undefined,
+});
 
-export const PLETHORA_API_URL: string = _resolvedApiUrl === 'off' ? 'off' : _resolvedApiUrl;
+export const PLETHORA_API_URL: string =
+  _apiResolution.url === 'off' ? 'off' : _apiResolution.url;
 
 /** True when the app should call Plethora Cloud HTTP APIs. */
 export const isCloudApiEnabled = (): boolean => PLETHORA_API_URL !== 'off';

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-playbilling-start-purchase-listener"
+description = "Enables the playbilling_start_purchase_listener command without any pre-configured scope."
+commands.allow = ["playbilling_start_purchase_listener"]
+
+[[permission]]
+identifier = "deny-playbilling-start-purchase-listener"
+description = "Denies the playbilling_start_purchase_listener command without any pre-configured scope."
+commands.deny = ["playbilling_start_purchase_listener"]

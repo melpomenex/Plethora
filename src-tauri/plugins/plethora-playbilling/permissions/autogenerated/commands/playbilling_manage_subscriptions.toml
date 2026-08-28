@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-playbilling-manage-subscriptions"
+description = "Enables the playbilling_manage_subscriptions command without any pre-configured scope."
+commands.allow = ["playbilling_manage_subscriptions"]
+
+[[permission]]
+identifier = "deny-playbilling-manage-subscriptions"
+description = "Denies the playbilling_manage_subscriptions command without any pre-configured scope."
+commands.deny = ["playbilling_manage_subscriptions"]

@@ -11,8 +11,9 @@ import {
   type VerifiedAppStoreTransaction,
 } from '../../billing/jws.js';
 import { deriveGrant, PRO_GRACE_MS } from '../../billing/grants.js';
-import { verifyPlaySubscription, type VerifiedPlayPurchase, isPlayConfigured } from '../../billing/playClient.js';
+import { verifyPlaySubscription, acknowledgePlaySubscription, getPlayPackageName, type VerifiedPlayPurchase, isPlayConfigured } from '../../billing/playClient.js';
 import { derivePlayGrant } from '../../billing/playGrants.js';
+import { checkPlayTransactionBinding, hashPlayPurchaseToken } from '../../billing/playBinding.js';
 import {
   parsePubSubPushBody,
   rtdnIdempotencyKey,
@@ -51,7 +52,6 @@ const ValidatePlaySchema = z.object({
   provider: z.literal('playstore'),
   purchaseToken: z.string().min(10),
   productId: z.string().min(1),
-  packageName: z.string().min(3).optional(),
 });
 
 const ValidateBillingSchema = z.union([ValidateAppleSchema, ValidatePlaySchema]);
@@ -140,20 +140,50 @@ async function upsertVerifiedPlayTransaction(
   const pool = getPool();
   const grant = derivePlayGrant(purchase);
   const expiresAt = purchase.expiryTimeMillis ? new Date(purchase.expiryTimeMillis) : null;
+  const purchaseTokenHash = hashPlayPurchaseToken(purchase.purchaseToken);
 
   const existing = await pool.query(
-    `SELECT id, user_id FROM store_transactions WHERE original_transaction_id = $1 AND provider = 'playstore'`,
-    [purchase.orderId]
+    `SELECT id, user_id, app_account_token, original_transaction_id
+     FROM store_transactions
+     WHERE provider = 'playstore'
+       AND (
+         purchase_token_hash = $1
+         OR signed_payload::jsonb->>'purchaseToken' = $2
+       )
+     LIMIT 1`,
+    [purchaseTokenHash, purchase.purchaseToken]
   );
 
+  if (existing.rows.length > 0) {
+    const row = existing.rows[0];
+    const binding = checkPlayTransactionBinding({
+      existingUserId: row.user_id ?? null,
+      existingAppAccountToken: row.app_account_token ?? null,
+      requesterUserId: userId,
+      obfuscatedExternalAccountId: purchase.obfuscatedExternalAccountId ?? null,
+    });
+    if (!binding.ok) {
+      throw new AppError(409, binding.code, 'Purchase token cannot be bound to this account');
+    }
+  }
+
   if (existing.rows.length === 0) {
+    const firstBind = checkPlayTransactionBinding({
+      existingUserId: null,
+      existingAppAccountToken: null,
+      requesterUserId: userId,
+      obfuscatedExternalAccountId: purchase.obfuscatedExternalAccountId ?? null,
+    });
+    if (!firstBind.ok) {
+      throw new AppError(409, firstBind.code, 'Purchase token cannot be bound to this account');
+    }
     const id = uuidv4();
     await pool.query(
       `INSERT INTO store_transactions (
          id, original_transaction_id, transaction_id, user_id, product_id,
          environment, status, provider, app_account_token, expires_at,
-         signed_payload, verified_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'playstore',$8,$9,$10,NOW(),NOW())`,
+         signed_payload, purchase_token_hash, verified_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'playstore',$8,$9,$10,$11,NOW(),NOW())`,
       [
         id,
         purchase.orderId,
@@ -165,6 +195,7 @@ async function upsertVerifiedPlayTransaction(
         purchase.obfuscatedExternalAccountId ?? null,
         expiresAt,
         JSON.stringify(purchase),
+        purchaseTokenHash,
       ]
     );
     return { id, boundUserId: userId };
@@ -176,10 +207,15 @@ async function upsertVerifiedPlayTransaction(
 
   await pool.query(
     `UPDATE store_transactions SET
-       transaction_id = $1, product_id = $2, environment = $3, status = $4,
-       user_id = $5, expires_at = $6, signed_payload = $7, updated_at = NOW()
-     WHERE original_transaction_id = $8 AND provider = 'playstore'`,
+       original_transaction_id = $1,
+       transaction_id = $2, product_id = $3, environment = $4, status = $5,
+       user_id = $6, expires_at = $7, signed_payload = $8,
+       app_account_token = COALESCE($9, app_account_token),
+       purchase_token_hash = $10,
+       updated_at = NOW()
+     WHERE id = $11`,
     [
+      purchase.orderId,
       purchase.purchaseToken.slice(0, 64),
       purchase.productId,
       purchase.environment,
@@ -187,7 +223,9 @@ async function upsertVerifiedPlayTransaction(
       boundUserId,
       expiresAt,
       JSON.stringify(purchase),
-      purchase.orderId,
+      purchase.obfuscatedExternalAccountId ?? null,
+      purchaseTokenHash,
+      row.id,
     ]
   );
   return { id: row.id as string, boundUserId };
@@ -220,8 +258,13 @@ billingRouter.post('/validate', authMiddleware, async (req: AuthRequest, res: Re
     const userId = req.userId!;
 
     if ('purchaseToken' in parse.data) {
-      const { purchaseToken, productId, packageName } = parse.data;
-      const purchase = await verifyPlaySubscription(purchaseToken, productId, packageName);
+      const { purchaseToken, productId } = parse.data;
+      const purchase = await verifyPlaySubscription(purchaseToken, productId);
+      let acknowledged = false;
+      if (purchase.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING') {
+        await acknowledgePlaySubscription(purchaseToken, purchase.productId);
+        acknowledged = true;
+      }
       const { boundUserId } = await upsertVerifiedPlayTransaction(purchase, userId);
       const tier = boundUserId ? await recomputeUserTier(boundUserId) : 'free';
       const grant = derivePlayGrant(purchase);
@@ -232,6 +275,7 @@ billingRouter.post('/validate', authMiddleware, async (req: AuthRequest, res: Re
         originalTransactionId: purchase.orderId,
         environment: purchase.environment,
         provider: 'playstore',
+        acknowledged,
       });
     }
 
@@ -357,17 +401,25 @@ billingRouter.post('/webhooks/:provider', async (req, res: Response, next) => {
         return res.status(200).json({ received: true, handled: false });
       }
 
+      const expectedPackage = getPlayPackageName();
+      if (parsed.packageName && parsed.packageName !== expectedPackage) {
+        throw new AppError(
+          422,
+          'invalid_package_name',
+          `RTDN packageName "${parsed.packageName}" does not match server package "${expectedPackage}"`
+        );
+      }
+
       if (!isPlayConfigured()) {
         throw new AppError(503, 'play_not_configured', 'Google Play is not configured on this server');
       }
 
-      const purchase = await verifyPlaySubscription(sub.purchaseToken, sub.subscriptionId, parsed.packageName);
+      const purchase = await verifyPlaySubscription(sub.purchaseToken, sub.subscriptionId);
+      if (purchase.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING') {
+        await acknowledgePlaySubscription(sub.purchaseToken, purchase.productId);
+      }
       const { boundUserId } = await upsertVerifiedPlayTransaction(purchase, null);
 
-      await pool.query('INSERT INTO webhook_dedupe (event_id, provider, processed_at) VALUES ($1, $2, NOW())', [
-        idempotencyKey,
-        provider,
-      ]);
       await pool.query(
         `INSERT INTO subscription_events (id, user_id, event_type, provider, payload_json, created_at)
          VALUES ($1, $2, $3, 'playstore', $4, NOW())`,
@@ -380,6 +432,13 @@ billingRouter.post('/webhooks/:provider', async (req, res: Response, next) => {
       );
 
       if (boundUserId) await recomputeUserTier(boundUserId);
+
+      // Record notification identity after successful processing (replay-safe, retry on failure).
+      await pool.query('INSERT INTO webhook_dedupe (event_id, provider, processed_at) VALUES ($1, $2, NOW())', [
+        idempotencyKey,
+        provider,
+      ]);
+
       return res.status(200).json({ received: true, handled: true });
     }
 

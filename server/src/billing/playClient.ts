@@ -4,6 +4,12 @@
 
 import { GoogleAuth } from 'google-auth-library';
 import { AppError } from '../middleware/error.js';
+import {
+  ALLOWED_PLAY_PRODUCT_IDS,
+  isAllowedPlayProductId,
+} from './productIds.js';
+
+export { ALLOWED_PLAY_PRODUCT_IDS, isAllowedPlayProductId };
 
 export interface VerifiedPlayPurchase {
   provider: 'playstore';
@@ -31,7 +37,7 @@ function getServiceAccountJson(): Record<string, unknown> | null {
   }
 }
 
-function getPackageName(): string {
+export function getPlayPackageName(): string {
   return process.env.GOOGLE_PLAY_PACKAGE_NAME?.trim() || 'com.plethora.app';
 }
 
@@ -51,10 +57,9 @@ async function getAccessToken(): Promise<string> {
 
 export async function verifyPlaySubscription(
   purchaseToken: string,
-  productId: string,
-  packageName?: string
+  productId: string
 ): Promise<VerifiedPlayPurchase> {
-  const pkg = packageName?.trim() || getPackageName();
+  const pkg = getPlayPackageName();
   const token = await getAccessToken();
 
   const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(pkg)}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}`;
@@ -64,7 +69,6 @@ export async function verifyPlaySubscription(
   });
 
   if (!res.ok) {
-    const body = await res.text();
     throw new AppError(
       422,
       'verification_failed',
@@ -87,6 +91,11 @@ export async function verifyPlaySubscription(
 
   const lineItem = data.lineItems?.find((l) => l.productId === productId) ?? data.lineItems?.[0];
   const resolvedProductId = lineItem?.productId ?? productId;
+
+  if (!isAllowedPlayProductId(resolvedProductId)) {
+    throw new AppError(422, 'invalid_product_id', `Product ID "${resolvedProductId}" is not allowed`);
+  }
+
   const expiryTimeMillis = lineItem?.expiryTime ? Date.parse(lineItem.expiryTime) : undefined;
   const orderId = data.latestOrderId || purchaseToken.slice(0, 32);
 
@@ -102,6 +111,35 @@ export async function verifyPlaySubscription(
     acknowledgementState: data.acknowledgementState,
     environment: data.testPurchase ? 'sandbox' : 'production',
   };
+}
+
+/**
+ * Acknowledge a subscription purchase. subscriptionId (productId) is optional
+ * per Google Play Publisher API updates (May 2025).
+ */
+export async function acknowledgePlaySubscription(
+  purchaseToken: string,
+  productId?: string
+): Promise<void> {
+  const pkg = getPlayPackageName();
+  const accessToken = await getAccessToken();
+
+  const url = productId
+    ? `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(pkg)}/purchases/subscriptions/${encodeURIComponent(productId)}/tokens/${encodeURIComponent(purchaseToken)}:acknowledge`
+    : `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(pkg)}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}:acknowledge`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw new AppError(
+      422,
+      'acknowledgement_failed',
+      `Google Play acknowledgement failed (${res.status})`
+    );
+  }
 }
 
 export function isPlayConfigured(): boolean {

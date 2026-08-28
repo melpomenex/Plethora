@@ -1,0 +1,16 @@
+[package]
+name = "plethora-playbilling"
+version = "0.1.0"
+description = "Tauri plugin for native Android Google Play Billing (products, purchase, query, restore, purchase updates)"
+authors = ["Plethora Team"]
+edition = "2021"
+links = "plethora-playbilling"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = ["unstable"] }
+serde = "1"
+serde_json = "1"
+thiserror = "1"

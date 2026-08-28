@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-playbilling-get-products"
+description = "Enables the playbilling_get_products command without any pre-configured scope."
+commands.allow = ["playbilling_get_products"]
+
+[[permission]]
+identifier = "deny-playbilling-get-products"
+description = "Denies the playbilling_get_products command without any pre-configured scope."
+commands.deny = ["playbilling_get_products"]

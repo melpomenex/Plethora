@@ -1,0 +1,18 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the Google Play Billing plugin's product/purchase/query/restore commands
+to be invoked from the frontend on Android store builds.
+"""
+permissions = [
+  "allow-playbilling-get-products",
+  "allow-playbilling-purchase",
+  "allow-playbilling-query-purchases",
+  "allow-playbilling-restore",
+  "allow-playbilling-start-purchase-listener",
+  "allow-playbilling-manage-subscriptions",
+  "allow-playbilling-set-obfuscated-account-id",
+  "allow-register-listener",
+  "allow-remove-listener"
+]

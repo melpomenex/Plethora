@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Play Billing Library 5+ does not require a manifest permission; Google Play
+         grants BILLING automatically for apps distributed through Play Console. -->
+    <application />
+</manifest>
