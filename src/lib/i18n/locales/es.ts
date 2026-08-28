@@ -3022,6 +3022,10 @@ export const es: Dict = {
   "userProfile.proBenefits":
     "Desbloquea búsqueda semántica en toda la biblioteca, sincronización en la nube de conocimiento cero, tutoría socrática con IA, transcripción con diarización y voces neuronales de audiolibros.",
   "userProfile.upgradeNow": "Mejorar ahora",
+  "userProfile.sessionTitle": "Sesión de cuenta",
+  "userProfile.sessionDescription":
+    "Actualiza tu plan si acabas de mejorar, o cierra sesión para cambiar de cuenta.",
+  "userProfile.refreshPlanStatus": "Actualizar estado del plan",
   "userProfile.upgradeToPro": "Mejorar a Pro",
   "videoExtract.addBtn": "Añadir",
   "videoExtract.addTag": "Añadir una etiqueta...",

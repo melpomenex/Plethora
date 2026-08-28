@@ -29,6 +29,7 @@ export function UserProfilePanel() {
   useEffect(() => {
     if (isAuthenticated) {
       void loadDevices();
+      void useAccountStore.getState().init();
     }
   }, [isAuthenticated, loadDevices]);
 
@@ -48,62 +49,60 @@ export function UserProfilePanel() {
 
   const isPro = plan === 'pro';
 
+  const handleRefreshPlan = async () => {
+    await useAccountStore.getState().init();
+  };
+
   return (
     <div className="space-y-6">
       {/* User Info */}
       <div className="bg-card border rounded-lg p-6">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-            <User className="w-8 h-8 text-primary" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-foreground">
-                {isAuthenticated && user ? user.email : t("userProfile.guestUser")}
-              </h2>
-              <TrialBadge />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            <div className="w-16 h-16 shrink-0 bg-primary/10 rounded-full flex items-center justify-center">
+              <User className="w-8 h-8 text-primary" />
             </div>
-            <div className="flex items-center gap-2 mt-1">
-              {isAuthenticated ? (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
-                  !isPro 
-                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200"
-                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200"
-                }`}>
-                  {!isPro ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
-                  {!isPro ? t("userProfile.freePlan") : t("userProfile.proPlan")}
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs font-medium">
-                  {t("userProfile.demoMode")}
-                </span>
-              )}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-semibold text-foreground truncate">
+                  {isAuthenticated && user ? user.email : t("userProfile.guestUser")}
+                </h2>
+                <TrialBadge />
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                {isAuthenticated ? (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
+                    !isPro 
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200"
+                  }`}>
+                    {!isPro ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
+                    {!isPro ? t("userProfile.freePlan") : t("userProfile.proPlan")}
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs font-medium">
+                    {t("userProfile.demoMode")}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
             {!isPro && (
               <button
                 onClick={handleOpenPaywall}
-                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-lg transition-all text-sm font-medium flex items-center gap-1.5 shadow-sm"
+                className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-lg transition-all text-sm font-medium flex items-center justify-center gap-1.5 shadow-sm"
               >
                 <Sparkle className="w-4 h-4" />
-                Upgrade to Pro
+                {t("userProfile.upgradeToPro")}
               </button>
             )}
 
-            {isAuthenticated ? (
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors flex items-center gap-2 text-sm"
-              >
-                <SignOut className="w-4 h-4" />
-                {t("userProfile.logOut")}
-              </button>
-            ) : (
+            {!isAuthenticated && (
               <button
                 onClick={() => setIsLoginOpen(true)}
-                className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors text-sm"
+                className="w-full sm:w-auto px-4 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors text-sm"
               >
                 {t("userProfile.signInSignUp")}
               </button>
@@ -111,6 +110,30 @@ export function UserProfilePanel() {
           </div>
         </div>
       </div>
+
+      {isAuthenticated && (
+        <div className="bg-card border rounded-lg p-6 space-y-3">
+          <h3 className="text-base font-semibold text-foreground">{t("userProfile.sessionTitle")}</h3>
+          <p className="text-sm text-muted-foreground">{t("userProfile.sessionDescription")}</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => void handleRefreshPlan()}
+              className="w-full sm:w-auto px-4 py-2.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg transition-colors text-sm font-medium"
+            >
+              {t("userProfile.refreshPlanStatus")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="w-full sm:w-auto px-4 py-2.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+            >
+              <SignOut className="w-4 h-4" />
+              {t("userProfile.logOut")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Subscription Banner */}
       {!isPro && (

@@ -40,8 +40,14 @@ function isProductionLike(env: PlethoraEnv): boolean {
   return env === 'production' || env === 'staging';
 }
 
-/** Tauri desktop builds use these origins in production; dev Vite localhost is not allowed. */
-const PRODUCTION_CORS_ALLOWLIST = new Set(['https://tauri.localhost', 'tauri://localhost']);
+/** Native client origins allowed in production; dev Vite localhost is not allowed. */
+const PRODUCTION_CORS_ALLOWLIST = new Set([
+  'https://tauri.localhost',
+  'http://tauri.localhost',
+  'tauri://localhost',
+  'https://appassets.androidplatform.net',
+  'null',
+]);
 
 function isDisallowedProductionCorsOrigin(origin: string): boolean {
   if (PRODUCTION_CORS_ALLOWLIST.has(origin)) {

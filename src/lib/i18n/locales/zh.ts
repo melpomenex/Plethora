@@ -3195,6 +3195,9 @@ export const zh: Dict = {
   "userProfile.proBenefits":
     "解锁全库语义搜索、零知识云端同步、AI 苏格拉底式辅导、说话人分离转写和神经语音听书。",
   "userProfile.upgradeNow": "立即升级",
+  "userProfile.sessionTitle": "账户会话",
+  "userProfile.sessionDescription": "若刚升级，请刷新套餐状态；或退出登录以切换账户。",
+  "userProfile.refreshPlanStatus": "刷新套餐状态",
   "userProfile.upgradeToPro": "升级到 Pro",
   "videoExtract.addBtn": "添加",
   "videoExtract.addTag": "添加标签...",

@@ -2,6 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAccountStore } from '../accountStore';
 import { useDocumentStore } from '../documentStore';
 
+vi.mock('../../lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/tauri')>();
+  return {
+    ...actual,
+    isTauri: () => false,
+  };
+});
+
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return {
     ok,

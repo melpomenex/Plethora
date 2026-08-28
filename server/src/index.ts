@@ -26,6 +26,7 @@ import { metricsAuthMiddleware } from './middleware/metricsAuth.js';
 import { dbRateLimit } from './middleware/dbRateLimit.js';
 import { initDatabase, checkDatabaseHealth, closeDatabase } from './db/connection.js';
 import { initStorage } from './storage/index.js';
+import { createCorsOrigin } from './config/cors.js';
 import { getConfig, validateProductionConfig } from './config/env.js';
 
 const app = express();
@@ -42,7 +43,7 @@ app.use(
 app.use(compression());
 app.use(
   cors({
-    origin: config.corsOrigins,
+    origin: createCorsOrigin(config),
     credentials: true,
   })
 );

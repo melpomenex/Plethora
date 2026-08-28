@@ -2974,6 +2974,10 @@ export const ja: Dict = {
   "userProfile.proBenefits":
     "ライブラリ全体のセマンティック検索、ゼロ知識クラウド同期、AIソクラテス式チュートリング、話者分離文字起こし、ニューラル音声オーディオブックをアンロック。",
   "userProfile.upgradeNow": "今すぐアップグレード",
+  "userProfile.sessionTitle": "アカウントセッション",
+  "userProfile.sessionDescription":
+    "アップグレード後はプランを更新するか、サインアウトして別のアカウントに切り替えてください。",
+  "userProfile.refreshPlanStatus": "プラン状態を更新",
   "userProfile.upgradeToPro": "Pro にアップグレード",
   "videoExtract.addBtn": "追加",
   "videoExtract.addTag": "タグを追加...",

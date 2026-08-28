@@ -2474,6 +2474,10 @@ export const en: Dict = {
   "userProfile.upgradeDesc":
     "Unlock full file synchronization and unlimited storage. Currently on Free plan: Syncs metadata and extracts only.",
   "userProfile.upgradeNow": "Upgrade Now",
+  "userProfile.sessionTitle": "Account session",
+  "userProfile.sessionDescription":
+    "Refresh your plan if you recently upgraded, or sign out to switch accounts.",
+  "userProfile.refreshPlanStatus": "Refresh plan status",
   "theme.viewGallery": "View all themes in gallery",
   "theme.gallery": "Gallery",
   "theme.builtInThemes": "Built-in Themes",

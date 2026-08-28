@@ -45,6 +45,68 @@ export interface AccountStoreState {
   init: () => Promise<void>;
 }
 
+interface AuthSessionPayload {
+  user: {
+    id: string;
+    email: string;
+    subscriptionTier?: string;
+    subscription_tier?: string;
+  };
+  tokens: {
+    accessToken?: string;
+    access_token?: string;
+    refreshToken?: string;
+    refresh_token?: string;
+    expiresIn?: number;
+    expires_in?: number;
+  };
+  device?: { id: string };
+}
+
+function normalizeAuthSession(data: AuthSessionPayload) {
+  return {
+    user: {
+      id: data.user.id,
+      email: data.user.email,
+      subscriptionTier: data.user.subscriptionTier ?? data.user.subscription_tier ?? 'free',
+    },
+    tokens: {
+      accessToken: data.tokens.accessToken ?? data.tokens.access_token ?? '',
+      refreshToken: data.tokens.refreshToken ?? data.tokens.refresh_token ?? '',
+      expiresIn: data.tokens.expiresIn ?? data.tokens.expires_in ?? 900,
+    },
+    deviceId: data.device?.id ?? null,
+  };
+}
+
+async function syncNativeSession(data: AuthSessionPayload) {
+  const normalized = normalizeAuthSession(data);
+  await invoke('account_sync_session', {
+    user: {
+      id: normalized.user.id,
+      email: normalized.user.email,
+      subscription_tier: normalized.user.subscriptionTier,
+    },
+    tokens: {
+      access_token: normalized.tokens.accessToken,
+      refresh_token: normalized.tokens.refreshToken,
+      expires_in: normalized.tokens.expiresIn,
+    },
+    deviceId: normalized.deviceId,
+  });
+  return normalized;
+}
+
+function authErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof TypeError) {
+    return 'Could not reach Plethora cloud. Check your connection and try again.';
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export const useAccountStore = create<AccountStoreState>()(
   persist(
     (set, get) => ({
@@ -62,59 +124,43 @@ export const useAccountStore = create<AccountStoreState>()(
           if (!isCloudApiEnabled()) {
             throw new Error('Plethora Cloud API is disabled. Set VITE_PLETHORA_API_URL to your API host.');
           }
+
+          let normalized;
           if (isTauri()) {
-            await invoke('account_sign_in', { email, password, deviceName });
-          }
-
-          // Fetch from server / local API
-          const res = await fetch(`${PLETHORA_API_URL}/v1/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, deviceName, platform: 'desktop' }),
-          });
-
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error?.message || 'Login failed');
-          }
-
-          const data = await res.json();
-          if (isTauri()) {
-            await invoke('account_sync_session', {
-              user: {
-                id: data.user.id,
-                email: data.user.email,
-                subscription_tier: data.user.subscriptionTier ?? data.user.subscription_tier ?? 'free',
-              },
-              tokens: {
-                access_token: data.tokens.accessToken ?? data.tokens.access_token,
-                refresh_token: data.tokens.refreshToken ?? data.tokens.refresh_token,
-                expires_in: data.tokens.expiresIn ?? data.tokens.expires_in ?? 900,
-              },
-              deviceId: data.device?.id ?? null,
+            const data = await invoke<AuthSessionPayload>('account_auth_login', {
+              email,
+              password,
+              deviceName,
+              platform: 'desktop',
             });
+            normalized = await syncNativeSession(data);
+          } else {
+            const res = await fetch(`${PLETHORA_API_URL}/v1/auth/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password, deviceName, platform: 'desktop' }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error?.message || 'Login failed');
+            }
+
+            normalized = normalizeAuthSession(await res.json());
           }
+
           set({
             isAuthenticated: true,
-            user: data.user,
-            tokens: data.tokens,
-            deviceId: data.device?.id || null,
+            user: normalized.user,
+            tokens: normalized.tokens,
+            deviceId: normalized.deviceId,
             loading: false,
           });
 
-          // Refresh entitlements on successful sign-in
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
-          // No mock fallback (Change F §2.1): a failed sign-in must never
-          // fabricate a session. Surface an explicit, retryable error and
-          // stay signed out.
-          const message =
-            err instanceof TypeError
-              ? 'Could not reach Plethora cloud. Check your connection and try again.'
-              : err instanceof Error && err.message
-                ? err.message
-                : 'Sign-in failed. Please try again.';
+          const message = authErrorMessage(err, 'Sign-in failed. Please try again.');
           set({
             isAuthenticated: false,
             user: null,
@@ -133,52 +179,43 @@ export const useAccountStore = create<AccountStoreState>()(
           if (!isCloudApiEnabled()) {
             throw new Error('Plethora Cloud API is disabled. Set VITE_PLETHORA_API_URL to your API host.');
           }
-          const res = await fetch(`${PLETHORA_API_URL}/v1/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, deviceName, platform: 'desktop' }),
-          });
 
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error?.message || 'Registration failed');
-          }
-
-          const data = await res.json();
+          let normalized;
           if (isTauri()) {
-            await invoke('account_sync_session', {
-              user: {
-                id: data.user.id,
-                email: data.user.email,
-                subscription_tier: data.user.subscriptionTier ?? data.user.subscription_tier ?? 'free',
-              },
-              tokens: {
-                access_token: data.tokens.accessToken ?? data.tokens.access_token,
-                refresh_token: data.tokens.refreshToken ?? data.tokens.refresh_token,
-                expires_in: data.tokens.expiresIn ?? data.tokens.expires_in ?? 900,
-              },
-              deviceId: data.device?.id ?? null,
+            const data = await invoke<AuthSessionPayload>('account_auth_register', {
+              email,
+              password,
+              deviceName,
+              platform: 'desktop',
             });
+            normalized = await syncNativeSession(data);
+          } else {
+            const res = await fetch(`${PLETHORA_API_URL}/v1/auth/register`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password, deviceName, platform: 'desktop' }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error?.message || 'Registration failed');
+            }
+
+            normalized = normalizeAuthSession(await res.json());
           }
+
           set({
             isAuthenticated: true,
-            user: data.user,
-            tokens: data.tokens,
-            deviceId: data.device?.id || null,
+            user: normalized.user,
+            tokens: normalized.tokens,
+            deviceId: normalized.deviceId,
             loading: false,
           });
 
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
-          // No mock fallback (Change F §2.1): registration failures are
-          // surfaced honestly and never produce a fabricated session.
-          const message =
-            err instanceof TypeError
-              ? 'Could not reach Plethora cloud. Check your connection and try again.'
-              : err instanceof Error && err.message
-                ? err.message
-                : 'Registration failed. Please try again.';
+          const message = authErrorMessage(err, 'Registration failed. Please try again.');
           set({
             isAuthenticated: false,
             user: null,
@@ -301,21 +338,50 @@ export const useAccountStore = create<AccountStoreState>()(
       },
 
       init: async () => {
-        if (isTauri()) {
+        if (!isTauri()) {
+          return;
+        }
+
+        const { isAuthenticated, user, tokens, deviceId } = get();
+
+        // After relaunch the WebView keeps tokens in localStorage but the Rust
+        // AuthManager starts empty — re-mirror the session so native entitlement
+        // refresh can reach the server.
+        if (isAuthenticated && user && tokens?.accessToken) {
           try {
-            const state = await invoke<{ is_signed_in: boolean; user?: UserProfile; device_id?: string }>(
-              'account_get_state'
-            );
-            if (state.is_signed_in && state.user) {
-              set({
-                isAuthenticated: true,
-                user: state.user,
-                deviceId: state.device_id || null,
-              });
-            }
+            await invoke('account_sync_session', {
+              user: {
+                id: user.id,
+                email: user.email,
+                subscription_tier: user.subscriptionTier ?? 'free',
+              },
+              tokens: {
+                access_token: tokens.accessToken,
+                refresh_token: tokens.refreshToken,
+                expires_in: tokens.expiresIn ?? 900,
+              },
+              deviceId: deviceId ?? null,
+            });
+            await useEntitlementStore.getState().refresh();
           } catch {
-            // Keep persisted state
+            // Keep persisted state; user can sign out/in to recover.
           }
+          return;
+        }
+
+        try {
+          const state = await invoke<{ is_signed_in: boolean; user?: UserProfile; device_id?: string }>(
+            'account_get_state'
+          );
+          if (state.is_signed_in && state.user) {
+            set({
+              isAuthenticated: true,
+              user: state.user,
+              deviceId: state.device_id || null,
+            });
+          }
+        } catch {
+          // Keep persisted state
         }
       },
     }),
