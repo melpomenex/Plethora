@@ -1,0 +1,170 @@
+use crate::database::Repository;
+use crate::error::{PlethoraError, Result};
+use crate::plethora_auth::AuthManager;
+
+use super::cursor::{get_server_cursor, set_server_cursor, touch_successful_sync};
+use super::device::ensure_device_id;
+use super::flags::sync_v2_enabled;
+use super::merge::apply_remote_record;
+use super::outbox::{acknowledge_changes, drain_pending_batch};
+use super::transport::{pull_page, push_records};
+use super::types::{PullResult, PushResult, SyncRecord};
+use super::wire::{
+    batch_byte_size, decode_remote_record, outbox_entry_to_wire, WireConflict, MAX_PUSH_BYTES,
+    MAX_PUSH_RECORDS,
+};
+use super::SyncEngine;
+
+pub async fn push_outbox(repo: &Repository, auth: &AuthManager) -> Result<PushResult> {
+    if !sync_v2_enabled() {
+        return Err(PlethoraError::Internal(
+            "Plethora Pro sync v2 is disabled (set PLETHORA_SYNC_V2=1)".to_string(),
+        ));
+    }
+
+    let access_token = auth
+        .get_access_token()
+        .ok_or_else(|| PlethoraError::Internal("Sign in required for sync push".to_string()))?;
+
+    let mut tx = repo.pool().begin().await?;
+    let device_id = ensure_device_id(&mut tx).await?;
+    tx.commit().await?;
+
+    let mut total_accepted = 0usize;
+    let mut latest_seq = get_server_cursor(repo.pool()).await?;
+
+    loop {
+        let batch = drain_pending_batch(repo.pool(), MAX_PUSH_RECORDS).await?;
+        if batch.is_empty() {
+            break;
+        }
+
+        let mut wire_batch = Vec::new();
+        let mut change_ids = Vec::new();
+        let mut batch_bytes = 0usize;
+
+        for entry in batch {
+            let wire = outbox_entry_to_wire(&entry, &device_id);
+            let wire_size = wire.payload_ciphertext.len() + wire.aad.len() + 64;
+            if !wire_batch.is_empty()
+                && (wire_batch.len() >= MAX_PUSH_RECORDS
+                    || batch_bytes.saturating_add(wire_size) > MAX_PUSH_BYTES)
+            {
+                break;
+            }
+            batch_bytes = batch_bytes.saturating_add(wire_size);
+            change_ids.push(entry.change_id);
+            wire_batch.push(wire);
+        }
+
+        if wire_batch.is_empty() {
+            break;
+        }
+
+        let response = push_records(&access_token, wire_batch).await?;
+        total_accepted += response.accepted;
+        latest_seq = latest_seq.max(response.latest_seq);
+
+        acknowledge_changes(repo.pool(), &change_ids).await?;
+        mark_conflicts_failed(repo.pool(), &response.conflicts).await?;
+    }
+
+    if latest_seq > 0 {
+        set_server_cursor(repo.pool(), latest_seq).await?;
+    }
+
+    Ok(PushResult {
+        accepted: total_accepted,
+        latest_seq,
+    })
+}
+
+async fn mark_conflicts_failed(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    conflicts: &[WireConflict],
+) -> Result<()> {
+    for conflict in conflicts {
+        sqlx::query("UPDATE sync_outbox SET sync_status = 'failed' WHERE change_id = ?1")
+            .bind(&conflict.change_id)
+            .execute(pool)
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to mark sync conflict: {e}")))?;
+    }
+    Ok(())
+}
+
+pub async fn pull_remote(repo: &Repository, auth: &AuthManager) -> Result<PullResult> {
+    if !sync_v2_enabled() {
+        return Err(PlethoraError::Internal(
+            "Plethora Pro sync v2 is disabled (set PLETHORA_SYNC_V2=1)".to_string(),
+        ));
+    }
+
+    let access_token = auth
+        .get_access_token()
+        .ok_or_else(|| PlethoraError::Internal("Sign in required for sync pull".to_string()))?;
+
+    let mut cursor = get_server_cursor(repo.pool()).await?;
+    let mut applied_records = Vec::new();
+
+    loop {
+        let (page, next_cursor, has_more) = pull_page(&access_token, cursor, 500).await?;
+        if page.is_empty() {
+            cursor = next_cursor;
+            break;
+        }
+
+        let mut tx = repo.pool().begin().await?;
+        let local_device_id = ensure_device_id(&mut tx).await?;
+        let mut page_max_seq = cursor;
+
+        for (wire, seq_number) in page {
+            page_max_seq = page_max_seq.max(seq_number);
+            let remote = decode_remote_record(&wire, seq_number)
+                .map_err(PlethoraError::Internal)?;
+            apply_remote_record(&mut tx, &local_device_id, &remote).await?;
+
+            applied_records.push(SyncRecord {
+                id: remote.record_id.clone(),
+                table_kind: remote.table_kind,
+                record_id: remote.record_id,
+                hlc: remote.hlc,
+                device_id: remote.device_id,
+                payload_ciphertext: String::new(),
+                aad: String::new(),
+                key_version: 1,
+            });
+        }
+
+        tx.commit().await?;
+        cursor = page_max_seq.max(next_cursor);
+        set_server_cursor(repo.pool(), cursor).await?;
+
+        if !has_more {
+            break;
+        }
+    }
+
+    touch_successful_sync(repo.pool()).await?;
+
+    Ok(PullResult {
+        records: applied_records,
+        cursor,
+        has_more: false,
+    })
+}
+
+pub async fn run_sync_cycle(
+    repo: &Repository,
+    auth: &AuthManager,
+    engine: &SyncEngine,
+) -> Result<(PushResult, PullResult)> {
+    let push = push_outbox(repo, auth).await?;
+    let pull = pull_remote(repo, auth).await?;
+    engine.set_last_synced(chrono::Utc::now().to_rfc3339());
+    Ok((push, pull))
+}
+
+pub fn map_error(error: PlethoraError) -> String {
+    error.to_string()
+}

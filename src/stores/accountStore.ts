@@ -79,6 +79,21 @@ export const useAccountStore = create<AccountStoreState>()(
           }
 
           const data = await res.json();
+          if (isTauri()) {
+            await invoke('account_sync_session', {
+              user: {
+                id: data.user.id,
+                email: data.user.email,
+                subscription_tier: data.user.subscriptionTier ?? data.user.subscription_tier ?? 'free',
+              },
+              tokens: {
+                access_token: data.tokens.accessToken ?? data.tokens.access_token,
+                refresh_token: data.tokens.refreshToken ?? data.tokens.refresh_token,
+                expires_in: data.tokens.expiresIn ?? data.tokens.expires_in ?? 900,
+              },
+              deviceId: data.device?.id ?? null,
+            });
+          }
           set({
             isAuthenticated: true,
             user: data.user,
@@ -130,6 +145,21 @@ export const useAccountStore = create<AccountStoreState>()(
           }
 
           const data = await res.json();
+          if (isTauri()) {
+            await invoke('account_sync_session', {
+              user: {
+                id: data.user.id,
+                email: data.user.email,
+                subscription_tier: data.user.subscriptionTier ?? data.user.subscription_tier ?? 'free',
+              },
+              tokens: {
+                access_token: data.tokens.accessToken ?? data.tokens.access_token,
+                refresh_token: data.tokens.refreshToken ?? data.tokens.refresh_token,
+                expires_in: data.tokens.expiresIn ?? data.tokens.expires_in ?? 900,
+              },
+              deviceId: data.device?.id ?? null,
+            });
+          }
           set({
             isAuthenticated: true,
             user: data.user,

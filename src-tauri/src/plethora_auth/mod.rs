@@ -92,6 +92,16 @@ impl AuthManager {
         }
     }
 
+    /// Mirror a browser/API login session into native auth state for sync transport.
+    pub fn sync_session(
+        &self,
+        user: UserProfile,
+        tokens: AccountTokens,
+        device_id: Option<String>,
+    ) {
+        self.set_signed_in(user, tokens, device_id);
+    }
+
     pub fn set_signed_out(&self) {
         if let Ok(mut lock) = self.state.write() {
             lock.is_signed_in = false;
@@ -174,6 +184,17 @@ pub fn account_sign_in(
     let device_id = Some("dev-mock-device-uuid".to_string());
 
     auth.set_signed_in(user, tokens, device_id);
+    Ok(auth.get_state())
+}
+
+#[tauri::command]
+pub fn account_sync_session(
+    auth: tauri::State<Arc<AuthManager>>,
+    user: UserProfile,
+    tokens: AccountTokens,
+    device_id: Option<String>,
+) -> Result<AccountState, String> {
+    auth.sync_session(user, tokens, device_id);
     Ok(auth.get_state())
 }
 
