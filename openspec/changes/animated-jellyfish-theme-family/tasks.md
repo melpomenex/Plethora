@@ -28,3 +28,8 @@
 ## 5. Documentation
 
 - [x] 5.1 Add brief note to themes-appearance docs or renderer file header
+
+## 6. Packaged runtime regression
+
+- [x] 6.1 Make Jellyfish backdrop mounting and critical shell transparency independent of lazy chunk loading and runtime-injected CSS, with regression coverage
+- [x] 6.2 Ensure repository-provided local macOS package commands ad-hoc sign the complete app bundle, with script regression coverage

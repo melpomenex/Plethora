@@ -1,11 +1,6 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useVisualViewport } from "../../hooks/useVisualViewport";
-
-const ThemeBackdrop = lazy(() =>
-  import("../common/ThemeBackdrop").then(({ ThemeBackdrop: backdrop }) => ({
-    default: backdrop,
-  })),
-);
+import { ThemeBackdrop } from "../common/ThemeBackdrop";
 
 export function AdaptiveAppScaffold({
   children,
@@ -23,9 +18,7 @@ export function AdaptiveAppScaffold({
       data-mobile-shell={mobile ? "true" : "false"}
       data-fullscreen={fullscreen ? "true" : "false"}
     >
-      <Suspense fallback={null}>
-        <ThemeBackdrop />
-      </Suspense>
+      <ThemeBackdrop />
       <div className="relative z-10 flex h-full min-h-0 w-full flex-col">
         {children}
       </div>

@@ -726,6 +726,18 @@
     background-color: transparent !important;
   }
 
+  /* Packaged Tauri fallback: the Jellyfish scene must remain visible even if
+     theme-specific runtime CSS is delayed or rejected by the webview. The
+     injected palette CSS has equal specificity and is appended later, so its
+     intended translucent shell tint still wins when available. */
+  :root[data-theme-animation="jellyfish"] .app-shell,
+  :root[data-theme-animation="jellyfish"] .bg-background:not(.app-shell),
+  :root[data-theme-animation="jellyfish"] .main-content,
+  :root[data-theme-animation="jellyfish"] .bg-cream {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
   .theme-backdrop-canvas {
     display: block;
     width: 100%;
