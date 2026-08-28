@@ -24,7 +24,8 @@ export async function authMiddleware(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new AppError(401, 'unauthorized', 'No bearer token provided');
+    next(new AppError(401, 'unauthorized', 'No bearer token provided'));
+    return;
   }
 
   const token = authHeader.slice(7);

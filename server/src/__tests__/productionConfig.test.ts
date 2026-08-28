@@ -79,6 +79,39 @@ describe('production config validation', () => {
     expect(errors.some((e) => e.field === 'METRICS_TOKEN')).toBe(true);
   });
 
+  it('allows Tauri desktop origins in production CORS', () => {
+    process.env.PLETHORA_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://u:p@host/db?sslmode=require';
+    process.env.JWT_SECRET = 'a'.repeat(48);
+    process.env.S3_ENDPOINT = 'https://example.r2.cloudflarestorage.com';
+    process.env.S3_BUCKET = 'bucket';
+    process.env.S3_ACCESS_KEY_ID = 'key';
+    process.env.S3_SECRET_ACCESS_KEY = 'secret';
+    process.env.METRICS_TOKEN = 'metrics-token';
+    process.env.CORS_ORIGINS =
+      'https://tauri.localhost,tauri://localhost,https://useplethora.com';
+
+    const config = loadConfig();
+    const errors = validateProductionConfig(config);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects dev localhost origins in production CORS', () => {
+    process.env.PLETHORA_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://u:p@host/db?sslmode=require';
+    process.env.JWT_SECRET = 'a'.repeat(48);
+    process.env.S3_ENDPOINT = 'https://example.r2.cloudflarestorage.com';
+    process.env.S3_BUCKET = 'bucket';
+    process.env.S3_ACCESS_KEY_ID = 'key';
+    process.env.S3_SECRET_ACCESS_KEY = 'secret';
+    process.env.METRICS_TOKEN = 'metrics-token';
+    process.env.CORS_ORIGINS = 'https://useplethora.com,http://localhost:5173';
+
+    const config = loadConfig();
+    const errors = validateProductionConfig(config);
+    expect(errors.some((e) => e.field === 'CORS_ORIGINS')).toBe(true);
+  });
+
   it('passes production with all required vars', () => {
     process.env.PLETHORA_ENV = 'production';
     process.env.DATABASE_URL = 'postgresql://u:p@host/db?sslmode=require';
