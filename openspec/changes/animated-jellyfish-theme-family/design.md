@@ -66,6 +66,14 @@ Fix effect deps to include `animationsEnabled` and `prefersReducedMotion` (known
 
 `window.__plethoraJellyfishFreeze = { time: number, seed: number }` for visual tests and unit snapshot of draw path.
 
+### 7. Packaged Tauri resilience
+
+`ThemeBackdrop` is part of every adaptive shell, so it is imported synchronously instead of being split into a lazy chunk. This avoids making ambient rendering depend on a secondary dynamic import under Tauri's custom protocol and production CSP.
+
+The critical `jellyfish` shell-transparency rule also lives in the statically bundled application stylesheet. Theme-specific injected CSS can still provide the palette tint and glass treatment, but blocking or delaying that optional CSS cannot leave the correctly rendered canvas hidden behind an opaque `.app-shell`.
+
+Repository-provided local macOS package commands request an ad-hoc signing identity so Tauri seals the completed app bundle and its resources instead of leaving only the Mach-O executable linker-signed. Release workflows can continue to supply a distribution identity.
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |

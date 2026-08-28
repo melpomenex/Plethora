@@ -28,6 +28,15 @@ The system SHALL render jellyfish ambient backgrounds through a single `jellyfis
 - **WHEN** the user switches from `deep-ocean-glow` to `snow`
 - **THEN** the jellyfish RAF loop is cancelled and no second loop remains active
 
+#### Scenario: Packaged Tauri build renders without optional runtime CSS
+- **WHEN** a production Tauri build loads a jellyfish theme through the custom protocol and packaged CSP
+- **THEN** the backdrop renderer mounts without a lazy chunk dependency and statically bundled CSS exposes the canvas even if theme-specific runtime CSS is delayed or rejected
+
+#### Scenario: Local macOS packages seal the complete app bundle
+- **WHEN** a developer runs a repository-provided macOS package command without a distribution certificate
+- **THEN** the build supplies an ad-hoc signing identity to the Tauri bundler
+- **AND** the resulting app bundle and its packaged resources pass strict local code-signature verification
+
 ### Requirement: Reduced motion static fallback
 
 When `prefers-reduced-motion: reduce` is active OR `interface.animationsEnabled` is false, the system SHALL render a static underwater frame (gradient, jellyfish, glow, sparse particles) without continuous motion.
