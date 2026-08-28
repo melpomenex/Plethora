@@ -18,7 +18,7 @@ import type { VerifiedAppStoreTransaction } from './jws.js';
 /** Client-matching grace window for a lapsed renewal (billing retry). */
 export const PRO_GRACE_MS = 72 * 60 * 60 * 1000;
 
-export type DerivedStatus = 'active' | 'grace' | 'expired' | 'revoked';
+export type DerivedStatus = 'active' | 'grace' | 'expired' | 'revoked' | 'pending';
 
 export interface DerivedGrant {
   tier: 'pro' | 'free';
@@ -63,9 +63,10 @@ export function selectWinningGrant(
 ): DerivedGrant | null {
   const rank: Record<DerivedStatus, number> = {
     revoked: 0,
-    expired: 1,
-    grace: 2,
-    active: 3,
+    pending: 1,
+    expired: 2,
+    grace: 3,
+    active: 4,
   };
   const grants = transactions
     .filter((tx) => tx.revocationDate === undefined || tx.revocationDate <= now)

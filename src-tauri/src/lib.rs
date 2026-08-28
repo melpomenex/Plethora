@@ -959,7 +959,13 @@ pub fn run() {
         // Transaction.updates listener. On non-iOS targets every command
         // returns a typed UNSUPPORTED error (the crate compiles everywhere so
         // the command surface exists; the Swift side loads on iOS only).
-        .plugin(plethora_storekit::init());
+        .plugin(plethora_storekit::init())
+        // Google Play Billing (Android): native product query, purchase with
+        // obfuscatedAccountId, query/restore, and PurchasesUpdatedListener
+        // events. On non-Android targets every command returns
+        // platform_unsupported (the crate compiles everywhere so the command
+        // surface exists; the Kotlin side loads on Android only).
+        .plugin(plethora_playbilling::init());
 
     // Updater + process (relaunch after install) are desktop-only.
     // The plugin reads its config from the `plugins.updater` block in

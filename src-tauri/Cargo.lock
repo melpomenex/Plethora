@@ -6459,6 +6459,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plethora-playbilling"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "plethora-storekit"
 version = "0.1.0"
 dependencies = [
@@ -6516,6 +6527,7 @@ dependencies = [
  "plethora-android-vision",
  "plethora-apple-intelligence",
  "plethora-folder-import",
+ "plethora-playbilling",
  "plethora-storekit",
  "plethora-windows-intelligence",
  "pulldown-cmark",

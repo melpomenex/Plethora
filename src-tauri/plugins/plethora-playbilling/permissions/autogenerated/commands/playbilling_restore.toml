@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-playbilling-restore"
+description = "Enables the playbilling_restore command without any pre-configured scope."
+commands.allow = ["playbilling_restore"]
+
+[[permission]]
+identifier = "deny-playbilling-restore"
+description = "Denies the playbilling_restore command without any pre-configured scope."
+commands.deny = ["playbilling_restore"]

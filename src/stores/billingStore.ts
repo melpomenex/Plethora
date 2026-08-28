@@ -11,6 +11,10 @@ import {
   VerifiedStoreTransaction,
 } from '../lib/billing/appStoreProvider';
 import {
+  PlayBillingProvider,
+  PlayPurchaseRecord,
+} from '../lib/billing/playBillingProvider';
+import {
   selectBillingProvider,
   storeProfileInvariantViolation,
 } from '../lib/billing/providerSelection';
@@ -55,10 +59,17 @@ export function setActiveProviderForTesting(provider: BillingProvider | null): v
 }
 
 /** Handle a verified native transaction: reconcile + refresh entitlements. */
-function handleVerifiedTransaction(transaction: VerifiedStoreTransaction): void {
+function handleVerifiedTransaction(
+  transaction: VerifiedStoreTransaction | PlayPurchaseRecord
+): void {
   const provider = getActiveProvider();
   if (provider instanceof AppStoreBillingProvider) {
-    void provider.reconcileWithServer(transaction);
+    void provider.reconcileWithServer(transaction as VerifiedStoreTransaction);
+  } else if (provider instanceof PlayBillingProvider) {
+    const play = transaction as PlayPurchaseRecord;
+    if (play.purchaseToken && play.purchaseState === 'purchased') {
+      void provider.validatePurchaseToken(play.purchaseToken, play.productId);
+    }
   }
   void useEntitlementStore.getState().refresh();
 }
@@ -109,6 +120,17 @@ export const useBillingStore = create<BillingStoreState>()(
                 return;
               }
               handleVerifiedTransaction(update as VerifiedStoreTransaction);
+            });
+          }
+
+          if (provider instanceof PlayBillingProvider) {
+            await provider.reconcilePending().catch((err) => {
+              console.warn('[billing] Play reconciliation/listener setup failed:', err);
+            });
+            provider.onPurchaseUpdate((update) => {
+              if ('purchaseToken' in update) {
+                handleVerifiedTransaction(update);
+              }
             });
           }
 
@@ -174,6 +196,8 @@ export const useBillingStore = create<BillingStoreState>()(
       manageSubscriptions: async () => {
         const provider = getActiveProvider();
         if (provider instanceof AppStoreBillingProvider) {
+          await provider.manageSubscriptions();
+        } else if (provider instanceof PlayBillingProvider) {
           await provider.manageSubscriptions();
         }
       },

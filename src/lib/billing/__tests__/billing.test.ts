@@ -29,6 +29,11 @@ import {
   type VerifiedStoreTransaction,
 } from '../appStoreProvider';
 import {
+  PlayBillingProvider,
+  deriveSubscriptionFromPlayPurchases,
+  ensureObfuscatedAccountId,
+} from '../playBillingProvider';
+import {
   createMockBillingProvider,
   selectBillingProvider,
   storeProfileInvariantViolation,
@@ -62,6 +67,12 @@ describe('provider selection (tasks §3.4)', () => {
 
     const web = selectBillingProvider({ platform: null, profile: 'development' });
     expect(web.type).toBe('mock');
+  });
+
+  it('selects PlayBillingProvider on Android store profile', () => {
+    const provider = selectBillingProvider({ platform: 'android', profile: 'store' });
+    expect(provider).toBeInstanceOf(PlayBillingProvider);
+    expect(provider.type).toBe('playstore');
   });
 
   it('throws when the mock is constructed under the store profile (mock firewall, §5.1)', () => {
@@ -244,5 +255,32 @@ describe('AppStoreBillingProvider plugin mapping (tasks §3.3)', () => {
     expect(token).toMatch(/^[0-9a-f-]{36}$/);
     expect(ensureAppAccountToken('user-1')).toBe(token);
     expect(ensureAppAccountToken('user-2')).not.toBe(token);
+  });
+});
+
+describe('Play billing provider', () => {
+  it('derives pending state without granting active Pro', () => {
+    const state = deriveSubscriptionFromPlayPurchases([
+      {
+        productId: 'plethora_pro_monthly',
+        purchaseToken: 'token',
+        purchaseState: 'pending',
+      },
+    ]);
+    expect(state.status).toBe('pending');
+    expect(state.provider).toBe('playstore');
+  });
+
+  it('prefers server tier when native purchases empty', () => {
+    const state = deriveSubscriptionFromPlayPurchases([], 'pro');
+    expect(state.status).toBe('active');
+  });
+
+  it('generates stable obfuscated account ids', async () => {
+    const a = await ensureObfuscatedAccountId('acct-1');
+    const b = await ensureObfuscatedAccountId('acct-1');
+    expect(a).toHaveLength(64);
+    expect(a).toBe(b);
+    expect(await ensureObfuscatedAccountId('acct-2')).not.toBe(a);
   });
 });

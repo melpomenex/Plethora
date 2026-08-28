@@ -151,7 +151,7 @@ fn api_base_url() -> String {
     std::env::var("PLETHORA_API_URL")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "https://api.plethora.app".to_string())
+        .unwrap_or_else(|| "https://api.useplethora.com".to_string())
 }
 
 /// The server's `/v1/entitlements` payload shape (camelCase over the wire —

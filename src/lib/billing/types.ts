@@ -8,7 +8,8 @@ export type SubscriptionStatus =
   | 'grace'
   | 'expired'
   | 'refunded'
-  | 'cancelled';
+  | 'cancelled'
+  | 'pending';
 
 /** Error thrown when mock billing is activated under the store build profile. */
 export const MOCK_BILLING_FORBIDDEN_MESSAGE =

@@ -33,6 +33,14 @@ describe('derivePlayGrant', () => {
     expect(grant.status).toBe('revoked');
   });
 
+  it('denies pro for SUBSCRIPTION_STATE_PENDING', () => {
+    const grant = derivePlayGrant(
+      playPurchase({ subscriptionState: 'SUBSCRIPTION_STATE_PENDING' })
+    );
+    expect(grant.tier).toBe('free');
+    expect(grant.status).toBe('pending');
+  });
+
   it('selects best grant across Apple and Play', () => {
     const apple: VerifiedAppStoreTransaction = {
       transactionId: 't1',

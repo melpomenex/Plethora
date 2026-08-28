@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { scanForForbiddenStoreArtifacts } from "./src/lib/storeProfileGuard";
 import { parseBuildProfile } from "./src/lib/buildProfile";
+import { assertStoreProfileApiUrl, resolvePlethoraApiUrl } from "./src/config/apiUrl";
 import { resolveViteBuildTargets, type RuntimeTargetEnv } from "./src/lib/runtimeTarget";
 import { writeFileSync } from "node:fs";
 
@@ -21,6 +22,11 @@ const host = rawHost === "localhost" ? "0.0.0.0" : (rawHost || "127.0.0.1");
 // read-only by src/lib/buildProfile.ts (Proposals B and D import from there).
 // @ts-expect-error process is a nodejs global
 const buildProfile = parseBuildProfile(process.env.PLETHORA_BUILD_PROFILE);
+const resolvedApi = resolvePlethoraApiUrl({
+  VITE_PLETHORA_API_URL: process.env.VITE_PLETHORA_API_URL,
+  VITE_API_URL: process.env.VITE_API_URL,
+});
+assertStoreProfileApiUrl(resolvedApi.url, buildProfile);
 const appVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version as string;
 let gitSha = process.env.VITE_GIT_SHA?.trim();
 if (!gitSha) {
