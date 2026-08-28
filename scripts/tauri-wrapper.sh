@@ -131,12 +131,13 @@ EOF
   export CARGO_BUILD_JOBS=1
   # Linux WebKitGTK/EGL stability defaults for dev sessions.
   if [[ "$(uname -s)" == "Linux" ]]; then
+    # GPU policy is owned by src-tauri/src/graphics.rs (PLETHORA_GPU_MODE=auto is
+    # the default; hardware acceleration stays on for healthy GPUs and the compat
+    # fallback covers software rasterers). Never pre-disable WebKitGTK
+    # acceleration here — that defeated the shared policy for every dev session.
+    export PLETHORA_GPU_MODE="${PLETHORA_GPU_MODE:-auto}"
     export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS="${WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS:-1}"
-    export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
-    export WEBKIT_DISABLE_COMPOSITING_MODE="${WEBKIT_DISABLE_COMPOSITING_MODE:-1}"
-    export WEBKIT_DISABLE_HARDWARE_ACCELERATION="${WEBKIT_DISABLE_HARDWARE_ACCELERATION:-1}"
     unset WEBKIT_FORCE_SANDBOX || true
-    export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
   fi
   # Prefer the X11 backend during dev on Linux. In mixed DISPLAY/WAYLAND
   # sessions, WebKitGTK/Tauri can finish compiling but fail to surface a

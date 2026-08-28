@@ -28,15 +28,15 @@ The system SHALL use consistent WebKit environment variables across all entry po
 - **GIVEN** the application is starting on Linux
 - **WHEN** the WebKitGTK webview initializes
 - **THEN** the environment variable WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS SHALL be set to "1"
-- **AND** this setting SHALL be applied in main.rs, lib.rs, and AppRun
+- **AND** this setting SHALL be applied in main.rs and the dev wrapper
 - **AND** the setting SHALL be applied before any webview creation
 
-#### Scenario: Hardware acceleration disabled consistently
+#### Scenario: GPU configuration deferred to the graphics policy
 - **GIVEN** the application is starting on Linux
 - **WHEN** the WebKitGTK webview initializes
-- **THEN** WEBKIT_DISABLE_HARDWARE_ACCELERATION SHALL be set to "1"
-- **AND** WEBKIT_DISABLE_DMABUF_RENDERER SHALL be set to "1"
-- **AND** these settings SHALL be consistent across main.rs, lib.rs, and AppRun
+- **THEN** GPU and acceleration environment configuration SHALL defer to the `linux-graphics-policy` capability (driven by `PLETHORA_GPU_MODE`)
+- **AND** WEBKIT_DISABLE_HARDWARE_ACCELERATION and WEBKIT_DISABLE_DMABUF_RENDERER SHALL only be set for software rasterizers, undetected GPUs, or an explicit `PLETHORA_GPU_MODE=software` override
+- **AND** healthy GPUs SHALL keep hardware acceleration enabled
 
 ### Requirement: CSP Configuration for YouTube
 The Content Security Policy SHALL allow all necessary YouTube domains for iframe embedding and media playback.
