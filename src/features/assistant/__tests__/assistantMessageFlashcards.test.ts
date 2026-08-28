@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAssistantMessageFlashcardRequest,
   canCreateFlashcardsFromMessage,
+  getFlashcardIneligibilityReason,
   isAssistantMessageFlashcardRequest,
 } from "../assistantMessageFlashcards";
 import { isTwentyRulesCommand } from "../../../lib/ai/knowledgeFormulation";
@@ -16,6 +17,37 @@ describe("assistantMessageFlashcards", () => {
           content: "Group theory studies algebraic structures called groups.",
         }),
       ).toBe(true);
+    });
+
+    it("rejects generated instructional, confirmation, warning, and error content", () => {
+      expect(
+        canCreateFlashcardsFromMessage({
+          id: "assistant-3",
+          role: "assistant",
+          content: "### 🧠 20 Rules of Knowledge Formulation\n\nFormulating knowledge...",
+        }),
+      ).toBe(false);
+      expect(
+        canCreateFlashcardsFromMessage({
+          id: "assistant-4",
+          role: "assistant",
+          content: "Created 2 flashcards and saved to your library.",
+        }),
+      ).toBe(false);
+      expect(
+        canCreateFlashcardsFromMessage({
+          id: "assistant-5",
+          role: "assistant",
+          content: "⚠️ Deck created but no flashcards were saved because the response had no facts.",
+        }),
+      ).toBe(false);
+      expect(
+        canCreateFlashcardsFromMessage({
+          id: "assistant-6",
+          role: "assistant",
+          content: "Error calling LLM: provider unavailable",
+        }),
+      ).toBe(false);
     });
 
     it("rejects user and system messages", () => {
@@ -49,15 +81,27 @@ describe("assistantMessageFlashcards", () => {
         }),
       ).toBe(false);
     });
+  });
 
-    it("rejects twenty-rules educational reminders", () => {
+  describe("getFlashcardIneligibilityReason", () => {
+    it("returns undefined for eligible assistant answers", () => {
       expect(
-        canCreateFlashcardsFromMessage({
-          id: "assistant-3",
+        getFlashcardIneligibilityReason({
+          id: "assistant-1",
           role: "assistant",
-          content: "### 🧠 20 Rules of Knowledge Formulation\n\nFormulating knowledge...",
+          content: "Atomic answer.",
         }),
-      ).toBe(false);
+      ).toBeUndefined();
+    });
+
+    it("returns confirmation for assistant-confirm ids", () => {
+      expect(
+        getFlashcardIneligibilityReason({
+          id: "assistant-confirm-9",
+          role: "assistant",
+          content: "Created 1 flashcard and saved to your library.",
+        }),
+      ).toBe("confirmation");
     });
   });
 

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt, { TokenExpiredError } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import { AppError } from './error.js';
 import { getPool } from '../db/connection.js';
 import { getJwtSecret } from '../config/env.js';
@@ -57,7 +57,7 @@ export async function authMiddleware(
       next(err);
       return;
     }
-    if (err instanceof TokenExpiredError) {
+    if (err instanceof jwt.TokenExpiredError) {
       next(new AppError(401, 'token_expired', 'Access token has expired', { retryable: true }));
       return;
     }

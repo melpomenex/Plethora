@@ -23,20 +23,34 @@ const RUNNING_TOOL_CALLS_PLACEHOLDER = "Running tool calls...";
 const TWENTY_RULES_REMINDER_HEADING = "### 🧠 20 Rules of Knowledge Formulation";
 const CONFIRMATION_ID_PREFIX = "assistant-confirm-";
 
+/** i18n key for why Flashcards is disabled on a given message. */
+export const ASSISTANT_MESSAGE_FLASHCARD_UNAVAILABLE_KEY =
+  "assistant.createFlashcardsFromResponseUnavailable";
+
 /**
- * Whether a message may show the per-response Flashcards action.
+ * Whether a clicked Assistant message may run the per-response Flashcards action.
+ * The action button stays visible on all assistant messages; this gates the click.
  */
 export function canCreateFlashcardsFromMessage(message: AssistantMessageLike): boolean {
-  if (message.role !== "assistant") return false;
+  return getFlashcardIneligibilityReason(message) === undefined;
+}
+
+/**
+ * Stable reason the Flashcards action cannot run, if any.
+ */
+export function getFlashcardIneligibilityReason(
+  message: AssistantMessageLike,
+): string | undefined {
+  if (message.role !== "assistant") return "not_assistant";
   const content = message.content?.trim();
-  if (!content) return false;
-  if (message.id.startsWith(CONFIRMATION_ID_PREFIX)) return false;
-  if (content === RUNNING_TOOL_CALLS_PLACEHOLDER) return false;
-  if (content.startsWith(TWENTY_RULES_REMINDER_HEADING)) return false;
-  if (/^Created .+ saved to your library\./.test(content)) return false;
-  if (content.startsWith("⚠️ Deck created but no flashcards were saved")) return false;
-  if (content.startsWith("Error calling LLM:")) return false;
-  return true;
+  if (!content) return "empty";
+  if (message.id.startsWith(CONFIRMATION_ID_PREFIX)) return "confirmation";
+  if (content === RUNNING_TOOL_CALLS_PLACEHOLDER) return "running_tools";
+  if (content.startsWith(TWENTY_RULES_REMINDER_HEADING)) return "twenty_rules_reminder";
+  if (/^Created .+ saved to your library\./.test(content)) return "library_confirmation";
+  if (content.startsWith("⚠️ Deck created but no flashcards were saved")) return "empty_deck_warning";
+  if (content.startsWith("Error calling LLM:")) return "llm_error";
+  return undefined;
 }
 
 export interface AssistantMessageFlashcardRequest {

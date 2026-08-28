@@ -649,6 +649,7 @@ export const es: Dict = {
   "assistant.createExtract": "Crear un extracto de la selección",
   "assistant.createFlashcard": "Crear una tarjeta de preguntas y respuestas",
   "assistant.createFlashcardsFromResponse": "Crear tarjetas a partir de esta respuesta",
+  "assistant.createFlashcardsFromResponseUnavailable": "No se pueden crear tarjetas a partir de este mensaje.",
   "assistant.getDueItems": "Obtener elementos pendientes de repaso",
   "assistant.selectionTruncated": "Selección truncada",
   "assistant.selectionTruncatedDesc": "El texto seleccionado superaba el presupuesto de contexto, por lo que se truncó.",

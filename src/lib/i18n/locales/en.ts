@@ -1316,6 +1316,7 @@ export const en: Dict = {
   "assistant.createExtract": "Create an extract from selection",
   "assistant.createFlashcard": "Create a Q&A flashcard",
   "assistant.createFlashcardsFromResponse": "Create flashcards from this response",
+  "assistant.createFlashcardsFromResponseUnavailable": "Flashcards cannot be created from this message.",
   "assistant.getDueItems": "Get items due for review",
   "assistant.selectionTruncated": "Selection truncated",
   "assistant.selectionTruncatedDesc": "The selected text was longer than the context budget, so it was truncated.",
