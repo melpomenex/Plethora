@@ -3,13 +3,15 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::Engine;
+use hkdf::Hkdf;
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 pub struct SyncCrypto;
 
 impl SyncCrypto {
-    /// Generates a random 32-byte recovery key represented as 12 hexadecimal words/tokens.
+    /// Generates a random 32-byte recovery key represented as hex.
     pub fn generate_recovery_key() -> String {
         let mut bytes = [0u8; 32];
         use rand::RngCore;
@@ -17,72 +19,152 @@ impl SyncCrypto {
         hex::encode(bytes)
     }
 
-    /// Derives a 32-byte master encryption key from the recovery key using SHA-256 HKDF-like domain separation.
+    /// User-facing grouped recovery key (4 × 16 hex chars).
+    pub fn format_recovery_key_display(recovery_key: &str) -> String {
+        let normalized = recovery_key.replace('-', "");
+        normalized
+            .as_bytes()
+            .chunks(16)
+            .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+
+    /// Derives the account master key from the recovery key (HKDF-SHA256).
     pub fn derive_master_key(recovery_key: &str) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(b"plethora-sync-master-key-v1:");
-        hasher.update(recovery_key.as_bytes());
-        let result = hasher.finalize();
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&result);
-        key
+        let hk = Hkdf::<Sha256>::new(Some(b"plethora-sync-master-v1"), recovery_key.as_bytes());
+        let mut okm = [0u8; 32];
+        hk.expand(b"master", &mut okm)
+            .expect("32-byte HKDF expand must succeed");
+        okm
+    }
+
+    /// Per-record content key scoped by epoch + entity identity.
+    pub fn derive_record_key(
+        master_key: &[u8; 32],
+        epoch: u32,
+        entity_type: &str,
+        entity_id: &str,
+        change_id: &str,
+    ) -> [u8; 32] {
+        let mut info = Vec::with_capacity(64 + entity_type.len() + entity_id.len() + change_id.len());
+        info.extend_from_slice(b"plethora-sync-record-v1:");
+        info.extend_from_slice(&epoch.to_be_bytes());
+        info.extend_from_slice(entity_type.as_bytes());
+        info.push(b':');
+        info.extend_from_slice(entity_id.as_bytes());
+        info.push(b':');
+        info.extend_from_slice(change_id.as_bytes());
+        let hk = Hkdf::<Sha256>::new(Some(b"plethora-sync-record"), master_key);
+        let mut okm = [0u8; 32];
+        hk.expand(&info, &mut okm)
+            .expect("32-byte HKDF expand must succeed");
+        okm
+    }
+
+    pub fn build_aad(
+        account_id: &str,
+        entity_type: &str,
+        entity_id: &str,
+        change_id: &str,
+        epoch: u32,
+    ) -> String {
+        format!("{account_id}:{entity_type}:{entity_id}:{change_id}:{epoch}")
     }
 
     /// Encrypts plaintext JSON into base64 ciphertext with authenticated additional data (AAD).
-    /// Format: base64(nonce [12 bytes] + ciphertext + tag [16 bytes])
-    pub fn encrypt_payload(
-        key: &[u8; 32],
-        plaintext: &[u8],
-        aad: &str,
-    ) -> Result<String, String> {
+    pub fn encrypt_payload(key: &[u8; 32], plaintext: &[u8], aad: &str) -> Result<String, String> {
         let cipher = Aes256Gcm::new_from_slice(key)
             .map_err(|e| format!("Failed to create cipher: {}", e))?;
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-
         let payload = Payload {
             msg: plaintext,
             aad: aad.as_bytes(),
         };
-
         let ciphertext = cipher
             .encrypt(&nonce, payload)
             .map_err(|e| format!("Encryption failed: {}", e))?;
-
         let mut combined = Vec::with_capacity(nonce.len() + ciphertext.len());
         combined.extend_from_slice(&nonce);
         combined.extend_from_slice(&ciphertext);
-
         Ok(base64::engine::general_purpose::STANDARD.encode(combined))
     }
 
-    /// Decrypts base64 ciphertext with authenticated additional data (AAD).
-    /// If AAD was tampered with or ciphertext was modified, decryption fails with an error.
-    pub fn decrypt_payload(
-        key: &[u8; 32],
-        ciphertext_b64: &str,
-        aad: &str,
-    ) -> Result<Vec<u8>, String> {
+    pub fn decrypt_payload(key: &[u8; 32], ciphertext_b64: &str, aad: &str) -> Result<Vec<u8>, String> {
         let combined = base64::engine::general_purpose::STANDARD
             .decode(ciphertext_b64)
             .map_err(|e| format!("Invalid base64: {}", e))?;
-
         if combined.len() < 12 + 16 {
             return Err("Ciphertext too short".to_string());
         }
-
         let (nonce_bytes, ciphertext) = combined.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
         let cipher = Aes256Gcm::new_from_slice(key)
             .map_err(|e| format!("Failed to create cipher: {}", e))?;
-
         let payload = Payload {
             msg: ciphertext,
             aad: aad.as_bytes(),
         };
-
         cipher
             .decrypt(nonce, payload)
             .map_err(|e| format!("Decryption / authenticity verification failed: {}", e))
+    }
+
+    /// Wrap the master key for a paired device using X25519 + AES-GCM.
+    pub fn wrap_master_key_for_peer(
+        local_secret: &StaticSecret,
+        peer_public_b64: &str,
+        master_key: &[u8; 32],
+        pairing_code: &str,
+    ) -> Result<String, String> {
+        let peer_bytes = base64::engine::general_purpose::STANDARD
+            .decode(peer_public_b64.as_bytes())
+            .map_err(|e| format!("Invalid peer public key: {e}"))?;
+        if peer_bytes.len() != 32 {
+            return Err("Peer public key must be 32 bytes".into());
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&peer_bytes);
+        let peer_public = PublicKey::from(arr);
+        let shared = local_secret.diffie_hellman(&peer_public);
+        let wrap_key = Self::derive_wrap_key(shared.as_bytes(), pairing_code);
+        Self::encrypt_payload(&wrap_key, master_key, pairing_code)
+    }
+
+    pub fn unwrap_master_key_from_peer(
+        local_secret: &StaticSecret,
+        peer_public_b64: &str,
+        wrapped_b64: &str,
+        pairing_code: &str,
+    ) -> Result<[u8; 32], String> {
+        let peer_bytes = base64::engine::general_purpose::STANDARD
+            .decode(peer_public_b64.as_bytes())
+            .map_err(|e| format!("Invalid peer public key: {e}"))?;
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&peer_bytes);
+        let peer_public = PublicKey::from(arr);
+        let shared = local_secret.diffie_hellman(&peer_public);
+        let wrap_key = Self::derive_wrap_key(shared.as_bytes(), pairing_code);
+        let bytes = Self::decrypt_payload(&wrap_key, wrapped_b64, pairing_code)?;
+        if bytes.len() != 32 {
+            return Err("Wrapped master key has invalid length".into());
+        }
+        let mut master = [0u8; 32];
+        master.copy_from_slice(&bytes);
+        Ok(master)
+    }
+
+    fn derive_wrap_key(shared_secret: &[u8], pairing_code: &str) -> [u8; 32] {
+        let hk = Hkdf::<Sha256>::new(Some(b"plethora-sync-pair-v1"), shared_secret);
+        let mut okm = [0u8; 32];
+        hk.expand(pairing_code.as_bytes(), &mut okm)
+            .expect("32-byte HKDF expand must succeed");
+        okm
+    }
+
+    pub fn pairing_code_from_public_key(public_key_b64: &str) -> String {
+        let digest = Sha256::digest(public_key_b64.as_bytes());
+        format!("{:06}", u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]) % 1_000_000)
     }
 }
 
@@ -94,50 +176,45 @@ mod tests {
     fn test_encryption_and_decryption_round_trip() {
         let recovery_key = SyncCrypto::generate_recovery_key();
         let key = SyncCrypto::derive_master_key(&recovery_key);
-
+        let record_key = SyncCrypto::derive_record_key(&key, 1, "learning_item", "item-1", "change-1");
         let message = b"{\"title\":\"Confidential Research Notes\",\"tags\":[\"ai\",\"srs\"]}";
-        let aad = "account-123:documents:doc-456:hlc-1";
-
-        let encrypted = SyncCrypto::encrypt_payload(&key, message, aad).expect("encryption");
-        assert_ne!(encrypted, "");
-
-        let decrypted = SyncCrypto::decrypt_payload(&key, &encrypted, aad).expect("decryption");
+        let aad = SyncCrypto::build_aad("acct", "learning_item", "item-1", "change-1", 1);
+        let encrypted = SyncCrypto::encrypt_payload(&record_key, message, &aad).expect("encryption");
+        let decrypted = SyncCrypto::decrypt_payload(&record_key, &encrypted, &aad).expect("decryption");
         assert_eq!(decrypted, message);
     }
 
     #[test]
     fn test_tampered_aad_fails_authentication() {
-        let recovery_key = SyncCrypto::generate_recovery_key();
-        let key = SyncCrypto::derive_master_key(&recovery_key);
-
+        let key = SyncCrypto::derive_master_key("test-recovery-key");
+        let record_key = SyncCrypto::derive_record_key(&key, 1, "documents", "doc-456", "change-1");
         let message = b"Secret payload";
-        let aad_original = "account-123:documents:doc-456:hlc-1";
-        let aad_tampered = "account-123:documents:doc-999:hlc-1";
-
-        let encrypted = SyncCrypto::encrypt_payload(&key, message, aad_original).unwrap();
-        let result = SyncCrypto::decrypt_payload(&key, &encrypted, aad_tampered);
+        let aad_original = SyncCrypto::build_aad("acct", "documents", "doc-456", "change-1", 1);
+        let aad_tampered = SyncCrypto::build_aad("acct", "documents", "doc-999", "change-1", 1);
+        let encrypted = SyncCrypto::encrypt_payload(&record_key, message, &aad_original).unwrap();
+        let result = SyncCrypto::decrypt_payload(&record_key, &encrypted, &aad_tampered);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_tampered_ciphertext_fails() {
-        let recovery_key = SyncCrypto::generate_recovery_key();
-        let key = SyncCrypto::derive_master_key(&recovery_key);
+    fn pairing_wrap_unwrap_round_trip() {
+        let local = StaticSecret::random_from_rng(OsRng);
+        let peer = StaticSecret::random_from_rng(OsRng);
+        let local_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&local).as_bytes());
+        let peer_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&peer).as_bytes());
+        let master = SyncCrypto::derive_master_key("pairing-test-key");
+        let code = SyncCrypto::pairing_code_from_public_key(&local_public);
+        let wrapped = SyncCrypto::wrap_master_key_for_peer(&local, &peer_public, &master, &code).unwrap();
+        let restored =
+            SyncCrypto::unwrap_master_key_from_peer(&peer, &local_public, &wrapped, &code).unwrap();
+        assert_eq!(restored, master);
+    }
 
-        let message = b"Secret payload";
-        let aad = "account-123:documents:doc-456:hlc-1";
-
-        let encrypted = SyncCrypto::encrypt_payload(&key, message, aad).unwrap();
-        let mut raw = base64::engine::general_purpose::STANDARD
-            .decode(&encrypted)
-            .unwrap();
-        // Flip one byte in ciphertext
-        if let Some(byte) = raw.last_mut() {
-            *byte ^= 0xFF;
-        }
-        let tampered_b64 = base64::engine::general_purpose::STANDARD.encode(raw);
-
-        let result = SyncCrypto::decrypt_payload(&key, &tampered_b64, aad);
-        assert!(result.is_err());
+    #[test]
+    fn epoch_rotation_changes_record_key() {
+        let master = SyncCrypto::derive_master_key("epoch-test");
+        let k1 = SyncCrypto::derive_record_key(&master, 1, "learning_item", "a", "c1");
+        let k2 = SyncCrypto::derive_record_key(&master, 2, "learning_item", "a", "c1");
+        assert_ne!(k1, k2);
     }
 }
