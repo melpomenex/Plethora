@@ -35,7 +35,12 @@ export function createLocalStorage(basePath: string): StorageBackend {
       return `file://${filePath}`;
     },
 
-    async getSignedUploadUrl(key: string): Promise<string> {
+    async getSignedUploadUrl(
+      key: string,
+      contentType: string,
+      _expiresSec?: number,
+      _sizeBytes?: number
+    ): Promise<string> {
       const filePath = await resolveKey(key);
       return `file://${filePath}`;
     },

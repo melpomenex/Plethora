@@ -162,6 +162,12 @@ impl SyncCrypto {
         okm
     }
 
+    pub fn generate_pairing_code() -> String {
+        use rand::Rng;
+        format!("{:06}", rand::thread_rng().gen_range(0..1_000_000))
+    }
+
+    #[allow(dead_code)]
     pub fn pairing_code_from_public_key(public_key_b64: &str) -> String {
         let digest = Sha256::digest(public_key_b64.as_bytes());
         format!("{:06}", u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]) % 1_000_000)
@@ -203,7 +209,7 @@ mod tests {
         let local_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&local).as_bytes());
         let peer_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&peer).as_bytes());
         let master = SyncCrypto::derive_master_key("pairing-test-key");
-        let code = SyncCrypto::pairing_code_from_public_key(&local_public);
+        let code = SyncCrypto::generate_pairing_code();
         let wrapped = SyncCrypto::wrap_master_key_for_peer(&local, &peer_public, &master, &code).unwrap();
         let restored =
             SyncCrypto::unwrap_master_key_from_peer(&peer, &local_public, &wrapped, &code).unwrap();

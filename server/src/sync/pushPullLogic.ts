@@ -53,6 +53,15 @@ export function assertDeviceAllowed(
   }
 }
 
+export function assertSyncEpoch(recordEpoch: number, accountEpoch: number): void {
+  if (recordEpoch < accountEpoch) {
+    const error = new Error(`Stale sync key epoch ${recordEpoch} (account ${accountEpoch})`);
+    (error as Error & { statusCode: number; code: string }).statusCode = 403;
+    (error as Error & { code: string }).code = 'stale_key_epoch';
+    throw error;
+  }
+}
+
 export function minDeviceCursorSeq(
   rows: Array<{ last_seq?: number | string | null }>
 ): number {

@@ -101,7 +101,7 @@ pub async fn cloud_sync_resolve_conflicts(
     repo: State<'_, Repository>,
     resolutions: Vec<ConflictResolution>,
 ) -> Result<(), String> {
-    let issues = issues::list_open_issues(repo.pool(), resolutions.len() as i64)
+    let issues = issues::list_open_issues_for_resolution(repo.pool(), resolutions.len() as i64)
         .await
         .map_err(|e| e.to_string())?;
     for (issue, resolution) in issues.iter().zip(resolutions.iter()) {

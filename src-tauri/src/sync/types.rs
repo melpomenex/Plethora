@@ -69,7 +69,7 @@ pub enum MergeStrategy {
     SetLike,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SyncOutboxStatus {
     Pending,
     Uploading,

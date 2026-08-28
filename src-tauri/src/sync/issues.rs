@@ -52,16 +52,30 @@ pub async fn record_revision_conflict(pool: &Pool<Sqlite>, conflict: &WireConfli
 }
 
 pub async fn list_open_issues(pool: &Pool<Sqlite>, limit: i64) -> Result<Vec<SyncIssue>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, i64, i64, String, i64)>(
+    list_open_issues_ordered(pool, limit, false).await
+}
+
+pub async fn list_open_issues_for_resolution(pool: &Pool<Sqlite>, limit: i64) -> Result<Vec<SyncIssue>> {
+    list_open_issues_ordered(pool, limit, true).await
+}
+
+async fn list_open_issues_ordered(
+    pool: &Pool<Sqlite>,
+    limit: i64,
+    ascending: bool,
+) -> Result<Vec<SyncIssue>> {
+    let order = if ascending { "ASC" } else { "DESC" };
+    let query = format!(
         r#"
         SELECT id, entity_type, entity_id, conflict_kind, local_change_id,
                server_revision, base_revision, status, created_at
         FROM sync_issues
         WHERE status = 'open'
-        ORDER BY created_at DESC
+        ORDER BY created_at {order}
         LIMIT ?1
-        "#,
-    )
+        "#
+    );
+    let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, i64, i64, String, i64)>(&query)
     .bind(limit)
     .fetch_all(pool)
     .await

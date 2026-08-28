@@ -4,6 +4,8 @@ mod chaos {
     use super::super::wire::{decode_remote_record, outbox_entry_to_wire};
     use super::super::types::{EntityType, OutboxEntry, SyncOperation, SyncOutboxStatus};
 
+    const TEST_MASTER_KEY: [u8; 32] = [7u8; 32];
+
     #[test]
     fn backoff_blocks_immediate_retry_after_failure() {
         record_success();
@@ -27,8 +29,8 @@ mod chaos {
             created_at: 1,
             sync_status: SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", None, 1).expect("wire");
-        let decoded = decode_remote_record(&wire, 1, "acct", None, 1).expect("decode");
+        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let decoded = decode_remote_record(&wire, 1, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode");
         assert_eq!(decoded.record_id, "item-1");
     }
 
@@ -45,8 +47,8 @@ mod chaos {
             created_at: 1,
             sync_status: SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", None, 1).expect("wire");
-        let err = decode_remote_record(&wire, 1, "acct", None, 2).expect_err("epoch");
+        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let err = decode_remote_record(&wire, 1, "acct", Some(&TEST_MASTER_KEY), 2).expect_err("epoch");
         assert!(err.contains("epoch"));
     }
 }

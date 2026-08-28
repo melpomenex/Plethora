@@ -9,7 +9,12 @@ export interface StorageBackend {
   getSignedDownloadUrl(key: string, expiresSec?: number): Promise<string>;
 
   /** Generate a time-limited upload URL */
-  getSignedUploadUrl(key: string, contentType: string, expiresSec?: number): Promise<string>;
+  getSignedUploadUrl(
+    key: string,
+    contentType: string,
+    expiresSec?: number,
+    sizeBytes?: number
+  ): Promise<string>;
 
   /** Delete an object */
   deleteObject(key: string): Promise<void>;

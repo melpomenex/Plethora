@@ -1,8 +1,13 @@
 use crate::error::{PlethoraError, Result};
 use serde::{Deserialize, Serialize};
 
+use std::time::{Duration, Instant};
+
 use super::crypto::SyncCrypto;
-use super::keys::{load_device_secret, load_master_key, store_master_key};
+use super::keys::{
+    begin_pairing_session, load_device_secret, load_master_key, store_master_key,
+    verify_pairing_session,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +32,11 @@ pub async fn begin_pairing() -> Result<PairingOffer> {
         public.as_bytes(),
     );
     Ok(PairingOffer {
-        pairing_code: SyncCrypto::pairing_code_from_public_key(&public_key_b64),
+        pairing_code: {
+            let code = SyncCrypto::generate_pairing_code();
+            begin_pairing_session(code.clone());
+            code
+        },
         public_key_b64,
     })
 }
@@ -49,6 +58,11 @@ pub async fn export_pairing_bundle(
     peer_public_key_b64: &str,
     pairing_code: &str,
 ) -> Result<PairingAcceptRequest> {
+    if !verify_pairing_session(pairing_code) {
+        return Err(PlethoraError::Internal(
+            "Pairing code expired or invalid. Start pairing again.".into(),
+        ));
+    }
     let local_secret = load_device_secret().await?;
     let master = load_master_key()
         .await?

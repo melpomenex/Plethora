@@ -428,6 +428,16 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
 -- Play Store provider column on verified transactions
 ALTER TABLE store_transactions ADD COLUMN IF NOT EXISTS provider VARCHAR(50) NOT NULL DEFAULT 'appstore';
 
+-- Account-wide sync encryption epoch (device revocation rotates this)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sync_key_epoch INTEGER NOT NULL DEFAULT 1;
+
+CREATE TABLE IF NOT EXISTS sync_revoked_devices (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sync_device_id VARCHAR(255) NOT NULL,
+  revoked_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, sync_device_id)
+);
+
 -- Play purchase token hash for deduplicated lookups (never store raw tokens in indexed columns)
 ALTER TABLE store_transactions ADD COLUMN IF NOT EXISTS purchase_token_hash VARCHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_store_transactions_play_token

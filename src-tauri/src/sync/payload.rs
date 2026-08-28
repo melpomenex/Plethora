@@ -27,7 +27,7 @@ pub fn learning_item_payload(item: &LearningItem) -> Result<Vec<u8>, serde_json:
         answer: item.answer.as_deref(),
         due_date: item.due_date.to_rfc3339(),
         algorithm_type: &item.algorithm_type,
-        updated_at: item.updated_at.map(|ts| ts.to_rfc3339()),
+        updated_at: item.updated_at.clone(),
     };
     serde_json::to_vec(&payload)
 }
@@ -75,6 +75,8 @@ pub fn review_result_payload(
         new_ease_factor,
         reviewed_at_ms,
         device_id,
+        session_id,
+    };
     serde_json::to_vec(&payload)
 }
 

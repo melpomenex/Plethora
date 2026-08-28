@@ -8,6 +8,7 @@ import { requireCloudSync } from '../../middleware/requireCloudSync.js';
 import { maybeOffloadSyncPayload, hydrateSyncPayload } from '../../sync/blobStorage.js';
 import {
   assertDeviceAllowed,
+  assertSyncEpoch,
   assertSyncProtocolVersion,
   minDeviceCursorSeq,
   nextEntityRevision,
@@ -21,12 +22,14 @@ export const syncRouter = Router();
 
 syncRouter.use(authMiddleware, requireCloudSync);
 
+const MAX_CIPHERTEXT_BYTES = 256 * 1024;
+
 const SyncRecordSchema = z.object({
   tableKind: z.string().min(1),
   recordId: z.string().min(1),
   hlc: z.string().min(1),
   deviceId: z.string().min(1),
-  payloadCiphertext: z.string().min(1),
+  payloadCiphertext: z.string().min(1).max(MAX_CIPHERTEXT_BYTES),
   aad: z.string().min(1),
   keyVersion: z.number().int().positive().default(1),
   changeId: z.string().min(1).optional(),
@@ -37,6 +40,16 @@ const SyncRecordSchema = z.object({
 const PushPayloadSchema = z.object({
   records: z.array(SyncRecordSchema).max(500),
 });
+
+function looksLikePlaintextEnvelope(ciphertext: string): boolean {
+  try {
+    const decoded = Buffer.from(ciphertext, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded) as { payload_b64?: unknown };
+    return typeof parsed === 'object' && parsed !== null && 'payload_b64' in parsed;
+  } catch {
+    return false;
+  }
+}
 
 function readProtocolVersion(req: AuthRequest): void {
   try {
@@ -62,6 +75,32 @@ async function upsertDeviceCursor(
   );
 }
 
+async function getAccountSyncEpoch(userId: string): Promise<number> {
+  const pool = getPool();
+  const row = await pool.query('SELECT sync_key_epoch FROM users WHERE id = $1', [userId]);
+  return Number(row.rows[0]?.sync_key_epoch || 1);
+}
+
+async function incrementAccountSyncEpoch(userId: string): Promise<number> {
+  const pool = getPool();
+  const row = await pool.query(
+    `UPDATE users SET sync_key_epoch = sync_key_epoch + 1, updated_at = NOW()
+     WHERE id = $1
+     RETURNING sync_key_epoch`,
+    [userId]
+  );
+  return Number(row.rows[0]?.sync_key_epoch || 1);
+}
+
+async function loadRevokedSyncDevices(userId: string): Promise<Set<string>> {
+  const pool = getPool();
+  const rows = await pool.query(
+    'SELECT sync_device_id FROM sync_revoked_devices WHERE user_id = $1',
+    [userId]
+  );
+  return new Set(rows.rows.map((row) => String(row.sync_device_id)));
+}
+
 // POST /v1/sync/push
 syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
   try {
@@ -73,6 +112,8 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
     const { records } = parse.data;
     const userId = req.userId!;
     const pool = getPool();
+    const accountEpoch = await getAccountSyncEpoch(userId);
+    const revokedDevices = await loadRevokedSyncDevices(userId);
 
     const deviceRows = await pool.query(
       'SELECT device_id FROM sync_device_cursors WHERE user_id = $1',
@@ -102,6 +143,21 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
     }> = [];
 
     for (const rec of records) {
+      if (looksLikePlaintextEnvelope(rec.payloadCiphertext)) {
+        throw new AppError(400, 'validation_error', 'Plaintext sync payloads are not accepted');
+      }
+
+      try {
+        assertSyncEpoch(rec.keyVersion, accountEpoch);
+      } catch (error) {
+        const err = error as Error & { statusCode?: number; code?: string };
+        throw new AppError(err.statusCode || 403, err.code || 'stale_key_epoch', err.message);
+      }
+
+      if (revokedDevices.has(rec.deviceId)) {
+        throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
+      }
+
       if (rec.changeId) {
         const processed = await pool.query(
           'SELECT 1 FROM processed_changes WHERE user_id = $1 AND change_id = $2',
@@ -250,6 +306,7 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
         `DELETE FROM sync_records
          WHERE user_id = $1
            AND seq_number <= $2
+           AND table_kind IN ('tombstones', 'tombstone')
            AND created_at < NOW() - INTERVAL '${TOMBSTONE_RETENTION_DAYS} days'`,
         [userId, minSeq]
       );
@@ -260,7 +317,43 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
       cursor: page.cursor,
       hasMore: page.hasMore,
       protocolVersion: SYNC_PROTOCOL_VERSION,
+      accountKeyEpoch: await getAccountSyncEpoch(userId),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /v1/sync/increment-epoch
+syncRouter.post('/increment-epoch', async (req: AuthRequest, res: Response, next) => {
+  try {
+    readProtocolVersion(req);
+    const userId = req.userId!;
+    const accountKeyEpoch = await incrementAccountSyncEpoch(userId);
+    res.json({ accountKeyEpoch });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /v1/sync/revoke-device
+syncRouter.post('/revoke-device', async (req: AuthRequest, res: Response, next) => {
+  try {
+    readProtocolVersion(req);
+    const parse = z.object({ syncDeviceId: z.string().min(1) }).safeParse(req.body);
+    if (!parse.success) {
+      throw new AppError(400, 'validation_error', 'Invalid revoke-device payload');
+    }
+    const userId = req.userId!;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO sync_revoked_devices (user_id, sync_device_id, revoked_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, sync_device_id) DO UPDATE SET revoked_at = NOW()`,
+      [userId, parse.data.syncDeviceId]
+    );
+    const accountKeyEpoch = await incrementAccountSyncEpoch(userId);
+    res.json({ accountKeyEpoch, syncDeviceId: parse.data.syncDeviceId });
   } catch (err) {
     next(err);
   }

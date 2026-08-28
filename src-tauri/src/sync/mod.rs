@@ -30,7 +30,7 @@ mod chaos_test;
 
 use crate::database::Repository;
 use crate::entitlements::EntitlementCache;
-use crate::error::Result as PlethoraResult;
+use crate::error::PlethoraError;
 use crate::plethora_auth::AuthManager;
 use gate::cloud_sync_enabled;
 use sqlx::{Pool, Sqlite};
@@ -120,7 +120,7 @@ async fn status_from_db(
     repo: &Repository,
     engine: &SyncEngine,
     entitlements: &EntitlementCache,
-) -> PlethoraResult<SyncStatus, String> {
+) -> Result<SyncStatus, String> {
     engine.refresh_pending_count(repo.pool()).await;
     let mut status = engine.get_status();
     status.pending_outbox_count = count_pending(repo.pool())
@@ -137,7 +137,7 @@ pub async fn sync_get_status(
     repo: tauri::State<'_, Repository>,
     engine: tauri::State<'_, Arc<SyncEngine>>,
     entitlements: tauri::State<'_, Arc<EntitlementCache>>,
-) -> PlethoraResult<SyncStatus, String> {
+) -> Result<SyncStatus, String> {
     status_from_db(&repo, &engine, &*entitlements).await
 }
 
@@ -147,7 +147,7 @@ pub async fn sync_push(
     auth: tauri::State<'_, Arc<AuthManager>>,
     engine: tauri::State<'_, Arc<SyncEngine>>,
     entitlements: tauri::State<'_, Arc<EntitlementCache>>,
-) -> PlethoraResult<PushResult, String> {
+) -> Result<PushResult, String> {
     engine.set_syncing(true);
     let result = push_outbox(&repo, &auth, &*entitlements).await.map_err(map_error);
     engine.set_syncing(false);
@@ -167,7 +167,7 @@ pub async fn sync_pull(
     entitlements: tauri::State<'_, Arc<EntitlementCache>>,
     cursor: u64,
     _limit: Option<usize>,
-) -> PlethoraResult<PullResult, String> {
+) -> Result<PullResult, String> {
     let _ = cursor;
     engine.set_syncing(true);
     let result = pull_remote(&repo, &auth, &*entitlements).await.map_err(map_error);
@@ -186,7 +186,7 @@ pub async fn sync_run(
     auth: tauri::State<'_, Arc<AuthManager>>,
     engine: tauri::State<'_, Arc<SyncEngine>>,
     entitlements: tauri::State<'_, Arc<EntitlementCache>>,
-) -> PlethoraResult<PushResult, String> {
+) -> Result<PushResult, String> {
     engine.set_syncing(true);
     let result = run_sync_cycle(&repo, &auth, &engine, &*entitlements)
         .await
@@ -205,7 +205,7 @@ pub async fn sync_run(
 pub async fn sync_list_issues(
     repo: tauri::State<'_, Repository>,
     limit: Option<i64>,
-) -> PlethoraResult<Vec<SyncIssue>, String> {
+) -> Result<Vec<SyncIssue>, String> {
     issues::list_open_issues(repo.pool(), limit.unwrap_or(20))
         .await
         .map_err(map_error)
@@ -216,7 +216,7 @@ pub async fn sync_resolve_issue(
     repo: tauri::State<'_, Repository>,
     issue_id: String,
     resolution: String,
-) -> PlethoraResult<(), String> {
+) -> Result<(), String> {
     issues::apply_resolution_to_outbox(repo.pool(), &issue_id, &resolution)
         .await
         .map_err(map_error)
@@ -225,19 +225,19 @@ pub async fn sync_resolve_issue(
 #[tauri::command]
 pub async fn sync_bootstrap_upload(
     repo: tauri::State<'_, Repository>,
-) -> PlethoraResult<bootstrap::BootstrapProgress, String> {
+) -> Result<bootstrap::BootstrapProgress, String> {
     bootstrap::bootstrap_upload_scan(repo.pool())
         .await
         .map_err(map_error)
 }
 
 #[tauri::command]
-pub fn sync_generate_recovery_key() -> PlethoraResult<String, String> {
+pub fn sync_generate_recovery_key() -> Result<String, String> {
     Ok(crypto::SyncCrypto::generate_recovery_key())
 }
 
 #[tauri::command]
-pub async fn sync_store_recovery_key(recovery_key: String) -> PlethoraResult<(), String> {
+pub async fn sync_store_recovery_key(recovery_key: String) -> Result<(), String> {
     store_master_key_from_recovery(&recovery_key)
         .await
         .map(|_| ())
@@ -245,17 +245,17 @@ pub async fn sync_store_recovery_key(recovery_key: String) -> PlethoraResult<(),
 }
 
 #[tauri::command]
-pub async fn sync_ack_recovery_key() -> PlethoraResult<(), String> {
+pub async fn sync_ack_recovery_key() -> Result<(), String> {
     mark_recovery_key_acknowledged().await.map_err(map_error)
 }
 
 #[tauri::command]
-pub async fn sync_recovery_key_acknowledged() -> PlethoraResult<bool, String> {
+pub async fn sync_recovery_key_acknowledged() -> Result<bool, String> {
     recovery_key_acknowledged().await.map_err(map_error)
 }
 
 #[tauri::command]
-pub async fn sync_pairing_begin() -> PlethoraResult<pairing::PairingOffer, String> {
+pub async fn sync_pairing_begin() -> Result<pairing::PairingOffer, String> {
     begin_pairing().await.map_err(map_error)
 }
 
@@ -263,20 +263,53 @@ pub async fn sync_pairing_begin() -> PlethoraResult<pairing::PairingOffer, Strin
 pub async fn sync_pairing_export(
     peer_public_key_b64: String,
     pairing_code: String,
-) -> PlethoraResult<PairingAcceptRequest, String> {
+) -> Result<PairingAcceptRequest, String> {
     export_pairing_bundle(&peer_public_key_b64, &pairing_code)
         .await
         .map_err(map_error)
 }
 
 #[tauri::command]
-pub async fn sync_pairing_accept(request: PairingAcceptRequest) -> PlethoraResult<(), String> {
+pub async fn sync_pairing_accept(request: PairingAcceptRequest) -> Result<(), String> {
     accept_pairing(request).await.map_err(map_error)
 }
 
 #[tauri::command]
-pub async fn sync_revoke_device_epoch() -> PlethoraResult<u32, String> {
-    keys::increment_key_epoch().await.map_err(map_error)
+pub async fn sync_revoke_device_epoch(
+    auth: tauri::State<'_, Arc<AuthManager>>,
+) -> Result<u32, String> {
+    let token = auth
+        .get_access_token()
+        .ok_or_else(|| "Sign in required".to_string())?;
+    let epoch = transport::increment_sync_epoch(&token)
+        .await
+        .map_err(map_error)?;
+    keys::set_key_epoch(epoch).await.map_err(map_error)?;
+    Ok(epoch)
+}
+
+#[tauri::command]
+pub async fn sync_revoke_sync_device(
+    auth: tauri::State<'_, Arc<AuthManager>>,
+    repo: tauri::State<'_, Repository>,
+    sync_device_id: String,
+) -> Result<u32, String> {
+    let mut tx = repo.pool().begin().await.map_err(|e| e.to_string())?;
+    let local_device = device::ensure_device_id(&mut tx)
+        .await
+        .map_err(map_error)?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    if local_device == sync_device_id {
+        return Err("Cannot revoke the current device from itself".to_string());
+    }
+    let token = auth
+        .get_access_token()
+        .ok_or_else(|| "Sign in required".to_string())?;
+    let epoch = transport::revoke_sync_device(&token, &sync_device_id)
+        .await
+        .map_err(map_error)?;
+    keys::set_key_epoch(epoch).await.map_err(map_error)?;
+    Ok(epoch)
 }
 
 #[tauri::command]
@@ -303,7 +336,7 @@ pub fn sync_set_on_wifi(on_wifi: bool) {
 pub async fn sync_fetch_storage_usage(
     auth: tauri::State<'_, Arc<AuthManager>>,
     engine: tauri::State<'_, Arc<SyncEngine>>,
-) -> PlethoraResult<blobs::StorageUsageResponse, String> {
+) -> Result<blobs::StorageUsageResponse, String> {
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
@@ -317,7 +350,7 @@ pub async fn sync_upload_blob(
     auth: tauri::State<'_, Arc<AuthManager>>,
     bytes: Vec<u8>,
     content_type: Option<String>,
-) -> PlethoraResult<String, String> {
+) -> Result<String, String> {
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
@@ -327,7 +360,7 @@ pub async fn sync_upload_blob(
 }
 
 #[tauri::command]
-pub async fn sync_has_master_key() -> PlethoraResult<bool, String> {
+pub async fn sync_has_master_key() -> Result<bool, String> {
     Ok(load_master_key().await.map_err(map_error)?.is_some())
 }
 
