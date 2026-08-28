@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:seed": "tsx src/db/seed.ts",
+    "verify:r2": "node scripts/verify-r2-storage.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.750.0",
