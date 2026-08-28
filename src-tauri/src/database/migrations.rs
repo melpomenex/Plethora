@@ -3867,7 +3867,7 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
-    (
+    Migration::new(
         "107_plethora_pro_sync_issues_bootstrap",
         r#"
         CREATE TABLE IF NOT EXISTS sync_issues (
@@ -3898,7 +3898,7 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
-    (
+    Migration::new(
         "108_plethora_pro_sync_telemetry",
         r#"
         CREATE TABLE IF NOT EXISTS sync_telemetry (

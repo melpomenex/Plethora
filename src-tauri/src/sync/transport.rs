@@ -14,7 +14,7 @@ pub fn api_base_url() -> String {
         .to_string()
 }
 
-fn auth_headers(access_token: &str) -> Result<HeaderMap, PlethoraError> {
+fn auth_headers(access_token: &str) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -71,7 +71,7 @@ pub async fn pull_page(
     access_token: &str,
     cursor: u64,
     limit: usize,
-) -> Result<(Vec<(WireSyncRecord, u64)>, u64, bool)> {
+) -> Result<(Vec<(WireSyncRecord, u64)>, u64, bool, u32)> {
     let client = reqwest::Client::new();
     let url = format!(
         "{}/v1/sync/pull?cursor={cursor}&limit={}",
@@ -116,5 +116,61 @@ pub async fn pull_page(
         }
     }
 
-    Ok((records, parsed.cursor, parsed.has_more))
+    Ok((records, parsed.cursor, parsed.has_more, parsed.account_key_epoch))
+}
+
+pub async fn increment_sync_epoch(access_token: &str) -> Result<u32> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/sync/increment-epoch", api_base_url()))
+        .headers(auth_headers(access_token)?)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync increment-epoch failed: {e}")))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync increment-epoch read failed: {e}")))?;
+    if !status.is_success() {
+        return Err(PlethoraError::Internal(format!(
+            "Sync increment-epoch failed ({status}): {body}"
+        )));
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| PlethoraError::Internal(format!("Sync increment-epoch parse failed: {e}")))?;
+    Ok(parsed
+        .get("accountKeyEpoch")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as u32)
+}
+
+pub async fn revoke_sync_device(access_token: &str, sync_device_id: &str) -> Result<u32> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/sync/revoke-device", api_base_url()))
+        .headers(auth_headers(access_token)?)
+        .json(&serde_json::json!({ "syncDeviceId": sync_device_id }))
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync revoke-device failed: {e}")))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync revoke-device read failed: {e}")))?;
+    if !status.is_success() {
+        return Err(PlethoraError::Internal(format!(
+            "Sync revoke-device failed ({status}): {body}"
+        )));
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| PlethoraError::Internal(format!("Sync revoke-device parse failed: {e}")))?;
+    Ok(parsed
+        .get("accountKeyEpoch")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as u32)
 }

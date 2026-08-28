@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertDeviceAllowed,
+  assertSyncEpoch,
   assertSyncProtocolVersion,
   MAX_SYNC_DEVICES,
   minDeviceCursorSeq,
@@ -8,6 +9,16 @@ import {
   paginatePull,
   shouldConflict,
 } from '../sync/pushPullLogic.js';
+
+function looksLikePlaintextEnvelope(ciphertext: string): boolean {
+  try {
+    const decoded = Buffer.from(ciphertext, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded) as { payload_b64?: unknown };
+    return typeof parsed === 'object' && parsed !== null && 'payload_b64' in parsed;
+  } catch {
+    return false;
+  }
+}
 
 describe('sync push/pull logic', () => {
   it('accepts default protocol version when header missing', () => {
@@ -62,6 +73,12 @@ describe('sync push/pull logic', () => {
     expect(() => assertDeviceAllowed(known, 'device-new')).toThrow(/Device limit reached/);
     expect(() => assertDeviceAllowed(known, 'device-0')).not.toThrow();
   });
+
+  it('rejects stale sync key epochs', () => {
+    expect(() => assertSyncEpoch(1, 2)).toThrow(/Stale sync key epoch/);
+    expect(() => assertSyncEpoch(2, 2)).not.toThrow();
+    expect(() => assertSyncEpoch(3, 2)).not.toThrow();
+  });
 });
 
 describe('sync idempotency contract', () => {
@@ -97,5 +114,14 @@ describe('sync zero-knowledge contract', () => {
   it('advances entity revision monotonically', () => {
     expect(nextEntityRevision(0)).toBe(1);
     expect(nextEntityRevision(18)).toBe(19);
+  });
+
+  it('detects legacy plaintext sync envelopes', () => {
+    const envelope = Buffer.from(
+      JSON.stringify({ schema_version: 1, payload_b64: 'cXVlc3Rpb24=' }),
+      'utf8'
+    ).toString('base64');
+    expect(looksLikePlaintextEnvelope(envelope)).toBe(true);
+    expect(looksLikePlaintextEnvelope('opaque-base64-ciphertext')).toBe(false);
   });
 });

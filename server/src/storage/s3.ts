@@ -50,11 +50,17 @@ export function createS3Storage(config: NonNullable<AppConfig['s3']>): StorageBa
       return getSignedUrl(client, command, { expiresIn: expiresSec });
     },
 
-    async getSignedUploadUrl(key: string, contentType: string, expiresSec = 3600): Promise<string> {
+    async getSignedUploadUrl(
+      key: string,
+      contentType: string,
+      expiresSec = 3600,
+      sizeBytes?: number
+    ): Promise<string> {
       const command = new PutCmd({
         Bucket: bucket,
         Key: key,
         ContentType: contentType,
+        ...(sizeBytes !== undefined ? { ContentLength: sizeBytes } : {}),
       });
       return getSignedUrl(client, command, { expiresIn: expiresSec });
     },

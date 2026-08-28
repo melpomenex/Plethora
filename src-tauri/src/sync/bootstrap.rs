@@ -20,6 +20,14 @@ pub struct BootstrapProgress {
 
 const BOOTSTRAP_BATCH: i64 = 100;
 
+fn table_id_column(table: &str) -> &'static str {
+    if table == "settings" {
+        "key"
+    } else {
+        "id"
+    }
+}
+
 async fn load_bootstrap_state(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
 ) -> Result<(String, Option<String>, Option<String>, i64, i64)> {
@@ -80,9 +88,10 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
             }
         }
 
+        let id_column = table_id_column(table);
         let rows: Vec<(String,)> = if let Some(ref id) = next_id {
             sqlx::query_as(&format!(
-                "SELECT id FROM {table} WHERE id > ?1 ORDER BY id ASC LIMIT ?2"
+                "SELECT {id_column} FROM {table} WHERE {id_column} > ?1 ORDER BY {id_column} ASC LIMIT ?2"
             ))
             .bind(id)
             .bind(BOOTSTRAP_BATCH - scanned)
@@ -90,7 +99,7 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
             .await?
         } else {
             sqlx::query_as(&format!(
-                "SELECT id FROM {table} ORDER BY id ASC LIMIT ?1"
+                "SELECT {id_column} FROM {table} ORDER BY {id_column} ASC LIMIT ?1"
             ))
             .bind(BOOTSTRAP_BATCH - scanned)
             .fetch_all(&mut *tx)
@@ -117,7 +126,12 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
                 continue;
             }
 
-            let payload = build_bootstrap_payload(&mut tx, entity_type, &entity_id).await?;
+            let Some(payload) = build_bootstrap_payload(&mut tx, entity_type, &entity_id).await? else {
+                completed += 1;
+                next_entity = Some(table.to_string());
+                next_id = Some(entity_id);
+                continue;
+            };
             journal_entity(
                 &mut tx,
                 entity_type,
@@ -184,7 +198,7 @@ async fn build_bootstrap_payload(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     entity_type: EntityType,
     entity_id: &str,
-) -> Result<Vec<u8>> {
+) -> Result<Option<Vec<u8>>> {
     match entity_type {
         EntityType::Document => {
             let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, Option<f64>, Option<i32>, Option<f64>, Option<String>, i64, i64, i64, String)>(
@@ -198,15 +212,25 @@ async fn build_bootstrap_payload(
             .bind(entity_id)
             .fetch_one(&mut **tx)
             .await?;
-            payload::document_position_payload(
-                &row.0,
-                row.5.as_deref(),
-                row.6,
-                row.7,
-                row.8,
-                row.9.as_deref(),
-            )
-            .map_err(|e| PlethoraError::Internal(format!("Bootstrap document payload: {e}")))
+            let tags: Vec<String> = serde_json::from_str(&row.4).unwrap_or_default();
+            Ok(Some(serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "entity_type": "document",
+                "id": row.0,
+                "collection_id": row.1,
+                "title": row.2,
+                "category": row.3,
+                "tags": tags,
+                "position_json": row.5,
+                "progress_percent": row.6,
+                "current_page": row.7,
+                "current_scroll_percent": row.8,
+                "current_cfi": row.9,
+                "is_archived": row.10 != 0,
+                "is_favorite": row.11 != 0,
+                "is_dismissed": row.12 != 0,
+                "date_modified": row.13,
+            })).map_err(|e| PlethoraError::Internal(format!("Bootstrap document payload: {e}")))?))
         }
         EntityType::Setting => {
             let row = sqlx::query_as::<_, (String, String)>(
@@ -216,24 +240,92 @@ async fn build_bootstrap_payload(
             .fetch_one(&mut **tx)
             .await?;
             if !is_syncable_setting_key(&row.0) {
-                return payload::setting_payload("__skipped__", "{}")
-                    .map_err(|e| PlethoraError::Internal(format!("Bootstrap skip payload: {e}")));
+                return Ok(None);
             }
-            payload::setting_payload(&row.0, &row.1)
-                .map_err(|e| PlethoraError::Internal(format!("Bootstrap setting payload: {e}")))
+            Ok(Some(
+                payload::setting_payload(&row.0, &row.1)
+                    .map_err(|e| PlethoraError::Internal(format!("Bootstrap setting payload: {e}")))?,
+            ))
         }
         EntityType::LearningItem => {
-            let item = sqlx::query_as::<_, (String,)>(
-                "SELECT id FROM learning_items WHERE id = ?1",
+            let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, String, Option<String>)>(
+                "SELECT id, collection_id, question, answer, due_date, algorithm_type, updated_at FROM learning_items WHERE id = ?1",
             )
             .bind(entity_id)
             .fetch_one(&mut **tx)
             .await?;
-            payload::delete_payload("learning_item", &item.0)
-                .map_err(|e| PlethoraError::Internal(format!("Bootstrap learning item payload: {e}")))
+            Ok(Some(serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "entity_type": "learning_item",
+                "id": row.0,
+                "collection_id": row.1,
+                "question": row.2,
+                "answer": row.3,
+                "due_date": row.4,
+                "algorithm_type": row.5,
+                "updated_at": row.6,
+            })).map_err(|e| PlethoraError::Internal(format!("Bootstrap learning item payload: {e}")))?))
         }
-        _ => payload::delete_payload(entity_type.as_str(), entity_id)
-            .map_err(|e| PlethoraError::Internal(format!("Bootstrap payload: {e}"))),
+        EntityType::Extract => {
+            let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, String)>(
+                "SELECT id, collection_id, document_id, content, html_content, notes, highlight_color, tags, category, selection_context, date_modified FROM extracts WHERE id = ?1",
+            )
+            .bind(entity_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            let tags: Vec<String> = serde_json::from_str(&row.7).unwrap_or_default();
+            Ok(Some(serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "entity_type": "extract",
+                "id": row.0,
+                "collection_id": row.1,
+                "document_id": row.2,
+                "content": row.3,
+                "html_content": row.4,
+                "notes": row.5,
+                "highlight_color": row.6,
+                "tags": tags,
+                "category": row.8,
+                "selection_context": row.9.as_ref().and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
+                "date_modified": row.10,
+            })).map_err(|e| PlethoraError::Internal(format!("Bootstrap extract payload: {e}")))?))
+        }
+        EntityType::Collection => {
+            let row = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String)>(
+                "SELECT id, name, icon, color, modified_at FROM collections WHERE id = ?1",
+            )
+            .bind(entity_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            Ok(Some(serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "entity_type": "collection",
+                "id": row.0,
+                "name": row.1,
+                "icon": row.2,
+                "color": row.3,
+                "date_modified": row.4,
+            })).map_err(|e| PlethoraError::Internal(format!("Bootstrap collection payload: {e}")))?))
+        }
+        EntityType::Tag => {
+            let row = sqlx::query_as::<_, (String, String, String, f64, String)>(
+                "SELECT id, name, prerequisites, maturity_threshold, date_modified FROM tags WHERE id = ?1",
+            )
+            .bind(entity_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            let prerequisites: Vec<String> = serde_json::from_str(&row.2).unwrap_or_default();
+            Ok(Some(serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "entity_type": "tag",
+                "id": row.0,
+                "name": row.1,
+                "prerequisites": prerequisites,
+                "maturity_threshold": row.3,
+                "date_modified": row.4,
+            })).map_err(|e| PlethoraError::Internal(format!("Bootstrap tag payload: {e}")))?))
+        }
+        _ => Ok(None),
     }
 }
 

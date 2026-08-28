@@ -16,7 +16,9 @@ pub struct BlobCheckResponse {
 #[serde(rename_all = "camelCase")]
 pub struct BlobUploadUrlResponse {
     pub upload_url: String,
-    pub expires_at: String,
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub already_exists: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +40,7 @@ pub fn sha256_reference(bytes: &[u8]) -> String {
     format!("sha256:{}", hex::encode(digest))
 }
 
-fn auth_headers(access_token: &str) -> Result<HeaderMap, PlethoraError> {
+fn auth_headers(access_token: &str) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -154,6 +156,33 @@ pub async fn fetch_storage_usage(access_token: &str) -> Result<StorageUsageRespo
     parse_json(response).await
 }
 
+pub async fn complete_blob_upload(
+    access_token: &str,
+    hash: &str,
+    size_bytes: u64,
+    content_type: &str,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/blobs/complete", api_base_url()))
+        .headers(auth_headers(access_token)?)
+        .json(&serde_json::json!({
+            "hash": hash,
+            "sizeBytes": size_bytes,
+            "contentType": content_type,
+        }))
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Blob complete failed: {e}")))?;
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(PlethoraError::Internal(format!(
+            "Blob complete failed: {body}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn upload_blob_if_missing(
     access_token: &str,
     bytes: &[u8],
@@ -165,7 +194,11 @@ pub async fn upload_blob_if_missing(
         return Ok(hash);
     }
     let upload = request_upload_url(access_token, &hash, bytes.len() as u64, content_type).await?;
+    if upload.already_exists {
+        return Ok(hash);
+    }
     upload_bytes(&upload.upload_url, bytes, content_type).await?;
+    complete_blob_upload(access_token, &hash, bytes.len() as u64, content_type).await?;
     Ok(hash)
 }
 

@@ -2941,7 +2941,7 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
-        let base_revision = learning_item_revision(item.updated_at.as_ref());
+        let base_revision = learning_item_revision(item.updated_at.as_deref());
         let item_payload = payload::learning_item_payload(item)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
 
@@ -3470,7 +3470,7 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let reviewed_at_ms = reviewed_at.timestamp_millis();
-        let base_revision = learning_item_revision(item.updated_at.as_ref());
+        let base_revision = learning_item_revision(item.updated_at.as_deref());
 
         let mut tx = self.pool.begin().await?;
         let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
@@ -7853,9 +7853,7 @@ impl Repository {
             .bind(&id)
             .execute(&mut *tx)
             .await?;
-            let tag = self.get_tag(&id).await?.ok_or_else(|| {
-                PlethoraError::NotFound(format!("Tag disappeared after update: {id}"))
-            })?;
+            let tag = self.get_tag(&id).await?;
             let item_payload = payload::tag_payload(&tag)
                 .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
             journal_entity(
@@ -7920,9 +7918,7 @@ impl Repository {
     }
 
     pub async fn delete_tag(&self, tag_id: &str) -> Result<()> {
-        let tag = self.get_tag(tag_id).await?.ok_or_else(|| {
-            PlethoraError::NotFound(format!("Tag not found: {tag_id}"))
-        })?;
+        let tag = self.get_tag(tag_id).await?;
 
         let mut tx = self.pool.begin().await?;
         let delete_payload = delete_payload("tag", tag_id)

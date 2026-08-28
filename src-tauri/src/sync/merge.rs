@@ -2,6 +2,7 @@ use crate::error::{PlethoraError, Result};
 use chrono::{DateTime, Utc};
 use sqlx::{Sqlite, Transaction};
 
+use super::settings::is_syncable_setting_key;
 use super::types::{EntityType, SyncOperation};
 use super::wire::RemoteSyncRecord;
 
@@ -236,8 +237,64 @@ async fn apply_document(
         date_modified: String,
     }
 
-    let parsed: DocumentPayload = serde_json::from_slice(&record.payload)
-        .map_err(|e| PlethoraError::Internal(format!("Document payload decode failed: {e}")))?;
+    let parsed: DocumentPayload = match serde_json::from_slice(&record.payload) {
+        Ok(full) => full,
+        Err(_) => {
+            #[derive(serde::Deserialize)]
+            struct DocumentPositionPayload {
+                id: String,
+                position_json: Option<String>,
+                progress_percent: Option<f64>,
+                current_page: Option<i32>,
+                current_scroll_percent: Option<f64>,
+                current_cfi: Option<String>,
+                date_modified: String,
+            }
+
+            let position: DocumentPositionPayload = serde_json::from_slice(&record.payload)
+                .map_err(|e| PlethoraError::Internal(format!("Document payload decode failed: {e}")))?;
+
+            let local_modified: Option<DateTime<Utc>> =
+                sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
+                    .bind(&position.id)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+
+            if let Some(local) = local_modified {
+                if !remote_wins(&record.hlc, local) {
+                    return Ok(ApplyOutcome::SkippedOlder);
+                }
+            }
+
+            let date_modified = DateTime::parse_from_rfc3339(&position.date_modified)
+                .map(|ts| ts.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            sqlx::query(
+                r#"
+                UPDATE documents SET
+                    position_json = COALESCE(?1, position_json),
+                    progress_percent = COALESCE(?2, progress_percent),
+                    current_page = COALESCE(?3, current_page),
+                    current_scroll_percent = COALESCE(?4, current_scroll_percent),
+                    current_cfi = COALESCE(?5, current_cfi),
+                    date_modified = ?6
+                WHERE id = ?7
+                "#,
+            )
+            .bind(&position.position_json)
+            .bind(position.progress_percent)
+            .bind(position.current_page)
+            .bind(position.current_scroll_percent)
+            .bind(&position.current_cfi)
+            .bind(date_modified)
+            .bind(&position.id)
+            .execute(&mut **tx)
+            .await?;
+
+            return Ok(ApplyOutcome::Applied);
+        }
+    };
 
     let local_modified: Option<DateTime<Utc>> =
         sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
@@ -615,6 +672,10 @@ async fn apply_setting(
 
     let parsed: SettingPayload = serde_json::from_slice(&record.payload)
         .map_err(|e| PlethoraError::Internal(format!("Setting payload decode failed: {e}")))?;
+
+    if !is_syncable_setting_key(&parsed.key) {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
 
     sqlx::query(
         r#"

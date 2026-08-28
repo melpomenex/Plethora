@@ -331,6 +331,10 @@ authRouter.post('/devices/:id/revoke', authMiddleware, async (req: AuthRequest, 
       req.userId,
     ]);
     await pool.query('UPDATE sessions SET revoked_at = NOW() WHERE device_id = $1', [deviceId]);
+    await pool.query(
+      `UPDATE users SET sync_key_epoch = sync_key_epoch + 1, updated_at = NOW() WHERE id = $1`,
+      [req.userId]
+    );
     res.json({ ok: true });
   } catch (err) {
     next(err);

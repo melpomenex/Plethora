@@ -121,6 +121,10 @@ export const useSyncStore = create<SyncStatusState>()(
         set({ isSyncing: true, error: null });
         try {
           if (isTauri()) {
+            let progress = await invoke<{ phase: string }>('sync_bootstrap_upload');
+            while (progress?.phase === 'upload') {
+              progress = await invoke('sync_bootstrap_upload');
+            }
             await invoke('sync_run');
             await get().init();
             set({ isSyncing: false, lastSyncedAt: new Date().toISOString(), error: null });

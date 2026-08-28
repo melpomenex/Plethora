@@ -8,7 +8,7 @@ use super::device::ensure_device_id;
 use super::flags::sync_v2_enabled;
 use super::gate::cloud_sync_enabled;
 use super::issues;
-use super::keys::{get_key_epoch, load_master_key};
+use super::keys::{get_key_epoch, load_master_key, set_key_epoch};
 use super::merge::apply_remote_record;
 use super::outbox::{acknowledge_changes, drain_pending_batch};
 use super::transport::{pull_page, push_records};
@@ -16,9 +16,20 @@ use super::types::{PullResult, PushResult, SyncRecord};
 use super::wire::{decode_remote_record, outbox_entry_to_wire, WireConflict, MAX_PUSH_RECORDS};
 use super::SyncEngine;
 
-async fn account_id(auth: &AuthManager) -> String {
+async fn require_master_key() -> Result<[u8; 32]> {
+    load_master_key()
+        .await?
+        .ok_or_else(|| {
+            PlethoraError::Internal(
+                "Sync encryption key not configured. Generate and store a recovery key in Settings → Sync."
+                    .into(),
+            )
+        })
+}
+
+async fn require_account_id(auth: &AuthManager) -> Result<String> {
     auth.get_user_id()
-        .unwrap_or_else(|| "local-account".to_string())
+        .ok_or_else(|| PlethoraError::Internal("Sign in required for sync".into()))
 }
 
 pub async fn push_outbox(
@@ -40,9 +51,9 @@ pub async fn push_outbox(
     let device_id = ensure_device_id(&mut tx).await?;
     tx.commit().await?;
 
-    let master_key = load_master_key().await?;
+    let master_key = require_master_key().await?;
     let key_epoch = get_key_epoch().await?;
-    let account = account_id(auth).await;
+    let account = require_account_id(auth).await?;
 
     let mut total_accepted = 0usize;
     let mut latest_seq = get_server_cursor(repo.pool()).await?;
@@ -62,7 +73,7 @@ pub async fn push_outbox(
                 &entry,
                 &device_id,
                 &account,
-                master_key.as_ref(),
+                Some(&master_key),
                 key_epoch,
             )
             .map_err(PlethoraError::Internal)?;
@@ -130,15 +141,20 @@ pub async fn pull_remote(
         .get_access_token()
         .ok_or_else(|| PlethoraError::Internal("Sign in required for sync pull".to_string()))?;
 
-    let master_key = load_master_key().await?;
-    let local_epoch = get_key_epoch().await?;
-    let account = account_id(auth).await;
+    let master_key = require_master_key().await?;
+    let mut local_epoch = get_key_epoch().await?;
+    let account = require_account_id(auth).await?;
 
     let mut cursor = get_server_cursor(repo.pool()).await?;
     let mut applied_records = Vec::new();
 
     loop {
-        let (page, next_cursor, has_more) = pull_page(&access_token, cursor, 500).await?;
+        let (page, next_cursor, has_more, account_epoch) =
+            pull_page(&access_token, cursor, 500).await?;
+        if account_epoch > local_epoch {
+            set_key_epoch(account_epoch).await?;
+            local_epoch = account_epoch;
+        }
         if page.is_empty() {
             cursor = next_cursor;
             break;
@@ -154,7 +170,7 @@ pub async fn pull_remote(
                 &wire,
                 seq_number,
                 &account,
-                master_key.as_ref(),
+                Some(&master_key),
                 local_epoch,
             )
             .map_err(PlethoraError::Internal)?;

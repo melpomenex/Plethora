@@ -1233,6 +1233,8 @@ pub fn run() {
                     format!("Failed to create app data dir: {}", app_dir.display())
                 })?;
 
+                sync::keys::init_storage(app_dir.clone());
+
                 log_startup(&app_handle, "startup: app data dir ready");
 
                 // One-time legacy Incrementum → Plethora data migration
@@ -2447,6 +2449,7 @@ pub fn run() {
             sync::sync_pairing_export,
             sync::sync_pairing_accept,
             sync::sync_revoke_device_epoch,
+            sync::sync_revoke_sync_device,
             sync::sync_on_network_restored,
             sync::sync_set_online,
             sync::sync_set_wifi_only,

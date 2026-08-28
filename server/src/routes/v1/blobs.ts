@@ -12,6 +12,7 @@ export const blobsRouter = Router();
 blobsRouter.use(authMiddleware, requireCloudSync);
 
 const DEFAULT_QUOTA_BYTES = 10 * 1024 * 1024 * 1024;
+const SHA256_HASH = /^sha256:[a-f0-9]{64}$/;
 
 function readProtocolVersion(req: AuthRequest): void {
   try {
@@ -51,11 +52,25 @@ async function bumpUsage(userId: string, delta: number): Promise<void> {
   );
 }
 
+// GET /v1/blobs/usage — register before /:hash routes
+blobsRouter.get('/usage', async (req: AuthRequest, res: Response, next) => {
+  try {
+    readProtocolVersion(req);
+    const userId = req.userId!;
+    const quota = await getQuota(userId);
+    res.json({ usedBytes: quota.used, limitBytes: quota.limit });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /v1/blobs/check
 blobsRouter.post('/check', async (req: AuthRequest, res: Response, next) => {
   try {
     readProtocolVersion(req);
-    const parse = z.object({ hashes: z.array(z.string().min(8)).max(500) }).safeParse(req.body);
+    const parse = z
+      .object({ hashes: z.array(z.string().regex(SHA256_HASH)).max(500) })
+      .safeParse(req.body);
     if (!parse.success) {
       throw new AppError(400, 'validation_error', 'Invalid blob check payload');
     }
@@ -77,7 +92,7 @@ blobsRouter.post('/upload-url', async (req: AuthRequest, res: Response, next) =>
     readProtocolVersion(req);
     const parse = z
       .object({
-        hash: z.string().min(8),
+        hash: z.string().regex(SHA256_HASH),
         sizeBytes: z.number().int().positive().max(512 * 1024 * 1024),
         contentType: z.string().min(1).default('application/octet-stream'),
       })
@@ -92,32 +107,85 @@ blobsRouter.post('/upload-url', async (req: AuthRequest, res: Response, next) =>
       throw new AppError(413, 'quota_exceeded', 'Cloud sync storage quota exceeded');
     }
 
+    const pool = getPool();
+    const existing = await pool.query(
+      'SELECT 1 FROM blob_objects WHERE user_id = $1 AND content_hash = $2',
+      [userId, hash]
+    );
+    if (existing.rows.length > 0) {
+      res.json({
+        uploadUrl: null,
+        expiresAt: null,
+        alreadyExists: true,
+      });
+      return;
+    }
+
     const storage = getStorage();
     if (!storage) {
       throw new AppError(503, 'storage_unavailable', 'Blob storage is not configured');
     }
 
     const storageKey = `blobs/${userId}/${hash.replace('sha256:', '')}.bin`;
-    const uploadUrl = await storage.getSignedUploadUrl(storageKey, contentType, 3600);
-
-    const pool = getPool();
-    const existing = await pool.query(
-      'SELECT 1 FROM blob_objects WHERE user_id = $1 AND content_hash = $2',
-      [userId, hash]
-    );
-    if (existing.rows.length === 0) {
-      await pool.query(
-        `INSERT INTO blob_objects (user_id, content_hash, size_bytes, storage_key, content_type)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, hash, sizeBytes, storageKey, contentType]
-      );
-      await bumpUsage(userId, sizeBytes);
-    }
+    const uploadUrl = await storage.getSignedUploadUrl(storageKey, contentType, 3600, sizeBytes);
 
     res.json({
       uploadUrl,
       expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      alreadyExists: false,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /v1/blobs/complete
+blobsRouter.post('/complete', async (req: AuthRequest, res: Response, next) => {
+  try {
+    readProtocolVersion(req);
+    const parse = z
+      .object({
+        hash: z.string().regex(SHA256_HASH),
+        sizeBytes: z.number().int().positive().max(512 * 1024 * 1024),
+        contentType: z.string().min(1).default('application/octet-stream'),
+      })
+      .safeParse(req.body);
+    if (!parse.success) {
+      throw new AppError(400, 'validation_error', 'Invalid blob complete payload');
+    }
+    const userId = req.userId!;
+    const { hash, sizeBytes, contentType } = parse.data;
+    const storageKey = `blobs/${userId}/${hash.replace('sha256:', '')}.bin`;
+
+    const storage = getStorage();
+    if (!storage) {
+      throw new AppError(503, 'storage_unavailable', 'Blob storage is not configured');
+    }
+
+    const stored = await storage.getObject(storageKey);
+    if (stored.length > sizeBytes) {
+      throw new AppError(400, 'validation_error', 'Uploaded blob exceeds declared size');
+    }
+
+    const pool = getPool();
+    const existing = await pool.query(
+      'SELECT size_bytes FROM blob_objects WHERE user_id = $1 AND content_hash = $2',
+      [userId, hash]
+    );
+    if (existing.rows.length === 0) {
+      const quota = await getQuota(userId);
+      if (quota.used + stored.length > quota.limit) {
+        throw new AppError(413, 'quota_exceeded', 'Cloud sync storage quota exceeded');
+      }
+      await pool.query(
+        `INSERT INTO blob_objects (user_id, content_hash, size_bytes, storage_key, content_type)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, hash, stored.length, storageKey, contentType]
+      );
+      await bumpUsage(userId, stored.length);
+    }
+
+    res.json({ ok: true, sizeBytes: stored.length });
   } catch (error) {
     next(error);
   }
@@ -129,6 +197,9 @@ blobsRouter.get('/:hash/download-url', async (req: AuthRequest, res: Response, n
     readProtocolVersion(req);
     const userId = req.userId!;
     const hash = req.params.hash;
+    if (!SHA256_HASH.test(hash)) {
+      throw new AppError(400, 'validation_error', 'Invalid blob hash');
+    }
     const pool = getPool();
     const row = await pool.query(
       'SELECT storage_key FROM blob_objects WHERE user_id = $1 AND content_hash = $2',
@@ -146,18 +217,6 @@ blobsRouter.get('/:hash/download-url', async (req: AuthRequest, res: Response, n
       downloadUrl,
       expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
     });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /v1/blobs/usage
-blobsRouter.get('/usage', async (req: AuthRequest, res: Response, next) => {
-  try {
-    readProtocolVersion(req);
-    const userId = req.userId!;
-    const quota = await getQuota(userId);
-    res.json({ usedBytes: quota.used, limitBytes: quota.limit });
   } catch (error) {
     next(error);
   }

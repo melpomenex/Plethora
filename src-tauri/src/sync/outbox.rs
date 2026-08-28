@@ -47,7 +47,7 @@ pub async fn mark_dirty(
     .bind(entity_id)
     .bind(operation.as_str())
     .bind(base_revision)
-    .bind(payload)
+    .bind(&payload)
     .bind(&hlc)
     .bind(created_at)
     .execute(&mut **tx)
@@ -148,8 +148,8 @@ pub async fn drain_pending_batch(
     Ok(entries)
 }
 
-pub fn learning_item_revision(updated_at: Option<&chrono::DateTime<chrono::Utc>>) -> Option<i64> {
-    updated_at.map(|ts| ts.timestamp_millis())
+pub fn learning_item_revision(updated_at: Option<&str>) -> Option<i64> {
+    updated_at.and_then(super::bootstrap::revision_from_rfc3339)
 }
 
 #[cfg(test)]

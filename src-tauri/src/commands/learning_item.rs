@@ -469,7 +469,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         EntityType::LearningItem,
         &item_id,
         SyncOperation::Delete,
-        crate::sync::outbox::learning_item_revision(item.updated_at.as_ref()),
+        crate::sync::outbox::learning_item_revision(item.updated_at.as_deref()),
         serde_json::to_vec(&delete_payload)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?,
     )

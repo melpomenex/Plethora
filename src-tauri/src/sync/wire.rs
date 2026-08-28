@@ -2,7 +2,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use super::crypto::SyncCrypto;
-use super::outbox::OutboxEntry;
+use super::types::OutboxEntry;
 use super::types::{EntityType, SyncOperation, TableKind};
 
 pub const MAX_PUSH_RECORDS: usize = 500;
@@ -63,6 +63,8 @@ pub struct PullResponseBody {
     pub records: Vec<WireSyncRecord>,
     pub cursor: u64,
     pub has_more: bool,
+    #[serde(default = "default_key_version")]
+    pub account_key_epoch: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +115,11 @@ pub fn outbox_entry_to_wire(
         key_epoch,
     );
 
-    let payload_ciphertext = if let Some(master) = master_key {
+    let payload_ciphertext = {
+        let master = master_key.ok_or_else(|| {
+            "Sync encryption key not configured. Generate and store a recovery key in Settings → Sync."
+                .to_string()
+        })?;
         let record_key = SyncCrypto::derive_record_key(
             master,
             key_epoch,
@@ -122,18 +128,6 @@ pub fn outbox_entry_to_wire(
             &entry.change_id,
         );
         SyncCrypto::encrypt_payload(&record_key, &entry.payload, &aad)?
-    } else {
-        let envelope = serde_json::json!({
-            "schema_version": 1,
-            "change_id": entry.change_id,
-            "entity_type": entry.entity_type.as_str(),
-            "entity_id": entry.entity_id,
-            "operation": entry.operation.as_str(),
-            "base_revision": entry.base_revision,
-            "payload_b64": base64::engine::general_purpose::STANDARD.encode(&entry.payload),
-            "key_epoch": key_epoch,
-        });
-        base64::engine::general_purpose::STANDARD.encode(envelope.to_string().as_bytes())
     };
 
     Ok(WireSyncRecord {
@@ -180,7 +174,11 @@ pub fn decode_remote_record(
         )
     };
 
-    let (payload, operation) = if let Some(master) = master_key {
+    let (payload, operation) = {
+        let master = master_key.ok_or_else(|| {
+            "Sync encryption key not configured. Generate and store a recovery key in Settings → Sync."
+                .to_string()
+        })?;
         let record_key = SyncCrypto::derive_record_key(
             master,
             wire.key_version,
@@ -190,25 +188,6 @@ pub fn decode_remote_record(
         );
         let bytes = SyncCrypto::decrypt_payload(&record_key, &wire.payload_ciphertext, &aad)?;
         let op = wire.operation.as_deref().and_then(parse_operation);
-        (bytes, op)
-    } else {
-        let envelope_bytes = base64::engine::general_purpose::STANDARD
-            .decode(wire.payload_ciphertext.as_bytes())
-            .map_err(|e| format!("Invalid payload ciphertext: {e}"))?;
-        let envelope: serde_json::Value = serde_json::from_slice(&envelope_bytes)
-            .map_err(|e| format!("Invalid payload envelope JSON: {e}"))?;
-        let payload_b64 = envelope
-            .get("payload_b64")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing payload_b64 in envelope".to_string())?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(payload_b64.as_bytes())
-            .map_err(|e| format!("Invalid payload_b64: {e}"))?;
-        let op = envelope
-            .get("operation")
-            .and_then(|v| v.as_str())
-            .and_then(parse_operation)
-            .or_else(|| wire.operation.as_deref().and_then(parse_operation));
         (bytes, op)
     };
 
