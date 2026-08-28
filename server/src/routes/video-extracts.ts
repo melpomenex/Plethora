@@ -321,7 +321,8 @@ videoExtractsRouter.post('/:id/rate', authMiddleware, async (req: AuthRequest, r
         const schedulingCards = f.repeat(card, now);
 
         // Find the scheduling result for the given rating
-        const scheduledCard = schedulingCards[grade - 1]; // ratings are 1-indexed, array is 0-indexed
+        const preview = schedulingCards as unknown as Record<number, { card: Card } | undefined>;
+        const scheduledCard = preview[grade - 1];
 
         if (!scheduledCard || !scheduledCard.card) {
             return res.status(500).json({ error: 'FSRS scheduling failed' });

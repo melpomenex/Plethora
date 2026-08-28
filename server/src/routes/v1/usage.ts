@@ -14,7 +14,7 @@ usageRouter.get('/', async (req: AuthRequest, res: Response, next) => {
 
     // Fetch quota states
     const quotaRes = await pool.query(
-      `SELECT capability, used, limit_val as "limit", window, resets_at as "resetsAt"
+      `SELECT capability, used, limit_val as "limit", "window", resets_at as "resetsAt"
        FROM quota_state WHERE user_id = $1`,
       [userId]
     );

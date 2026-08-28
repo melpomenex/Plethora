@@ -1,10 +1,13 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../../db/connection.js';
-import { authenticateToken } from '../../middleware/auth.js';
+import { authMiddleware, AuthRequest } from '../../middleware/auth.js';
 
 export const captureRouter = Router();
 export const inboxRouter = Router();
+
+captureRouter.use(authMiddleware);
+inboxRouter.use(authMiddleware);
 
 // SSRF Protection: Deny private, loopback, and local network IPs
 function isPrivateUrl(urlStr: string): boolean {
@@ -23,11 +26,11 @@ function isPrivateUrl(urlStr: string): boolean {
       return true;
     }
 
-    // 10.x.x.x, 172.16-31.x.x, 192.168.x.x
     if (
       host.startsWith('10.') ||
       host.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
+      host.startsWith('169.254.')
     ) {
       return true;
     }
@@ -38,10 +41,7 @@ function isPrivateUrl(urlStr: string): boolean {
   }
 }
 
-// -------------------------------------------------------------------------
-// POST /v1/capture/url
-// -------------------------------------------------------------------------
-captureRouter.post('/url', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+captureRouter.post('/url', async (req: AuthRequest, res: Response): Promise<void> => {
   const { url, title, tags } = req.body;
   if (!url || typeof url !== 'string') {
     res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url is required' } });
@@ -61,7 +61,7 @@ captureRouter.post('/url', authenticateToken, async (req: Request, res: Response
   await pool.query(
     `INSERT INTO inbox_items (id, user_id, url, title, tags, status)
      VALUES ($1, $2, $3, $4, $5, 'pending')`,
-    [itemId, req.user!.userId, url, itemTitle, JSON.stringify(itemTags)]
+    [itemId, req.userId!, url, itemTitle, JSON.stringify(itemTags)]
   );
 
   res.status(201).json({
@@ -76,13 +76,15 @@ captureRouter.post('/url', authenticateToken, async (req: Request, res: Response
   });
 });
 
-// -------------------------------------------------------------------------
-// POST /v1/capture/content
-// -------------------------------------------------------------------------
-captureRouter.post('/content', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+captureRouter.post('/content', async (req: AuthRequest, res: Response): Promise<void> => {
   const { url, title, html, text, tags } = req.body;
   if (!url || !title) {
     res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url and title are required' } });
+    return;
+  }
+
+  if (isPrivateUrl(url)) {
+    res.status(400).json({ error: { code: 'FORBIDDEN_URL', message: 'Private and internal URLs are prohibited' } });
     return;
   }
 
@@ -95,7 +97,7 @@ captureRouter.post('/content', authenticateToken, async (req: Request, res: Resp
   await pool.query(
     `INSERT INTO inbox_items (id, user_id, url, title, excerpt, content_html, tags, status)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
-    [itemId, req.user!.userId, url, title, excerpt, contentHtml, JSON.stringify(itemTags)]
+    [itemId, req.userId!, url, title, excerpt, contentHtml, JSON.stringify(itemTags)]
   );
 
   res.status(201).json({
@@ -111,10 +113,7 @@ captureRouter.post('/content', authenticateToken, async (req: Request, res: Resp
   });
 });
 
-// -------------------------------------------------------------------------
-// GET /v1/inbox & PATCH /v1/inbox/:id
-// -------------------------------------------------------------------------
-inboxRouter.get('/', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+inboxRouter.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   const pool = getPool();
   const status = (req.query.status as string) || 'pending';
 
@@ -122,7 +121,7 @@ inboxRouter.get('/', authenticateToken, async (req: Request, res: Response): Pro
     `SELECT id, url, title, excerpt, tags, status, created_at
      FROM inbox_items WHERE user_id = $1 AND status = $2
      ORDER BY created_at DESC LIMIT 100`,
-    [req.user!.userId, status]
+    [req.userId!, status]
   );
 
   res.json({
@@ -138,7 +137,7 @@ inboxRouter.get('/', authenticateToken, async (req: Request, res: Response): Pro
   });
 });
 
-inboxRouter.patch('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+inboxRouter.patch('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -150,7 +149,7 @@ inboxRouter.patch('/:id', authenticateToken, async (req: Request, res: Response)
   const pool = getPool();
   const result = await pool.query(
     `UPDATE inbox_items SET status = $1 WHERE id = $2 AND user_id = $3 RETURNING id, status`,
-    [status, id, req.user!.userId]
+    [status, id, req.userId!]
   );
 
   if (result.rows.length === 0) {

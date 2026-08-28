@@ -1,0 +1,11 @@
+node_modules
+dist
+uploads
+.env
+.env.*
+*.log
+coverage
+.git
+__tests__
+**/*.test.ts
+**/*.bench.ts

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt, { TokenExpiredError } from 'jsonwebtoken';
 import { AppError } from './error.js';
 import { getPool } from '../db/connection.js';
+import { getJwtSecret } from '../config/env.js';
 
 export interface TokenPayload {
   userId: string;
@@ -27,7 +28,7 @@ export async function authMiddleware(
   }
 
   const token = authHeader.slice(7);
-  const secret = process.env.JWT_SECRET || 'plethora-default-dev-secret-change-in-prod';
+  const secret = getJwtSecret();
 
   try {
     const payload = jwt.verify(token, secret) as TokenPayload;
@@ -35,7 +36,6 @@ export async function authMiddleware(
     req.deviceId = payload.deviceId;
     req.sessionId = payload.sessionId;
 
-    // If session ID is present, verify it hasn't been revoked
     if (payload.sessionId) {
       const pool = getPool();
       const sessionResult = await pool.query(
@@ -43,6 +43,10 @@ export async function authMiddleware(
         [payload.sessionId]
       );
       if (sessionResult.rows.length === 0 || sessionResult.rows[0].revoked_at) {
+        throw new AppError(401, 'session_revoked', 'Session has been revoked or expired');
+      }
+      const expiresAt = sessionResult.rows[0].expires_at;
+      if (expiresAt && new Date(expiresAt) < new Date()) {
         throw new AppError(401, 'session_revoked', 'Session has been revoked or expired');
       }
     }
@@ -74,7 +78,7 @@ export function optionalAuthMiddleware(
   }
 
   const token = authHeader.slice(7);
-  const secret = process.env.JWT_SECRET || 'plethora-default-dev-secret-change-in-prod';
+  const secret = getJwtSecret();
 
   try {
     const payload = jwt.verify(token, secret) as TokenPayload;

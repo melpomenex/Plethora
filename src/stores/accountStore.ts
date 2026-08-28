@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { invoke, isTauri } from '../lib/tauri';
-import { PLETHORA_API_URL } from '../config/product';
+import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
 import { useEntitlementStore } from './entitlementStore';
 
 export interface UserProfile {
@@ -59,6 +59,9 @@ export const useAccountStore = create<AccountStoreState>()(
       signIn: async (email: string, password: string, deviceName?: string) => {
         set({ loading: true, error: null });
         try {
+          if (!isCloudApiEnabled()) {
+            throw new Error('Plethora Cloud API is disabled. Set VITE_PLETHORA_API_URL to your API host.');
+          }
           if (isTauri()) {
             await invoke('account_sign_in', { email, password, deviceName });
           }
@@ -112,6 +115,9 @@ export const useAccountStore = create<AccountStoreState>()(
       register: async (email: string, password: string, deviceName?: string) => {
         set({ loading: true, error: null });
         try {
+          if (!isCloudApiEnabled()) {
+            throw new Error('Plethora Cloud API is disabled. Set VITE_PLETHORA_API_URL to your API host.');
+          }
           const res = await fetch(`${PLETHORA_API_URL}/v1/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

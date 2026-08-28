@@ -1,0 +1,29 @@
+{
+	email {$ACME_EMAIL:internal}
+}
+
+{$PLETHORA_API_HOST:localhost} {
+	encode gzip
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	@health path /health /ready
+	handle @health {
+		reverse_proxy api:3000
+	}
+
+	handle /metrics {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		reverse_proxy api:3000 {
+			flush_interval -1
+		}
+	}
+}
