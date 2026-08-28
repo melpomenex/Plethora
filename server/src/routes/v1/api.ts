@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../../db/connection.js';
+import { authMiddleware, AuthRequest } from '../../middleware/auth.js';
 
 export const apiRouter = Router();
 
@@ -94,10 +95,11 @@ export function requireScope(scope: string) {
 // Tokens Management
 // -------------------------------------------------------------------------
 
-apiRouter.post('/tokens', async (req: Request, res: Response): Promise<void> => {
-  const { userId, name, scopes } = req.body;
+apiRouter.post('/tokens', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { name, scopes } = req.body;
+  const userId = req.userId;
   if (!userId || !name) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'userId and name are required' } });
+    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'name is required' } });
     return;
   }
 
@@ -126,10 +128,10 @@ apiRouter.post('/tokens', async (req: Request, res: Response): Promise<void> => 
   });
 });
 
-apiRouter.get('/tokens', async (req: Request, res: Response): Promise<void> => {
-  const userId = req.query.userId as string;
+apiRouter.get('/tokens', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId;
   if (!userId) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'userId is required' } });
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
     return;
   }
 
@@ -152,10 +154,17 @@ apiRouter.get('/tokens', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
-apiRouter.delete('/tokens/:id', async (req: Request, res: Response): Promise<void> => {
+apiRouter.delete('/tokens/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const pool = getPool();
-  await pool.query(`DELETE FROM api_tokens WHERE id = $1`, [id]);
+  const result = await pool.query(`DELETE FROM api_tokens WHERE id = $1 AND user_id = $2 RETURNING id`, [
+    id,
+    req.userId,
+  ]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Token not found' } });
+    return;
+  }
   res.json({ success: true });
 });
 
@@ -225,10 +234,11 @@ apiRouter.post('/reviews', requireApiToken, requireScope('reviews:write'), async
 // Webhook Subscriptions
 // -------------------------------------------------------------------------
 
-apiRouter.post('/webhooks', async (req: Request, res: Response): Promise<void> => {
-  const { userId, url, events } = req.body;
+apiRouter.post('/webhooks', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { url, events } = req.body;
+  const userId = req.userId;
   if (!userId || !url) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'userId and url are required' } });
+    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url is required' } });
     return;
   }
 
@@ -253,10 +263,10 @@ apiRouter.post('/webhooks', async (req: Request, res: Response): Promise<void> =
   });
 });
 
-apiRouter.get('/webhooks', async (req: Request, res: Response): Promise<void> => {
-  const userId = req.query.userId as string;
+apiRouter.get('/webhooks', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId;
   if (!userId) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'userId is required' } });
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
     return;
   }
 
@@ -270,7 +280,7 @@ apiRouter.get('/webhooks', async (req: Request, res: Response): Promise<void> =>
     data: result.rows.map((r) => ({
       id: r.id,
       url: r.url,
-      secret: r.secret,
+      secretPrefix: typeof r.secret === 'string' ? r.secret.slice(0, 10) + '…' : undefined,
       events: typeof r.events === 'string' ? JSON.parse(r.events) : r.events,
       active: r.active,
       createdAt: r.created_at,
@@ -278,9 +288,16 @@ apiRouter.get('/webhooks', async (req: Request, res: Response): Promise<void> =>
   });
 });
 
-apiRouter.delete('/webhooks/:id', async (req: Request, res: Response): Promise<void> => {
+apiRouter.delete('/webhooks/:id', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const pool = getPool();
-  await pool.query(`DELETE FROM webhooks WHERE id = $1`, [id]);
+  const result = await pool.query(`DELETE FROM webhooks WHERE id = $1 AND user_id = $2 RETURNING id`, [
+    id,
+    req.userId,
+  ]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Webhook not found' } });
+    return;
+  }
   res.json({ success: true });
 });

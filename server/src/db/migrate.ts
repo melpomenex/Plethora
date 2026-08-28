@@ -1,10 +1,14 @@
 import 'dotenv/config';
-import { initDatabase } from './connection.js';
+import { closeDatabase, initMigrationDatabase } from './connection.js';
 import { migrate } from './schema.js';
 
 async function main() {
-    await initDatabase();
-    await migrate();
+    await initMigrationDatabase();
+    try {
+        await migrate();
+    } finally {
+        await closeDatabase();
+    }
     process.exit(0);
 }
 

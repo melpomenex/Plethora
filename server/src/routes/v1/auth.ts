@@ -14,9 +14,7 @@ const ACCESS_TOKEN_EXPIRY = '15m';
 const ACCESS_TOKEN_EXPIRY_SECONDS = 15 * 60;
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 
-function getJwtSecret(): string {
-  return process.env.JWT_SECRET || 'plethora-default-dev-secret-change-in-prod';
-}
+import { getJwtSecret } from '../../config/env.js';
 
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');

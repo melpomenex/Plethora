@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { getPool } from '../../db/connection.js';
 import { authMiddleware, type AuthRequest } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/error.js';
+import { getJobKind } from '../../jobs/registry.js';
+import '../../jobs/kinds/index.js';
 
 export const jobsRouter = Router();
 
@@ -27,6 +29,12 @@ jobsRouter.post('/', async (req: AuthRequest, res: Response, next) => {
     const userId = req.userId!;
     const pool = getPool();
 
+    const kindDef = getJobKind(kind);
+    if (!kindDef) {
+      throw new AppError(400, 'unknown_job_kind', `Unknown job kind: ${kind}`);
+    }
+    const validatedParams = kindDef.paramsSchema.parse(params);
+
     // Deduplicate via idempotencyKey if provided
     if (idempotencyKey) {
       const existing = await pool.query(
@@ -47,9 +55,9 @@ jobsRouter.post('/', async (req: AuthRequest, res: Response, next) => {
 
     const jobId = uuidv4();
     await pool.query(
-      `INSERT INTO jobs (id, user_id, kind, status, params_json, idempotency_key, created_at, updated_at)
-       VALUES ($1, $2, $3, 'queued', $4, $5, NOW(), NOW())`,
-      [jobId, userId, kind, JSON.stringify(params), idempotencyKey || null]
+      `INSERT INTO jobs (id, user_id, kind, status, params_json, idempotency_key, max_attempts, created_at, updated_at)
+       VALUES ($1, $2, $3, 'queued', $4, $5, $6, NOW(), NOW())`,
+      [jobId, userId, kind, JSON.stringify(validatedParams), idempotencyKey || null, kindDef.maxAttempts]
     );
 
     res.status(202).json({

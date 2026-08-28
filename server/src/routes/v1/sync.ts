@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getPool } from '../../db/connection.js';
 import { authMiddleware, type AuthRequest } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/error.js';
+import { maybeOffloadSyncPayload, hydrateSyncPayload } from '../../sync/blobStorage.js';
 
 export const syncRouter = Router();
 
@@ -38,7 +39,6 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
     let latestSeq = 0;
 
     for (const rec of records) {
-      // Deduplicate by (user_id, device_id, hlc)
       const existing = await pool.query(
         'SELECT seq_number FROM sync_records WHERE user_id = $1 AND device_id = $2 AND hlc = $3',
         [userId, rec.deviceId, rec.hlc]
@@ -50,11 +50,24 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
       }
 
       const id = uuidv4();
+      const offloaded = await maybeOffloadSyncPayload(userId, id, rec.payloadCiphertext);
+
       const insertRes = await pool.query(
-        `INSERT INTO sync_records (id, user_id, table_kind, record_id, hlc, device_id, payload_ciphertext, aad, key_version, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        `INSERT INTO sync_records (id, user_id, table_kind, record_id, hlc, device_id, payload_ciphertext, aad, key_version, blob_storage_key, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
          RETURNING seq_number`,
-        [id, userId, rec.tableKind, rec.recordId, rec.hlc, rec.deviceId, rec.payloadCiphertext, rec.aad, rec.keyVersion]
+        [
+          id,
+          userId,
+          rec.tableKind,
+          rec.recordId,
+          rec.hlc,
+          rec.deviceId,
+          offloaded.payloadCiphertext || ' ',
+          rec.aad,
+          rec.keyVersion,
+          offloaded.blobStorageKey,
+        ]
       );
 
       accepted++;
@@ -78,6 +91,7 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const result = await pool.query(
       `SELECT id, table_kind as "tableKind", record_id as "recordId", hlc, device_id as "deviceId",
               payload_ciphertext as "payloadCiphertext", aad, key_version as "keyVersion",
+              blob_storage_key as "blobStorageKey",
               seq_number as "seqNumber", created_at as "createdAt"
        FROM sync_records
        WHERE user_id = $1 AND seq_number > $2
@@ -87,7 +101,19 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     );
 
     const hasMore = result.rows.length > limit;
-    const records = hasMore ? result.rows.slice(0, limit) : result.rows;
+    const rawRecords = hasMore ? result.rows.slice(0, limit) : result.rows;
+
+    const records = await Promise.all(
+      rawRecords.map(async (row) => ({
+        ...row,
+        payloadCiphertext: await hydrateSyncPayload(
+          row.payloadCiphertext?.trim() ? row.payloadCiphertext : '',
+          row.blobStorageKey
+        ),
+        blobStorageKey: undefined,
+      }))
+    );
+
     const nextCursor = records.length > 0 ? Number(records[records.length - 1].seqNumber) : cursor;
 
     res.json({

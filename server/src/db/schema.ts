@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS quota_state (
   capability VARCHAR(100) NOT NULL,
   used BIGINT NOT NULL DEFAULT 0,
   limit_val BIGINT NOT NULL DEFAULT 0,
-  window VARCHAR(50) NOT NULL DEFAULT 'monthly',
+  "window" VARCHAR(50) NOT NULL DEFAULT 'monthly',
   resets_at TIMESTAMPTZ,
   PRIMARY KEY (user_id, capability)
 );
@@ -368,6 +368,38 @@ CREATE INDEX IF NOT EXISTS idx_store_transactions_token ON store_transactions(ap
 -- (client JWS post or ASNS notification); nothing is deleted automatically.
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Job worker columns (productionize-plethora-cloud-deployment)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_by VARCHAR(100);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS timeout_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_claimable ON jobs(status, created_at) WHERE status = 'queued';
+
+CREATE TABLE IF NOT EXISTS job_events (
+  id UUID PRIMARY KEY,
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  event_type VARCHAR(50) NOT NULL,
+  payload_json JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, created_at);
+
+-- Sync blob offload to object storage (large ciphertext → R2)
+ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS blob_storage_key TEXT;
+
+-- Postgres-backed rate limiting (multi-instance safe)
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  bucket_key VARCHAR(255) PRIMARY KEY,
+  hit_count INTEGER NOT NULL DEFAULT 1,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Play Store provider column on verified transactions
+ALTER TABLE store_transactions ADD COLUMN IF NOT EXISTS provider VARCHAR(50) NOT NULL DEFAULT 'appstore';
+
 `;
 
 export async function migrate(): Promise<void> {
@@ -376,9 +408,13 @@ export async function migrate(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  import('./connection.js').then(async ({ initDatabase }) => {
-    await initDatabase();
-    await migrate();
+  import('./connection.js').then(async ({ initMigrationDatabase, closeDatabase }) => {
+    await initMigrationDatabase();
+    try {
+      await migrate();
+    } finally {
+      await closeDatabase();
+    }
     process.exit(0);
   }).catch((err) => {
     console.error('Migration failed:', err);

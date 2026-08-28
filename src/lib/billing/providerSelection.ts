@@ -12,6 +12,7 @@
 import { nativePlatform } from '../../lib/tauri';
 import { BUILD_PROFILE, type BuildProfile } from '../buildProfile';
 import { AppStoreBillingProvider } from './appStoreProvider';
+import { PlayBillingProvider } from './playBillingProvider';
 import {
   BillingProvider,
   MOCK_BILLING_FORBIDDEN_MESSAGE,
@@ -31,6 +32,9 @@ export function selectBillingProvider(opts?: {
 
   if (platform === 'ios') {
     return new AppStoreBillingProvider();
+  }
+  if (platform === 'android' && profile === 'store') {
+    return new PlayBillingProvider();
   }
   return createMockBillingProvider(profile);
 }

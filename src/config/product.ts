@@ -10,12 +10,18 @@ export const PRODUCT_PROVISIONAL_DOMAIN = 'plethora.app';
 
 /**
  * Primary commercial API base URL.
- * Checks VITE_PLETHORA_API_URL, then legacy VITE_API_URL, defaulting to placeholder https://api.plethora.app.
+ * Set VITE_PLETHORA_API_URL=off to disable cloud API calls (local-first mode).
+ * Checks VITE_PLETHORA_API_URL, then legacy VITE_API_URL, defaulting to https://api.plethora.app.
  */
-export const PLETHORA_API_URL =
+const _resolvedApiUrl =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLETHORA_API_URL) ||
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
   'https://api.plethora.app';
+
+export const PLETHORA_API_URL: string = _resolvedApiUrl === 'off' ? 'off' : _resolvedApiUrl;
+
+/** True when the app should call Plethora Cloud HTTP APIs. */
+export const isCloudApiEnabled = (): boolean => PLETHORA_API_URL !== 'off';
 
 /**
  * Custom URI scheme for native deep links (OAuth callbacks, purchase returns).

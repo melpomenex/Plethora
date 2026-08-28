@@ -66,7 +66,7 @@ entitlementsRouter.get('/', optionalAuthMiddleware, async (req: AuthRequest, res
 
     // Fetch quota states
     const quotaRes = await pool.query(
-      'SELECT capability, used, limit_val as "limit", window, resets_at as "resetsAt" FROM quota_state WHERE user_id = $1',
+      'SELECT capability, used, limit_val as "limit", "window", resets_at as "resetsAt" FROM quota_state WHERE user_id = $1',
       [userId]
     );
     const quotas = new Map<string, unknown>();

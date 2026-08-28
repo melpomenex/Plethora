@@ -1,3 +1,5 @@
+# Plethora Cloud — local development stack
+# For production deployment see compose.production.yml and docs/deploy/PLETHORA_CLOUD_PRODUCTION.md
 services:
   api:
     build: ./server
