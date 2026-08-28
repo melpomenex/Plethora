@@ -266,6 +266,13 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const userId = req.userId!;
     const cursor = Number(req.query.cursor || 0);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+    const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : null;
+    if (deviceId) {
+      const revokedDevices = await loadRevokedSyncDevices(userId);
+      if (revokedDevices.has(deviceId)) {
+        throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
+      }
+    }
     const pool = getPool();
 
     const result = await pool.query(
@@ -291,7 +298,6 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
       }))
     );
 
-    const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : null;
     if (deviceId) {
       await upsertDeviceCursor(userId, deviceId, page.cursor);
     }
