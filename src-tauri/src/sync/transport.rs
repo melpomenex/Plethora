@@ -69,14 +69,16 @@ pub async fn push_records(
 
 pub async fn pull_page(
     access_token: &str,
+    device_id: &str,
     cursor: u64,
     limit: usize,
 ) -> Result<(Vec<(WireSyncRecord, u64)>, u64, bool, u32)> {
     let client = reqwest::Client::new();
     let url = format!(
-        "{}/v1/sync/pull?cursor={cursor}&limit={}",
+        "{}/v1/sync/pull?cursor={cursor}&limit={}&deviceId={}",
         api_base_url(),
-        limit.min(500)
+        limit.min(500),
+        urlencoding::encode(device_id)
     );
     let response = client
         .get(url)

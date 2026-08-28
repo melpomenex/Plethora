@@ -148,9 +148,13 @@ pub async fn pull_remote(
     let mut cursor = get_server_cursor(repo.pool()).await?;
     let mut applied_records = Vec::new();
 
+    let mut tx = repo.pool().begin().await?;
+    let local_device_id = ensure_device_id(&mut tx).await?;
+    tx.commit().await?;
+
     loop {
         let (page, next_cursor, has_more, account_epoch) =
-            pull_page(&access_token, cursor, 500).await?;
+            pull_page(&access_token, &local_device_id, cursor, 500).await?;
         if account_epoch > local_epoch {
             set_key_epoch(account_epoch).await?;
             local_epoch = account_epoch;
@@ -161,7 +165,6 @@ pub async fn pull_remote(
         }
 
         let mut tx = repo.pool().begin().await?;
-        let local_device_id = ensure_device_id(&mut tx).await?;
         let mut page_max_seq = cursor;
 
         for (wire, seq_number) in page {
