@@ -40,6 +40,16 @@ function isProductionLike(env: PlethoraEnv): boolean {
   return env === 'production' || env === 'staging';
 }
 
+/** Tauri desktop builds use these origins in production; dev Vite localhost is not allowed. */
+const PRODUCTION_CORS_ALLOWLIST = new Set(['https://tauri.localhost', 'tauri://localhost']);
+
+function isDisallowedProductionCorsOrigin(origin: string): boolean {
+  if (PRODUCTION_CORS_ALLOWLIST.has(origin)) {
+    return false;
+  }
+  return /localhost|127\.0\.0\.1/i.test(origin);
+}
+
 export function getJwtSecret(): string {
   return process.env.JWT_SECRET || DEV_JWT_SECRET;
 }
@@ -137,10 +147,11 @@ export function validateProductionConfig(config: AppConfig): ConfigValidationErr
     });
   }
 
-  if (config.corsOrigins.some((o) => o.includes('localhost'))) {
+  if (config.corsOrigins.some(isDisallowedProductionCorsOrigin)) {
     errors.push({
       field: 'CORS_ORIGINS',
-      message: 'CORS_ORIGINS should not include localhost in production',
+      message:
+        'CORS_ORIGINS should not include dev localhost in production (Tauri origins https://tauri.localhost and tauri://localhost are allowed)',
     });
   }
 
