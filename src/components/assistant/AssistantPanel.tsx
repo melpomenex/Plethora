@@ -91,6 +91,13 @@ import {
   isTwentyRulesCommand,
   stripTwentyRulesCommand,
 } from "../../lib/ai/knowledgeFormulation";
+import {
+  ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY,
+  buildAssistantMessageFlashcardRequest,
+  canCreateFlashcardsFromMessage,
+  captureDocumentContext,
+  type CapturedDocumentContext,
+} from "../../features/assistant/assistantMessageFlashcards";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -322,6 +329,8 @@ export function AssistantPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [flashcardGeneratingMessageId, setFlashcardGeneratingMessageId] = useState<string | null>(null);
+  const toolExecutionContextRef = useRef<CapturedDocumentContext>({});
   const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
   const toast = useToast();
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
@@ -1002,37 +1011,63 @@ export function AssistantPanel({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleSendMessage = async () => {
-    if ((!input.trim() && attachedImages.length === 0) || isLoading) return;
+  interface AssistantSubmitRequest {
+    requestContent: string;
+    displayContent?: string;
+    images?: AttachedImage[];
+    conversationHistoryOverride?: Message[];
+    sourceContentOverride?: string;
+    capturedDocumentContext?: CapturedDocumentContext;
+    skipMemoryExtraction?: boolean;
+    skipLocalCommands?: boolean;
+    originatingMessageId?: string;
+    restoreInputOnError?: string;
+  }
 
-    const hasImages = attachedImages.length > 0;
+  const appendMessagesIfSameConversation = (
+    conversationKeyAtStart: string,
+    updater: (prev: Message[]) => Message[],
+  ) => {
+    setMessages((prev) => {
+      if (activeConversationKeyRef.current !== conversationKeyAtStart) return prev;
+      return updater(prev);
+    });
+  };
+
+  const submitAssistantRequest = async (request: AssistantSubmitRequest) => {
+    if (isLoading) return;
+
+    const conversationKeyAtStart = activeConversationKeyRef.current;
+    toolExecutionContextRef.current = request.capturedDocumentContext
+      ?? captureDocumentContext(context?.documentId, assistantDocumentTitle);
+
+    if (request.originatingMessageId) {
+      setFlashcardGeneratingMessageId(request.originatingMessageId);
+    }
+
+    const hasImages = (request.images?.length ?? 0) > 0;
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: input || (hasImages ? "" : ""),
+      content: request.displayContent ?? request.requestContent,
       timestamp: Date.now(),
-      images: hasImages ? [...attachedImages] : undefined,
+      images: hasImages ? [...(request.images ?? [])] : undefined,
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    const userInput = input;
-    setInput("");
-    historyDraftRef.current = "";
-    setHistoryIndex(null);
-    clearAttachedImages();
-    setShowSectionPopup(false);
-    setSectionQuery("");
+    appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, userMessage]);
+    const userInput = request.requestContent;
     setIsLoading(true);
 
     try {
-      if (userInput === "/help") {
-        const toolsList = getAvailableTools()
-          .map((tool) => `• **${tool.name}** - ${tool.description}`)
-          .join("\n");
-        const helpMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: `**Available Commands:**
+      if (!request.skipLocalCommands) {
+        if (userInput === "/help") {
+          const toolsList = getAvailableTools()
+            .map((tool) => `• **${tool.name}** - ${tool.description}`)
+            .join("\n");
+          const helpMessage: Message = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: `**Available Commands:**
 
 /help - Show this help message
 /tools - List available tools
@@ -1060,103 +1095,97 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 \`\`\`tool_calls
 {"tool_calls":[{"name":"create_qa_card","arguments":{"question":"...","answer":"..."}}]}
 \`\`\``,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, helpMessage]);
-        setIsLoading(false);
-        return;
-      }
-
-      if (userInput === "/tools") {
-        const tools = getAvailableTools();
-        const toolsList = tools.map(t => `• **${t.name}** - ${t.description}`).join('\n');
-        const toolsMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: `**Available Tools:**\n\n${toolsList}`,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, toolsMessage]);
-        setIsLoading(false);
-        return;
-      }
-
-      if (userInput === "/clear") {
-        setMessages([]);
-        setIsLoading(false);
-        return;
-      }
-
-      if (isTwentyRulesCommand(userInput)) {
-        const stripped = stripTwentyRulesCommand(userInput);
-        const hasContext = !!(
-          context?.content ||
-          context?.documentId ||
-          context?.selection ||
-          selectedSectionNodes.length > 0
-        );
-        if (!hasContext && !stripped) {
-          const rulesReminderMessage: Message = {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: `${getTwentyRulesReminderMarkdown()}\n\n---\n💡 **Usage:** Open a document, chapter, or select text, then type \`/20rules\` (or click the **/20rules** button) to formulate atomic, high-retention flashcards adhering to spaced repetition best practices.`,
             timestamp: Date.now(),
           };
-          setMessages((prev) => [...prev, rulesReminderMessage]);
-          setIsLoading(false);
+          appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, helpMessage]);
+          return;
+        }
+
+        if (userInput === "/tools") {
+          const tools = getAvailableTools();
+          const toolsList = tools.map((tool) => `• **${tool.name}** - ${tool.description}`).join("\n");
+          const toolsMessage: Message = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: `**Available Tools:**\n\n${toolsList}`,
+            timestamp: Date.now(),
+          };
+          appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, toolsMessage]);
+          return;
+        }
+
+        if (userInput === "/clear") {
+          if (activeConversationKeyRef.current === conversationKeyAtStart) {
+            setMessages([]);
+          }
+          return;
+        }
+
+        if (isTwentyRulesCommand(userInput)) {
+          const stripped = stripTwentyRulesCommand(userInput);
+          const hasContext = !!(
+            context?.content ||
+            context?.documentId ||
+            context?.selection ||
+            selectedSectionNodes.length > 0
+          );
+          if (!hasContext && !stripped && !request.sourceContentOverride) {
+            const rulesReminderMessage: Message = {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `${getTwentyRulesReminderMarkdown()}\n\n---\n💡 **Usage:** Open a document, chapter, or select text, then type \`/20rules\` (or click the **/20rules** button) to formulate atomic, high-retention flashcards adhering to spaced repetition best practices.`,
+              timestamp: Date.now(),
+            };
+            appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, rulesReminderMessage]);
+            return;
+          }
+        }
+
+        if (useWholeLibraryScope) {
+          try {
+            const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
+            const { resolveEmbeddingConfigForRag } = await import("./ragConfig");
+
+            const config = await resolveEmbeddingConfigForRag();
+
+            const result = await askLibrary({
+              query: userInput,
+              config,
+            });
+
+            const citationsBlock =
+              result.sources.length > 0
+                ? "\n\n---\n**Sources:**\n" +
+                  result.sources
+                    .map((c, i) => `[${i + 1}] ${c.documentTitle ?? c.documentId} (score ${c.score.toFixed(2)})`)
+                    .join("\n")
+                : "";
+
+            const ragMessage: Message = {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: result.answer.answer + citationsBlock,
+              timestamp: Date.now(),
+            };
+            appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, ragMessage]);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMsg: Message = {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `⚠️ Whole-library chat failed: ${errorMessage}\n\nMake sure your library is indexed (Settings → Embeddings → Library indexing) and an embedding provider is configured.`,
+              timestamp: Date.now(),
+            };
+            appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMsg]);
+          }
           return;
         }
       }
 
-      // Whole-library RAG branch: retrieve top-k chunks across the collection
-      // and answer with citations, instead of the single-document path.
-      if (useWholeLibraryScope) {
-        try {
-          const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
-          const { resolveEmbeddingConfigForRag } = await import("./ragConfig");
-
-          const config = await resolveEmbeddingConfigForRag();
-
-          const result = await askLibrary({
-            query: userInput,
-            config,
-          });
-
-          // Render answer + a compact citations footer.
-          const citationsBlock =
-            result.sources.length > 0
-              ? "\n\n---\n**Sources:**\n" +
-                result.sources
-                  .map((c, i) => `[${i + 1}] ${c.documentTitle ?? c.documentId} (score ${c.score.toFixed(2)})`)
-                  .join("\n")
-              : "";
-
-          const ragMessage: Message = {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: result.answer.answer + citationsBlock,
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, ragMessage]);
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          const errorMsg: Message = {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: `⚠️ Whole-library chat failed: ${errorMessage}\n\nMake sure your library is indexed (Settings → Embeddings → Library indexing) and an embedding provider is configured.`,
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, errorMsg]);
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      // Filter conversation history to only include user and assistant messages
-      const filteredHistory = messages
-        .filter(m => m.role === "user" || m.role === "assistant")
-        .slice(-10); // Last 10 messages (excluding system messages)
+      const filteredHistory = request.conversationHistoryOverride
+        ?? messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-10);
 
       const contextData = {
         currentContext: context,
@@ -1165,14 +1194,16 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         currentUserImages: userMessage.images,
         currentProvider: effectiveProvider,
         currentModel: useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider)?.model,
+        sourceContentOverride: request.sourceContentOverride,
       };
 
-      // Call the LLM API
-      const isTwentyRules = isTwentyRulesCommand(userMessage.content);
-      const response = await callLLM(userMessage.content, contextData, isTwentyRules);
+      const isTwentyRules = isTwentyRulesCommand(userInput);
+      const response = await callLLM(userInput, contextData, isTwentyRules, Boolean(request.sourceContentOverride));
+      if (request.sourceContentOverride && response.content.startsWith("Error calling LLM:")) {
+        throw new Error(response.content.replace(/^Error calling LLM:\s*/, ""));
+      }
       const { cleanedContent, toolCalls } = parseToolCalls(response.content);
 
-      // Show warning if images were stripped due to unsupported model
       if (response.imagesStripped && response.modelName) {
         const warningMessage: Message = {
           id: `sys-${Date.now()}`,
@@ -1180,7 +1211,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           content: `⚠️ ${response.modelName} doesn't support images. Sent text only. Switch to a vision-capable model to include images.`,
           timestamp: Date.now(),
         };
-        setMessages((prev) => [...prev, warningMessage]);
+        appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, warningMessage]);
       }
 
       const displayContent = cleanedContent || (toolCalls.length > 0 ? "Running tool calls..." : response.content);
@@ -1193,10 +1224,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceContext: response.sourceContext,
       };
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, assistantMessage]);
 
-      // Auto-extract and consolidate memories if enabled
-      if (useSettingsStore.getState().settings.ai.memoryEnabled) {
+      if (!request.skipMemoryExtraction && useSettingsStore.getState().settings.ai.memoryEnabled) {
         const chatHistory = [...messages, userMessage, assistantMessage].map((m) => {
           let mappedRole: "System" | "User" | "Assistant" = "System";
           if (m.role === "user") mappedRole = "User";
@@ -1211,7 +1241,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         });
       }
 
-      if (toolCalls.length > 0) {
+      if (toolCalls.length > 0 && activeConversationKeyRef.current === conversationKeyAtStart) {
         const results = await executeToolCalls(assistantMessage.id, toolCalls);
         const confirmation = buildConfirmationMessage(results);
         if (confirmation) {
@@ -1221,29 +1251,72 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             content: confirmation,
             timestamp: Date.now(),
           };
-          setMessages((prev) => [...prev, confirmationMessage]);
+          appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, confirmationMessage]);
         }
       }
     } catch (error) {
-      setInput(userInput);
-      historyDraftRef.current = userInput;
+      if (request.restoreInputOnError !== undefined && activeConversationKeyRef.current === conversationKeyAtStart) {
+        setInput(request.restoreInputOnError);
+        historyDraftRef.current = request.restoreInputOnError;
+      }
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: "system",
         content: `Error: ${error instanceof Error ? error.message : "Failed to get response"}`,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMessage]);
     } finally {
+      toolExecutionContextRef.current = {};
+      setFlashcardGeneratingMessageId(null);
       setIsLoading(false);
-      setSelectedSectionNodes([]);
+      if (!request.sourceContentOverride) {
+        setSelectedSectionNodes([]);
+      }
     }
+  };
+
+  const handleSendMessage = async () => {
+    if ((!input.trim() && attachedImages.length === 0) || isLoading) return;
+
+    const userInput = input;
+    const images = attachedImages.length > 0 ? [...attachedImages] : undefined;
+    setInput("");
+    historyDraftRef.current = "";
+    setHistoryIndex(null);
+    clearAttachedImages();
+    setShowSectionPopup(false);
+    setSectionQuery("");
+
+    await submitAssistantRequest({
+      requestContent: userInput,
+      images,
+      restoreInputOnError: userInput,
+    });
+  };
+
+  const handleCreateFlashcardsFromMessage = (sourceMessage: Message) => {
+    if (!canCreateFlashcardsFromMessage(sourceMessage)) return;
+    if (isLoading || flashcardGeneratingMessageId === sourceMessage.id) return;
+
+    const { requestContent, sourceContent } = buildAssistantMessageFlashcardRequest(sourceMessage.content);
+    void submitAssistantRequest({
+      requestContent,
+      displayContent: t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY),
+      conversationHistoryOverride: [],
+      sourceContentOverride: sourceContent,
+      capturedDocumentContext: captureDocumentContext(context?.documentId, assistantDocumentTitle),
+      skipMemoryExtraction: true,
+      skipLocalCommands: true,
+      originatingMessageId: sourceMessage.id,
+    });
   };
 
   const callLLM = async (
     prompt: string,
     contextData: Record<string, unknown>,
-    isTwentyRules?: boolean
+    isTwentyRules?: boolean,
+    throwOnLlmError?: boolean,
   ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference }> => {
     const mentionCandidates = selectionSection
       ? [selectionSection, ...assistantSectionFlat]
@@ -1304,25 +1377,45 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         : (llmContext?.contextWindowTokens && llmContext.contextWindowTokens > 0
           ? llmContext.contextWindowTokens
           : contextWindow);
-      const resolvedContext = llmContext?.resolveForPrompt
-        ? await llmContext.resolveForPrompt(prompt)
-        : {
-            status: llmContext?.status ?? "ready",
-            content: typeof llmContext?.content === "string" ? llmContext.content : undefined,
-            source: (llmContext?.source as any) ?? "document",
-            message: llmContext?.statusMessage,
-          };
+      const sourceContentOverride = typeof contextData.sourceContentOverride === "string"
+        ? contextData.sourceContentOverride.trim()
+        : "";
 
-      let finalResolvedContent = resolvedContext.content ?? "";
-      let sourceContext: SectionSourceReference | undefined;
+      const resolvedContext = sourceContentOverride
+        ? {
+            status: "ready" as const,
+            content: sourceContentOverride,
+            source: "document" as const,
+          }
+        : llmContext?.resolveForPrompt
+          ? await llmContext.resolveForPrompt(prompt)
+          : {
+              status: llmContext?.status ?? "ready",
+              content: typeof llmContext?.content === "string" ? llmContext.content : undefined,
+              source: (llmContext?.source as any) ?? "document",
+              message: llmContext?.statusMessage,
+            };
+
       const selectionNodes = promptSectionNodes.filter(
         (n) => n.source === "selection" || n.source === "media-transcript",
       );
       const sectionNodes = promptSectionNodes.filter(
         (n) => n.source !== "selection" && n.source !== "media-transcript",
       );
+
+      let finalResolvedContent = "";
+      let sourceContext: SectionSourceReference | undefined;
       let selectionContext = "";
       let selectionTruncated = false;
+      let contextContent = "";
+      let usedDocumentFallback = false;
+
+      if (sourceContentOverride) {
+        finalResolvedContent = sourceContentOverride;
+        contextContent = sourceContentOverride;
+        resolvedUserPrompt = effectivePrompt;
+      } else {
+      finalResolvedContent = resolvedContext.content ?? "";
       if (selectionNodes.length > 0) {
         const built = buildSelectionFocusedContext(selectionNodes, { maxTokens: effectiveContextWindow, trimRatio: frontendTrimRatio });
         selectionContext = built.content;
@@ -1404,13 +1497,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         toast.info(t("assistant.selectionTruncated"), t("assistant.selectionTruncatedDesc"));
       }
 
-      let contextContent = typeof finalResolvedContent === "string"
+      contextContent = typeof finalResolvedContent === "string"
         ? finalResolvedContent.trim()
         : typeof resolvedContext.content === "string"
           ? resolvedContext.content.trim()
           : "";
 
-      let usedDocumentFallback = false;
       if ((!contextContent || resolvedContext.status !== "ready")
           && llmContext?.type === "document" && llmContext.documentId
           && selectionNodes.length === 0) {
@@ -1428,6 +1520,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const hasExplicitSelectionContext = selectionNodes.length > 0 && selectionContext.trim().length > 0;
       if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext) || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
+      }
+      }
+
+      if (!sourceContentOverride && !contextContent) {
+        throw new Error("No source content available for this request.");
       }
 
       if (isAppleFmAssistantProvider(effectiveProvider)) {
@@ -1580,7 +1677,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       return { content: response.content, imagesStripped, modelName, sourceContext };
     } catch (error) {
       console.error("LLM API error:", error);
-      if (hasSectionMentions) throw error;
+      if (hasSectionMentions || throwOnLlmError) throw error;
       // Better error handling - Tauri errors can be strings or objects
       const errorMessage = error instanceof Error
         ? error.message
@@ -1791,7 +1888,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       : assistantDocumentTitle;
     const missingDocumentDeckTitle = Boolean(
       createsCards
-      && context?.documentId
+      && (toolExecutionContextRef.current.documentId ?? context?.documentId)
       && !getDocumentDeckName(resolvedDocumentTitle),
     );
 
@@ -1948,10 +2045,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   };
 
   const resolveDocumentTitleForCards = async (): Promise<string | undefined> => {
+    if (toolExecutionContextRef.current.documentTitle?.trim()) {
+      return toolExecutionContextRef.current.documentTitle;
+    }
     if (assistantDocumentTitle?.trim()) return assistantDocumentTitle;
-    if (!context?.documentId) return undefined;
+    const documentId = toolExecutionContextRef.current.documentId ?? context?.documentId;
+    if (!documentId) return undefined;
     try {
-      return (await getDocument(context.documentId))?.title?.trim() || undefined;
+      return (await getDocument(documentId))?.title?.trim() || undefined;
     } catch (error) {
       console.warn("[Assistant] Could not resolve document title for generated-card deck:", error);
       return undefined;
@@ -1964,8 +2065,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     documentTitleOverride?: string,
   ) => {
     const normalized = { ...parameters };
-    const documentId = context?.documentId;
-    const deckName = getDocumentDeckName(documentTitleOverride ?? assistantDocumentTitle);
+    const documentId = toolExecutionContextRef.current.documentId ?? context?.documentId;
+    const deckName = getDocumentDeckName(
+      documentTitleOverride
+        ?? toolExecutionContextRef.current.documentTitle
+        ?? assistantDocumentTitle,
+    );
 
     if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
       normalized.document_id = documentId;
@@ -3180,24 +3285,44 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 )}
               </div>
 
-              {/* Message Actions - only for assistant messages */}
+              {/* Message Actions - assistant messages (Flashcards only on eligible answers) */}
               {message.role === "assistant" && (
-                <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
                   <button
+                    type="button"
                     onClick={() => handleCopyMessage(message)}
-                    className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Copy to clipboard"
+                    className="p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                    aria-label={t("assistant.copyToClipboard")}
+                    title={t("assistant.copyToClipboard")}
                   >
                     {copiedMessageId === message.id ? (
-                      <Check className="w-3 h-3 text-green-500" />
+                      <Check className="w-3 h-3 text-green-500" weight="bold" />
                     ) : (
                       <Copy className="w-3 h-3" />
                     )}
                   </button>
+                  {canCreateFlashcardsFromMessage(message) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateFlashcardsFromMessage(message)}
+                      disabled={isLoading || flashcardGeneratingMessageId === message.id}
+                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded disabled:opacity-50 disabled:pointer-events-none"
+                      aria-label={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
+                      title={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
+                    >
+                      {flashcardGeneratingMessageId === message.id ? (
+                        <CircleNotch className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Brain className="w-3 h-3" />
+                      )}
+                    </button>
+                  )}
                   <button
+                    type="button"
                     onClick={() => handleShareMessage(message)}
-                    className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                    title="Share/Export"
+                    className="p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                    aria-label={t("assistant.shareExport")}
+                    title={t("assistant.shareExport")}
                   >
                     <ShareNetwork className="w-3 h-3" />
                   </button>

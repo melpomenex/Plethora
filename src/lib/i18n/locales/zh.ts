@@ -940,6 +940,7 @@ export const zh: Dict = {
   "assistant.searchDocuments": "按内容搜索文档",
   "assistant.createExtract": "从选区创建摘录",
   "assistant.createFlashcard": "创建问答闪卡",
+  "assistant.createFlashcardsFromResponse": "从此回复创建闪卡",
   "assistant.getDueItems": "获取到期复习项目",
   "assistant.selectionTruncated": "所选文本已截断",
   "assistant.selectionTruncatedDesc": "所选文本超过上下文预算，因此已被截断。",

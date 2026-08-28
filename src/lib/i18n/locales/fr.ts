@@ -646,6 +646,7 @@ export const fr: Dict = {
   "assistant.searchDocuments": "Rechercher des documents par contenu",
   "assistant.createExtract": "Créer un extrait à partir de la sélection",
   "assistant.createFlashcard": "Créer une carte Q&R",
+  "assistant.createFlashcardsFromResponse": "Créer des cartes à partir de cette réponse",
   "assistant.getDueItems": "Obtenir les éléments dus pour révision",
   "assistant.selectionTruncated": "Sélection tronquée",
   "assistant.selectionTruncatedDesc": "Le texte sélectionné dépassait le budget de contexte et a donc été tronqué.",
