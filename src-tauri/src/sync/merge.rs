@@ -41,6 +41,12 @@ pub async fn apply_remote_record(
     match record.entity_type {
         EntityType::ReviewResult => apply_review_result(tx, record).await,
         EntityType::LearningItem => apply_learning_item(tx, record).await,
+        EntityType::Document => apply_document(tx, record).await,
+        EntityType::Extract => apply_extract(tx, record).await,
+        EntityType::Collection => apply_collection(tx, record).await,
+        EntityType::Tag => apply_tag(tx, record).await,
+        EntityType::Setting => apply_setting(tx, record).await,
+        EntityType::Tombstone => apply_tombstone(tx, record).await,
     }
 }
 
@@ -190,6 +196,489 @@ async fn apply_learning_item(
         .await?;
     } else {
         return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    Ok(ApplyOutcome::Applied)
+}
+
+fn remote_wins(record_hlc: &str, local_modified: DateTime<Utc>) -> bool {
+    let (physical, _) = parse_hlc(record_hlc);
+    physical > local_modified.timestamp_millis()
+}
+
+async fn apply_document(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        sqlx::query("DELETE FROM documents WHERE id = ?1")
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct DocumentPayload {
+        id: String,
+        collection_id: String,
+        title: String,
+        category: Option<String>,
+        tags: Vec<String>,
+        position_json: Option<String>,
+        progress_percent: Option<f64>,
+        current_page: Option<i32>,
+        current_scroll_percent: Option<f64>,
+        current_cfi: Option<String>,
+        is_archived: bool,
+        is_favorite: bool,
+        is_dismissed: bool,
+        date_modified: String,
+    }
+
+    let parsed: DocumentPayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Document payload decode failed: {e}")))?;
+
+    let local_modified: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
+            .bind(&parsed.id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    if let Some(local) = local_modified {
+        if !remote_wins(&record.hlc, local) {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+    }
+
+    let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
+        PlethoraError::Internal(format!("Document tags encode failed: {e}"))
+    })?;
+    let date_modified = DateTime::parse_from_rfc3339(&parsed.date_modified)
+        .map(|ts| ts.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM documents WHERE id = ?1")
+        .bind(&parsed.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    if exists.is_some() {
+        sqlx::query(
+            r#"
+            UPDATE documents SET
+                collection_id = ?1,
+                title = ?2,
+                category = ?3,
+                tags = ?4,
+                position_json = COALESCE(?5, position_json),
+                progress_percent = COALESCE(?6, progress_percent),
+                current_page = COALESCE(?7, current_page),
+                current_scroll_percent = COALESCE(?8, current_scroll_percent),
+                current_cfi = COALESCE(?9, current_cfi),
+                is_archived = ?10,
+                is_favorite = ?11,
+                is_dismissed = ?12,
+                date_modified = ?13
+            WHERE id = ?14
+            "#,
+        )
+        .bind(&parsed.collection_id)
+        .bind(&parsed.title)
+        .bind(&parsed.category)
+        .bind(&tags_json)
+        .bind(&parsed.position_json)
+        .bind(parsed.progress_percent)
+        .bind(parsed.current_page)
+        .bind(parsed.current_scroll_percent)
+        .bind(&parsed.current_cfi)
+        .bind(parsed.is_archived)
+        .bind(parsed.is_favorite)
+        .bind(parsed.is_dismissed)
+        .bind(date_modified)
+        .bind(&parsed.id)
+        .execute(&mut **tx)
+        .await?;
+    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+        sqlx::query(
+            r#"
+            INSERT INTO documents (
+                id, collection_id, title, file_path, file_type, category, tags,
+                position_json, progress_percent, current_page, current_scroll_percent, current_cfi,
+                is_archived, is_favorite, is_dismissed, date_added, date_modified,
+                extract_count, learning_item_count, priority_rating, priority_slider, priority_score
+            ) VALUES (
+                ?1, ?2, ?3, '', 'other', ?4, ?5,
+                ?6, ?7, ?8, ?9, ?10,
+                ?11, ?12, ?13, ?14, ?15,
+                0, 0, 0, 50, 0
+            )
+            "#,
+        )
+        .bind(&parsed.id)
+        .bind(&parsed.collection_id)
+        .bind(&parsed.title)
+        .bind(&parsed.category)
+        .bind(&tags_json)
+        .bind(&parsed.position_json)
+        .bind(parsed.progress_percent)
+        .bind(parsed.current_page)
+        .bind(parsed.current_scroll_percent)
+        .bind(&parsed.current_cfi)
+        .bind(parsed.is_archived)
+        .bind(parsed.is_favorite)
+        .bind(parsed.is_dismissed)
+        .bind(date_modified)
+        .bind(date_modified)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_extract(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        sqlx::query("DELETE FROM extracts WHERE id = ?1")
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ExtractPayload {
+        id: String,
+        collection_id: String,
+        document_id: String,
+        content: String,
+        html_content: Option<String>,
+        notes: Option<String>,
+        highlight_color: Option<String>,
+        tags: Vec<String>,
+        category: Option<String>,
+        selection_context: Option<serde_json::Value>,
+        date_modified: String,
+    }
+
+    let parsed: ExtractPayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Extract payload decode failed: {e}")))?;
+
+    let local_modified: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT date_modified FROM extracts WHERE id = ?1")
+            .bind(&parsed.id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    if let Some(local) = local_modified {
+        if !remote_wins(&record.hlc, local) {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+    }
+
+    let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
+        PlethoraError::Internal(format!("Extract tags encode failed: {e}"))
+    })?;
+    let selection_context_json = parsed
+        .selection_context
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| PlethoraError::Internal(format!("Extract selection encode failed: {e}")))?;
+    let date_modified = DateTime::parse_from_rfc3339(&parsed.date_modified)
+        .map(|ts| ts.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM extracts WHERE id = ?1")
+        .bind(&parsed.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    if exists.is_some() {
+        sqlx::query(
+            r#"
+            UPDATE extracts SET
+                collection_id = ?1,
+                content = ?2,
+                html_content = ?3,
+                notes = ?4,
+                highlight_color = ?5,
+                tags = ?6,
+                category = ?7,
+                selection_context = ?8,
+                date_modified = ?9
+            WHERE id = ?10
+            "#,
+        )
+        .bind(&parsed.collection_id)
+        .bind(&parsed.content)
+        .bind(&parsed.html_content)
+        .bind(&parsed.notes)
+        .bind(&parsed.highlight_color)
+        .bind(&tags_json)
+        .bind(&parsed.category)
+        .bind(&selection_context_json)
+        .bind(date_modified)
+        .bind(&parsed.id)
+        .execute(&mut **tx)
+        .await?;
+    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+        sqlx::query(
+            r#"
+            INSERT INTO extracts (
+                id, collection_id, document_id, content, html_content, notes, highlight_color,
+                tags, category, selection_context, date_created, date_modified,
+                progressive_disclosure_level, max_disclosure_level, review_count, reps
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                ?8, ?9, ?10, ?11, ?12,
+                0, 0, 0, 0
+            )
+            "#,
+        )
+        .bind(&parsed.id)
+        .bind(&parsed.collection_id)
+        .bind(&parsed.document_id)
+        .bind(&parsed.content)
+        .bind(&parsed.html_content)
+        .bind(&parsed.notes)
+        .bind(&parsed.highlight_color)
+        .bind(&tags_json)
+        .bind(&parsed.category)
+        .bind(&selection_context_json)
+        .bind(date_modified)
+        .bind(date_modified)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_collection(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        sqlx::query("DELETE FROM collections WHERE id = ?1 AND id != '00000000-0000-0000-0000-000000000001'")
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CollectionPayload {
+        id: String,
+        name: String,
+        icon: Option<String>,
+        color: Option<String>,
+        date_modified: String,
+    }
+
+    let parsed: CollectionPayload = serde_json::from_slice(&record.payload).map_err(|e| {
+        PlethoraError::Internal(format!("Collection payload decode failed: {e}"))
+    })?;
+
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM collections WHERE id = ?1")
+        .bind(&parsed.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    let modified = DateTime::parse_from_rfc3339(&parsed.date_modified)
+        .map(|ts| ts.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+
+    if exists.is_some() {
+        sqlx::query(
+            "UPDATE collections SET name = ?1, icon = ?2, color = ?3, modified_at = ?4 WHERE id = ?5",
+        )
+        .bind(&parsed.name)
+        .bind(&parsed.icon)
+        .bind(&parsed.color)
+        .bind(modified)
+        .bind(&parsed.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            "INSERT INTO collections (id, name, icon, color, created_at, modified_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .bind(&parsed.id)
+        .bind(&parsed.name)
+        .bind(&parsed.icon)
+        .bind(&parsed.color)
+        .bind(modified)
+        .bind(modified)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_tag(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        sqlx::query("DELETE FROM tags WHERE id = ?1")
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TagPayload {
+        id: String,
+        name: String,
+        prerequisites: Vec<String>,
+        maturity_threshold: f64,
+        date_modified: String,
+    }
+
+    let parsed: TagPayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Tag payload decode failed: {e}")))?;
+
+    let prereqs_json = serde_json::to_string(&parsed.prerequisites).map_err(|e| {
+        PlethoraError::Internal(format!("Tag prerequisites encode failed: {e}"))
+    })?;
+
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM tags WHERE id = ?1")
+        .bind(&parsed.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    if exists.is_some() {
+        sqlx::query(
+            "UPDATE tags SET name = ?1, prerequisites = ?2, maturity_threshold = ?3, date_modified = ?4 WHERE id = ?5",
+        )
+        .bind(&parsed.name)
+        .bind(&prereqs_json)
+        .bind(parsed.maturity_threshold)
+        .bind(&parsed.date_modified)
+        .bind(&parsed.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO tags (id, name, prerequisites, maturity_threshold, item_count, mature_count, date_created, date_modified)
+            VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)
+            "#,
+        )
+        .bind(&parsed.id)
+        .bind(&parsed.name)
+        .bind(&prereqs_json)
+        .bind(parsed.maturity_threshold)
+        .bind(&parsed.date_modified)
+        .bind(&parsed.date_modified)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_setting(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        #[derive(serde::Deserialize)]
+        struct DeleteSetting {
+            key: String,
+        }
+        if let Ok(parsed) = serde_json::from_slice::<DeleteSetting>(&record.payload) {
+            sqlx::query("DELETE FROM settings WHERE key = ?1")
+                .bind(&parsed.key)
+                .execute(&mut **tx)
+                .await?;
+        }
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct SettingPayload {
+        key: String,
+        value: String,
+        date_modified: String,
+    }
+
+    let parsed: SettingPayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Setting payload decode failed: {e}")))?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO settings (key, value, date_modified) VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, date_modified = excluded.date_modified
+        "#,
+    )
+    .bind(&parsed.key)
+    .bind(&parsed.value)
+    .bind(&parsed.date_modified)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_tombstone(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    #[derive(serde::Deserialize)]
+    struct TombstonePayload {
+        target_entity_type: String,
+        target_entity_id: String,
+    }
+
+    let parsed: TombstonePayload = serde_json::from_slice(&record.payload).map_err(|e| {
+        PlethoraError::Internal(format!("Tombstone payload decode failed: {e}"))
+    })?;
+
+    match parsed.target_entity_type.as_str() {
+        "document" | "documents" => {
+            sqlx::query("DELETE FROM documents WHERE id = ?1")
+                .bind(&parsed.target_entity_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        "extract" | "extracts" => {
+            sqlx::query("DELETE FROM extracts WHERE id = ?1")
+                .bind(&parsed.target_entity_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        "learning_item" | "learning_items" => {
+            sqlx::query("DELETE FROM learning_items WHERE id = ?1")
+                .bind(&parsed.target_entity_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        "collection" | "collections" => {
+            sqlx::query(
+                "DELETE FROM collections WHERE id = ?1 AND id != '00000000-0000-0000-0000-000000000001'",
+            )
+            .bind(&parsed.target_entity_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+        "tag" | "tags" => {
+            sqlx::query("DELETE FROM tags WHERE id = ?1")
+                .bind(&parsed.target_entity_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        _ => {}
     }
 
     Ok(ApplyOutcome::Applied)

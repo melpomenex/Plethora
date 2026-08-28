@@ -1210,6 +1210,7 @@ pub fn run() {
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
                 app.manage(Arc::new(sync::SyncEngine::new()));
+                sync::scheduler::init(app.handle().clone());
 
                 // Initialize the OCR processor with defaults before any IPC
                 // can arrive: cold-start OCR commands used to fail with
@@ -2435,11 +2436,29 @@ pub fn run() {
             sync::sync_push,
             sync::sync_pull,
             sync::sync_run,
+            sync::sync_list_issues,
+            sync::sync_resolve_issue,
+            sync::sync_bootstrap_upload,
             sync::sync_generate_recovery_key,
+            sync::sync_store_recovery_key,
+            sync::sync_ack_recovery_key,
+            sync::sync_recovery_key_acknowledged,
+            sync::sync_pairing_begin,
+            sync::sync_pairing_export,
+            sync::sync_pairing_accept,
+            sync::sync_revoke_device_epoch,
+            sync::sync_on_network_restored,
+            sync::sync_set_online,
+            sync::sync_set_wifi_only,
+            sync::sync_set_on_wifi,
+            sync::sync_fetch_storage_usage,
+            sync::sync_upload_blob,
+            sync::sync_has_master_key,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             external_open::on_run_event(&app_handle, &event);
+            sync::scheduler::on_run_event(&event);
         });
 }

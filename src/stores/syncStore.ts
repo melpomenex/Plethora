@@ -1,20 +1,80 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { listen } from '@tauri-apps/api/event';
 import { invoke, isTauri } from '../lib/tauri';
+import { PLETHORA_API_URL } from '../config/product';
+import { useAccountStore } from './accountStore';
+
+type SyncStatusPayload = {
+  is_syncing: boolean;
+  last_synced_at?: string | null;
+  pending_outbox_count: number;
+  storage_used_bytes: number;
+  error?: string | null;
+};
+
+export type SyncIssue = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  conflictKind: string;
+  localChangeId?: string | null;
+  serverRevision: number;
+  baseRevision: number;
+  status: string;
+  createdAt: number;
+};
 
 export interface SyncStatusState {
   isSyncing: boolean;
   lastSyncedAt: string | null;
   pendingOutboxCount: number;
   storageUsedBytes: number;
-  recoveryKey: string | null;
+  wifiOnly: boolean;
+  recoveryKeyAcknowledged: boolean;
+  openIssues: SyncIssue[];
   error: string | null;
 
-  // Actions
   init: () => Promise<void>;
   syncNow: () => Promise<boolean>;
   generateRecoveryKey: () => Promise<string>;
+  storeRecoveryKey: (key: string) => Promise<boolean>;
+  acknowledgeRecoveryKey: () => Promise<boolean>;
+  fetchStorageUsage: () => Promise<void>;
+  listIssues: () => Promise<SyncIssue[]>;
+  resolveIssue: (issueId: string, resolution: 'keep_mine' | 'keep_theirs' | 'both') => Promise<boolean>;
+  setWifiOnly: (enabled: boolean) => void;
   wipeCloudData: () => Promise<boolean>;
+}
+
+let syncListenerRegistered = false;
+
+function applySyncStatus(
+  set: (partial: Partial<SyncStatusState>) => void,
+  get: () => SyncStatusState,
+  status: SyncStatusPayload
+) {
+  set({
+    isSyncing: status.is_syncing,
+    lastSyncedAt: status.last_synced_at || get().lastSyncedAt,
+    pendingOutboxCount: status.pending_outbox_count,
+    storageUsedBytes: status.storage_used_bytes,
+    error: status.error || null,
+  });
+}
+
+function bindNetworkListeners(setOnline: (online: boolean) => void) {
+  if (typeof window === 'undefined') return;
+  const update = () => {
+    const online = navigator.onLine;
+    setOnline(online);
+    if (online && isTauri()) {
+      void invoke('sync_on_network_restored');
+    }
+  };
+  window.addEventListener('online', update);
+  window.addEventListener('offline', update);
+  update();
 }
 
 export const useSyncStore = create<SyncStatusState>()(
@@ -24,32 +84,36 @@ export const useSyncStore = create<SyncStatusState>()(
       lastSyncedAt: null,
       pendingOutboxCount: 0,
       storageUsedBytes: 0,
-      recoveryKey: null,
+      wifiOnly: false,
+      recoveryKeyAcknowledged: false,
+      openIssues: [],
       error: null,
 
       init: async () => {
-        if (isTauri()) {
-          try {
-            const status = await invoke<{
-              is_syncing: boolean;
-              last_synced_at?: string;
-              pending_outbox_count: number;
-              storage_used_bytes: number;
-              error?: string;
-            }>('sync_get_status');
+        if (!isTauri()) return;
 
-            if (status) {
-              set({
-                isSyncing: status.is_syncing,
-                lastSyncedAt: status.last_synced_at || get().lastSyncedAt,
-                pendingOutboxCount: status.pending_outbox_count,
-                storageUsedBytes: status.storage_used_bytes,
-                error: status.error || null,
-              });
-            }
-          } catch {
-            // Keep persisted status
+        if (!syncListenerRegistered) {
+          syncListenerRegistered = true;
+          void listen<SyncStatusPayload>('plethora-sync-status-changed', (event) => {
+            applySyncStatus(set, get, event.payload);
+          });
+          bindNetworkListeners((online) => {
+            void invoke('sync_set_online', { online });
+          });
+        }
+
+        try {
+          const [status, acknowledged] = await Promise.all([
+            invoke<SyncStatusPayload>('sync_get_status'),
+            invoke<boolean>('sync_recovery_key_acknowledged'),
+          ]);
+          if (status) {
+            applySyncStatus(set, get, status);
           }
+          set({ recoveryKeyAcknowledged: acknowledged });
+          await get().fetchStorageUsage();
+        } catch {
+          // Keep persisted status
         }
       },
 
@@ -57,20 +121,12 @@ export const useSyncStore = create<SyncStatusState>()(
         set({ isSyncing: true, error: null });
         try {
           if (isTauri()) {
-            const push = await invoke<{ accepted: number; latest_seq: number }>('sync_run');
-            await useSyncStore.getState().init();
-            set({
-              isSyncing: false,
-              lastSyncedAt: new Date().toISOString(),
-              error: null,
-            });
-            return (push?.accepted ?? 0) >= 0;
+            await invoke('sync_run');
+            await get().init();
+            set({ isSyncing: false, lastSyncedAt: new Date().toISOString(), error: null });
+            return true;
           }
-
-          set({
-            isSyncing: false,
-            error: 'Sync requires the Plethora desktop app.',
-          });
+          set({ isSyncing: false, error: 'Sync requires the Plethora desktop app.' });
           return false;
         } catch (err) {
           set({
@@ -82,22 +138,48 @@ export const useSyncStore = create<SyncStatusState>()(
       },
 
       generateRecoveryKey: async () => {
+        const key = await invoke<string>('sync_generate_recovery_key');
+        return key;
+      },
+
+      storeRecoveryKey: async (key: string) => {
+        await invoke('sync_store_recovery_key', { recoveryKey: key });
+        return true;
+      },
+
+      acknowledgeRecoveryKey: async () => {
+        await invoke('sync_ack_recovery_key');
+        set({ recoveryKeyAcknowledged: true });
+        return true;
+      },
+
+      fetchStorageUsage: async () => {
+        if (!isTauri()) return;
         try {
-          let key: string | undefined;
-          if (isTauri()) {
-            key = await invoke<string>('sync_generate_recovery_key');
-          }
-          if (!key) {
-            key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-              .map((b) => b.toString(16).padStart(2, '0'))
-              .join('');
-          }
-          set({ recoveryKey: key });
-          return key;
+          const usage = await invoke<{ usedBytes: number; limitBytes: number }>('sync_fetch_storage_usage');
+          set({ storageUsedBytes: usage.usedBytes });
         } catch {
-          const fallback = 'plethora-recovery-fallback-key';
-          set({ recoveryKey: fallback });
-          return fallback;
+          // Ignore when offline or unsigned in
+        }
+      },
+
+      listIssues: async () => {
+        if (!isTauri()) return [];
+        const issues = await invoke<SyncIssue[]>('sync_list_issues', { limit: 20 });
+        set({ openIssues: issues });
+        return issues;
+      },
+
+      resolveIssue: async (issueId, resolution) => {
+        await invoke('sync_resolve_issue', { issueId, resolution });
+        await get().listIssues();
+        return true;
+      },
+
+      setWifiOnly: (enabled: boolean) => {
+        set({ wifiOnly: enabled });
+        if (isTauri()) {
+          void invoke('sync_set_wifi_only', { enabled });
         }
       },
 
@@ -121,7 +203,8 @@ export const useSyncStore = create<SyncStatusState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         lastSyncedAt: state.lastSyncedAt,
-        recoveryKey: state.recoveryKey,
+        wifiOnly: state.wifiOnly,
+        recoveryKeyAcknowledged: state.recoveryKeyAcknowledged,
       }),
     }
   )

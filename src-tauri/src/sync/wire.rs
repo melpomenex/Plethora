@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+use super::crypto::SyncCrypto;
 use super::outbox::OutboxEntry;
 use super::types::{EntityType, SyncOperation, TableKind};
 
@@ -75,6 +76,7 @@ pub struct RemoteSyncRecord {
     pub operation: Option<SyncOperation>,
     pub base_revision: Option<i64>,
     pub seq_number: u64,
+    pub key_epoch: u32,
 }
 
 pub fn table_kind_for_entity(entity_type: EntityType) -> TableKind {
@@ -85,66 +87,130 @@ pub fn entity_type_for_table_kind(table_kind: &str) -> Option<EntityType> {
     match table_kind {
         "learning_items" | "learning_item" => Some(EntityType::LearningItem),
         "review_results" | "review_result" => Some(EntityType::ReviewResult),
+        "documents" | "document" => Some(EntityType::Document),
+        "extracts" | "extract" => Some(EntityType::Extract),
+        "collections" | "collection" => Some(EntityType::Collection),
+        "tags" | "tag" => Some(EntityType::Tag),
+        "settings" | "setting" => Some(EntityType::Setting),
+        "tombstones" | "tombstone" => Some(EntityType::Tombstone),
         _ => EntityType::parse(table_kind),
     }
 }
 
-/// MVP transport envelope: JSON metadata + base64 payload bytes (TLS protects on wire; E2EE in Phase 4).
-pub fn outbox_entry_to_wire(entry: &OutboxEntry, device_id: &str) -> WireSyncRecord {
+pub fn outbox_entry_to_wire(
+    entry: &OutboxEntry,
+    device_id: &str,
+    account_id: &str,
+    master_key: Option<&[u8; 32]>,
+    key_epoch: u32,
+) -> Result<WireSyncRecord, String> {
     let table_kind = table_kind_for_entity(entry.entity_type);
-    let envelope = serde_json::json!({
-        "schema_version": 1,
-        "change_id": entry.change_id,
-        "entity_type": entry.entity_type.as_str(),
-        "entity_id": entry.entity_id,
-        "operation": entry.operation.as_str(),
-        "base_revision": entry.base_revision,
-        "payload_b64": base64::engine::general_purpose::STANDARD.encode(&entry.payload),
-    });
-    let payload_ciphertext =
-        base64::engine::general_purpose::STANDARD.encode(envelope.to_string().as_bytes());
-    let aad = format!(
-        "{}:{}:{}",
+    let aad = SyncCrypto::build_aad(
+        account_id,
         entry.entity_type.as_str(),
-        entry.entity_id,
-        entry.hlc
+        &entry.entity_id,
+        &entry.change_id,
+        key_epoch,
     );
 
-    WireSyncRecord {
+    let payload_ciphertext = if let Some(master) = master_key {
+        let record_key = SyncCrypto::derive_record_key(
+            master,
+            key_epoch,
+            entry.entity_type.as_str(),
+            &entry.entity_id,
+            &entry.change_id,
+        );
+        SyncCrypto::encrypt_payload(&record_key, &entry.payload, &aad)?
+    } else {
+        let envelope = serde_json::json!({
+            "schema_version": 1,
+            "change_id": entry.change_id,
+            "entity_type": entry.entity_type.as_str(),
+            "entity_id": entry.entity_id,
+            "operation": entry.operation.as_str(),
+            "base_revision": entry.base_revision,
+            "payload_b64": base64::engine::general_purpose::STANDARD.encode(&entry.payload),
+            "key_epoch": key_epoch,
+        });
+        base64::engine::general_purpose::STANDARD.encode(envelope.to_string().as_bytes())
+    };
+
+    Ok(WireSyncRecord {
         table_kind: table_kind.as_str().to_string(),
         record_id: entry.entity_id.clone(),
         hlc: entry.hlc.clone(),
         device_id: device_id.to_string(),
         payload_ciphertext,
         aad,
-        key_version: 1,
+        key_version: key_epoch,
         change_id: Some(entry.change_id.clone()),
         operation: Some(entry.operation.as_str().to_string()),
         base_revision: entry.base_revision,
-    }
+    })
 }
 
-pub fn decode_remote_record(wire: &WireSyncRecord, seq_number: u64) -> Result<RemoteSyncRecord, String> {
+pub fn decode_remote_record(
+    wire: &WireSyncRecord,
+    seq_number: u64,
+    account_id: &str,
+    master_key: Option<&[u8; 32]>,
+    local_epoch: u32,
+) -> Result<RemoteSyncRecord, String> {
+    if wire.key_version < local_epoch {
+        return Err(format!(
+            "Rejected stale key epoch {} (local {local_epoch})",
+            wire.key_version
+        ));
+    }
+
     let entity_type = entity_type_for_table_kind(&wire.table_kind)
         .ok_or_else(|| format!("Unsupported table kind {}", wire.table_kind))?;
-    let envelope_bytes = base64::engine::general_purpose::STANDARD
-        .decode(wire.payload_ciphertext.as_bytes())
-        .map_err(|e| format!("Invalid payload ciphertext: {e}"))?;
-    let envelope: serde_json::Value = serde_json::from_slice(&envelope_bytes)
-        .map_err(|e| format!("Invalid payload envelope JSON: {e}"))?;
-    let payload_b64 = envelope
-        .get("payload_b64")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing payload_b64 in envelope".to_string())?;
-    let payload = base64::engine::general_purpose::STANDARD
-        .decode(payload_b64.as_bytes())
-        .map_err(|e| format!("Invalid payload_b64: {e}"))?;
 
-    let operation = envelope
-        .get("operation")
-        .and_then(|v| v.as_str())
-        .and_then(parse_operation)
-        .or_else(|| wire.operation.as_deref().and_then(parse_operation_str));
+    let change_id = wire.change_id.clone().unwrap_or_else(|| wire.record_id.clone());
+    let aad = if wire.aad.contains(':') {
+        wire.aad.clone()
+    } else {
+        SyncCrypto::build_aad(
+            account_id,
+            entity_type.as_str(),
+            &wire.record_id,
+            &change_id,
+            wire.key_version,
+        )
+    };
+
+    let (payload, operation) = if let Some(master) = master_key {
+        let record_key = SyncCrypto::derive_record_key(
+            master,
+            wire.key_version,
+            entity_type.as_str(),
+            &wire.record_id,
+            &change_id,
+        );
+        let bytes = SyncCrypto::decrypt_payload(&record_key, &wire.payload_ciphertext, &aad)?;
+        let op = wire.operation.as_deref().and_then(parse_operation);
+        (bytes, op)
+    } else {
+        let envelope_bytes = base64::engine::general_purpose::STANDARD
+            .decode(wire.payload_ciphertext.as_bytes())
+            .map_err(|e| format!("Invalid payload ciphertext: {e}"))?;
+        let envelope: serde_json::Value = serde_json::from_slice(&envelope_bytes)
+            .map_err(|e| format!("Invalid payload envelope JSON: {e}"))?;
+        let payload_b64 = envelope
+            .get("payload_b64")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing payload_b64 in envelope".to_string())?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(payload_b64.as_bytes())
+            .map_err(|e| format!("Invalid payload_b64: {e}"))?;
+        let op = envelope
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .and_then(parse_operation)
+            .or_else(|| wire.operation.as_deref().and_then(parse_operation));
+        (bytes, op)
+    };
 
     Ok(RemoteSyncRecord {
         table_kind: entity_type.into(),
@@ -154,16 +220,10 @@ pub fn decode_remote_record(wire: &WireSyncRecord, seq_number: u64) -> Result<Re
         device_id: wire.device_id.clone(),
         payload,
         operation,
-        base_revision: envelope
-            .get("base_revision")
-            .and_then(|v| v.as_i64())
-            .or(wire.base_revision),
+        base_revision: wire.base_revision,
         seq_number,
+        key_epoch: wire.key_version,
     })
-}
-
-fn parse_operation_str(value: &str) -> Option<SyncOperation> {
-    parse_operation(value)
 }
 
 fn parse_operation(value: &str) -> Option<SyncOperation> {

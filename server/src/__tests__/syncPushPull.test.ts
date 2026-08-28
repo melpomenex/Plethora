@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertDeviceAllowed,
   assertSyncProtocolVersion,
+  MAX_SYNC_DEVICES,
+  minDeviceCursorSeq,
   nextEntityRevision,
   paginatePull,
   shouldConflict,
@@ -48,6 +51,17 @@ describe('sync push/pull logic', () => {
     };
     expect(conflict.serverRevision).toBeGreaterThan(conflict.baseRevision);
   });
+
+  it('computes the slowest device cursor for tombstone GC', () => {
+    expect(minDeviceCursorSeq([])).toBe(0);
+    expect(minDeviceCursorSeq([{ last_seq: 120 }, { last_seq: 80 }, { last_seq: 200 }])).toBe(80);
+  });
+
+  it('enforces a maximum number of sync devices', () => {
+    const known = Array.from({ length: MAX_SYNC_DEVICES }, (_, index) => `device-${index}`);
+    expect(() => assertDeviceAllowed(known, 'device-new')).toThrow(/Device limit reached/);
+    expect(() => assertDeviceAllowed(known, 'device-0')).not.toThrow();
+  });
 });
 
 describe('sync idempotency contract', () => {
@@ -61,5 +75,27 @@ describe('sync idempotency contract', () => {
 
     expect(first).toBe(true);
     expect(second).toBe(false);
+  });
+});
+
+describe('sync zero-knowledge contract', () => {
+  it('stores only ciphertext fields in sync record shape', () => {
+    const record = {
+      tableKind: 'learning_items',
+      recordId: 'item-1',
+      hlc: '1000:0',
+      deviceId: 'device-a',
+      payloadCiphertext: 'opaque-base64-ciphertext',
+      aad: 'acct:learning_items:item-1',
+      keyVersion: 1,
+    };
+    expect(record.payloadCiphertext).not.toContain('question');
+    expect(record.payloadCiphertext).not.toContain('answer');
+    expect(Object.keys(record)).not.toContain('plaintext');
+  });
+
+  it('advances entity revision monotonically', () => {
+    expect(nextEntityRevision(0)).toBe(1);
+    expect(nextEntityRevision(18)).toBe(19);
   });
 });

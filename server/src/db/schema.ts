@@ -296,6 +296,18 @@ CREATE TABLE IF NOT EXISTS sync_device_cursors (
   PRIMARY KEY (user_id, device_id)
 );
 
+CREATE TABLE IF NOT EXISTS blob_objects (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_hash VARCHAR(255) NOT NULL,
+  size_bytes BIGINT NOT NULL DEFAULT 0,
+  storage_key TEXT NOT NULL,
+  content_type VARCHAR(255) NOT NULL DEFAULT 'application/octet-stream',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blob_objects_user ON blob_objects(user_id);
+
 -- API tokens for public cloud API (Proposal 20)
 CREATE TABLE IF NOT EXISTS api_tokens (
   id UUID PRIMARY KEY,

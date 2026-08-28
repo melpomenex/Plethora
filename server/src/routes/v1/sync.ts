@@ -4,18 +4,22 @@ import { z } from 'zod';
 import { getPool } from '../../db/connection.js';
 import { authMiddleware, type AuthRequest } from '../../middleware/auth.js';
 import { AppError } from '../../middleware/error.js';
+import { requireCloudSync } from '../../middleware/requireCloudSync.js';
 import { maybeOffloadSyncPayload, hydrateSyncPayload } from '../../sync/blobStorage.js';
 import {
+  assertDeviceAllowed,
   assertSyncProtocolVersion,
+  minDeviceCursorSeq,
   nextEntityRevision,
   paginatePull,
   shouldConflict,
   SYNC_PROTOCOL_VERSION,
+  TOMBSTONE_RETENTION_DAYS,
 } from '../../sync/pushPullLogic.js';
 
 export const syncRouter = Router();
 
-syncRouter.use(authMiddleware);
+syncRouter.use(authMiddleware, requireCloudSync);
 
 const SyncRecordSchema = z.object({
   tableKind: z.string().min(1),
@@ -69,6 +73,23 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
     const { records } = parse.data;
     const userId = req.userId!;
     const pool = getPool();
+
+    const deviceRows = await pool.query(
+      'SELECT device_id FROM sync_device_cursors WHERE user_id = $1',
+      [userId]
+    );
+    const knownDevices = deviceRows.rows.map((row) => String(row.device_id));
+    for (const rec of records) {
+      try {
+        assertDeviceAllowed(knownDevices, rec.deviceId);
+        if (!knownDevices.includes(rec.deviceId)) {
+          knownDevices.push(rec.deviceId);
+        }
+      } catch (error) {
+        const err = error as Error & { statusCode?: number; code?: string };
+        throw new AppError(err.statusCode || 403, err.code || 'device_limit_reached', err.message);
+      }
+    }
 
     let accepted = 0;
     let latestSeq = 0;
@@ -217,6 +238,21 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : null;
     if (deviceId) {
       await upsertDeviceCursor(userId, deviceId, page.cursor);
+    }
+
+    const cursorRows = await pool.query(
+      'SELECT last_seq FROM sync_device_cursors WHERE user_id = $1',
+      [userId]
+    );
+    const minSeq = minDeviceCursorSeq(cursorRows.rows);
+    if (minSeq > 0) {
+      await pool.query(
+        `DELETE FROM sync_records
+         WHERE user_id = $1
+           AND seq_number <= $2
+           AND created_at < NOW() - INTERVAL '${TOMBSTONE_RETENTION_DAYS} days'`,
+        [userId, minSeq]
+      );
     }
 
     res.json({

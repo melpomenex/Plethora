@@ -123,6 +123,13 @@ impl AuthManager {
             .and_then(|t| t.as_ref().map(|tok| tok.access_token.clone()))
     }
 
+    pub fn get_user_id(&self) -> Option<String> {
+        self.state
+            .read()
+            .ok()
+            .and_then(|state| state.user.as_ref().map(|user| user.id.clone()))
+    }
+
     pub fn set_devices(&self, devices: Vec<DeviceInfo>) {
         if let Ok(mut lock) = self.devices.write() {
             *lock = devices;

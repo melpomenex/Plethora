@@ -9,19 +9,16 @@ platforms:
   - desktop-linux
   - mobile-android
   - mobile-ios
-summary: Yjs CRDT real-time synchronization with client-side AES-GCM encryption over WebSocket relays or self-hosted servers.
-how_to: Open Settings → Sync. Enter your private sync passkey or connect to a custom Yjs relay server. All devices sync automatically.
+summary: Plethora Pro delta sync with client-side AES-GCM encryption over authenticated HTTPS push/pull.
+how_to: Open Settings → Sync. Sign in with Plethora Pro, generate a recovery key, and tap Sync Now.
 why: Knowledge must be accessible everywhere without trusting third-party cloud providers with unencrypted reading materials and personal notes.
 aliases:
   - cloud sync
-  - yjs sync
+  - delta sync
   - end to end encryption
-  - crdt sync
   - cross device sync
 settings:
   - sync.enabled
-  - sync.serverUrl
-  - sync.encryptionKeyHash
 actions:
   - id: settings.sync.cloud
     label: Open Sync Settings
@@ -35,26 +32,21 @@ related:
 # End-to-End Encrypted Cloud Sync
 
 ## Purpose
-Enables real-time, conflict-free synchronization of documents, extracts, flashcards, reading positions, and review histories across all your devices.
+Synchronizes documents, extracts, flashcards, reading positions, and review histories across devices using an encrypted outbox journal and server-side delta storage.
 
 ## User-Facing Behavior
-- Visual sync status indicator in the app header (Green = Synced, Amber = Syncing, Gray = Offline).
-- Seamless background syncing: create a card on your desktop and see it on your phone seconds later.
-- Offline-first: study on an airplane; all offline changes merge cleanly when you reconnect.
+- Sync status in Settings shows pending changes, last sync time, storage usage, and errors.
+- Background sync runs after local edits (debounced), on app resume, when connectivity returns, and on a periodic interval.
+- Offline-first: study offline; changes merge when you reconnect.
 
 ## Exact Behavioral Rules
-1. Uses Yjs Conflict-Free Replicated Data Types (CRDTs) to guarantee zero data loss during concurrent offline edits.
-2. All sync payloads are encrypted on your device with AES-GCM-256 before transmission; the relay server sees only opaque ciphertext.
-3. Delta changes are compressed and synchronized incrementally over secure WebSockets.
+1. Local mutations are journaled in SQLite before commit; sync pushes encrypted deltas in batches.
+2. All sync payloads are encrypted on-device with AES-GCM before upload; the server stores only ciphertext.
+3. Conflicts surface as sync issues with keep mine / keep theirs / keep both resolution.
+4. Plethora Pro entitlement is required; free accounts see an upgrade prompt.
 
 ## Rationale
-Ensures total data privacy and sovereignty while providing modern multi-device convenience.
-
-## Settings & Defaults
-| Key | Default | Description |
-| :--- | :--- | :--- |
-| `sync.enabled` | `false` | Enable cross-device synchronization |
-| `sync.serverUrl` | `""` | Optional remote sync endpoint URL |
+Total data privacy and sovereignty with modern multi-device convenience — without real-time CRDT relays.
 
 ## Platform Behavior
-- **All Platforms**: End-to-end encrypted replication over secure HTTPS.
+- **All Platforms**: Encrypted delta sync over HTTPS to Plethora Cloud (`/v1/sync`, `/v1/blobs`).

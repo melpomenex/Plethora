@@ -2,6 +2,9 @@
 
 use crate::error::{PlethoraError, Result};
 use crate::models::position::{Bookmark, DocumentPosition, ReadingSession};
+use crate::sync::journal::{journal_entity, notify_after_commit};
+use crate::sync::payload;
+use crate::sync::types::{EntityType, SyncOperation};
 use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
@@ -52,6 +55,10 @@ impl PositionService {
             0.0
         };
 
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            PlethoraError::Internal(format!("Failed to begin position transaction: {e}"))
+        })?;
+
         sqlx::query(
             r#"
             UPDATE documents
@@ -62,9 +69,32 @@ impl PositionService {
         .bind(&position_json)
         .bind(progress)
         .bind(document_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| PlethoraError::Internal(format!("Failed to save position: {}", e)))?;
+
+        let item_payload = payload::document_position_payload(
+            document_id,
+            Some(position_json.as_str()),
+            Some(progress as f64),
+            None,
+            None,
+            None,
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Document,
+            document_id,
+            SyncOperation::Update,
+            None,
+            item_payload,
+        )
+        .await?;
+        tx.commit().await.map_err(|e| {
+            PlethoraError::Internal(format!("Failed to commit position transaction: {e}"))
+        })?;
+        notify_after_commit();
 
         Ok(())
     }

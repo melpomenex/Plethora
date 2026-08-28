@@ -451,6 +451,14 @@ API containers remain stateless. No Redis required for initial scale-out (rate l
 
 ---
 
+## Plethora Pro Sync (v2)
+
+Production rollout for encrypted delta sync is documented in [PLETHORA_SYNC_ROLLOUT.md](./PLETHORA_SYNC_ROLLOUT.md).
+
+Required routes: `/v1/sync/*`, `/v1/blobs/*` with `requireCloudSync` middleware. Configure R2 for blob presigned URLs. Client flag `PLETHORA_SYNC_V2` defaults on for Pro when unset.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Check |

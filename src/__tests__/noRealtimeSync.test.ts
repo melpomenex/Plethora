@@ -1,8 +1,7 @@
 /**
  * Guards the local-data-plane contract after the real-time sync removal:
- * no sync subsystem may be reintroduced silently. If a change legitimately
- * needs one of these, it must update this test and the
- * `remove-realtime-sync` OpenSpec change's rationale.
+ * no Yjs/WebSocket sync subsystem may be reintroduced silently. Plethora Pro
+ * v2 delta sync (journal + push/pull) is explicitly allowed.
  */
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -25,7 +24,7 @@ function listSourceFiles(dir: string): string[] {
 }
 
 describe("real-time sync removal", () => {
-  it("has no sync subsystem directories", () => {
+  it("has no Yjs sync subsystem directories", () => {
     expect(existsSync(join(SRC_ROOT, "lib", "sync"))).toBe(false);
     expect(existsSync(join(SRC_ROOT, "components", "sync"))).toBe(false);
     for (const gone of [
@@ -42,7 +41,7 @@ describe("real-time sync removal", () => {
     }
   });
 
-  it("source tree never references the sync relay or yjs transport", () => {
+  it("allows v2 delta sync store but forbids Yjs relay transport", () => {
     const forbidden = [
       "sync.readsync.org",
       "lib/sync/entities",
@@ -59,5 +58,11 @@ describe("real-time sync removal", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("documents v2 delta sync as the supported cloud sync path", () => {
+    const syncStore = readFileSync(join(SRC_ROOT, "stores", "syncStore.ts"), "utf8");
+    expect(syncStore).toContain("sync_run");
+    expect(syncStore).not.toContain("yjsSync");
   });
 });

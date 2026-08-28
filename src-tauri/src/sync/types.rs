@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 pub enum EntityType {
     LearningItem,
     ReviewResult,
+    Document,
+    Extract,
+    Collection,
+    Tag,
+    Setting,
+    Tombstone,
 }
 
 impl EntityType {
@@ -12,6 +18,12 @@ impl EntityType {
         match self {
             EntityType::LearningItem => "learning_item",
             EntityType::ReviewResult => "review_result",
+            EntityType::Document => "document",
+            EntityType::Extract => "extract",
+            EntityType::Collection => "collection",
+            EntityType::Tag => "tag",
+            EntityType::Setting => "setting",
+            EntityType::Tombstone => "tombstone",
         }
     }
 
@@ -19,6 +31,12 @@ impl EntityType {
         match value {
             "learning_item" => Some(EntityType::LearningItem),
             "review_result" => Some(EntityType::ReviewResult),
+            "document" | "documents" => Some(EntityType::Document),
+            "extract" | "extracts" => Some(EntityType::Extract),
+            "collection" | "collections" => Some(EntityType::Collection),
+            "tag" | "tags" => Some(EntityType::Tag),
+            "setting" | "settings" => Some(EntityType::Setting),
+            "tombstone" | "tombstones" => Some(EntityType::Tombstone),
             _ => None,
         }
     }
@@ -101,6 +119,7 @@ pub enum TableKind {
     LearningItems,
     ReviewResults,
     Collections,
+    Tags,
     Settings,
     Tombstones,
 }
@@ -113,6 +132,7 @@ impl TableKind {
             TableKind::LearningItems => "learning_items",
             TableKind::ReviewResults => "review_results",
             TableKind::Collections => "collections",
+            TableKind::Tags => "tags",
             TableKind::Settings => "settings",
             TableKind::Tombstones => "tombstones",
         }
@@ -124,6 +144,12 @@ impl From<EntityType> for TableKind {
         match value {
             EntityType::LearningItem => TableKind::LearningItems,
             EntityType::ReviewResult => TableKind::ReviewResults,
+            EntityType::Document => TableKind::Documents,
+            EntityType::Extract => TableKind::Extracts,
+            EntityType::Collection => TableKind::Collections,
+            EntityType::Tag => TableKind::Tags,
+            EntityType::Setting => TableKind::Settings,
+            EntityType::Tombstone => TableKind::Tombstones,
         }
     }
 }

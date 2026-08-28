@@ -3867,6 +3867,50 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    (
+        "107_plethora_pro_sync_issues_bootstrap",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_issues (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            conflict_kind TEXT NOT NULL DEFAULT 'revision',
+            local_change_id TEXT,
+            remote_hlc TEXT,
+            server_revision INTEGER NOT NULL DEFAULT 0,
+            base_revision INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'open',
+            resolution TEXT,
+            created_at INTEGER NOT NULL,
+            resolved_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_issues_status_created
+            ON sync_issues(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS sync_bootstrap (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            phase TEXT NOT NULL DEFAULT 'idle',
+            cursor_entity TEXT,
+            cursor_id TEXT,
+            total_entities INTEGER NOT NULL DEFAULT 0,
+            completed_entities INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        "#,
+    ),
+    (
+        "108_plethora_pro_sync_telemetry",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_telemetry_created
+            ON sync_telemetry(created_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

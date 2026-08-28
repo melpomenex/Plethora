@@ -42,73 +42,73 @@
 
 ## 3. Phase 2b — Expand entity coverage
 
-- [ ] 3.1 Add `mark_dirty` for documents (metadata + `position_json`)
-- [ ] 3.2 Add `mark_dirty` for extracts, highlights, annotations
-- [ ] 3.3 Add `mark_dirty` for collections, categories, tags, taggings (set-like records)
-- [ ] 3.4 Add `mark_dirty` for whitelisted settings keys (denylist device-local keys)
-- [ ] 3.5 Extend merge.rs for documents, extracts, tags, settings, tombstones
-- [ ] 3.6 Implement `sync_issues` table + non-trivial conflict surfacing (keep mine / theirs / both)
-- [ ] 3.7 Initial sync bootstrap: resumable upload scan of local syncable rows + progress events
-- [ ] 3.8 Initial sync bootstrap: new device download apply path with resumable cursor
-- [ ] 3.9 Server: 90-day tombstone GC by min device cursor
-- [ ] 3.10 Retire mount of legacy `server/src/routes/sync.ts` once v1 parity verified
+- [x] 3.1 Add `mark_dirty` for documents (metadata + `position_json`)
+- [x] 3.2 Add `mark_dirty` for extracts, highlights, annotations
+- [x] 3.3 Add `mark_dirty` for collections, categories, tags, taggings (set-like records)
+- [x] 3.4 Add `mark_dirty` for whitelisted settings keys (denylist device-local keys)
+- [x] 3.5 Extend merge.rs for documents, extracts, tags, settings, tombstones
+- [x] 3.6 Implement `sync_issues` table + non-trivial conflict surfacing (keep mine / theirs / both)
+- [x] 3.7 Initial sync bootstrap: resumable upload scan of local syncable rows + progress events
+- [x] 3.8 Initial sync bootstrap: new device download apply path with resumable cursor
+- [x] 3.9 Server: 90-day tombstone GC by min device cursor
+- [x] 3.10 Retire mount of legacy `server/src/routes/sync.ts` once v1 parity verified
 
 ## 4. Phase 3 — Scheduler, retry, mobile lifecycle
 
-- [ ] 4.1 Implement `scheduler.rs`: debounced post-mutation trigger (PRD §14)
-- [ ] 4.2 Triggers: app foreground, connectivity restored, periodic interval, manual sync invoke
-- [ ] 4.3 Exponential backoff with jitter on failures; reset on network restore (PRD §36)
-- [ ] 4.4 Emit `plethora-sync-status-changed` coarse events to frontend (no per-record React churn)
-- [ ] 4.5 Replace fake `syncStore.syncNow()` with Rust invoke + honest status from worker
-- [ ] 4.6 Update `SyncSettingsPanel`: pending count, last sync, error state, offline state (PRD §34)
-- [ ] 4.7 Mobile: integrate foreground/background hooks (Tauri mobile lifecycle)
-- [ ] 4.8 Mobile: battery/network gates for bulk lane (reuse `battery.rs` patterns)
-- [ ] 4.9 Optional: WebSocket `changes_available` notification → trigger pull (non-required for correctness)
+- [x] 4.1 Implement `scheduler.rs`: debounced post-mutation trigger (PRD §14)
+- [x] 4.2 Triggers: app foreground, connectivity restored, periodic interval, manual sync invoke
+- [x] 4.3 Exponential backoff with jitter on failures; reset on network restore (PRD §36)
+- [x] 4.4 Emit `plethora-sync-status-changed` coarse events to frontend (no per-record React churn)
+- [x] 4.5 Replace fake `syncStore.syncNow()` with Rust invoke + honest status from worker
+- [x] 4.6 Update `SyncSettingsPanel`: pending count, last sync, error state, offline state (PRD §34)
+- [x] 4.7 Mobile: integrate foreground/background hooks (Tauri mobile lifecycle)
+- [x] 4.8 Mobile: battery/network gates for bulk lane (reuse `battery.rs` patterns)
+- [x] 4.9 Optional: WebSocket `changes_available` notification → trigger pull (non-required for correctness)
 
 ## 5. Phase 4 — End-to-end encryption
 
-- [ ] 5.1 Extend `crypto.rs`: RecoveryKey generation (user-display format), HKDF master key, epoch counter
-- [ ] 5.2 Encrypt outbox payload at push boundary; decrypt at pull apply boundary
-- [ ] 5.3 Store master key in platform secure storage (AuthStore namespace) — remove localStorage key storage
-- [ ] 5.4 Pairing flow: QR + 6-digit code; X25519 wrap/unwrap of master key to device public key
-- [ ] 5.5 Device revocation → epoch increment; reject pulls/pushes from old epoch
-- [ ] 5.6 Recovery key UX: one-time display, acknowledgment, restore flow
-- [ ] 5.7 Crypto tests: AAD tamper, epoch rotation, pairing negative cases, recovery restore
-- [ ] 5.8 Server zero-knowledge tests: no plaintext in `sync_records`, logs, or R2 payloads
+- [x] 5.1 Extend `crypto.rs`: RecoveryKey generation (user-display format), HKDF master key, epoch counter
+- [x] 5.2 Encrypt outbox payload at push boundary; decrypt at pull apply boundary
+- [x] 5.3 Store master key in platform secure storage (AuthStore namespace) — remove localStorage key storage
+- [x] 5.4 Pairing flow: QR + 6-digit code; X25519 wrap/unwrap of master key to device public key
+- [x] 5.5 Device revocation → epoch increment; reject pulls/pushes from old epoch
+- [x] 5.6 Recovery key UX: one-time display, acknowledgment, restore flow
+- [x] 5.7 Crypto tests: AAD tamper, epoch rotation, pairing negative cases, recovery restore
+- [x] 5.8 Server zero-knowledge tests: no plaintext in `sync_records`, logs, or R2 payloads
 
 ## 6. Phase 5 — File / blob sync
 
-- [ ] 6.1 Client: SHA-256 hash + `sha256:` reference in document/media metadata records
-- [ ] 6.2 Server: `POST /v1/blobs/check`, `POST /v1/blobs/upload-url`, `GET /v1/blobs/:hash/download-url`
-- [ ] 6.3 Client: presigned direct upload to R2; skip if hash exists
-- [ ] 6.4 Client: lazy download with integrity verify + optional decrypt
-- [ ] 6.5 Connect `file_manifest_entries` (069) to blob pipeline where applicable
-- [ ] 6.6 Server: storage quota accounting (5–10 GB default) + enforcement on upload
-- [ ] 6.7 Settings: storage usage display; Wi‑Fi-only / on-demand download prefs (mobile defaults)
-- [ ] 6.8 Tests: duplicate hash skipped; corrupt download rejected; quota exceeded surfaced
+- [x] 6.1 Client: SHA-256 hash + `sha256:` reference in document/media metadata records
+- [x] 6.2 Server: `POST /v1/blobs/check`, `POST /v1/blobs/upload-url`, `GET /v1/blobs/:hash/download-url`
+- [x] 6.3 Client: presigned direct upload to R2; skip if hash exists
+- [x] 6.4 Client: lazy download with integrity verify + optional decrypt
+- [x] 6.5 Connect `file_manifest_entries` (069) to blob pipeline where applicable
+- [x] 6.6 Server: storage quota accounting (5–10 GB default) + enforcement on upload
+- [x] 6.7 Settings: storage usage display; Wi‑Fi-only / on-demand download prefs (mobile defaults)
+- [x] 6.8 Tests: duplicate hash skipped; corrupt download rejected; quota exceeded surfaced
 
 ## 7. Phase 6 — Pro gating and production hardening
 
-- [ ] 7.1 Server middleware: require `cloud_sync` entitlement on `/v1/sync/*` and blob routes
-- [ ] 7.2 Client: gate sync worker start on Pro entitlement + signed offline grace cache
-- [ ] 7.3 SyncSettings: show upgrade prompt for free users; hide enable toggle without Pro
-- [ ] 7.4 Rate limits: sync requests/min, batch size, payload size (measure, don't guess)
-- [ ] 7.5 Device limit enforcement (if product requires)
-- [ ] 7.6 Pin production deploy docs: env, CORS, feature flag rollout on VPS
+- [x] 7.1 Server middleware: require `cloud_sync` entitlement on `/v1/sync/*` and blob routes
+- [x] 7.2 Client: gate sync worker start on Pro entitlement + signed offline grace cache
+- [x] 7.3 SyncSettings: show upgrade prompt for free users; hide enable toggle without Pro
+- [x] 7.4 Rate limits: sync requests/min, batch size, payload size (measure, don't guess)
+- [x] 7.5 Device limit enforcement (if product requires)
+- [x] 7.6 Pin production deploy docs: env, CORS, feature flag rollout on VPS
 
 ## 8. Phase 7 — Beta gates (PRD §51–52, §66)
 
-- [ ] 8.1 Chaos tests: mid-page pull abort, partial push, dropped responses, clock skew, process crash
-- [ ] 8.2 Memory-bench scenario: 50k outbox backlog PSS ceiling in `scripts/memory-bench/`
-- [ ] 8.3 Performance tests: 1k / 10k / 100k records incremental sync; update baselines if needed
-- [ ] 8.4 Update `noRealtimeSync.test.ts`: document v2 delta sync allowed; Yjs still forbidden
-- [ ] 8.5 Retire or redirect `src-tauri/src/cloud_sync.rs` v2 commands to new engine
-- [ ] 8.6 Update help/docs to describe delta sync (remove Yjs CRDT claims)
-- [ ] 8.7 Privacy-preserving sync telemetry: success rate, duration, conflict count (no plaintext)
+- [x] 8.1 Chaos tests: mid-page pull abort, partial push, dropped responses, clock skew, process crash
+- [x] 8.2 Memory-bench scenario: 50k outbox backlog PSS ceiling in `scripts/memory-bench/`
+- [x] 8.3 Performance tests: 1k / 10k / 100k records incremental sync; update baselines if needed
+- [x] 8.4 Update `noRealtimeSync.test.ts`: document v2 delta sync allowed; Yjs still forbidden
+- [x] 8.5 Retire or redirect `src-tauri/src/cloud_sync.rs` v2 commands to new engine
+- [x] 8.6 Update help/docs to describe delta sync (remove Yjs CRDT claims)
+- [x] 8.7 Privacy-preserving sync telemetry: success rate, duration, conflict count (no plaintext)
 
 ## 9. Phase 8 — GA readiness checklist (PRD §66)
 
-- [ ] 9.1 Walk PRD §66 acceptance criteria; link each to a test or manual verification
-- [ ] 9.2 Enable `PLETHORA_SYNC_V2` by default for Pro users after all gates green
-- [ ] 9.3 Rollback verified: disable flag → local app unchanged, outbox preserved
-- [ ] 9.4 Archive or mark superseded: `implement-plethora-pro-end-to-end-encrypted-cloud-sync`
+- [x] 9.1 Walk PRD §66 acceptance criteria; link each to a test or manual verification
+- [x] 9.2 Enable `PLETHORA_SYNC_V2` by default for Pro users after all gates green
+- [x] 9.3 Rollback verified: disable flag → local app unchanged, outbox preserved
+- [x] 9.4 Archive or mark superseded: `implement-plethora-pro-end-to-end-encrypted-cloud-sync`

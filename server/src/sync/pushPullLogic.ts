@@ -34,3 +34,36 @@ export function shouldConflict(baseRevision: number | undefined, serverRevision:
 export function nextEntityRevision(current: number | null | undefined): number {
   return Math.max(0, Number(current || 0)) + 1;
 }
+
+export const TOMBSTONE_RETENTION_DAYS = 90;
+export const MAX_SYNC_DEVICES = 10;
+
+export function assertDeviceAllowed(
+  knownDeviceIds: string[],
+  incomingDeviceId: string
+): void {
+  if (knownDeviceIds.includes(incomingDeviceId)) {
+    return;
+  }
+  if (knownDeviceIds.length >= MAX_SYNC_DEVICES) {
+    const error = new Error(`Device limit reached (${MAX_SYNC_DEVICES})`);
+    (error as Error & { statusCode: number; code: string }).statusCode = 403;
+    (error as Error & { code: string }).code = 'device_limit_reached';
+    throw error;
+  }
+}
+
+export function minDeviceCursorSeq(
+  rows: Array<{ last_seq?: number | string | null }>
+): number {
+  if (rows.length === 0) {
+    return 0;
+  }
+  return rows.reduce((min, row) => {
+    const value = Number(row.last_seq || 0);
+    if (min === 0) {
+      return value;
+    }
+    return Math.min(min, value);
+  }, 0);
+}

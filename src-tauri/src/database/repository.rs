@@ -6,8 +6,11 @@ use crate::database::{
 };
 use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
+use crate::sync::bootstrap;
+use crate::sync::journal::{journal_entity, notify_after_commit};
 use crate::sync::outbox::{self, learning_item_revision, mark_dirty};
-use crate::sync::payload;
+use crate::sync::payload::{self, delete_payload, timestamp_revision};
+use crate::sync::settings::is_syncable_setting_key;
 use crate::sync::types::{EntityType, SyncOperation};
 use crate::models::{
     Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
@@ -243,6 +246,7 @@ impl Repository {
     ) -> Result<Collection> {
         let collection = Collection::new(name.to_string());
         let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO collections (id, name, icon, color, created_at, modified_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
         )
@@ -252,8 +256,21 @@ impl Repository {
         .bind(color)
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        let item_payload = payload::collection_payload(&collection)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Collection,
+            &collection.id,
+            SyncOperation::Create,
+            Some(0),
+            item_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(collection)
     }
 
@@ -312,15 +329,38 @@ impl Repository {
         let new_name = name.unwrap_or(&existing.name);
         let new_icon = icon.or(existing.icon.as_deref());
         let new_color = color.or(existing.color.as_deref());
+        let now = Utc::now();
 
+        let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE collections SET name = ?1, icon = ?2, color = ?3, modified_at = ?4 WHERE id = ?5")
             .bind(new_name)
             .bind(new_icon)
             .bind(new_color)
-            .bind(Utc::now())
+            .bind(now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        let updated = Collection {
+            name: new_name.to_string(),
+            icon: new_icon.map(str::to_string),
+            color: new_color.map(str::to_string),
+            updated_at: now,
+            ..existing
+        };
+        let item_payload = payload::collection_payload(&updated)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Collection,
+            id,
+            SyncOperation::Update,
+            Some(timestamp_revision(existing.updated_at)),
+            item_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
 
         self.get_collection(id)
             .await?
@@ -360,10 +400,26 @@ impl Repository {
             .await;
         }
 
+        let mut tx = self.pool.begin().await?;
+        let delete_payload = delete_payload("collection", id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Collection,
+            id,
+            SyncOperation::Delete,
+            Some(timestamp_revision(collection.updated_at)),
+            delete_payload,
+        )
+        .await?;
+
         sqlx::query("DELETE FROM collections WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        tx.commit().await?;
+        notify_after_commit();
 
         Ok(())
     }
@@ -457,7 +513,20 @@ impl Repository {
         )
         .await?;
 
+        let item_payload = payload::document_payload(document)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Document,
+            &document.id,
+            SyncOperation::Create,
+            Some(0),
+            item_payload,
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
 
         Ok(document.clone())
     }
@@ -1586,6 +1655,7 @@ impl Repository {
     ) -> Result<Document> {
         let now = Utc::now();
 
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"
             UPDATE documents SET
@@ -1599,12 +1669,38 @@ impl Repository {
         )
         .bind(current_page)
         .bind(current_scroll_percent)
-        .bind(current_cfi)
-        .bind(current_view_state)
+        .bind(&current_cfi)
+        .bind(&current_view_state)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        let position_json: Option<String> =
+            sqlx::query_scalar("SELECT position_json FROM documents WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let item_payload = payload::document_position_payload(
+            id,
+            position_json.as_deref(),
+            None,
+            current_page,
+            current_scroll_percent,
+            current_cfi.as_deref(),
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Document,
+            id,
+            SyncOperation::Update,
+            Some(timestamp_revision(now)),
+            item_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
 
         self.get_document(id)
             .await?
@@ -1758,7 +1854,21 @@ impl Repository {
             .bind(id)
             .execute(&mut *tx)
             .await?;
+
+        let delete_payload = delete_payload("document", id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Document,
+            id,
+            SyncOperation::Delete,
+            None,
+            delete_payload,
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -1854,7 +1964,20 @@ impl Repository {
             .await?;
         }
 
+        let item_payload = payload::extract_payload(extract)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Extract,
+            &extract.id,
+            SyncOperation::Create,
+            Some(0),
+            item_payload,
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
 
         Ok(extract.clone())
     }
@@ -2054,6 +2177,7 @@ impl Repository {
             .map(serde_json::to_string)
             .transpose()?;
 
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"
             UPDATE extracts SET
@@ -2093,8 +2217,22 @@ impl Repository {
                 .transpose()?,
         )
         .bind(&extract.id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        let item_payload = payload::extract_payload(extract)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Extract,
+            &extract.id,
+            SyncOperation::Update,
+            Some(timestamp_revision(extract.date_modified)),
+            item_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
 
         Ok(extract.clone())
     }
@@ -2139,7 +2277,20 @@ impl Repository {
             .execute(&mut *tx)
             .await?;
 
+        let delete_payload = delete_payload("extract", id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Extract,
+            id,
+            SyncOperation::Delete,
+            None,
+            delete_payload,
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2564,6 +2715,7 @@ impl Repository {
         .await?;
 
         tx.commit().await?;
+        notify_after_commit();
 
         Ok(item.clone())
     }
@@ -2692,6 +2844,7 @@ impl Repository {
         }
 
         tx.commit().await?;
+        notify_after_commit();
         Ok(items.to_vec())
     }
 
@@ -2839,6 +2992,7 @@ impl Repository {
         .await?;
 
         tx.commit().await?;
+        notify_after_commit();
 
         Ok(item.clone())
     }
@@ -3416,6 +3570,7 @@ impl Repository {
         .await?;
 
         tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -7688,6 +7843,7 @@ impl Repository {
             let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
                 PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
             })?;
+            let mut tx = self.pool.begin().await?;
             sqlx::query(
                 "UPDATE tags SET prerequisites = ?, maturity_threshold = ?, date_modified = ? WHERE id = ?"
             )
@@ -7695,15 +7851,32 @@ impl Repository {
             .bind(maturity_threshold)
             .bind(&now)
             .bind(&id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await?;
-            self.get_tag(&id).await
+            let tag = self.get_tag(&id).await?.ok_or_else(|| {
+                PlethoraError::NotFound(format!("Tag disappeared after update: {id}"))
+            })?;
+            let item_payload = payload::tag_payload(&tag)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            journal_entity(
+                &mut tx,
+                EntityType::Tag,
+                &id,
+                SyncOperation::Update,
+                bootstrap::revision_from_rfc3339(&tag.date_modified),
+                item_payload,
+            )
+            .await?;
+            tx.commit().await?;
+            notify_after_commit();
+            Ok(tag)
         } else {
             // Create new
             let id = uuid::Uuid::new_v4().to_string();
             let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
                 PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
             })?;
+            let mut tx = self.pool.begin().await?;
             sqlx::query(
                 "INSERT INTO tags (id, name, prerequisites, maturity_threshold, item_count, mature_count, date_created, date_modified)
                  VALUES (?, ?, ?, ?, 0, 0, ?, ?)"
@@ -7714,16 +7887,59 @@ impl Repository {
             .bind(maturity_threshold)
             .bind(&now)
             .bind(&now)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await?;
-            self.get_tag(&id).await
+            let tag = crate::models::Tag {
+                id: id.clone(),
+                name: name.to_string(),
+                prerequisites: prerequisites.to_vec(),
+                maturity_threshold,
+                centroid: None,
+                coherence: None,
+                item_count: 0,
+                avg_stability: None,
+                mature_count: 0,
+                date_created: now.clone(),
+                date_modified: now,
+            };
+            let item_payload = payload::tag_payload(&tag)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            journal_entity(
+                &mut tx,
+                EntityType::Tag,
+                &id,
+                SyncOperation::Create,
+                Some(0),
+                item_payload,
+            )
+            .await?;
+            tx.commit().await?;
+            notify_after_commit();
+            Ok(tag)
         }
     }
 
     pub async fn delete_tag(&self, tag_id: &str) -> Result<()> {
+        let tag = self.get_tag(tag_id).await?.ok_or_else(|| {
+            PlethoraError::NotFound(format!("Tag not found: {tag_id}"))
+        })?;
+
+        let mut tx = self.pool.begin().await?;
+        let delete_payload = delete_payload("tag", tag_id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Tag,
+            tag_id,
+            SyncOperation::Delete,
+            bootstrap::revision_from_rfc3339(&tag.date_modified),
+            delete_payload,
+        )
+        .await?;
+
         let rows = sqlx::query("DELETE FROM tags WHERE id = ?")
             .bind(tag_id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await?
             .rows_affected();
 
@@ -7732,6 +7948,9 @@ impl Repository {
                 "Tag not found: {tag_id}"
             )));
         }
+
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -7781,7 +8000,22 @@ impl Repository {
 
     /// Generic setting setter (key-value store)
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        if !is_syncable_setting_key(key) {
+            let now = Utc::now().to_rfc3339();
+            sqlx::query(
+                "INSERT INTO settings (key, value, date_modified) VALUES (?, ?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, date_modified = excluded.date_modified"
+            )
+            .bind(key)
+            .bind(value)
+            .bind(&now)
+            .execute(&self.pool)
+            .await?;
+            return Ok(());
+        }
+
         let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO settings (key, value, date_modified) VALUES (?, ?, ?)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, date_modified = excluded.date_modified"
@@ -7789,8 +8023,22 @@ impl Repository {
         .bind(key)
         .bind(value)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+
+        let item_payload = payload::setting_payload(key, value)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Setting,
+            key,
+            SyncOperation::Update,
+            None,
+            item_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 

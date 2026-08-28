@@ -7,7 +7,6 @@ pub struct EntitySpec {
     pub merge_strategy: MergeStrategy,
 }
 
-/// MVP Phase 1 registry — expand in Phase 2b.
 pub fn entity_spec(entity_type: EntityType) -> Option<EntitySpec> {
     Some(match entity_type {
         EntityType::LearningItem => EntitySpec {
@@ -17,6 +16,18 @@ pub fn entity_spec(entity_type: EntityType) -> Option<EntitySpec> {
         EntityType::ReviewResult => EntitySpec {
             entity_type,
             merge_strategy: MergeStrategy::AppendOnly,
+        },
+        EntityType::Document | EntityType::Extract | EntityType::Setting => EntitySpec {
+            entity_type,
+            merge_strategy: MergeStrategy::FieldLww,
+        },
+        EntityType::Collection | EntityType::Tag => EntitySpec {
+            entity_type,
+            merge_strategy: MergeStrategy::SetLike,
+        },
+        EntityType::Tombstone => EntitySpec {
+            entity_type,
+            merge_strategy: MergeStrategy::FieldLww,
         },
     })
 }

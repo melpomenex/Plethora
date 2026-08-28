@@ -304,4 +304,25 @@ mod tests {
         let pending = count_pending(&pool).await.expect("pending");
         assert_eq!(pending, 0);
     }
+
+    #[tokio::test]
+    async fn large_outbox_backlog_count_query_scales() {
+        let pool = test_pool().await;
+        for index in 0..500 {
+            let mut tx = pool.begin().await.expect("begin");
+            mark_dirty(
+                &mut tx,
+                EntityType::LearningItem,
+                &format!("item-{index}"),
+                SyncOperation::Update,
+                Some(0),
+                br#"{"id":"x"}"#.to_vec(),
+            )
+            .await
+            .expect("mark dirty");
+            tx.commit().await.expect("commit");
+        }
+        let count = count_pending(&pool).await.expect("count");
+        assert_eq!(count, 500);
+    }
 }
