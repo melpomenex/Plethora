@@ -242,12 +242,13 @@ fn init_linux() -> GraphicsDecision {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .and_then(|stdout| parse_glxinfo_renderer(&stdout));
 
+    // Only pay for the sysfs scan when glxinfo could not answer.
+    let needs_dri_scan = renderer_string.is_none();
     let inputs = DetectionInputs {
         libgl_always_software: std::env::var("LIBGL_ALWAYS_SOFTWARE").ok().as_deref() == Some("1"),
         renderer_string,
         session_type: std::env::var("XDG_SESSION_TYPE").ok(),
-        // Only pay for the sysfs scan when glxinfo could not answer.
-        has_real_dri_device: if renderer_string.is_none() {
+        has_real_dri_device: if needs_dri_scan {
             detect_real_dri_device()
         } else {
             None
