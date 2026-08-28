@@ -4,6 +4,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::Emitter;
 
+mod cloud;
+pub use cloud::AuthSessionJson;
+
 /// Change F §2.2 — the fabricated mock sign-in must never exist in store
 /// (App Store distribution) builds. Development and sideload builds keep it,
 /// with credentials explicitly labeled `dev-mock-*`. Real credential
@@ -192,6 +195,26 @@ pub fn account_sign_in(
 
     auth.set_signed_in(user, tokens, device_id);
     Ok(auth.get_state())
+}
+
+#[tauri::command]
+pub async fn account_auth_register(
+    email: String,
+    password: String,
+    device_name: Option<String>,
+    platform: Option<String>,
+) -> Result<AuthSessionJson, String> {
+    cloud::register_account(email, password, device_name, platform).await
+}
+
+#[tauri::command]
+pub async fn account_auth_login(
+    email: String,
+    password: String,
+    device_name: Option<String>,
+    platform: Option<String>,
+) -> Result<AuthSessionJson, String> {
+    cloud::login_account(email, password, device_name, platform).await
 }
 
 #[tauri::command]

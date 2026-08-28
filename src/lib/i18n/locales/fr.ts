@@ -3036,6 +3036,10 @@ export const fr: Dict = {
   "userProfile.proBenefits":
     "Débloquez la recherche sémantique sur toute la bibliothèque, la synchronisation cloud zero-knowledge, le tutorat socratique par IA, la transcription diarisée et les voix neuronales de livres audio.",
   "userProfile.upgradeNow": "Passer maintenant",
+  "userProfile.sessionTitle": "Session du compte",
+  "userProfile.sessionDescription":
+    "Actualisez votre offre après une mise à niveau, ou déconnectez-vous pour changer de compte.",
+  "userProfile.refreshPlanStatus": "Actualiser l’offre",
   "userProfile.upgradeToPro": "Passer au forfait Pro",
   "videoExtract.addBtn": "Ajouter",
   "videoExtract.addTag": "Ajouter un tag...",

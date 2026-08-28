@@ -2424,6 +2424,8 @@ pub fn run() {
             // Plethora Auth commands
             plethora_auth::account_get_state,
             plethora_auth::account_sign_in,
+            plethora_auth::account_auth_register,
+            plethora_auth::account_auth_login,
             plethora_auth::account_sync_session,
             plethora_auth::account_sign_out,
             plethora_auth::account_refresh,

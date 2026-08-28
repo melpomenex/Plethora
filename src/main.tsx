@@ -406,6 +406,22 @@ runAfterFirstPaint(() => {
     .catch((error) => console.error('[billing] startup init failed:', error));
 });
 
+// Restore native auth + refresh entitlements after zustand rehydrates persisted tokens.
+runAfterFirstPaint(() => {
+  import("./stores/accountStore")
+    .then(({ useAccountStore }) => {
+      const bootstrapAccount = () => {
+        void useAccountStore.getState().init();
+      };
+      if (useAccountStore.persist.hasHydrated()) {
+        bootstrapAccount();
+      } else {
+        useAccountStore.persist.onFinishHydration(bootstrapAccount);
+      }
+    })
+    .catch((error) => console.error("[account] startup init failed:", error));
+});
+
 // One-time removal of real-time-sync residue (y-indexeddb databases, stale
 // localStorage keys) on installs that predate the sync removal.
 runAfterFirstPaint(() => {
