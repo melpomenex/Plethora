@@ -95,8 +95,10 @@ import {
   ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY,
   buildAssistantMessageFlashcardRequest,
   canCreateFlashcardsFromMessage,
+  getFlashcardIneligibilityReason,
   captureDocumentContext,
   type CapturedDocumentContext,
+  ASSISTANT_MESSAGE_FLASHCARD_UNAVAILABLE_KEY,
 } from "../../features/assistant/assistantMessageFlashcards";
 
 export interface AssistantContext {
@@ -1296,7 +1298,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   };
 
   const handleCreateFlashcardsFromMessage = (sourceMessage: Message) => {
-    if (!canCreateFlashcardsFromMessage(sourceMessage)) return;
+    const ineligibility = getFlashcardIneligibilityReason(sourceMessage);
+    if (ineligibility) {
+      toast.info(
+        t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY),
+        t(ASSISTANT_MESSAGE_FLASHCARD_UNAVAILABLE_KEY),
+      );
+      return;
+    }
     if (isLoading || flashcardGeneratingMessageId === sourceMessage.id) return;
 
     const { requestContent, sourceContent } = buildAssistantMessageFlashcardRequest(sourceMessage.content);
@@ -2707,6 +2716,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               onClick: () => handleCopyMessage(targetMessage),
             },
             {
+              id: "create-flashcards-from-message",
+              label: t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY),
+              icon: <Brain className="w-4 h-4" />,
+              disabled: !canCreateFlashcardsFromMessage(targetMessage),
+              onClick: () => handleCreateFlashcardsFromMessage(targetMessage),
+            },
+            {
               id: "share-message",
               label: "Share / Export",
               icon: <ShareNetwork className="w-4 h-4" />,
@@ -3285,9 +3301,9 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 )}
               </div>
 
-              {/* Message Actions - assistant messages (Flashcards only on eligible answers) */}
+              {/* Message Actions - always visible on assistant answers */}
               {message.role === "assistant" && (
-                <div className="flex items-center gap-1 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
+                <div className="flex items-center gap-0.5 mt-1 opacity-100 transition-opacity motion-reduce:transition-none">
                   <button
                     type="button"
                     onClick={() => handleCopyMessage(message)}
@@ -3301,22 +3317,29 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       <Copy className="w-3 h-3" />
                     )}
                   </button>
-                  {canCreateFlashcardsFromMessage(message) && (
-                    <button
-                      type="button"
-                      onClick={() => handleCreateFlashcardsFromMessage(message)}
-                      disabled={isLoading || flashcardGeneratingMessageId === message.id}
-                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded disabled:opacity-50 disabled:pointer-events-none"
-                      aria-label={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
-                      title={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
-                    >
-                      {flashcardGeneratingMessageId === message.id ? (
-                        <CircleNotch className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Brain className="w-3 h-3" />
-                      )}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleCreateFlashcardsFromMessage(message)}
+                    disabled={
+                      !canCreateFlashcardsFromMessage(message)
+                      || isLoading
+                      || flashcardGeneratingMessageId === message.id
+                    }
+                    className="inline-flex items-center gap-1 px-1.5 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded disabled:opacity-40 disabled:pointer-events-none"
+                    aria-label={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
+                    title={
+                      canCreateFlashcardsFromMessage(message)
+                        ? t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)
+                        : t(ASSISTANT_MESSAGE_FLASHCARD_UNAVAILABLE_KEY)
+                    }
+                  >
+                    {flashcardGeneratingMessageId === message.id ? (
+                      <CircleNotch className="w-3.5 h-3.5 animate-spin text-purple-500" />
+                    ) : (
+                      <Brain className="w-3.5 h-3.5 text-purple-500" weight="duotone" />
+                    )}
+                    <span className="text-[11px] font-medium leading-none">Flashcards</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleShareMessage(message)}

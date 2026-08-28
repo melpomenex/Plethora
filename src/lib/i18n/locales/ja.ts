@@ -641,6 +641,7 @@ export const ja: Dict = {
   "assistant.createExtract": "選択範囲から抽出を作成",
   "assistant.createFlashcard": "Q&A カードを作成",
   "assistant.createFlashcardsFromResponse": "この回答からフラッシュカードを作成",
+  "assistant.createFlashcardsFromResponseUnavailable": "このメッセージからフラッシュカードを作成できません。",
   "assistant.getDueItems": "期限の復習項目を取得",
   "assistant.selectionTruncated": "選択範囲を切り詰めました",
   "assistant.selectionTruncatedDesc": "選択したテキストがコンテキストの上限を超えていたため、切り詰めました。",

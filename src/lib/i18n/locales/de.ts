@@ -646,6 +646,7 @@ export const de: Dict = {
   "assistant.createExtract": "Auszug aus Auswahl erstellen",
   "assistant.createFlashcard": "Frage-Antwort-Karteikarte erstellen",
   "assistant.createFlashcardsFromResponse": "Karteikarten aus dieser Antwort erstellen",
+  "assistant.createFlashcardsFromResponseUnavailable": "Aus dieser Nachricht können keine Karteikarten erstellt werden.",
   "assistant.getDueItems": "Fällige Wiederholungselemente abrufen",
   "assistant.selectionTruncated": "Auswahl gekürzt",
   "assistant.selectionTruncatedDesc": "Der ausgewählte Text war länger als das Kontextbudget und wurde daher gekürzt.",

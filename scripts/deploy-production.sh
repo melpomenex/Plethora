@@ -15,7 +15,6 @@ cd "$ROOT"
 ENV_FILE="${ENV_FILE:-.env.production}"
 COMPOSE_FILE="${COMPOSE_FILE:-compose.production.yml}"
 SKIP_MIGRATE="${SKIP_MIGRATE:-0}"
-READINESS_URL="${READINESS_URL:-https://${PLETHORA_API_HOST:-localhost}/ready}"
 READINESS_TIMEOUT="${READINESS_TIMEOUT:-120}"
 
 log() { echo "[deploy] $*"; }
@@ -34,6 +33,8 @@ set +a
 [[ -n "${DATABASE_URL:-}" ]] || fail "DATABASE_URL is not set in $ENV_FILE"
 [[ -n "${JWT_SECRET:-}" ]] || fail "JWT_SECRET is not set in $ENV_FILE"
 [[ -n "${PLETHORA_API_HOST:-}" ]] || fail "PLETHORA_API_HOST is not set in $ENV_FILE"
+
+READINESS_URL="${READINESS_URL:-https://${PLETHORA_API_HOST}/ready}"
 
 if [[ "${PLETHORA_ENV:-production}" == "production" ]]; then
   [[ -n "${S3_ENDPOINT:-}" && -n "${S3_BUCKET:-}" && -n "${S3_ACCESS_KEY_ID:-}" && -n "${S3_SECRET_ACCESS_KEY:-}" ]] \

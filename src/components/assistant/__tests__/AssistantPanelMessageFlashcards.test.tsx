@@ -122,15 +122,17 @@ describe("AssistantPanel message flashcard action", () => {
     );
 
     expect(screen.getByRole("button", { name: /create flashcards from this response/i })).toBeInTheDocument();
+    expect(screen.getByText("Flashcards")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /copy to clipboard/i, hidden: false })).toBeTruthy();
   });
 
-  it("does not show Flashcards on confirmation messages", () => {
+  it("shows disabled Flashcards on confirmation messages", () => {
     seedConversation([
       { id: "assistant-confirm-1", role: "assistant", content: "Created 2 flashcards and saved to your library.", timestamp: 1 },
     ]);
     render(<AssistantPanel context={{ type: "document", documentId: "doc-1" }} />);
-    expect(screen.queryByRole("button", { name: /create flashcards from this response/i })).not.toBeInTheDocument();
+    const button = screen.getByRole("button", { name: /create flashcards from this response/i });
+    expect(button).toBeDisabled();
   });
 
   it("uses the clicked older assistant message as source with empty history", async () => {
@@ -222,13 +224,14 @@ describe("AssistantPanel message flashcard action", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
   });
 
-  it("action row is visible without hover-only opacity on small screens", () => {
+  it("action row is always visible on assistant messages", () => {
     seedConversation([
       { id: "assistant-1", role: "assistant", content: "Visible actions test.", timestamp: 1 },
     ], "general");
     const { container } = render(<AssistantPanel />);
-    const actionRow = container.querySelector('[class*="opacity-100"][class*="sm:opacity-0"]');
+    const actionRow = container.querySelector(".opacity-100.transition-opacity");
     expect(actionRow).toBeTruthy();
+    expect(screen.getByText("Flashcards")).toBeInTheDocument();
   });
 
   it("normal composer send still works", async () => {
