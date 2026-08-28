@@ -3824,6 +3824,49 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    // Migration 106: Plethora Pro v2 sync local journal (PRD §10).
+    // Recreates sync bookkeeping dropped in 087_drop_sync_tables using the
+    // delta-log/outbox model — no Yjs tables.
+    Migration::new(
+        "106_plethora_pro_sync_journal",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_outbox (
+            change_id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            base_revision INTEGER,
+            payload BLOB NOT NULL,
+            hlc TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at INTEGER,
+            sync_status TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_status_created
+            ON sync_outbox(sync_status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity
+            ON sync_outbox(entity_type, entity_id, sync_status);
+
+        CREATE TABLE IF NOT EXISTS sync_cursor (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_server_cursor INTEGER NOT NULL DEFAULT 0,
+            last_successful_sync INTEGER,
+            device_id TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_clock (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            logical_time INTEGER NOT NULL DEFAULT 0,
+            last_physical_ms INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4328,6 +4371,22 @@ mod tests {
                 .await
                 .expect("check table does not exist");
             assert_eq!(count, 0, "table {table} should be dropped");
+        }
+    }
+
+    #[tokio::test]
+    async fn migration_106_creates_sync_journal_tables() {
+        let pool = pool_migrated_up_to("105_transcription_checkpoints").await;
+        run_migrations(&pool).await.expect("apply migration 106");
+
+        for table in ["sync_outbox", "sync_cursor", "sync_clock", "sync_meta"] {
+            let (count,): (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("table lookup");
+            assert_eq!(count, 1, "table {table} should exist");
         }
     }
 

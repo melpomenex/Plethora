@@ -1,5 +1,98 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityType {
+    LearningItem,
+    ReviewResult,
+}
+
+impl EntityType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityType::LearningItem => "learning_item",
+            EntityType::ReviewResult => "review_result",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "learning_item" => Some(EntityType::LearningItem),
+            "review_result" => Some(EntityType::ReviewResult),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncOperation {
+    Create,
+    Update,
+    Delete,
+    AppendEvent,
+}
+
+impl SyncOperation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncOperation::Create => "create",
+            SyncOperation::Update => "update",
+            SyncOperation::Delete => "delete",
+            SyncOperation::AppendEvent => "append_event",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeStrategy {
+    FieldLww,
+    AppendOnly,
+    SetLike,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncOutboxStatus {
+    Pending,
+    Uploading,
+    Acknowledged,
+    Failed,
+}
+
+impl SyncOutboxStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncOutboxStatus::Pending => "pending",
+            SyncOutboxStatus::Uploading => "uploading",
+            SyncOutboxStatus::Acknowledged => "acknowledged",
+            SyncOutboxStatus::Failed => "failed",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(SyncOutboxStatus::Pending),
+            "uploading" => Some(SyncOutboxStatus::Uploading),
+            "acknowledged" => Some(SyncOutboxStatus::Acknowledged),
+            "failed" => Some(SyncOutboxStatus::Failed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OutboxEntry {
+    pub change_id: String,
+    pub entity_type: EntityType,
+    pub entity_id: String,
+    pub operation: SyncOperation,
+    pub base_revision: Option<i64>,
+    pub payload: Vec<u8>,
+    pub hlc: String,
+    pub created_at: i64,
+    pub sync_status: SyncOutboxStatus,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum TableKind {
@@ -10,6 +103,29 @@ pub enum TableKind {
     Collections,
     Settings,
     Tombstones,
+}
+
+impl TableKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TableKind::Documents => "documents",
+            TableKind::Extracts => "extracts",
+            TableKind::LearningItems => "learning_items",
+            TableKind::ReviewResults => "review_results",
+            TableKind::Collections => "collections",
+            TableKind::Settings => "settings",
+            TableKind::Tombstones => "tombstones",
+        }
+    }
+}
+
+impl From<EntityType> for TableKind {
+    fn from(value: EntityType) -> Self {
+        match value {
+            EntityType::LearningItem => TableKind::LearningItems,
+            EntityType::ReviewResult => TableKind::ReviewResults,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

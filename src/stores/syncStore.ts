@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { invoke, isTauri } from '../lib/tauri';
-import { PLETHORA_API_URL } from '../config/product';
-import { useAccountStore } from './accountStore';
 
 export interface SyncStatusState {
   isSyncing: boolean;
@@ -59,30 +57,21 @@ export const useSyncStore = create<SyncStatusState>()(
         set({ isSyncing: true, error: null });
         try {
           if (isTauri()) {
-            await invoke('sync_push');
-            await invoke('sync_pull', { cursor: 0 });
+            const push = await invoke<{ accepted: number; latest_seq: number }>('sync_run');
+            await useSyncStore.getState().init();
+            set({
+              isSyncing: false,
+              lastSyncedAt: new Date().toISOString(),
+              error: null,
+            });
+            return (push?.accepted ?? 0) >= 0;
           }
 
-          const tokens = useAccountStore.getState().tokens;
-          if (tokens?.accessToken) {
-            await fetch(`${PLETHORA_API_URL}/v1/sync/push`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${tokens.accessToken}`,
-              },
-              body: JSON.stringify({ records: [] }),
-            }).catch(() => {});
-          }
-
-          const now = new Date().toISOString();
           set({
             isSyncing: false,
-            lastSyncedAt: now,
-            pendingOutboxCount: 0,
-            error: null,
+            error: 'Sync requires the Plethora desktop app.',
           });
-          return true;
+          return false;
         } catch (err) {
           set({
             isSyncing: false,

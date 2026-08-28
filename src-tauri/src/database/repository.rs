@@ -6,6 +6,9 @@ use crate::database::{
 };
 use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
+use crate::sync::outbox::{self, learning_item_revision, mark_dirty};
+use crate::sync::payload;
+use crate::sync::types::{EntityType, SyncOperation};
 use crate::models::{
     Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
     ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
@@ -2548,6 +2551,18 @@ impl Repository {
             .await?;
         }
 
+        let item_payload = payload::learning_item_payload(item)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Create,
+            Some(0),
+            item_payload,
+        )
+        .await?;
+
         tx.commit().await?;
 
         Ok(item.clone())
@@ -2662,6 +2677,18 @@ impl Repository {
                 )
                 .await?;
             }
+
+            let item_payload = payload::learning_item_payload(item)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            mark_dirty(
+                &mut tx,
+                EntityType::LearningItem,
+                &item.id,
+                SyncOperation::Create,
+                Some(0),
+                item_payload,
+            )
+            .await?;
         }
 
         tx.commit().await?;
@@ -2761,6 +2788,12 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
+        let base_revision = learning_item_revision(item.updated_at.as_ref());
+        let item_payload = payload::learning_item_payload(item)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r#"
             UPDATE learning_items SET
@@ -2792,8 +2825,20 @@ impl Repository {
         .bind(&tags_json)
         .bind(item.difficulty)
         .bind(item.first_reviewed_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            base_revision,
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
 
         Ok(item.clone())
     }
@@ -3245,6 +3290,133 @@ impl Repository {
             None,
         )
         .await
+    }
+
+    /// Atomically persist a standard (non-Arena) review, scheduling update, and sync journal rows.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn commit_standard_review(
+        &self,
+        item: &LearningItem,
+        review_result_id: &str,
+        session_id: Option<&str>,
+        rating: i32,
+        time_taken: i32,
+        reviewed_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<()> {
+        let state_str = format!("{:?}", item.state).to_lowercase();
+        let tags_json = serde_json::to_string(&item.tags)?;
+        let interaction_metadata_json = item
+            .interaction_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let (stability, difficulty) = item
+            .memory_state
+            .as_ref()
+            .map(|s| (Some(s.stability), Some(s.difficulty)))
+            .unwrap_or((None, None));
+        let reviewed_at_ms = reviewed_at.timestamp_millis();
+        let base_revision = learning_item_revision(item.updated_at.as_ref());
+
+        let mut tx = self.pool.begin().await?;
+        let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO review_results (
+                id, collection_id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp,
+                device_id, reviewed_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "#,
+        )
+        .bind(review_result_id)
+        .bind(&item.collection_id)
+        .bind(session_id)
+        .bind(&item.id)
+        .bind(rating)
+        .bind(time_taken)
+        .bind(item.due_date)
+        .bind(item.interval)
+        .bind(item.ease_factor)
+        .bind(reviewed_at)
+        .bind(&device_id)
+        .bind(reviewed_at_ms)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE learning_items SET
+                due_date = ?1, interval = ?2, ease_factor = ?3,
+                state = ?4, review_count = ?5, lapses = ?6,
+                last_review_date = ?7, date_modified = ?8,
+                memory_state_stability = ?9, memory_state_difficulty = ?10,
+                interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
+                updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17,
+                first_reviewed_at = COALESCE(first_reviewed_at, ?18)
+            WHERE id = ?11
+            "#,
+        )
+        .bind(item.due_date)
+        .bind(item.interval)
+        .bind(item.ease_factor)
+        .bind(&state_str)
+        .bind(item.review_count)
+        .bind(item.lapses)
+        .bind(item.last_review_date)
+        .bind(item.date_modified)
+        .bind(stability)
+        .bind(difficulty)
+        .bind(&item.id)
+        .bind(&interaction_metadata_json)
+        .bind(&item.algorithm_type)
+        .bind(&item.algorithm_state)
+        .bind(&item.updated_at)
+        .bind(&tags_json)
+        .bind(item.difficulty)
+        .bind(item.first_reviewed_at)
+        .execute(&mut *tx)
+        .await?;
+
+        let review_payload = payload::review_result_payload(
+            review_result_id,
+            &item.id,
+            &item.collection_id,
+            rating,
+            time_taken,
+            &item.due_date,
+            item.interval,
+            item.ease_factor,
+            reviewed_at_ms,
+            &device_id,
+            session_id,
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::ReviewResult,
+            review_result_id,
+            SyncOperation::AppendEvent,
+            None,
+            review_payload,
+        )
+        .await?;
+
+        let item_payload = payload::learning_item_payload(item)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            base_revision,
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Create a review result with optional Algorithm Arena decision provenance.

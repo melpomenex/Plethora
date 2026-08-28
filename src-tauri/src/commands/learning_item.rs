@@ -5,6 +5,8 @@ use crate::database::{find_node_id_in_tx, unlink_node_in_tx, ElementKind, Reposi
 use crate::error::{PlethoraError, Result};
 use crate::generator::LearningItemGenerator;
 use crate::models::{ItemState, ItemType, LearningItem};
+use crate::sync::outbox::mark_dirty;
+use crate::sync::types::{EntityType, SyncOperation};
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use tauri::State;
@@ -455,6 +457,24 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         .execute(&mut *transaction)
         .await?;
     }
+
+    let delete_payload = serde_json::json!({
+        "schema_version": 1,
+        "entity_type": "learning_item",
+        "id": item_id,
+        "deleted_at": chrono::Utc::now().to_rfc3339(),
+    });
+    mark_dirty(
+        &mut transaction,
+        EntityType::LearningItem,
+        &item_id,
+        SyncOperation::Delete,
+        crate::sync::outbox::learning_item_revision(item.updated_at.as_ref()),
+        serde_json::to_vec(&delete_payload)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?,
+    )
+    .await?;
+
     transaction.commit().await?;
     Ok(())
 }

@@ -271,6 +271,22 @@ CREATE TABLE IF NOT EXISTS sync_records (
 CREATE INDEX IF NOT EXISTS idx_sync_records_user_seq ON sync_records(user_id, seq_number);
 CREATE INDEX IF NOT EXISTS idx_sync_records_dedupe ON sync_records(user_id, device_id, hlc);
 
+CREATE TABLE IF NOT EXISTS processed_changes (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  change_id VARCHAR(255) NOT NULL,
+  processed_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, change_id)
+);
+
+CREATE TABLE IF NOT EXISTS entity_revisions (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type VARCHAR(100) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  revision BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, entity_type, entity_id)
+);
+
 -- Sync device cursors
 CREATE TABLE IF NOT EXISTS sync_device_cursors (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -2421,6 +2421,7 @@ pub fn run() {
             // Plethora Auth commands
             plethora_auth::account_get_state,
             plethora_auth::account_sign_in,
+            plethora_auth::account_sync_session,
             plethora_auth::account_sign_out,
             plethora_auth::account_refresh,
             plethora_auth::account_list_devices,
@@ -2433,6 +2434,7 @@ pub fn run() {
             sync::sync_get_status,
             sync::sync_push,
             sync::sync_pull,
+            sync::sync_run,
             sync::sync_generate_recovery_key,
         ])
         .build(tauri::generate_context!())

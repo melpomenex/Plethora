@@ -1,5 +1,7 @@
 # Change: Implement Plethora Pro End-to-End Encrypted Cloud Sync
 
+> **Superseded for delivery tracking** by `implement-plethora-pro-sync-from-prd` (Aug 2026). That change resets honest task status against `docs/sync.prd` and the current codebase audit. Architecture here remains a useful reference; do not treat `tasks.md` in this folder as complete.
+
 > Wave 2 — Cloud Capabilities (critical path). Hard-depends on proposals 3 (accounts/devices) and 5 (cloud service framework). Capability: `cloud_sync`.
 
 ## Why

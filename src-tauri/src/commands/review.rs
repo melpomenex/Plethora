@@ -525,17 +525,13 @@ pub async fn apply_review(
         item.first_reviewed_at = Some(Utc::now());
     }
 
-    repo.update_learning_item(&item).await?;
-    repo.create_review_result(
+    repo.commit_standard_review(
+        &item,
         &review_result_id,
-        &item.collection_id,
         session_id,
-        item_id,
         rating,
         time_taken,
-        &item.due_date,
-        item.interval,
-        item.ease_factor,
+        now,
     )
     .await?;
 
