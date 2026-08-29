@@ -10,6 +10,19 @@ import { browserInvoke } from './browser-backend.js';
 
 declare const __PLETHORA_RUNTIME_TARGET__: string | undefined;
 
+type WindowWithTauriInternals = Window & {
+  __TAURI_INTERNALS__?: {
+    invoke?: (cmd: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    convertFileSrc?: (path: string, protocol?: string) => string;
+  };
+};
+
+function tauriInternalsInvoke(): WindowWithTauriInternals['__TAURI_INTERNALS__']['invoke'] | null {
+  if (typeof window === 'undefined') return null;
+  const invoke = (window as WindowWithTauriInternals).__TAURI_INTERNALS__?.invoke;
+  return typeof invoke === 'function' ? invoke.bind((window as WindowWithTauriInternals).__TAURI_INTERNALS__) : null;
+}
+
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 let tauriApiLoadPromise: Promise<void> | null = null;
 let backendReadyPromise: Promise<void> | null = null;
@@ -124,7 +137,13 @@ export function isTauri(): boolean {
   }
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname } = window.location;
-    if (protocol === 'tauri:' || hostname === 'tauri.localhost') {
+    if (
+      protocol === 'tauri:' ||
+      protocol === 'asset:' ||
+      hostname === 'tauri.localhost' ||
+      hostname === 'asset.localhost' ||
+      hostname === 'ipc.localhost'
+    ) {
       return true;
     }
   }
@@ -290,6 +309,16 @@ export function isPWA(): boolean {
  */
 async function loadTauriAPI(): Promise<void> {
   if (tauriInvoke !== null || !isTauri()) {
+    return;
+  }
+
+  const internalsInvoke = tauriInternalsInvoke();
+  if (internalsInvoke) {
+    tauriInvoke = internalsInvoke;
+    const convertFileSrc = (window as WindowWithTauriInternals).__TAURI_INTERNALS__?.convertFileSrc;
+    if (typeof convertFileSrc === 'function') {
+      tauriConvertFileSrc = convertFileSrc.bind((window as WindowWithTauriInternals).__TAURI_INTERNALS__);
+    }
     return;
   }
 
