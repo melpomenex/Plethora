@@ -153,7 +153,7 @@ authRouter.post('/login', async (req, res: Response, next) => {
     }
 
     // Resolve device identity
-    let activeDeviceId = incomingDeviceId;
+    let activeDeviceId: string | undefined = incomingDeviceId ?? undefined;
     if (activeDeviceId) {
       const dev = await pool.query('SELECT id, revoked_at FROM devices WHERE id = $1 AND user_id = $2', [
         activeDeviceId,
