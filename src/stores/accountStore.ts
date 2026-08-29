@@ -141,7 +141,10 @@ export const useAccountStore = create<AccountStoreState>()(
             const data = await invoke<AuthSessionPayload>('account_auth_login', {
               email,
               password,
-              device_name: deviceName,
+              // Tauri commands camel-case Rust argument names by default.
+              // `device_name` is the Rust identifier, but the IPC key is
+              // `deviceName` unless the command opts into snake_case.
+              deviceName,
               platform: 'desktop',
             });
             normalized = await syncNativeSession(data);
@@ -196,7 +199,7 @@ export const useAccountStore = create<AccountStoreState>()(
             const data = await invoke<AuthSessionPayload>('account_auth_register', {
               email,
               password,
-              device_name: deviceName,
+              deviceName,
               platform: 'desktop',
             });
             normalized = await syncNativeSession(data);

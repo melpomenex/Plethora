@@ -2,11 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAccountStore } from '../accountStore';
 import { useDocumentStore } from '../documentStore';
 
+const tauriMocks = vi.hoisted(() => ({
+  isTauri: false,
+  invoke: vi.fn(),
+}));
+
 vi.mock('../../lib/tauri', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/tauri')>();
   return {
     ...actual,
-    isTauri: () => false,
+    isTauri: () => tauriMocks.isTauri,
+    invoke: tauriMocks.invoke,
   };
 });
 
@@ -49,6 +55,8 @@ function stubLoginSuccess() {
 }
 
 beforeEach(() => {
+  tauriMocks.isTauri = false;
+  tauriMocks.invoke.mockReset();
   localStorage.clear();
   useAccountStore.setState({
     isAuthenticated: false,
@@ -58,6 +66,53 @@ beforeEach(() => {
     deviceId: null,
     loading: false,
     error: null,
+  });
+});
+
+describe('Native account auth IPC contract', () => {
+  function stubNativeAuth() {
+    tauriMocks.isTauri = true;
+    tauriMocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'account_auth_login' || command === 'account_auth_register') {
+        return {
+          user: { id: 'u-native', email: 'native@example.com', subscriptionTier: 'pro' },
+          tokens: { accessToken: 'access-native', refreshToken: 'refresh-native', expiresIn: 900 },
+          device: { id: 'dev-native' },
+        };
+      }
+      if (command === 'account_list_devices') return [];
+      return {};
+    });
+  }
+
+  it('uses Tauri camelCase command arguments for login', async () => {
+    stubNativeAuth();
+
+    await useAccountStore.getState().signIn('native@example.com', 'password123', 'MacBook');
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith('account_auth_login', {
+      email: 'native@example.com',
+      password: 'password123',
+      deviceName: 'MacBook',
+      platform: 'desktop',
+    });
+    expect(tauriMocks.invoke).not.toHaveBeenCalledWith(
+      'account_auth_login',
+      expect.objectContaining({ device_name: expect.anything() })
+    );
+  });
+
+  it('uses Tauri camelCase command arguments for registration', async () => {
+    stubNativeAuth();
+
+    await useAccountStore.getState().register('native@example.com', 'password123', 'Linux PC');
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith('account_auth_register', {
+      email: 'native@example.com',
+      password: 'password123',
+      deviceName: 'Linux PC',
+      platform: 'desktop',
+    });
   });
 });
 
