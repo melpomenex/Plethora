@@ -14,8 +14,8 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:d69e5cb2b45978f2a2e9bd1070f3201d78f4fee70f3e19c6a1a6363f8c76a085",
-  "generatedAt": "2026-08-28T17:10:40.810Z",
+  "corpusHash": "sha256:25b0fb91fb4c33e83b07a651ea82d849e7075831d616fe741da8b0c8dd9213b3",
+  "generatedAt": "2026-08-29T02:13:43.320Z",
   "totalDocs": 75,
   "totalChunks": 226,
   "aliasMap": {
@@ -346,9 +346,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "credit protection": "security.privacy_toggle",
     "end-to-end encrypted cloud sync": "sync.yjs_cloud",
     "cloud sync": "sync.yjs_cloud",
-    "yjs sync": "sync.yjs_cloud",
+    "delta sync": "sync.yjs_cloud",
     "end to end encryption": "sync.yjs_cloud",
-    "crdt sync": "sync.yjs_cloud",
     "cross device sync": "sync.yjs_cloud",
     "100+ themes & custom fonts": "settings.themes",
     "themes": "settings.themes",
@@ -3407,20 +3406,17 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "mobile-android",
         "mobile-ios"
       ],
-      "summary": "Yjs CRDT real-time synchronization with client-side AES-GCM encryption over WebSocket relays or self-hosted servers.",
-      "how_to": "Open Settings → Sync. Enter your private sync passkey or connect to a custom Yjs relay server. All devices sync automatically.",
+      "summary": "Plethora Pro delta sync with client-side AES-GCM encryption over authenticated HTTPS push/pull.",
+      "how_to": "Open Settings → Sync. Sign in with Plethora Pro, generate a recovery key, and tap Sync Now.",
       "why": "Knowledge must be accessible everywhere without trusting third-party cloud providers with unencrypted reading materials and personal notes.",
       "aliases": [
         "cloud sync",
-        "yjs sync",
+        "delta sync",
         "end to end encryption",
-        "crdt sync",
         "cross device sync"
       ],
       "settings": [
-        "sync.enabled",
-        "sync.serverUrl",
-        "sync.encryptionKeyHash"
+        "sync.enabled"
       ],
       "actions": [
         {
@@ -3437,12 +3433,11 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "filePath": "docs/product/features/settings/encrypted-sync.md",
       "sections": {
         "intro": "# End-to-End Encrypted Cloud Sync",
-        "Purpose": "Enables real-time, conflict-free synchronization of documents, extracts, flashcards, reading positions, and review histories across all your devices.",
-        "User-Facing Behavior": "- Visual sync status indicator in the app header (Green = Synced, Amber = Syncing, Gray = Offline).\n- Seamless background syncing: create a card on your desktop and see it on your phone seconds later.\n- Offline-first: study on an airplane; all offline changes merge cleanly when you reconnect.",
-        "Exact Behavioral Rules": "1. Uses Yjs Conflict-Free Replicated Data Types (CRDTs) to guarantee zero data loss during concurrent offline edits.\n2. All sync payloads are encrypted on your device with AES-GCM-256 before transmission; the relay server sees only opaque ciphertext.\n3. Delta changes are compressed and synchronized incrementally over secure WebSockets.",
-        "Rationale": "Ensures total data privacy and sovereignty while providing modern multi-device convenience.",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `sync.enabled` | `false` | Enable cross-device synchronization |\n| `sync.serverUrl` | `\"\"` | Optional remote sync endpoint URL |",
-        "Platform Behavior": "- **All Platforms**: End-to-end encrypted replication over secure HTTPS."
+        "Purpose": "Synchronizes documents, extracts, flashcards, reading positions, and review histories across devices using an encrypted outbox journal and server-side delta storage.",
+        "User-Facing Behavior": "- Sync status in Settings shows pending changes, last sync time, storage usage, and errors.\n- Background sync runs after local edits (debounced), on app resume, when connectivity returns, and on a periodic interval.\n- Offline-first: study offline; changes merge when you reconnect.",
+        "Exact Behavioral Rules": "1. Local mutations are journaled in SQLite before commit; sync pushes encrypted deltas in batches.\n2. All sync payloads are encrypted on-device with AES-GCM before upload; the server stores only ciphertext.\n3. Conflicts surface as sync issues with keep mine / keep theirs / keep both resolution.\n4. Plethora Pro entitlement is required; free accounts see an upgrade prompt.",
+        "Rationale": "Total data privacy and sovereignty with modern multi-device convenience — without real-time CRDT relays.",
+        "Platform Behavior": "- **All Platforms**: Encrypted delta sync over HTTPS to Plethora Cloud (`/v1/sync`, `/v1/blobs`)."
       }
     },
     {
@@ -10549,23 +10544,19 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "End-to-End Encrypted Cloud Sync",
       "domain": "settings",
       "section": "Summary & How-To",
-      "content": "Title: End-to-End Encrypted Cloud Sync\nDomain: settings\nSummary: Yjs CRDT real-time synchronization with client-side AES-GCM encryption over WebSocket relays or self-hosted servers.\nHow to use: Open Settings → Sync. Enter your private sync passkey or connect to a custom Yjs relay server. All devices sync automatically.\nRationale: Knowledge must be accessible everywhere without trusting third-party cloud providers with unencrypted reading materials and personal notes.\nAliases: cloud sync, yjs sync, end to end encryption, crdt sync, cross device sync\nSettings: sync.enabled, sync.serverUrl, sync.encryptionKeyHash",
+      "content": "Title: End-to-End Encrypted Cloud Sync\nDomain: settings\nSummary: Plethora Pro delta sync with client-side AES-GCM encryption over authenticated HTTPS push/pull.\nHow to use: Open Settings → Sync. Sign in with Plethora Pro, generate a recovery key, and tap Sync Now.\nRationale: Knowledge must be accessible everywhere without trusting third-party cloud providers with unencrypted reading materials and personal notes.\nAliases: cloud sync, delta sync, end to end encryption, cross device sync\nSettings: sync.enabled",
       "aliases": [
         "cloud sync",
-        "yjs sync",
+        "delta sync",
         "end to end encryption",
-        "crdt sync",
         "cross device sync"
       ],
       "tags": [
         "settings",
         "sync.enabled",
-        "sync.serverUrl",
-        "sync.encryptionKeyHash",
         "cloud sync",
-        "yjs sync",
+        "delta sync",
         "end to end encryption",
-        "crdt sync",
         "cross device sync"
       ],
       "platforms": [
@@ -10590,12 +10581,11 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "End-to-End Encrypted Cloud Sync › Behavioral Rules",
       "domain": "settings",
       "section": "Exact Behavioral Rules",
-      "content": "1. Uses Yjs Conflict-Free Replicated Data Types (CRDTs) to guarantee zero data loss during concurrent offline edits.\n2. All sync payloads are encrypted on your device with AES-GCM-256 before transmission; the relay server sees only opaque ciphertext.\n3. Delta changes are compressed and synchronized incrementally over secure WebSockets.",
+      "content": "1. Local mutations are journaled in SQLite before commit; sync pushes encrypted deltas in batches.\n2. All sync payloads are encrypted on-device with AES-GCM before upload; the server stores only ciphertext.\n3. Conflicts surface as sync issues with keep mine / keep theirs / keep both resolution.\n4. Plethora Pro entitlement is required; free accounts see an upgrade prompt.",
       "aliases": [
         "cloud sync",
-        "yjs sync",
+        "delta sync",
         "end to end encryption",
-        "crdt sync",
         "cross device sync"
       ],
       "tags": [
@@ -10624,12 +10614,11 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "End-to-End Encrypted Cloud Sync › Purpose & Rationale",
       "domain": "settings",
       "section": "Rationale",
-      "content": "Ensures total data privacy and sovereignty while providing modern multi-device convenience.",
+      "content": "Total data privacy and sovereignty with modern multi-device convenience — without real-time CRDT relays.",
       "aliases": [
         "cloud sync",
-        "yjs sync",
+        "delta sync",
         "end to end encryption",
-        "crdt sync",
         "cross device sync"
       ],
       "tags": [
