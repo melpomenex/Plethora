@@ -8,6 +8,8 @@
 
 import { browserInvoke } from './browser-backend.js';
 
+declare const __PLETHORA_RUNTIME_TARGET__: string | undefined;
+
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 let tauriApiLoadPromise: Promise<void> | null = null;
 let backendReadyPromise: Promise<void> | null = null;
@@ -112,9 +114,20 @@ function coerceError(err: unknown, context?: string): Error {
 }
 
 /**
- * Check if running in Tauri environment
+ * Check if running in Tauri environment.
+ * Bundled desktop/mobile builds set __PLETHORA_RUNTIME_TARGET__=tauri at compile
+ * time; rely on that when WebView globals are not injected yet.
  */
 export function isTauri(): boolean {
+  if (typeof __PLETHORA_RUNTIME_TARGET__ !== 'undefined' && __PLETHORA_RUNTIME_TARGET__ === 'tauri') {
+    return true;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const { protocol, hostname } = window.location;
+    if (protocol === 'tauri:' || hostname === 'tauri.localhost') {
+      return true;
+    }
+  }
   return (
     "__TAURI_INTERNALS__" in window ||
     "__TAURI__" in window ||
