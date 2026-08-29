@@ -4,6 +4,14 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __PLETHORA_RUNTIME_TARGET__: JSON.stringify("web"),
+    __PLETHORA_BUILD_PROFILE__: JSON.stringify("development"),
+    __PLETHORA_APP_VERSION__: JSON.stringify("0.0.0-test"),
+    __PLETHORA_GIT_SHA__: JSON.stringify("test"),
+    __PLETHORA_BUILD_ID__: JSON.stringify("test"),
+    __PWA_MODE__: JSON.stringify(false),
+  },
   test: {
     globals: true,
     environment: "jsdom",
