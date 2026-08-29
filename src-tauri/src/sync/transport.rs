@@ -1,9 +1,21 @@
 use crate::error::{PlethoraError, Result};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 
 use super::wire::{
     PullResponseBody, PushRequestBody, PushResponseBody, WireSyncRecord, SYNC_PROTOCOL_VERSION,
 };
+
+fn stale_key_epoch_from_body(body: &str) -> Option<u32> {
+    let payload: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error = payload.get("error")?;
+    if error.get("code")?.as_str()? != "stale_key_epoch" {
+        return None;
+    }
+
+    let message = error.get("message")?.as_str()?;
+    let account_suffix = message.rsplit_once("(account ")?.1;
+    account_suffix.strip_suffix(')')?.parse().ok()
+}
 
 pub fn api_base_url() -> String {
     std::env::var("PLETHORA_API_URL")
@@ -58,6 +70,9 @@ pub async fn push_records(
         .map_err(|e| PlethoraError::Internal(format!("Sync pull response read failed: {e}")))?;
 
     if !status.is_success() {
+        if let Some(account_epoch) = stale_key_epoch_from_body(&body) {
+            return Err(PlethoraError::StaleSyncKeyEpoch { account_epoch });
+        }
         return Err(PlethoraError::Internal(format!(
             "Sync push failed ({status}): {body}"
         )));
@@ -118,7 +133,12 @@ pub async fn pull_page(
         }
     }
 
-    Ok((records, parsed.cursor, parsed.has_more, parsed.account_key_epoch))
+    Ok((
+        records,
+        parsed.cursor,
+        parsed.has_more,
+        parsed.account_key_epoch,
+    ))
 }
 
 pub async fn increment_sync_epoch(access_token: &str) -> Result<u32> {
@@ -175,4 +195,26 @@ pub async fn revoke_sync_device(access_token: &str, sync_device_id: &str) -> Res
         .get("accountKeyEpoch")
         .and_then(|v| v.as_u64())
         .unwrap_or(1) as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stale_key_epoch_from_body;
+
+    #[test]
+    fn parses_account_epoch_from_stale_key_response() {
+        let body = r#"{"error":{"code":"stale_key_epoch","message":"Stale sync key epoch 1 (account 2)","retryable":false}}"#;
+        assert_eq!(stale_key_epoch_from_body(body), Some(2));
+    }
+
+    #[test]
+    fn ignores_other_or_malformed_api_errors() {
+        assert_eq!(
+            stale_key_epoch_from_body(
+                r#"{"error":{"code":"device_revoked","message":"Device revoked"}}"#
+            ),
+            None
+        );
+        assert_eq!(stale_key_epoch_from_body("not json"), None);
+    }
 }

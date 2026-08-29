@@ -117,6 +117,9 @@ pub enum PlethoraError {
     #[error("Sync error: {0}")]
     SyncError(String),
 
+    #[error("Sync key epoch is stale; account requires epoch {account_epoch}")]
+    StaleSyncKeyEpoch { account_epoch: u32 },
+
     #[error("Shell error: {0}")]
     ShellError(String),
 }
@@ -187,6 +190,10 @@ impl serde::Serialize for PlethoraError {
             Self::IntegrationError(msg) => ("integration_error", msg.clone()),
             Self::IntegrationAuthError(msg) => ("integration_auth_error", msg.clone()),
             Self::SyncError(msg) => ("sync_error", msg.clone()),
+            Self::StaleSyncKeyEpoch { account_epoch } => (
+                "stale_sync_key_epoch",
+                format!("Sync key epoch is stale; account requires epoch {account_epoch}"),
+            ),
             Self::ShellError(msg) => ("shell_error", msg.clone()),
         };
 

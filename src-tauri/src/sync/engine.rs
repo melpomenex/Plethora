@@ -52,48 +52,56 @@ pub async fn push_outbox(
     tx.commit().await?;
 
     let master_key = require_master_key().await?;
-    let key_epoch = get_key_epoch().await?;
+    let mut key_epoch = get_key_epoch().await?;
     let account = require_account_id(auth).await?;
 
     let mut total_accepted = 0usize;
     let mut latest_seq = get_server_cursor(repo.pool()).await?;
 
-    loop {
+    'outer: loop {
         let batch = drain_pending_batch(repo.pool(), MAX_PUSH_RECORDS).await?;
         if batch.is_empty() {
             break;
         }
 
-        let mut wire_batch = Vec::new();
-        let mut change_ids = Vec::new();
-        let mut batch_bytes = 0usize;
+        let mut stale_epoch_retries = 0;
+        let (response, change_ids) = loop {
+            let mut wire_batch = Vec::new();
+            let mut change_ids = Vec::new();
+            let mut batch_bytes = 0usize;
 
-        for entry in batch {
-            let wire = outbox_entry_to_wire(
-                &entry,
-                &device_id,
-                &account,
-                Some(&master_key),
-                key_epoch,
-            )
-            .map_err(PlethoraError::Internal)?;
-            let wire_size = wire.payload_ciphertext.len() + wire.aad.len() + 64;
-            if !wire_batch.is_empty()
-                && (wire_batch.len() >= MAX_PUSH_RECORDS
-                    || batch_bytes.saturating_add(wire_size) > super::wire::MAX_PUSH_BYTES)
-            {
-                break;
+            for entry in &batch {
+                let wire =
+                    outbox_entry_to_wire(entry, &device_id, &account, Some(&master_key), key_epoch)
+                        .map_err(PlethoraError::Internal)?;
+                let wire_size = wire.payload_ciphertext.len() + wire.aad.len() + 64;
+                if !wire_batch.is_empty()
+                    && (wire_batch.len() >= MAX_PUSH_RECORDS
+                        || batch_bytes.saturating_add(wire_size) > super::wire::MAX_PUSH_BYTES)
+                {
+                    break;
+                }
+                batch_bytes = batch_bytes.saturating_add(wire_size);
+                change_ids.push(entry.change_id.clone());
+                wire_batch.push(wire);
             }
-            batch_bytes = batch_bytes.saturating_add(wire_size);
-            change_ids.push(entry.change_id);
-            wire_batch.push(wire);
-        }
 
-        if wire_batch.is_empty() {
-            break;
-        }
+            if wire_batch.is_empty() {
+                break 'outer;
+            }
 
-        let response = push_records(&access_token, wire_batch).await?;
+            match push_records(&access_token, wire_batch).await {
+                Ok(response) => break (response, change_ids),
+                Err(PlethoraError::StaleSyncKeyEpoch { account_epoch })
+                    if account_epoch > key_epoch && stale_epoch_retries < 2 =>
+                {
+                    set_key_epoch(account_epoch).await?;
+                    key_epoch = account_epoch;
+                    stale_epoch_retries += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         total_accepted += response.accepted;
         latest_seq = latest_seq.max(response.latest_seq);
 
@@ -169,14 +177,9 @@ pub async fn pull_remote(
 
         for (wire, seq_number) in page {
             page_max_seq = page_max_seq.max(seq_number);
-            let remote = decode_remote_record(
-                &wire,
-                seq_number,
-                &account,
-                Some(&master_key),
-                local_epoch,
-            )
-            .map_err(PlethoraError::Internal)?;
+            let remote =
+                decode_remote_record(&wire, seq_number, &account, Some(&master_key), local_epoch)
+                    .map_err(PlethoraError::Internal)?;
             apply_remote_record(&mut tx, &local_device_id, &remote).await?;
 
             applied_records.push(SyncRecord {
