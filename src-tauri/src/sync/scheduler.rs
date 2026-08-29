@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
+use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
-use tokio::task::JoinHandle;
 
 use super::engine::run_sync_cycle;
 use super::flags::sync_v2_enabled;
@@ -84,7 +84,11 @@ pub fn request_background_sync(fast_lane: bool) {
         handle.abort();
     }
 
-    *guard = Some(tokio::spawn(async move {
+    // This function is also called by synchronous Tauri commands and desktop
+    // lifecycle callbacks, which are not guaranteed to run inside Tokio's
+    // entered context. Use Tauri's global runtime handle so opening sync
+    // settings or restoring the network cannot panic with "no reactor".
+    *guard = Some(tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(if fast_lane { 1 } else { 2 })).await;
         if let Err(message) = run_scheduled_sync(&app, fast_lane).await {
             let engine = app.state::<Arc<SyncEngine>>();
@@ -102,7 +106,7 @@ fn start_periodic_sync(app: AppHandle) {
     if guard.is_some() {
         return;
     }
-    *guard = Some(tokio::spawn(async move {
+    *guard = Some(tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(300));
         loop {
             interval.tick().await;
@@ -186,4 +190,27 @@ async fn run_scheduled_sync(app: &AppHandle, fast_lane: bool) -> Result<(), Stri
 
     let _ = app.emit("plethora-sync-status-changed", engine.get_status());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn tauri_runtime_spawn_is_safe_without_entered_tokio_context() {
+        let (tx, rx) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                let _ = tx.send(());
+            });
+        })
+        .join()
+        .expect("caller thread should not panic while scheduling");
+
+        rx.recv_timeout(Duration::from_secs(2))
+            .expect("scheduled task should run on Tauri's runtime");
+    }
 }
