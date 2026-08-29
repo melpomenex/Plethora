@@ -41,19 +41,19 @@ function generateTokens(userId: string, sessionId: string, deviceId?: string) {
 const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  deviceName: z.string().optional(),
-  platform: z.string().optional(),
-  publicKey: z.string().optional(),
-  marketingOptIn: z.boolean().optional(),
+  deviceName: z.string().nullish(),
+  platform: z.string().nullish(),
+  publicKey: z.string().nullish(),
+  marketingOptIn: z.boolean().nullish(),
 });
 
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string(),
-  deviceId: z.string().uuid().optional(),
-  deviceName: z.string().optional(),
-  platform: z.string().optional(),
-  publicKey: z.string().optional(),
+  deviceId: z.string().uuid().nullish(),
+  deviceName: z.string().nullish(),
+  platform: z.string().nullish(),
+  publicKey: z.string().nullish(),
 });
 
 const RefreshSchema = z.object({

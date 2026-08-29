@@ -58,6 +58,27 @@ fn parse_api_error(body: &str, status: reqwest::StatusCode) -> String {
     format!("Auth request failed ({status})")
 }
 
+fn auth_request_body(
+    email: &str,
+    password: &str,
+    device_name: Option<String>,
+    platform: Option<String>,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    body.insert("email".into(), json!(email));
+    body.insert("password".into(), json!(password));
+    body.insert(
+        "platform".into(),
+        json!(platform.unwrap_or_else(|| "desktop".to_string())),
+    );
+    // Omit absent device names — serde_json::json!(None) becomes null, and the
+    // API's Zod schemas reject null for optional string fields.
+    if let Some(name) = device_name.filter(|value| !value.trim().is_empty()) {
+        body.insert("deviceName".into(), json!(name));
+    }
+    Value::Object(body)
+}
+
 async fn post_auth(path: &str, payload: Value) -> Result<AuthSessionJson, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(AUTH_TIMEOUT_SECS))
@@ -97,16 +118,7 @@ pub async fn register_account(
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Result<AuthSessionJson, String> {
-    post_auth(
-        "register",
-        json!({
-            "email": email,
-            "password": password,
-            "deviceName": device_name,
-            "platform": platform.unwrap_or_else(|| "desktop".to_string()),
-        }),
-    )
-    .await
+    post_auth("register", auth_request_body(&email, &password, device_name, platform)).await
 }
 
 pub async fn login_account(
@@ -115,16 +127,7 @@ pub async fn login_account(
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Result<AuthSessionJson, String> {
-    post_auth(
-        "login",
-        json!({
-            "email": email,
-            "password": password,
-            "deviceName": device_name,
-            "platform": platform.unwrap_or_else(|| "desktop".to_string()),
-        }),
-    )
-    .await
+    post_auth("login", auth_request_body(&email, &password, device_name, platform)).await
 }
 
 #[cfg(test)]
@@ -136,5 +139,33 @@ mod tests {
         let body = r#"{"error":{"code":"invalid_credentials","message":"Invalid email or password"}}"#;
         let msg = parse_api_error(body, reqwest::StatusCode::UNAUTHORIZED);
         assert_eq!(msg, "Invalid email or password");
+    }
+
+    #[test]
+    fn auth_request_body_omits_null_device_name() {
+        let body = auth_request_body(
+            "user@example.com",
+            "password123",
+            None,
+            Some("desktop".to_string()),
+        );
+        let obj = body.as_object().expect("object payload");
+        assert!(!obj.contains_key("deviceName"));
+        assert_eq!(obj.get("platform").and_then(Value::as_str), Some("desktop"));
+    }
+
+    #[test]
+    fn auth_request_body_includes_device_name_when_present() {
+        let body = auth_request_body(
+            "user@example.com",
+            "password123",
+            Some("Linux Desktop".to_string()),
+            None,
+        );
+        let obj = body.as_object().expect("object payload");
+        assert_eq!(
+            obj.get("deviceName").and_then(Value::as_str),
+            Some("Linux Desktop")
+        );
     }
 }
