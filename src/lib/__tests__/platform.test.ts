@@ -198,6 +198,20 @@ describe("native mobile detection", () => {
     expect(tauri.getFormFactor()).toBe("desktop");
   });
 
+  it("detects bundled macOS webview URLs served from asset.localhost", async () => {
+    applyWindowState({
+      internals: false,
+      osPlugin: null,
+      userAgent: "Mozilla/5.0 (Macintosh) AppleWebKit",
+    });
+    Object.defineProperty(window, "location", {
+      value: { protocol: "https:", hostname: "asset.localhost", href: "https://asset.localhost/" },
+      configurable: true,
+    });
+    const tauri = await loadFresh();
+    expect(tauri.isTauri()).toBe(true);
+  });
+
   it("returns null nativePlatform in a plain browser (no Tauri OS plugin)", async () => {
     applyWindowState({
       internals: false,

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { invoke, isTauri } from '../lib/tauri';
+import { isTauriRuntimeTarget } from '../lib/runtimeTarget';
 import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
 import { useEntitlementStore } from './entitlementStore';
 
@@ -97,8 +98,18 @@ async function syncNativeSession(data: AuthSessionPayload) {
   return normalized;
 }
 
+function usesNativeCloudAuth(): boolean {
+  return isTauriRuntimeTarget() || isTauri();
+}
+
 function authErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof TypeError) {
+    if (usesNativeCloudAuth()) {
+      const detail = err.message?.trim();
+      return detail
+        ? `Native cloud auth failed (${detail}). Try restarting the app.`
+        : 'Native cloud auth failed. Try restarting the app.';
+    }
     return 'Could not reach Plethora cloud. Check your connection and try again.';
   }
   if (err instanceof Error && err.message) {
@@ -126,11 +137,11 @@ export const useAccountStore = create<AccountStoreState>()(
           }
 
           let normalized;
-          if (isTauri()) {
+          if (usesNativeCloudAuth()) {
             const data = await invoke<AuthSessionPayload>('account_auth_login', {
               email,
               password,
-              deviceName,
+              device_name: deviceName,
               platform: 'desktop',
             });
             normalized = await syncNativeSession(data);
@@ -181,11 +192,11 @@ export const useAccountStore = create<AccountStoreState>()(
           }
 
           let normalized;
-          if (isTauri()) {
+          if (usesNativeCloudAuth()) {
             const data = await invoke<AuthSessionPayload>('account_auth_register', {
               email,
               password,
-              deviceName,
+              device_name: deviceName,
               platform: 'desktop',
             });
             normalized = await syncNativeSession(data);
