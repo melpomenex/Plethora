@@ -1057,4 +1057,402 @@ mod tests {
         assert!(hlc_gt("100:2", "100:1"));
         assert!(!hlc_gt("100:1", "100:2"));
     }
+
+    async fn merge_test_pool() -> sqlx::Pool<Sqlite> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("memory db");
+        crate::database::migrations::run_migrations(&pool)
+            .await
+            .expect("migrations");
+        pool
+    }
+
+    fn remote_record(
+        entity_type: EntityType,
+        record_id: &str,
+        operation: SyncOperation,
+        hlc: &str,
+        device_id: &str,
+        payload: Vec<u8>,
+        seq: u64,
+    ) -> RemoteSyncRecord {
+        RemoteSyncRecord {
+            table_kind: entity_type.into(),
+            entity_type,
+            record_id: record_id.to_string(),
+            hlc: hlc.to_string(),
+            device_id: device_id.to_string(),
+            payload,
+            operation: Some(operation),
+            base_revision: None,
+            entity_revision: Some(seq as i64),
+            seq_number: seq,
+            key_epoch: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn independently_imported_same_document_dedupes_to_one_local_row() {
+        let pool = merge_test_pool().await;
+        let mut local = crate::models::Document::new(
+            "Local title".into(),
+            "/home/user/local.pdf".into(),
+            crate::models::FileType::Pdf,
+        );
+        local.id = "local-doc".into();
+        local.content = Some("same document body".into());
+        local.content_hash = Some("sha256:strong-content-id".into());
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_document(&mut tx, &local)
+            .await
+            .expect("local doc");
+        tx.commit().await.expect("commit");
+
+        let mut remote = local.clone();
+        remote.id = "remote-doc".into();
+        remote.title = "Remote title".into();
+        remote.file_path = "/other/device/book.pdf".into();
+        let payload = super::super::payload::document_payload(&remote).expect("payload");
+        let record = remote_record(
+            EntityType::Document,
+            &remote.id,
+            SyncOperation::Update,
+            "2000:0",
+            "remote-device",
+            payload,
+            1,
+        );
+
+        let mut tx = pool.begin().await.expect("begin");
+        let outcome = apply_remote_record(&mut tx, "local-device", &record)
+            .await
+            .expect("apply");
+        assert_eq!(outcome, ApplyOutcome::Applied);
+        tx.commit().await.expect("commit");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM documents")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+
+        let alias: String = sqlx::query_scalar(
+            "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = 'document' AND source_id = 'remote-doc'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("alias");
+        assert_eq!(alias, "local-doc");
+
+        let path: String = sqlx::query_scalar("SELECT file_path FROM documents WHERE id = 'local-doc'")
+            .fetch_one(&pool)
+            .await
+            .expect("path");
+        assert_eq!(path, "/home/user/local.pdf", "remote device path must not overwrite local path");
+    }
+
+    #[tokio::test]
+    async fn disjoint_card_fields_merge_and_same_field_uses_deterministic_clock() {
+        let pool = merge_test_pool().await;
+        let mut item = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "local question".into(),
+        );
+        item.id = "item-merge".into();
+        item.answer = Some("local answer".into());
+        item.due_date = chrono::Utc::now();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &item)
+            .await
+            .expect("item");
+        super::super::full_state::record_field_groups(
+            &mut tx,
+            "learning_item",
+            &item.id,
+            "2000:0",
+            "local-device",
+            &["content".to_string()],
+        )
+        .await
+        .expect("local content clock");
+        tx.commit().await.expect("commit");
+
+        let mut scheduled = item.clone();
+        scheduled.interval = 14.0;
+        scheduled.due_date = chrono::Utc::now() + chrono::Duration::days(14);
+        let schedule_payload =
+            super::super::payload::learning_item_payload_with_fields(&scheduled, &["schedule"])
+                .expect("schedule payload");
+        let schedule_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "1500:0",
+            "remote-a",
+            schedule_payload,
+            1,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &schedule_record)
+                .await
+                .expect("schedule apply"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let stale_content = {
+            let mut value = scheduled.clone();
+            value.question = "stale remote question".into();
+            value
+        };
+        let stale_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "1900:0",
+            "remote-b",
+            super::super::payload::learning_item_payload_with_fields(&stale_content, &["content"])
+                .expect("content payload"),
+            2,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &stale_record)
+                .await
+                .expect("stale content"),
+            ApplyOutcome::SkippedOlder
+        );
+        tx.commit().await.expect("commit");
+
+        let row = sqlx::query("SELECT question, interval FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("item state");
+        assert_eq!(sqlx::Row::get::<String, _>(&row, "question"), "local question");
+        assert_eq!(sqlx::Row::get::<f64, _>(&row, "interval"), 14.0);
+
+        let mut newer_content = scheduled.clone();
+        newer_content.question = "new remote question".into();
+        let newer_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "2100:0",
+            "remote-c",
+            super::super::payload::learning_item_payload_with_fields(&newer_content, &["content"])
+                .expect("new content payload"),
+            3,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &newer_record)
+                .await
+                .expect("new content"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let row = sqlx::query("SELECT question, interval FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("merged state");
+        assert_eq!(sqlx::Row::get::<String, _>(&row, "question"), "new remote question");
+        assert_eq!(sqlx::Row::get::<f64, _>(&row, "interval"), 14.0);
+    }
+
+    #[tokio::test]
+    async fn tombstone_blocks_late_offline_update_until_explicit_recreate() {
+        let pool = merge_test_pool().await;
+        let mut item = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "question".into(),
+        );
+        item.id = "item-delete".into();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &item)
+            .await
+            .expect("item");
+        tx.commit().await.expect("commit");
+
+        let delete = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Delete,
+            "3000:0",
+            "device-a",
+            super::super::payload::delete_payload("learning_item", &item.id).expect("delete payload"),
+            1,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &delete)
+                .await
+                .expect("delete"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let mut stale = item.clone();
+        stale.question = "offline edit after stale base".into();
+        let late_update = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "4000:0",
+            "device-b",
+            super::super::payload::learning_item_payload_with_fields(&stale, &["content"])
+                .expect("payload"),
+            2,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &late_update)
+                .await
+                .expect("late update"),
+            ApplyOutcome::SkippedOlder
+        );
+        tx.commit().await.expect("commit");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 0);
+
+        let recreate = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Create,
+            "5000:0",
+            "device-b",
+            super::super::payload::learning_item_payload(&stale).expect("recreate payload"),
+            3,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &recreate)
+                .await
+                .expect("recreate"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_review_events_all_survive_and_latest_review_time_sets_schedule() {
+        let pool = merge_test_pool().await;
+        let mut base = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "review me".into(),
+        );
+        base.id = "item-review".into();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &base)
+            .await
+            .expect("base item");
+        tx.commit().await.expect("commit");
+
+        let mut later = base.clone();
+        later.interval = 9.0;
+        later.due_date = chrono::DateTime::parse_from_rfc3339("2026-09-09T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let later_payload = super::super::payload::review_result_payload_with_item(
+            "review-later",
+            &base.id,
+            &base.collection_id,
+            3,
+            10,
+            &later.due_date,
+            later.interval,
+            later.ease_factor,
+            2_000,
+            "device-b",
+            None,
+            Some(&later),
+        )
+        .expect("later review payload");
+
+        let mut earlier = base.clone();
+        earlier.interval = 2.0;
+        earlier.due_date = chrono::DateTime::parse_from_rfc3339("2026-09-02T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let earlier_payload = super::super::payload::review_result_payload_with_item(
+            "review-earlier",
+            &base.id,
+            &base.collection_id,
+            2,
+            8,
+            &earlier.due_date,
+            earlier.interval,
+            earlier.ease_factor,
+            1_000,
+            "device-a",
+            None,
+            Some(&earlier),
+        )
+        .expect("earlier review payload");
+
+        // Deliberately deliver the later review first, then the earlier one.
+        for record in [
+            remote_record(
+                EntityType::ReviewResult,
+                "review-later",
+                SyncOperation::AppendEvent,
+                "1000:0",
+                "device-b",
+                later_payload,
+                1,
+            ),
+            remote_record(
+                EntityType::ReviewResult,
+                "review-earlier",
+                SyncOperation::AppendEvent,
+                "9000:0",
+                "device-a",
+                earlier_payload,
+                2,
+            ),
+        ] {
+            let mut tx = pool.begin().await.expect("begin");
+            apply_remote_record(&mut tx, "local-device", &record)
+                .await
+                .expect("review apply");
+            tx.commit().await.expect("commit");
+        }
+
+        let review_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM review_results WHERE item_id = ?1")
+                .bind(&base.id)
+                .fetch_one(&pool)
+                .await
+                .expect("review count");
+        assert_eq!(review_count, 2);
+
+        let interval: f64 =
+            sqlx::query_scalar("SELECT interval FROM learning_items WHERE id = ?1")
+                .bind(&base.id)
+                .fetch_one(&pool)
+                .await
+                .expect("interval");
+        assert_eq!(interval, 9.0, "review timestamp ordering, not arrival/HLC, sets current schedule");
+    }
+
 }
