@@ -3942,6 +3942,24 @@ pub const MIGRATIONS: &[Migration] = &[
         WHERE sync_status = 'failed' AND operation IN ('update', 'delete');
         "#,
     ),
+    Migration::new(
+        "110_sync_entity_aliases",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_entity_aliases (
+            entity_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            canonical_id TEXT NOT NULL,
+            identity_key TEXT,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, source_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_alias_canonical
+            ON sync_entity_aliases(entity_type, canonical_id);
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_alias_identity
+            ON sync_entity_aliases(entity_type, identity_key)
+            WHERE identity_key IS NOT NULL;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
