@@ -56,12 +56,15 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
         });
     }
 
+    // Parent/reference entities must be published before their children.
+    // This keeps the initial log replay valid even on databases that enforce
+    // collection/document foreign keys.
     let tables: [(&str, EntityType); 6] = [
+        ("collections", EntityType::Collection),
+        ("tags", EntityType::Tag),
         ("documents", EntityType::Document),
         ("extracts", EntityType::Extract),
         ("learning_items", EntityType::LearningItem),
-        ("collections", EntityType::Collection),
-        ("tags", EntityType::Tag),
         ("settings", EntityType::Setting),
     ];
 
