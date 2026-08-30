@@ -30,17 +30,100 @@ fn parse_hlc(raw: &str) -> (i64, i64) {
     (physical, logical)
 }
 
+fn sync_order_gt(left_hlc: &str, left_device: &str, right_hlc: &str, right_device: &str) -> bool {
+    let left = parse_hlc(left_hlc);
+    let right = parse_hlc(right_hlc);
+    left > right || (left == right && left_device > right_device)
+}
+
+async fn incoming_wins(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<bool> {
+    let existing = sqlx::query_as::<_, (String, String)>(
+        "SELECT last_hlc, last_device_id FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    )
+    .bind(record.entity_type.as_str())
+    .bind(&record.record_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(existing
+        .map(|(hlc, device)| sync_order_gt(&record.hlc, &record.device_id, &hlc, &device))
+        .unwrap_or(true))
+}
+
+async fn record_sync_state(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+    tombstoned: bool,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO sync_entity_state (
+            entity_type, entity_id, last_hlc, last_device_id,
+            server_revision, tombstoned, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+            last_hlc = excluded.last_hlc,
+            last_device_id = excluded.last_device_id,
+            server_revision = COALESCE(excluded.server_revision, sync_entity_state.server_revision),
+            tombstoned = excluded.tombstoned,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(record.entity_type.as_str())
+    .bind(&record.record_id)
+    .bind(&record.hlc)
+    .bind(&record.device_id)
+    .bind(record.entity_revision)
+    .bind(i64::from(tombstoned))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 pub async fn apply_remote_record(
     tx: &mut Transaction<'_, Sqlite>,
     local_device_id: &str,
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
+    // Receiving any valid remote record advances the local logical clock,
+    // even when the payload itself is stale or an echo of our own push.
+    super::clock::observe_hlc(tx, &record.hlc).await?;
+
     if record.device_id == local_device_id {
+        // Pulling our own accepted change is still useful: it teaches the
+        // client the server-assigned revision for the next local mutation.
+        if let Some(revision) = record.entity_revision {
+            sqlx::query(
+                "UPDATE sync_entity_state SET server_revision = ?3, updated_at = ?4 WHERE entity_type = ?1 AND entity_id = ?2",
+            )
+            .bind(record.entity_type.as_str())
+            .bind(&record.record_id)
+            .bind(revision)
+            .bind(chrono::Utc::now().timestamp_millis())
+            .execute(&mut **tx)
+            .await?;
+        }
         return Ok(ApplyOutcome::SkippedDuplicate);
     }
 
-    match record.entity_type {
-        EntityType::ReviewResult => apply_review_result(tx, record).await,
+    // Review events are immutable set members: every distinct event is kept.
+    if record.entity_type == EntityType::ReviewResult {
+        return apply_review_result(tx, record).await;
+    }
+
+    // All mutable entities share one deterministic ordering rule. This is
+    // independent of domain timestamps and leaves a durable tombstone marker,
+    // preventing a stale offline update from resurrecting a deleted entity.
+    if !incoming_wins(tx, record).await? {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    let outcome = match record.entity_type {
+        EntityType::ReviewResult => unreachable!(),
         EntityType::LearningItem => apply_learning_item(tx, record).await,
         EntityType::Document => apply_document(tx, record).await,
         EntityType::Extract => apply_extract(tx, record).await,
@@ -48,7 +131,18 @@ pub async fn apply_remote_record(
         EntityType::Tag => apply_tag(tx, record).await,
         EntityType::Setting => apply_setting(tx, record).await,
         EntityType::Tombstone => apply_tombstone(tx, record).await,
+    }?;
+
+    if outcome == ApplyOutcome::Applied {
+        record_sync_state(
+            tx,
+            record,
+            matches!(record.operation, Some(SyncOperation::Delete)),
+        )
+        .await?;
     }
+
+    Ok(outcome)
 }
 
 async fn apply_review_result(
