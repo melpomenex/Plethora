@@ -1410,6 +1410,15 @@ export function EPUBViewer({
             // DOM cleanup so a failure here can never leave a naked document.
             patchContentsInsertRuleGuard(contents);
 
+            // Stamp stable section identity on the iframe body so DocumentViewer
+            // can route TTS highlights by href instead of text fingerprint.
+            const spineIndex = Number(contents.section?.index ?? -1);
+            const href = String(contents.section?.href ?? "");
+            if (contents.document?.body && spineIndex >= 0 && href) {
+              contents.document.body.dataset.epubSpineIndex = String(spineIndex);
+              contents.document.body.dataset.epubHref = href;
+            }
+
             // Install Plethora's theme layers FIRST so cleanup can never
             // leave the document naked: #epub-override-styles plus critical
             // inline styles on documentElement/body (applyContentOverrides).

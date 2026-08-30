@@ -41,10 +41,9 @@ import {
   type TTSStartAnchor,
 } from "../../utils/readerSpeechIndex";
 import {
-  nextActiveWordIndex,
-  resolveChunkTimings,
   type WordTiming,
 } from "../../utils/wordTimings";
+import { startTimedTextWordTracking } from "../../lib/timedText/wordTrackingLoop";
 import { charIndexToWordIndex } from "../../api/tts/timing";
 import {
   getProfileId,
@@ -107,6 +106,8 @@ interface ReaderTTSControlsProps {
   onChunkChange?: (chunkIndex: number, scrollPercent: number) => void;
   /** Whether word highlighting is enabled */
   highlightEnabled?: boolean;
+  /** Force chunk-level highlighting (scanned PDF, no word anchors). */
+  chunkLevelHighlight?: boolean;
   /** Called when highlight toggle is clicked */
   onHighlightToggle?: () => void;
   /** Whether auto-scroll is paused (user scrolled manually) */
@@ -170,6 +171,7 @@ function ReaderTTSControls({
   docType = "scroll",
   onChunkChange,
   highlightEnabled = false,
+  chunkLevelHighlight = false,
   onHighlightToggle,
   autoScrollPaused = false,
   onReCenter,
@@ -244,7 +246,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const [wordOffset, setWordOffset] = useState(0);
   const wordOffsetRef = useRef(0);
   wordOffsetRef.current = wordOffset;
-  const rafRef = useRef<number | null>(null);
+  const wordTrackingCleanupRef = useRef<(() => void) | null>(null);
   // Whether the active word's timing is synthesized (approximate) — drives the
   // softer highlight variant.
   const [activeTimingApproximate, setActiveTimingApproximate] = useState(false);
@@ -354,59 +356,41 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     containers: followContainers,
   });
 
+  const stopWordTracking = useCallback(() => {
+    wordTrackingCleanupRef.current?.();
+    wordTrackingCleanupRef.current = null;
+    // Pause/stop cancels the word clock but NEVER resets the canonical word
+    // index: the highlight stays on the last spoken word and resume continues
+    // from the paused word (pause/resume correctness #5).
+  }, []);
+
   /**
    * Playback clock for generated audio: rAF samples `audio.currentTime` (the
    * authoritative media clock) and resolves the active word against the chunk's
    * timings — measured provider timings when they align with the chunk text,
    * else timings synthesized from the actual audio duration. React state
-   * commits only when the active word index changes (`nextActiveWordIndex`), so
-   * the reader doesn't re-render at animation-frame rates. The loop suspends
-   * itself when paused, ended, or the document is hidden.
+   * commits only when the active word index changes, so the reader doesn't
+   * re-render at animation-frame rates. The loop suspends when paused/ended or
+   * the tab is hidden, and restarts on visibility return.
    */
   const startWordTracking = useCallback(
-    (audio: HTMLAudioElement, chunkText: string, measured?: WordTiming[]) => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      let timings = resolveChunkTimings(chunkText, measured, undefined);
-      if (timings) {
-        setActiveTimingApproximate(timings[0]?.source !== "measured");
-      }
-      let lastWordIndex = -1;
+    (audio: HTMLAudioElement, chunkText: string, measured?: WordTiming[], chunk?: TTSChunk) => {
+      stopWordTracking();
 
-      const track = () => {
-        rafRef.current = null;
-        if (!audio || audio.paused || audio.ended || document.hidden) return;
-
-        if (!timings) {
-          timings = resolveChunkTimings(chunkText, undefined, audio.duration);
-          if (timings) {
-            setActiveTimingApproximate(timings[0]?.source !== "measured");
-          }
-        }
-        if (timings) {
-          const next = nextActiveWordIndex(timings, audio.currentTime, lastWordIndex);
-          if (next !== null) {
-            lastWordIndex = next;
-            commitWord(next, Math.round(audio.currentTime * 1000));
-          }
-        }
-
-        rafRef.current = requestAnimationFrame(track);
-      };
-
-      rafRef.current = requestAnimationFrame(track);
+      wordTrackingCleanupRef.current = startTimedTextWordTracking({
+        audio,
+        chunkText,
+        measuredTimings: measured,
+        chunk,
+        initialWordIndex: canonicalRef.current.wordIndex,
+        onApproximateChange: setActiveTimingApproximate,
+        onWordIndex: (wordIndex, currentTimeMs) => {
+          commitWord(wordIndex, currentTimeMs);
+        },
+      }).stop;
     },
-    [commitWord]
+    [commitWord, stopWordTracking]
   );
-
-  const stopWordTracking = useCallback(() => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    // Pause/stop cancels the word clock but NEVER resets the canonical word
-    // index: the highlight stays on the last spoken word and resume continues
-    // from the paused word (pause/resume correctness #5).
-  }, []);
 
   // Buffer underrun indicator
   const [isBuffering, setIsBuffering] = useState(false);
@@ -1276,7 +1260,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       audio.onplay = () => {
         setIsPlaying(true);
         setIsPaused(false);
-        startWordTracking(audio, chunkText, buffered.wordTimings);
+        startWordTracking(audio, chunkText, buffered.wordTimings, list[index]);
       };
 
       audio.onpause = () => {
@@ -1499,7 +1483,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         startWordTracking(
           audioRef.current,
           playlistRef.current[chunkIndex]?.text ?? "",
-          audioBufferRef.current.get(chunkIndex)?.wordTimings
+          audioBufferRef.current.get(chunkIndex)?.wordTimings,
+          playlistRef.current[chunkIndex]
         );
       }
       return;
@@ -1672,7 +1657,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           wordOffset={wordOffset}
           timingApproximate={activeTimingApproximate}
           containerRef={highlightContainerRef}
-          useChunkLevel={false}
+          useChunkLevel={chunkLevelHighlight}
           iframeWindow={iframeWindow}
           sectionContainers={sectionContainers}
         />

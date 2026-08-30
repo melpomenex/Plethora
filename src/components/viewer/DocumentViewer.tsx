@@ -64,6 +64,7 @@ import {
   type TTSStartAnchor,
 } from "../../utils/readerSpeechIndex";
 import { foldForMatch } from "../../utils/readerSpeechIndex";
+import { assessPdfPagesTextUsability } from "../../lib/timedText/pdfScannedDetection";
 import {
   buildTextContentOffsetMapper,
   findFirstVisibleWord,
@@ -724,6 +725,11 @@ export function DocumentViewer({
   const [pdfTextLayerRoots, setPdfTextLayerRoots] = useState<(HTMLDivElement | null)[]>([]);
   const [pdfScrollContainer, setPdfScrollContainer] = useState<HTMLElement | null>(null);
   const [pdfCanonicalPages, setPdfCanonicalPages] = useState<ReadonlyMap<number, PdfCanonicalPage>>(() => new Map());
+  const pdfChunkLevelHighlight = useMemo(() => {
+    if (docType !== "pdf" || pdfCanonicalPages.size === 0) return false;
+    const usability = assessPdfPagesTextUsability(pdfCanonicalPages.values());
+    return usability.usability !== "word-level";
+  }, [docType, pdfCanonicalPages]);
   const [epubVimRuntime, setEpubVimRuntime] = useState<EpubVimRuntime | null>(null);
   const [pdfVimRuntime, setPdfVimRuntime] = useState<PdfVimRuntime | null>(null);
   const highlightContainerRef = useRef<HTMLDivElement | null>(null);
@@ -738,6 +744,21 @@ export function DocumentViewer({
     pageCount: number;
   } | null>(null);
   const [pdfViewMode, setPdfViewMode] = useState<PdfViewMode>("pdf");
+  const pdfSectionContainers = useMemo(() => {
+    if (docType !== "pdf" || pdfViewMode === "ocr-html") return null;
+    const map = new Map<string, HTMLElement>();
+    pdfTextLayerRoots.forEach((root, idx) => {
+      if (root) map.set(`page:${idx + 1}`, root);
+    });
+    const scrollRoot = pdfScrollContainer ?? highlightContainerRef.current;
+    if (scrollRoot) {
+      scrollRoot.querySelectorAll<HTMLElement>("[data-pdf-reflow-page]").forEach((el) => {
+        const page = el.getAttribute("data-pdf-reflow-page");
+        if (page) map.set(`page:${page}`, el);
+      });
+    }
+    return map.size > 0 ? map : null;
+  }, [docType, pdfViewMode, pdfTextLayerRoots, pdfScrollContainer]);
   const [isOcrConverting, setIsOcrConverting] = useState(false);
   const [restoreRequestId, setRestoreRequestId] = useState(0);
   const [restoreState, setRestoreState] = useState<ViewState | null>(null);
@@ -4873,6 +4894,13 @@ export function DocumentViewer({
       for (const iframe of iframes) {
         const body = iframe.contentDocument?.body;
         if (!body) continue;
+        const spineIndex = body.dataset.epubSpineIndex;
+        const href = body.dataset.epubHref;
+        if (spineIndex !== undefined && href) {
+          map.set(`epub:${spineIndex}:${href}`, body);
+          continue;
+        }
+        // Fallback: text fingerprint (pre-stamp or older EPUB.js builds).
         const folded = foldForMatch(buildTextContentOffsetMapper(body).normalized);
         for (const sec of epubSpeechSectionsRawRef.current) {
           if (foldForMatch(sec.text) === folded) {
@@ -8450,7 +8478,13 @@ export function DocumentViewer({
             resolveViewportAnchor={resolveReaderViewportAnchor}
             resolvePositionAnchor={resolveReaderPositionAnchor}
             cfiToEpubAnchor={docType === "epub" ? resolveEpubCfiToAnchor : undefined}
-            sectionContainers={docType === "epub" ? epubSectionContainers : null}
+            sectionContainers={
+              docType === "epub"
+                ? epubSectionContainers
+                : docType === "pdf"
+                  ? pdfSectionContainers
+                  : null
+            }
             onComplete={handleTTSComplete}
             autoAdvance={true}
             docType={docType === "pdf" ? "pdf" : docType === "epub" ? "epub" : "scroll"}
@@ -8464,6 +8498,7 @@ export function DocumentViewer({
             }}
             onChunkChange={handleTTSChunkChange}
             highlightEnabled={ttsHighlightSpokenWord}
+            chunkLevelHighlight={pdfChunkLevelHighlight}
             onHighlightToggle={() => setTtsHighlightSpokenWord(!ttsHighlightSpokenWord)}
             highlightContainerRef={highlightContainerRef}
             iframeWindow={epubIframeWindow}
