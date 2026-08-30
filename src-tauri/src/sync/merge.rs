@@ -112,7 +112,13 @@ pub async fn apply_remote_record(
 
     // Review events are immutable set members: every distinct event is kept.
     if record.entity_type == EntityType::ReviewResult {
-        return apply_review_result(tx, record).await;
+        let outcome = apply_review_result(tx, record).await?;
+        // The event itself remains append-only; this state row only records
+        // cloud provenance/revision so bootstrap does not echo it back.
+        if matches!(outcome, ApplyOutcome::Applied | ApplyOutcome::SkippedDuplicate) {
+            record_sync_state(tx, record, false).await?;
+        }
+        return Ok(outcome);
     }
 
     // All mutable entities share one deterministic ordering rule. This is
