@@ -8201,7 +8201,15 @@ impl Repository {
             .bind(&id)
             .execute(&mut *tx)
             .await?;
-            let tag = self.get_tag(&id).await?;
+            let row = sqlx::query(
+                "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                        item_count, avg_stability, mature_count, date_created, date_modified
+                 FROM tags WHERE id = ?1",
+            )
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let tag = Self::row_to_tag(&row)?;
             let item_payload = payload::tag_payload(&tag)
                 .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
             journal_entity(
