@@ -222,6 +222,10 @@ pub async fn run_sync_cycle(
     // were authoritative. This is intentionally keyed to the persisted pull
     // cursor so it survives process restarts.
     if get_server_cursor(repo.pool()).await? == 0 {
+        // Build only lightweight, local strong-identity aliases before the
+        // first cloud pull so an independently imported copy can merge into
+        // the existing document immediately.
+        super::full_state::index_local_document_identities(repo.pool()).await?;
         let _ = pull_remote(repo, auth, entitlements).await?;
     }
 
