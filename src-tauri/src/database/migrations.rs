@@ -3984,6 +3984,15 @@ pub const MIGRATIONS: &[Migration] = &[
             ON review_results(item_id, reviewed_at_ms, device_id, id);
         "#,
     ),
+    Migration::new(
+        "113_sync_image_blob_reference",
+        r#"
+        ALTER TABLE image_assets ADD COLUMN sync_blob_reference TEXT;
+        CREATE INDEX IF NOT EXISTS idx_image_assets_sync_blob_reference
+            ON image_assets(sync_blob_reference)
+            WHERE sync_blob_reference IS NOT NULL;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
