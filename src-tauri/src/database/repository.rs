@@ -382,6 +382,37 @@ impl Repository {
         Ok(extract)
     }
 
+    pub(crate) fn row_to_tag(row: &SqliteRow) -> Result<crate::models::Tag> {
+        let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
+        let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
+        let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok().flatten();
+        let centroid = centroid_blob.and_then(|bytes| {
+            if bytes.len() % 4 != 0 {
+                return None;
+            }
+            Some(
+                bytes
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect(),
+            )
+        });
+
+        Ok(crate::models::Tag {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            prerequisites,
+            maturity_threshold: row.try_get("maturity_threshold").unwrap_or(0.8),
+            centroid,
+            coherence: row.try_get("coherence").ok().flatten(),
+            item_count: row.try_get("item_count").unwrap_or(0),
+            avg_stability: row.try_get("avg_stability").ok().flatten(),
+            mature_count: row.try_get("mature_count").unwrap_or(0),
+            date_created: row.try_get("date_created")?,
+            date_modified: row.try_get("date_modified")?,
+        })
+    }
+
     // Helper to decode possibly-corrupt UTF-8 text columns without panicking.
     fn decode_optional_text(row: &SqliteRow, column: &str) -> Option<String> {
         match row.try_get::<Option<String>, _>(column) {
@@ -8090,34 +8121,7 @@ impl Repository {
         .fetch_optional(self.pool())
         .await?
         .ok_or_else(|| PlethoraError::NotFound(format!("Tag not found: {tag_id}")))?;
-
-        let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
-        let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
-        let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok();
-        let centroid: Option<Vec<f32>> = centroid_blob.and_then(|b| {
-            if b.len() % 4 != 0 {
-                return None;
-            }
-            let mut vec = Vec::with_capacity(b.len() / 4);
-            for chunk in b.chunks_exact(4) {
-                vec.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-            }
-            Some(vec)
-        });
-
-        Ok(crate::models::Tag {
-            id: row.try_get("id")?,
-            name: row.try_get("name")?,
-            prerequisites,
-            maturity_threshold: row.try_get("maturity_threshold").unwrap_or(0.8),
-            centroid,
-            coherence: row.try_get("coherence").ok(),
-            item_count: row.try_get("item_count").unwrap_or(0),
-            avg_stability: row.try_get("avg_stability").ok(),
-            mature_count: row.try_get("mature_count").unwrap_or(0),
-            date_created: row.try_get("date_created")?,
-            date_modified: row.try_get("date_modified")?,
-        })
+        Self::row_to_tag(&row)
     }
 
     pub async fn set_tag_prerequisites(
