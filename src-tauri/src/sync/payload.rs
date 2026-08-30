@@ -7,6 +7,7 @@ use serde::Serialize;
 fn versioned_entity_payload<T: Serialize>(
     entity_type: &str,
     value: &T,
+    sync_fields: &[&str],
 ) -> Result<Vec<u8>, serde_json::Error> {
     let mut object = match serde_json::to_value(value)? {
         serde_json::Value::Object(object) => object,
@@ -17,11 +18,27 @@ fn versioned_entity_payload<T: Serialize>(
         "entity_type".into(),
         serde_json::Value::String(entity_type.to_string()),
     );
+    object.insert(
+        "sync_fields".into(),
+        serde_json::Value::Array(
+            sync_fields
+                .iter()
+                .map(|field| serde_json::Value::String((*field).to_string()))
+                .collect(),
+        ),
+    );
     serde_json::to_vec(&serde_json::Value::Object(object))
 }
 
 pub fn learning_item_payload(item: &LearningItem) -> Result<Vec<u8>, serde_json::Error> {
-    versioned_entity_payload("learning_item", item)
+    learning_item_payload_with_fields(item, &["*"])
+}
+
+pub fn learning_item_payload_with_fields(
+    item: &LearningItem,
+    fields: &[&str],
+) -> Result<Vec<u8>, serde_json::Error> {
+    versioned_entity_payload("learning_item", item, fields)
 }
 
 #[derive(Serialize)]
@@ -95,7 +112,20 @@ pub fn document_payload(document: &Document) -> Result<Vec<u8>, serde_json::Erro
         .filter(|url| matches!(url.scheme(), "http" | "https"))
         .map(|url| url.to_string());
     portable.file_path = portable_source.unwrap_or_default();
-    versioned_entity_payload("document", &portable)
+    versioned_entity_payload("document", &portable, &["*"])
+}
+
+pub fn document_payload_with_fields(
+    document: &Document,
+    fields: &[&str],
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut portable = document.clone();
+    let portable_source = url::Url::parse(&portable.file_path)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(|url| url.to_string());
+    portable.file_path = portable_source.unwrap_or_default();
+    versioned_entity_payload("document", &portable, fields)
 }
 
 #[derive(Serialize)]
@@ -134,7 +164,14 @@ pub fn document_position_payload(
 }
 
 pub fn extract_payload(extract: &Extract) -> Result<Vec<u8>, serde_json::Error> {
-    versioned_entity_payload("extract", extract)
+    extract_payload_with_fields(extract, &["*"])
+}
+
+pub fn extract_payload_with_fields(
+    extract: &Extract,
+    fields: &[&str],
+) -> Result<Vec<u8>, serde_json::Error> {
+    versioned_entity_payload("extract", extract, fields)
 }
 
 #[derive(Serialize)]
