@@ -100,6 +100,25 @@ pub async fn mark_dirty(
     .await
     .map_err(|e| PlethoraError::Internal(format!("Failed to update sync entity state: {e}")))?;
 
+    let all_groups = match entity_type {
+        EntityType::LearningItem => Some(super::full_state::LEARNING_ITEM_GROUPS),
+        EntityType::Document => Some(super::full_state::DOCUMENT_GROUPS),
+        EntityType::Extract => Some(super::full_state::EXTRACT_GROUPS),
+        _ => None,
+    };
+    if let Some(all_groups) = all_groups {
+        let fields = super::full_state::sync_fields(&payload, all_groups);
+        super::full_state::record_field_groups(
+            tx,
+            entity_type.as_str(),
+            entity_id,
+            &hlc,
+            &device_id,
+            &fields,
+        )
+        .await?;
+    }
+
     Ok(OutboxEntry {
         change_id,
         entity_type,
