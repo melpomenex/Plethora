@@ -91,6 +91,7 @@ fn backend_is_available(backend: ComputeBackend) -> bool {
     }
 }
 
+#[derive(Debug)]
 pub struct NemotronModelPaths {
     pub install_dir: PathBuf,
     pub gguf_file: PathBuf,
@@ -98,15 +99,29 @@ pub struct NemotronModelPaths {
 }
 
 pub fn resolve_model_paths(install_dir: &Path, model_file: &str) -> Result<NemotronModelPaths> {
-    let gguf_file = install_dir.join(model_file);
-    if !gguf_file.exists() {
+    // `install_dir.join(model_file)` is the canonical layout. Some callers
+    // (the STT engine router) hand us the already-resolved GGUF *file* path
+    // from `resolve_installed_path` — joining the file name onto itself
+    // produced `<install>/<gguf>/<gguf>` and a bogus LOCAL_MODEL_MISSING.
+    // Accept the file itself when its name matches the contract's model file.
+    let joined = install_dir.join(model_file);
+    let (install_dir, gguf_file) = if joined.exists() {
+        (install_dir.to_path_buf(), joined)
+    } else if install_dir.is_file()
+        && install_dir.file_name() == Path::new(model_file).file_name()
+    {
+        (
+            install_dir.parent().unwrap_or(install_dir).to_path_buf(),
+            install_dir.to_path_buf(),
+        )
+    } else {
         return Err(anyhow!(
             "LOCAL_MODEL_MISSING: Nemotron GGUF not found at {}",
-            gguf_file.display()
+            joined.display()
         ));
-    }
+    };
     Ok(NemotronModelPaths {
-        install_dir: install_dir.to_path_buf(),
+        install_dir,
         gguf_file,
         backend: detect_backend(),
     })
@@ -152,5 +167,75 @@ mod tests {
                 | ComputeBackend::Cuda
                 | ComputeBackend::Vulkan
         ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Path resolution (doubled-path regression)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    fn write_gguf(dir: &Path) -> std::path::PathBuf {
+        let gguf = dir.join("nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf");
+        std::fs::write(&gguf, b"gguf bytes").unwrap();
+        gguf
+    }
+
+    #[test]
+    fn resolves_from_install_dir_and_model_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gguf = write_gguf(tmp.path());
+        let paths =
+            resolve_model_paths(tmp.path(), "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf")
+                .expect("dir + name resolves");
+        assert_eq!(paths.gguf_file, gguf);
+        assert_eq!(paths.install_dir, tmp.path());
+    }
+
+    #[test]
+    fn resolves_when_caller_passes_the_gguf_file_itself() {
+        // The STT engine router passes the resolved GGUF *file* (from
+        // resolve_installed_path) where the install dir was expected; the
+        // join used to double the file name into <install>/<gguf>/<gguf>.
+        let tmp = tempfile::tempdir().unwrap();
+        let gguf = write_gguf(tmp.path());
+        let paths =
+            resolve_model_paths(&gguf, "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf")
+                .expect("file path accepted");
+        assert_eq!(paths.gguf_file, gguf);
+        assert_eq!(paths.install_dir, tmp.path());
+    }
+
+    #[test]
+    fn rejects_mismatched_file_name_without_doubling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gguf = write_gguf(tmp.path());
+        // A passed file whose name does NOT match the contract's model file
+        // must fail honestly (not silently accept a foreign file).
+        let err = resolve_model_paths(&gguf, "some-other-model.gguf")
+            .expect_err("mismatched name rejected");
+        assert!(err.to_string().contains("LOCAL_MODEL_MISSING"), "{err}");
+        // The reported path is the plain join — no doubled file name.
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "LOCAL_MODEL_MISSING: Nemotron GGUF not found at {}",
+                gguf.join("some-other-model.gguf").display()
+            )
+        );
+    }
+
+    #[test]
+    fn missing_model_reports_single_joined_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = resolve_model_paths(tmp.path(), "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf")
+            .expect_err("missing file rejected");
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "LOCAL_MODEL_MISSING: Nemotron GGUF not found at {}",
+                tmp.path()
+                    .join("nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf")
+                    .display()
+            )
+        );
     }
 }

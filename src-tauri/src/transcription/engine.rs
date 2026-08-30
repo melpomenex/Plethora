@@ -738,8 +738,13 @@ impl TranscriptionEngine {
                 )
                 .await,
             SttEngineRoute::Nemotron { model_file } => {
+                // `model_path` arrives as the resolved GGUF *file* for
+                // Nemotron (see `resolve_installed_path`), while
+                // `transcribe_file` takes (install_dir, model_file). Joining
+                // the file onto itself produced `<install>/<gguf>/<gguf>`.
+                let install_dir = model_path.parent().unwrap_or(model_path);
                 let segments = crate::transcription::nemotron::transcribe_file(
-                    model_path,
+                    install_dir,
                     model_file,
                     audio_path,
                     language,
