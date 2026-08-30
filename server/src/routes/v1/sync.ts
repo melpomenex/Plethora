@@ -90,12 +90,14 @@ async function registerDeviceCursor(userId: string, deviceId: string): Promise<v
   // Cursor rows keyed by ids the account never issued are leftovers from the
   // pre-identity protocol (or from deleted devices). They would permanently
   // pin tombstone GC at their stale seq and consume the device budget, so drop
-  // them before enforcing limits.
+  // them before enforcing limits. devices.id is UUID while device_id is
+  // VARCHAR: Postgres has no varchar = uuid operator, so compare as text or
+  // every push/pull/ack fails with "operator does not exist".
   await pool.query(
     `DELETE FROM sync_device_cursors
      WHERE user_id = $1
        AND device_id <> $2
-       AND device_id NOT IN (SELECT id FROM devices WHERE user_id = $1)`,
+       AND device_id NOT IN (SELECT id::text FROM devices WHERE user_id = $1)`,
     [userId, deviceId]
   );
   const rows = await pool.query(
