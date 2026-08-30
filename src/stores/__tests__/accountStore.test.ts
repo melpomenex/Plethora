@@ -370,3 +370,130 @@ describe('Token refresh & multi-device behavior (Change F §2.3)', () => {
     expect(useAccountStore.getState().devices[0].revokedAt).toBeDefined();
   });
 });
+
+
+describe('Entitlement-safe startup & refresh (entitlement-persistence change)', () => {
+  function futureJwt(secondsFromNow: number): string {
+    // header.payload.signature with only the payload mattering for exp decode
+    const enc = (obj: unknown) =>
+      btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${enc({ alg: 'HS256', typ: 'JWT' })}.${enc({
+      exp: Math.floor(Date.now() / 1000) + secondsFromNow,
+    })}.sig`;
+  }
+
+  it('init refreshes an expiring access token BEFORE mirroring the session', async () => {
+    stubLoginSuccess();
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+    // Simulate relaunch with a token that expired an hour ago.
+    useAccountStore.setState({
+      tokens: {
+        accessToken: futureJwt(-3600),
+        refreshToken: 'refresh-1',
+        expiresIn: 900,
+      },
+    });
+    tauriMocks.isTauri = true;
+    tauriMocks.invoke.mockReset();
+
+    await useAccountStore.getState().init();
+
+    // Token refresh endpoint was hit (rotating the expired token)…
+    const mirror = tauriMocks.invoke.mock.calls.find(
+      (call) => call[0] === 'account_sync_session',
+    );
+    expect(mirror).toBeDefined();
+    // …and the mirrored session carries the ROTATED token, not the expired one.
+    const mirroredTokens = (mirror?.[1] as { tokens: { access_token: string } }).tokens;
+    expect(mirroredTokens.access_token).toBe('access-2');
+  });
+
+  it('init skips the token refresh when the access token is still fresh', async () => {
+    stubLoginSuccess();
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+    useAccountStore.setState({
+      tokens: {
+        accessToken: futureJwt(600),
+        refreshToken: 'refresh-1',
+        expiresIn: 900,
+      },
+    });
+    tauriMocks.isTauri = true;
+    tauriMocks.invoke.mockReset();
+
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({ accessToken: 'should-not-happen', refreshToken: 'x', expiresIn: 900 }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await useAccountStore.getState().init();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const mirror = tauriMocks.invoke.mock.calls.find(
+      (call) => call[0] === 'account_sync_session',
+    );
+    const mirroredTokens = (mirror?.[1] as { tokens: { access_token: string } }).tokens;
+    expect(mirroredTokens.access_token).toContain('eyJ');
+  });
+
+  it('a bare 401 that is not the API error shape keeps the session (captive portal)', async () => {
+    stubLoginSuccess();
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse('<html>Login to this network</html>', false, 401)),
+    );
+
+    await useAccountStore.getState().refresh();
+
+    const state = useAccountStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.tokens?.refreshToken).toBe('refresh-1');
+  });
+
+  it('signOut resets the entitlement snapshot to canonical Free defaults', async () => {
+    stubLoginSuccess();
+    // Pro login seeds the optimistic auth-verified snapshot.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          user: { id: 'u-1', email: 'user@example.com', subscriptionTier: 'pro' },
+          tokens: { accessToken: 'access-1', refreshToken: 'refresh-1', expiresIn: 900 },
+          device: { id: 'dev-1' },
+        }),
+      ),
+    );
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+
+    const { useEntitlementStore } = await import('../entitlementStore');
+    expect(useEntitlementStore.getState().snapshot.plan).toBe('pro');
+
+    await useAccountStore.getState().signOut();
+
+    expect(useEntitlementStore.getState().snapshot.plan).toBe('free');
+    expect(useEntitlementStore.getState().snapshot.source).toBe('local_defaults');
+    expect(useEntitlementStore.getState().snapshot.capabilities.cloud_sync.enabled).toBe(false);
+  });
+
+  it('a Pro login seeds an optimistic auth-verified snapshot (source cache)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          user: { id: 'u-1', email: 'user@example.com', subscriptionTier: 'pro' },
+          tokens: { accessToken: 'access-1', refreshToken: 'refresh-1', expiresIn: 900 },
+          device: { id: 'dev-1' },
+        }),
+      ),
+    );
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+
+    const { useEntitlementStore } = await import('../entitlementStore');
+    const snapshot = useEntitlementStore.getState().snapshot;
+    expect(snapshot.plan).toBe('pro');
+    expect(snapshot.source).toBe('cache');
+    expect(snapshot.accountId).toBe('u-1');
+  });
+});

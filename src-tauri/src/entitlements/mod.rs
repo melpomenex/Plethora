@@ -3,6 +3,7 @@ pub mod snapshot;
 pub use snapshot::*;
 
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -14,6 +15,17 @@ pub const TTL_MINUTES: i64 = 15;
 pub struct EntitlementCache {
     cached_snapshot: Arc<RwLock<Option<EntitlementSnapshot>>>,
     overrides: Arc<RwLock<HashMap<CapabilityId, bool>>>,
+}
+
+/// Durable shape stored in the settings KV under [`SETTINGS_KEY`]: the last
+/// server-verified snapshot per account. Device-local (denylisted from the
+/// settings sync); never contains tokens.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PersistedEntitlements {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    accounts: HashMap<String, EntitlementSnapshot>,
 }
 
 impl Default for EntitlementCache {
@@ -33,6 +45,75 @@ impl EntitlementCache {
     pub fn set_cached_snapshot(&self, snapshot: EntitlementSnapshot) {
         if let Ok(mut lock) = self.cached_snapshot.write() {
             *lock = Some(snapshot);
+        }
+    }
+
+    /// Clear the active in-memory snapshot (sign-out): the session must not
+    /// keep rendering the prior account's entitlements. Persisted per-account
+    /// snapshots remain on disk for future logins of that account.
+    pub fn clear_cached_snapshot(&self) {
+        if let Ok(mut lock) = self.cached_snapshot.write() {
+            *lock = None;
+        }
+    }
+
+    /// Hydrate the in-memory cache from the durable per-account store for the
+    /// given account, if the cache is empty. Called before any network
+    /// attempt so a failed refresh can fall back to the persisted verified
+    /// snapshot instead of manufacturing Free defaults.
+    pub async fn hydrate_from_storage(
+        &self,
+        repo: &crate::database::Repository,
+        account_id: &str,
+    ) {
+        if self
+            .cached_snapshot
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .is_some()
+        {
+            return;
+        }
+        if let Ok(Some(raw)) = repo.get_setting(SETTINGS_KEY).await {
+            if let Ok(persisted) = serde_json::from_str::<PersistedEntitlements>(&raw) {
+                if let Some(snapshot) = persisted.accounts.get(account_id) {
+                    let snapshot = snapshot.clone();
+                    if let Ok(mut lock) = self.cached_snapshot.write() {
+                        // Only fill an still-empty slot (another waiter may
+                        // have won the race with a fresher value).
+                        if lock.is_none() {
+                            *lock = Some(snapshot);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Persist the verified snapshot under its own account key. Never called
+    /// for anonymous fallback snapshots (`account_id: None`).
+    pub async fn persist_verified(
+        &self,
+        repo: &crate::database::Repository,
+        snapshot: &EntitlementSnapshot,
+    ) {
+        let Some(account_id) = snapshot.account_id.clone() else {
+            return;
+        };
+        let mut persisted = match repo.get_setting(SETTINGS_KEY).await {
+            Ok(Some(raw)) => serde_json::from_str::<PersistedEntitlements>(&raw)
+                .unwrap_or_default(),
+            _ => PersistedEntitlements::default(),
+        };
+        if persisted.version == 0 {
+            persisted.version = 1;
+        }
+        persisted.accounts.insert(account_id, snapshot.clone());
+        if let Ok(json) = serde_json::to_string(&persisted) {
+            if let Err(err) = repo.set_setting(SETTINGS_KEY, &json).await {
+                eprintln!("[entitlements] failed to persist verified snapshot: {err}");
+            }
         }
     }
 
@@ -85,8 +166,11 @@ impl EntitlementCache {
                     snapshot.source = SnapshotSource::Grace;
                     snapshot
                 } else {
-                    // Grace period exceeded: revert cloud capabilities to Free plan fallbacks
-                    let free_defaults = create_free_default_snapshot();
+                    // Grace period exceeded: cloud capabilities degrade to
+                    // unavailable/offline, but the plan IDENTITY survives — a
+                    // Pro subscriber offline for four days is still a Pro
+                    // subscriber whose cloud features read as offline, not a
+                    // Free user (openspec entitlement-persistence).
                     for (id, state) in snapshot.capabilities.iter_mut() {
                         let desc = get_descriptor(*id);
                         if desc.default_plan != "free" {
@@ -94,7 +178,6 @@ impl EntitlementCache {
                             state.reason = Some(CapabilityReason::Offline);
                         }
                     }
-                    snapshot.plan = free_defaults.plan;
                     snapshot.source = SnapshotSource::Grace;
                     snapshot
                 }
@@ -134,9 +217,16 @@ impl EntitlementCache {
 // -----------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn entitlement_get_snapshot(
-    cache: tauri::State<Arc<EntitlementCache>>,
+pub async fn entitlement_get_snapshot(
+    cache: tauri::State<'_, Arc<EntitlementCache>>,
+    auth: tauri::State<'_, Arc<crate::plethora_auth::AuthManager>>,
+    repo: tauri::State<'_, crate::database::Repository>,
 ) -> Result<EntitlementSnapshot, String> {
+    // Hydrate the durable verified snapshot for the signed-in account so a
+    // cold process reads persisted state, not Free defaults.
+    if let Some(account_id) = auth.get_user_id() {
+        cache.hydrate_from_storage(&repo, &account_id).await;
+    }
     Ok(cache.resolve())
 }
 
@@ -226,6 +316,57 @@ impl TryFrom<ServerEntitlementSnapshot> for EntitlementSnapshot {
     }
 }
 
+/// Typed transport failure for the entitlements fetch: 401 means "the bearer
+/// we presented was rejected" (the caller should refresh the token and
+/// retry), everything else is a network/server failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntitlementFetchError {
+    Unauthorized,
+    Transport(String),
+}
+
+impl std::fmt::Display for EntitlementFetchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EntitlementFetchError::Unauthorized => write!(f, "entitlements fetch: HTTP 401"),
+            EntitlementFetchError::Transport(detail) => write!(f, "entitlements fetch failed: {detail}"),
+        }
+    }
+}
+
+/// Typed outcome of a native entitlement refresh. The frontend needs to
+/// distinguish "authoritative new state" from "kept the old state because the
+/// network failed" and "the token expired" — a bare snapshot cannot express
+/// that, which is exactly how Free defaults used to masquerade as fresh.
+#[derive(Debug, Clone, Serialize)]
+// Internally tagged on `status`. NOTE: variant tags are pinned to snake_case
+// explicitly — `rename_all = "camelCase"` here would also rename the VARIANTS
+// ("staleCache"/"authExpired") and silently break the frontend's
+// `status === 'auth_expired'` contract checks.
+#[serde(tag = "status")]
+pub enum EntitlementRefreshOutcome {
+    /// Server 200 with a valid snapshot: cached in memory AND persisted.
+    #[serde(rename = "verified")]
+    Verified {
+        snapshot: EntitlementSnapshot,
+    },
+    /// Signed in, fetch failed: retained snapshot with provenance intact.
+    #[serde(rename = "stale_cache")]
+    StaleCache {
+        snapshot: EntitlementSnapshot,
+    },
+    /// Server rejected the presented bearer (401): caller refreshes + retries.
+    #[serde(rename = "auth_expired")]
+    AuthExpired {
+        snapshot: EntitlementSnapshot,
+    },
+    /// No signed-in session: Free defaults, never cached or persisted.
+    #[serde(rename = "anonymous")]
+    Anonymous {
+        snapshot: EntitlementSnapshot,
+    },
+}
+
 /// GET /v1/entitlements with the account's bearer token.
 ///
 /// Transport only — callers own caching/grace behavior. Pure HTTP so the
@@ -233,7 +374,7 @@ impl TryFrom<ServerEntitlementSnapshot> for EntitlementSnapshot {
 pub async fn fetch_entitlements(
     base_url: &str,
     access_token: &str,
-) -> Result<EntitlementSnapshot, String> {
+) -> Result<EntitlementSnapshot, EntitlementFetchError> {
     let url = format!(
         "{}/{}",
         base_url.trim_end_matches('/'),
@@ -242,50 +383,100 @@ pub async fn fetch_entitlements(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(ENTITLEMENT_FETCH_TIMEOUT_SECS))
         .build()
-        .map_err(|e| format!("entitlements client build failed: {e}"))?;
+        .map_err(|e| EntitlementFetchError::Transport(format!("client build failed: {e}")))?;
     let resp = client
         .get(&url)
         .bearer_auth(access_token)
         .send()
         .await
-        .map_err(|e| format!("entitlements fetch failed: {e}"))?;
+        .map_err(|e| EntitlementFetchError::Transport(format!("network: {e}")))?;
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(EntitlementFetchError::Unauthorized);
+    }
     if !resp.status().is_success() {
-        return Err(format!("entitlements fetch failed: HTTP {}", resp.status()));
+        return Err(EntitlementFetchError::Transport(format!(
+            "HTTP {}",
+            resp.status()
+        )));
     }
     let server: ServerEntitlementSnapshot = resp
         .json()
         .await
-        .map_err(|e| format!("entitlements decode failed: {e}"))?;
-    EntitlementSnapshot::try_from(server)
+        .map_err(|e| EntitlementFetchError::Transport(format!("decode failed: {e}")))?;
+    EntitlementSnapshot::try_from(server).map_err(EntitlementFetchError::Transport)
 }
 
 #[tauri::command]
 pub async fn entitlement_refresh(
     cache: tauri::State<'_, Arc<EntitlementCache>>,
     auth: tauri::State<'_, Arc<crate::plethora_auth::AuthManager>>,
-) -> Result<EntitlementSnapshot, String> {
-    // Authoritative path (implement-native-ios-storekit2-billing §6.7): when
-    // an account session exists, GET /v1/entitlements and cache the verified
-    // server snapshot. On any transport failure the cached snapshot survives
-    // (offline relaunch uses the cache within TTL/grace per design §5).
-    if let Some(access_token) = auth.get_access_token() {
-        match fetch_entitlements(&api_base_url(), &access_token).await {
-            Ok(snapshot) => {
-                cache.set_cached_snapshot(snapshot.clone());
-                return Ok(cache.resolve());
-            }
-            Err(err) => {
-                eprintln!("[entitlements] refresh failed, keeping cached snapshot: {err}");
-            }
-        }
+    repo: tauri::State<'_, crate::database::Repository>,
+) -> Result<EntitlementRefreshOutcome, String> {
+    // Hydrate the durable verified snapshot for the signed-in account BEFORE
+    // any network attempt, so a failing refresh below falls back to persisted
+    // verified state rather than empty-cache Free defaults.
+    if let Some(account_id) = auth.get_user_id() {
+        cache.hydrate_from_storage(&repo, &account_id).await;
     }
 
-    // Fallback (no session or fetch failure): previous behavior — re-stamp the
-    // resolved snapshot so local overrides remain effective.
-    let mut current = cache.resolve();
-    current.fetched_at = Utc::now().to_rfc3339();
-    cache.set_cached_snapshot(current.clone());
-    Ok(cache.resolve())
+    let Some(access_token) = auth.get_access_token() else {
+        if auth.get_user_id().is_some() {
+            // Signed in but no token mirrored yet (transient startup order):
+            // retain the hydrated/persisted snapshot rather than answering
+            // anonymous over a known account.
+            return Ok(EntitlementRefreshOutcome::StaleCache {
+                snapshot: cache.resolve(),
+            });
+        }
+        // No signed-in session: anonymous Free defaults (with any local dev
+        // overrides applied). Never cached, never persisted — an anonymous
+        // snapshot must not enter the per-account store or pose as verified.
+        return Ok(EntitlementRefreshOutcome::Anonymous {
+            snapshot: cache.resolve(),
+        });
+    };
+
+    match fetch_entitlements(&api_base_url(), &access_token).await {
+        Ok(snapshot) => {
+            // Apply-time account guard: a response fetched for account A must
+            // never become the active snapshot of account B (or of a signed-
+            // out session) if the session changed while the request was in
+            // flight. It is still persisted under its OWN account key — that
+            // is always correct.
+            cache.persist_verified(&repo, &snapshot).await;
+            let active_account = auth.get_user_id();
+            let matches_active = snapshot
+                .account_id
+                .as_deref()
+                .map(|id| Some(id) == active_account.as_deref())
+                .unwrap_or(false);
+            if matches_active {
+                cache.set_cached_snapshot(snapshot.clone());
+                Ok(EntitlementRefreshOutcome::Verified {
+                    snapshot: cache.resolve(),
+                })
+            } else {
+                // Session changed mid-flight: keep whatever is active now.
+                Ok(EntitlementRefreshOutcome::Verified { snapshot })
+            }
+        }
+        Err(EntitlementFetchError::Unauthorized) => {
+            // Token expired/invalid: NOT a downgrade. The frontend refreshes
+            // the access token and retries once; nothing is cached or stamped.
+            Ok(EntitlementRefreshOutcome::AuthExpired {
+                snapshot: cache.resolve(),
+            })
+        }
+        Err(err) => {
+            // Network/server failure: keep the retained snapshot with its
+            // original provenance and fetched_at. Never stamp fallbacks as
+            // fresh, never cache Free defaults over a verified snapshot.
+            eprintln!("[entitlements] refresh failed, keeping cached snapshot: {err}");
+            Ok(EntitlementRefreshOutcome::StaleCache {
+                snapshot: cache.resolve(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -447,12 +638,216 @@ mod tests {
         assert_eq!(api_access.reason, Some(CapabilityReason::Plan));
     }
 
+    #[test]
+    fn snapshot_wire_format_is_camel_case() {
+        // The frontend types (src/types/entitlements.ts) expect fetchedAt /
+        // accountId / expiresAt — snake_case here silently breaks capability
+        // resolution client-side.
+        let snapshot = EntitlementSnapshot {
+            account_id: Some("user-1".to_string()),
+            plan: "pro".to_string(),
+            capabilities: HashMap::new(),
+            fetched_at: "2026-08-30T00:00:00Z".to_string(),
+            expires_at: Some("2026-08-30T00:15:00Z".to_string()),
+            source: SnapshotSource::Server,
+        };
+        let json = serde_json::to_value(&snapshot).unwrap();
+        assert!(json.get("fetchedAt").is_some(), "missing fetchedAt: {json}");
+        assert!(json.get("accountId").is_some(), "missing accountId: {json}");
+        assert!(json.get("expiresAt").is_some(), "missing expiresAt: {json}");
+        let round: EntitlementSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(round, snapshot);
+    }
+
+    #[test]
+    fn refresh_outcome_wire_tags_are_snake_case() {
+        // The frontend matches outcome.status === 'auth_expired' etc. A serde
+        // rename_all slip here silently disables the 401→refresh→retry path.
+        let snapshot = create_free_default_snapshot();
+        let cases = [
+            (EntitlementRefreshOutcome::Verified { snapshot: snapshot.clone() }, "verified"),
+            (EntitlementRefreshOutcome::StaleCache { snapshot: snapshot.clone() }, "stale_cache"),
+            (EntitlementRefreshOutcome::AuthExpired { snapshot: snapshot.clone() }, "auth_expired"),
+            (EntitlementRefreshOutcome::Anonymous { snapshot }, "anonymous"),
+        ];
+        for (outcome, expected) in cases {
+            let json = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(
+                json.get("status").and_then(|v| v.as_str()),
+                Some(expected),
+                "wire tag mismatch: {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn past_grace_preserves_plan_identity() {
+        let cache = EntitlementCache::new();
+        let mut snapshot = create_free_default_snapshot();
+        snapshot.account_id = Some("u1".to_string());
+        snapshot.plan = "pro".to_string();
+        snapshot.fetched_at = (Utc::now() - Duration::hours(80)).to_rfc3339();
+        cache.set_cached_snapshot(snapshot);
+
+        let resolved = cache.resolve();
+        // Identity survives; only cloud capabilities degrade.
+        assert_eq!(resolved.plan, "pro");
+        assert_eq!(resolved.account_id.as_deref(), Some("u1"));
+        let cloud_sync = resolved.capabilities.get(&CapabilityId::CloudSync).unwrap();
+        assert!(!cloud_sync.enabled);
+        assert_eq!(cloud_sync.reason, Some(CapabilityReason::Offline));
+    }
+
+    #[test]
+    fn clear_cached_snapshot_yields_free_defaults() {
+        let cache = EntitlementCache::new();
+        let mut snapshot = create_free_default_snapshot();
+        snapshot.plan = "pro".to_string();
+        cache.set_cached_snapshot(snapshot);
+        cache.clear_cached_snapshot();
+        assert_eq!(cache.resolve().plan, "free");
+        assert_eq!(cache.resolve().source, SnapshotSource::LocalDefaults);
+    }
+
+    /// In-memory pool with the settings KV table the durable cache uses.
+    async fn settings_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory database");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                date_modified TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create settings table");
+        pool
+    }
+
+    fn verified_pro_snapshot(account: &str) -> EntitlementSnapshot {
+        let mut snapshot = create_free_default_snapshot();
+        snapshot.account_id = Some(account.to_string());
+        snapshot.plan = "pro".to_string();
+        snapshot.source = SnapshotSource::Server;
+        snapshot.fetched_at = Utc::now().to_rfc3339();
+        snapshot
+    }
+
+    #[tokio::test]
+    async fn durable_snapshot_survives_process_recreation() {
+        let pool = settings_pool().await;
+        let repo = crate::database::Repository::new(pool.clone());
+
+        // "Process 1": persist a verified Pro snapshot for account A.
+        let cache = EntitlementCache::new();
+        cache
+            .persist_verified(&repo, &verified_pro_snapshot("account-a"))
+            .await;
+
+        // "Process 2": a fresh cache (empty memory) hydrates from storage.
+        let cache2 = EntitlementCache::new();
+        cache2.hydrate_from_storage(&repo, "account-a").await;
+        let resolved = cache2.resolve();
+        assert_eq!(resolved.plan, "pro");
+        assert_eq!(resolved.account_id.as_deref(), Some("account-a"));
+        assert_eq!(resolved.source, SnapshotSource::Server);
+    }
+
+    #[tokio::test]
+    async fn persisted_snapshots_are_account_scoped() {
+        let pool = settings_pool().await;
+        let repo = crate::database::Repository::new(pool.clone());
+
+        let cache = EntitlementCache::new();
+        cache
+            .persist_verified(&repo, &verified_pro_snapshot("account-a"))
+            .await;
+
+        // Account B's fresh cache must NOT read A's slot…
+        let cache_b = EntitlementCache::new();
+        cache_b.hydrate_from_storage(&repo, "account-b").await;
+        assert_eq!(cache_b.resolve().plan, "free");
+        assert_eq!(cache_b.resolve().source, SnapshotSource::LocalDefaults);
+
+        // …but logging back into A restores the verified state.
+        let cache_a = EntitlementCache::new();
+        cache_a.hydrate_from_storage(&repo, "account-a").await;
+        assert_eq!(cache_a.resolve().plan, "pro");
+    }
+
+    #[tokio::test]
+    async fn anonymous_snapshots_are_never_persisted() {
+        let pool = settings_pool().await;
+        let repo = crate::database::Repository::new(pool.clone());
+
+        let cache = EntitlementCache::new();
+        cache
+            .persist_verified(&repo, &create_free_default_snapshot())
+            .await;
+
+        let stored = repo.get_setting(SETTINGS_KEY).await.unwrap();
+        assert!(
+            stored.is_none(),
+            "anonymous fallback must never enter the durable store"
+        );
+    }
+
+    #[tokio::test]
+    async fn hydrate_never_overwrites_an_occupied_slot() {
+        let pool = settings_pool().await;
+        let repo = crate::database::Repository::new(pool.clone());
+
+        let cache = EntitlementCache::new();
+        let live = verified_pro_snapshot("account-a");
+        cache.set_cached_snapshot(live.clone());
+        cache
+            .persist_verified(&repo, &verified_pro_snapshot("account-a"))
+            .await;
+
+        cache.hydrate_from_storage(&repo, "account-a").await;
+        // The in-memory (newer) snapshot wins; hydration only fills empties.
+        assert_eq!(cache.resolve().fetched_at, live.fetched_at);
+    }
+
+    #[tokio::test]
+    async fn stale_cache_outcome_does_not_touch_fetched_at() {
+        // Provenance rule: a failed refresh must never make an old snapshot
+        // look newly verified. The refresh command's stale_cache arm returns
+        // cache.resolve() without writing — pinned by the command's outcome
+        // shape plus this resolution behavior.
+        let cache = EntitlementCache::new();
+        let mut snapshot = verified_pro_snapshot("account-a");
+        snapshot.fetched_at = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        cache.set_cached_snapshot(snapshot.clone());
+
+        let resolved = cache.resolve();
+        assert_eq!(resolved.fetched_at, snapshot.fetched_at);
+        assert_eq!(resolved.plan, "pro");
+    }
+
+    #[tokio::test]
+    async fn unauthorized_fetch_error_is_distinguishable() {
+        let response: &'static [u8] =
+            b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let url = serve_one(response);
+        let err = fetch_entitlements(&url, "expired-jwt").await.unwrap_err();
+        assert_eq!(err, EntitlementFetchError::Unauthorized);
+    }
+
     #[tokio::test]
     async fn test_fetch_entitlements_transport_surfaces_http_errors() {
         let response: &'static [u8] =
             b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         let url = serve_one(response);
         let err = fetch_entitlements(&url, "test-jwt").await.unwrap_err();
-        assert!(err.contains("500"), "unexpected error: {err}");
+        assert!(
+            matches!(&err, EntitlementFetchError::Transport(detail) if detail.contains("500")),
+            "unexpected error: {err}"
+        );
     }
 }

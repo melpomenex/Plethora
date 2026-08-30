@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getPool } from '../../db/connection.js';
 import { optionalAuthMiddleware, type AuthRequest } from '../../middleware/auth.js';
+import { getTranscriptionQuota, TRANSCRIPTION_CAPABILITY } from '../../quota/transcription.js';
 
 export const entitlementsRouter = Router();
 
@@ -30,6 +31,24 @@ const ALL_CAPABILITIES = [
 entitlementsRouter.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response, next) => {
   try {
     const userId = req.userId;
+
+    // A presented-but-rejected bearer is an authentication failure, not an
+    // anonymous request: answering 200-Free here used to let an expired
+    // access token masquerade as an authoritative downgrade to Free on the
+    // client. Genuinely anonymous requests (no bearer) keep the 200 Free
+    // snapshot.
+    if (!userId && req.authRejected) {
+      res.status(401).json({
+        error: {
+          code: req.authError ?? 'invalid_token',
+          message:
+            req.authError === 'token_expired'
+              ? 'Access token has expired'
+              : 'Access token is invalid',
+        },
+      });
+      return;
+    }
 
     if (!userId) {
       // Anonymous user: Free default snapshot
@@ -77,6 +96,20 @@ entitlementsRouter.get('/', optionalAuthMiddleware, async (req: AuthRequest, res
         window: q.window,
         resetsAt: q.resetsAt ? new Date(q.resetsAt).toISOString() : undefined,
       });
+    }
+
+    if (isPro && !quotas.has(TRANSCRIPTION_CAPABILITY)) {
+      try {
+        const transcriptionQuota = await getTranscriptionQuota(userId);
+        quotas.set(TRANSCRIPTION_CAPABILITY, {
+          used: transcriptionQuota.used,
+          limit: transcriptionQuota.limit,
+          window: transcriptionQuota.window,
+          resetsAt: transcriptionQuota.resetsAt,
+        });
+      } catch {
+        // Quota row initialization is best-effort for entitlement display.
+      }
     }
 
     const capabilities: Record<string, { enabled: boolean; reason?: string; quota?: unknown }> = {};

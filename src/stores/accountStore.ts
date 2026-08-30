@@ -4,6 +4,12 @@ import { invoke, isTauri } from '../lib/tauri';
 import { isTauriRuntimeTarget } from '../lib/runtimeTarget';
 import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
 import { useEntitlementStore } from './entitlementStore';
+import {
+  CAPABILITY_REGISTRY,
+  FREE_DEFAULT_SNAPSHOT,
+  type EntitlementSnapshot,
+  type PlanId,
+} from '../types/entitlements';
 
 export interface UserProfile {
   id: string;
@@ -44,6 +50,11 @@ export interface AccountStoreState {
   loadDevices: () => Promise<void>;
   revokeDevice: (deviceId: string) => Promise<void>;
   init: () => Promise<void>;
+}
+
+/** Error body shape used by the Plethora API (`{ error: { code, message } }`). */
+interface ServerApiError {
+  error?: { code?: string; message?: string };
 }
 
 interface AuthSessionPayload {
@@ -100,6 +111,53 @@ async function syncNativeSession(data: AuthSessionPayload) {
 
 function usesNativeCloudAuth(): boolean {
   return isTauriRuntimeTarget() || isTauri();
+}
+
+/** Decode a JWT's `exp` (seconds since epoch) without verification — an
+ * expiry hint only, authentication stays server-side. Malformed tokens are
+ * treated as expiring so the caller refreshes. */
+export function accessTokenExpiry(token: string): number | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+    const exp = typeof json?.exp === 'number' ? json.exp : null;
+    return exp;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the access token is missing, undecodable, or expiring within
+ * `withinMs` (default 60s). */
+export function accessTokenExpiring(token: string | undefined, withinMs = 60_000): boolean {
+  if (!token) return true;
+  const exp = accessTokenExpiry(token);
+  if (exp === null) return true;
+  return exp * 1000 - Date.now() <= withinMs;
+}
+
+/** Optimistic post-auth snapshot: the login response IS a server-verified
+ * plan statement (auth-verified), immediately confirmed or corrected by the
+ * first entitlement refresh — so a fresh Pro login never flashes "Upgrade". */
+function snapshotFromAuthTier(accountId: string, tier: string | undefined): EntitlementSnapshot | null {
+  if (!tier) return null;
+  const plan: PlanId = tier === 'pro' ? 'pro' : 'free';
+  const capabilities: EntitlementSnapshot['capabilities'] = {} as EntitlementSnapshot['capabilities'];
+  for (const id of Object.keys(CAPABILITY_REGISTRY) as Array<keyof typeof CAPABILITY_REGISTRY>) {
+    const desc = CAPABILITY_REGISTRY[id];
+    capabilities[id] = {
+      enabled: plan === 'pro' || desc.defaultPlan === 'free',
+      reason: plan === 'pro' || desc.defaultPlan === 'free' ? undefined : 'plan',
+    };
+  }
+  return {
+    accountId,
+    plan,
+    capabilities,
+    fetchedAt: new Date().toISOString(),
+    source: 'cache',
+  };
 }
 
 function authErrorMessage(err: unknown, fallback: string): string {
@@ -179,6 +237,8 @@ export const useAccountStore = create<AccountStoreState>()(
             loading: false,
           });
 
+          const optimistic = snapshotFromAuthTier(normalized.user.id, normalized.user.subscriptionTier);
+          if (optimistic) useEntitlementStore.getState().setSnapshot(optimistic);
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
@@ -234,6 +294,8 @@ export const useAccountStore = create<AccountStoreState>()(
             loading: false,
           });
 
+          const optimistic = snapshotFromAuthTier(normalized.user.id, normalized.user.subscriptionTier);
+          if (optimistic) useEntitlementStore.getState().setSnapshot(optimistic);
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
         } catch (err) {
@@ -275,7 +337,11 @@ export const useAccountStore = create<AccountStoreState>()(
             loading: false,
             error: null,
           });
-          // Reset to Free defaults on sign out
+          // Reset to Free defaults on sign out — the logged-out UI must not
+          // keep rendering the prior account's Pro status (persisted local
+          // snapshot included). Native `account_sign_out` cleared the active
+          // in-memory snapshot already; refresh() then resolves anonymous.
+          useEntitlementStore.getState().setSnapshot(FREE_DEFAULT_SNAPSHOT);
           void useEntitlementStore.getState().refresh();
         }
       },
@@ -293,10 +359,16 @@ export const useAccountStore = create<AccountStoreState>()(
 
           if (!res.ok) {
             if (res.status === 401) {
-              // Refresh token rejected (expired/revoked family, or session
-              // cascade-deleted by account deletion elsewhere): transition
-              // cleanly to signed-out local mode (Change F §2.3).
-              await get().signOut();
+              // Distinguish a genuine Plethora API rejection from a captive
+              // portal / MITM proxy answering a bare 401 page: only the API
+              // error shape revokes the session.
+              const body = (await res.json().catch(() => null)) as ServerApiError | null;
+              if (body?.error?.code) {
+                // Refresh token rejected (expired/revoked family, or session
+                // cascade-deleted by account deletion elsewhere): transition
+                // cleanly to signed-out local mode (Change F §2.3).
+                await get().signOut();
+              }
             }
             return;
           }
@@ -309,6 +381,26 @@ export const useAccountStore = create<AccountStoreState>()(
               expiresIn: data.expiresIn,
             },
           }));
+
+          // Native entitlement fetches present the token from the Rust
+          // AuthManager — without re-mirroring, rotation never reaches them
+          // and every subsequent refresh would keep using the stale token.
+          const { user, deviceId } = get();
+          if (isTauri() && user && data.accessToken) {
+            await invoke('account_sync_session', {
+              user: {
+                id: user.id,
+                email: user.email,
+                subscription_tier: user.subscriptionTier ?? 'free',
+              },
+              tokens: {
+                access_token: data.accessToken,
+                refresh_token: data.refreshToken,
+                expires_in: data.expiresIn,
+              },
+              deviceId: deviceId ?? null,
+            }).catch(() => {});
+          }
         } catch {
           // Keep state offline
         }
@@ -368,8 +460,15 @@ export const useAccountStore = create<AccountStoreState>()(
 
         // After relaunch the WebView keeps tokens in localStorage but the Rust
         // AuthManager starts empty — re-mirror the session so native entitlement
-        // refresh can reach the server.
-        if (isAuthenticated && user && tokens?.accessToken) {
+        // refresh can reach the server. Access tokens are 15-minute JWTs: an
+        // expired one would make /v1/entitlements answer 401 (correctly), so
+        // refresh it FIRST whenever it is missing, undecodable, or near
+        // expiry — token expiry must never become an entitlement downgrade.
+        if (isAuthenticated && user && tokens?.refreshToken && accessTokenExpiring(tokens.accessToken)) {
+          await get().refresh();
+        }
+        const currentTokens = get().tokens;
+        if (isAuthenticated && user && currentTokens?.accessToken) {
           try {
             await invoke('account_sync_session', {
               user: {
@@ -378,9 +477,9 @@ export const useAccountStore = create<AccountStoreState>()(
                 subscription_tier: user.subscriptionTier ?? 'free',
               },
               tokens: {
-                access_token: tokens.accessToken,
-                refresh_token: tokens.refreshToken,
-                expires_in: tokens.expiresIn ?? 900,
+                access_token: currentTokens.accessToken,
+                refresh_token: currentTokens.refreshToken ?? '',
+                expires_in: currentTokens.expiresIn ?? 900,
               },
               deviceId: deviceId ?? null,
             });

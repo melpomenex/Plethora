@@ -3,6 +3,7 @@
  */
 
 import { Gear, SignOut } from "@phosphor-icons/react";
+import { selectPlan, useEntitlementStore } from "../../stores/entitlementStore";
 
 interface UserMenuProps {
   user: { id: string; email: string; subscriptionTier?: string } | null;
@@ -11,6 +12,7 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ user, onLogout, onOpenSettings }: UserMenuProps) {
+  const entitlementPlan = useEntitlementStore(selectPlan);
   const getInitials = (email: string) => {
     return email[0].toUpperCase();
   };
@@ -39,7 +41,10 @@ export function UserMenu({ user, onLogout, onOpenSettings }: UserMenuProps) {
             {user?.email}
           </div>
           <div className="text-xs text-foreground-secondary mt-0.5">
-            {user && getTierLabel(user.subscriptionTier)} Plan
+            {/* Authoritative plan comes from the entitlement snapshot — the
+                login-time `subscriptionTier` can be stale relative to later
+                billing webhooks. */}
+            {user && `${getTierLabel(entitlementPlan)} Plan`}
           </div>
         </div>
         {onOpenSettings && (

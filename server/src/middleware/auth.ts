@@ -14,6 +14,12 @@ export interface AuthRequest extends Request {
   userId?: string;
   deviceId?: string;
   sessionId?: string;
+  /** Set by optionalAuthMiddleware when a bearer token was presented but
+   * rejected (expired/invalid). Consumers like /v1/entitlements use it to
+   * answer 401 instead of an anonymous 200 — an expired token must never be
+   * indistinguishable from "signed out". */
+  authRejected?: boolean;
+  authError?: 'token_expired' | 'invalid_token';
 }
 
 export async function authMiddleware(
@@ -87,7 +93,12 @@ export function optionalAuthMiddleware(
     req.deviceId = payload.deviceId;
     req.sessionId = payload.sessionId;
     next();
-  } catch {
+  } catch (err) {
+    // Control flow is unchanged for every consumer (request continues
+    // unauthenticated); consumers that must distinguish "presented but
+    // rejected" from "anonymous" read the flags below.
+    req.authRejected = true;
+    req.authError = err instanceof jwt.TokenExpiredError ? 'token_expired' : 'invalid_token';
     next();
   }
 }

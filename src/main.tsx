@@ -396,22 +396,27 @@ runAfterFirstPaint(() => {
     .catch((error) => console.error("[transcription] config mirror failed to load:", error));
 });
 
-// Billing provider selection at startup (openspec change
-// implement-native-ios-storekit2-billing §3.4): iOS → AppStoreBillingProvider
-// (native StoreKit 2); other platforms → dev-only mock. Also performs relaunch
-// reconciliation of any pending transaction JWS payloads.
-runAfterFirstPaint(() => {
-  import("./stores/billingStore")
-    .then(({ useBillingStore }) => useBillingStore.getState().init())
-    .catch((error) => console.error('[billing] startup init failed:', error));
-});
-
-// Restore native auth + refresh entitlements after zustand rehydrates persisted tokens.
+// Restore account/auth + refresh entitlements after zustand rehydrates
+// persisted tokens. This MUST register BEFORE billing init below: account
+// identity (including access-token validity) is established first, so any
+// billing-triggered entitlement refresh resolves against a mirrored session
+// or is safely superseded by the generation guard in entitlementStore.
 runAfterFirstPaint(() => {
   import("./stores/accountStore")
     .then(({ useAccountStore }) => {
       const bootstrapAccount = () => {
         void useAccountStore.getState().init();
+        // PWA: accountStore.init early-returns (no native session), so the
+        // entitlement store fetches the authoritative server snapshot itself
+        // — otherwise a Pro PWA reload would keep a stale local snapshot
+        // while online.
+        if (!isTauri()) {
+          void import("./stores/entitlementStore")
+            .then(({ useEntitlementStore }) => useEntitlementStore.getState().init())
+            .catch((error) =>
+              console.error("[entitlements] PWA startup refresh failed:", error),
+            );
+        }
       };
       if (useAccountStore.persist.hasHydrated()) {
         bootstrapAccount();
@@ -420,6 +425,16 @@ runAfterFirstPaint(() => {
       }
     })
     .catch((error) => console.error("[account] startup init failed:", error));
+});
+
+// Billing provider selection at startup (openspec change
+// implement-native-ios-storekit2-billing §3.4): iOS → AppStoreBillingProvider
+// (native StoreKit 2); other platforms → dev-only mock. Also performs relaunch
+// reconciliation of any pending transaction JWS payloads.
+runAfterFirstPaint(() => {
+  import("./stores/billingStore")
+    .then(({ useBillingStore }) => useBillingStore.getState().init())
+    .catch((error) => console.error('[billing] startup init failed:', error));
 });
 
 // One-time removal of real-time-sync residue (y-indexeddb databases, stale

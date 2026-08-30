@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import { useAccountStore } from "../../stores/accountStore";
-import { useEntitlementStore } from "../../stores/entitlementStore";
+import {
+  selectEntitlementStatus,
+  selectIsPro,
+  selectPlan,
+  useEntitlementStore,
+} from "../../stores/entitlementStore";
 import { usePaywallStore } from "../../stores/paywallStore";
 import { CapabilityCatalog } from "../monetization/CapabilityCatalog";
 import { TrialBadge } from "../monetization/TrialBadge";
@@ -23,7 +28,9 @@ export function UserProfilePanel() {
   const { isAuthenticated, user, devices, signOut, loadDevices, revokeDevice } = useAccountStore();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isDeleteFlowOpen, setIsDeleteFlowOpen] = useState(false);
-  const plan = useEntitlementStore((state) => state.snapshot.plan);
+  const plan = useEntitlementStore(selectPlan);
+  const isPro = useEntitlementStore(selectIsPro);
+  const entitlementStatus = useEntitlementStore(selectEntitlementStatus);
   const openPaywall = usePaywallStore((state) => state.openPaywall);
 
   useEffect(() => {
@@ -47,8 +54,6 @@ export function UserProfilePanel() {
     });
   };
 
-  const isPro = plan === 'pro';
-
   const handleRefreshPlan = async () => {
     await useAccountStore.getState().init();
   };
@@ -71,14 +76,25 @@ export function UserProfilePanel() {
               </div>
               <div className="flex items-center gap-2 mt-1">
                 {isAuthenticated ? (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
-                    !isPro 
-                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200"
-                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200"
-                  }`}>
-                    {!isPro ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
-                    {!isPro ? t("userProfile.freePlan") : t("userProfile.proPlan")}
-                  </span>
+                  <>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${
+                      !isPro
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200"
+                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200"
+                    }`}>
+                      {!isPro ? <Shield className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
+                      {!isPro ? t("userProfile.freePlan") : t("userProfile.proPlan")}
+                    </span>
+                    {entitlementStatus === 'stale' && (
+                      <span
+                        data-testid="entitlement-stale-hint"
+                        className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground"
+                        title="The last verified entitlement snapshot is past its freshness window; reconnect to re-verify."
+                      >
+                        Offline verification needed
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs font-medium">
                     {t("userProfile.demoMode")}

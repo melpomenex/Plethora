@@ -115,6 +115,7 @@ pub enum QuotaWindow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuotaState {
     pub used: u64,
     pub limit: u64,
@@ -141,7 +142,11 @@ pub enum SnapshotSource {
     Override,
 }
 
+/// Wire format note: this struct crosses the Tauri IPC boundary to the
+/// frontend (`src/types/entitlements.ts`), which expects camelCase field
+/// names (`fetchedAt`, `accountId`, `expiresAt`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EntitlementSnapshot {
     pub account_id: Option<String>,
     pub plan: String,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSyncStore } from "../../stores/syncStore";
 import { useAccountStore } from "../../stores/accountStore";
-import { useEntitlementStore } from "../../stores/entitlementStore";
+import { selectIsPro, useEntitlementStore } from "../../stores/entitlementStore";
 import {
   ArrowsClockwise,
   CheckCircle,
@@ -41,7 +41,7 @@ export function SyncSettingsPanel() {
     fetchStorageUsage,
   } = useSyncStore();
   const { isAuthenticated } = useAccountStore();
-  const plan = useEntitlementStore((state) => state.snapshot.plan);
+  const isPro = useEntitlementStore(selectIsPro);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [importValue, setImportValue] = useState("");
@@ -88,7 +88,6 @@ export function SyncSettingsPanel() {
     setShowKeyModal(false);
   };
 
-  const isPro = plan === "pro";
   const syncDisabled = isSyncing || !isAuthenticated || !isPro;
   const statusLabel = error
     ? "Error"

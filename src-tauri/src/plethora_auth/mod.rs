@@ -243,9 +243,15 @@ pub fn account_sync_session(
 #[tauri::command]
 pub fn account_sign_out(
     auth: tauri::State<Arc<AuthManager>>,
+    entitlements: tauri::State<Arc<crate::entitlements::EntitlementCache>>,
     _local_only: bool,
 ) -> Result<AccountState, String> {
     auth.set_signed_out();
+    // The active entitlement snapshot belongs to the session being left:
+    // clear it so a logged-out process resolves anonymous Free defaults.
+    // Persisted per-account snapshots stay on disk (keyed, inactive) for a
+    // future sign-in of that account.
+    entitlements.clear_cached_snapshot();
     Ok(auth.get_state())
 }
 
