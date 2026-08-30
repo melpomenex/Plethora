@@ -30,6 +30,7 @@ pub mod learning_item;
 pub mod language_profiles;
 pub mod language_lexicon;
 pub mod language_knowledge;
+pub mod multipart_audiobook;
 pub mod language_practice;
 pub mod legacy_import;
 pub mod llm;

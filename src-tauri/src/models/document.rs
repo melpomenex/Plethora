@@ -194,6 +194,13 @@ pub struct DocumentMetadata {
     /// Async Smart Tagging status, fingerprint, and review state.
     #[serde(default)]
     pub organization: Option<serde_json::Value>,
+    /// Deterministic identity of a multi-file audiobook import (path-
+    /// independent: ordered per-part basename/size/duration identities). Lets
+    /// re-imports dedup against the same book — including on devices that
+    /// only received the synced document row, which carries this field while
+    /// editions and audio binaries do not sync.
+    #[serde(default)]
+    pub import_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

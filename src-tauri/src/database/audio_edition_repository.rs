@@ -30,6 +30,21 @@ impl AudioEditionRepository {
         let mut tx = self.pool.begin().await.map_err(|e| {
             PlethoraError::Internal(format!("Failed to start transaction: {}", e))
         })?;
+        let created = Self::create_audio_edition_tx(&mut tx, edition, sections).await?;
+        tx.commit().await.map_err(|e| {
+            PlethoraError::Internal(format!("Failed to commit transaction: {}", e))
+        })?;
+        Ok(created)
+    }
+
+    /// Transaction-scoped edition + sections insert without committing, so a
+    /// multi-file audiobook import can create its document, edition, and
+    /// sections atomically.
+    pub async fn create_audio_edition_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        edition: &AudioEdition,
+        sections: &[AudioEditionSection],
+    ) -> Result<AudioEditionWithSections> {
 
         let id = if edition.id.trim().is_empty() {
             uuid::Uuid::new_v4().to_string()
@@ -70,7 +85,7 @@ impl AudioEditionRepository {
         .bind(&edition.status)
         .bind(created_at)
         .bind(updated_at)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| PlethoraError::Internal(format!("Failed to insert audio edition: {}", e)))?;
 
@@ -114,7 +129,7 @@ impl AudioEditionRepository {
             .bind(&sec.cache_key)
             .bind(created_at)
             .bind(updated_at)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| PlethoraError::Internal(format!("Failed to insert section: {}", e)))?;
 
@@ -138,10 +153,6 @@ impl AudioEditionRepository {
                 updated_at,
             });
         }
-
-        tx.commit().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to commit transaction: {}", e))
-        })?;
 
         Ok(AudioEditionWithSections {
             edition: AudioEdition {

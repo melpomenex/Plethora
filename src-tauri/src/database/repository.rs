@@ -634,6 +634,25 @@ impl Repository {
 
     // Document operations
     pub async fn create_document(&self, document: &Document) -> Result<Document> {
+        // Wrap the document INSERT and the element_tree root registration in a
+        // single transaction: every document
+        // auto-registers as a root Topic node so the tree has a root to build
+        // under as the user reads and extracts.
+        let mut tx = self.pool.begin().await?;
+        Self::create_document_tx(&mut tx, document).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(document.clone())
+    }
+
+    /// Transaction-scoped document creation: INSERT + element-tree root
+    /// registration + sync journaling, without committing. Lets callers group
+    /// additional writes (e.g. a multi-file audiobook's audio edition and
+    /// sections) into the same atomic transaction as the document row.
+    pub async fn create_document_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        document: &Document,
+    ) -> Result<()> {
         let file_type_str = format!("{:?}", document.file_type).to_lowercase();
         let tags_json = serde_json::to_string(&document.tags)?;
         let metadata_json = document
@@ -641,12 +660,6 @@ impl Repository {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
-
-        // Wrap the document INSERT and the element_tree root registration in a
-        // single transaction: every document
-        // auto-registers as a root Topic node so the tree has a root to build
-        // under as the user reads and extracts.
-        let mut tx = self.pool.begin().await?;
 
         sqlx::query(
             r#"
@@ -687,12 +700,12 @@ impl Repository {
         .bind(metadata_json)
         .bind(&document.cover_image_url)
         .bind(&document.cover_image_source)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         let created_at = document.date_added.to_rfc3339();
         register_node_in_tx(
-            &mut tx,
+            tx,
             ElementKind::Document,
             &document.id,
             ELEMENT_TYPE_TOPIC,
@@ -704,7 +717,7 @@ impl Repository {
         let item_payload = payload::document_payload(document)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         journal_entity(
-            &mut tx,
+            tx,
             EntityType::Document,
             &document.id,
             SyncOperation::Create,
@@ -713,10 +726,7 @@ impl Repository {
         )
         .await?;
 
-        tx.commit().await?;
-        notify_after_commit();
-
-        Ok(document.clone())
+        Ok(())
     }
 
     pub async fn get_document(&self, id: &str) -> Result<Option<Document>> {

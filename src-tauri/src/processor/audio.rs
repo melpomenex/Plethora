@@ -16,9 +16,10 @@
 use std::path::Path;
 
 use base64::{engine::general_purpose, Engine as _};
-use lofty::file::TaggedFileExt;
+use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
+use serde::Serialize;
 
 use crate::error::Result;
 
@@ -109,6 +110,95 @@ pub fn extract_audio_cover_data_url(file_path: &str) -> Result<Option<(String, S
     Ok(Some((format!("data:{mime};base64,{encoded}"), mime)))
 }
 
+/// Tags and properties probed from one audio file for multi-file audiobook
+/// import. Every field degrades to `None` — probing failures (unsupported
+/// codec such as WMA, corrupt file) must never fail an import.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioMetadataProbe {
+    pub duration_sec: Option<f64>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+}
+
+/// Probe tags and duration from an audio file via lofty (in-process, works on
+/// Android where no ffmpeg sidecar exists). Like the cover extractor, any
+/// parse failure logs at `warn` and yields default (all-`None`) metadata.
+pub fn probe_audio_metadata(file_path: &str) -> AudioMetadataProbe {
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return AudioMetadataProbe::default();
+    }
+
+    let probe = match Probe::open(path) {
+        Ok(probe) => probe,
+        Err(e) => {
+            tracing::warn!("Failed to open audio file for {file_path}: {e}");
+            return AudioMetadataProbe::default();
+        }
+    };
+    let probe = match probe.guess_file_type() {
+        Ok(probe) => probe,
+        Err(e) => {
+            tracing::warn!("Failed to probe audio format for {file_path}: {e}");
+            return AudioMetadataProbe::default();
+        }
+    };
+    let tagged_file = match probe.read() {
+        Ok(file) => file,
+        Err(e) => {
+            tracing::warn!("Failed to parse audio metadata for {file_path}: {e}");
+            return AudioMetadataProbe::default();
+        }
+    };
+
+    let duration_raw = tagged_file.properties().duration().as_secs_f64();
+    let duration_sec = if duration_raw.is_finite() && duration_raw > 0.0 {
+        Some(duration_raw)
+    } else {
+        None
+    };
+
+    let mut out = AudioMetadataProbe {
+        duration_sec,
+        ..Default::default()
+    };
+
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .cloned();
+    if let Some(tag) = tag {
+        use lofty::tag::ItemKey;
+        let text = |key: ItemKey| {
+            tag.get_string(key)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        out.title = text(ItemKey::TrackTitle);
+        out.artist = text(ItemKey::TrackArtist);
+        out.album = text(ItemKey::AlbumTitle);
+        out.album_artist = text(ItemKey::AlbumArtist);
+
+        // Track/disc numbers arrive as "3" or "3/12".
+        let number = |key: ItemKey| {
+            text(key).and_then(|s| {
+                s.split('/')
+                    .next()
+                    .and_then(|head| head.trim().parse::<u32>().ok())
+            })
+        };
+        out.track_number = number(ItemKey::TrackNumber);
+        out.disc_number = number(ItemKey::DiscNumber);
+    }
+
+    out
+}
+
 /// Sniff a MIME type from the cover's magic bytes. Used as a fallback when the
 /// tag doesn't carry a MIME (e.g. some MP4 `covr` atoms are typed only by atom
 /// sub-code, which lofty surfaces as `None`).
@@ -184,5 +274,27 @@ mod tests {
     fn missing_file_returns_none() {
         let result = extract_audio_cover_data_url("/nonexistent/path/to/audio.m4b").unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn probe_missing_file_degrades_to_defaults() {
+        let probe = probe_audio_metadata("/nonexistent/path/to/part.mp3");
+        assert_eq!(probe.duration_sec, None);
+        assert_eq!(probe.title, None);
+        assert_eq!(probe.track_number, None);
+    }
+
+    #[test]
+    fn probe_unparseable_file_degrades_to_defaults() {
+        // A non-audio file: lofty fails the probe and we must get defaults,
+        // never an error (import correctness never depends on probing).
+        let dir = std::env::temp_dir().join("plethora-audio-probe-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("not-audio.mp3");
+        std::fs::write(&file, b"this is definitely not an audio file").unwrap();
+        let probe = probe_audio_metadata(file.to_string_lossy().as_ref());
+        assert_eq!(probe.duration_sec, None);
+        assert_eq!(probe.title, None);
+        let _ = std::fs::remove_file(&file);
     }
 }

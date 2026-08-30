@@ -2006,6 +2006,7 @@ pub fn run() {
             commands::parse_audiobook_metadata,
             commands::import_podcast_audio_file,
             commands::scan_directory_for_audiobooks,
+            commands::multipart_audiobook::import_multipart_audiobook,
             commands::parse_audiobook_chapters,
             commands::prepare_audiobook_playback,
             commands::extract_audio_sample,

@@ -14,7 +14,7 @@ use tauri::State;
 
 /// Copy a media file to app-managed storage so it survives macOS sandbox revocation.
 /// Returns the destination path.
-fn copy_media_to_app_storage(
+pub(crate) fn copy_media_to_app_storage(
     app: &tauri::AppHandle,
     source_path: &str,
     subdir: &str,
@@ -47,6 +47,53 @@ fn copy_media_to_app_storage(
         .unwrap_or("media");
     let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
     let stored_filename = format!("{}-{}", timestamp, safe_filename);
+    let dest_path = dest_dir.join(&stored_filename);
+
+    std::fs::copy(source, &dest_path)
+        .map_err(|e| PlethoraError::Internal(format!("Failed to copy file: {}", e)))?;
+
+    Ok(dest_path)
+}
+
+/// Collision-safe staging for multi-file imports: unlike
+/// [`copy_media_to_app_storage`], whose `{second}-{basename}` destinations
+/// collide when a book stages duplicate basenames (`Disc 1/01.mp3`,
+/// `Disc 2/01.mp3`) within the same second, every destination here is unique
+/// by construction. Blocking file copies must run via `spawn_blocking`.
+pub(crate) fn stage_media_file_unique(
+    app: &tauri::AppHandle,
+    source_path: &str,
+    subdir: &str,
+) -> Result<PathBuf> {
+    use tauri::Manager;
+    let source = Path::new(source_path);
+    if !source.exists() {
+        return Err(PlethoraError::NotFound(format!(
+            "Source file not found: {}",
+            source_path
+        )));
+    }
+
+    let dest_dir = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("incrementum").join(subdir))
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
+        })?;
+
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        PlethoraError::Internal(format!("Failed to create {} directory: {}", subdir, e))
+    })?;
+
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let original_filename = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("media");
+    let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
+    let nonce = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+    let stored_filename = format!("{}-{}-{}", timestamp, nonce, safe_filename);
     let dest_path = dest_dir.join(&stored_filename);
 
     std::fs::copy(source, &dest_path)
