@@ -56,7 +56,10 @@ pub async fn push_outbox(
     let account = require_account_id(auth).await?;
 
     let mut total_accepted = 0usize;
-    let mut latest_seq = get_server_cursor(repo.pool()).await?;
+    // Push sequence numbers are server log positions, not proof that this
+    // device has pulled/applied every record up to that position. Advancing
+    // the pull cursor from a push can skip unseen changes from other devices.
+    let mut latest_seq = 0u64;
 
     'outer: loop {
         let batch = drain_pending_batch(repo.pool(), MAX_PUSH_RECORDS).await?;
@@ -107,10 +110,6 @@ pub async fn push_outbox(
 
         acknowledge_changes(repo.pool(), &change_ids).await?;
         mark_conflicts_failed(repo.pool(), &response.conflicts).await?;
-    }
-
-    if latest_seq > 0 {
-        set_server_cursor(repo.pool(), latest_seq).await?;
     }
 
     Ok(PushResult {
