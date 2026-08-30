@@ -1452,17 +1452,15 @@ impl Repository {
 
     pub async fn update_document(&self, id: &str, updates: &Document) -> Result<Document> {
         let tags_json = serde_json::to_string(&updates.tags)?;
-        // See document_repository.rs::update_document: empty-string == not provided,
-        // so partial updates don't clobber content-bearing columns (notably
-        // file_path, whose YouTube URL IS the content).
         let file_path = if updates.file_path.is_empty() {
             None
         } else {
             Some(&updates.file_path)
         };
-        let category = updates.category.as_ref().filter(|c| !c.is_empty());
+        let category = updates.category.as_ref().filter(|value| !value.is_empty());
 
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 title = ?1,
@@ -1489,29 +1487,41 @@ impl Repository {
         .bind(updates.is_favorite)
         .bind(updates.total_pages)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
 
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        let updated = Self::journal_document_fields(
+            &mut tx,
+            id,
+            &["content", "position", "tags", "priority", "flags"],
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
-    /// Clear a document's category. Deliberately separate from
-    /// `update_document`, whose empty-string-means-unprovided convention
-    /// (there to keep partial updates from clobbering content-bearing
-    /// columns) makes an explicit clear indistinguishable from "leave
-    /// unchanged" — the two must not share a path (issue #44 bug 11).
     pub async fn clear_document_category(&self, id: &str) -> Result<Document> {
-        sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
             .bind(chrono::Utc::now())
             .bind(id)
-            .execute(&self.pool)
-            .await?;
-
-        self.get_document(id)
+            .execute(&mut *tx)
             .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+            .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["tags"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     /// Reassign a document to a collection.
@@ -1520,7 +1530,9 @@ impl Repository {
     /// `collection_id` so that a partial update spreading a stale document
     /// cannot move it by accident. Returns whether a row was actually matched,
     /// so callers can distinguish "moved" from "no such document".
+
     pub async fn set_document_collection(&self, id: &str, collection_id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE documents SET
@@ -1532,10 +1544,17 @@ impl Repository {
         .bind(collection_id)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        Self::journal_document_fields(&mut tx, id, &["collection"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn update_document_cover(
@@ -1544,7 +1563,8 @@ impl Repository {
         cover_image_url: Option<String>,
         cover_image_source: Option<String>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 cover_image_url = ?1,
@@ -1557,9 +1577,16 @@ impl Repository {
         .bind(cover_image_source)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -1572,8 +1599,8 @@ impl Repository {
         metadata: Option<DocumentMetadata>,
     ) -> Result<()> {
         let metadata_json = metadata.as_ref().map(serde_json::to_string).transpose()?;
-
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 content = ?1,
@@ -1590,15 +1617,23 @@ impl Repository {
         .bind(metadata_json)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     /// Persist a pipeline-imported web article: sanitized content, metadata
     /// (including the `webArticle` provenance), canonical `source_url`, and
     /// cover image in ONE statement so an import never lands half-written.
+
     pub async fn update_web_article(
         &self,
         id: &str,
@@ -1658,6 +1693,7 @@ impl Repository {
         }
 
         let metadata_json = serde_json::to_string(&metadata)?;
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE documents SET
@@ -1675,10 +1711,17 @@ impl Repository {
         .bind(id)
         .bind(expected_date_modified)
         .bind(candidate.chars().count() as i64)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected() == 1)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn update_document_priority(
@@ -1689,12 +1732,8 @@ impl Repository {
         priority_score: f64,
     ) -> Result<Document> {
         let now = Utc::now();
-
-        // Flip priority_explicitly_set to 1 so the Alt+P popup can distinguish a
-        // user-committed priority (including an explicit 0) from a never-touched
-        // document. This is the single source of truth for "was this set?" —
-        // every commit through the popup (single or bulk) flows through here.
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 priority_rating = ?1,
@@ -1710,18 +1749,23 @@ impl Repository {
         .bind(priority_score)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn update_document_dismiss(&self, id: &str, is_dismissed: bool) -> Result<Document> {
         let now = Utc::now();
-
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 is_dismissed = ?1,
@@ -1732,12 +1776,17 @@ impl Repository {
         .bind(is_dismissed)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["flags"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn update_document_progress(
@@ -1749,9 +1798,8 @@ impl Repository {
         current_view_state: Option<String>,
     ) -> Result<Document> {
         let now = Utc::now();
-
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 current_page = COALESCE(?1, current_page),
@@ -1769,37 +1817,16 @@ impl Repository {
         .bind(now)
         .bind(id)
         .execute(&mut *tx)
-        .await?;
-
-        let position_json: Option<String> =
-            sqlx::query_scalar("SELECT position_json FROM documents WHERE id = ?1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        let item_payload = payload::document_position_payload(
-            id,
-            position_json.as_deref(),
-            None,
-            current_page,
-            current_scroll_percent,
-            current_cfi.as_deref(),
-        )
-        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        journal_entity(
-            &mut tx,
-            EntityType::Document,
-            id,
-            SyncOperation::Update,
-            Some(timestamp_revision(now)),
-            item_payload,
-        )
-        .await?;
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["position"]).await?;
         tx.commit().await?;
         notify_after_commit();
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        Ok(updated)
     }
 
     pub async fn update_document_scheduling(
@@ -1812,7 +1839,8 @@ impl Repository {
         total_time_spent: Option<i32>,
     ) -> Result<()> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1833,13 +1861,21 @@ impl Repository {
         .bind(now)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
+
     pub async fn update_document_scheduling_with_consecutive(
         &self,
         id: &str,
@@ -1851,7 +1887,8 @@ impl Repository {
         consecutive_count: Option<i32>,
     ) -> Result<()> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1874,13 +1911,21 @@ impl Repository {
         .bind(now)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
+
     pub async fn restore_document_scheduling(
         &self,
         id: &str,
@@ -1892,7 +1937,8 @@ impl Repository {
         consecutive_count: Option<i32>,
         date_last_reviewed: Option<chrono::DateTime<Utc>>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1915,9 +1961,16 @@ impl Repository {
         .bind(date_last_reviewed)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
