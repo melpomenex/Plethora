@@ -335,6 +335,12 @@ export function AudiobookViewer({
   // Multi-part handling
   const [multiPartInfo, setMultiPartInfo] = useState<MultiPartInfo | null>(null);
   const [currentPartIndex, setCurrentPartIndex] = useState(0);
+  // Synchronous mirror for async continuations (part jumps that resolve their
+  // source after await points must check they are still the active part).
+  const currentPartIndexRef = useRef(0);
+  useEffect(() => {
+    currentPartIndexRef.current = currentPartIndex;
+  }, [currentPartIndex]);
   const [partSources, setPartSources] = useState<string[]>([]);
   
   // Audiobook data
@@ -596,9 +602,26 @@ export function AudiobookViewer({
     loadAudiobookData();
   }, [document.id]);
 
+  // In-place document switches (same mounted viewer, new document.id) must
+  // fully reset the previous book's playlist state BEFORE the single-file
+  // resolution below runs: otherwise the stale `editionOwnsPlaylistRef` from
+  // the previous multi-file book makes the single-file effect bail, and the
+  // previous book's partSources keep feeding the <audio> element. Declared
+  // above that effect so it runs first within the same commit.
+  useEffect(() => {
+    editionOwnsPlaylistRef.current = false;
+    resolvedSectionUrlsRef.current = {};
+    setResolvedSectionUrls({});
+    setMultiPartInfo(null);
+    setPartSources([]);
+    setCurrentPartIndex(0);
+    setPreparedPlaybackPath(null);
+    setPreparedPlaybackSrc(null);
+  }, [document.id]);
+
   useEffect(() => {
     const ext = document.filePath?.split(".").pop()?.toLowerCase();
-    if (!isTauri() || !document.filePath) {
+    if (!isTauri() || !document.filePath || editionOwnsPlaylistRef.current) {
       setPreparedPlaybackPath(null);
       setPreparedPlaybackSrc(null);
       return;
@@ -697,7 +720,7 @@ export function AudiobookViewer({
     return () => {
       cancelled = true;
     };
-  }, [document.filePath, retryAttempt]);
+  }, [document.id, document.filePath, retryAttempt]);
 
   useEffect(() => {
     if (!isTauri() || !episodeId) {
@@ -900,11 +923,26 @@ export function AudiobookViewer({
   /** Sections kept live ahead of the playhead (working set, task 5.6). */
 const WORKING_SET_AHEAD = 2;
 
+/** URLs usable as <audio src> directly (blob cache, http(s) stream, data URL).
+ * Staged filesystem paths from imported multi-file sections are NOT — they
+ * resolve through the media server / local-media resolver first. */
+function isDirectPlaybackUrl(path?: string | null): boolean {
+  if (!path) return false;
+  return /^(blob:|https?:|data:)/i.test(path);
+}
+
 const editionSectionIdsRef = useRef<string[]>([]);
   /** Section RECORDS for the edition playlist (working-set resolution, 5.6). */
   const editionReadySectionsRef = useRef<
     { id: string; audioFilePath?: string | null; title?: string }[]
   >([]);
+  // True once a non-transcript ready edition owns the playlist (multi-file
+  // imported audiobooks): the single-file document.filePath resolution must
+  // stand down so it cannot shadow the section sources.
+  const editionOwnsPlaylistRef = useRef(false);
+  // Section id → resolved playable URL for staged filesystem paths.
+  const resolvedSectionUrlsRef = useRef<Record<string, string>>({});
+  const [resolvedSectionUrls, setResolvedSectionUrls] = useState<Record<string, string>>({});
 
   // Load the document's Audio Edition once per document. A ready edition with
   // section audio takes over the playlist (parts = ready sections, chapters =
@@ -916,6 +954,8 @@ const editionSectionIdsRef = useRef<string[]>([]);
     setSectionAnchors([]);
     editionSectionIdsRef.current = [];
     editionReadySectionsRef.current = [];
+    editionOwnsPlaylistRef.current = false;
+    setResolvedSectionUrls({});
 
     void (async () => {
       try {
@@ -959,14 +999,24 @@ const editionSectionIdsRef = useRef<string[]>([]);
           readySections.length > 0 &&
           !multiPartInfo
         ) {
+          // The edition (e.g. a multi-file imported audiobook) now owns the
+          // playlist: retire the single-file resolution of document.filePath
+          // so it cannot shadow the section sources below.
+          editionOwnsPlaylistRef.current = true;
+          setPreparedPlaybackPath(null);
+          setPreparedPlaybackSrc(null);
+
           // Playback working set (D7 / task 5.6): only the CURRENT section's
           // source must be live up front; further entries are resolved from
           // the section RECORDS on advance and prefetched across boundaries.
           // An N-section edition no longer pins N blob URLs — the LRU keeps
-          // the live window bounded.
-          const sources = readySections.map(
-            (s, i) => (i <= WORKING_SET_AHEAD ? getSectionAudioUrl(s.id) : undefined) || (s.audioFilePath as string) || "",
-          );
+          // the live window bounded. Filesystem paths (imported sections) are
+          // NOT usable as <audio src> directly — the async resolver effect
+          // below turns them into media-server/local-media URLs.
+          const sources = readySections.map((s, i) => {
+            const live = i <= WORKING_SET_AHEAD ? getSectionAudioUrl(s.id) : undefined;
+            return live || (isDirectPlaybackUrl(s.audioFilePath) ? (s.audioFilePath as string) : "") || "";
+          });
           const durations = readySections.map((s) => s.durationSec || 0);
           setPartSources(sources);
           setMultiPartInfo({
@@ -1021,13 +1071,66 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [currentPartIndex, audioEdition?.id]);
 
   // Playback working set (D7 / task 5.6): resolve the section record at a
-  // playlist index — the LRU-touched cache URL when live, otherwise the
-  // section's recorded audio path. Never materializes anything new.
-  const resolveSectionSourceAt = useCallback((index: number): string => {
-    const section = editionReadySectionsRef.current[index];
-    if (!section) return "";
-    return getSectionAudioUrl(section.id) || section.audioFilePath || "";
-  }, []);
+  // playlist index — the LRU-touched cache URL when live, a directly usable
+  // URL (http/data), or the asynchronously resolved media-server URL for
+  // filesystem paths (imported multi-file sections). Never materializes
+  // anything new.
+  const resolveSectionSourceAt = useCallback(
+    (index: number): string => {
+      const section = editionReadySectionsRef.current[index];
+      if (!section) return "";
+      return (
+        getSectionAudioUrl(section.id) ||
+        (isDirectPlaybackUrl(section.audioFilePath) ? section.audioFilePath : undefined) ||
+        resolvedSectionUrlsRef.current[section.id] ||
+        ""
+      );
+    },
+    [],
+  );
+
+  // Async resolution for imported sections whose audioFilePath is a staged
+  // filesystem path: <audio src> needs the loopback media server (desktop) or
+  // the local-media resolver (native mobile), never the raw path. Resolved
+  // URLs are cached per section id and patched into the playlist.
+  useEffect(() => {
+    if (!multiPartInfo || !isTauri()) return;
+    let cancelled = false;
+    void (async () => {
+      for (let ahead = 0; ahead <= WORKING_SET_AHEAD; ahead++) {
+        const index = currentPartIndex + ahead;
+        if (index < 0 || index >= multiPartInfo.totalParts) continue;
+        const section = editionReadySectionsRef.current[index];
+        if (!section?.audioFilePath) continue;
+        if (getSectionAudioUrl(section.id)) continue;
+        if (isDirectPlaybackUrl(section.audioFilePath)) continue;
+        if (resolvedSectionUrlsRef.current[section.id]) continue;
+
+        try {
+          const url = isNativeMobile()
+            ? (await resolveLocalMediaSource(section.audioFilePath, "audio")).src
+            : await invokeCommand<string>("get_media_stream_url", { filePath: section.audioFilePath });
+          if (cancelled || !url) continue;
+          resolvedSectionUrlsRef.current[section.id] = url;
+          setResolvedSectionUrls((prev) => ({ ...prev, [section.id]: url }));
+          setPartSources((prev) => {
+            if (prev[index] === url) return prev;
+            const next = [...prev];
+            next[index] = url;
+            return next;
+          });
+        } catch (err) {
+          console.warn(
+            "[AudiobookViewer] Failed to resolve section source:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPartIndex, multiPartInfo?.totalParts, resolvedSectionUrls]);
 
   // Prefetch across section boundaries: keep the current + next sections
   // live in the LRU (touched = most recent = never the eviction victim) and
@@ -1049,7 +1152,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
       return changed ? next : prev;
     });
-  }, [currentPartIndex, multiPartInfo?.totalParts, resolveSectionSourceAt]);
+  }, [currentPartIndex, multiPartInfo?.totalParts, resolveSectionSourceAt, resolvedSectionUrls]);
 
   // Listening session lifecycle: create/resume on play, close on
   // inactivity/content change/unmount (no micro-sessions).
@@ -1588,20 +1691,69 @@ const editionSectionIdsRef = useRef<string[]>([]);
     showInfo(t("viewer.audiobookFinished"), t("viewer.reachedTheEnd"));
   };
   
-  // Go to specific part (for multi-part books)
+  // Resolve a staged filesystem path into a playable URL (media server on
+  // desktop, local-media resolver on native mobile). Shared by the working-set
+  // effect and imperative jumps like goToPart.
+  const resolveSectionPlaybackUrl = useCallback(
+    async (filePath: string): Promise<string> => {
+      if (isDirectPlaybackUrl(filePath)) return filePath;
+      if (isNativeMobile()) {
+        return (await resolveLocalMediaSource(filePath, "audio")).src;
+      }
+      return invokeCommand<string>("get_media_stream_url", { filePath });
+    },
+    [],
+  );
+
+  // Go to specific part (for multi-part books). Far sections outside the
+  // resolved working set are resolved on demand — assigning an empty src
+  // would fire a media error and latch the fallback machinery.
   const goToPart = (partIndex: number) => {
     if (!multiPartInfo || partIndex < 0 || partIndex >= multiPartInfo.partFiles.length) return;
-    
+
     setCurrentPartIndex(partIndex);
     currentTimeRef.current = 0;
     currentGlobalTimeRef.current = toGlobalSeconds(partIndex, 0);
-    if (audioRef.current) {
-      audioRef.current.src = partSources[partIndex] || "";
-      audioRef.current.load();
-      audioRef.current.play().catch(() => {
-        setIsPlaying(false);
-      });
+    const immediate = resolveSectionSourceAt(partIndex) || partSources[partIndex];
+    if (immediate) {
+      if (audioRef.current) {
+        audioRef.current.src = immediate;
+        audioRef.current.load();
+        audioRef.current.play().catch(() => {
+          setIsPlaying(false);
+        });
+      }
+      return;
     }
+    const section = editionReadySectionsRef.current[partIndex];
+    const rawPath = section?.audioFilePath;
+    if (!rawPath) return;
+    void (async () => {
+      try {
+        const url = await resolveSectionPlaybackUrl(rawPath);
+        if (!url) return;
+        resolvedSectionUrlsRef.current[section.id] = url;
+        setResolvedSectionUrls((prev) => ({ ...prev, [section.id]: url }));
+        setPartSources((prev) => {
+          if (prev[partIndex] === url) return prev;
+          const next = [...prev];
+          next[partIndex] = url;
+          return next;
+        });
+        if (audioRef.current && currentPartIndexRef.current === partIndex) {
+          audioRef.current.src = url;
+          audioRef.current.load();
+          audioRef.current.play().catch(() => {
+            setIsPlaying(false);
+          });
+        }
+      } catch (err) {
+        console.warn(
+          "[AudiobookViewer] Failed to resolve section source for part jump:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    })();
   };
   
   const handlePause = () => {

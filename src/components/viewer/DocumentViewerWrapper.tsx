@@ -48,9 +48,9 @@ interface DocumentViewerWithAssistantProps {
   autoPlay?: boolean;
   focusedExtractId?: string;
   extractSourceContext?: ExtractSourceContext;
-  // Origin the document was opened from. "documents" hides the rating orbs
-  // (library browsing); "queue" keeps them (active review). Forwarded to the
-  // underlying viewer so the tab-data signal survives the wrapper.
+  // Origin the document was opened from. Only "queue" keeps the rating orbs
+  // (active review). Forwarded to the underlying viewer so the tab-data signal
+  // survives the wrapper.
   openedFrom?: string;
   hideRatingOrbs?: boolean;
   /** Render the document in the Audio Edition player (AudiobooksTab Listen). */
@@ -194,11 +194,20 @@ export function DocumentViewer({
   const assistantContentRef = useRef<string | undefined>(assistantContent);
   const currentDocRef = useRef(currentDoc);
 
+  // Global master opt-in (settings v11): Language Learning surfaces exist
+  // only when explicitly enabled. Global OFF dominates the per-document
+  // preference, which is preserved untouched for a later re-enable.
+  const languageLearningEnabled = settings.languageLearning?.enabled === true;
+  const languageSuggestionsEnabled = settings.languageLearning?.suggestionsEnabled !== false;
+  const effectiveLanguageModeEnabled = languageLearningEnabled && languageModeEnabled;
+
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(`plethora.language-mode.${documentId}`, languageModeEnabled ? "on" : "off");
-    }
-  }, [documentId, languageModeEnabled]);
+    // While the feature is globally disabled the per-document preference is
+    // NOT written: the toggle that would change it is absent, and rewriting
+    // the stored value here would silently wipe the user's prior choice.
+    if (typeof window === "undefined" || !languageLearningEnabled) return;
+    window.localStorage.setItem(`plethora.language-mode.${documentId}`, languageModeEnabled ? "on" : "off");
+  }, [documentId, languageModeEnabled, languageLearningEnabled]);
 
   const languageContentFingerprint = useMemo(
     () => currentDoc?.dateModified ?? currentDoc?.id ?? documentId,
@@ -565,42 +574,30 @@ export function DocumentViewer({
     />
   );
 
-  const documentViewer = (
-    <LanguageLearningHostProvider
-      key={`lang-host:${documentId}:${projectionEpoch}:${hostRefreshToken}`}
-      hostId={`document-reader:${documentId}`}
-      surface={languageSurface}
-      source={languageSource}
-      languageModeEnabled={languageModeEnabled}
-      resolveCapabilities={languageBindings.resolveCapabilities}
-      shadowingProviders={languageBindings.shadowingProviders}
-      writingProvider={languageBindings.writingProvider}
-      pronunciationManifest={languageBindings.pronunciationManifest}
-      readingAssistRegistry={languageBindings.readingAssistRegistry}
+  const readerContent = (
+    <div
+      className="relative flex-1 h-full min-h-0 overflow-hidden"
+      style={{ minWidth: READER_MIN_WIDTH }}
     >
-      <div
-        className="relative flex-1 h-full min-h-0 overflow-hidden"
-        style={{ minWidth: READER_MIN_WIDTH }}
-      >
-        {languageModeEnabled && detectionEvidence && (
-          <div className="pointer-events-none absolute left-3 right-3 top-3 z-20">
-            <div className="pointer-events-auto mx-auto max-w-lg">
-              <LanguageProfileSuggestionBanner
-                contentType={languageSource.contentType}
-                contentId={languageSource.contentId}
-                evidence={detectionEvidence}
-              />
-            </div>
+      {effectiveLanguageModeEnabled && languageSuggestionsEnabled && detectionEvidence && (
+        <div className="pointer-events-none absolute left-3 right-3 top-3 z-20">
+          <div className="pointer-events-auto mx-auto max-w-lg">
+            <LanguageProfileSuggestionBanner
+              contentType={languageSource.contentType}
+              contentId={languageSource.contentId}
+              evidence={detectionEvidence}
+            />
           </div>
-        )}
-        {languageModeEnabled && (
-          <LanguageProfileAssociationGate
-            contentType={languageSource.contentType}
-            contentId={languageSource.contentId}
-            onAssociated={() => setHostRefreshToken((value) => value + 1)}
-          />
-        )}
-        <BaseDocumentViewer
+        </div>
+      )}
+      {effectiveLanguageModeEnabled && (
+        <LanguageProfileAssociationGate
+          contentType={languageSource.contentType}
+          contentId={languageSource.contentId}
+          onAssociated={() => setHostRefreshToken((value) => value + 1)}
+        />
+      )}
+      <BaseDocumentViewer
         documentId={documentId}
         embedded={embedded}
         onSelectionChange={handleSelectionChange}
@@ -638,19 +635,45 @@ export function DocumentViewer({
         captureReader={captureReader}
         captureCardPreview={captureCardPreview}
         />
-        <LanguageReaderHostPanel
-          documentId={documentId}
-          selectedText={selection}
-          sourceAnchor={languageSourceAnchor}
-          languageModeEnabled={languageModeEnabled}
-          onLanguageModeChange={setLanguageModeEnabled}
-        />
-        <LanguageReaderActionOverlay />
-        <LanguageTutorHost />
-        <LanguagePracticeOverlay />
-        <LanguageReadingAssistOverlay />
-      </div>
+      {languageLearningEnabled && (
+        <>
+          <LanguageReaderHostPanel
+            documentId={documentId}
+            selectedText={selection}
+            sourceAnchor={languageSourceAnchor}
+            languageModeEnabled={languageModeEnabled}
+            onLanguageModeChange={setLanguageModeEnabled}
+          />
+          <LanguageReaderActionOverlay />
+          <LanguageTutorHost />
+          <LanguagePracticeOverlay />
+          <LanguageReadingAssistOverlay />
+        </>
+      )}
+    </div>
+  );
+
+  // Master opt-in gate: with Language Learning disabled the entire host stack
+  // (provider, banner, gate, panel, overlays) is NOT mounted — the reader
+  // behaves as though the feature does not exist. Hooks above still run
+  // unconditionally per the rules of hooks; only rendering is gated.
+  const documentViewer = languageLearningEnabled ? (
+    <LanguageLearningHostProvider
+      key={`lang-host:${documentId}:${projectionEpoch}:${hostRefreshToken}`}
+      hostId={`document-reader:${documentId}`}
+      surface={languageSurface}
+      source={languageSource}
+      languageModeEnabled={effectiveLanguageModeEnabled}
+      resolveCapabilities={languageBindings.resolveCapabilities}
+      shadowingProviders={languageBindings.shadowingProviders}
+      writingProvider={languageBindings.writingProvider}
+      pronunciationManifest={languageBindings.pronunciationManifest}
+      readingAssistRegistry={languageBindings.readingAssistRegistry}
+    >
+      {readerContent}
     </LanguageLearningHostProvider>
+  ) : (
+    readerContent
   );
 
   if (embedded) {

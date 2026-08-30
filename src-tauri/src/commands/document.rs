@@ -1257,8 +1257,45 @@ pub async fn extract_document_text(
 }
 
 #[tauri::command]
-pub async fn delete_document(id: String, repo: State<'_, Repository>) -> Result<()> {
+pub async fn delete_document(
+    id: String,
+    repo: State<'_, Repository>,
+    app: tauri::AppHandle,
+) -> Result<()> {
+    // Imported multi-file audiobooks own staged chapter copies under the app
+    // media dir; the DB cascade removes the edition/section rows but not the
+    // files. Collect the paths first (the rows disappear with the document),
+    // delete, then sweep the files — a deleted multi-GB book must not leave
+    // its audio on disk.
+    let staged_section_paths: Vec<Option<String>> = sqlx::query_scalar(
+        r#"
+        SELECT s.audio_file_path
+        FROM audio_edition_sections s
+        JOIN audio_editions e ON e.id = s.edition_id
+        WHERE e.source_document_id = ?1 AND e.provider = 'imported'
+        "#,
+    )
+    .bind(&id)
+    .fetch_all(repo.pool())
+    .await
+    .unwrap_or_default();
+
     repo.delete_document(&id).await?;
+
+    if !staged_section_paths.is_empty() {
+        use tauri::Manager;
+        if let Ok(base) = app.path().app_data_dir() {
+            let media_root = base.join("incrementum").join("audio");
+            for path in staged_section_paths.iter().flatten() {
+                let candidate = Path::new(path);
+                // Only remove files inside our own media dir — never paths
+                // that merely LOOK local but point elsewhere.
+                if candidate.starts_with(&media_root) {
+                    let _ = std::fs::remove_file(candidate);
+                }
+            }
+        }
+    }
     Ok(())
 }
 

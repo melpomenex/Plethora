@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useLanguageProfileStore } from "../../stores/languageProfileStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { isValidBcp47, type LanguageProfileCreate } from "../../types/languageProfile";
 
 const EMPTY_FORM: LanguageProfileCreate = {
@@ -19,6 +20,13 @@ export function LanguageLearningSettings() {
   const createProfile = useLanguageProfileStore((state) => state.createProfile);
   const setActiveProfile = useLanguageProfileStore((state) => state.setActiveProfile);
   const archiveProfile = useLanguageProfileStore((state) => state.archiveProfile);
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const enabled = useSettingsStore(
+    (state) => state.settings.languageLearning?.enabled === true,
+  );
+  const suggestionsEnabled = useSettingsStore(
+    (state) => state.settings.languageLearning?.suggestionsEnabled !== false,
+  );
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -41,6 +49,57 @@ export function LanguageLearningSettings() {
 
   return (
     <div className="space-y-6" data-testid="language-learning-settings">
+      <section className="rounded-lg border border-border bg-card p-5" aria-labelledby="language-learning-master-title">
+        <h2 id="language-learning-master-title" className="text-lg font-semibold text-foreground">
+          Language Learning
+        </h2>
+        <label className="mt-3 flex items-start gap-3" data-testid="language-learning-master-toggle">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-labelledby="language-learning-master-title"
+            className="mt-1 h-5 w-5 accent-primary"
+            checked={enabled}
+            onChange={(event) =>
+              updateSettings({
+                languageLearning: {
+                  enabled: event.target.checked,
+                  suggestionsEnabled,
+                  showUnavailableProviders:
+                    useSettingsStore.getState().settings.languageLearning
+                      ?.showUnavailableProviders !== false,
+                },
+              })
+            }
+          />
+          <span className="text-sm text-muted-foreground">
+            Show language-learning tools in readers (Language Mode, dictionary peek, translation and
+            practice overlays). Off by default; ordinary reading is never affected.
+          </span>
+        </label>
+        <label className="mt-3 flex items-start gap-3" data-testid="language-suggestions-toggle">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5 accent-primary"
+            checked={suggestionsEnabled}
+            disabled={!enabled}
+            onChange={(event) =>
+              updateSettings({
+                languageLearning: {
+                  enabled,
+                  suggestionsEnabled: event.target.checked,
+                  showUnavailableProviders:
+                    useSettingsStore.getState().settings.languageLearning
+                      ?.showUnavailableProviders !== false,
+                },
+              })
+            }
+          />
+          <span className="text-sm text-muted-foreground">
+            Suggest studying a document as your target language when one is detected.
+          </span>
+        </label>
+      </section>
       <section className="rounded-lg border border-border bg-card p-5">
         <h2 className="text-lg font-semibold text-foreground">Language learning profiles</h2>
         <p className="mt-1 text-sm text-muted-foreground">

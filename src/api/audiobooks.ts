@@ -96,6 +96,67 @@ export async function scanDirectoryForAudiobooks(dirPath: string): Promise<strin
   });
 }
 
+// ---------------------------------------------------------------------------
+// Multi-file audiobook import (one logical book, many physical chapter files)
+// ---------------------------------------------------------------------------
+
+/** One physical chapter file of a multi-file audiobook. */
+export interface MultipartPartInput {
+  path: string;
+  fileName?: string;
+  relativePath?: string;
+}
+
+export interface MultipartImportOptions {
+  files: MultipartPartInput[];
+  /** Explicit (user-edited) title/author — outrank embedded tags. */
+  title?: string;
+  author?: string;
+  /** Planner-derived (directory/filename) title/author — lowest priority. */
+  fallbackTitle?: string;
+  fallbackAuthor?: string;
+  coverUrl?: string;
+  tags?: string[];
+  collectionId?: string;
+}
+
+export interface MultipartImportResult {
+  document: Document;
+  editionId: string;
+  sectionCount: number;
+  /** Fingerprint matched an existing logical audiobook; no new document. */
+  deduplicated: boolean;
+  /** Local media (edition/sections/files) was attached to a synced row. */
+  attachedToExisting: boolean;
+}
+
+/**
+ * Import a multi-file audiobook as ONE library document with one ready
+ * imported Audio Edition and one section per physical file. Atomic Rust-side:
+ * on failure nothing is persisted and staged files are removed.
+ *
+ * Tauri only — the folder/multipart pipeline needs native staging. Browser
+ * mode throws a clear error (folder picks are unavailable there anyway).
+ */
+export async function importMultipartAudiobook(
+  options: MultipartImportOptions,
+): Promise<MultipartImportResult> {
+  if (!isTauri()) {
+    throw new Error("Multi-file audiobook import requires the Plethora desktop or mobile app.");
+  }
+  const { invokeCommand } = await import("../lib/tauri");
+  return await invokeCommand<MultipartImportResult>("import_multipart_audiobook", {
+    parts: options.files,
+    title: options.title ?? null,
+    author: options.author ?? null,
+    fallbackTitle: options.fallbackTitle ?? null,
+    fallbackAuthor: options.fallbackAuthor ?? null,
+    coverUrl: options.coverUrl ?? null,
+    tags: options.tags ?? null,
+    collectionId: options.collectionId ?? null,
+  });
+}
+
 // Batch audiobook import result
 export interface BatchImportResult {
   successful: Array<{

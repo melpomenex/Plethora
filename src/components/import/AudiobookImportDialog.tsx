@@ -53,6 +53,7 @@ import {
   BatchImportResult,
   detectMultiPartAudiobook,
   MultiPartAudiobook,
+  importMultipartAudiobook,
 } from "../../api/audiobooks";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
@@ -640,55 +641,46 @@ export function AudiobookImportDialog({
   // Import single audiobook (handles both single file and multi-part)
   const handleImport = async () => {
     if (!filePath && !multiPartBook) return;
-    
+
     setIsLoading(true);
     try {
       let doc: Document;
-      
+
       if (multiPartBook && selectedFiles.length > 0) {
-        const imported = await importFromFiles([selectedFiles[0]]);
-        if (imported.length === 0) throw new Error("Failed to import audiobook");
-        doc = imported[0];
-        
-        const partChapters: AudiobookChapter[] = multiPartBook.parts.map((part, idx) => ({
-          id: idx + 1,
-          title: `Part ${part.partNumber}`,
-          startTime: 0, // Player will calculate cumulative times
-          duration: part.duration,
-        }));
-        
-        // Update with metadata - explicitly set fileType to 'audio' via API
-        await updateDocumentApi(doc.id, {
-          ...doc,
-          title: metadata.title || doc.title,
-          fileType: "audio",
+        // One logical book: ONE document + one imported Audio Edition + one
+        // ready section per physical file, staged atomically Rust-side. No
+        // legacy localStorage `multiPart` record — the edition playlist owns
+        // playback. (A transcript record is still written WITHOUT multiPart so
+        // an in-dialog transcription stays usable.)
+        const result = await importMultipartAudiobook({
+          files: selectedFiles.map((path) => ({ path })),
+          title: metadata.title || multiPartBook.title,
+          author: metadata.author || multiPartBook.author,
+          fallbackTitle: multiPartBook.title,
+          fallbackAuthor: multiPartBook.author,
+          coverUrl: selectedCover || undefined,
           tags: ["audiobook", "audio", "multi-part", ...(metadata.genre || [])],
-          coverImageUrl: selectedCover,
-          metadata: {
-            author: metadata.author,
-            subject: metadata.description?.substring(0, 200),
-            keywords: metadata.genre,
-            language: metadata.language,
-          },
-        } as Document);
-        
-        const audiobookData = {
-          documentId: doc.id,
-          chapters: partChapters,
-          transcript,
-          metadata,
-          multiPart: {
-            totalParts: selectedFiles.length,
-            partFiles: selectedFiles,
-          },
-        };
-        localStorage.setItem(`audiobook-${doc.id}`, JSON.stringify(audiobookData));
-        
+          collectionId,
+        });
+        doc = result.document;
+        if (!result.deduplicated) {
+          await loadDocuments();
+        }
+
+        if (transcript?.fullText) {
+          const audiobookData = {
+            documentId: doc.id,
+            chapters: [] as AudiobookChapter[],
+            transcript,
+            metadata,
+          };
+          localStorage.setItem(`audiobook-${doc.id}`, JSON.stringify(audiobookData));
+        }
       } else {
         const imported = await importFromFiles([filePath]);
         if (imported.length === 0) throw new Error("Failed to import audiobook");
         doc = imported[0];
-        
+
         // Update with metadata - explicitly set fileType to 'audio' via API
         await updateDocumentApi(doc.id, {
           ...doc,
@@ -703,13 +695,13 @@ export function AudiobookImportDialog({
             language: metadata.language,
           },
         } as Document);
-        
+
         // If we have a transcript, save it
         if (transcript?.fullText) {
           const { updateDocumentContent } = await import("../../api/documents");
           await updateDocumentContent(doc.id, transcript.fullText);
         }
-        
+
         const audiobookData = {
           documentId: doc.id,
           chapters,

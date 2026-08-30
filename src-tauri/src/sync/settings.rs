@@ -13,6 +13,13 @@ const DEVICE_LOCAL_DENYLIST: &[&str] = &[
     "hf.token",
     "plethora.recoveryKey",
     "sync.recoveryKey",
+    // Per-device explicit opt-in (language-learning gating): an older
+    // install's synced settings object predates the field and must never
+    // unset this device's choice.
+    "languageLearning.enabled",
+    // Durable per-account entitlement snapshots are device-local cache state;
+    // the server is authoritative and each device refreshes independently.
+    "plethora.entitlements",
 ];
 
 pub fn is_syncable_setting_key(key: &str) -> bool {

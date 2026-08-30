@@ -257,7 +257,7 @@ async fn probe_and_stage(
     app: &AppHandle,
     parts: &[MultipartPartInput],
 ) -> Result<Vec<PlannedPart>> {
-    let mut planned = Vec::with_capacity(parts.len());
+    let mut planned: Vec<PlannedPart> = Vec::with_capacity(parts.len());
     for input in parts {
         let path = input.path.clone();
         let probe = tauri::async_runtime::spawn_blocking(move || probe_audio_metadata(&path))
@@ -266,7 +266,17 @@ async fn probe_and_stage(
         let size = std::fs::metadata(&input.path)
             .map(|m| m.len())
             .map_err(|e| PlethoraError::Internal(format!("cannot stat {}: {e}", input.path)))?;
-        let staged_path = stage_with_app(app, &input.path).await?;
+        let staged_path = match stage_with_app(app, &input.path).await {
+            Ok(path) => path,
+            Err(err) => {
+                // A partial staging pass must not leak the copies it already
+                // made — nothing references them yet.
+                for part in &planned {
+                    let _ = std::fs::remove_file(&part.staged_path);
+                }
+                return Err(err);
+            }
+        };
         let identity = part_identity(input, &probe, size);
         planned.push(PlannedPart {
             input: input.clone(),
@@ -352,6 +362,11 @@ pub async fn import_multipart_audiobook(
             .lock()
             .map_err(|_| PlethoraError::Internal("fingerprint lock poisoned".into()))?;
         if !guard.insert(fingerprint.clone()) {
+            // A concurrent import of the same book is already staging its own
+            // copies — ours would be orphaned, so remove them.
+            for part in &planned {
+                let _ = std::fs::remove_file(&part.staged_path);
+            }
             return Err(PlethoraError::Internal(
                 "The same audiobook is already being imported".into(),
             ));

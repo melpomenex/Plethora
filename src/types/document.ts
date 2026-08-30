@@ -131,6 +131,11 @@ export interface WebArticleProvenance {
 export interface DocumentMetadata {
   author?: string;
   subject?: string;
+  /** Deterministic identity of a multi-file audiobook import — mirrors the
+   * Rust `DocumentMetadata.importFingerprint` (camelCase over the wire) so
+   * re-imports dedup against the same book, including across synced devices
+   * (metadata syncs; editions and audio binaries do not). */
+  importFingerprint?: string;
   keywords?: string[];
   createdAt?: string;
   modifiedAt?: string;

@@ -59,8 +59,34 @@ pub async fn update_audio_edition_status(
 }
 
 #[tauri::command]
-pub async fn delete_audio_edition(id: String, repo: State<'_, Repository>) -> Result<()> {
+pub async fn delete_audio_edition(
+    id: String,
+    repo: State<'_, Repository>,
+    app: tauri::AppHandle,
+) -> Result<()> {
     let repository = AudioEditionRepository::new(repo.pool().clone());
+    // Imported editions own staged copies under app storage — remove them so
+    // deleting the edition does not orphan media (TTS sections keep blob URLs
+    // in the WebView, which cannot be removed from Rust; they are skipped).
+    if let Some(with_sections) = repository.get_audio_edition(&id).await? {
+        if with_sections.edition.provider == "imported" {
+            use tauri::Manager;
+            let Ok(base) = app.path().app_data_dir() else {
+                return repository.delete_audio_edition(&id).await;
+            };
+            let media_root = base.join("incrementum").join("audio");
+            for section in &with_sections.sections {
+                if let Some(path) = section.audio_file_path.as_deref() {
+                    let candidate = std::path::Path::new(path);
+                    // Only delete files that live inside our own media dir —
+                    // never arbitrary paths that could point elsewhere.
+                    if candidate.starts_with(&media_root) {
+                        let _ = std::fs::remove_file(candidate);
+                    }
+                }
+            }
+        }
+    }
     repository.delete_audio_edition(&id).await
 }
 

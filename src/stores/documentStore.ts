@@ -23,7 +23,8 @@ import { resolveImportCategory } from "../utils/importCategory";
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
-import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
+import { enrichAudiobookDocument, isAudiobookFile, importMultipartAudiobook as importMultipartAudiobookApi } from "../api/audiobooks";
+import { planAudiobookImports, type MultipartBookPlan } from "../utils/audiobookImportPlanner";
 import { parseThreadError } from "../lib/xthreadError";
 import { extractXStatusId } from "../lib/xthreadUrl";
 
@@ -531,6 +532,7 @@ interface DocumentState {
    */
   importGenericFile: (filePath: string) => Promise<Document>;
   importGenericFiles: (filePaths: string[]) => Promise<Document[]>;
+  importPlannedAudiobooks: (books: MultipartBookPlan[]) => Promise<Document[]>;
   importFromFolder: () => Promise<Document[]>;
   importFromUrl: (
     url: string,
@@ -1017,7 +1019,68 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (otherPaths.length === 0) {
       return [];
     }
-    return get().importGenericFiles(otherPaths);
+    // Loose multi-file picks: audio files that pattern-match as one book
+    // (e.g. "Book Title - 01/02/03") import as ONE audiobook with chapters
+    // instead of N documents.
+    const plan = planAudiobookImports(
+      otherPaths.map((path) => ({ path })),
+      { rootIsPickedFolder: false },
+    );
+    const imported = await get().importPlannedAudiobooks(plan.audiobooks);
+    if (plan.standalonePaths.length === 0) {
+      set({ isImporting: false, importProgress: { current: 0, total: 0 } });
+      return imported;
+    }
+    const generic = await get().importGenericFiles(plan.standalonePaths);
+    return [...imported, ...generic];
+  },
+
+  // Import planner-produced audiobook units (one logical document each) via
+  // the atomic Rust multipart command. Failures are logged per book and never
+  // abort sibling imports.
+  importPlannedAudiobooks: async (books) => {
+    if (books.length === 0) return [];
+    const imported: Document[] = [];
+    set({ isImporting: true, error: null, importProgress: { current: 0, total: books.length } });
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    for (let i = 0; i < books.length; i++) {
+      const book = books[i];
+      set({
+        importProgress: { current: i, total: books.length, fileName: book.title },
+      });
+      try {
+        const result = await importMultipartAudiobookApi({
+          files: book.files,
+          fallbackTitle: book.title,
+          fallbackAuthor: book.author,
+          collectionId,
+        });
+        if (!result.deduplicated || result.attachedToExisting) {
+          // Fresh imports AND media attached onto an existing (e.g. synced)
+          // row both yield a document this device should show in the library.
+          await applyDefaultCategoryIfNeeded(result.document);
+          imported.push(result.document);
+          useSmartTaggingQueueStore.getState().enqueue(result.document.id);
+        }
+      } catch (error) {
+        console.error(`[documentStore] Failed to import audiobook "${book.title}":`, error);
+      }
+      set({ importProgress: { current: i + 1, total: books.length, fileName: book.title } });
+    }
+    set({ isImporting: false });
+    if (imported.length > 0) {
+      set((state) => ({ documents: [...state.documents, ...imported] }));
+      void emitFeedback("import.completed", {
+        documentCount: imported.length,
+        extractCount: 0,
+        title: "Import complete",
+        message:
+          imported.length === 1
+            ? `Audiobook "${imported[0].title}" imported`
+            : `${imported.length} audiobooks imported`,
+      });
+    }
+    return imported;
   },
 
   // Private generic multi-doc import (no Kindle detection). See importGenericFile.
@@ -1138,10 +1201,24 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         });
         return [];
       }
-      // Reuse the existing multi-file import loop (handles per-file progress,
-      // auto-segmentation, and the final toast summary).
-      const paths = staged.map((f) => f.path);
-      return await get().importFromFiles(paths);
+      // Semantic planning BEFORE persistence: a folder of numbered tracks is
+      // ONE audiobook (one document + one imported edition + N chapter
+      // sections), not N documents. Non-audio files and standalone audio fall
+      // through to the ordinary per-file loop.
+      const plan = planAudiobookImports(staged, { rootIsPickedFolder: true });
+      set({
+        importProgress: {
+          current: 0,
+          total: plan.audiobooks.length + plan.standalonePaths.length,
+        },
+      });
+      const imported = await get().importPlannedAudiobooks(plan.audiobooks);
+      if (plan.standalonePaths.length === 0) {
+        set({ isImporting: false, importProgress: { current: 0, total: 0 } });
+        return imported;
+      }
+      const generic = await get().importFromFiles(plan.standalonePaths);
+      return [...imported, ...generic];
     } catch (error) {
       void emitFeedback("import.failed", {
         title: "Failed to import documents",
