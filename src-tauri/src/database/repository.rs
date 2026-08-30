@@ -3580,18 +3580,19 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let reviewed_at_ms = reviewed_at.timestamp_millis();
-        let base_revision = learning_item_revision(item.updated_at.as_deref());
 
         let mut tx = self.pool.begin().await?;
         let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
+        let post_item_json = serde_json::to_string(item)
+            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?;
 
         sqlx::query(
             r#"
             INSERT INTO review_results (
                 id, collection_id, session_id, item_id, rating, time_taken,
                 new_due_date, new_interval, new_ease_factor, timestamp,
-                device_id, reviewed_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                device_id, reviewed_at_ms, sync_post_item_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             "#,
         )
         .bind(review_result_id)
@@ -3606,6 +3607,7 @@ impl Repository {
         .bind(reviewed_at)
         .bind(&device_id)
         .bind(reviewed_at_ms)
+        .bind(&post_item_json)
         .execute(&mut *tx)
         .await?;
 
@@ -3643,7 +3645,7 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        let review_payload = payload::review_result_payload(
+        let review_payload = payload::review_result_payload_with_item(
             review_result_id,
             &item.id,
             &item.collection_id,
@@ -3655,6 +3657,7 @@ impl Repository {
             reviewed_at_ms,
             &device_id,
             session_id,
+            Some(item),
         )
         .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         mark_dirty(
@@ -3667,15 +3670,14 @@ impl Repository {
         )
         .await?;
 
-        let item_payload = payload::learning_item_payload(item)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        let review_clock = format!("{reviewed_at_ms}:0");
+        crate::sync::full_state::record_field_groups(
             &mut tx,
-            EntityType::LearningItem,
+            "learning_item",
             &item.id,
-            SyncOperation::Update,
-            base_revision,
-            item_payload,
+            &review_clock,
+            &device_id,
+            &["schedule".to_string()],
         )
         .await?;
 
@@ -3996,6 +3998,11 @@ impl Repository {
         review_cards: i32,
     ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
+        let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
+        let reviewed_at = Utc::now();
+        let reviewed_at_ms = reviewed_at.timestamp_millis();
+        let post_item_json = serde_json::to_string(item)
+            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?;
 
         if let Some(existing_item_id) = sqlx::query_scalar::<_, String>(
             "SELECT item_id FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
@@ -4019,10 +4026,11 @@ impl Repository {
                 id, collection_id, session_id, item_id, rating, time_taken,
                 new_due_date, new_interval, new_ease_factor, timestamp,
                 schedule_source, schedule_model_id, arena_commit_id,
-                arena_recommended_interval, arena_decision_time_ms, arena_snapshot
+                arena_recommended_interval, arena_decision_time_ms, arena_snapshot,
+                device_id, reviewed_at_ms, sync_post_item_json
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                ?11, ?12, ?13, ?14, ?15, ?16
+                ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
             )
             "#,
         )
@@ -4035,13 +4043,16 @@ impl Repository {
         .bind(item.due_date)
         .bind(item.interval)
         .bind(item.ease_factor)
-        .bind(Utc::now())
+        .bind(reviewed_at)
         .bind(provenance.schedule_source)
         .bind(provenance.schedule_model_id)
         .bind(provenance.arena_commit_id)
         .bind(provenance.recommended_interval)
         .bind(provenance.decision_time_ms as i64)
         .bind(provenance.snapshot)
+        .bind(&device_id)
+        .bind(reviewed_at_ms)
+        .bind(&post_item_json)
         .execute(&mut *tx)
         .await;
         if let Err(error) = inserted {
@@ -4212,7 +4223,44 @@ impl Repository {
             .await?;
         }
 
+        let review_payload = payload::review_result_payload_with_item(
+            review_result_id,
+            &item.id,
+            &item.collection_id,
+            rating,
+            time_taken,
+            &item.due_date,
+            item.interval,
+            item.ease_factor,
+            reviewed_at_ms,
+            &device_id,
+            session_id,
+            Some(item),
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::ReviewResult,
+            review_result_id,
+            SyncOperation::AppendEvent,
+            None,
+            review_payload,
+        )
+        .await?;
+
+        let review_clock = format!("{reviewed_at_ms}:0");
+        crate::sync::full_state::record_field_groups(
+            &mut tx,
+            "learning_item",
+            &item.id,
+            &review_clock,
+            &device_id,
+            &["schedule".to_string()],
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
         Ok(true)
     }
 
