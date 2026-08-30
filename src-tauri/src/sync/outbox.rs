@@ -93,7 +93,7 @@ pub async fn mark_dirty(
     .bind(entity_id)
     .bind(&hlc)
     .bind(&device_id)
-    .bind(effective_base_revision)
+    .bind(observed_revision.or(effective_base_revision))
     .bind(i64::from(matches!(operation, SyncOperation::Delete)))
     .bind(created_at)
     .execute(&mut **tx)
