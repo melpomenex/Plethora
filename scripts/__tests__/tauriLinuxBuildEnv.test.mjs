@@ -76,9 +76,17 @@ test("tauri wrapper sources Linux build env and accelerators", () => {
   assert.match(wrapperSource, /source scripts\/linux-build-accelerators\.sh/);
 });
 
-test("tauri-linux-package.sh is executable bash", () => {
+test("tauri:build routes through the guarded wrapper", () => {
+  const scripts = JSON.parse(packageSource).scripts;
+  assert.match(scripts["tauri:build"], /scripts\/tauri-wrapper\.sh build/);
+});
+
+test("tauri-linux-package.sh stages non-release binaries for bundle", () => {
   const source = readFileSync(packageScript, "utf8");
   assert.match(source, /^#!\/usr\/bin\/env bash/);
   assert.match(source, /FAST LOCAL PACKAGE/);
   assert.match(source, /PRODUCTION RELEASE PACKAGE/);
+  assert.match(source, /stage_profile_binary_for_bundle/);
+  assert.match(source, /restore_staged_release_binary/);
+  assert.match(source, /sidecar_digest/);
 });

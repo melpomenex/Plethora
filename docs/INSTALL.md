@@ -197,7 +197,7 @@ The production bundles will be in `src-tauri/target/release/bundle/`.
 | `npm run tauri:build:linux:profile` | Build with per-phase timing summary |
 | `npm run clean:frontend:deep` | Remove `dist/`, Vite cache, and ESLint cache |
 
-**Cargo parallelism:** Linux Tauri builds compute a memory-aware default (`CARGO_BUILD_JOBS`, local cap 8, CI cap 4). Override explicitly:
+**Cargo parallelism:** Linux Tauri builds compute a memory-aware default (`CARGO_BUILD_JOBS`, local cap 8). CI sets explicit per-arch values (x86_64: 2, aarch64: 3 on ~7 GB runners). Override explicitly:
 
 ```bash
 CARGO_BUILD_JOBS=4 npm run tauri:build:linux:deb

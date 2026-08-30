@@ -86,9 +86,10 @@ Freshness stamp: `.cache/linux-binary-stamp` = `git-head + profile + lock hash`.
 
 ### Decision 6: CI parallelism
 
-Replace `CARGO_BUILD_JOBS: 1` with explicit values:
-- `linux-x86_64`: `4` (7 GB runner, validated against mem heuristic)
-- `linux-aarch64`: `2` (smaller ARM runners)
+Replace `CARGO_BUILD_JOBS: 1` with explicit values tuned for GitHub-hosted runner RAM (~7 GB):
+
+- `linux-x86_64`: `2` (floor(mem/3) on 7 GB runners)
+- `linux-aarch64`: `3` (ubuntu-24.04-arm; still bounded by codegen-units=4 + thin LTO)
 
 Keep `CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 4`. CI does not use `package-fast`.
 

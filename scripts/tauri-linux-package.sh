@@ -43,16 +43,32 @@ binary_path() {
   echo "$ROOT_DIR/src-tauri/target/$(cargo_target_dir "$profile")/plethora-tauri"
 }
 
+sidecar_digest() {
+  if [[ ! -d "$ROOT_DIR/src-tauri/bin" ]]; then
+    echo nosidecars
+    return
+  fi
+  (
+    cd "$ROOT_DIR/src-tauri/bin"
+    find . -type f ! -name '.*' -print0 2>/dev/null \
+      | sort -z \
+      | xargs -0 sha256sum 2>/dev/null \
+      | sha256sum \
+      | awk '{print $1}'
+  ) || echo nosidecars
+}
+
 stamp_payload() {
   local profile="$1"
-  local head lock cargo_toml tauri_conf frontend_meta dirty
+  local head lock cargo_toml tauri_conf frontend_meta dirty sidecars
   head="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   lock="$(sha256sum src-tauri/Cargo.lock 2>/dev/null | awk '{print $1}' || echo nolock)"
   cargo_toml="$(sha256sum src-tauri/Cargo.toml 2>/dev/null | awk '{print $1}' || echo nocargo)"
   tauri_conf="$(cat src-tauri/tauri.conf.json src-tauri/tauri.linux.conf.json 2>/dev/null | sha256sum | awk '{print $1}' || echo notauri)"
   frontend_meta="$(sha256sum dist/plethora-build-metadata.json 2>/dev/null | awk '{print $1}' || echo nofrontend)"
   dirty="$(git status --porcelain 2>/dev/null | sha256sum | awk '{print $1}' || echo nodirty)"
-  echo "${head}:${profile}:${lock}:${cargo_toml}:${tauri_conf}:${frontend_meta}:${dirty}"
+  sidecars="$(sidecar_digest)"
+  echo "${head}:${profile}:${lock}:${cargo_toml}:${tauri_conf}:${frontend_meta}:${dirty}:${sidecars}"
 }
 
 write_stamp() {
@@ -135,6 +151,32 @@ run_tauri_build() {
   fi
 }
 
+restore_staged_release_binary() {
+  local release_bin backup
+  release_bin="$(binary_path release)"
+  backup="${release_bin}.bundle-backup"
+  if [[ -f "$backup" ]]; then
+    mv -f "$backup" "$release_bin"
+  fi
+}
+
+stage_profile_binary_for_bundle() {
+  local profile="$1"
+  if [[ "$profile" == "release" ]]; then
+    return
+  fi
+  local release_bin profile_bin backup
+  release_bin="$(binary_path release)"
+  profile_bin="$(binary_path "$profile")"
+  backup="${release_bin}.bundle-backup"
+  mkdir -p "$(dirname "$release_bin")"
+  if [[ -f "$release_bin" ]]; then
+    cp -f "$release_bin" "$backup"
+  fi
+  cp -f "$profile_bin" "$release_bin"
+  echo "Staged $(basename "$profile_bin") into release path for tauri bundle (backup restored after)."
+}
+
 PROFILE="$(resolve_profile "$MODE")"
 apply_fast_profile_job_cap "$PROFILE"
 
@@ -178,6 +220,11 @@ case "$MODE" in
   bundle)
     check_stamp "$PROFILE"
     ensure_binary_exists "$PROFILE"
+    NOTEBOOKLM_BUNDLE_RUNTIME="${NOTEBOOKLM_BUNDLE_RUNTIME:-1}" \
+      POCKET_TTS_BUNDLE_RUNTIME="${POCKET_TTS_BUNDLE_RUNTIME:-1}" \
+      node scripts/download-sidecars.js
+    trap restore_staged_release_binary EXIT
+    stage_profile_binary_for_bundle "$PROFILE"
     tauri bundle --bundles "$BUNDLE"
     ;;
 
