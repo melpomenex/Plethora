@@ -568,8 +568,10 @@ impl Repository {
             ));
         }
 
-        // Reassign all items to the default collection
-        let tables = [
+        let mut tx = self.pool.begin().await?;
+        // Collection deletion has deterministic cascading semantics: children
+        // remain in the library and move to Personal on every device.
+        for table in [
             "documents",
             "extracts",
             "learning_items",
@@ -577,19 +579,17 @@ impl Repository {
             "review_results",
             "annotations",
             "categories",
-        ];
-        for table in &tables {
-            let _ = sqlx::query(&format!(
-                "UPDATE {} SET collection_id = ? WHERE collection_id = ?",
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {} SET collection_id = ?1 WHERE collection_id = ?2",
                 table
             ))
             .bind(DEFAULT_COLLECTION_ID)
             .bind(id)
-            .execute(&self.pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
         }
 
-        let mut tx = self.pool.begin().await?;
         let delete_payload = delete_payload("collection", id)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         journal_entity(
@@ -602,14 +602,13 @@ impl Repository {
         )
         .await?;
 
-        sqlx::query("DELETE FROM collections WHERE id = ?")
+        sqlx::query("DELETE FROM collections WHERE id = ?1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
 
         tx.commit().await?;
         notify_after_commit();
-
         Ok(())
     }
 
@@ -8129,19 +8128,46 @@ impl Repository {
         tag_id: &str,
         prerequisite_ids: &[String],
     ) -> Result<crate::models::Tag> {
-        let prereqs_json = serde_json::to_string(prerequisite_ids).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
-        })?;
+        let prereqs_json = serde_json::to_string(prerequisite_ids)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
         let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
 
-        sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
+        let rows = sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
             .bind(&prereqs_json)
             .bind(&now)
             .bind(tag_id)
-            .execute(self.pool())
-            .await?;
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Tag not found: {tag_id}")));
+        }
 
-        self.get_tag(tag_id).await
+        let row = sqlx::query(
+            "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                    item_count, avg_stability, mature_count, date_created, date_modified
+             FROM tags WHERE id = ?1",
+        )
+        .bind(tag_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let tag = Self::row_to_tag(&row)?;
+        let payload = payload::tag_payload(&tag)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Tag,
+            tag_id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(tag)
     }
 
     pub async fn upsert_tag(
@@ -8273,23 +8299,49 @@ impl Repository {
     }
 
     pub async fn remove_tag_from_prerequisites(&self, tag_id: &str) -> Result<()> {
-        // Get all tags that reference this tag as a prerequisite
-        let all_tags = self.get_all_tags().await?;
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                    item_count, avg_stability, mature_count, date_created, date_modified
+             FROM tags",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         let now = Utc::now().to_rfc3339();
+        let mut changed = false;
 
-        for mut tag in all_tags {
-            if tag.prerequisites.contains(&tag_id.to_string()) {
-                tag.prerequisites.retain(|p| p != tag_id);
-                let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
-                    PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
-                })?;
-                sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
-                    .bind(&prereqs_json)
-                    .bind(&now)
-                    .bind(&tag.id)
-                    .execute(self.pool())
-                    .await?;
+        for row in rows {
+            let mut tag = Self::row_to_tag(&row)?;
+            if !tag.prerequisites.iter().any(|prerequisite| prerequisite == tag_id) {
+                continue;
             }
+            tag.prerequisites.retain(|prerequisite| prerequisite != tag_id);
+            tag.date_modified = now.clone();
+            let prereqs_json = serde_json::to_string(&tag.prerequisites)
+                .map_err(|e| PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+            sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&prereqs_json)
+                .bind(&tag.date_modified)
+                .bind(&tag.id)
+                .execute(&mut *tx)
+                .await?;
+            let payload = payload::tag_payload(&tag)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            journal_entity(
+                &mut tx,
+                EntityType::Tag,
+                &tag.id,
+                SyncOperation::Update,
+                None,
+                payload,
+            )
+            .await?;
+            changed = true;
+        }
+
+        tx.commit().await?;
+        if changed {
+            notify_after_commit();
         }
         Ok(())
     }
