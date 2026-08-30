@@ -918,6 +918,7 @@ impl RuntimeAdapter for NemotronAsrAdapter {
         }
         let gguf_files: Vec<_> = index
             .paths()
+            .into_iter()
             .filter(|p| p.ends_with(".gguf"))
             .collect();
         if gguf_files.is_empty() {

@@ -57,10 +57,10 @@ const meterServerPremiumTranscriptionUsage = vi.fn(async () => ({
 
 vi.mock("../premiumQuotaClient", () => ({
   canUseServerPremiumQuota: () => true,
-  checkServerPremiumTranscriptionQuota: (...args: unknown[]) =>
-    checkServerPremiumTranscriptionQuota(...args),
-  meterServerPremiumTranscriptionUsage: (...args: unknown[]) =>
-    meterServerPremiumTranscriptionUsage(...args),
+  checkServerPremiumTranscriptionQuota: (...args: any[]) =>
+    (checkServerPremiumTranscriptionQuota as any)(...args),
+  meterServerPremiumTranscriptionUsage: (...args: any[]) =>
+    (meterServerPremiumTranscriptionUsage as any)(...args),
   fetchServerTranscriptionQuota: vi.fn(),
 }));
 

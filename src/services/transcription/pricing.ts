@@ -7,9 +7,9 @@ import type { TranscriptionProviderId } from "./types";
  */
 export function estimateCost(
   durationSeconds: number,
-  providerId: TranscriptionProviderId,
+  providerId: TranscriptionProviderId | string,
 ): number {
-  const pricing = TRANSCRIPTION_PRICING[providerId];
+  const pricing = TRANSCRIPTION_PRICING[providerId as TranscriptionProviderId];
   if (!pricing || durationSeconds <= 0) return 0;
   const hours = durationSeconds / 3600;
   return hours * pricing.costPerHour;

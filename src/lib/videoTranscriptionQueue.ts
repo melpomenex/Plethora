@@ -1,3 +1,4 @@
+import { updateDocumentContent } from "../api/documents";
 import { getTranscriptionProfiles } from "../api/transcription";
 import { generateVideoTranscript, getVideoTranscript } from "../api/video-extracts";
 import {

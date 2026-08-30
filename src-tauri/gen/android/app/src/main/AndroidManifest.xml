@@ -170,7 +170,7 @@
                 <data android:pathPattern=".*\\.opus" />
                 <data android:pathPattern=".*\\.wma" />
             </intent-filter>
-
+            
             <!-- tauri-file-associations. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>
 

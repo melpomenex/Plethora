@@ -122,7 +122,7 @@ export class TranscriptionJobManager {
 
     return {
       documentId,
-      status: entry.status,
+      status: entry.status === "pending" ? "queued" : entry.status,
       percent: entry.progress,
       processedDurationMs,
       totalDurationMs,

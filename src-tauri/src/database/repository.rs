@@ -54,6 +54,110 @@ pub struct ArenaReviewProvenance<'a> {
     pub snapshot: &'a str,
 }
 
+#[derive(sqlx::FromRow, Debug, Clone)]
+struct TranscriptionQueueDbRow {
+    id: String,
+    document_id: String,
+    chapter_id: Option<String>,
+    audio_path: String,
+    provider: String,
+    model_id: String,
+    language: String,
+    status: String,
+    error_message: Option<String>,
+    priority: i32,
+    created_at: String,
+    started_at: Option<String>,
+    completed_at: Option<String>,
+    retry_count: i32,
+    progress: i32,
+    #[sqlx(default)]
+    processed_duration_ms: i64,
+    #[sqlx(default)]
+    total_duration_ms: Option<i64>,
+    #[sqlx(default)]
+    transcription_mode: String,
+}
+
+impl TranscriptionQueueDbRow {
+    fn into_entry(self) -> TranscriptionQueueEntry {
+        TranscriptionQueueEntry {
+            id: self.id,
+            document_id: self.document_id,
+            chapter_id: self.chapter_id,
+            audio_path: self.audio_path,
+            provider: self.provider,
+            model_id: self.model_id,
+            language: self.language,
+            status: Repository::parse_job_status(&self.status),
+            error_message: self.error_message,
+            priority: self.priority,
+            created_at: self.created_at.parse().unwrap_or_else(|_| Utc::now()),
+            started_at: self.started_at.and_then(|t| t.parse().ok()),
+            completed_at: self.completed_at.and_then(|t| t.parse().ok()),
+            retry_count: self.retry_count,
+            progress: self.progress,
+            processed_duration_ms: self.processed_duration_ms,
+            total_duration_ms: self.total_duration_ms,
+            transcription_mode: self.transcription_mode,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow, Debug, Clone)]
+struct FullTranscriptionQueueDbRow {
+    id: String,
+    document_id: String,
+    chapter_id: Option<String>,
+    audio_path: String,
+    provider: String,
+    model_id: String,
+    language: String,
+    status: String,
+    error_message: Option<String>,
+    priority: i32,
+    created_at: String,
+    started_at: Option<String>,
+    completed_at: Option<String>,
+    retry_count: i32,
+    progress: i32,
+    #[sqlx(default)]
+    processed_duration_ms: i64,
+    #[sqlx(default)]
+    total_duration_ms: Option<i64>,
+    #[sqlx(default)]
+    transcription_mode: String,
+    document_title: String,
+}
+
+impl FullTranscriptionQueueDbRow {
+    fn into_entry_with_doc(self) -> TranscriptionQueueEntryWithDoc {
+        TranscriptionQueueEntryWithDoc {
+            entry: TranscriptionQueueEntry {
+                id: self.id,
+                document_id: self.document_id,
+                chapter_id: self.chapter_id,
+                audio_path: self.audio_path,
+                provider: self.provider,
+                model_id: self.model_id,
+                language: self.language,
+                status: Repository::parse_job_status(&self.status),
+                error_message: self.error_message,
+                priority: self.priority,
+                created_at: self.created_at.parse().unwrap_or_else(|_| Utc::now()),
+                started_at: self.started_at.and_then(|t| t.parse().ok()),
+                completed_at: self.completed_at.and_then(|t| t.parse().ok()),
+                retry_count: self.retry_count,
+                progress: self.progress,
+                processed_duration_ms: self.processed_duration_ms,
+                total_duration_ms: self.total_duration_ms,
+                transcription_mode: self.transcription_mode,
+            },
+            document_title: self.document_title,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Repository {
     pool: Pool<Sqlite>,
@@ -7039,72 +7143,8 @@ impl Repository {
         }
     }
 
-    type TranscriptionQueueRow = (
-        String,
-        String,
-        Option<String>,
-        String,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        i32,
-        String,
-        Option<String>,
-        Option<String>,
-        i32,
-        i32,
-        i64,
-        Option<i64>,
-        String,
-    );
-
     const TRANSCRIPTION_QUEUE_COLUMNS: &str =
         "id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress, processed_duration_ms, total_duration_ms, transcription_mode";
-
-    fn map_transcription_queue_row(row: TranscriptionQueueRow) -> TranscriptionQueueEntry {
-        let (
-            id,
-            document_id,
-            chapter_id,
-            audio_path,
-            provider,
-            model_id,
-            language,
-            status_str,
-            error_message,
-            priority,
-            created_at,
-            started_at,
-            completed_at,
-            retry_count,
-            progress,
-            processed_duration_ms,
-            total_duration_ms,
-            transcription_mode,
-        ) = row;
-        TranscriptionQueueEntry {
-            id,
-            document_id,
-            chapter_id,
-            audio_path,
-            provider,
-            model_id,
-            language,
-            status: Self::parse_job_status(&status_str),
-            error_message,
-            priority,
-            created_at: created_at.parse().unwrap_or(Utc::now()),
-            started_at: started_at.and_then(|t| t.parse().ok()),
-            completed_at: completed_at.and_then(|t| t.parse().ok()),
-            retry_count,
-            progress,
-            processed_duration_ms,
-            total_duration_ms,
-            transcription_mode,
-        }
-    }
 
     pub async fn enqueue_transcription(&self, entry: &TranscriptionQueueEntry) -> Result<()> {
         let status_str = match entry.status {
@@ -7145,11 +7185,11 @@ impl Repository {
             "SELECT {} FROM transcription_queue WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1",
             Self::TRANSCRIPTION_QUEUE_COLUMNS
         );
-        let row = sqlx::query_as::<_, TranscriptionQueueRow>(&query)
-        .fetch_optional(self.pool())
-        .await?;
+        let row = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
+            .fetch_optional(self.pool())
+            .await?;
 
-        Ok(row.map(Self::map_transcription_queue_row))
+        Ok(row.map(TranscriptionQueueDbRow::into_entry))
     }
 
     pub async fn update_transcription_status(
@@ -7223,12 +7263,12 @@ impl Repository {
             "SELECT {} FROM transcription_queue WHERE document_id = ?1 ORDER BY created_at DESC LIMIT 1",
             Self::TRANSCRIPTION_QUEUE_COLUMNS
         );
-        let row = sqlx::query_as::<_, TranscriptionQueueRow>(&query)
-        .bind(document_id)
-        .fetch_optional(self.pool())
-        .await?;
+        let row = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
+            .bind(document_id)
+            .fetch_optional(self.pool())
+            .await?;
 
-        Ok(row.map(Self::map_transcription_queue_row))
+        Ok(row.map(TranscriptionQueueDbRow::into_entry))
     }
 
     pub async fn get_transcription_queue_by_status(
@@ -7246,66 +7286,30 @@ impl Repository {
             "SELECT {} FROM transcription_queue WHERE status = ?1 ORDER BY priority DESC, created_at ASC",
             Self::TRANSCRIPTION_QUEUE_COLUMNS
         );
-        let rows = sqlx::query_as::<_, TranscriptionQueueRow>(&query)
-        .bind(status_str)
-        .fetch_all(self.pool())
-        .await?;
+        let rows = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
+            .bind(status_str)
+            .fetch_all(self.pool())
+            .await?;
 
-        Ok(rows.into_iter().map(Self::map_transcription_queue_row).collect())
+        Ok(rows.into_iter().map(TranscriptionQueueDbRow::into_entry).collect())
     }
 
     pub async fn get_full_transcription_queue(
         &self,
     ) -> Result<Vec<TranscriptionQueueEntryWithDoc>> {
-        type FullTranscriptionQueueRow = (
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            i32,
-            String,
-            Option<String>,
-            Option<String>,
-            i32,
-            i32,
-            i64,
-            Option<i64>,
-            String,
-            String,
+        let query = format!(
+            "SELECT {}, COALESCE(d.title, 'Unknown') as document_title FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC",
+            Self::TRANSCRIPTION_QUEUE_COLUMNS
+                .split(',')
+                .map(|col| format!("tq.{}", col.trim()))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
+        let rows = sqlx::query_as::<_, FullTranscriptionQueueDbRow>(&query)
+            .fetch_all(self.pool())
+            .await?;
 
-        let rows = sqlx::query_as::<_, FullTranscriptionQueueRow>(
-            &format!(
-                "SELECT {}, COALESCE(d.title, 'Unknown') FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC",
-                Self::TRANSCRIPTION_QUEUE_COLUMNS
-                    .split(',')
-                    .map(|col| format!("tq.{}", col.trim()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )
-        .fetch_all(self.pool())
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let document_title = row.18.clone();
-                let entry = Self::map_transcription_queue_row((
-                    row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9,
-                    row.10, row.11, row.12, row.13, row.14, row.15, row.16, row.17,
-                ));
-                TranscriptionQueueEntryWithDoc {
-                    entry,
-                    document_title,
-                }
-            })
-            .collect())
+        Ok(rows.into_iter().map(FullTranscriptionQueueDbRow::into_entry_with_doc).collect())
     }
 
     pub async fn cancel_transcription_job(&self, id: &str) -> Result<()> {

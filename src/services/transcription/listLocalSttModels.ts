@@ -6,8 +6,8 @@ import {
   LOGICAL_STT_MODEL_KEYS,
   TRANSCRIPTION_PROVIDER_IDS,
 } from "./config";
-import { canRunLocalNemotron } from "../DeviceCapabilityService";
-import type { TranscriptionCapabilities, TranscriptionModel } from "../types";
+import { canRunLocalNemotron } from "./DeviceCapabilityService";
+import type { TranscriptionCapabilities, TranscriptionModel } from "./types";
 
 const WHISPER_CAPABILITIES: TranscriptionCapabilities = {
   fileTranscription: true,

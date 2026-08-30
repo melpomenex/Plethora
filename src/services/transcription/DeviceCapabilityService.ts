@@ -116,7 +116,9 @@ interface BatteryStatus {
 
 async function readBatteryStatus(): Promise<BatteryStatus | null> {
   if (typeof navigator === "undefined") return null;
-  const manager = (navigator as Navigator & { getBattery?: () => Promise<BatteryManager> }).getBattery;
+  const manager = (navigator as Navigator & {
+    getBattery?: () => Promise<{ level: number; charging: boolean }>;
+  }).getBattery;
   if (!manager) return null;
   try {
     const battery = await manager.call(navigator);
