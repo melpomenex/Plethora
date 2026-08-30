@@ -16,7 +16,7 @@ pub struct BlobCheckResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobUploadUrlResponse {
-    pub upload_url: String,
+    pub upload_url: Option<String>,
     pub expires_at: Option<String>,
     #[serde(default)]
     pub already_exists: bool,
@@ -212,7 +212,10 @@ pub async fn upload_blob_if_missing(
     if upload.already_exists {
         return Ok(reference);
     }
-    upload_bytes(&upload.upload_url, &encrypted, "application/octet-stream").await?;
+    let upload_url = upload.upload_url.as_deref().ok_or_else(|| {
+        PlethoraError::Internal("Blob upload URL missing for a non-existing object".into())
+    })?;
+    upload_bytes(upload_url, &encrypted, "application/octet-stream").await?;
     complete_blob_upload(
         access_token,
         &reference,
