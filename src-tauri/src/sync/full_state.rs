@@ -30,6 +30,209 @@ pub fn decode_extract(payload: &[u8]) -> Option<Extract> {
     serde_json::from_slice(payload).ok()
 }
 
+fn portable_source_url(document: &Document) -> Option<String> {
+    if let Ok(mut url) = url::Url::parse(document.file_path.trim()) {
+        if matches!(url.scheme(), "http" | "https") {
+            url.set_fragment(None);
+            return Some(url.to_string());
+        }
+    }
+
+    let source = document
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.source.as_deref())?;
+    let mut url = url::Url::parse(source).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+pub fn document_identity_key(document: &Document) -> Option<String> {
+    if let Some(hash) = document
+        .content_hash
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(format!("content:{}", hash.to_ascii_lowercase()));
+    }
+
+    portable_source_url(document).map(|url| format!("url:{url}"))
+}
+
+pub async fn resolve_alias(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity_type: &str,
+    source_id: &str,
+) -> Result<String> {
+    let alias: Option<String> = sqlx::query_scalar(
+        "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = ?1 AND source_id = ?2",
+    )
+    .bind(entity_type)
+    .bind(source_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(alias.unwrap_or_else(|| source_id.to_string()))
+}
+
+async fn register_alias(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity_type: &str,
+    source_id: &str,
+    canonical_id: &str,
+    identity_key: Option<&str>,
+) -> Result<()> {
+    if source_id == canonical_id {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"
+        INSERT INTO sync_entity_aliases (
+            entity_type, source_id, canonical_id, identity_key, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(entity_type, source_id) DO UPDATE SET
+            canonical_id = excluded.canonical_id,
+            identity_key = COALESCE(excluded.identity_key, sync_entity_aliases.identity_key)
+        "#,
+    )
+    .bind(entity_type)
+    .bind(source_id)
+    .bind(canonical_id)
+    .bind(identity_key)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&mut **tx)
+    .await?;
+
+    // If the source ID already accumulated sync ordering state before we
+    // discovered the duplicate, fold the newer state onto the canonical key.
+    let source_state = sqlx::query_as::<_, (String, String, Option<i64>, i64, i64)>(
+        r#"
+        SELECT last_hlc, last_device_id, server_revision, tombstoned, updated_at
+        FROM sync_entity_state
+        WHERE entity_type = ?1 AND entity_id = ?2
+        "#,
+    )
+    .bind(entity_type)
+    .bind(source_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((hlc, device, revision, tombstoned, updated_at)) = source_state {
+        let canonical_state = sqlx::query_as::<_, (String, String)>(
+            "SELECT last_hlc, last_device_id FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+        )
+        .bind(entity_type)
+        .bind(canonical_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let source_is_newer = canonical_state
+            .map(|(existing_hlc, existing_device)| {
+                let parse = |raw: &str| {
+                    let mut parts = raw.split(':');
+                    (
+                        parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
+                        parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
+                    )
+                };
+                let left = parse(&hlc);
+                let right = parse(&existing_hlc);
+                left > right || (left == right && device > existing_device)
+            })
+            .unwrap_or(true);
+
+        if source_is_newer {
+            sqlx::query(
+                r#"
+                INSERT INTO sync_entity_state (
+                    entity_type, entity_id, last_hlc, last_device_id,
+                    server_revision, tombstoned, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                    last_hlc = excluded.last_hlc,
+                    last_device_id = excluded.last_device_id,
+                    server_revision = COALESCE(excluded.server_revision, sync_entity_state.server_revision),
+                    tombstoned = excluded.tombstoned,
+                    updated_at = excluded.updated_at
+                "#,
+            )
+            .bind(entity_type)
+            .bind(canonical_id)
+            .bind(hlc)
+            .bind(device)
+            .bind(revision)
+            .bind(tombstoned)
+            .bind(updated_at)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn prepare_document_target(
+    tx: &mut Transaction<'_, Sqlite>,
+    document: &Document,
+) -> Result<String> {
+    if let Some(alias) = sqlx::query_scalar::<_, String>(
+        "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = 'document' AND source_id = ?1",
+    )
+    .bind(&document.id)
+    .fetch_optional(&mut **tx)
+    .await?
+    {
+        return Ok(alias);
+    }
+
+    let identity = document_identity_key(document);
+    let mut candidate: Option<String> = None;
+
+    // Content hashes are strong identities for independently imported copies.
+    if let Some(hash) = document
+        .content_hash
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        candidate = sqlx::query_scalar(
+            "SELECT id FROM documents WHERE content_hash = ?1 AND id != ?2 ORDER BY id LIMIT 1",
+        )
+        .bind(hash)
+        .bind(&document.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    }
+
+    // URL identity is a fallback for articles/media where no content hash was
+    // produced. Exact canonical URL only: titles are never used for dedupe.
+    if candidate.is_none() {
+        if let Some(source_url) = portable_source_url(document) {
+            candidate = sqlx::query_scalar(
+                "SELECT id FROM documents WHERE file_path = ?1 AND id != ?2 ORDER BY id LIMIT 1",
+            )
+            .bind(source_url)
+            .bind(&document.id)
+            .fetch_optional(&mut **tx)
+            .await?;
+        }
+    }
+
+    let target = candidate.unwrap_or_else(|| document.id.clone());
+    register_alias(
+        tx,
+        "document",
+        &document.id,
+        &target,
+        identity.as_deref(),
+    )
+    .await?;
+    Ok(target)
+}
+
 pub async fn upsert_learning_item(
     tx: &mut Transaction<'_, Sqlite>,
     item: &LearningItem,
@@ -81,6 +284,12 @@ pub async fn upsert_learning_item(
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
+            file_path = CASE
+                WHEN excluded.file_path != ''
+                 AND (documents.file_path = '' OR documents.file_path LIKE 'http://%' OR documents.file_path LIKE 'https://%')
+                THEN excluded.file_path
+                ELSE documents.file_path
+            END,
             extract_id = excluded.extract_id,
             document_id = excluded.document_id,
             item_type = excluded.item_type,
@@ -114,8 +323,18 @@ pub async fn upsert_learning_item(
     )
     .bind(&item.id)
     .bind(&item.collection_id)
-    .bind(&item.extract_id)
-    .bind(&item.document_id)
+    .bind(
+        match item.extract_id.as_deref() {
+            Some(id) => Some(resolve_alias(tx, "extract", id).await?),
+            None => None,
+        }
+    )
+    .bind(
+        match item.document_id.as_deref() {
+            Some(id) => Some(resolve_alias(tx, "document", id).await?),
+            None => None,
+        }
+    )
     .bind(item_type)
     .bind(&item.question)
     .bind(&item.answer)
@@ -153,7 +372,8 @@ pub async fn upsert_learning_item(
 pub async fn upsert_document(
     tx: &mut Transaction<'_, Sqlite>,
     document: &Document,
-) -> Result<()> {
+) -> Result<String> {
+    let target_id = prepare_document_target(tx, document).await?;
     let file_type = format!("{:?}", document.file_type).to_lowercase();
     let tags = serde_json::to_string(&document.tags)
         .map_err(|e| PlethoraError::Internal(format!("Sync document tags encode failed: {e}")))?;
@@ -177,15 +397,15 @@ pub async fn upsert_document(
             next_reading_date, reading_count, stability, difficulty, reps,
             total_time_spent, consecutive_count, interval_modifier, first_reviewed_at
         ) VALUES (
-            ?1, ?2, ?3, '', ?4, ?5, ?6,
-            ?7, ?8, ?9, ?10,
-            ?11, ?12, ?13, ?14, ?15,
-            ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22,
-            ?23, ?24, ?25, ?26,
-            ?27, ?28,
-            ?29, ?30, ?31, ?32, ?33,
-            ?34, ?35, ?36, ?37
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+            ?8, ?9, ?10, ?11,
+            ?12, ?13, ?14, ?15, ?16,
+            ?17, ?18, ?19,
+            ?20, ?21, ?22, ?23,
+            ?24, ?25, ?26, ?27,
+            ?28, ?29,
+            ?30, ?31, ?32, ?33, ?34,
+            ?35, ?36, ?37, ?38
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
@@ -225,9 +445,10 @@ pub async fn upsert_document(
             first_reviewed_at = excluded.first_reviewed_at
         "#,
     )
-    .bind(&document.id)
+    .bind(&target_id)
     .bind(&document.collection_id)
     .bind(&document.title)
+    .bind(portable_source_url(document).unwrap_or_default())
     .bind(file_type)
     .bind(&document.content)
     .bind(&document.content_hash)
@@ -265,7 +486,7 @@ pub async fn upsert_document(
     .execute(&mut **tx)
     .await?;
 
-    Ok(())
+    Ok(target_id)
 }
 
 pub async fn upsert_extract(
@@ -342,7 +563,7 @@ pub async fn upsert_extract(
     )
     .bind(&extract.id)
     .bind(&extract.collection_id)
-    .bind(&extract.document_id)
+    .bind(resolve_alias(tx, "document", &extract.document_id).await?)
     .bind(&extract.content)
     .bind(&extract.html_content)
     .bind(&extract.source_url)
