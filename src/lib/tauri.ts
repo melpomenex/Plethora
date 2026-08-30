@@ -222,13 +222,10 @@ export function nativePlatform(): string | null {
  * Synchronous — safe to call during module evaluation or first render.
  */
 export function isNativeMobile(): boolean {
-  if (typeof navigator !== 'undefined') {
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes('android') || ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) {
-      return isTauri();
-    }
-  }
-  const p = nativePlatform();
+  // The OS plugin is authoritative. Desktop Tauri webviews can use a
+  // mobile-looking user agent, but that must not grant native-mobile
+  // capabilities or route desktop transcription to mobile guidance.
+  const p = nativePlatform()?.toLowerCase();
   return p === 'android' || p === 'ios';
 }
 

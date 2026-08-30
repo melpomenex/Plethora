@@ -67,7 +67,7 @@ export class GroqTranscriptionProvider extends BaseProvider {
         language,
         prompt: options.prompt,
         responseFormat: "verbose_json",
-        timestampGranularities: ["segment"],
+        timestampGranularities: ["segment", "word"],
         temperature: 0,
         onProgress: options.onProgress
           ? (percent) => options.onProgress?.({ percent, message: "Transcribing with Groq…" })
@@ -87,6 +87,16 @@ export class GroqTranscriptionProvider extends BaseProvider {
           endMs: segment.end_ms,
           text: segment.text,
           confidence: segment.confidence,
+          words: converted.words
+            .filter((word) => {
+              const midpoint = (word.start_ms + word.end_ms) / 2;
+              return midpoint >= segment.start_ms && midpoint < segment.end_ms;
+            })
+            .map((word) => ({
+              word: word.word,
+              startMs: word.start_ms,
+              endMs: word.end_ms,
+            })),
         })),
         metadata: { source: "groq" },
       };

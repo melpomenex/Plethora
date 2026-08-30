@@ -15,7 +15,6 @@ import { ResizableSplit } from "./ResizableSplit";
 import { AudiobookViewer } from "./AudiobookViewer";
 import { EPUBViewer } from "./EPUBViewer";
 import * as documentsApi from "../../api/documents";
-import { resolveLocalMediaSource } from "./localMediaSource";
 import { parseChapters, parseAudiobookMetadata } from "../../api/audiobooks";
 import { getTranscript, type TranscriptSegment as TranscriptionSegment } from "../../api/transcription";
 import type { SyncSegment } from "../../utils/epubSync";
@@ -27,9 +26,67 @@ import {
   computePairId,
   normalizeAudioChapterBounds,
   type PlethoraAlignmentMap,
+  type TranscriptionWord,
 } from "../../lib/ebookAudiobookAlignment";
 import { speechSectionsToChapters, simpleContentHash } from "../../lib/ebookAudiobookAlignment/epubChapterExtract";
 import { useAlignmentPlayback, useSeekToAlignedWord } from "../../hooks/useAlignmentPlayback";
+
+type SyncTranscriptSegment = {
+  text: string;
+  startTime: number;
+  endTime: number;
+  words?: TranscriptionWord[];
+};
+
+function normalizeStoredWordTimings(parsed: unknown): TranscriptionWord[] | undefined {
+  if (!Array.isArray(parsed)) return undefined;
+  try {
+    const words = (parsed as Array<{
+      word?: string;
+      text?: string;
+      start_ms?: number;
+      end_ms?: number;
+      startMs?: number;
+      endMs?: number;
+    }>)
+      .map((word) => ({
+        text: typeof word.word === "string" ? word.word : word.text ?? "",
+        startMs: Number(word.start_ms ?? word.startMs),
+        endMs: Number(word.end_ms ?? word.endMs),
+      }))
+      .filter((word) => word.text.trim().length > 0 && Number.isFinite(word.startMs) && Number.isFinite(word.endMs) && word.endMs > word.startMs);
+    return words.length > 0 ? words : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseStoredWordTimings(raw: string | null | undefined): TranscriptionWord[] | undefined {
+  if (!raw) return undefined;
+  try {
+    return normalizeStoredWordTimings(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
+}
+
+function loadImportedTranscript(documentId: string): SyncTranscriptSegment[] {
+  try {
+    const raw = localStorage.getItem(`audiobook-${documentId}`);
+    const segments = JSON.parse(raw ?? "null")?.transcript?.segments;
+    if (!Array.isArray(segments)) return [];
+    return segments
+      .map((segment) => ({
+        text: typeof segment?.text === "string" ? segment.text : "",
+        startTime: Number(segment?.startTime),
+        endTime: Number(segment?.endTime),
+        words: normalizeStoredWordTimings(segment?.wordTimings),
+      }))
+      .filter((segment) => segment.text.trim().length > 0 && Number.isFinite(segment.startTime) && Number.isFinite(segment.endTime) && segment.endTime > segment.startTime);
+  } catch {
+    return [];
+  }
+}
 
 interface AudiobookEpubSyncViewProps {
   audioDocumentId: string;
@@ -51,12 +108,11 @@ export function AudiobookEpubSyncView({
   const [epubKey, setEpubKey] = useState(0);
 
   const [epubFileData, setEpubFileData] = useState<Uint8Array | null>(null);
-  const [mediaSource, setMediaSource] = useState<{ src: string; mimeType?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [audioChapters, setAudioChapters] = useState<Array<{ title: string; startTime: number; endTime: number }>>([]);
-  const [transcriptSegments, setTranscriptSegments] = useState<Array<{ text: string; startTime: number; endTime: number }>>([]);
+  const [transcriptSegments, setTranscriptSegments] = useState<SyncTranscriptSegment[]>([]);
   const [audioDuration, setAudioDuration] = useState(0);
   const [epubToc, setEpubToc] = useState<Array<{ href: string; label: string }>>([]);
   const [speechSections, setSpeechSections] = useState<Array<{ spineIndex: number; href: string; text: string }>>([]);
@@ -84,6 +140,7 @@ export function AudiobookEpubSyncView({
         text: segment.text,
         startTime: segment.start_ms / 1000,
         endTime: segment.end_ms / 1000,
+        words: parseStoredWordTimings(segment.words_json),
       }));
     }
     return transcriptSegments;
@@ -96,6 +153,7 @@ export function AudiobookEpubSyncView({
         text: segment.text,
         startMs: Math.round(segment.startTime * 1000),
         endMs: Math.round(segment.endTime * 1000),
+        words: segment.words,
       })),
       "plethora-audiobook",
     );
@@ -176,12 +234,11 @@ export function AudiobookEpubSyncView({
     let cancelled = false;
     async function load() {
       try {
-        const [audioRes, epubData] = await Promise.all([
-          resolveLocalMediaSource(audioDoc!.filePath, "audio"),
-          documentsApi.readDocumentFile(epubDoc!.filePath),
-        ]);
+        // AudiobookViewer owns the local media lifecycle. In particular, the
+        // desktop M4B preparation + range-server path must not be bypassed by
+        // handing it a second, pre-resolved source from the split view.
+        const epubData = await documentsApi.readDocumentFile(epubDoc!.filePath);
         if (cancelled) return;
-        setMediaSource({ src: audioRes.src, mimeType: audioRes.mimeType });
         setEpubFileData(epubData);
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load documents");
@@ -229,21 +286,26 @@ export function AudiobookEpubSyncView({
               if (resp?.segments) rawSegments.push(...resp.segments);
             } catch { /* partial */ }
           }
-          if (rawSegments.length > 0 && !cancelled) {
+          if (!cancelled) {
             const uniqueSegments = new Map<string, TranscriptionSegment>();
             for (const segment of rawSegments) {
               const key = `${segment.start_ms}:${segment.end_ms}:${segment.text}`;
               uniqueSegments.set(key, segment);
             }
-            setTranscriptSegments(
-              [...uniqueSegments.values()]
-                .sort((a, b) => a.start_ms - b.start_ms)
-                .map((seg) => ({
-                  text: seg.text,
-                  startTime: seg.start_ms / 1000,
-                  endTime: seg.end_ms / 1000,
-                })),
-            );
+            if (uniqueSegments.size > 0) {
+              setTranscriptSegments(
+                [...uniqueSegments.values()]
+                  .sort((a, b) => a.start_ms - b.start_ms)
+                  .map((seg) => ({
+                    text: seg.text,
+                    startTime: seg.start_ms / 1000,
+                    endTime: seg.end_ms / 1000,
+                    words: parseStoredWordTimings(seg.words_json),
+                  })),
+              );
+            } else {
+              setTranscriptSegments(loadImportedTranscript(audioDoc!.id));
+            }
           }
         }
       } catch { /* ignore */ }
@@ -282,6 +344,7 @@ export function AudiobookEpubSyncView({
           text: s.text,
           startMs: Math.round(s.startTime * 1000),
           endMs: Math.round(s.endTime * 1000),
+          words: s.words,
         })),
         "plethora-audiobook",
       );
@@ -456,14 +519,13 @@ export function AudiobookEpubSyncView({
           <X className="w-4 h-4" />
         </button>
       )}
-      {isLoading || !mediaSource ? (
+      {isLoading ? (
         <div className="flex items-center justify-center h-full">
           <CircleNotch className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <AudiobookViewer
           document={audioDoc}
-          fileContent={mediaSource.src}
           audioRef={audioRef}
           onTimeUpdate={handleAudioTimeUpdate}
           onDurationChange={handleAudioDurationChange}

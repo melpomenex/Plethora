@@ -60,6 +60,22 @@ export interface TranscriptSegment {
   endTime: number; // in seconds
   speaker?: string;
   confidence?: number;
+  wordTimings?: Array<{
+    word: string;
+    start_ms: number;
+    end_ms: number;
+  }>;
+}
+
+function wordsForTranscriptSegment(
+  words: Array<{ word: string; start_ms: number; end_ms: number }>,
+  startMs: number,
+  endMs: number,
+) {
+  return words.filter((word) => {
+    const midpoint = (word.start_ms + word.end_ms) / 2;
+    return midpoint >= startMs && midpoint < endMs;
+  });
 }
 
 export interface AudiobookImportOptions {
@@ -370,7 +386,7 @@ async function generateTranscriptWithGroq(
       filePath,
       language,
       responseFormat: 'verbose_json',
-      timestampGranularities: ['segment'],
+      timestampGranularities: ['segment', 'word'],
       temperature: 0,
       onProgress,
     });
@@ -384,6 +400,7 @@ async function generateTranscriptWithGroq(
       startTime: seg.start_ms / 1000,
       endTime: seg.end_ms / 1000,
       confidence: seg.confidence,
+      wordTimings: wordsForTranscriptSegment(converted.words, seg.start_ms, seg.end_ms),
     }));
     
     return {
@@ -462,7 +479,7 @@ export async function generateTranscript(
         file,
         language: language === 'auto' ? undefined : language,
         responseFormat: 'verbose_json',
-        timestampGranularities: ['segment'],
+        timestampGranularities: ['segment', 'word'],
         temperature: 0,
         onProgress,
       });
@@ -474,6 +491,7 @@ export async function generateTranscript(
         startTime: seg.start_ms / 1000,
         endTime: seg.end_ms / 1000,
         confidence: seg.confidence,
+        wordTimings: wordsForTranscriptSegment(converted.words, seg.start_ms, seg.end_ms),
       }));
 
       return {
@@ -688,7 +706,7 @@ export async function enrichAudiobookDocument(doc: Document, filePath: string): 
 
 /**
  * Transcribe a local audiobook file via Groq cloud transcription, entirely on
- * the Rust side (read file → ffmpeg-free chunking → per-chunk Groq upload →
+ * the Rust side (safe chunking → per-chunk Groq upload →
  * persist segments to the document transcript tables). This is the path used on
  * mobile, where local Whisper/Parakeet/SenseVoice sidecars are unavailable and
  * the auto-transcription queue worker has no Groq branch. Also works on desktop

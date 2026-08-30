@@ -307,6 +307,7 @@ async function transcribeChunk(
   
   formData.append('response_format', 'verbose_json');
   formData.append('timestamp_granularities[]', 'segment');
+  formData.append('timestamp_granularities[]', 'word');
   formData.append('temperature', '0');
   
   const response = await fetch(`${GROQ_API_BASE}/audio/transcriptions`, {
@@ -634,6 +635,7 @@ async function transcribeWithChunking(
   
   // Multiple chunks - transcribe each and combine
   const allSegments: GroqTranscriptionSegment[] = [];
+  const allWords: NonNullable<GroqTranscriptionResponse['words']> = [];
   let fullText: string[] = [];
   let detectedLanguage: string | undefined;
   let totalDuration = 0;
@@ -660,6 +662,16 @@ async function transcribeWithChunking(
             ...segment,
             start: segment.start + chunk.startTime,
             end: segment.end + chunk.startTime,
+          });
+        }
+      }
+
+      if (result.words) {
+        for (const word of result.words) {
+          allWords.push({
+            ...word,
+            start: word.start + chunk.startTime,
+            end: word.end + chunk.startTime,
           });
         }
       }
@@ -694,6 +706,7 @@ async function transcribeWithChunking(
     language: detectedLanguage,
     duration: totalDuration,
     segments: allSegments,
+    words: allWords,
   };
 }
 
@@ -767,6 +780,11 @@ export function convertGroqToInternalFormat(
     text: string;
     confidence: number;
   }>;
+  words: Array<{
+    word: string;
+    start_ms: number;
+    end_ms: number;
+  }>;
 } {
   const segments = response.segments?.map(segment => ({
     start_ms: Math.round(segment.start * 1000),
@@ -778,5 +796,10 @@ export function convertGroqToInternalFormat(
   return {
     text: response.text,
     segments,
+    words: response.words?.map((word) => ({
+      word: word.word,
+      start_ms: Math.round(word.start * 1000),
+      end_ms: Math.round(word.end * 1000),
+    })) ?? [],
   };
 }

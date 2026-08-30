@@ -192,7 +192,7 @@ pub async fn get_transcript(
             .await?;
 
     if let Some((id, status)) = transcript {
-        let segments: Vec<engine::TranscriptSegment> = sqlx::query_as("SELECT start_ms, end_ms, text, confidence FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms")
+        let segments: Vec<engine::TranscriptSegment> = sqlx::query_as("SELECT start_ms, end_ms, text, confidence, words_json FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms")
             .bind(id)
             .fetch_all(repo.pool())
             .await?;
@@ -248,12 +248,13 @@ pub async fn save_transcript(
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
 
     for seg in segments {
-        sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence, words_json) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(transcript_id)
             .bind(seg.start_ms)
             .bind(seg.end_ms)
             .bind(&seg.text)
             .bind(seg.confidence)
+            .bind(seg.words_json.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;

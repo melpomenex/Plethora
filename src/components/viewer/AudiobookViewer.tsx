@@ -73,6 +73,7 @@ import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadE
 import { isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { resolveLocalMediaSource } from "./localMediaSource";
+import { getFiniteMediaDuration } from "./localMediaSources";
 import { KaraokeText } from "../media/KaraokeText";
 import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
@@ -222,6 +223,32 @@ interface MultiPartInfo {
 // implementation now lives in utils/wordTimings so the YouTube transcript panel
 // can share the exact same active-word math.
 export { findActiveWordIndex };
+
+function parseTranscriptWordTimings(raw: unknown): WordTiming[] | undefined {
+  if (typeof raw !== "string" || !raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Array<{
+      word?: string;
+      text?: string;
+      start_ms?: number;
+      end_ms?: number;
+      startMs?: number;
+      endMs?: number;
+    }>;
+    if (!Array.isArray(parsed)) return undefined;
+    const timings = parsed
+      .map((word) => ({
+        word: typeof word.word === "string" ? word.word : word.text ?? "",
+        start_ms: Number(word.start_ms ?? word.startMs),
+        end_ms: Number(word.end_ms ?? word.endMs),
+        source: "measured" as const,
+      }))
+      .filter((word) => word.word.trim().length > 0 && Number.isFinite(word.start_ms) && Number.isFinite(word.end_ms) && word.end_ms > word.start_ms);
+    return timings.length > 0 ? timings : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Render a transcript segment's text. When per-word timings are available (Groq
@@ -629,31 +656,14 @@ export function AudiobookViewer({
       return;
     }
 
-    // A parent such as the EPUB split view has already resolved this file to
-    // the range-capable media-server URL. Do not start a second desktop m4b
-    // preparation here: swapping the <audio src> from the playable URL to a
-    // later ffmpeg result resets currentTime and made playback appear stuck at
-    // 0:00. The direct source remains the source of truth for this session.
-    if (fileContent) {
-      setPreparedPlaybackPath(document.filePath);
-      setPreparedPlaybackSrc(fileContent);
-      setPlaybackError(null);
-      return;
-    }
-
     let cancelled = false;
     void (async () => {
       try {
         if (isNativeMobile()) {
-          // DocumentViewer already resolves the canonical app-managed path to
-          // the loopback media server. Reuse that URL instead of resolving a
-          // second source and briefly mounting an empty <audio> element.
-          const resolved = fileContent
-            ? {
-              src: fileContent,
-              strategy: "local-media-server",
-            }
-            : await resolveLocalMediaSource(document.filePath, "audio");
+          // Resolve the canonical app-managed path to the loopback media
+          // server. This keeps Tauri source ownership in this component even
+          // when a parent happens to have a stale source URL.
+          const resolved = await resolveLocalMediaSource(document.filePath, "audio");
           if (!cancelled) {
             setPreparedPlaybackPath(document.filePath);
             setPreparedPlaybackSrc(resolved.src);
@@ -734,7 +744,7 @@ export function AudiobookViewer({
     return () => {
       cancelled = true;
     };
-  }, [document.id, document.filePath, fileContent, retryAttempt]);
+  }, [document.id, document.filePath, retryAttempt]);
 
   useEffect(() => {
     if (!isTauri() || !episodeId) {
@@ -822,7 +832,8 @@ export function AudiobookViewer({
     const hasRealChapters = chapters.length > 1
       || (chapters.length === 1 && chapters[0]?.title && chapters[0].title !== "Chapter 1");
     const hasMetadataTitle = Boolean(metadata.title);
-    if (hasRealChapters && hasMetadataTitle) {
+    const hasMetadataDuration = getFiniteMediaDuration(Number(metadata.duration)) !== null;
+    if (hasRealChapters && hasMetadataTitle && hasMetadataDuration) {
       return;
     }
 
@@ -1597,10 +1608,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [audioRef, currentPartIndex, document.id, fromGlobalSeconds, multiPartInfo, seek]);
 
   const publishAudioDuration = (audio: HTMLAudioElement | null) => {
-    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
-    setDuration(audio.duration);
-    durationRef.current = audio.duration;
-    onDurationChange?.(audio.duration);
+    const mediaDuration = getFiniteMediaDuration(audio?.duration ?? Number.NaN);
+    const metadataDuration = getFiniteMediaDuration(Number(metadata.duration));
+    const resolvedDuration = mediaDuration ?? metadataDuration;
+    if (resolvedDuration === null) return;
+    setDuration(resolvedDuration);
+    durationRef.current = resolvedDuration;
+    onDurationChange?.(resolvedDuration);
   };
 
   const handleLoadedMetadata = () => {
@@ -1631,6 +1645,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
   const handleDurationChange = (event: SyntheticEvent<HTMLAudioElement>) => {
     publishAudioDuration(event.currentTarget);
   };
+
+  // Some WebKit builds can play an M4B while exposing 0/NaN/Infinity for the
+  // media duration. The parsed container metadata is a safe interim timeline
+  // until the media element publishes a finite runtime duration.
+  useEffect(() => {
+    if (durationRef.current > 0) return;
+    publishAudioDuration(audioRef.current);
+  }, [metadata.duration]);
 
   const handleCanPlay = () => {
     setPlaybackError(null);
@@ -3208,10 +3230,11 @@ const editionSectionIdsRef = useRef<string[]>([]);
           </div>
         </div>
       )}
-      {/* Audio element - use fallbackSrc (to override failing custom protocol sources), podcastLocalSrc (downloaded podcast), remoteAudioUrl (podcast stream), fileContent (blob URL), otherwise fall back to partSources */}
+      {/* Audio element - Tauri uses the prepared/range-served source owned by
+          this viewer; browser callers may provide an object/blob URL. */}
       <audio
         ref={audioRef}
-        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || fileContent || preparedPlaybackSrc || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
+        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onDurationChange={handleDurationChange}
@@ -3880,7 +3903,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
                           </div>
                           <PodcastSegmentText
                             text={segment.text}
-                            wordTimings={(segment as any).wordTimings}
+                            wordTimings={(segment as any).wordTimings ?? parseTranscriptWordTimings((segment as any).words_json)}
                             currentTime={currentTime}
                             isActive={activeSegmentId === id}
                           />

@@ -198,6 +198,18 @@ describe("native mobile detection", () => {
     expect(tauri.getFormFactor()).toBe("desktop");
   });
 
+  it("does not classify a desktop Tauri app from a mobile-looking user agent", async () => {
+    applyWindowState({
+      internals: true,
+      osPlugin: { platform: "macos", os_type: "macos" },
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Tauri",
+    });
+    const tauri = await loadFresh();
+
+    expect(tauri.nativePlatform()).toBe("macos");
+    expect(tauri.isNativeMobile()).toBe(false);
+  });
+
   it("detects bundled macOS webview URLs served from asset.localhost", async () => {
     applyWindowState({
       internals: false,

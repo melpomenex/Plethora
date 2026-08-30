@@ -472,6 +472,7 @@ mod tests {
             end_ms: 30_000,
             text: "continued text".to_string(),
             confidence: 0.9,
+            words_json: None,
         };
 
         let resumed = offset_segment(segment, 9_000_000);

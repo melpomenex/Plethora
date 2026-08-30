@@ -4,6 +4,25 @@ import { fromSegments } from "../transcriptionAdapter";
 import { PlaybackLookup } from "../playbackLookup";
 
 describe("alignChapter integration", () => {
+  it("uses measured word timings when a provider supplies them", () => {
+    const timeline = fromSegments([
+      {
+        text: "Hello world.",
+        startMs: 0,
+        endMs: 2000,
+        words: [
+          { text: "Hello", startMs: 100, endMs: 700 },
+          { text: "world.", startMs: 800, endMs: 1500 },
+        ],
+      },
+    ], "groq");
+
+    expect(timeline.words.map((word) => [word.text, word.startMs, word.endMs])).toEqual([
+      ["Hello", 100, 700],
+      ["world.", 800, 1500],
+    ]);
+  });
+
   it("aligns fixture ebook to synthetic transcript end-to-end", () => {
     const ebookText = "It was the best of times. It was the worst of times.";
     const segments = [

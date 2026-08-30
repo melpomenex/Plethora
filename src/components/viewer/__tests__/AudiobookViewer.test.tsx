@@ -362,12 +362,20 @@ describe("desktop audiobook source resolution failures", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("keeps an already-resolved m4b source and publishes delayed duration/time events", async () => {
+  it("prepares desktop m4b before publishing duration/time events", async () => {
     const onTimeUpdate = vi.fn();
     const onDurationChange = vi.fn();
+    audiobookApiMocks.prepareAudiobookPlayback.mockResolvedValue("/cache/test-book.mp3");
+    tauriMocks.invokeCommand.mockImplementation(async (command: string) => {
+      if (command === "get_media_stream_url") {
+        return "http://127.0.0.1:43123/stream?path=test-book.mp3";
+      }
+      return undefined;
+    });
     const { container } = render(
       <AudiobookViewer
         document={{ ...desktopDocument(), filePath: "/Users/test/Music/test-book.m4b" }}
+        // A stale parent source must not bypass the desktop preparation path.
         fileContent="http://127.0.0.1:43123/stream?path=test-book.m4b"
         onTimeUpdate={onTimeUpdate}
         onDurationChange={onDurationChange}
@@ -376,8 +384,12 @@ describe("desktop audiobook source resolution failures", () => {
 
     const audio = container.querySelector("audio");
     expect(audio).not.toBeNull();
-    expect(audio?.getAttribute("src")).toBe("http://127.0.0.1:43123/stream?path=test-book.m4b");
-    await waitFor(() => expect(audiobookApiMocks.prepareAudiobookPlayback).not.toHaveBeenCalled());
+    await waitFor(() => {
+      expect(audiobookApiMocks.prepareAudiobookPlayback).toHaveBeenCalledWith(
+        "/Users/test/Music/test-book.m4b",
+      );
+      expect(audio?.getAttribute("src")).toBe("http://127.0.0.1:43123/stream?path=test-book.mp3");
+    });
 
     Object.defineProperty(audio, "duration", { configurable: true, value: 321 });
     Object.defineProperty(audio, "currentTime", { configurable: true, value: 12 });
@@ -386,6 +398,23 @@ describe("desktop audiobook source resolution failures", () => {
 
     expect(onDurationChange).toHaveBeenCalledWith(321);
     expect(onTimeUpdate).toHaveBeenCalledWith(12);
+  });
+
+  it("uses parsed audiobook metadata when WebKit reports no duration", async () => {
+    const onDurationChange = vi.fn();
+    audiobookApiMocks.parseAudiobookMetadata.mockResolvedValue({ duration: 654 });
+    tauriMocks.invokeCommand.mockResolvedValue(
+      "http://127.0.0.1:43123/stream?path=test-book.m4b",
+    );
+
+    render(
+      <AudiobookViewer
+        document={{ ...desktopDocument(), filePath: "/Users/test/Music/test-book.m4b" }}
+        onDurationChange={onDurationChange}
+      />,
+    );
+
+    await waitFor(() => expect(onDurationChange).toHaveBeenCalledWith(654));
   });
 });
 

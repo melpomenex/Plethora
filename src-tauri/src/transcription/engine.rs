@@ -12,6 +12,8 @@ pub struct TranscriptSegment {
     pub end_ms: i64,
     pub text: String,
     pub confidence: f32,
+    #[serde(default)]
+    pub words_json: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -490,6 +492,7 @@ impl TranscriptionEngine {
                         end_ms: (seg["offsets"]["to"].as_i64().unwrap_or(0)),
                         text: seg["text"].as_str().unwrap_or("").to_string(),
                         confidence: 1.0,
+                        words_json: None,
                     };
                     on_segment(segment);
                 }
@@ -826,6 +829,7 @@ impl TranscriptionEngine {
                     end_ms: total_duration_ms,
                     text: text.trim().to_string(),
                     confidence: 1.0,
+                    words_json: None,
                 });
             }
             return Ok(());
@@ -898,6 +902,7 @@ impl TranscriptionEngine {
                     end_ms: chunk_end_ms as i64,
                     text: text.trim().to_string(),
                     confidence: 1.0,
+                    words_json: None,
                 });
             }
 

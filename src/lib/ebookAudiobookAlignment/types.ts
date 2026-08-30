@@ -11,6 +11,7 @@ export interface TranscriptionSegment {
   startMs: number;
   endMs: number;
   confidence?: number;
+  words?: TranscriptionWord[];
 }
 
 export interface TranscriptionTimeline {

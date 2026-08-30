@@ -8,11 +8,13 @@ export function fromSegments(
 ): TranscriptionTimeline {
   const words: TranscriptionWord[] = [];
   for (const seg of segments) {
-    const segWords = synthesizeWordTimings(
-      seg.text,
-      seg.startMs / 1000,
-      seg.endMs / 1000,
-    );
+    const segWords = seg.words?.length
+      ? seg.words.map((word) => ({
+        word: word.text,
+        start_ms: word.startMs,
+        end_ms: word.endMs,
+      }))
+      : synthesizeWordTimings(seg.text, seg.startMs / 1000, seg.endMs / 1000);
     for (const w of segWords) {
       words.push({
         text: w.word,
@@ -66,6 +68,10 @@ function fingerprintTimeline(segments: TranscriptionSegment[]): string {
     h = ((h << 5) + h) ^ s.endMs;
     for (let i = 0; i < Math.min(s.text.length, 80); i++) {
       h = ((h << 5) + h) ^ s.text.charCodeAt(i);
+    }
+    for (const word of s.words ?? []) {
+      h = ((h << 5) + h) ^ word.startMs;
+      h = ((h << 5) + h) ^ word.endMs;
     }
   }
   return (h >>> 0).toString(16);

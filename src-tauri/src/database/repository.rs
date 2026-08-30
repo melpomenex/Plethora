@@ -7907,6 +7907,7 @@ impl Repository {
                 end_ms: r.end_ms,
                 text: r.text,
                 confidence: r.word_timings_json.as_deref().map(|_| 1.0).unwrap_or(0.0),
+                words_json: r.word_timings_json,
             })
             .collect())
     }
@@ -9927,12 +9928,14 @@ mod tests {
                 end_ms: 2000,
                 text: "Hello world.".to_string(),
                 confidence: 1.0,
+                words_json: None,
             },
             crate::transcription::engine::TranscriptSegment {
                 start_ms: 2000,
                 end_ms: 4000,
                 text: "Good morning.".to_string(),
                 confidence: 1.0,
+                words_json: None,
             },
         ];
         let word_timings = vec![

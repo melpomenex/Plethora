@@ -81,7 +81,6 @@ export function hrefMatchesChapter(contentsUrl: string, chapterHref: string): bo
 function unwrapHighlightSpans(doc: Document): void {
   const tracked = previousHighlights.get(doc) ?? [];
   for (const el of tracked) {
-    if (!el.isConnected) continue;
     const parent = el.parentNode;
     if (!parent) continue;
     parent.replaceChild(doc.createTextNode(el.textContent ?? ""), el);
@@ -159,8 +158,8 @@ export function highlightWordAtOffset(
     const frag = iframeDoc.createDocumentFragment();
     if (range.start > 0) frag.appendChild(iframeDoc.createTextNode(text.slice(0, range.start)));
     span.textContent = text.slice(range.start, range.end);
-    if (range.end < text.length) frag.appendChild(iframeDoc.createTextNode(text.slice(range.end)));
     frag.appendChild(span);
+    if (range.end < text.length) frag.appendChild(iframeDoc.createTextNode(text.slice(range.end)));
     parent.replaceChild(frag, node);
     created.push(span);
   }

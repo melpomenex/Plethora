@@ -22,6 +22,7 @@ use chrono::Utc;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_shell::process::CommandEvent;
 use tokio::io::AsyncWriteExt;
 
 /// Subscribe to a podcast feed
@@ -958,20 +959,30 @@ pub struct MobileAudioChunk {
     pub bytes: u64,
 }
 
+/// Remove temporary transcription chunks on every return path, including
+/// provider errors and cancelled requests.
+struct RemoveDirOnDrop(PathBuf);
+
+impl Drop for RemoveDirOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Target chunk size for the mobile splitter. Groq's free-tier limit is 25 MB;
 /// we target 20 MB to stay safely under and leave room for the multipart upload
 /// overhead. Podcast MP3s are typically 64-128 kbps, so 20 MB ≈ 20-40 min/chunk.
 const MOBILE_CHUNK_TARGET: u64 = 20 * 1024 * 1024;
+const CONTAINER_CHUNK_DURATION_SECONDS: f64 = 600.0;
 
-/// Split a remote podcast audio file into <25 MB chunks on-device WITHOUT ffmpeg
+/// Split a remote podcast MP3 into <25 MB chunks on-device without FFmpeg
 /// (ffmpeg isn't available on Android). The audio is downloaded in full to a temp
 /// file, then split on **MP3 frame boundaries** (the 11-bit sync word 0x7FF) so
-/// each chunk is independently decodable by Groq. For non-MP3 formats (M4A/MP4)
-/// we fall back to raw byte-range chunks — less clean at arbitrary boundaries,
-/// but Groq's Whisper decoder is tolerant, and the vast majority of podcasts are
-/// MP3. Each chunk's start_ms is estimated from byte offset ÷ bitrate (parsed
-/// from the first MP3 frame header). This is what makes full-episode (40-100MB)
-/// podcast transcription work on mobile within Groq's 25 MB limit.
+/// each chunk is independently decodable by Groq. Non-MP3 containers are rejected
+/// with an actionable error instead of being uploaded as invalid byte ranges.
+/// Each chunk's start_ms is estimated from byte offset ÷ bitrate (parsed from the
+/// first MP3 frame header). This is what makes full-episode (40-100MB) podcast
+/// transcription work on mobile within Groq's 25 MB limit.
 #[tauri::command]
 pub async fn split_audio_for_groq_mobile(
     app_handle: AppHandle,
@@ -1062,38 +1073,32 @@ async fn split_audio_for_groq_mobile_inner(
     Ok(chunks_out)
 }
 
-/// Split already-in-memory audio bytes into <25 MB chunks (ffmpeg-free) on MP3
-/// frame boundaries. Shared by the remote-download path (podcasts) and the
-/// local-file path (audiobooks imported from device storage). Each chunk's
-/// start_ms is estimated from byte offset ÷ bitrate (parsed from the first MP3
-/// frame header); for non-MP3 formats a nominal 128 kbps is assumed.
+/// Split already-in-memory MP3 bytes into <25 MB chunks (ffmpeg-free) on MP3
+/// frame boundaries. Container formats must use the FFmpeg path below: an
+/// arbitrary M4B byte range is not an independently decodable audio file and
+/// must never be uploaded as a fake MP3.
 fn split_audio_bytes_into_groq_chunks(
     data: &[u8],
     is_mp3: bool,
     chunks_dir: &Path,
 ) -> Result<Vec<MobileAudioChunk>> {
+    if !is_mp3 {
+        return Err(PlethoraError::Internal(
+            "Safe Groq chunking requires FFmpeg for non-MP3 audiobook containers".to_string(),
+        ));
+    }
     let total = data.len() as u64;
 
-    // Parse the bitrate from the first valid MP3 frame header (for start_ms
-    // estimation). If we can't find a frame or it's not MP3, fall back to raw
-    // byte splitting with a nominal 128kbps assumption.
-    let bitrate_bps: u64 = if is_mp3 {
-        find_mp3_frame_bitrate(data).unwrap_or(128_000)
-    } else {
-        128_000
-    };
+    // Parse the bitrate from the first valid MP3 frame header for start_ms
+    // estimation. A nominal bitrate remains a defensive fallback for malformed
+    let bitrate_bps: u64 = find_mp3_frame_bitrate(data).unwrap_or(128_000);
 
-    // Compute split boundaries. For MP3, advance to MOBILE_CHUNK_TARGET then
-    // scan forward for the next frame sync so the chunk starts cleanly. For
-    // non-MP3, split at raw byte boundaries.
+    // Compute split boundaries by advancing to the next MP3 frame sync so each
+    // upload starts with a decodable frame.
     let mut boundaries: Vec<u64> = vec![0];
     let mut cursor: u64 = MOBILE_CHUNK_TARGET;
     while cursor < total {
-        let boundary = if is_mp3 {
-            find_next_mp3_frame(data, cursor).unwrap_or(cursor)
-        } else {
-            cursor
-        };
+        let boundary = find_next_mp3_frame(data, cursor).unwrap_or(cursor);
         boundaries.push(boundary.min(total));
         cursor = boundary + MOBILE_CHUNK_TARGET;
     }
@@ -1131,6 +1136,134 @@ fn split_audio_bytes_into_groq_chunks(
     );
 
     Ok(chunks_out)
+}
+
+/// Run FFmpeg and return its stderr. This is used for local container formats
+/// such as M4B, where raw byte splitting would create invalid uploads.
+async fn run_ffmpeg_for_groq(app_handle: &AppHandle, args: &[&str]) -> Result<String> {
+    let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(app_handle)
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
+        .args(args)
+        .spawn()
+        .map_err(|e| PlethoraError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
+
+    let mut stderr = String::new();
+    let mut exit_code = None;
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stderr(line) => stderr.push_str(&String::from_utf8_lossy(&line)),
+            CommandEvent::Terminated(payload) => {
+                exit_code = Some(payload.code);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if exit_code != Some(Some(0)) {
+        let detail = stderr
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("unknown FFmpeg error");
+        return Err(PlethoraError::Internal(format!(
+            "FFmpeg failed while preparing Groq chunks: {}",
+            detail
+        )));
+    }
+
+    Ok(stderr)
+}
+
+fn parse_ffmpeg_duration_seconds(stderr: &str) -> Option<f64> {
+    let marker = "Duration:";
+    let value = stderr.split(marker).nth(1)?.split(',').next()?.trim();
+    let parts: Vec<&str> = value.split(':').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let hours = parts[0].parse::<f64>().ok()?;
+    let minutes = parts[1].parse::<f64>().ok()?;
+    let seconds = parts[2].parse::<f64>().ok()?;
+    let duration = hours * 3600.0 + minutes * 60.0 + seconds;
+    (duration.is_finite() && duration > 0.0).then_some(duration)
+}
+
+/// Decode a local container and write short, independently decodable MP3
+/// chunks. Fixed low bitrate keeps every multipart body well below Groq's
+/// limit even when the source M4B is very large.
+async fn split_local_container_for_groq(
+    app_handle: &AppHandle,
+    file_path: &str,
+    chunks_dir: &Path,
+) -> Result<Vec<MobileAudioChunk>> {
+    let probe_stderr = run_ffmpeg_for_groq(app_handle, &["-hide_banner", "-i", file_path, "-f", "null", "-"]).await?;
+    let total_duration = parse_ffmpeg_duration_seconds(&probe_stderr).ok_or_else(|| {
+        PlethoraError::Internal(
+            "FFmpeg could not determine the audiobook duration for safe Groq chunking".to_string(),
+        )
+    })?;
+    let chunk_count = (total_duration / CONTAINER_CHUNK_DURATION_SECONDS).ceil().max(1.0) as usize;
+    let mut chunks = Vec::with_capacity(chunk_count);
+
+    for index in 0..chunk_count {
+        let start_time = index as f64 * CONTAINER_CHUNK_DURATION_SECONDS;
+        let duration = (total_duration - start_time).min(CONTAINER_CHUNK_DURATION_SECONDS);
+        let output_path = chunks_dir.join(format!("chunk_{:04}.mp3", index));
+        let start_text = start_time.to_string();
+        let duration_text = duration.to_string();
+        let output_text = output_path.to_str().ok_or_else(|| {
+            PlethoraError::Internal("Groq chunk path is not valid UTF-8".to_string())
+        })?;
+
+        run_ffmpeg_for_groq(
+            app_handle,
+            &[
+                "-hide_banner",
+                "-y",
+                "-i",
+                file_path,
+                "-ss",
+                &start_text,
+                "-t",
+                &duration_text,
+                "-vn",
+                "-map_metadata",
+                "-1",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "32k",
+                "-f",
+                "mp3",
+                output_text,
+            ],
+        )
+        .await?;
+
+        let bytes = std::fs::metadata(&output_path)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to inspect Groq chunk {}: {}", index, e)))?
+            .len();
+        if bytes >= MOBILE_CHUNK_TARGET {
+            return Err(PlethoraError::Internal(format!(
+                "FFmpeg produced an over-limit Groq chunk ({bytes} bytes)"
+            )));
+        }
+
+        chunks.push(MobileAudioChunk {
+            index,
+            path: output_path.to_string_lossy().to_string(),
+            start_ms: (start_time * 1000.0).round() as i64,
+            end_ms: ((start_time + duration) * 1000.0).round() as i64,
+            bytes,
+        });
+    }
+
+    Ok(chunks)
 }
 
 /// Scan `data` for the first valid MP3 frame header and return its bitrate in
@@ -1254,6 +1387,20 @@ mod mp3_tests {
         data.extend(std::iter::repeat(0u8).take(10));
         assert_eq!(find_mp3_frame_bitrate(&data), Some(128_000));
     }
+
+    #[test]
+    fn parses_ffmpeg_duration() {
+        let stderr = "Duration: 01:02:03.50, start: 0.000000, bitrate: 64 kb/s";
+        assert_eq!(parse_ffmpeg_duration_seconds(stderr), Some(3723.5));
+    }
+
+    #[test]
+    fn rejects_raw_container_byte_splitting() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let error = split_audio_bytes_into_groq_chunks(&[0, 1, 2], false, dir.path())
+            .expect_err("container bytes must use FFmpeg");
+        assert!(error.to_string().contains("requires FFmpeg"));
+    }
 }
 
 /// Clean up temp chunk files created by split_audio_for_groq_mobile after the
@@ -1276,7 +1423,7 @@ pub struct GroqChunkSegment {
 }
 
 /// Transcribe a podcast episode's audio entirely on the Rust side: download →
-/// split into <25MB chunks (ffmpeg-free) → upload each chunk to Groq with
+/// split into <25MB chunks (MP3 frame splitting or FFmpeg for containers) → upload each chunk to Groq with
 /// word-level timestamps → combine offsets → return segments. This avoids
 /// transferring multi-megabyte chunk bytes over the Tauri IPC as JSON (which is
 /// what hung the previous frontend-driven path — serializing ~18MB of bytes per
@@ -1469,8 +1616,8 @@ pub async fn transcribe_podcast_groq_chunks(
 }
 
 /// Transcribe a LOCAL audio file (an audiobook staged on-device) entirely in
-/// Rust: read the file → split into <25 MB chunks (ffmpeg-free, MP3-frame-aware)
-/// → upload each chunk to Groq with word-level timestamps → combine offsets →
+/// Rust: split MP3s on frame boundaries or decode containers into <25 MB MP3
+/// chunks → upload each chunk to Groq with word-level timestamps → combine offsets →
 /// persist the resulting segments into the document transcript tables (the same
 /// `transcripts`/`transcript_segments` tables `get_transcript` reads from, keyed
 /// by `book_id = chapter_id = document_id`) → also write the combined full text
@@ -1517,11 +1664,19 @@ pub async fn transcribe_audio_file_groq(
         "audiobook://transcription-progress",
         serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": 5, "message": "Reading audio…" }),
     );
-    let data = std::fs::read(path).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to read audio file {}: {}", file_path, e))
-    })?;
+    let is_mp3 = file_path.to_ascii_lowercase().ends_with(".mp3");
+    // Container inputs are decoded by FFmpeg below; avoid loading an entire
+    // multi-hundred-megabyte M4B into memory just to split it again.
+    let data = if is_mp3 {
+        std::fs::read(path).map_err(|e| {
+            PlethoraError::Internal(format!("Failed to read audio file {}: {}", file_path, e))
+        })?
+    } else {
+        Vec::new()
+    };
 
-    // 2. Split into <25 MB chunks (ffmpeg-free). Detect MP3 by extension.
+    // 2. Split into safe, independently decodable chunks. MP3 can be split
+    // without FFmpeg; containers are decoded and re-encoded below.
     let _ = app_handle.emit(
         "audiobook://transcription-progress",
         serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": 10, "message": "Splitting audio…" }),
@@ -1533,8 +1688,14 @@ pub async fn transcribe_audio_file_groq(
     let chunks_dir = cache_dir.join("groq_mobile_chunks");
     let _ = std::fs::remove_dir_all(&chunks_dir);
     std::fs::create_dir_all(&chunks_dir)?;
-    let is_mp3 = file_path.to_ascii_lowercase().ends_with(".mp3");
-    let chunks = split_audio_bytes_into_groq_chunks(&data, is_mp3, &chunks_dir)?;
+    let _chunk_cleanup = RemoveDirOnDrop(chunks_dir.clone());
+    let chunks = if is_mp3 {
+        split_audio_bytes_into_groq_chunks(&data, true, &chunks_dir)?
+    } else {
+        // M4B/M4A/MP4 are containers; arbitrary byte ranges are not valid
+        // standalone uploads. Decode them into small MP3 chunks instead.
+        split_local_container_for_groq(&app_handle, &file_path, &chunks_dir).await?
+    };
     eprintln!(
         "[audiobook-transcribe] {}: {} chunks for document {}",
         provider_name.to_lowercase(),
@@ -1650,12 +1811,18 @@ pub async fn transcribe_audio_file_groq(
             PlethoraError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
         })?;
 
+        let words = data_json
+            .get("words")
+            .and_then(|w| w.as_array())
+            .cloned()
+            .unwrap_or_default();
         let segments = data_json
             .get("segments")
             .and_then(|s| s.as_array())
             .cloned()
             .unwrap_or_default();
         let mut persisted_chunk = Vec::with_capacity(segments.len());
+        let mut word_cursor = 0usize;
         for seg in segments.iter() {
             let seg_start = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let seg_end = seg.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1672,7 +1839,33 @@ pub async fn transcribe_audio_file_groq(
             let start_ms = chunk.start_ms + (seg_start * 1000.0).round() as i64;
             let end_ms = chunk.start_ms + (seg_end * 1000.0).round() as i64;
 
-            persisted_chunk.push((start_ms, end_ms, seg_text));
+            let mut seg_words: Vec<serde_json::Value> = Vec::new();
+            while word_cursor < words.len() {
+                let word = &words[word_cursor];
+                let word_start = word.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let word_end = word.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let word_midpoint = (word_start + word_end) / 2.0;
+                if word_midpoint < seg_start {
+                    word_cursor += 1;
+                    continue;
+                }
+                if word_midpoint >= seg_end {
+                    break;
+                }
+                seg_words.push(serde_json::json!({
+                    "word": word.get("word").and_then(|v| v.as_str()).unwrap_or(""),
+                    "start_ms": chunk.start_ms + (word_start * 1000.0).round() as i64,
+                    "end_ms": chunk.start_ms + (word_end * 1000.0).round() as i64,
+                }));
+                word_cursor += 1;
+            }
+            let words_json = if seg_words.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&seg_words).unwrap_or_default())
+            };
+
+            persisted_chunk.push((start_ms, end_ms, seg_text, words_json));
         }
 
         // Commit a Groq chunk atomically. Resume skips chunks before the last
@@ -1681,13 +1874,14 @@ pub async fn transcribe_audio_file_groq(
         let mut tx = repo.pool().begin().await.map_err(|e| {
             PlethoraError::Internal(format!("Failed to begin Groq chunk checkpoint: {}", e))
         })?;
-        for (start_ms, end_ms, seg_text) in persisted_chunk {
-            sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
+        for (start_ms, end_ms, seg_text, words_json) in persisted_chunk {
+            sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence, words_json) VALUES (?, ?, ?, ?, ?, ?)")
                 .bind(transcript_id)
                 .bind(start_ms)
                 .bind(end_ms)
                 .bind(&seg_text)
                 .bind(1.0)
+                .bind(words_json.as_deref())
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| PlethoraError::Internal(format!("Failed to checkpoint Groq chunk: {}", e)))?;
@@ -1701,8 +1895,7 @@ pub async fn transcribe_audio_file_groq(
         }
     }
 
-    // 5. Clean up temp chunk files.
-    let _ = std::fs::remove_dir_all(&chunks_dir);
+    // 5. The cleanup guard also covers every early-return error path.
 
     // 6. Write the combined full text to documents.content (AI assistant / book
     //    sync) and mark the transcript row completed.
@@ -2192,6 +2385,7 @@ pub async fn save_podcast_transcript_segments(
             end_ms: s.end_ms,
             text: s.text.clone(),
             confidence: 1.0,
+            words_json: s.word_timings_json.clone(),
         })
         .collect();
     let word_timings: Vec<Option<String>> = segments

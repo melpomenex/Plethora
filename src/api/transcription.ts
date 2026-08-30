@@ -16,6 +16,7 @@ export interface TranscriptSegment {
   end_ms: number;
   text: string;
   confidence: number;
+  words_json?: string | null;
 }
 
 export interface TranscriptResponse {
