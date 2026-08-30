@@ -12,6 +12,7 @@ import {
   assertSyncProtocolVersion,
   minDeviceCursorSeq,
   nextEntityRevision,
+  normalizeSyncPullRow,
   paginatePull,
   shouldConflict,
   SYNC_HLC_PATTERN,
@@ -443,7 +444,7 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const page = paginatePull(result.rows, cursor, limit);
     const records = await Promise.all(
       page.records.map(async (row) => ({
-        ...row,
+        ...normalizeSyncPullRow(row),
         payloadCiphertext: await hydrateSyncPayload(
           row.payloadCiphertext?.trim() ? row.payloadCiphertext : '',
           row.blobStorageKey

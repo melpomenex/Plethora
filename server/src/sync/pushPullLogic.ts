@@ -27,17 +27,34 @@ export function assertSyncProtocolVersion(headerValue: string | string[] | undef
   }
 }
 
-export function paginatePull<T extends { seqNumber: number }>(
+export function paginatePull<T extends { seqNumber: number | string }>(
   rows: T[],
   cursor: number,
   limit: number
 ): { records: T[]; cursor: number; hasMore: boolean } {
   const pageLimit = Math.min(500, Math.max(1, limit));
-  const filtered = rows.filter((row) => row.seqNumber > cursor);
+  const filtered = rows.filter((row) => Number(row.seqNumber) > cursor);
   const hasMore = filtered.length > pageLimit;
   const records = hasMore ? filtered.slice(0, pageLimit) : filtered;
-  const nextCursor = records.length > 0 ? records[records.length - 1].seqNumber : cursor;
+  const nextCursor = records.length > 0 ? Number(records[records.length - 1].seqNumber) : cursor;
   return { records, cursor: nextCursor, hasMore };
+}
+
+/**
+ * node-postgres returns BIGINT (int8) columns as JavaScript strings because
+ * they can exceed Number.MAX_SAFE_INTEGER. The sync wire contract requires
+ * integer JSON numbers (the Rust client deserializes seqNumber/baseRevision/
+ * entityRevision/cursor as u64/i64), so normalize every int8-backed field on
+ * the way out. Realistic seq numbers stay far below 2^53, so the narrowing is
+ * lossless.
+ */
+export function normalizeSyncPullRow(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    seqNumber: Number(row.seqNumber ?? 0),
+    baseRevision: row.baseRevision == null ? null : Number(row.baseRevision),
+    entityRevision: row.entityRevision == null ? null : Number(row.entityRevision),
+  };
 }
 
 export function shouldConflict(baseRevision: number | undefined, serverRevision: number): boolean {

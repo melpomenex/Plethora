@@ -6,6 +6,7 @@ import {
   MAX_SYNC_DEVICES,
   minDeviceCursorSeq,
   nextEntityRevision,
+  normalizeSyncPullRow,
   paginatePull,
   shouldConflict,
 } from '../sync/pushPullLogic.js';
@@ -72,6 +73,46 @@ describe('sync push/pull logic', () => {
     expect(page3.records).toHaveLength(200);
     expect(page3.cursor).toBe(1200);
     expect(page3.hasMore).toBe(false);
+  });
+
+  it('paginates pg int8 rows whose seq numbers arrive as strings', () => {
+    // node-postgres returns BIGINT columns as strings; the wire cursor must
+    // still be a JSON integer for u64/i64 clients.
+    const rows = [
+      { seqNumber: '1000' },
+      { seqNumber: '1001' },
+      { seqNumber: '1002' },
+    ];
+    const page = paginatePull(rows, 999, 2);
+    expect(page.records.map((r) => r.seqNumber)).toEqual(['1000', '1001']);
+    expect(page.cursor).toBe(1001);
+    expect(page.hasMore).toBe(true);
+    expect(Number.isInteger(page.cursor)).toBe(true);
+  });
+
+  it('normalizes int8-backed pull fields to JSON integers', () => {
+    const row = normalizeSyncPullRow({
+      id: 'rec-1',
+      tableKind: 'learning_items',
+      seqNumber: '39',
+      baseRevision: '0',
+      entityRevision: '39',
+      payloadCiphertext: 'opaque',
+    });
+    expect(row.seqNumber).toBe(39);
+    expect(row.baseRevision).toBe(0);
+    expect(row.entityRevision).toBe(39);
+    expect(row.tableKind).toBe('learning_items');
+    expect(JSON.parse(JSON.stringify(row))).toEqual(row);
+  });
+
+  it('preserves null revisions when normalizing pull rows', () => {
+    const row = normalizeSyncPullRow({
+      seqNumber: 7,
+      baseRevision: null,
+      entityRevision: null,
+    });
+    expect(row).toEqual({ seqNumber: 7, baseRevision: null, entityRevision: null });
   });
 
   it('returns revision conflicts without accepting stale writes', () => {
