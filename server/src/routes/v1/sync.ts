@@ -191,74 +191,167 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
         continue;
       }
 
-      const revisionRow = await pool.query(
-        'SELECT revision FROM entity_revisions WHERE user_id = $1 AND entity_type = $2 AND entity_id = $3',
-        [userId, rec.tableKind, rec.recordId]
-      );
-      const serverRevision = Number(revisionRow.rows[0]?.revision || 0);
-      if (shouldConflict(rec.baseRevision, serverRevision)) {
-        if (rec.changeId) {
-          conflicts.push({
-            changeId: rec.changeId,
-            entityType: rec.tableKind,
-            entityId: rec.recordId,
-            serverRevision,
-            baseRevision: rec.baseRevision ?? 0,
-          });
-        }
-        continue;
-      }
-
+      // Large ciphertext is offloaded before taking a DB lock. The critical
+      // acceptance path below is otherwise a single transaction so a crash
+      // cannot leave a record without its revision/idempotency/cursor state.
       const id = uuidv4();
       const offloaded = await maybeOffloadSyncPayload(userId, id, rec.payloadCiphertext);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
 
-      const nextRevision = nextEntityRevision(serverRevision);
-      const insertRes = await pool.query(
-        `INSERT INTO sync_records (
-           id, user_id, table_kind, record_id, hlc, device_id,
-           payload_ciphertext, aad, key_version, blob_storage_key,
-           change_id, operation, base_revision, entity_revision, created_at
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
-         RETURNING seq_number`,
-        [
-          id,
-          userId,
-          rec.tableKind,
-          rec.recordId,
-          rec.hlc,
-          rec.deviceId,
-          offloaded.payloadCiphertext || ' ',
-          rec.aad,
-          rec.keyVersion,
-          offloaded.blobStorageKey,
-          rec.changeId ?? null,
-          rec.operation ?? null,
-          rec.baseRevision ?? null,
-          nextRevision,
-        ]
-      );
-
-      const seq = Number(insertRes.rows[0]?.seq_number || 0);
-      latestSeq = Math.max(latestSeq, seq);
-      accepted++;
-
-      await pool.query(
-        `INSERT INTO entity_revisions (user_id, entity_type, entity_id, revision, updated_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (user_id, entity_type, entity_id)
-         DO UPDATE SET revision = GREATEST(entity_revisions.revision, EXCLUDED.revision), updated_at = NOW()`,
-        [userId, rec.tableKind, rec.recordId, nextRevision]
-      );
-
-      if (rec.changeId) {
-        await pool.query(
-          'INSERT INTO processed_changes (user_id, change_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-          [userId, rec.changeId]
+        // Ensure there is a row to lock even for a brand-new entity, then
+        // serialize concurrent writers of the same logical entity.
+        await client.query(
+          `INSERT INTO entity_revisions (user_id, entity_type, entity_id, revision, updated_at)
+           VALUES ($1, $2, $3, 0, NOW())
+           ON CONFLICT (user_id, entity_type, entity_id) DO NOTHING`,
+          [userId, rec.tableKind, rec.recordId]
         );
-      }
+        const lockedRevision = await client.query(
+          `SELECT revision FROM entity_revisions
+           WHERE user_id = $1 AND entity_type = $2 AND entity_id = $3
+           FOR UPDATE`,
+          [userId, rec.tableKind, rec.recordId]
+        );
+        const serverRevision = Number(lockedRevision.rows[0]?.revision || 0);
 
-      await upsertDeviceCursor(userId, rec.deviceId, seq);
+        // Re-check idempotency while holding the entity lock. The earlier
+        // checks are only fast paths; these are authoritative under races.
+        if (rec.changeId) {
+          const processed = await client.query(
+            'SELECT 1 FROM processed_changes WHERE user_id = $1 AND change_id = $2',
+            [userId, rec.changeId]
+          );
+          if (processed.rows.length > 0) {
+            const existingSeq = await client.query(
+              `SELECT seq_number FROM sync_records
+               WHERE user_id = $1 AND (change_id = $2 OR (device_id = $3 AND hlc = $4))
+               ORDER BY seq_number DESC LIMIT 1`,
+              [userId, rec.changeId, rec.deviceId, rec.hlc]
+            );
+            if (existingSeq.rows.length > 0) {
+              latestSeq = Math.max(latestSeq, Number(existingSeq.rows[0].seq_number));
+            }
+            await client.query('COMMIT');
+            continue;
+          }
+        }
+
+        const existing = await client.query(
+          'SELECT seq_number FROM sync_records WHERE user_id = $1 AND device_id = $2 AND hlc = $3',
+          [userId, rec.deviceId, rec.hlc]
+        );
+        if (existing.rows.length > 0) {
+          latestSeq = Math.max(latestSeq, Number(existing.rows[0].seq_number));
+          if (rec.changeId) {
+            await client.query(
+              'INSERT INTO processed_changes (user_id, change_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [userId, rec.changeId]
+            );
+          }
+          await client.query('COMMIT');
+          continue;
+        }
+
+        if (shouldConflict(rec.baseRevision, serverRevision)) {
+          if (rec.changeId) {
+            conflicts.push({
+              changeId: rec.changeId,
+              entityType: rec.tableKind,
+              entityId: rec.recordId,
+              serverRevision,
+              baseRevision: rec.baseRevision ?? 0,
+            });
+          }
+          await client.query('ROLLBACK');
+          continue;
+        }
+
+        const nextRevision = nextEntityRevision(serverRevision);
+        const insertRes = await client.query(
+          `INSERT INTO sync_records (
+             id, user_id, table_kind, record_id, hlc, device_id,
+             payload_ciphertext, aad, key_version, blob_storage_key,
+             change_id, operation, base_revision, entity_revision, created_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING seq_number`,
+          [
+            id,
+            userId,
+            rec.tableKind,
+            rec.recordId,
+            rec.hlc,
+            rec.deviceId,
+            offloaded.payloadCiphertext || ' ',
+            rec.aad,
+            rec.keyVersion,
+            offloaded.blobStorageKey,
+            rec.changeId ?? null,
+            rec.operation ?? null,
+            rec.baseRevision ?? null,
+            nextRevision,
+          ]
+        );
+
+        // A database uniqueness constraint is the final idempotency guard.
+        // If another request won the race, acknowledge this retry without
+        // incrementing the entity revision a second time.
+        if (insertRes.rows.length === 0) {
+          const duplicate = await client.query(
+            `SELECT seq_number FROM sync_records
+             WHERE user_id = $1
+               AND ((change_id IS NOT NULL AND change_id = $2) OR (device_id = $3 AND hlc = $4))
+             ORDER BY seq_number DESC LIMIT 1`,
+            [userId, rec.changeId ?? '', rec.deviceId, rec.hlc]
+          );
+          if (duplicate.rows.length > 0) {
+            latestSeq = Math.max(latestSeq, Number(duplicate.rows[0].seq_number));
+          }
+          if (rec.changeId) {
+            await client.query(
+              'INSERT INTO processed_changes (user_id, change_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [userId, rec.changeId]
+            );
+          }
+          await client.query('COMMIT');
+          continue;
+        }
+
+        const seq = Number(insertRes.rows[0]?.seq_number || 0);
+        await client.query(
+          `UPDATE entity_revisions
+           SET revision = $4, updated_at = NOW()
+           WHERE user_id = $1 AND entity_type = $2 AND entity_id = $3`,
+          [userId, rec.tableKind, rec.recordId, nextRevision]
+        );
+
+        if (rec.changeId) {
+          await client.query(
+            'INSERT INTO processed_changes (user_id, change_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [userId, rec.changeId]
+          );
+        }
+
+        await client.query(
+          `INSERT INTO sync_device_cursors (user_id, device_id, last_seq, updated_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (user_id, device_id)
+           DO UPDATE SET last_seq = GREATEST(sync_device_cursors.last_seq, EXCLUDED.last_seq), updated_at = NOW()`,
+          [userId, rec.deviceId, seq]
+        );
+
+        await client.query('COMMIT');
+        latestSeq = Math.max(latestSeq, seq);
+        accepted++;
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     }
 
     res.json({ accepted, latestSeq, conflicts });
