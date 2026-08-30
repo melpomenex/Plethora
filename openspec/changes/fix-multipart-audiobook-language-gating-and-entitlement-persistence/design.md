@@ -40,7 +40,7 @@ Per section: embedded track title → filename with extension and obvious number
 
 ### Decision A5 — Duplicate import identity (fingerprint)
 
-`fingerprint = sha256(ordered ∑ sha256(partIdentity))` over the canonical final order, where `partIdentity` = `"{normalizedBasename}|{fileSizeBytes}|{durationSecRounded}"` with duration rounded to the **nearest second**; when duration probing fails for a part, the duration term is **omitted** (`"{basename}|{size}"`) so a partially-probed import still dedups against a fully-probed one *(review)*. `normalizedBasename` lowercases and strips non-alphanumerics (unicode-aware), so moved/renamed-staging copies and CJK names normalize consistently. Stored in BOTH `documents.metadata.importFingerprint` (syncs with the document row → cross-device dedup) and edition `generation_settings` (local fast path).
+`fingerprint = sha256(concatenated partIdentity lines, newline-separated)` over the canonical final order (implementation; equally deterministic to the originally sketched nested-hash form), where `partIdentity` = `"{normalizedBasename}|{fileSizeBytes}|{durationSecRounded}"` with duration rounded to the **nearest second**; when duration probing fails for a part, the duration term is **omitted** (`"{basename}|{size}"`) so a partially-probed import still dedups against a fully-probed one *(review)*. `normalizedBasename` lowercases and strips non-alphanumerics (unicode-aware), so moved/renamed-staging copies and CJK names normalize consistently. Stored in BOTH `documents.metadata.importFingerprint` (syncs with the document row → cross-device dedup) and edition `generation_settings` (local fast path).
 
 Dedup behavior *(review: cross-device fix)*: on fingerprint match the import returns the EXISTING document — and if that document lacks a local imported edition (the second-device/synced-row case, which has no sections or files because editions and audio never sync), the import SHALL create the edition/sections and stage the files onto that existing document rather than skipping. Dedup is about the logical document row, never about leaving an unplayable book. Concurrent identical imports are serialized by an in-process mutex keyed on fingerprint *(review)*. A differing fingerprint → new book (legitimate second copy).
 
@@ -78,7 +78,7 @@ Documents sync as today (one row per book); `file_path` is stripped (http(s) pas
 - Standalone single audio file (incl. single m4b): never enters multipart logic (group requires ≥ 2 files; single-file dialog path unchanged).
 - Unreadable/unsupported audio (e.g. WMA, which lofty cannot probe; corrupt files): probing degrades to duration-0, filename-derived title — **never fails the import** *(review)*. Duration-0 sections are tolerated by the cumulative chapter timeline and `total_duration_sec` (understated, not broken).
 - Browser/PWA: folder picker is Tauri-only; `importMultipartAudiobook` throws a clear unsupported error in browser mode. Documented limitation.
-- Deletion: document-delete cascade removes edition/sections/anchors/sessions; the edition-delete path additionally removes staged section audio files under app storage (filesystem paths only, never blob URLs), closing audit gap G9 for imported editions.
+- Deletion: document-delete cascade removes edition/sections/anchors/sessions AND sweeps the staged section audio files of imported editions under app storage (paths collected before the cascade, removed after — filesystem paths only, never blob URLs); the edition-delete path does the same, closing audit gap G9 for imported editions on both delete flows.
 
 ### Decision A12 — Metadata probing: lofty everywhere, degradation-first
 
@@ -184,6 +184,8 @@ In browser mode, `entitlementStore.refresh()` performs `GET /v1/entitlements` (b
 
 - Fingerprint uses size+duration+normalized-name, not content hashes (multi-GB hashing rejected for latency); re-rip with identical sizes/durations dedups — accepted.
 - Picked flat folder of unrelated audio yields one book (A2.3) — accepted with user recourse; pattern evidence cannot identify chapter-named books.
+- Loose multi-file picks whose files share a basename across different folders can pattern-match into one book (similarity fallback compares first/last stems) — accepted heuristic limitation of the legacy detector, retained for pick-parity.
+- The language-gating test suite verifies toggle-off via unmount/remount rather than live store reactivity (mock store `subscribe` is inert); production reactivity rides on the real zustand subscription.
 - Crash (not error) between staging and commit can orphan staged files — accepted, documented.
 - Last-known-Pro persists indefinitely while offline past grace: capabilities degrade, identity survives; downgrade applies on first successful server contact.
 - `optionalAuthMiddleware` change is additive (flag + captured error code); sole consumer is the entitlements route.
