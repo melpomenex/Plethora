@@ -17,7 +17,10 @@ pub fn entity_spec(entity_type: EntityType) -> Option<EntitySpec> {
             entity_type,
             merge_strategy: MergeStrategy::AppendOnly,
         },
-        EntityType::Document | EntityType::Extract | EntityType::Setting => EntitySpec {
+        EntityType::Document
+        | EntityType::Extract
+        | EntityType::Setting
+        | EntityType::ImageAsset => EntitySpec {
             entity_type,
             merge_strategy: MergeStrategy::FieldLww,
         },
