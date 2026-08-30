@@ -5,7 +5,7 @@ import {
   LOGICAL_STT_MODELS,
   LOGICAL_STT_MODEL_KEYS,
   TRANSCRIPTION_PROVIDER_IDS,
-} from "../config";
+} from "./config";
 import { canRunLocalNemotron } from "../DeviceCapabilityService";
 import type { TranscriptionCapabilities, TranscriptionModel } from "../types";
 
