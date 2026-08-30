@@ -6,7 +6,7 @@ pub mod cursor;
 pub mod device;
 pub mod engine;
 pub mod flags;
-mod full_state;
+pub(crate) mod full_state;
 pub mod gate;
 pub mod issues;
 pub mod journal;
