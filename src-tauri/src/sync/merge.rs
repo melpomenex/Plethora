@@ -41,8 +41,8 @@ async fn incoming_wins(
     record: &RemoteSyncRecord,
     state_entity_id: &str,
 ) -> Result<bool> {
-    let existing = sqlx::query_as::<_, (String, String)>(
-        "SELECT last_hlc, last_device_id FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    let existing = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT last_hlc, last_device_id, tombstoned FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
     )
     .bind(record.entity_type.as_str())
     .bind(state_entity_id)
@@ -50,7 +50,12 @@ async fn incoming_wins(
     .await?;
 
     Ok(existing
-        .map(|(hlc, device)| sync_order_gt(&record.hlc, &record.device_id, &hlc, &device))
+        .map(|(hlc, device, tombstoned)| {
+            if tombstoned != 0 && !matches!(record.operation, Some(SyncOperation::Create)) {
+                return false;
+            }
+            sync_order_gt(&record.hlc, &record.device_id, &hlc, &device)
+        })
         .unwrap_or(true))
 }
 
@@ -60,29 +65,64 @@ async fn record_sync_state(
     state_entity_id: &str,
     tombstoned: bool,
 ) -> Result<()> {
-    sqlx::query(
+    let existing = sqlx::query_as::<_, (String, String, Option<i64>, i64)>(
         r#"
-        INSERT INTO sync_entity_state (
-            entity_type, entity_id, last_hlc, last_device_id,
-            server_revision, tombstoned, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        ON CONFLICT(entity_type, entity_id) DO UPDATE SET
-            last_hlc = excluded.last_hlc,
-            last_device_id = excluded.last_device_id,
-            server_revision = COALESCE(excluded.server_revision, sync_entity_state.server_revision),
-            tombstoned = excluded.tombstoned,
-            updated_at = excluded.updated_at
+        SELECT last_hlc, last_device_id, server_revision, tombstoned
+        FROM sync_entity_state
+        WHERE entity_type = ?1 AND entity_id = ?2
         "#,
     )
     .bind(record.entity_type.as_str())
     .bind(state_entity_id)
-    .bind(&record.hlc)
-    .bind(&record.device_id)
-    .bind(record.entity_revision)
-    .bind(if tombstoned { 1_i64 } else { 0_i64 })
-    .bind(chrono::Utc::now().timestamp_millis())
-    .execute(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await?;
+
+    let incoming_is_newer = existing
+        .as_ref()
+        .map(|(hlc, device, _, _)| sync_order_gt(&record.hlc, &record.device_id, hlc, device))
+        .unwrap_or(true);
+    let server_revision = existing
+        .as_ref()
+        .and_then(|(_, _, revision, _)| *revision)
+        .into_iter()
+        .chain(record.entity_revision)
+        .max();
+
+    if incoming_is_newer {
+        sqlx::query(
+            r#"
+            INSERT INTO sync_entity_state (
+                entity_type, entity_id, last_hlc, last_device_id,
+                server_revision, tombstoned, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                last_hlc = excluded.last_hlc,
+                last_device_id = excluded.last_device_id,
+                server_revision = excluded.server_revision,
+                tombstoned = excluded.tombstoned,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(record.entity_type.as_str())
+        .bind(state_entity_id)
+        .bind(&record.hlc)
+        .bind(&record.device_id)
+        .bind(server_revision)
+        .bind(if tombstoned { 1_i64 } else { 0_i64 })
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&mut **tx)
+        .await?;
+    } else if let Some(revision) = server_revision {
+        sqlx::query(
+            "UPDATE sync_entity_state SET server_revision = ?3, updated_at = ?4 WHERE entity_type = ?1 AND entity_id = ?2",
+        )
+        .bind(record.entity_type.as_str())
+        .bind(state_entity_id)
+        .bind(revision)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 
@@ -141,10 +181,18 @@ pub async fn apply_remote_record(
     // tombstone history.
     let state_id = state_entity_id(tx, record).await?;
 
-    // All mutable entities share one deterministic ordering rule. This is
-    // independent of domain timestamps and leaves a durable tombstone marker,
-    // preventing a stale offline update from resurrecting a deleted entity.
-    if !incoming_wins(tx, record, &state_id).await? {
+    let field_group_update = !matches!(record.operation, Some(SyncOperation::Delete))
+        && match record.entity_type {
+            EntityType::LearningItem => super::full_state::decode_learning_item(&record.payload).is_some(),
+            EntityType::Document => super::full_state::decode_document(&record.payload).is_some(),
+            EntityType::Extract => super::full_state::decode_extract(&record.payload).is_some(),
+            _ => false,
+        };
+
+    // Legacy/whole-entity records use one deterministic ordering rule. V2
+    // card/document/extract updates are instead gated independently per field
+    // group inside their apply functions.
+    if !field_group_update && !incoming_wins(tx, record, &state_id).await? {
         return Ok(ApplyOutcome::SkippedOlder);
     }
 
@@ -241,7 +289,32 @@ async fn apply_learning_item(
     }
 
     if let Some(item) = super::full_state::decode_learning_item(&record.payload) {
-        super::full_state::upsert_learning_item(tx, &item).await?;
+        let fields = super::full_state::sync_fields(
+            &record.payload,
+            super::full_state::LEARNING_ITEM_GROUPS,
+        );
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "learning_item",
+            &item.id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        super::full_state::apply_learning_item_groups(tx, &item, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "learning_item",
+            &item.id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
         return Ok(ApplyOutcome::Applied);
     }
 
@@ -333,7 +406,33 @@ async fn apply_document(
     }
 
     if let Some(document) = super::full_state::decode_document(&record.payload) {
-        let _ = super::full_state::upsert_document(tx, &document).await?;
+        let target_id = super::full_state::prepare_document_target(tx, &document).await?;
+        let fields = super::full_state::sync_fields(
+            &record.payload,
+            super::full_state::DOCUMENT_GROUPS,
+        );
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "document",
+            &target_id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        let target_id = super::full_state::apply_document_groups(tx, &document, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "document",
+            &target_id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
         return Ok(ApplyOutcome::Applied);
     }
 
@@ -510,7 +609,32 @@ async fn apply_extract(
     }
 
     if let Some(extract) = super::full_state::decode_extract(&record.payload) {
-        super::full_state::upsert_extract(tx, &extract).await?;
+        let fields = super::full_state::sync_fields(
+            &record.payload,
+            super::full_state::EXTRACT_GROUPS,
+        );
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "extract",
+            &extract.id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        super::full_state::apply_extract_groups(tx, &extract, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "extract",
+            &extract.id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
         return Ok(ApplyOutcome::Applied);
     }
 
