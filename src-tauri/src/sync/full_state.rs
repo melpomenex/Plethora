@@ -30,28 +30,48 @@ pub fn decode_extract(payload: &[u8]) -> Option<Extract> {
     serde_json::from_slice(payload).ok()
 }
 
-fn portable_source_url(document: &Document) -> Option<String> {
-    if let Ok(mut url) = url::Url::parse(document.file_path.trim()) {
-        if matches!(url.scheme(), "http" | "https") {
-            url.set_fragment(None);
-            return Some(url.to_string());
-        }
-    }
-
-    let source = document
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata.source.as_deref())?;
-    let mut url = url::Url::parse(source).ok()?;
+fn canonicalize_source_url(raw: &str) -> Option<String> {
+    let mut url = url::Url::parse(raw.trim()).ok()?;
     if !matches!(url.scheme(), "http" | "https") {
         return None;
     }
     url.set_fragment(None);
+
+    // Tracking-only query parameters should never make two imports distinct.
+    let tracking = [
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "utm_id", "gclid", "fbclid", "mc_cid", "mc_eid",
+    ];
+    if url.query().is_some() {
+        let retained: Vec<(String, String)> = url
+            .query_pairs()
+            .filter(|(key, _)| !tracking.iter().any(|blocked| key.eq_ignore_ascii_case(blocked)))
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        url.set_query(None);
+        if !retained.is_empty() {
+            let mut pairs = url.query_pairs_mut();
+            for (key, value) in retained {
+                pairs.append_pair(&key, &value);
+            }
+        }
+    }
     Some(url.to_string())
 }
 
+fn portable_source_url(document: &Document) -> Option<String> {
+    canonicalize_source_url(&document.file_path).or_else(|| {
+        document
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.source.as_deref())
+            .and_then(canonicalize_source_url)
+    })
+}
+
 pub fn document_identity_key(document: &Document) -> Option<String> {
-    if let Some(hash) = document
+    if candidate.is_none() {
+        if let Some(hash) = document
         .content_hash
         .as_deref()
         .map(str::trim)
@@ -85,9 +105,6 @@ async fn register_alias(
     canonical_id: &str,
     identity_key: Option<&str>,
 ) -> Result<()> {
-    if source_id == canonical_id {
-        return Ok(());
-    }
     sqlx::query(
         r#"
         INSERT INTO sync_entity_aliases (
@@ -174,6 +191,30 @@ async fn register_alias(
     Ok(())
 }
 
+pub async fn index_local_document_identities(pool: &sqlx::Pool<Sqlite>) -> Result<usize> {
+    let rows = sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT id, content_hash, file_path FROM documents ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut indexed = 0usize;
+    let mut tx = pool.begin().await?;
+    for (id, content_hash, file_path) in rows {
+        let identity = content_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|hash| format!("content:{}", hash.to_ascii_lowercase()))
+            .or_else(|| canonicalize_source_url(&file_path).map(|url| format!("url:{url}")));
+        if let Some(identity) = identity {
+            register_alias(&mut tx, "document", &id, &id, Some(&identity)).await?;
+            indexed += 1;
+        }
+    }
+    tx.commit().await?;
+    Ok(indexed)
+}
+
 pub async fn prepare_document_target(
     tx: &mut Transaction<'_, Sqlite>,
     document: &Document,
@@ -189,7 +230,16 @@ pub async fn prepare_document_target(
     }
 
     let identity = document_identity_key(document);
-    let mut candidate: Option<String> = None;
+    let mut candidate: Option<String> = if let Some(identity_key) = identity.as_deref() {
+        sqlx::query_scalar(
+            "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = 'document' AND identity_key = ?1 ORDER BY canonical_id LIMIT 1",
+        )
+        .bind(identity_key)
+        .fetch_optional(&mut **tx)
+        .await?
+    } else {
+        None
+    };
 
     // Content hashes are strong identities for independently imported copies.
     if let Some(hash) = document
@@ -205,16 +255,19 @@ pub async fn prepare_document_target(
         .bind(&document.id)
         .fetch_optional(&mut **tx)
         .await?;
+        }
     }
 
     // URL identity is a fallback for articles/media where no content hash was
     // produced. Exact canonical URL only: titles are never used for dedupe.
     if candidate.is_none() {
         if let Some(source_url) = portable_source_url(document) {
+            let without_trailing = source_url.trim_end_matches('/').to_string();
             candidate = sqlx::query_scalar(
-                "SELECT id FROM documents WHERE file_path = ?1 AND id != ?2 ORDER BY id LIMIT 1",
+                "SELECT id FROM documents WHERE (file_path = ?1 OR file_path = ?2) AND id != ?3 ORDER BY id LIMIT 1",
             )
-            .bind(source_url)
+            .bind(&source_url)
+            .bind(&without_trailing)
             .bind(&document.id)
             .fetch_optional(&mut **tx)
             .await?;
