@@ -1,5 +1,9 @@
 [build]
-jobs = 1
+# Parallel rustc jobs. A previous `jobs = 1` serialized the whole dependency
+# graph (~1 core busy, builds took 3-4x longer). 16 keeps peak memory in
+# check on 22 GB-RAM machines while keeping all cores fed; the large final
+# crate compiles as a single rustc regardless.
+jobs = 16
 target-dir = "target"
 
 # LLD 22.1.5 is crashing during debug Tauri links on this host.
