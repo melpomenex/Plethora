@@ -496,6 +496,20 @@ interface GroqTranscriptionSettings {
  */
 interface AudioTranscriptionSettings {
   provider: "local" | "groq" | "apple" | "android-ondevice";
+  /** User-facing transcription routing mode (preferred over legacy `provider`). */
+  mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
+  /** Provider category: Automatic, Local, OpenRouter, Premium. */
+  sttProvider?: "automatic" | "local" | "openrouter" | "premium";
+  /** Model selection: automatic or logical model key. */
+  sttModel?: "automatic" | string;
+  /** Prefer installed local Nemotron in Automatic mode when performant. */
+  preferLocal?: boolean;
+  /** Allow fallback to alternate providers/models on failure. */
+  automaticFallback?: boolean;
+  /** OpenRouter STT configuration (default model, etc.). */
+  openrouter?: {
+    defaultModel?: string;
+  };
   /** When true, ML Kit Speech may run; existing whisper/sherpa/Groq stay default. */
   preferAndroidSpeech: boolean;
   autoTranscription: boolean;
@@ -507,6 +521,13 @@ interface AudioTranscriptionSettings {
   confidenceScores: boolean;
   confidenceThreshold: number;
   groq: GroqTranscriptionSettings;
+  /** Premium transcription quota tracking (minutes). */
+  premiumMinutesUsed?: number;
+  premiumMonthlyAllowance?: number;
+  /** BYOK Deepgram credentials for realtime/file transcription. */
+  deepgram?: {
+    apiKey?: string;
+  };
   /** Android on-device engine preferences (sherpa-onnx STT plugin). */
   androidOnDevice?: {
     /** Explicit model choice; empty/undefined = auto per language. */
@@ -909,7 +930,15 @@ export interface PlethoraSettings {
  * it intentionally does not live beside `general.language`, which is the app
  * UI locale. These flags only control presentation and suggestion behavior.
  */
+/** `enabled` is the explicit global master opt-in for every Language Learning
+ * surface (readers, selection flow, suggestions). It defaults to OFF and was
+ * introduced at settings v11 with a forced-OFF migration, because the
+ * pre-v11 persisted shape only carried presentation defaults
+ * (`suggestionsEnabled`) that never constituted user opt-in. The per-device
+ * choice is denylisted from the settings sync so an older install cannot
+ * unset it. */
 export interface LanguageLearningSettings {
+  enabled: boolean;
   suggestionsEnabled: boolean;
   showUnavailableProviders: boolean;
 }
@@ -948,7 +977,7 @@ export interface Settings {
   audioReviewMode: AudioReviewModeSettings;
   embedding: EmbeddingSettings;
   handsFreeStudy: HandsFreeStudySettings;
-  languageLearning?: LanguageLearningSettings;
+  languageLearning: LanguageLearningSettings;
   plethora?: PlethoraSettings;
 }
 
@@ -1177,6 +1206,14 @@ export const defaultSettings: Settings = {
   },
   audioTranscription: {
     provider: "local",
+    mode: "auto",
+    sttProvider: "automatic",
+    sttModel: "automatic",
+    preferLocal: true,
+    automaticFallback: true,
+    openrouter: {
+      defaultModel: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    },
     preferAndroidSpeech: true,
     autoTranscription: false,
     autoTranscribeLocalVideos: true,
@@ -1201,6 +1238,11 @@ export const defaultSettings: Settings = {
     androidOnDevice: {
       modelId: "",
       pacing: "capped",
+    },
+    premiumMinutesUsed: 0,
+    premiumMonthlyAllowance: 120,
+    deepgram: {
+      apiKey: "",
     },
   },
   smartQueue: {
@@ -1312,6 +1354,7 @@ export const defaultSettings: Settings = {
   },
   handsFreeStudy: DEFAULT_HANDS_FREE_STUDY_SETTINGS,
   languageLearning: {
+    enabled: false,
     suggestionsEnabled: true,
     showUnavailableProviders: true,
   },
@@ -1398,7 +1441,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 10,
+      version: 13,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1478,6 +1521,56 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 10) {
           if (root?.audioTranscription && !root.audioTranscription.androidOnDevice) {
             root.audioTranscription.androidOnDevice = { modelId: "", pacing: "capped" };
+          }
+        }
+        // v10 -> v11 (language-learning opt-in): Language Learning becomes an
+        // explicit opt-in feature. No persisted master-opt-in state existed
+        // before v11 — `suggestionsEnabled: true` was an unwired presentation
+        // default, never a user choice — so every existing install migrates
+        // to `enabled: false`. The sub-flags keep their prior values.
+        if (version < 11) {
+          const prior = root?.languageLearning as Partial<LanguageLearningSettings> | undefined;
+          root.languageLearning = {
+            enabled: false,
+            suggestionsEnabled: prior?.suggestionsEnabled ?? true,
+            showUnavailableProviders: prior?.showUnavailableProviders ?? true,
+          };
+        }
+        // v11 -> v12 (speech-to-text platform): add transcription mode; map legacy provider.
+        if (version < 12) {
+          if (root?.audioTranscription && !root.audioTranscription.mode) {
+            const provider = root.audioTranscription.provider;
+            root.audioTranscription.mode =
+              provider === "local"
+                ? "offline"
+                : provider === "groq"
+                  ? "fast"
+                  : "auto";
+          }
+        }
+        // v12 -> v13 (STT provider/model UX): add sttProvider, sttModel, preferLocal, fallback.
+        if (version < 13) {
+          const audio = root?.audioTranscription;
+          if (audio) {
+            if (!audio.sttProvider) {
+              const mode = audio.mode ?? "auto";
+              audio.sttProvider =
+                mode === "offline" || audio.provider === "local"
+                  ? "local"
+                  : mode === "fast" || audio.provider === "groq"
+                    ? "openrouter"
+                    : mode === "enhanced" || mode === "realtime"
+                      ? "premium"
+                      : "automatic";
+            }
+            if (!audio.sttModel) audio.sttModel = "automatic";
+            if (typeof audio.preferLocal !== "boolean") audio.preferLocal = true;
+            if (typeof audio.automaticFallback !== "boolean") audio.automaticFallback = true;
+            if (!audio.openrouter) {
+              audio.openrouter = {
+                defaultModel: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+              };
+            }
           }
         }
         return persisted as SettingsState;
@@ -1593,6 +1686,10 @@ export const useSettingsStore = create<SettingsState>()(
                 ...defaultSettings.audioTranscription.groq.usage,
                 ...persisted.audioTranscription?.groq?.usage,
               },
+            },
+            deepgram: {
+              ...defaultSettings.audioTranscription.deepgram,
+              ...persisted.audioTranscription?.deepgram,
             },
           },
           smartQueue: { ...defaultSettings.smartQueue, ...persisted.smartQueue },

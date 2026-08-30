@@ -737,6 +737,19 @@ impl TranscriptionEngine {
                     on_progress,
                 )
                 .await,
+            SttEngineRoute::Nemotron { model_file } => {
+                let segments = crate::transcription::nemotron::transcribe_file(
+                    model_path,
+                    model_file,
+                    audio_path,
+                    language,
+                )
+                .await?;
+                for segment in segments {
+                    on_segment(segment);
+                }
+                Ok(())
+            }
             SttEngineRoute::NotTranscription => Err(anyhow!(
                 "This model is a TTS model and cannot be used for transcription."
             )),

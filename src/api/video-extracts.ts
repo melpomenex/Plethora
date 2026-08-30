@@ -78,6 +78,8 @@ export interface VideoChapter {
 export interface VideoTranscriptSegment {
   time: number;
   text: string;
+  end?: number;
+  wordTimings?: Array<{ word: string; start_ms: number; end_ms: number }>;
 }
 
 /**

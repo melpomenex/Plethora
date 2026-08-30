@@ -429,6 +429,9 @@ mod tests {
                 voice_bin_file: None,
                 data_dir: None,
             },
+            HfRuntime::NemotronAsr => RunContract::NemotronAsr {
+                model_file: "nemotron-0.6b.gguf".into(),
+            },
         };
         Artifact {
             runtime,

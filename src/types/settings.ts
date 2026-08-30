@@ -199,6 +199,12 @@ export interface GroqTranscriptionSettings {
 // Audio Transcription Settings
 export interface AudioTranscriptionSettings {
   provider: "local" | "groq" | "apple" | "android-ondevice";
+  mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
+  sttProvider?: "automatic" | "local" | "openrouter" | "premium";
+  sttModel?: "automatic" | string;
+  preferLocal?: boolean;
+  automaticFallback?: boolean;
+  openrouter?: { defaultModel?: string };
   preferAndroidSpeech?: boolean;
   autoTranscription: boolean;
   autoTranscribeLocalVideos: boolean;
@@ -211,6 +217,13 @@ export interface AudioTranscriptionSettings {
   idleTranscriptionEnabled: boolean;
   idleThresholdMinutes: number;
   groq: GroqTranscriptionSettings;
+  /** Premium transcription quota tracking (minutes). */
+  premiumMinutesUsed?: number;
+  premiumMonthlyAllowance?: number;
+  /** BYOK Deepgram credentials for realtime/file transcription. */
+  deepgram?: {
+    apiKey?: string;
+  };
   /** Android on-device engine preferences (sherpa-onnx STT plugin). */
   androidOnDevice?: {
     /** Explicit model choice; empty/undefined = auto per language. */

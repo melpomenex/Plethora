@@ -17,7 +17,7 @@
 
 use super::adapters::{
     Artifact, ArtifactFile, DetectionConfidence, HfRuntime, RunContract, RuntimeAdapter,
-    SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter, WhisperCppAdapter,
+    SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter, WhisperCppAdapter, NemotronAsrAdapter,
 };
 use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
 use super::hf_client::{
@@ -33,6 +33,63 @@ use sqlx::Pool;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
+
+/// Shared logical model key for cloud/local Nemotron ASR.
+pub const NEMOTRON_ASR_LOGICAL_KEY: &str = "nemotron-3.5-asr-0.6b";
+/// Pinned Hugging Face repo for the local Nemotron ASR weights (~742 MB GGUF).
+pub const NEMOTRON_ASR_REPO_ID: &str = "nvidia/nemotron-3.5-asr-0.6b";
+pub const NEMOTRON_ASR_REVISION: &str = "main";
+pub const NEMOTRON_ASR_SIZE_BYTES: u64 = 778_043_392;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedNemotronAsrCatalogEntry {
+    pub logical_key: String,
+    pub repo_id: String,
+    pub revision: String,
+    pub display_name: String,
+    pub size_bytes: u64,
+    pub license: String,
+    pub capability: String,
+    pub supports_streaming: bool,
+    pub languages: Vec<String>,
+}
+
+/// Metadata for the pinned Nemotron ASR catalog card (Local Models → Speech-to-Text).
+pub fn nemotron_asr_catalog_entry() -> PinnedNemotronAsrCatalogEntry {
+    PinnedNemotronAsrCatalogEntry {
+        logical_key: NEMOTRON_ASR_LOGICAL_KEY.to_string(),
+        repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
+        revision: NEMOTRON_ASR_REVISION.to_string(),
+        display_name: "NVIDIA Nemotron 3.5 ASR 0.6B".to_string(),
+        size_bytes: NEMOTRON_ASR_SIZE_BYTES,
+        license: "nvidia-open-model-license".to_string(),
+        capability: "asr".to_string(),
+        supports_streaming: true,
+        languages: vec![
+            "multilingual".to_string(),
+            "en".to_string(),
+            "es".to_string(),
+            "fr".to_string(),
+            "de".to_string(),
+            "zh".to_string(),
+            "ja".to_string(),
+        ],
+    }
+}
+
+/// True when the pinned Nemotron ASR model is registered and verified on disk.
+pub async fn is_nemotron_asr_installed(pool: &Pool<sqlx::Sqlite>) -> bool {
+    let id = model_id_for(
+        HfRuntime::NemotronAsr,
+        NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    );
+    let Some(model) = registry_get(pool, &id).await else {
+        return false;
+    };
+    verify_on_disk(&model.install_dir, &model.artifact_files)
+}
 
 /// One installed file, relative to the model's install dir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +128,7 @@ impl HfRuntime {
             HfRuntime::WhisperCpp => "whisper-cpp",
             HfRuntime::SherpaOnnxStt => "sherpa-onnx-stt",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx-tts",
+            HfRuntime::NemotronAsr => "nemotron-asr",
         }
     }
 
@@ -80,10 +138,12 @@ impl HfRuntime {
             "whisper-cpp" => Some(HfRuntime::WhisperCpp),
             "sherpa-onnx-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-onnx-tts" => Some(HfRuntime::SherpaOnnxTts),
+            "nemotron-asr" => Some(HfRuntime::NemotronAsr),
             // Legacy compact aliases (pre-alignment registry rows / model ids).
             "whisper" => Some(HfRuntime::WhisperCpp),
             "sherpa-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-tts" => Some(HfRuntime::SherpaOnnxTts),
+            "nemotron" => Some(HfRuntime::NemotronAsr),
             _ => None,
         }
     }
@@ -93,6 +153,7 @@ impl HfRuntime {
             HfRuntime::WhisperCpp => Box::new(WhisperCppAdapter),
             HfRuntime::SherpaOnnxStt => Box::new(SherpaOnnxSttAdapter),
             HfRuntime::SherpaOnnxTts => Box::new(SherpaOnnxTtsAdapter),
+            HfRuntime::NemotronAsr => Box::new(NemotronAsrAdapter),
         }
     }
 }
@@ -323,6 +384,16 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
             }
             _ => None,
         },
+        HfRuntime::NemotronAsr => match model.run_contract {
+            RunContract::NemotronAsr { model_file } => {
+                let path = root.join(&model_file);
+                if !path.starts_with(&root) {
+                    return None;
+                }
+                Some(path)
+            }
+            _ => None,
+        },
         // sherpa engines take the model *directory*.
         HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => Some(root),
     }
@@ -370,6 +441,22 @@ pub async fn resolve_installed_tts(
     Some((PathBuf::from(model.install_dir), contract))
 }
 
+/// Resolve an installed Nemotron ASR model to its on-disk directory plus contract.
+pub async fn resolve_installed_nemotron(
+    pool: &Pool<sqlx::Sqlite>,
+    id: &str,
+) -> Option<(PathBuf, RunContract)> {
+    let (runtime, contract) = resolve_run_contract(pool, id).await?;
+    if runtime != HfRuntime::NemotronAsr {
+        return None;
+    }
+    if contract.validate().is_err() {
+        return None;
+    }
+    let model = registry_get(pool, id).await?;
+    Some((PathBuf::from(model.install_dir), contract))
+}
+
 /// How an STT model id should be dispatched to the transcription engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SttEngineRoute {
@@ -388,6 +475,8 @@ pub enum SttEngineRoute {
     },
     /// sherpa-onnx `--paraformer-model`.
     Paraformer { model: String },
+    /// Nemotron ASR GGUF (embedded runtime).
+    Nemotron { model_file: String },
     /// A model that exists but is not an STT model (e.g. TTS).
     NotTranscription,
 }
@@ -424,6 +513,7 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
                 },
             },
             RunContract::SherpaTts { .. } => SttEngineRoute::NotTranscription,
+            RunContract::NemotronAsr { model_file } => SttEngineRoute::Nemotron { model_file },
         };
     }
     if model_id.starts_with("sense-voice-") {
@@ -597,18 +687,20 @@ async fn download_artifact_files(
     Ok(artifact_files)
 }
 
-/// A sherpa-onnx (ONNX) install must be integrity-pinned: refuse when any
-/// artifact lacks a published SHA-256 (fail closed — the ONNX files are fed to
-/// the bundled onnxruntime sidecar as untrusted input). Whisper ggml models are
-/// not gated this hard (they are not parsed by onnxruntime).
+/// ONNX / Nemotron GGUF installs must be integrity-pinned: refuse when any
+/// artifact lacks a published SHA-256 (fail closed — these files are fed to
+/// native runtimes as untrusted input). Whisper ggml models are not gated this
+/// hard (they are not parsed by onnxruntime).
 fn ensure_sherpa_hash_pinned(runtime: HfRuntime, specs: &[DownloadSpec]) -> Result<()> {
-    if matches!(runtime, HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts)
-        && specs.iter().any(|s| s.expected_sha.is_none())
+    if matches!(
+        runtime,
+        HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts | HfRuntime::NemotronAsr
+    ) && specs.iter().any(|s| s.expected_sha.is_none())
     {
         return Err(anyhow!(
             "Refusing to install: the repository does not publish a SHA-256 for \
-             every sherpa-onnx (ONNX) artifact, so the download cannot be \
-             integrity-verified. Only hash-pinned ONNX models are installable."
+             every artifact, so the download cannot be integrity-verified. Only \
+             hash-pinned models are installable for this runtime."
         ));
     }
     Ok(())
@@ -758,7 +850,10 @@ pub async fn hf_stt_profiles(
         if !m.installed {
             continue;
         }
-        if m.runtime != HfRuntime::SherpaOnnxStt && m.runtime != HfRuntime::WhisperCpp {
+        if m.runtime != HfRuntime::SherpaOnnxStt
+            && m.runtime != HfRuntime::WhisperCpp
+            && m.runtime != HfRuntime::NemotronAsr
+        {
             continue;
         }
         let first_sha = m.artifact_files.first().and_then(|f| f.sha256.clone());
@@ -859,6 +954,7 @@ mod tests {
             HfRuntime::WhisperCpp,
             HfRuntime::SherpaOnnxStt,
             HfRuntime::SherpaOnnxTts,
+            HfRuntime::NemotronAsr,
         ] {
             let serialized = serde_json::to_value(runtime).unwrap();
             let as_str = serialized.as_str().expect("runtime serializes to a string");
@@ -876,6 +972,7 @@ mod tests {
             HfRuntime::WhisperCpp,
             HfRuntime::SherpaOnnxStt,
             HfRuntime::SherpaOnnxTts,
+            HfRuntime::NemotronAsr,
         ] {
             let serialized = serde_json::to_string(&runtime).unwrap();
             // serde_json::to_string produces a quoted JSON string; extract the
@@ -897,6 +994,7 @@ mod tests {
         assert_eq!(HfRuntime::from_tag("whisper-cpp"), Some(HfRuntime::WhisperCpp));
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-stt"), Some(HfRuntime::SherpaOnnxStt));
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-tts"), Some(HfRuntime::SherpaOnnxTts));
+        assert_eq!(HfRuntime::from_tag("nemotron-asr"), Some(HfRuntime::NemotronAsr));
         assert_eq!(HfRuntime::from_tag("bogus"), None);
     }
 
@@ -952,10 +1050,14 @@ mod tests {
             ..with_sha.clone()
         };
 
-        // sherpa STT/TTS with any hash-less artifact → refused.
-        for runtime in [HfRuntime::SherpaOnnxStt, HfRuntime::SherpaOnnxTts] {
+        // sherpa STT/TTS / Nemotron with any hash-less artifact → refused.
+        for runtime in [
+            HfRuntime::SherpaOnnxStt,
+            HfRuntime::SherpaOnnxTts,
+            HfRuntime::NemotronAsr,
+        ] {
             let err = ensure_sherpa_hash_pinned(runtime, &[with_sha.clone(), without_sha.clone()])
-                .expect_err("sherpa hash-less artifact must be refused");
+                .expect_err("hash-less artifact must be refused");
             assert!(err.to_string().contains("SHA-256"), "{err}");
         }
         // All artifacts hash-pinned → allowed.

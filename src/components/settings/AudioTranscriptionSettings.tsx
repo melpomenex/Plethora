@@ -18,6 +18,7 @@ import {
   Microphone,
   Playlist,
   Sliders,
+  Sparkle,
   Translate,
   Trash,
   TrendUp,
@@ -35,6 +36,13 @@ import {
   enqueueAllUntranscribed,
 } from "../../api/transcription";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
+import { TranscriptionJobProgressLabel } from "../transcription/TranscriptionJobProgressLabel";
+import { TranscriptionMode } from "../../services/transcription";
+import {
+  LOGICAL_STT_MODELS,
+  resolveSttProvider,
+  resolveTranscriptionMode,
+} from "../../services/transcription/config";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invokeCommand, isTauri, isPWA, isNativeMobile } from "../../lib/tauri";
 import {
@@ -243,6 +251,126 @@ export function AudioTranscriptionSettings() {
           </p>
         </div>
       </div>
+
+      {/* Transcription mode (provider-independent routing) */}
+      <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+        <div className="flex items-center gap-2">
+          <Sparkle className="h-5 w-5 text-primary" />
+          <h4 className="font-semibold text-foreground">Transcription Mode</h4>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Plethora picks the best provider for each mode. Advanced provider overrides live in LLM settings (OpenRouter).
+        </p>
+        <select
+          value={audioSettings.mode || resolveTranscriptionMode(audioSettings)}
+          onChange={(event) =>
+            handleUpdateSettings({
+              mode: event.target.value as typeof audioSettings.mode,
+            })
+          }
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value={TranscriptionMode.Auto}>Automatic</option>
+          <option value={TranscriptionMode.Fast}>Fast &amp; Efficient</option>
+          <option value={TranscriptionMode.Enhanced}>Enhanced Accuracy</option>
+          <option value={TranscriptionMode.Offline}>Offline</option>
+        </select>
+        {resolveTranscriptionMode(audioSettings) === TranscriptionMode.Offline ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Lock className="h-3.5 w-3.5" />
+            Offline mode guarantees audio stays on this device.
+          </p>
+        ) : null}
+      </section>
+
+      {/* Speech-to-Text provider & model */}
+      <section className="space-y-4 rounded-xl border border-border bg-muted/20 p-4">
+        <div className="flex items-center gap-2">
+          <Sliders className="h-5 w-5 text-primary" />
+          <h4 className="font-semibold text-foreground">Speech-to-Text</h4>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Provider</span>
+            <select
+              value={audioSettings.sttProvider ?? "automatic"}
+              onChange={(event) => {
+                const sttProvider = event.target.value as typeof audioSettings.sttProvider;
+                handleUpdateSettings({ sttProvider });
+              }}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="automatic">Automatic</option>
+              <option value="local">Local</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="premium">Premium / Advanced</option>
+            </select>
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Model</span>
+            <select
+              value={audioSettings.sttModel ?? "automatic"}
+              onChange={(event) => handleUpdateSettings({ sttModel: event.target.value })}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="automatic">Automatic (Recommended)</option>
+              {Object.values(LOGICAL_STT_MODELS).map((model) => (
+                <option key={model.key} value={model.key}>
+                  {model.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Language</span>
+            <select
+              value={audioSettings.language || "auto"}
+              onChange={(event) => handleUpdateSettings({ language: event.target.value })}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="auto">Auto Detect</option>
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="ja">Japanese</option>
+              <option value="zh">Chinese</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex items-center justify-between gap-3 sm:flex-1">
+            <span className="text-sm text-foreground">Prefer local models</span>
+            <Switch
+              checked={audioSettings.preferLocal ?? true}
+              onCheckedChange={(checked) => handleUpdateSettings({ preferLocal: checked })}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 sm:flex-1">
+            <span className="text-sm text-foreground">Automatic fallback</span>
+            <Switch
+              checked={audioSettings.automaticFallback ?? true}
+              onCheckedChange={(checked) => handleUpdateSettings({ automaticFallback: checked })}
+            />
+          </label>
+        </div>
+        {(audioSettings.sttProvider === "local" || resolveSttProvider(audioSettings) === "local") ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Lock className="h-3.5 w-3.5" />
+            Audio will be processed on this device only.
+          </p>
+        ) : (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Cloud className="h-3.5 w-3.5" />
+            Cloud providers may send audio to configured services (OpenRouter, etc.).
+          </p>
+        )}
+        {isDesktop ? (
+          <p className="text-xs text-muted-foreground">
+            Manage downloadable models in Local Models below.
+          </p>
+        ) : null}
+      </section>
 
       {/* Web/PWA Notice - Only show in browser. Uses opacity-modified base
           colors rather than -50/-950 palette steps, which are light-theme-only
@@ -562,9 +690,9 @@ export function AudioTranscriptionSettings() {
               <h4 className="font-semibold text-foreground">Install Models from Hugging Face</h4>
             </div>
             <p className="text-xs text-muted-foreground">
-              Install compatible whisper.cpp (ggml) or sherpa-onnx (ONNX) STT models from
-              Hugging Face. Plethora checks your hardware first and only offers models the
-              local runtimes can actually run.
+              Install compatible whisper.cpp (ggml), sherpa-onnx (ONNX), or Nemotron ASR (GGUF)
+              models from Hugging Face. Plethora checks your hardware first and only offers models
+              the local runtimes can actually run.
             </p>
             <HuggingFaceModelManager mode="stt" />
           </section>
@@ -1106,6 +1234,7 @@ export function AudioTranscriptionSettings() {
                             <p className="mt-0.5 text-[10px] text-muted-foreground">
                               {queueStore.activeProgress}% complete
                             </p>
+                            <TranscriptionJobProgressLabel entry={entry} />
                           </>
                         )}
                       </div>

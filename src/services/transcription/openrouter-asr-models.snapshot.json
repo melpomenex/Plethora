@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "id": "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      "name": "NVIDIA Nemotron 3.5 ASR 0.6B",
+      "description": "Multilingual streaming ASR",
+      "architecture": { "input_modalities": ["audio"], "output_modalities": ["text"] }
+    },
+    {
+      "id": "qwen/qwen3-asr-0.6b",
+      "name": "Qwen3 ASR 0.6B",
+      "description": "Low-cost multilingual ASR",
+      "architecture": { "input_modalities": ["audio"], "output_modalities": ["text"] }
+    },
+    {
+      "id": "qwen/qwen3-asr-1.7b",
+      "name": "Qwen3 ASR 1.7B",
+      "description": "Higher-quality low-cost ASR",
+      "architecture": { "input_modalities": ["audio"], "output_modalities": ["text"] }
+    }
+  ]
+}

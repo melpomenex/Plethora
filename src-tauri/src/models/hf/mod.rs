@@ -18,15 +18,16 @@ pub mod system_info;
 pub mod test_support;
 
 pub use adapters::{
-    Artifact, HfRuntime, RunContract, RuntimeAdapter, SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter,
-    WhisperCppAdapter,
+    Artifact, HfRuntime, RunContract, RuntimeAdapter, NemotronAsrAdapter, SherpaOnnxSttAdapter,
+    SherpaOnnxTtsAdapter, WhisperCppAdapter,
 };
 pub use hf_client::{
     FileMetadata, HfFile, HfRepoInfo, RepoInput, parse_repo_input,
 };
 pub use manager::{
-    InstalledHfModel, InstalledModelFile, model_id_for, registry_is_installed, registry_list,
-    registry_remove,
+    InstalledHfModel, InstalledModelFile, is_nemotron_asr_installed, model_id_for,
+    nemotron_asr_catalog_entry, registry_is_installed, registry_list, registry_remove,
+    NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, PinnedNemotronAsrCatalogEntry,
 };
 pub use suitability::{Suitability, SuitabilityLevel};
 pub use system_info::{GpuInfo, SystemInfo, detect_system_info};

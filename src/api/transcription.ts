@@ -142,6 +142,9 @@ export interface TranscriptionQueueEntry {
   completedAt: string | null;
   retryCount: number;
   progress: number;
+  processedDurationMs?: number;
+  totalDurationMs?: number | null;
+  transcriptionMode?: string;
 }
 
 export interface TranscriptionQueueEntryWithDoc extends TranscriptionQueueEntry {
@@ -156,6 +159,7 @@ export const enqueueAutoTranscription = (
   language: string,
   priority?: number,
   chapterId?: string,
+  transcriptionMode?: string,
 ): Promise<void> => {
   if (!isTauri()) return Promise.reject(new Error("Transcription requires desktop app"));
   // Change C §4.3: cloud transcription providers (e.g. groq cluster routing)
@@ -171,7 +175,7 @@ export const enqueueAutoTranscription = (
       throw new Error("Cloud transcription disclosure declined — audio was not sent.");
     }
     return invokeCommand<void>("enqueue_auto_transcription", {
-      documentId, audioPath, provider, modelId, language, priority, chapterId,
+      documentId, audioPath, provider, modelId, language, priority, chapterId, transcriptionMode,
     });
   });
 };
@@ -228,4 +232,27 @@ export const clearTranscriptionQueue = (statuses: string[]): Promise<number> => 
 export const removeTranscriptionEntry = (id: string): Promise<void> => {
   if (!isTauri()) return Promise.resolve();
   return invokeCommand("remove_transcription_entry", { id });
+};
+
+export const isLocalNemotronInstalled = async (): Promise<boolean> => {
+  if (!isTauri()) return false;
+  try {
+    return await invokeCommand<boolean>("is_local_nemotron_installed");
+  } catch (err) {
+    console.error("Failed to check local Nemotron install state:", err);
+    return false;
+  }
+};
+
+export const transcribeLocalNemotron = (
+  audioPath: string,
+  language: string,
+): Promise<TranscriptResponse> => {
+  if (!isTauri()) {
+    return Promise.reject(new Error("Local Nemotron transcription requires the native app"));
+  }
+  return invokeCommand<TranscriptResponse>("transcribe_local_nemotron", {
+    audioPath,
+    language,
+  });
 };

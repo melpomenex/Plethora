@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.version).toBe(10);
+    expect(stored.version).toBe(13);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -317,5 +317,106 @@ describe("settingsStore sessionItemTypes default", () => {
       extracts: false,
       learningItems: true,
     });
+  });
+});
+
+
+describe("settingsStore language learning opt-in migration (v10 → v11)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("migrates legacy suggestion defaults to enabled: false (no silent opt-in)", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          languageLearning: { suggestionsEnabled: true, showUnavailableProviders: true },
+        },
+      },
+      version: 10,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const languageLearning = useSettingsStore.getState().settings.languageLearning;
+    expect(languageLearning.enabled).toBe(false);
+    // Presentation sub-flags survive; only the master opt-in is forced OFF.
+    expect(languageLearning.suggestionsEnabled).toBe(true);
+    expect(languageLearning.showUnavailableProviders).toBe(true);
+  });
+
+  it("preserves an explicit v11 opt-in", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          languageLearning: { enabled: true, suggestionsEnabled: false, showUnavailableProviders: true },
+        },
+      },
+      version: 11,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const languageLearning = useSettingsStore.getState().settings.languageLearning;
+    expect(languageLearning.enabled).toBe(true);
+    expect(languageLearning.suggestionsEnabled).toBe(false);
+  });
+
+  it("defaults language learning to disabled for fresh installs", () => {
+    expect(defaultSettings.languageLearning.enabled).toBe(false);
+  });
+
+  it("migrates v11 groq provider to fast transcription mode", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          audioTranscription: { provider: "groq", preferAndroidSpeech: true },
+        },
+      },
+      version: 11,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const audio = useSettingsStore.getState().settings.audioTranscription;
+    expect(audio.mode).toBe("fast");
+    expect(audio.sttProvider).toBe("openrouter");
+    expect(audio.sttModel).toBe("automatic");
+    expect(audio.preferLocal).toBe(true);
+    expect(audio.automaticFallback).toBe(true);
+  });
+
+  it("migrates v12 local provider to sttProvider local", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          audioTranscription: { provider: "local", mode: "offline" },
+        },
+      },
+      version: 12,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const audio = useSettingsStore.getState().settings.audioTranscription;
+    expect(audio.sttProvider).toBe("local");
+    expect(audio.openrouter?.defaultModel).toContain("nemotron");
+  });
+
+  it("defaults transcription mode to auto for fresh installs", () => {
+    expect(defaultSettings.audioTranscription.mode).toBe("auto");
+    expect(defaultSettings.audioTranscription.sttProvider).toBe("automatic");
+    expect(defaultSettings.audioTranscription.preferLocal).toBe(true);
+  });
+
+  it("persists the master toggle through updateSettings", () => {
+    useSettingsStore.getState().updateSettings({
+      languageLearning: { enabled: true, suggestionsEnabled: true, showUnavailableProviders: true },
+    });
+
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
+    expect(stored.state.settings.languageLearning.enabled).toBe(true);
+    expect(useSettingsStore.getState().settings.languageLearning.enabled).toBe(true);
   });
 });

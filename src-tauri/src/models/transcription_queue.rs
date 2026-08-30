@@ -24,6 +24,15 @@ pub struct TranscriptionQueueEntry {
     pub completed_at: Option<DateTime<Utc>>,
     pub retry_count: i32,
     pub progress: i32,
+    #[serde(default)]
+    pub processed_duration_ms: i64,
+    pub total_duration_ms: Option<i64>,
+    #[serde(default = "default_transcription_mode")]
+    pub transcription_mode: String,
+}
+
+fn default_transcription_mode() -> String {
+    "auto".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -60,7 +69,15 @@ impl TranscriptionQueueEntry {
             completed_at: None,
             retry_count: 0,
             progress: 0,
+            processed_duration_ms: 0,
+            total_duration_ms: None,
+            transcription_mode: default_transcription_mode(),
         }
+    }
+
+    pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
+        self.transcription_mode = mode.into();
+        self
     }
 
     pub fn transcript_chapter_id(&self) -> &str {

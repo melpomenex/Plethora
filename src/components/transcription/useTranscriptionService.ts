@@ -20,6 +20,12 @@ import {
   GroqTranscriptionError,
   GROQ_FREE_TIER,
 } from '../../api/groqTranscription';
+import {
+  getTranscriptionService,
+  TranscriptionError,
+  TranscriptionMode,
+} from '../../services/transcription';
+import { resolveSttProvider, resolveTranscriptionMode } from '../../services/transcription/config';
 import { 
   enqueueVideoTranscription, 
   getVideoTranscriptionStatus,
@@ -135,7 +141,7 @@ async function transcribeItem(opts: TranscriptionOptions): Promise<Transcription
     if (isTauriEnv && opts.filePath) {
       await enqueueVideoTranscription({
         documentId: opts.documentId, filePath: opts.filePath,
-        documentTitle: opts.documentTitle, provider: 'groq',
+        documentTitle: opts.documentTitle, provider: 'cloud',
         language: opts.language || settings.audioTranscription.language || 'en',
       });
       return { success: true };
@@ -225,7 +231,51 @@ export function useTranscriptionService(options: TranscriptionOptions) {
   }
 
   /**
-   * Transcribe using Groq API (works in both Web and Tauri)
+   * Transcribe via the provider-independent service (OpenRouter default, Groq fallback).
+   */
+  const transcribeWithCloudService = useCallback(async (
+    input: { file?: File; url?: string },
+    onProgress?: (progress: TranscriptionProgress) => void,
+  ): Promise<void> => {
+    const mode = resolveTranscriptionMode(useSettingsStore.getState().settings.audioTranscription);
+    const language = options.language !== 'auto' ? options.language : undefined;
+
+    onProgress?.({ percent: 5, message: 'Starting transcription…' });
+
+    const result = await getTranscriptionService().transcribe(
+      {
+        file: input.file,
+        url: input.url,
+        documentId: options.documentId,
+      },
+      {
+        mode,
+        language,
+        signal: abortControllerRef.current?.signal,
+        onProgress: (serviceProgress) => {
+          onProgress?.({
+            percent: serviceProgress.percent,
+            message: serviceProgress.message ?? 'Transcribing…',
+          });
+        },
+      },
+    );
+
+    onProgress?.({ percent: 90, message: 'Saving transcript…' });
+
+    const segments = result.segments
+      .map((segment) => ({
+        time: segment.startMs / 1000,
+        text: segment.text,
+      }))
+      .filter((segment) => Number.isFinite(segment.time));
+
+    await setVideoTranscript(options.documentId, result.text, segments);
+    onProgress?.({ percent: 100, message: 'Transcription complete!' });
+  }, [options.documentId, options.language]);
+
+  /**
+   * Transcribe using Groq API (legacy direct path; prefer transcribeWithCloudService)
    */
   const transcribeWithGroqWeb = useCallback(async (
     fileOrUrl: File | string,
@@ -320,14 +370,20 @@ export function useTranscriptionService(options: TranscriptionOptions) {
         return { success: true };
       }
 
-      // Route to appropriate provider
-      if (provider === 'local') {
-        // Local transcription via native sidecar (Tauri desktop only)
+      const audioSettings = useSettingsStore.getState().settings.audioTranscription;
+      const resolvedMode = resolveTranscriptionMode(audioSettings);
+      const sttProvider = resolveSttProvider(audioSettings);
+      const legacyProvider = options.provider || audioSettings.provider;
+
+      const useLocal =
+        legacyProvider === 'local' ||
+        resolvedMode === TranscriptionMode.Offline ||
+        sttProvider === 'local';
+
+      if (useLocal) {
         return await startLocalTranscription();
-      } else {
-        // Groq Cloud (works in Web and Tauri)
-        return await startGroqTranscription();
       }
+      return await startCloudTranscription();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       setError(error);
@@ -354,7 +410,6 @@ export function useTranscriptionService(options: TranscriptionOptions) {
       return { success: false, needsModel: true };
     }
 
-    // Use the queue system
     await enqueueVideoTranscription({
       documentId: options.documentId,
       filePath: options.filePath,
@@ -368,7 +423,75 @@ export function useTranscriptionService(options: TranscriptionOptions) {
   };
 
   /**
-   * Start Groq transcription (Web or Tauri)
+   * Start cloud transcription via TranscriptionService (Web direct; Tauri background queue).
+   */
+  const startCloudTranscription = async (): Promise<TranscriptionResult> => {
+    const mode = resolveTranscriptionMode(useSettingsStore.getState().settings.audioTranscription);
+    const hasOpenRouterOrGroq = isGroqConfigured(); // Groq fallback; OpenRouter checked at invoke time
+
+    if (!hasOpenRouterOrGroq && mode !== TranscriptionMode.Offline) {
+      // Service will surface AUTH_FAILED if neither OpenRouter nor Groq is configured
+    }
+
+    setStatus('processing');
+
+    try {
+      if (isTauriEnv && options.filePath) {
+        // Tauri with file path - use queue for background processing (Phase 3: service-backed queue)
+        await enqueueVideoTranscription({
+          documentId: options.documentId,
+          filePath: options.filePath,
+          documentTitle: options.documentTitle,
+          provider: 'cloud',
+          language: options.language || settings.audioTranscription.language || 'en',
+        });
+        return { success: true };
+      }
+
+      if (options.file) {
+        if (needsChunking(options.file) && !isTauriEnv) {
+          setStatus('file-too-large');
+          throw new Error(
+            'File too large for browser upload. Please use the desktop app for files larger than 25MB, or use a smaller file.',
+          );
+        }
+        await transcribeWithCloudService({ file: options.file }, setProgress);
+        setStatus('completed');
+        options.onComplete?.();
+        return { success: true };
+      }
+
+      if (options.mediaUrl) {
+        await transcribeWithCloudService({ url: options.mediaUrl }, setProgress);
+        setStatus('completed');
+        options.onComplete?.();
+        return { success: true };
+      }
+
+      throw new Error('No valid input source for transcription');
+    } catch (err) {
+      if (err instanceof TranscriptionError) {
+        if (err.code === 'AUTH_FAILED' || err.code === 'DISCLOSURE_DECLINED') {
+          setStatus('needs-api-key');
+          return { success: false, needsApiKey: true };
+        }
+      }
+      if (err instanceof GroqTranscriptionError) {
+        if (err.code === 'MISSING_API_KEY') {
+          setStatus('needs-api-key');
+          return { success: false, needsApiKey: true };
+        }
+        if (err.code === 'FILE_TOO_LARGE') {
+          setStatus('file-too-large');
+          throw err;
+        }
+      }
+      throw err;
+    }
+  };
+
+  /**
+   * @deprecated Use startCloudTranscription
    */
   const startGroqTranscription = async (): Promise<TranscriptionResult> => {
     if (!isGroqConfigured()) {
@@ -385,7 +508,7 @@ export function useTranscriptionService(options: TranscriptionOptions) {
           documentId: options.documentId,
           filePath: options.filePath,
           documentTitle: options.documentTitle,
-          provider: 'groq',
+          provider: 'cloud',
           language: options.language || settings.audioTranscription.language || 'en',
         });
         return { success: true };

@@ -7,7 +7,7 @@
  */
 import { invokeCommand, isTauri } from "../lib/tauri";
 
-export type HfRuntime = "whisper-cpp" | "sherpa-onnx-stt" | "sherpa-onnx-tts";
+export type HfRuntime = "whisper-cpp" | "sherpa-onnx-stt" | "sherpa-onnx-tts" | "nemotron-asr";
 export type SherpaSttFamily = "nemo-ctc" | "sense-voice" | "zipformer" | "paraformer";
 /** Family of a sherpa-onnx TTS contract (`RunContract::SherpaTts.family`). */
 export type SherpaTtsFamily = "vits" | "kokoro" | "kitten" | "supertonic";
@@ -189,9 +189,26 @@ export const hfUninstallModel = (id: string): Promise<void> => {
   return invokeCommand("hf_uninstall_model", { id });
 };
 
+export interface PinnedNemotronAsrCatalogEntry {
+  logicalKey: string;
+  repoId: string;
+  revision: string;
+  displayName: string;
+  sizeBytes: number;
+  license: string;
+  capability: string;
+  supportsStreaming: boolean;
+  languages: string[];
+}
+
 export const getInstalledHfModels = (): Promise<InstalledHfModel[]> => {
   if (!isTauri()) return Promise.resolve([]);
   return invokeCommand<InstalledHfModel[]>("get_installed_hf_models");
+};
+
+export const getNemotronAsrCatalogEntry = (): Promise<PinnedNemotronAsrCatalogEntry | null> => {
+  if (!isTauri()) return Promise.resolve(null);
+  return invokeCommand<PinnedNemotronAsrCatalogEntry>("get_nemotron_asr_catalog_entry");
 };
 
 export const getSystemInfo = (): Promise<SystemInfo> => {
@@ -229,4 +246,5 @@ export const RUNTIME_LABELS: Record<HfRuntime, string> = {
   "whisper-cpp": "whisper.cpp (ggml)",
   "sherpa-onnx-stt": "sherpa-onnx (ONNX STT)",
   "sherpa-onnx-tts": "sherpa-onnx (ONNX TTS)",
+  "nemotron-asr": "Nemotron ASR (GGUF)",
 };

@@ -259,11 +259,17 @@ impl AutoTranscriptionQueue {
             .prepare_audio_from(std::path::Path::new(&entry.audio_path), resume_start_ms)
             .await?;
         let remaining_duration_ms = engine.wav_duration_ms(&wav_path).unwrap_or(0);
+        let total_duration_ms = resume_start_ms.saturating_add(remaining_duration_ms);
         let progress_floor = entry
             .progress
             .max(checkpoint_progress(resume_start_ms, remaining_duration_ms))
             .clamp(0, 99);
-        repo.update_transcription_progress(&entry.id, progress_floor)
+        repo.update_transcription_progress(
+            &entry.id,
+            progress_floor,
+            Some(resume_start_ms),
+            Some(total_duration_ms),
+        )
             .await?;
 
         let repo_clone = repo.clone();
@@ -280,8 +286,15 @@ impl AutoTranscriptionQueue {
         let progress_entry_id = entry.id.clone();
         let progress_repo = repo.clone();
         let progress_app = app.clone();
+        let checkpoint_ms = resume_start_ms;
+        let total_ms = total_duration_ms;
         let progress_cb: Box<dyn Fn(i32) + Send + Sync> = Box::new(move |remaining_p: i32| {
             let p = map_remaining_progress(progress_floor, remaining_p);
+            let mut processed_ms = checkpoint_ms;
+            if remaining_p > 0 && total_ms > checkpoint_ms {
+                processed_ms = checkpoint_ms
+                    + ((total_ms.saturating_sub(checkpoint_ms)) * remaining_p as i64 / 100);
+            }
             let is_final = p >= 100;
             let last = last_progress.load(Ordering::Relaxed);
             let pct_changed = (p - last).abs() >= 1;
@@ -298,7 +311,10 @@ impl AutoTranscriptionQueue {
             let id = progress_entry_id.clone();
             let app = progress_app.clone();
             tokio::spawn(async move {
-                if let Err(e) = repo.update_transcription_progress(&id, p).await {
+                if let Err(e) = repo
+                    .update_transcription_progress(&id, p, Some(processed_ms), Some(total_ms))
+                    .await
+                {
                     tracing::warn!("Failed to update transcription progress: {}", e);
                 }
                 if let Err(e) = app.emit("transcription://queue-updated", ()) {

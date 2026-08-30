@@ -7,6 +7,8 @@
  */
 
 export { TranscriptionButton, TranscriptionStatusBadge } from './TranscriptionButton';
+export { TranscribeAudioDialog } from './TranscribeAudioDialog';
+export { TranscriptionJobProgressLabel } from './TranscriptionJobProgressLabel';
 export type { TranscriptionButtonProps } from './TranscriptionButton';
 
 export { 

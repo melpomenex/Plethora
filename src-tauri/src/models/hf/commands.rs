@@ -330,6 +330,12 @@ pub async fn get_installed_hf_models(repo: State<'_, Repository>) -> Result<Vec<
     registry_list(repo.pool()).await.map_err(|e| PlethoraError::Internal(e.to_string()))
 }
 
+/// Pinned Nemotron ASR catalog metadata for Local Models → Speech-to-Text.
+#[command]
+pub fn get_nemotron_asr_catalog_entry() -> super::manager::PinnedNemotronAsrCatalogEntry {
+    super::manager::nemotron_asr_catalog_entry()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +349,7 @@ mod tests {
             ("whisper-cpp", HfRuntime::WhisperCpp),
             ("sherpa-onnx-stt", HfRuntime::SherpaOnnxStt),
             ("sherpa-onnx-tts", HfRuntime::SherpaOnnxTts),
+            ("nemotron-asr", HfRuntime::NemotronAsr),
         ];
         for (raw, expected) in cases {
             let parsed = parse_runtime_arg(raw).unwrap_or_else(|e| panic!("{raw}: {e}"));

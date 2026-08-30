@@ -29,6 +29,8 @@ pub enum HfRuntime {
     SherpaOnnxStt,
     /// sherpa-onnx TTS (ONNX vits-family models).
     SherpaOnnxTts,
+    /// Nemotron ASR (GGUF, embedded runtime — install/check only until sidecar lands).
+    NemotronAsr,
 }
 
 impl HfRuntime {
@@ -37,6 +39,7 @@ impl HfRuntime {
             HfRuntime::WhisperCpp => "whisper.cpp (ggml)",
             HfRuntime::SherpaOnnxStt => "sherpa-onnx (ONNX STT)",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx (ONNX TTS)",
+            HfRuntime::NemotronAsr => "Nemotron ASR (GGUF)",
         }
     }
 
@@ -44,6 +47,7 @@ impl HfRuntime {
         match self {
             HfRuntime::WhisperCpp => "whisper",
             HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => "sherpa-onnx",
+            HfRuntime::NemotronAsr => "nemotron-asr",
         }
     }
 }
@@ -156,6 +160,10 @@ pub enum RunContract {
         #[serde(default)]
         data_dir: Option<String>,
     },
+    NemotronAsr {
+        /// Primary GGUF weights file (repo-relative).
+        model_file: String,
+    },
 }
 
 impl RunContract {
@@ -228,6 +236,7 @@ impl RunContract {
                 }
                 files
             }
+            RunContract::NemotronAsr { model_file } => vec![model_file.as_str()],
         }
     }
 
@@ -314,6 +323,12 @@ impl RunContract {
                         Ok(())
                     }
                 }
+            }
+            RunContract::NemotronAsr { model_file } => {
+                if model_file.is_empty() {
+                    return Err("nemotron-asr contract has an empty model_file".to_string());
+                }
+                Ok(())
             }
         }
     }
@@ -871,12 +886,79 @@ impl RuntimeAdapter for SherpaOnnxTtsAdapter {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Nemotron ASR adapter (GGUF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct NemotronAsrAdapter;
+
+impl RuntimeAdapter for NemotronAsrAdapter {
+    fn runtime(&self) -> HfRuntime {
+        HfRuntime::NemotronAsr
+    }
+    fn id(&self) -> &'static str {
+        "nemotron-asr"
+    }
+    fn label(&self) -> &'static str {
+        "Nemotron ASR (GGUF)"
+    }
+    fn required_metadata(&self) -> Vec<&'static str> {
+        vec!["*.gguf"]
+    }
+    fn install_dir(&self, app_data_dir: &Path) -> PathBuf {
+        app_data_dir.join("models").join("nemotron-asr")
+    }
+    fn detect_artifact(&self, info: &HfRepoInfo, index: &FileIndex) -> Option<Artifact> {
+        let name = repo_name_lower(info);
+        if !name.contains("nemotron")
+            && !repo_tags_contain(info, "nemotron")
+            && !repo_tags_contain(info, "asr")
+        {
+            return None;
+        }
+        let gguf_files: Vec<_> = index
+            .paths()
+            .filter(|p| p.ends_with(".gguf"))
+            .collect();
+        if gguf_files.is_empty() {
+            return None;
+        }
+        let model_path = gguf_files
+            .into_iter()
+            .max_by_key(|p| index.size_of(p).unwrap_or(0))
+            .map(|p| p.to_string())?;
+        let files = vec![artifact_file(index, model_path.clone())];
+        let download_size = total_download_size(&files);
+        Some(Artifact {
+            runtime: HfRuntime::NemotronAsr,
+            kind: "nemotron-asr-gguf".to_string(),
+            label: "Nemotron ASR GGUF model".to_string(),
+            files,
+            download_size_bytes: download_size,
+            run_contract: RunContract::NemotronAsr {
+                model_file: model_path,
+            },
+            estimated_memory_bytes: download_size.saturating_mul(2),
+            confidence: if name.contains("nemotron") {
+                DetectionConfidence::Exact
+            } else {
+                DetectionConfidence::Heuristic
+            },
+            metadata: BTreeMap::from([
+                ("capability".to_string(), "asr".to_string()),
+                ("supports_streaming".to_string(), "true".to_string()),
+            ]),
+        })
+    }
+}
+
 /// All adapters, in the order they are evaluated.
 pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
     vec![
         Box::new(WhisperCppAdapter),
         Box::new(SherpaOnnxSttAdapter),
         Box::new(SherpaOnnxTtsAdapter),
+        Box::new(NemotronAsrAdapter),
     ]
 }
 

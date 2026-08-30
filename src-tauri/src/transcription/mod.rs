@@ -3,6 +3,7 @@ pub mod engine;
 pub mod idle_scanner;
 pub mod job_queue;
 pub mod model_manager;
+pub mod nemotron;
 
 use crate::database::Repository;
 use crate::error::Result;
@@ -186,6 +187,7 @@ pub async fn enqueue_auto_transcription(
     language: String,
     priority: Option<i32>,
     chapter_id: Option<String>,
+    transcription_mode: Option<String>,
 ) -> Result<()> {
     if !Path::new(&audio_path).exists() {
         return Err(crate::error::PlethoraError::NotFound(format!(
@@ -228,6 +230,9 @@ pub async fn enqueue_auto_transcription(
     let mut entry =
         TranscriptionQueueEntry::new(document_id, audio_path, provider, model_id, language);
     entry.chapter_id = chapter_id;
+    if let Some(mode) = transcription_mode {
+        entry.transcription_mode = mode;
+    }
     let entry = TranscriptionQueueEntry {
         priority: priority.unwrap_or(0),
         ..entry
@@ -407,4 +412,69 @@ pub async fn remove_transcription_entry(
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     let _ = app_handle.emit("transcription://queue-updated", ());
     Ok(())
+}
+
+#[command]
+pub async fn is_local_nemotron_installed(repo: State<'_, Repository>) -> Result<bool> {
+    Ok(crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await)
+}
+
+#[command]
+pub async fn transcribe_local_nemotron(
+    repo: State<'_, Repository>,
+    audio_path: String,
+    language: String,
+) -> Result<TranscriptResponse> {
+    let _ = language;
+    if !Path::new(&audio_path).exists() {
+        return Err(crate::error::PlethoraError::NotFound(format!(
+            "Audio file not found: {}",
+            audio_path
+        )));
+    }
+
+    if !crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await {
+        return Err(crate::error::PlethoraError::InvalidInput(
+            "LOCAL_MODEL_MISSING: Local Nemotron ASR is not installed. Install it from Local \
+             Models or use cloud OpenRouter Nemotron."
+                .to_string(),
+        ));
+    }
+
+    let model_id = crate::models::hf::manager::model_id_for(
+        crate::models::hf::adapters::HfRuntime::NemotronAsr,
+        crate::models::hf::manager::NEMOTRON_ASR_REPO_ID,
+        crate::models::hf::manager::NEMOTRON_ASR_REVISION,
+    );
+    let Some((install_dir, contract)) =
+        crate::models::hf::manager::resolve_installed_nemotron(repo.pool(), &model_id).await
+    else {
+        return Err(crate::error::PlethoraError::InvalidInput(
+            "LOCAL_MODEL_MISSING: Nemotron install metadata is missing.".to_string(),
+        ));
+    };
+
+    let model_file = match contract {
+        crate::models::hf::adapters::RunContract::NemotronAsr { model_file } => model_file,
+        _ => {
+            return Err(crate::error::PlethoraError::InvalidInput(
+                "LOCAL_MODEL_MISSING: Invalid Nemotron run contract.".to_string(),
+            ));
+        }
+    };
+
+    let segments = crate::transcription::nemotron::transcribe_file(
+        &install_dir,
+        &model_file,
+        Path::new(&audio_path),
+        &language,
+    )
+    .await
+    .map_err(|e| crate::error::PlethoraError::InvalidInput(e.to_string()))?;
+
+    Ok(TranscriptResponse {
+        id: 0,
+        status: "complete".to_string(),
+        segments,
+    })
 }

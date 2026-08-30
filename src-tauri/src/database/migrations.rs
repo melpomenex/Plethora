@@ -3993,6 +3993,15 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE sync_blob_reference IS NOT NULL;
         "#,
     ),
+    // Migration 114: transcription platform job metadata (mode, duration checkpoints).
+    Migration::new(
+        "114_transcription_job_metadata",
+        r#"
+        ALTER TABLE transcription_queue ADD COLUMN processed_duration_ms INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE transcription_queue ADD COLUMN total_duration_ms INTEGER;
+        ALTER TABLE transcription_queue ADD COLUMN transcription_mode TEXT NOT NULL DEFAULT 'auto';
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

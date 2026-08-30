@@ -5,9 +5,9 @@
  */
 
 // Supported audiobook formats (kept in sync with src/api/audiobooks.ts).
-export const AUDIOBOOK_FORMATS = [
+export const AUDIOBOOK_FORMATS: string[] = [
   "mp3", "m4b", "m4a", "aac", "ogg", "flac", "opus", "wav", "wma"
-] as const;
+];
 
 export function audioExtensionOf(filePath: string): string {
   const base = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
@@ -16,6 +16,5 @@ export function audioExtensionOf(filePath: string): string {
 }
 
 export function isAudiobookFile(filePath: string): boolean {
-  const ext = audioExtensionOf(filePath);
-  return (AUDIOBOOK_FORMATS as readonly string[]).includes(ext);
+  return AUDIOBOOK_FORMATS.includes(audioExtensionOf(filePath));
 }

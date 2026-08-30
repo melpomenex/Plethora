@@ -8,6 +8,7 @@ import { authRouter as v1AuthRouter } from './routes/v1/auth.js';
 import { entitlementsRouter as v1EntitlementsRouter } from './routes/v1/entitlements.js';
 import { jobsRouter as v1JobsRouter } from './routes/v1/jobs.js';
 import { usageRouter as v1UsageRouter } from './routes/v1/usage.js';
+import { transcriptionUsageRouter as v1TranscriptionUsageRouter } from './routes/v1/transcriptionUsage.js';
 import { billingRouter as v1BillingRouter } from './routes/v1/billing.js';
 import { syncRouter as v1SyncRouter } from './routes/v1/sync.js';
 import { blobsRouter as v1BlobsRouter } from './routes/v1/blobs.js';
@@ -83,6 +84,7 @@ app.use('/v1/auth', dbRateLimit({
 app.use('/v1/entitlements', v1EntitlementsRouter);
 app.use('/v1/jobs', v1JobsRouter);
 app.use('/v1/usage', v1UsageRouter);
+app.use('/v1/usage/transcription', v1TranscriptionUsageRouter);
 app.use('/v1/billing', v1BillingRouter);
 app.use(
   '/v1/sync',

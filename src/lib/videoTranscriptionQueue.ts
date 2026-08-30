@@ -1,22 +1,24 @@
 import { getTranscriptionProfiles } from "../api/transcription";
-import { generateVideoTranscript, getVideoTranscript, setVideoTranscript } from "../api/video-extracts";
+import { generateVideoTranscript, getVideoTranscript } from "../api/video-extracts";
 import {
-  transcribeWithGroq,
-  isGroqConfigured,
   GroqTranscriptionError,
 } from "../api/groqTranscription";
-import { updateDocumentContent } from "../api/documents";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { isTauri } from "./tauri";
+import { getTranscriptionService, TranscriptionError, TranscriptionMode } from "../services/transcription";
+import { resolveSttProvider, resolveTranscriptionMode } from "../services/transcription/config";
+import { persistTranscriptionResult } from "../services/transcription/persist";
 
 type VideoTranscriptionStatus = "queued" | "processing" | "completed" | "failed" | "needs-model" | "needs-api-key" | "file-too-large";
+
+type VideoTranscriptionJobProvider = "local" | "cloud";
 
 interface VideoTranscriptionJob {
   documentId: string;
   filePath: string;
   documentTitle?: string;
-  provider: 'local' | 'groq';
+  provider: VideoTranscriptionJobProvider;
   modelId?: string;
   language: string;
 }
@@ -41,7 +43,7 @@ interface VideoTranscriptionRequest {
   documentId: string;
   filePath: string;
   documentTitle?: string;
-  provider?: 'local' | 'groq';
+  provider?: VideoTranscriptionJobProvider;
   modelId?: string;
   language?: string;
 }
@@ -71,11 +73,36 @@ function schedule(fn: () => void) {
   }
 }
 
-function getProvider(): 'local' | 'groq' {
-  const provider = useSettingsStore.getState().settings.audioTranscription.provider;
-  // Video transcription only has local + Groq paths; apple/android-ondevice
-  // engines never reach this queue.
-  return provider === 'groq' ? 'groq' : 'local';
+function getProvider(): VideoTranscriptionJobProvider {
+  const audio = useSettingsStore.getState().settings.audioTranscription;
+  const sttProvider = resolveSttProvider(audio);
+  if (sttProvider === "local") return "local";
+  const mode = resolveTranscriptionMode(audio);
+  if (mode === TranscriptionMode.Offline) return "local";
+  return "cloud";
+}
+
+function providerDisplayName(provider: VideoTranscriptionJobProvider): string {
+  return provider === "local" ? "Local" : "Cloud (TranscriptionService)";
+}
+
+async function readAudioBlob(filePath: string): Promise<File> {
+  const { readFile } = await import("@tauri-apps/plugin-fs");
+  const { basename, extname } = await import("@tauri-apps/api/path");
+  const bytes = await readFile(filePath);
+  const name = await basename(filePath);
+  const extension = (await extname(filePath)).replace(/^\./, "").toLowerCase();
+  const mimeByExt: Record<string, string> = {
+    mp3: "audio/mpeg",
+    m4a: "audio/mp4",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    ogg: "audio/ogg",
+    aac: "audio/aac",
+    webm: "audio/webm",
+  };
+  const mimeType = mimeByExt[extension] || "audio/wav";
+  return new File([bytes], name, { type: mimeType });
 }
 
 function getPreferredModelId(): string | null {
@@ -112,44 +139,34 @@ function shouldDelayForPlayback(): boolean {
 }
 
 /**
- * Process transcription using Groq API
- * Supports automatic chunking for large files
+ * Process transcription using the provider-independent cloud service.
  */
-async function processWithGroq(job: VideoTranscriptionJob): Promise<void> {
-  if (!isGroqConfigured()) {
-    notify(job.documentId, "needs-api-key");
-    throw new Error("Groq API key not configured");
-  }
-  
-  const language = job.language !== 'auto' ? job.language : undefined;
-  
-  try {
-    const response = await transcribeWithGroq({
-      filePath: job.filePath,
-      language,
-      responseFormat: 'verbose_json',
-      timestampGranularities: ['segment'],
-      temperature: 0,
-    });
-    
-    // Convert to internal format and save
-    const segments = (response.segments || [])
-      .map((seg) => ({
-        time: Number(seg.start),
-        text: seg.text ?? '',
-      }))
-      .filter((seg) => Number.isFinite(seg.time));
-    
-    await setVideoTranscript(job.documentId, response.text, segments);
+async function processWithCloudService(job: VideoTranscriptionJob): Promise<void> {
+  const audioSettings = useSettingsStore.getState().settings.audioTranscription;
+  const mode = resolveTranscriptionMode(audioSettings);
+  const language = job.language !== "auto" ? job.language : undefined;
 
-    // Copy transcript to documents.content for AI assistant access
-    try {
-      await updateDocumentContent(job.documentId, response.text);
-    } catch { /* non-critical */ }
-    
+  let file: File | Blob | undefined;
+  if (isTauri()) {
+    file = await readAudioBlob(job.filePath);
+  }
+
+  try {
+    const result = await getTranscriptionService().transcribe(
+      {
+        file,
+        filePath: job.filePath,
+        documentId: job.documentId,
+      },
+      { mode, language },
+    );
+    await persistTranscriptionResult(job.documentId, result);
   } catch (error) {
+    if (error instanceof TranscriptionError && error.code === "AUTH_FAILED") {
+      notify(job.documentId, "needs-api-key");
+    }
     if (error instanceof GroqTranscriptionError) {
-      if (error.code === 'FILE_TOO_LARGE' || error.code === 'CHUNKING_FAILED') {
+      if (error.code === "FILE_TOO_LARGE" || error.code === "CHUNKING_FAILED") {
         notify(job.documentId, "file-too-large");
       }
     }
@@ -184,9 +201,9 @@ async function processWithLocalWhisper(job: VideoTranscriptionJob): Promise<void
 /**
  * Show toast notification for transcription completion
  */
-function showCompletionToast(documentId: string, provider: 'local' | 'groq', success: boolean) {
+function showCompletionToast(documentId: string, provider: VideoTranscriptionJobProvider, success: boolean) {
   const title = documentTitles.get(documentId) || 'Video';
-  const providerName = provider === 'groq' ? 'Groq Cloud' : 'Local Whisper';
+  const providerName = providerDisplayName(provider);
   
   if (success) {
     useToastStore.getState().addToast({
@@ -229,8 +246,8 @@ async function processNext() {
 
   try {
     const provider = job.provider;
-    if (provider === 'groq') {
-      await processWithGroq(job);
+    if (provider === "cloud") {
+      await processWithCloudService(job);
     } else {
       await processWithLocalWhisper(job);
     }
@@ -280,11 +297,8 @@ export async function enqueueVideoTranscription(request: VideoTranscriptionReque
       notify(request.documentId, "needs-model");
       return;
     }
-  } else if (provider === 'groq') {
-    if (!isGroqConfigured()) {
-      notify(request.documentId, "needs-api-key");
-      return;
-    }
+  } else if (provider === "cloud") {
+    // Cloud path uses TranscriptionService (OpenRouter default, legacy Groq fallback).
   }
   
   const settings = useSettingsStore.getState().settings.audioTranscription;
@@ -310,7 +324,7 @@ export async function enqueueVideoTranscription(request: VideoTranscriptionReque
   
   // Show initial notification that transcription is queued
   const title = request.documentTitle || 'Video';
-  const providerName = provider === 'groq' ? 'Groq Cloud' : 'Local Whisper';
+  const providerName = providerDisplayName(provider);
   useToastStore.getState().addToast({
     type: ToastType.Info,
     title: 'Transcription Queued',
@@ -376,7 +390,7 @@ export async function retryVideoTranscription(documentId: string) {
 /**
  * Get the current transcription provider
  */
-export function getTranscriptionProvider(): 'local' | 'groq' {
+export function getTranscriptionProvider(): VideoTranscriptionJobProvider {
   return getProvider();
 }
 
@@ -385,14 +399,10 @@ export function getTranscriptionProvider(): 'local' | 'groq' {
  */
 export function isTranscriptionAvailable(): boolean {
   const provider = getProvider();
-  
-  if (provider === 'local') {
+
+  if (provider === "local") {
     return isTauri();
   }
-  
-  if (provider === 'groq') {
-    return isTauri() && isGroqConfigured();
-  }
-  
-  return false;
+
+  return isTauri();
 }

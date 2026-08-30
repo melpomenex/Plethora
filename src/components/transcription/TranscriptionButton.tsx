@@ -24,6 +24,7 @@ import {
 import { cn } from '../../utils';
 import { useTranscriptionService, type TranscriptionStatus } from './useTranscriptionService';
 import { TranscriptionKeyDialog } from './TranscriptionKeyDialog';
+import { TranscribeAudioDialog } from './TranscribeAudioDialog';
 import { isGroqConfigured } from '../../api/groqTranscription';
 
 export interface TranscriptionButtonProps {
@@ -89,6 +90,7 @@ export function TranscriptionButton({
   showStatus = false,
 }: TranscriptionButtonProps) {
   const [showKeyDialog, setShowKeyDialog] = useState(false);
+  const [showTranscribeDialog, setShowTranscribeDialog] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
   
   const { 
@@ -136,12 +138,9 @@ export function TranscriptionButton({
       // Already in progress, could show cancel option in future
       return;
     }
-    
-    const result = await startTranscription();
-    if (result.needsApiKey) {
-      setShowKeyDialog(true);
-    }
-  }, [status, startTranscription, retryTranscription, onComplete]);
+
+    setShowTranscribeDialog(true);
+  }, [status, onComplete, retryTranscription]);
 
   const handleKeySaved = useCallback(() => {
     setIsConfigured(true);
@@ -268,6 +267,19 @@ export function TranscriptionButton({
         onClose={() => setShowKeyDialog(false)}
         onSaved={handleKeySaved}
         documentTitle={documentTitle}
+      />
+
+      <TranscribeAudioDialog
+        open={showTranscribeDialog}
+        title={documentTitle ? `Transcribe “${documentTitle}”` : "Transcribe Audio"}
+        onCancel={() => setShowTranscribeDialog(false)}
+        onConfirm={async (_options) => {
+          setShowTranscribeDialog(false);
+          const result = await startTranscription();
+          if (result.needsApiKey) {
+            setShowKeyDialog(true);
+          }
+        }}
       />
     </>
   );
