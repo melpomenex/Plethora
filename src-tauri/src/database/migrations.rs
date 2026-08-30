@@ -3911,6 +3911,26 @@ pub const MIGRATIONS: &[Migration] = &[
             ON sync_telemetry(created_at DESC);
         "#,
     ),
+    // Sync ordering/tombstone state is deliberately separate from domain
+    // timestamps. Domain date_modified/updated_at fields are user data and
+    // must never be repurposed as transport clocks.
+    Migration::new(
+        "109_sync_entity_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_entity_state (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            last_hlc TEXT NOT NULL,
+            last_device_id TEXT NOT NULL,
+            server_revision INTEGER,
+            tombstoned INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, entity_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_state_tombstone
+            ON sync_entity_state(tombstoned, updated_at);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
