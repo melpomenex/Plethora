@@ -39,12 +39,13 @@ fn sync_order_gt(left_hlc: &str, left_device: &str, right_hlc: &str, right_devic
 async fn incoming_wins(
     tx: &mut Transaction<'_, Sqlite>,
     record: &RemoteSyncRecord,
+    state_entity_id: &str,
 ) -> Result<bool> {
     let existing = sqlx::query_as::<_, (String, String)>(
         "SELECT last_hlc, last_device_id FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
     )
     .bind(record.entity_type.as_str())
-    .bind(&record.record_id)
+    .bind(state_entity_id)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -56,6 +57,7 @@ async fn incoming_wins(
 async fn record_sync_state(
     tx: &mut Transaction<'_, Sqlite>,
     record: &RemoteSyncRecord,
+    state_entity_id: &str,
     tombstoned: bool,
 ) -> Result<()> {
     sqlx::query(
@@ -73,15 +75,28 @@ async fn record_sync_state(
         "#,
     )
     .bind(record.entity_type.as_str())
-    .bind(&record.record_id)
+    .bind(state_entity_id)
     .bind(&record.hlc)
     .bind(&record.device_id)
     .bind(record.entity_revision)
-    .bind(i64::from(tombstoned))
+    .bind(if tombstoned { 1_i64 } else { 0_i64 })
     .bind(chrono::Utc::now().timestamp_millis())
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+async fn state_entity_id(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<String> {
+    if record.entity_type == EntityType::Document {
+        if let Some(document) = super::full_state::decode_document(&record.payload) {
+            return super::full_state::prepare_document_target(tx, &document).await;
+        }
+        return super::full_state::resolve_alias(tx, "document", &record.record_id).await;
+    }
+    Ok(record.record_id.clone())
 }
 
 pub async fn apply_remote_record(
@@ -116,15 +131,20 @@ pub async fn apply_remote_record(
         // The event itself remains append-only; this state row only records
         // cloud provenance/revision so bootstrap does not echo it back.
         if matches!(outcome, ApplyOutcome::Applied | ApplyOutcome::SkippedDuplicate) {
-            record_sync_state(tx, record, false).await?;
+            record_sync_state(tx, record, &record.record_id, false).await?;
         }
         return Ok(outcome);
     }
 
+    // Aliased strong document identities share one local ordering key, so an
+    // update/delete for either original UUID participates in the same LWW and
+    // tombstone history.
+    let state_id = state_entity_id(tx, record).await?;
+
     // All mutable entities share one deterministic ordering rule. This is
     // independent of domain timestamps and leaves a durable tombstone marker,
     // preventing a stale offline update from resurrecting a deleted entity.
-    if !incoming_wins(tx, record).await? {
+    if !incoming_wins(tx, record, &state_id).await? {
         return Ok(ApplyOutcome::SkippedOlder);
     }
 
@@ -143,6 +163,7 @@ pub async fn apply_remote_record(
         record_sync_state(
             tx,
             record,
+            &state_id,
             matches!(record.operation, Some(SyncOperation::Delete)),
         )
         .await?;
