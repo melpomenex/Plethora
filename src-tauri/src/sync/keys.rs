@@ -195,7 +195,9 @@ pub async fn store_master_key(master: [u8; 32]) -> Result<()> {
 }
 
 pub async fn store_master_key_from_recovery(recovery_key: &str) -> Result<[u8; 32]> {
-    let master = SyncCrypto::derive_master_key(recovery_key);
+    let normalized = SyncCrypto::normalize_recovery_key(recovery_key)
+        .map_err(PlethoraError::InvalidInput)?;
+    let master = SyncCrypto::derive_master_key(&normalized);
     store_master_key(master).await?;
     Ok(master)
 }
