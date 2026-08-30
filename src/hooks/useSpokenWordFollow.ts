@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SPOKEN_WORD_HIGHLIGHT_SELECTORS } from "../utils/spokenWordHighlightSelectors";
 
 /**
  * Reader auto-follow controller for the spoken word — ports TranscriptSync's
@@ -23,7 +24,6 @@ const FOLLOW_SAME_WORD_MIN_MS = 400;
 const USER_SCROLL_GRACE_MS = 120;
 const PROGRAMMATIC_SCROLL_MAX_MS = 2000;
 const SCROLL_ARRIVAL_EPSILON_PX = 2;
-const ACTIVE_SPAN_SELECTOR = ".tts-word-highlight, .tts-chunk-highlight";
 
 export interface UseSpokenWordFollowOptions {
   /** The persisted follow preference. */
@@ -122,7 +122,7 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
   const findActiveTarget = useCallback((): { span: HTMLElement; container: HTMLElement } | null => {
     for (const container of containers) {
       if (!container || !container.isConnected) continue;
-      const span = container.querySelector(ACTIVE_SPAN_SELECTOR) as HTMLElement | null;
+      const span = container.querySelector(SPOKEN_WORD_HIGHLIGHT_SELECTORS) as HTMLElement | null;
       if (span && span.isConnected) {
         const scroll = findScrollableContainer(span);
         if (scroll && scroll.isConnected) return { span, container: scroll };

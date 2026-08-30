@@ -7,6 +7,7 @@ import {
   MagnifyingGlass,
   Warning,
   X,
+  ArrowsClockwise,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
 import { ResizableSplit } from "./ResizableSplit";
@@ -17,6 +18,16 @@ import { resolveLocalMediaSource } from "./localMediaSource";
 import { parseChapters, parseAudiobookMetadata } from "../../api/audiobooks";
 import { getTranscript, type TranscriptSegment as TranscriptionSegment } from "../../api/transcription";
 import type { SyncSegment } from "../../utils/epubSync";
+import {
+  fromSegments,
+  loadAlignmentMap,
+  saveAlignmentMap,
+  isAlignmentStale,
+  computePairId,
+  type PlethoraAlignmentMap,
+} from "../../lib/ebookAudiobookAlignment";
+import { speechSectionsToChapters, simpleContentHash } from "../../lib/ebookAudiobookAlignment/epubChapterExtract";
+import { useAlignmentPlayback, useSeekToAlignedWord } from "../../hooks/useAlignmentPlayback";
 
 interface AudiobookEpubSyncViewProps {
   audioDocumentId: string;
@@ -40,24 +51,57 @@ export function AudiobookEpubSyncView({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [_audioChapters, setAudioChapters] = useState<Array<{ title: string; startTime: number; endTime: number }>>([]);
+  const [audioChapters, setAudioChapters] = useState<Array<{ title: string; startTime: number; endTime: number }>>([]);
   const [transcriptSegments, setTranscriptSegments] = useState<Array<{ text: string; startTime: number; endTime: number }>>([]);
-  const [_epubChapters, setEpubChapters] = useState<Array<{ href: string; label: string; text: string }>>([]);
+  const [epubToc, setEpubToc] = useState<Array<{ href: string; label: string }>>([]);
+  const [speechSections, setSpeechSections] = useState<Array<{ spineIndex: number; href: string; text: string }>>([]);
+
+  const [alignmentMap, setAlignmentMap] = useState<PlethoraAlignmentMap | null>(null);
+  const [alignProgress, setAlignProgress] = useState<string | null>(null);
+  const [aligning, setAligning] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioTimeRef = useRef(0);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const wasHidden = useRef(false);
 
-  // Detect tab visibility changes — remount EPUB when becoming visible after hidden
+  const ebookHash = simpleContentHash(epubDocumentId, epubDoc?.filePath);
+  const audioHash = simpleContentHash(audioDocumentId, audioDoc?.filePath);
+  const pairId = computePairId(epubDocumentId, audioDocumentId, ebookHash, audioHash);
+
+  const useWordSync =
+    alignmentMap !== null && alignmentMap.overallConfidence >= 0.3;
+
+  const getAudioTimeSec = useCallback(() => audioTimeRef.current, []);
+
+  const playback = useAlignmentPlayback(alignmentMap, getAudioTimeSec, useWordSync);
+  const seekToWord = useSeekToAlignedWord(audioRef, playback.lookup);
+
+  const handleAudioTimeUpdate = useCallback(
+    (t: number) => {
+      audioTimeRef.current = t;
+      if (!useWordSync) setAudioCurrentTime(t);
+    },
+    [useWordSync],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAlignmentMap(pairId).then((map) => {
+      if (!cancelled && map && !isAlignmentStale(map, ebookHash, audioHash, map.transcriptFingerprint)) {
+        setAlignmentMap(map);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [pairId, ebookHash, audioHash]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
     const observer = new ResizeObserver(() => {
       const rect = container.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        wasHidden.current = true;
-      } else if (wasHidden.current) {
+      if (rect.width === 0 || rect.height === 0) wasHidden.current = true;
+      else if (wasHidden.current) {
         wasHidden.current = false;
         setEpubKey((k) => k + 1);
       }
@@ -72,107 +116,195 @@ export function AudiobookEpubSyncView({
       setIsLoading(false);
       return;
     }
-
     let cancelled = false;
-
     async function load() {
       try {
         const [audioRes, epubData] = await Promise.all([
           resolveLocalMediaSource(audioDoc!.filePath, "audio"),
           documentsApi.readDocumentFile(epubDoc!.filePath),
         ]);
-
         if (cancelled) return;
-
         setMediaSource({ src: audioRes.src, mimeType: audioRes.mimeType });
-
         setEpubFileData(epubData);
       } catch (err) {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "Failed to load documents");
-        }
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load documents");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     }
-
     load();
     return () => { cancelled = true; };
   }, [audioDoc?.filePath, epubDoc?.filePath]);
 
-  // Load audiobook metadata (chapters + transcript)
   useEffect(() => {
     if (!audioDoc?.filePath) return;
-
     let cancelled = false;
-
     async function loadMeta() {
       try {
         const chapters = await parseChapters(audioDoc!.filePath);
         if (!cancelled && chapters.length > 0) {
-          setAudioChapters(chapters.map(c => ({ title: c.title, startTime: c.startTime, endTime: c.endTime })));
+          setAudioChapters(chapters.map((c) => ({ title: c.title, startTime: c.startTime, endTime: c.endTime })));
         }
-
         const meta = await parseAudiobookMetadata(audioDoc!.filePath);
-        if (!cancelled && meta.chapters && meta.chapters.length > 0) {
+        if (!cancelled && meta.chapters?.length) {
           const rawSegments: TranscriptionSegment[] = [];
           for (const ch of meta.chapters) {
             try {
               const resp = await getTranscript(audioDoc!.id, String(ch.startTime));
-              if (resp?.segments) {
-                rawSegments.push(...resp.segments);
-              }
-            } catch { /* ignore partial fetch failure */ }
+              if (resp?.segments) rawSegments.push(...resp.segments);
+            } catch { /* partial */ }
           }
           if (rawSegments.length > 0 && !cancelled) {
-            setTranscriptSegments(rawSegments.map(seg => ({
+            setTranscriptSegments(rawSegments.map((seg) => ({
               text: seg.text,
               startTime: seg.start_ms / 1000,
               endTime: seg.end_ms / 1000,
             })));
           }
         }
-      } catch { /* ignore metadata load failure */ }
+      } catch { /* ignore */ }
     }
-
     loadMeta();
     return () => { cancelled = true; };
   }, [audioDoc?.filePath, audioDoc?.id]);
 
-  const handleEpubLoad = useCallback((toc: any[]) => {
-    const chapters = toc.map((item: any) => ({
-      href: item.href || "",
-      label: item.label?.trim() || "",
-      text: "",
-    }));
-    setEpubChapters(chapters);
+  const handleEpubLoad = useCallback((toc: Array<{ href?: string; label?: string }>) => {
+    setEpubToc(toc.map((item) => ({ href: item.href || "", label: item.label?.trim() || "" })));
   }, []);
 
-  const syncSegments: SyncSegment[] = useMemo(() =>
-    transcriptSegments.map((seg, idx) => ({
-      index: idx,
-      text: seg.text,
-      startTime: seg.startTime,
-      endTime: seg.endTime,
-    })),
-    [transcriptSegments]
+  const handleSpeechSections = useCallback(
+    (sections: Array<{ spineIndex: number; href: string; text: string }>) => {
+      setSpeechSections(sections);
+    },
+    [],
   );
 
-  const [syncState, setSyncState] = useState<{ status: "idle" | "building" | "ready" | "error"; mappedCount: number; totalSegments: number }>({
-    status: "idle",
-    mappedCount: 0,
-    totalSegments: 0,
-  });
+  const runAlignment = useCallback(async () => {
+    if (transcriptSegments.length === 0) {
+      setAlignProgress("Transcribe the audiobook first.");
+      return;
+    }
+    if (speechSections.length === 0) {
+      setAlignProgress("Waiting for ebook text…");
+      return;
+    }
 
-  // Search state
+    setAligning(true);
+    setAlignProgress("Preparing…");
+
+    try {
+      const timeline = fromSegments(
+        transcriptSegments.map((s) => ({
+          text: s.text,
+          startMs: Math.round(s.startTime * 1000),
+          endMs: Math.round(s.endTime * 1000),
+        })),
+        "plethora-audiobook",
+      );
+
+      const ebookChapters = speechSectionsToChapters(speechSections, epubToc);
+      const audioChapterInputs = audioChapters.map((c, index) => ({
+        index,
+        title: c.title,
+        startMs: Math.round(c.startTime * 1000),
+        endMs: Math.round(c.endTime * 1000),
+      }));
+
+      const input = {
+        ebookDocId: epubDocumentId,
+        audioDocId: audioDocumentId,
+        ebookContentHash: ebookHash,
+        audioContentHash: audioHash,
+        chapters: ebookChapters,
+        audioChapters: audioChapterInputs,
+        timeline,
+      };
+
+      const map = await new Promise<import("../../lib/ebookAudiobookAlignment/types").PlethoraAlignmentMap>((resolve, reject) => {
+        const worker = new Worker(
+          new URL("../../workers/ebookAudiobookAlignment.worker.ts", import.meta.url),
+          { type: "module" },
+        );
+        worker.onmessage = (ev: MessageEvent) => {
+          if (ev.data.type === "progress") {
+            setAlignProgress(ev.data.progress.message);
+          } else if (ev.data.type === "complete") {
+            worker.terminate();
+            resolve(ev.data.map);
+          } else if (ev.data.type === "error") {
+            worker.terminate();
+            reject(new Error(ev.data.message));
+          }
+        };
+        worker.onerror = (err) => {
+          worker.terminate();
+          reject(err);
+        };
+        worker.postMessage({ type: "align", input });
+      });
+
+      await saveAlignmentMap(map);
+      setAlignmentMap(map);
+      setAlignProgress(`Complete — ${Math.round(map.overallConfidence * 100)}% confidence`);
+    } catch (err) {
+      setAlignProgress(err instanceof Error ? err.message : "Alignment failed");
+    } finally {
+      setAligning(false);
+    }
+  }, [
+    transcriptSegments,
+    speechSections,
+    epubToc,
+    audioChapters,
+    epubDocumentId,
+    audioDocumentId,
+    ebookHash,
+    audioHash,
+  ]);
+
+  const syncSegments: SyncSegment[] = useMemo(
+    () =>
+      transcriptSegments.map((seg, idx) => ({
+        index: idx,
+        text: seg.text,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+      })),
+    [transcriptSegments],
+  );
+
+  const [syncState, setSyncState] = useState<{
+    status: "idle" | "building" | "ready" | "error";
+    mappedCount: number;
+    totalSegments: number;
+  }>({ status: "idle", mappedCount: 0, totalSegments: 0 });
+
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchIndex, setSearchMatchIndex] = useState<number | null>(null);
   const [searchTotal, setSearchTotal] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync jump signal
   const [syncJumpSignal, setSyncJumpSignal] = useState(0);
+
+  const syncActiveWord = useMemo(() => {
+    if (!useWordSync || !playback.activeWord) return null;
+    const loc = playback.activeWord.locator;
+    if (loc.kind !== "epub") return null;
+    return {
+      chapterHref: loc.chapterHref,
+      charOffset: loc.charOffset,
+      text: playback.activeWord.text,
+      interpolated: playback.activeWord.interpolated,
+    };
+  }, [useWordSync, playback.activeWord]);
+
+  const handleSyncWordClick = useCallback(
+    (charOffset: number, chapterHref: string) => {
+      const word = playback.lookup?.findWordByCharOffset(chapterHref, charOffset);
+      if (word) seekToWord(word);
+    },
+    [playback.lookup, seekToWord],
+  );
 
   if (!audioDoc || !epubDoc) {
     return (
@@ -195,7 +327,6 @@ export function AudiobookEpubSyncView({
 
   const audioPanel = (
     <div className="h-full flex flex-col relative">
-      {/* Exit button */}
       {onClose && (
         <button
           onClick={onClose}
@@ -214,7 +345,7 @@ export function AudiobookEpubSyncView({
           document={audioDoc}
           fileContent={mediaSource.src}
           audioRef={audioRef}
-          onTimeUpdate={setAudioCurrentTime}
+          onTimeUpdate={handleAudioTimeUpdate}
           hideTitleHeader={true}
         />
       )}
@@ -223,9 +354,7 @@ export function AudiobookEpubSyncView({
 
   const epubPanel = (
     <div className="h-full flex flex-col">
-      {/* EPUB toolbar */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border bg-card flex-shrink-0">
-        {/* Search toggle / input */}
         {showSearch ? (
           <div className="flex items-center gap-1 flex-1 min-w-0">
             <input
@@ -241,9 +370,7 @@ export function AudiobookEpubSyncView({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  const next = e.shiftKey
-                    ? (searchMatchIndex ?? 0) - 1
-                    : (searchMatchIndex ?? 0) + 1;
+                  const next = e.shiftKey ? (searchMatchIndex ?? 0) - 1 : (searchMatchIndex ?? 0) + 1;
                   setSearchMatchIndex(((next % searchTotal) + searchTotal) % searchTotal);
                 } else if (e.key === "Escape") {
                   setShowSearch(false);
@@ -261,68 +388,58 @@ export function AudiobookEpubSyncView({
             )}
             {searchQuery.trim() && searchTotal > 0 && (
               <>
-                <button
-                  onClick={() => setSearchMatchIndex(((searchMatchIndex! - 1) + searchTotal) % searchTotal)}
-                  className="p-1 hover:bg-muted rounded transition-colors"
-                  title="Previous match"
-                >
+                <button onClick={() => setSearchMatchIndex(((searchMatchIndex! - 1) + searchTotal) % searchTotal)} className="p-1 hover:bg-muted rounded transition-colors" title="Previous match">
                   <CaretLeft className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
-                <button
-                  onClick={() => setSearchMatchIndex((searchMatchIndex! + 1) % searchTotal)}
-                  className="p-1 hover:bg-muted rounded transition-colors"
-                  title="Next match"
-                >
+                <button onClick={() => setSearchMatchIndex((searchMatchIndex! + 1) % searchTotal)} className="p-1 hover:bg-muted rounded transition-colors" title="Next match">
                   <CaretRight className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               </>
             )}
-            <button
-              onClick={() => {
-                setShowSearch(false);
-                setSearchQuery("");
-                setSearchMatchIndex(null);
-              }}
-              className="p-1 hover:bg-muted rounded transition-colors"
-            >
+            <button onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchMatchIndex(null); }} className="p-1 hover:bg-muted rounded transition-colors">
               <X className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => {
-              setShowSearch(true);
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            }}
-            className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground"
-            title="Search in book"
-          >
+          <button onClick={() => { setShowSearch(true); requestAnimationFrame(() => searchInputRef.current?.focus()); }} className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground" title="Search in book">
             <MagnifyingGlass className="w-4 h-4" />
           </button>
         )}
 
         <div className="flex-1" />
 
-        {/* Sync status indicator */}
-        {syncState.status === "building" && (
-          <span className="text-xs text-blue-600 flex items-center gap-1">
-            <CircleNotch className="w-3 h-3 animate-spin" />
-            Syncing...
+        {alignProgress && (
+          <span className="text-xs text-muted-foreground max-w-[40%] truncate" title={alignProgress}>
+            {aligning && <CircleNotch className="w-3 h-3 animate-spin inline mr-1" />}
+            {alignProgress}
           </span>
-        )}
-        {syncState.status === "ready" && (
-          <span className="text-xs text-green-600">
-            {syncState.mappedCount} matched
-          </span>
-        )}
-        {syncState.status === "error" && (
-          <span className="text-xs text-amber-600">No sync</span>
         )}
 
-        {/* Jump to audio position */}
+        {useWordSync && (
+          <span className="text-xs text-green-600 whitespace-nowrap">
+            Word sync
+          </span>
+        )}
+
+        {!useWordSync && syncState.status === "building" && (
+          <span className="text-xs text-blue-600 flex items-center gap-1">
+            <CircleNotch className="w-3 h-3 animate-spin" />
+            Syncing…
+          </span>
+        )}
+
+        <button
+          onClick={runAlignment}
+          disabled={aligning || transcriptSegments.length === 0}
+          className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground disabled:opacity-40"
+          title="Sync text and audio (word-level alignment)"
+        >
+          <ArrowsClockwise className={`w-4 h-4 ${aligning ? "animate-spin" : ""}`} />
+        </button>
+
         <button
           onClick={() => setSyncJumpSignal((s) => s + 1)}
-          disabled={syncState.status !== "ready"}
+          disabled={!useWordSync && syncState.status !== "ready"}
           className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
           title="Jump to audio position"
         >
@@ -342,10 +459,13 @@ export function AudiobookEpubSyncView({
             fileName={epubDoc.title}
             documentId={epubDoc.id}
             onLoad={handleEpubLoad}
-            syncSegments={syncSegments}
-            syncCurrentTime={audioCurrentTime}
+            onSpeechSectionsChange={handleSpeechSections}
+            syncSegments={useWordSync ? undefined : syncSegments}
+            syncCurrentTime={useWordSync ? undefined : audioCurrentTime}
             onSyncStateChange={setSyncState}
             syncJumpSignal={syncJumpSignal}
+            syncActiveWord={syncActiveWord}
+            onSyncWordClick={handleSyncWordClick}
             searchQuery={searchQuery || undefined}
             searchMatchIndex={searchMatchIndex}
             onSearchResultsChange={({ total, activeIndex }) => {

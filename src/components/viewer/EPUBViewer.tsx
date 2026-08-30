@@ -21,6 +21,13 @@ import { useI18n } from "../../lib/i18n";
 import { normalizeHighlightColor } from "../../utils/highlightColors";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { buildSegmentCfiMap, findActiveSegment, type SyncSegment } from "../../utils/epubSync";
+import {
+  charOffsetFromClick,
+  clearWordHighlight,
+  highlightWordAtOffset,
+  hrefMatchesChapter,
+  scrollActiveSyncWordIntoView,
+} from "../../utils/epubWordHighlight";
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 import { tolerantPhraseRegex, collectSectionCfiMatches } from "../../utils/epubQuoteSearch";
@@ -388,6 +395,15 @@ interface EPUBViewerProps {
   onSyncStateChange?: (state: { status: "idle" | "building" | "ready" | "error"; mappedCount: number; totalSegments: number }) => void;
   /** Increment to force sync highlight + scroll to current audio position */
   syncJumpSignal?: number;
+  /** Word-level audiobook sync: active word locator from alignment map */
+  syncActiveWord?: {
+    chapterHref: string;
+    charOffset: number;
+    text: string;
+    interpolated?: boolean;
+  } | null;
+  /** Called when user taps a sync-highlighted word */
+  onSyncWordClick?: (charOffset: number, chapterHref: string) => void;
   metadata?: DocumentMetadata;
   onIframeWindowReady?: (iframeWindow: Window) => void;
   onBack?: () => void;
@@ -437,6 +453,8 @@ export function EPUBViewer({
   syncCurrentTime,
   onSyncStateChange,
   syncJumpSignal,
+  syncActiveWord,
+  onSyncWordClick,
   metadata,
   onIframeWindowReady,
   onBack,
@@ -2667,6 +2685,120 @@ export function EPUBViewer({
       setTimeout(() => { syncNavigatingRef.current = false; }, 500);
     } catch { /* ignore */ }
   }, [rendition, syncSegments, syncCurrentTime, syncJumpSignal]);
+
+  // Word-level audiobook sync highlight
+  const lastSyncWordKeyRef = useRef<string | null>(null);
+  const lastSyncChapterRef = useRef<string | null>(null);
+  const pendingSyncWordRef = useRef(syncActiveWord);
+  pendingSyncWordRef.current = syncActiveWord;
+
+  const applyWordSyncHighlight = useCallback(async () => {
+    if (!rendition) return;
+
+    const word = pendingSyncWordRef.current;
+
+    if (!word) {
+      lastSyncWordKeyRef.current = null;
+      lastSyncChapterRef.current = null;
+      for (const contents of rendition.getContents?.() ?? []) {
+        const doc = contents.document as globalThis.Document | undefined;
+        if (doc) clearWordHighlight(doc);
+      }
+      return;
+    }
+
+    const key = `${word.chapterHref}:${word.charOffset}:${word.text}`;
+    const chapterChanged = lastSyncChapterRef.current !== word.chapterHref;
+
+    const contentsList = rendition.getContents?.() ?? [];
+    let matchedDoc: globalThis.Document | null = null;
+
+    for (const contents of contentsList) {
+      const doc = contents.document as globalThis.Document | undefined;
+      const href = contents.url ?? "";
+      if (!doc?.body) continue;
+      if (hrefMatchesChapter(href, word.chapterHref)) {
+        matchedDoc = doc;
+        break;
+      }
+    }
+
+    if (!matchedDoc) {
+      if (key !== lastSyncWordKeyRef.current || chapterChanged) {
+        try {
+          syncNavigatingRef.current = true;
+          await rendition.display(word.chapterHref);
+          setTimeout(() => { syncNavigatingRef.current = false; }, 500);
+        } catch { /* retry on relocated */ }
+      }
+      return;
+    }
+
+    if (key === lastSyncWordKeyRef.current && !chapterChanged) return;
+
+    const ok = highlightWordAtOffset(
+      matchedDoc,
+      word.charOffset,
+      word.text.length,
+      word.interpolated,
+    );
+    if (!ok) return;
+
+    lastSyncWordKeyRef.current = key;
+    lastSyncChapterRef.current = word.chapterHref;
+
+    if (chapterChanged) {
+      scrollActiveSyncWordIntoView(matchedDoc);
+    }
+  }, [rendition]);
+
+  const syncJumpWordRef = useRef(syncJumpSignal);
+  useEffect(() => {
+    if (syncJumpSignal !== undefined && syncJumpSignal !== syncJumpWordRef.current) {
+      syncJumpWordRef.current = syncJumpSignal;
+      lastSyncWordKeyRef.current = null;
+    }
+  }, [syncJumpSignal]);
+
+  useEffect(() => {
+    void applyWordSyncHighlight();
+  }, [rendition, syncActiveWord, syncJumpSignal, applyWordSyncHighlight]);
+
+  useEffect(() => {
+    if (!rendition) return;
+    const onRelocated = () => {
+      if (pendingSyncWordRef.current) {
+        lastSyncWordKeyRef.current = null;
+        void applyWordSyncHighlight();
+      }
+    };
+    rendition.on("relocated", onRelocated);
+    return () => rendition.off("relocated", onRelocated);
+  }, [rendition, applyWordSyncHighlight]);
+
+  // Tap-to-seek: char-offset hit test (no pre-wrapped spans required)
+  useEffect(() => {
+    if (!rendition || !onSyncWordClick) return;
+    const contentsList = rendition.getContents?.() ?? [];
+    const cleanups: Array<() => void> = [];
+
+    for (const contents of contentsList) {
+      const doc = contents.document as globalThis.Document | undefined;
+      if (!doc?.body) continue;
+      const chapterHref = contents.url?.split("#")[0] ?? "";
+      const handler = (e: MouseEvent) => {
+        if (e.defaultPrevented) return;
+        const offset = charOffsetFromClick(doc, e.clientX, e.clientY);
+        if (offset === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSyncWordClick(offset, chapterHref);
+      };
+      doc.body.addEventListener("click", handler);
+      cleanups.push(() => doc.body.removeEventListener("click", handler));
+    }
+    return () => cleanups.forEach((fn) => fn());
+  }, [rendition, onSyncWordClick]);
 
   const handleTocClick = async (href: string) => {
     if (!rendition || !book) {
