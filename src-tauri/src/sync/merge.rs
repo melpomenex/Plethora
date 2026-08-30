@@ -338,7 +338,7 @@ async fn apply_document(
                 .map(|ts| ts.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now());
 
-            sqlx::query(
+            let updated = sqlx::query(
                 r#"
                 UPDATE documents SET
                     position_json = COALESCE(?1, position_json),
@@ -360,7 +360,14 @@ async fn apply_document(
             .execute(&mut **tx)
             .await?;
 
-            return Ok(ApplyOutcome::Applied);
+            // A compact position delta cannot materialize a missing document.
+            // Do not persist its HLC as the entity winner, or it could suppress
+            // the older full create/update that is capable of constructing it.
+            return Ok(if updated.rows_affected() == 0 {
+                ApplyOutcome::SkippedOlder
+            } else {
+                ApplyOutcome::Applied
+            });
         }
     };
 
