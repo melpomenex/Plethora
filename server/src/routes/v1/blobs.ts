@@ -12,7 +12,11 @@ export const blobsRouter = Router();
 blobsRouter.use(authMiddleware, requireCloudSync);
 
 const DEFAULT_QUOTA_BYTES = 10 * 1024 * 1024 * 1024;
-const SHA256_HASH = /^sha256:[a-f0-9]{64}$/;
+const BLOB_REFERENCE = /^(?:sha256|b1):[a-f0-9]{64}$/;
+
+function blobStorageKey(userId: string, reference: string): string {
+  return `blobs/${userId}/${reference.replace(':', '-')}.bin`;
+}
 
 function readProtocolVersion(req: AuthRequest): void {
   try {
@@ -69,7 +73,7 @@ blobsRouter.post('/check', async (req: AuthRequest, res: Response, next) => {
   try {
     readProtocolVersion(req);
     const parse = z
-      .object({ hashes: z.array(z.string().regex(SHA256_HASH)).max(500) })
+      .object({ hashes: z.array(z.string().regex(BLOB_REFERENCE)).max(500) })
       .safeParse(req.body);
     if (!parse.success) {
       throw new AppError(400, 'validation_error', 'Invalid blob check payload');
@@ -92,7 +96,7 @@ blobsRouter.post('/upload-url', async (req: AuthRequest, res: Response, next) =>
     readProtocolVersion(req);
     const parse = z
       .object({
-        hash: z.string().regex(SHA256_HASH),
+        hash: z.string().regex(BLOB_REFERENCE),
         sizeBytes: z.number().int().positive().max(512 * 1024 * 1024),
         contentType: z.string().min(1).default('application/octet-stream'),
       })
@@ -126,7 +130,7 @@ blobsRouter.post('/upload-url', async (req: AuthRequest, res: Response, next) =>
       throw new AppError(503, 'storage_unavailable', 'Blob storage is not configured');
     }
 
-    const storageKey = `blobs/${userId}/${hash.replace('sha256:', '')}.bin`;
+    const storageKey = blobStorageKey(userId, hash);
     const uploadUrl = await storage.getSignedUploadUrl(storageKey, contentType, 3600, sizeBytes);
 
     res.json({
@@ -145,7 +149,7 @@ blobsRouter.post('/complete', async (req: AuthRequest, res: Response, next) => {
     readProtocolVersion(req);
     const parse = z
       .object({
-        hash: z.string().regex(SHA256_HASH),
+        hash: z.string().regex(BLOB_REFERENCE),
         sizeBytes: z.number().int().positive().max(512 * 1024 * 1024),
         contentType: z.string().min(1).default('application/octet-stream'),
       })
@@ -155,7 +159,7 @@ blobsRouter.post('/complete', async (req: AuthRequest, res: Response, next) => {
     }
     const userId = req.userId!;
     const { hash, sizeBytes, contentType } = parse.data;
-    const storageKey = `blobs/${userId}/${hash.replace('sha256:', '')}.bin`;
+    const storageKey = blobStorageKey(userId, hash);
 
     const storage = getStorage();
     if (!storage) {
@@ -197,7 +201,7 @@ blobsRouter.get('/:hash/download-url', async (req: AuthRequest, res: Response, n
     readProtocolVersion(req);
     const userId = req.userId!;
     const hash = req.params.hash;
-    if (!SHA256_HASH.test(hash)) {
+    if (!BLOB_REFERENCE.test(hash)) {
       throw new AppError(400, 'validation_error', 'Invalid blob hash');
     }
     const pool = getPool();
