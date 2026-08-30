@@ -2264,7 +2264,7 @@ impl Repository {
         let (stability, difficulty) = extract
             .memory_state
             .as_ref()
-            .map(|s| (Some(s.stability), Some(s.difficulty)))
+            .map(|state| (Some(state.stability), Some(state.difficulty)))
             .unwrap_or((None, None));
         let progressive_summaries_json = extract
             .progressive_summaries
@@ -2273,7 +2273,7 @@ impl Repository {
             .transpose()?;
 
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 content = ?1, html_content = ?2, source_url = ?3,
@@ -2313,27 +2313,24 @@ impl Repository {
         )
         .bind(&extract.id)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", extract.id)));
+        }
 
-        let item_payload = payload::extract_payload(extract)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        journal_entity(
-            &mut tx,
-            EntityType::Extract,
-            &extract.id,
-            SyncOperation::Update,
-            Some(timestamp_revision(extract.date_modified)),
-            item_payload,
-        )
-        .await?;
+        let updated =
+            Self::journal_extract_fields(&mut tx, &extract.id, &["content", "tags", "schedule"])
+                .await?;
         tx.commit().await?;
         notify_after_commit();
-
-        Ok(extract.clone())
+        Ok(updated)
     }
 
     pub async fn update_extract_disclosure_level(&self, id: &str, level: i32) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 progressive_disclosure_level = ?1,
@@ -2344,8 +2341,16 @@ impl Repository {
         .bind(level)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2525,7 +2530,8 @@ impl Repository {
         reps: Option<i32>,
         last_review_date: Option<chrono::DateTime<Utc>>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 next_review_date = ?1,
@@ -2546,15 +2552,22 @@ impl Repository {
         .bind(last_review_date)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn update_extract_priority(&self, id: &str, priority_score: f64) -> Result<()> {
-        let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts
             SET priority_score = ?1, date_modified = ?2
@@ -2562,16 +2575,24 @@ impl Repository {
             "#,
         )
         .bind(priority_score)
-        .bind(now)
+        .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn update_extract_dismissed(&self, id: &str, is_dismissed: bool) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 is_dismissed = ?1,
@@ -2582,14 +2603,22 @@ impl Repository {
         .bind(is_dismissed)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn forget_extract(&self, id: &str) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 memory_state_stability = 0.5,
@@ -2604,9 +2633,16 @@ impl Repository {
         )
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2615,7 +2651,8 @@ impl Repository {
         id: &str,
         far_future: chrono::DateTime<Utc>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 next_review_date = ?1,
@@ -2627,9 +2664,16 @@ impl Repository {
         .bind(far_future)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2637,13 +2681,28 @@ impl Repository {
     /// the document's *previous* score. Extracts whose priority has been
     /// individually overridden (and therefore differs from the previous
     /// document score) are left untouched.
+
     pub async fn cascade_document_priority(
         &self,
         document_id: &str,
         previous_score: f64,
         new_score: f64,
     ) -> Result<u64> {
-        let result = sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM extracts WHERE document_id = ?1 AND ABS(priority_score - ?2) < 0.001",
+        )
+        .bind(document_id)
+        .bind(previous_score)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if ids.is_empty() {
+            tx.rollback().await?;
+            return Ok(0);
+        }
+
+        sqlx::query(
             r#"
             UPDATE extracts SET
                 priority_score = ?1,
@@ -2655,13 +2714,19 @@ impl Repository {
         .bind(Utc::now())
         .bind(document_id)
         .bind(previous_score)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected())
+        for id in &ids {
+            Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        }
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(ids.len() as u64)
     }
 
     // Learning item operations
+
     pub async fn create_learning_item(&self, item: &LearningItem) -> Result<LearningItem> {
         // Retry once on I/O errors (common on SD cards / low-storage devices)
         match self.create_learning_item_inner(item).await {
