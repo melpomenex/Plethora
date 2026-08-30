@@ -90,7 +90,11 @@ pub fn document_payload(document: &Document) -> Result<Vec<u8>, serde_json::Erro
     // synchronized document is reconstructed from encrypted metadata/content
     // plus the blob layer, never from another device's filesystem path.
     let mut portable = document.clone();
-    portable.file_path.clear();
+    let portable_source = url::Url::parse(&portable.file_path)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(|url| url.to_string());
+    portable.file_path = portable_source.unwrap_or_default();
     versioned_entity_payload("document", &portable)
 }
 
