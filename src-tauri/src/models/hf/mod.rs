@@ -28,7 +28,7 @@ pub use manager::{
     InstalledHfModel, InstalledModelFile, install_pinned_nemotron_asr, is_nemotron_asr_installed,
     is_pinned_nemotron_repo, model_id_for, nemotron_asr_catalog_entry, registry_is_installed,
     registry_list, registry_remove, resolve_pinned_nemotron_install_target, NEMOTRON_ASR_GGUF_FILE,
-    NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, PinnedNemotronAsrCatalogEntry,
+    NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_SHA256, PinnedNemotronAsrCatalogEntry,
 };
 pub use suitability::{Suitability, SuitabilityLevel};
 pub use system_info::{GpuInfo, SystemInfo, detect_system_info};

@@ -42,13 +42,13 @@ export function showTranscriptionResolutionFailure(
   if (resolution.reason === "mobile-local-unsupported") {
     toast.error(
       "Local STT Unavailable on Mobile",
-      "Local Whisper/Nemotron models cannot run on mobile. Use OpenRouter with Nemotron (configure in AI settings) or download an On-Device STT model in On-Device AI settings.",
+      "Local desktop models cannot run on mobile. Download an On-Device STT model (SenseVoice or Parakeet) in On-Device AI settings, or add a Groq API key for cloud transcription.",
       {
         action: {
-          label: "Open Settings",
+          label: "Open AI Settings",
           onClick: () => {
             window.dispatchEvent(new CustomEvent("navigate-to-settings", {
-              detail: { section: "audio-transcription" },
+              detail: { section: "on-device-ai" },
             }));
           },
         },
@@ -59,16 +59,18 @@ export function showTranscriptionResolutionFailure(
 
   if (resolution.reason === "missing-groq-key") {
     toast.error(
-      "Groq API Key Required",
       resolution.substitution === "mobile-no-local"
-        ? "Local transcription is unavailable on mobile. Add a Groq API key in Audio Transcription settings to use Groq instead."
+        ? "Speech-to-Text Setup Required"
+        : "Groq API Key Required",
+      resolution.substitution === "mobile-no-local"
+        ? "Local desktop models cannot run directly on mobile. Download an On-Device STT model (SenseVoice or Parakeet) in On-Device AI settings, or configure a Groq API key for cloud transcription."
         : "Add a Groq API key in Audio Transcription settings to use Groq transcription.",
       {
         action: {
-          label: "Open Settings",
+          label: resolution.substitution === "mobile-no-local" ? "Open On-Device AI" : "Open Settings",
           onClick: () => {
             window.dispatchEvent(new CustomEvent("navigate-to-settings", {
-              detail: { section: "audio-transcription" },
+              detail: { section: resolution.substitution === "mobile-no-local" ? "on-device-ai" : "audio-transcription" },
             }));
           },
         },

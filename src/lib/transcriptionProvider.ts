@@ -140,36 +140,24 @@ export function resolveTranscription(
       : getOpenRouterApiKey();
   const hasOpenRouterKey = Boolean(resolvedOpenRouterKey && resolvedOpenRouterKey.trim().length > 0);
 
-  // 1. Explicit OpenRouter selection
+  // 1. Explicit OpenRouter legacy setting fallback (OpenRouter has no STT endpoint).
   const explicitOpenRouter =
     audioSettings.sttProvider === "openrouter" || audioSettings.provider === "openrouter";
   if (explicitOpenRouter) {
-    const isNemotron =
-      !audioSettings.sttModel ||
-      audioSettings.sttModel === "automatic" ||
-      isNemotronModelId(audioSettings.sttModel);
-    const modelId = isNemotron
-      ? "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b"
-      : (LOGICAL_STT_MODELS[audioSettings.sttModel as LogicalSttModelKey]?.openRouterModelId ??
-        audioSettings.sttModel);
-    const modelLabel = isNemotron
-      ? "NVIDIA Nemotron 3.5 ASR 0.6B"
-      : (LOGICAL_STT_MODELS[audioSettings.sttModel as LogicalSttModelKey]?.displayName ??
-        audioSettings.sttModel);
-
-    if (!hasOpenRouterKey) {
+    if (audioSettings.groq.apiKey.trim()) {
       return {
-        ok: false,
-        reason: "missing-openrouter-key",
-        modelId,
-        modelLabel,
+        ok: true,
+        provider: "groq",
+        modelId: audioSettings.groq.model,
+        modelLabel: groqModelLabel(audioSettings.groq.model),
+        substitution: "mobile-groq-substitute",
       };
     }
     return {
-      ok: true,
-      provider: "openrouter",
-      modelId,
-      modelLabel,
+      ok: false,
+      reason: "missing-groq-key",
+      modelId: "whisper-large-v3-turbo",
+      modelLabel: "Whisper Large v3 Turbo",
     };
   }
 
@@ -224,59 +212,27 @@ export function resolveTranscription(
       };
     }
 
-    // On mobile, local Nemotron/Whisper cannot run directly.
-    const isNemotron = isNemotronModelId(audioSettings.sttModel);
-    if (isNemotron) {
-      if (hasOpenRouterKey) {
-        return {
-          ok: true,
-          provider: "openrouter",
-          modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-          modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
-          substitution: "nemotron-cloud-substitute",
-        };
-      }
-      if (audioSettings.groq.apiKey.trim()) {
-        return {
-          ok: true,
-          provider: "groq",
-          modelId: audioSettings.groq.model,
-          modelLabel: groqModelLabel(audioSettings.groq.model),
-          substitution: "mobile-no-local",
-        };
-      }
-      return {
-        ok: false,
-        reason: "missing-openrouter-key",
-        modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
-        substitution: "mobile-no-local",
-      };
-    }
-
+    // On mobile, local desktop models (Nemotron/Whisper) cannot run directly.
     if (audioSettings.groq.apiKey.trim()) {
+      const isNemotron = isNemotronModelId(audioSettings.sttModel);
       return {
         ok: true,
         provider: "groq",
         modelId: audioSettings.groq.model,
         modelLabel: groqModelLabel(audioSettings.groq.model),
-        substitution: "mobile-no-local",
+        substitution: isNemotron ? "mobile-groq-substitute" : "mobile-no-local",
       };
     }
-    if (hasOpenRouterKey) {
-      return {
-        ok: true,
-        provider: "openrouter",
-        modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
-        substitution: "mobile-no-local",
-      };
-    }
+
     return {
       ok: false,
       reason: "missing-groq-key",
-      modelId: audioSettings.groq.model,
-      modelLabel: groqModelLabel(audioSettings.groq.model),
+      modelId: isNemotronModelId(audioSettings.sttModel)
+        ? "nemotron-3.5-asr-0.6b"
+        : (audioSettings.sttModel || audioSettings.groq.model),
+      modelLabel: isNemotronModelId(audioSettings.sttModel)
+        ? "NVIDIA Nemotron 3.5 ASR 0.6B"
+        : (audioSettings.sttModel || groqModelLabel(audioSettings.groq.model)),
       substitution: "mobile-no-local",
     };
   }

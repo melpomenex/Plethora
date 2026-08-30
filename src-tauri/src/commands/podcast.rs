@@ -1369,12 +1369,24 @@ pub async fn transcribe_podcast_groq_chunks(
                 status,
                 &body[..body.len().min(300)]
             );
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(PlethoraError::Internal(format!(
+                    "{} API key is invalid or unauthorized (HTTP 401). Please verify your {} key in Settings.",
+                    provider_name, provider_name
+                )));
+            }
+            let detail = if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                v.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| body[..body.len().min(200)].to_string())
+            } else {
+                body[..body.len().min(200)].to_string()
+            };
             return Err(PlethoraError::Internal(format!(
                 "{} chunk {} failed (HTTP {}): {}",
-                provider_name,
-                i,
-                status,
-                &body[..body.len().min(200)]
+                provider_name, i, status, detail
             )));
         }
 
@@ -1613,12 +1625,24 @@ pub async fn transcribe_audio_file_groq(
                 status,
                 &body[..body.len().min(300)]
             );
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(PlethoraError::Internal(format!(
+                    "{} API key is invalid or unauthorized (HTTP 401). Please verify your {} key in Settings.",
+                    provider_name, provider_name
+                )));
+            }
+            let detail = if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                v.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| body[..body.len().min(200)].to_string())
+            } else {
+                body[..body.len().min(200)].to_string()
+            };
             return Err(PlethoraError::Internal(format!(
                 "{} chunk {} failed (HTTP {}): {}",
-                provider_name,
-                i,
-                status,
-                &body[..body.len().min(200)]
+                provider_name, i, status, detail
             )));
         }
 

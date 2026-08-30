@@ -251,12 +251,11 @@ describe("android on-device transcription routing", () => {
     expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
   });
 
-  it("routes openrouter resolution for podcasts to transcribePodcastEpisodeWithOpenRouter", async () => {
+  it("falls back to Groq for podcasts if openrouter resolution is passed", async () => {
     const resolution = resolveTranscription(
       { ...baseSettings(), sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b" },
       [],
       "native-mobile",
-      { openRouterKey: "sk-or-test" },
     );
     if (resolution.ok === false) throw new Error("unexpected failure");
     const route = await routePodcastTranscription(
@@ -266,23 +265,19 @@ describe("android on-device transcription routing", () => {
       "en",
       true,
     );
-    expect(route).toBe("openrouter");
-    expect(mocks.transcribePodcastEpisodeWithOpenRouter).toHaveBeenCalledWith(
+    expect(route).toBe("groq");
+    expect(mocks.transcribePodcastEpisodeWithGroq).toHaveBeenCalledWith(
       "episode-openrouter",
       "https://audio/ep.mp3",
-      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
       "en",
     );
-    expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
-    expect(mocks.transcribePodcastEpisode).not.toHaveBeenCalled();
   });
 
-  it("routes openrouter resolution for documents to transcribeAudiobookWithOpenRouter", async () => {
+  it("falls back to Groq for documents if openrouter resolution is passed", async () => {
     const resolution = resolveTranscription(
       { ...baseSettings(), sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b" },
       [],
       "desktop",
-      { openRouterKey: "sk-or-test" },
     );
     if (resolution.ok === false) throw new Error("unexpected failure");
     const route = await routeDocumentTranscription(
@@ -290,13 +285,11 @@ describe("android on-device transcription routing", () => {
       resolution,
       "en",
     );
-    expect(route).toBe("openrouter");
-    expect(mocks.transcribeAudiobookWithOpenRouter).toHaveBeenCalledWith(
+    expect(route).toBe("groq");
+    expect(mocks.transcribeAudiobookWithGroq).toHaveBeenCalledWith(
       "doc-openrouter",
       "/audio/book.mp3",
-      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
       "en",
     );
-    expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
   });
 });

@@ -85,12 +85,12 @@ pub async fn download_transcription_model(
 ) -> Result<()> {
     use crate::models::hf::commands::{active_register, active_unregister};
     use crate::models::hf::manager::{
-        install_pinned_nemotron_asr, model_id_for, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
-        NEMOTRON_ASR_REVISION,
+        install_pinned_nemotron_asr, is_pinned_nemotron_repo, model_id_for,
+        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
     };
     use crate::models::hf::adapters::HfRuntime;
 
-    if id == NEMOTRON_ASR_LOGICAL_KEY || id == NEMOTRON_ASR_REPO_ID {
+    if is_pinned_nemotron_repo(&id) {
         let cancel = CancellationToken::new();
         let hf_id = model_id_for(
             HfRuntime::NemotronAsr,
@@ -130,11 +130,11 @@ pub async fn delete_transcription_model(
 ) -> Result<()> {
     use crate::models::hf::adapters::HfRuntime;
     use crate::models::hf::manager::{
-        model_id_for, uninstall, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
-        NEMOTRON_ASR_REVISION,
+        is_pinned_nemotron_repo, model_id_for, uninstall, NEMOTRON_ASR_LOGICAL_KEY,
+        NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
     };
 
-    if id == NEMOTRON_ASR_LOGICAL_KEY || id == NEMOTRON_ASR_REPO_ID {
+    if is_pinned_nemotron_repo(&id) {
         let hf_id = model_id_for(
             HfRuntime::NemotronAsr,
             NEMOTRON_ASR_REPO_ID,

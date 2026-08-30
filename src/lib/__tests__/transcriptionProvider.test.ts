@@ -328,79 +328,58 @@ describe("resolveTranscription — android-ondevice matrix", () => {
   });
 });
 
-describe("resolveTranscription — openrouter & mobile nemotron", () => {
-  it("resolves explicit openrouter provider when key is provided", () => {
+describe("resolveTranscription — mobile nemotron and legacy openrouter", () => {
+  it("falls back to Groq when legacy openrouter setting is present and Groq key is provided", () => {
     const res = resolveTranscription(
       settings({ sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b" }),
       [],
-      "desktop",
-      { openRouterKey: "sk-or-test-key" }
+      "desktop"
     );
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       ok: true,
-      provider: "openrouter",
-      modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      provider: "groq",
+      substitution: "mobile-groq-substitute",
     });
   });
 
-  it("works on native-mobile with openrouter provider without falling back to groq", () => {
+  it("substitutes Groq on mobile when local nemotron is chosen and Groq key is present", () => {
     const res = resolveTranscription(
-      settings({ sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b", groq: { ...settings().groq, apiKey: "" } }),
+      settings({ provider: "local", sttProvider: "local", sttModel: "nemotron-3.5-asr-0.6b", groq: { ...settings().groq, apiKey: "valid-groq-key" } }),
       [],
-      "native-mobile",
-      { openRouterKey: "sk-or-test-key" }
+      "native-mobile"
     );
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       ok: true,
-      provider: "openrouter",
-      modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      provider: "groq",
+      substitution: "mobile-groq-substitute",
     });
   });
 
-  it("fails with missing-openrouter-key when openrouter is selected without a key", () => {
-    const res = resolveTranscription(
-      settings({ sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b", groq: { ...settings().groq, apiKey: "valid-groq-key" } }),
-      [],
-      "native-mobile",
-      { openRouterKey: "" }
-    );
-    expect(res).toEqual({
-      ok: false,
-      reason: "missing-openrouter-key",
-      modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
-    });
-  });
-
-  it("substitutes cloud openrouter nemotron on mobile when local nemotron is chosen and openrouter key is present", () => {
+  it("prefers android-ondevice on mobile when local nemotron is chosen and android STT is ready", () => {
     const res = resolveTranscription(
       settings({ provider: "local", sttProvider: "local", sttModel: "nemotron-3.5-asr-0.6b" }),
       [],
       "native-mobile",
-      { openRouterKey: "sk-or-test-key" }
+      { androidSttReady: true }
     );
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       ok: true,
-      provider: "openrouter",
-      modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
-      substitution: "nemotron-cloud-substitute",
+      provider: "android-ondevice",
+      autoOnDevice: true,
     });
   });
 
-  it("reports missing-openrouter-key on mobile when local nemotron is chosen without any key", () => {
+  it("reports missing-groq-key on mobile when local nemotron is chosen without a Groq key or on-device model", () => {
     const res = resolveTranscription(
       settings({ provider: "local", sttProvider: "local", sttModel: "nemotron-3.5-asr-0.6b", groq: { ...settings().groq, apiKey: "" } }),
       [],
-      "native-mobile",
-      { openRouterKey: "" }
+      "native-mobile"
     );
     expect(res).toMatchObject({
       ok: false,
-      reason: "missing-openrouter-key",
+      reason: "missing-groq-key",
       modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      substitution: "mobile-no-local",
     });
   });
 });

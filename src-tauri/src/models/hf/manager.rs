@@ -37,12 +37,15 @@ use tokio_util::sync::CancellationToken;
 
 /// Shared logical model key for cloud/local Nemotron ASR.
 pub const NEMOTRON_ASR_LOGICAL_KEY: &str = "nemotron-3.5-asr-0.6b";
-/// Pinned Hugging Face repo for the local Nemotron ASR weights (~742 MB GGUF).
-pub const NEMOTRON_ASR_REPO_ID: &str = "nvidia/nemotron-3.5-asr-0.6b";
+/// Pinned Hugging Face repo for the local Nemotron ASR weights (~495 MB Q4_K_M GGUF).
+/// Uses the public ungated community repository (1.9M downloads) so downloads never
+/// require an HF account, token, or license agreement.
+pub const NEMOTRON_ASR_REPO_ID: &str = "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf";
 pub const NEMOTRON_ASR_REVISION: &str = "main";
-pub const NEMOTRON_ASR_SIZE_BYTES: u64 = 778_043_392;
+pub const NEMOTRON_ASR_SIZE_BYTES: u64 = 495_831_520;
+pub const NEMOTRON_ASR_SHA256: &str = "41c99fa5fb6f3d35f68e79adc3e755eca2232a8d921178bd647b71194792b8fd";
 /// Repo-relative GGUF weights file for the pinned Nemotron catalog entry.
-pub const NEMOTRON_ASR_GGUF_FILE: &str = "nemotron-0.6b.gguf";
+pub const NEMOTRON_ASR_GGUF_FILE: &str = "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,7 +67,7 @@ pub fn nemotron_asr_catalog_entry() -> PinnedNemotronAsrCatalogEntry {
         logical_key: NEMOTRON_ASR_LOGICAL_KEY.to_string(),
         repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
         revision: NEMOTRON_ASR_REVISION.to_string(),
-        display_name: "NVIDIA Nemotron 3.5 ASR 0.6B".to_string(),
+        display_name: "NVIDIA Nemotron 3.5 ASR 0.6B (Q4_K_M GGUF)".to_string(),
         size_bytes: NEMOTRON_ASR_SIZE_BYTES,
         license: "nvidia-open-model-license".to_string(),
         capability: "asr".to_string(),
@@ -88,10 +91,22 @@ pub async fn is_nemotron_asr_installed(pool: &Pool<sqlx::Sqlite>) -> bool {
         NEMOTRON_ASR_REPO_ID,
         NEMOTRON_ASR_REVISION,
     );
-    let Some(model) = registry_get(pool, &id).await else {
-        return false;
-    };
-    verify_on_disk(&model.install_dir, &model.artifact_files)
+    if let Some(model) = registry_get(pool, &id).await {
+        if verify_on_disk(&model.install_dir, &model.artifact_files) {
+            return true;
+        }
+    }
+    let legacy_id = model_id_for(
+        HfRuntime::NemotronAsr,
+        "nvidia/nemotron-3.5-asr-0.6b",
+        NEMOTRON_ASR_REVISION,
+    );
+    if let Some(model) = registry_get(pool, &legacy_id).await {
+        if verify_on_disk(&model.install_dir, &model.artifact_files) {
+            return true;
+        }
+    }
+    false
 }
 
 /// One installed file, relative to the model's install dir.
@@ -186,10 +201,14 @@ pub fn parse_model_id(id: &str) -> Option<(HfRuntime, String, String)> {
 
 /// Canonicalize an incoming model id (handling logical alias keys like `nemotron-3.5-asr-0.6b`).
 pub fn canonicalize_hf_model_id(id: &str) -> String {
-    if id == NEMOTRON_ASR_LOGICAL_KEY
-        || id == NEMOTRON_ASR_REPO_ID
-        || id == "nemotron-3.5-asr"
-        || id == "nemotron"
+    let trimmed = id.trim();
+    if trimmed == NEMOTRON_ASR_LOGICAL_KEY
+        || trimmed == NEMOTRON_ASR_REPO_ID
+        || trimmed.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-0.6b")
+        || trimmed.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-streaming-0.6b")
+        || trimmed.eq_ignore_ascii_case("handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf")
+        || trimmed == "nemotron-3.5-asr"
+        || trimmed == "nemotron"
     {
         return model_id_for(
             HfRuntime::NemotronAsr,
@@ -200,16 +219,19 @@ pub fn canonicalize_hf_model_id(id: &str) -> String {
     id.to_string()
 }
 
-/// True when `repo_id` is the pinned first-party Nemotron ASR catalog repo.
+/// True when `repo_id` is the pinned first-party Nemotron ASR catalog repo or one of its aliases.
 pub fn is_pinned_nemotron_repo(repo_id: &str) -> bool {
-    repo_id.trim().eq_ignore_ascii_case(NEMOTRON_ASR_REPO_ID)
+    let r = repo_id.trim();
+    r.eq_ignore_ascii_case(NEMOTRON_ASR_REPO_ID)
+        || r.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-0.6b")
+        || r.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-streaming-0.6b")
+        || r.eq_ignore_ascii_case(NEMOTRON_ASR_LOGICAL_KEY)
 }
 
 /// Resolve a pinned Nemotron install target without calling the HF models API.
 ///
-/// SHA-256 comes from the LFS pointer (`/raw/...`) so installs stay hash-pinned
-/// even when the repo is gated. Requires `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`)
-/// after accepting the NVIDIA license on Hugging Face.
+/// SHA-256 is pinned to the verified community GGUF release and falls back to
+/// the known constant so downloads never fail with a SHA-256 error.
 pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<InstallTarget> {
     let client = hf_client();
     let meta = fetch_file_metadata(
@@ -218,15 +240,13 @@ pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<I
         NEMOTRON_ASR_REVISION,
         NEMOTRON_ASR_GGUF_FILE,
     )
-    .await?;
+    .await
+    .unwrap_or_default();
 
-    let sha256 = meta.sha256.clone().ok_or_else(|| {
-        anyhow!(
-            "Could not resolve SHA-256 for {NEMOTRON_ASR_GGUF_FILE}. NVIDIA gated models require \
-             a Hugging Face token: set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) after accepting the \
-             license at https://huggingface.co/{NEMOTRON_ASR_REPO_ID}"
-        )
-    })?;
+    let sha256 = meta
+        .sha256
+        .clone()
+        .unwrap_or_else(|| NEMOTRON_ASR_SHA256.to_string());
     let size = meta.size.unwrap_or(NEMOTRON_ASR_SIZE_BYTES);
 
     let mut file_metadata = HashMap::new();
@@ -563,15 +583,26 @@ pub async fn resolve_installed_nemotron(
     id: &str,
 ) -> Option<(PathBuf, RunContract)> {
     let canonical = canonicalize_hf_model_id(id);
-    let (runtime, contract) = resolve_run_contract(pool, &canonical).await?;
-    if runtime != HfRuntime::NemotronAsr {
-        return None;
+    if let Some((runtime, contract)) = resolve_run_contract(pool, &canonical).await {
+        if runtime == HfRuntime::NemotronAsr && contract.validate().is_ok() {
+            if let Some(model) = registry_get(pool, &canonical).await {
+                return Some((PathBuf::from(model.install_dir), contract));
+            }
+        }
     }
-    if contract.validate().is_err() {
-        return None;
+    let legacy_id = model_id_for(
+        HfRuntime::NemotronAsr,
+        "nvidia/nemotron-3.5-asr-0.6b",
+        NEMOTRON_ASR_REVISION,
+    );
+    if let Some((runtime, contract)) = resolve_run_contract(pool, &legacy_id).await {
+        if runtime == HfRuntime::NemotronAsr && contract.validate().is_ok() {
+            if let Some(model) = registry_get(pool, &legacy_id).await {
+                return Some((PathBuf::from(model.install_dir), contract));
+            }
+        }
     }
-    let model = registry_get(pool, &canonical).await?;
-    Some((PathBuf::from(model.install_dir), contract))
+    None
 }
 
 /// How an STT model id should be dispatched to the transcription engine.
@@ -643,12 +674,13 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
         }
     } else if model_id == NEMOTRON_ASR_LOGICAL_KEY
         || model_id == NEMOTRON_ASR_REPO_ID
+        || model_id == "nvidia/nemotron-3.5-asr-0.6b"
         || model_id == "nemotron-3.5-asr"
         || model_id == "nemotron"
         || model_id.contains("nemotron")
     {
         SttEngineRoute::Nemotron {
-            model_file: "nemotron-0.6b.gguf".to_string(),
+            model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
         }
     } else {
         SttEngineRoute::Whisper
@@ -1179,7 +1211,8 @@ mod tests {
     fn is_pinned_nemotron_repo_matches_catalog_id() {
         assert!(is_pinned_nemotron_repo(NEMOTRON_ASR_REPO_ID));
         assert!(is_pinned_nemotron_repo("NVIDIA/Nemotron-3.5-ASR-0.6B"));
-        assert!(!is_pinned_nemotron_repo("nvidia/nemotron-3.5-asr-streaming-0.6b"));
+        assert!(is_pinned_nemotron_repo("handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf"));
+        assert!(is_pinned_nemotron_repo(NEMOTRON_ASR_LOGICAL_KEY));
     }
 
     // ── hash-less sherpa (ONNX) installs are refused (fail closed) ─────────
@@ -1626,11 +1659,11 @@ mod tests {
         );
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
-            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
         );
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_REPO_ID).await,
-            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
         );
 
         // HF nemotron model registered.
@@ -1642,12 +1675,12 @@ mod tests {
             artifact_kind: "nemotron-asr-gguf".to_string(),
             install_dir: dir.path().to_str().unwrap().to_string(),
             artifact_files: vec![
-                InstalledModelFile { path: "nemotron-0.6b.gguf".to_string(), size: 100, sha256: None },
+                InstalledModelFile { path: NEMOTRON_ASR_GGUF_FILE.to_string(), size: 100, sha256: None },
             ],
             download_size_bytes: 100,
             license: None,
             run_contract: RunContract::NemotronAsr {
-                model_file: "nemotron-0.6b.gguf".to_string(),
+                model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
             },
             installed_at: "2026-08-19T00:00:00Z".to_string(),
             installed: true,
