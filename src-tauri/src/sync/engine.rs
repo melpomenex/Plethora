@@ -217,6 +217,25 @@ pub async fn run_sync_cycle(
     engine: &SyncEngine,
     entitlements: &EntitlementCache,
 ) -> Result<(PushResult, PullResult)> {
+    // A brand-new device must hydrate cloud state before publishing its local
+    // pre-sync library. Otherwise two populated libraries can race as if each
+    // were authoritative. This is intentionally keyed to the persisted pull
+    // cursor so it survives process restarts.
+    if get_server_cursor(repo.pool()).await? == 0 {
+        let _ = pull_remote(repo, auth, entitlements).await?;
+    }
+
+    // Bootstrap is an engine invariant, not a UI action. Periodic/background
+    // sync must eventually publish an existing library even if the user never
+    // presses a manual "Sync now" button. Each scan is bounded to 100 rows.
+    loop {
+        let progress = super::bootstrap::bootstrap_upload_scan(repo.pool()).await?;
+        if progress.phase != "upload" {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
     let push = push_outbox(repo, auth, entitlements).await?;
     let pull = pull_remote(repo, auth, entitlements).await?;
     engine.set_last_synced(chrono::Utc::now().to_rfc3339());
