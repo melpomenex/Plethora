@@ -34,10 +34,12 @@ pub async fn mark_dirty(
     let change_id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().timestamp_millis();
 
-    // Server revisions are server-assigned monotonic integers. Historical
-    // call sites passed timestamp-derived values here, which are not
-    // comparable to those revisions. Prefer the last revision actually
-    // observed from the server; until one exists, omit the precondition.
+    // The current client merge model is deterministic whole-entity LWW.
+    // Sending a server revision precondition for ordinary updates would turn
+    // multiple legitimate offline edits from one device into false conflicts
+    // (both were created from the same observed revision). Keep the server
+    // revision locally for diagnostics/future field merges, but only assert
+    // revision zero for a genuinely new entity.
     let observed_revision: Option<i64> = sqlx::query_scalar(
         "SELECT server_revision FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
     )
@@ -46,15 +48,12 @@ pub async fn mark_dirty(
     .fetch_optional(&mut **tx)
     .await?
     .flatten();
-    let effective_base_revision = observed_revision.or_else(|| {
-        // Preserve an explicit zero only for a true create. Any non-zero
-        // legacy timestamp revision is intentionally ignored.
+    let effective_base_revision =
         if matches!(operation, SyncOperation::Create) && base_revision == Some(0) {
             Some(0)
         } else {
             None
-        }
-    });
+        };
 
     sqlx::query(
         r#"
