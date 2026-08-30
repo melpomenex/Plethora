@@ -291,8 +291,9 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
               seq_number as "seqNumber", created_at as "createdAt"
        FROM sync_records
        WHERE user_id = $1 AND seq_number > $2
-       ORDER BY seq_number ASC`,
-      [userId, cursor]
+       ORDER BY seq_number ASC
+       LIMIT $3`,
+      [userId, cursor, limit + 1]
     );
 
     const page = paginatePull(result.rows, cursor, limit);
