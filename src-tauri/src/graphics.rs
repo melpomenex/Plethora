@@ -272,7 +272,14 @@ fn apply_environment(decision: &GraphicsDecision) {
             if decision.disable_dmabuf {
                 std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
             }
-            std::env::set_var("WEBKIT_HARDWARE_ACCELERATION_POLICY", "always");
+            // In WebKitGTK, setting WEBKIT_HARDWARE_ACCELERATION_POLICY="always" forces
+            // hardware acceleration unconditionally onto video iframes, which crashes
+            // or renders blank when GStreamer hardware codecs/DMABUF video sinks fail.
+            // "ondemand" is the safe WebKitGTK default that lets the webview use GPU
+            // acceleration for themes/canvas while avoiding video iframe breakage.
+            if std::env::var("WEBKIT_HARDWARE_ACCELERATION_POLICY").is_err() {
+                std::env::set_var("WEBKIT_HARDWARE_ACCELERATION_POLICY", "ondemand");
+            }
         }
         GraphicsBackend::Compatibility => {
             // Software rasterizer fallback: the trio that keeps WebKitGTK

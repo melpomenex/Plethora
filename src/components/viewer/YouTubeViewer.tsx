@@ -300,16 +300,16 @@ export function YouTubeViewer({
     return () => window.removeEventListener("messageerror", onMessageError);
   }, [networkDebugEnabled]);
 
-  // If the viewer is reused across document switches, ensure we start in "thumbnail" mode
-  // so the user reliably sees the Resume button/badge for the current document.
+  // Track document switches: only re-resolve host/error states when switching to a different document,
+  // preserving showInlinePlayer = true on initial mount so inline playback works immediately.
+  const prevDocIdRef = useRef<string | null>(null);
   useEffect(() => {
-    setShowInlinePlayer(false);
-    setForceInlinePlayback(false);
-    setPlayerError(null);
-    // Re-derive from the platform rather than hardcoding a host: hardcoding here
-    // reverted Tauri/native-mobile to youtube-nocookie.com on every document open,
-    // which those WebViews block, leaving a blank player.
-    setEmbedHost(resolveEmbedHost());
+    if (prevDocIdRef.current !== null && prevDocIdRef.current !== documentId) {
+      setPlayerError(null);
+      setForceInlinePlayback(false);
+      setEmbedHost(resolveEmbedHost());
+    }
+    prevDocIdRef.current = documentId ?? null;
   }, [documentId, videoId]);
 
   useEffect(() => {
@@ -982,6 +982,7 @@ export function YouTubeViewer({
       desiredStartTimeRef.current = 0;
       initialSeekAppliedRef.current = true;
     }
+    setForceInlinePlayback(true);
     setShowInlinePlayer(true);
   };
 
@@ -1134,7 +1135,7 @@ export function YouTubeViewer({
   const onPlayerError = (event: any) => {
     const code = typeof event?.data === "number" ? event.data : -1;
 
-    if ((code === 101 || code === 150) && embedHost === "https://www.youtube-nocookie.com") {
+    if ((code === 101 || code === 150 || code === 153) && embedHost === "https://www.youtube-nocookie.com") {
       console.warn("[YouTubeViewer] Embedded playback blocked on youtube-nocookie. Retrying with youtube.com host.");
       setEmbedHost("https://www.youtube.com");
       setPlayerError(null);
@@ -1144,7 +1145,7 @@ export function YouTubeViewer({
     const message =
       code === 5
         ? t("viewer.youTubePlaybackFailed")
-        : code === 101 || code === 150
+        : code === 101 || code === 150 || code === 153
           ? t("viewer.videoCannotPlayEmbedded")
           : code === 100
             ? t("viewer.videoUnavailable")
@@ -1382,7 +1383,6 @@ export function YouTubeViewer({
               )}>
                 <button
                   onClick={() => {
-                    if (inlinePlaybackLikelyUnsupported && !forceInlinePlayback) return;
                     handlePlayVideo();
                   }}
                   className={cn(

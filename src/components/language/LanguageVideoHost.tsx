@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpenText, Camera, FilmStrip, Play, Translate } from "@phosphor-icons/react";
+import { BookOpenText, Camera, CaretDown, CaretUp, FilmStrip, Play, Translate } from "@phosphor-icons/react";
 import { DictionaryPeek, type DictionaryPeekTarget } from "../viewer/selectionInteraction/DictionaryPeek";
 import { useOptionalLanguageLearningHost } from "../../contexts/LanguageLearningHostContext";
 import { dispatchLanguageHostAction, type LanguageHostActionDetail, type LanguageHostSnapshot } from "../../lib/languageHost";
@@ -48,6 +48,7 @@ export function LanguageVideoHost(props: LanguageVideoHostProps) {
 function LanguageVideoHostConnected({ videoId, documentId, sourceFingerprint, segments, currentTime, onSeek, snapshot }: LanguageVideoHostProps & { snapshot: LanguageHostSnapshot }) {
   const tts = useTTS({ lang: snapshot.profile?.targetLanguage ?? "en-US" });
   const [peekOpen, setPeekOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [states, setStates] = useState<ReadonlyMap<string, LanguageKnowledgeState>>(new Map());
   const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [analysisRetry, setAnalysisRetry] = useState(0);
@@ -220,6 +221,24 @@ function LanguageVideoHostConnected({ videoId, documentId, sourceFingerprint, se
     });
   };
 
+  if (minimized) {
+    return (
+      <div className="pointer-events-auto absolute left-3 top-3 z-30" data-language-video-host="true">
+        <button
+          type="button"
+          onClick={() => setMinimized(false)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1 text-xs shadow-md backdrop-blur hover:bg-muted"
+          title="Expand language video panel"
+          aria-label="Expand language video panel"
+        >
+          <FilmStrip className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <span className="font-medium">Language video</span>
+          <CaretDown className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="pointer-events-auto absolute left-3 top-3 z-30 w-[min(92vw,520px)] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-lg backdrop-blur" data-language-video-host="true">
       <div className="flex items-center gap-2">
@@ -227,6 +246,15 @@ function LanguageVideoHostConnected({ videoId, documentId, sourceFingerprint, se
         <span className="font-medium">Language video</span>
         <span className="text-muted-foreground">{snapshot.profile.targetLanguage}</span>
         <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-primary">{active.id}</span>
+        <button
+          type="button"
+          onClick={() => setMinimized(true)}
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Minimize language video panel"
+          aria-label="Minimize language video panel"
+        >
+          <CaretUp className="h-3.5 w-3.5" />
+        </button>
       </div>
       <div className="mt-2 rounded-lg bg-muted/50 p-2 leading-relaxed" aria-live="polite">
         {words.map((word, index) => {
