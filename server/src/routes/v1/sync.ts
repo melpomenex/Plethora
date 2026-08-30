@@ -22,7 +22,7 @@ export const syncRouter = Router();
 
 syncRouter.use(authMiddleware, requireCloudSync);
 
-const MAX_CIPHERTEXT_BYTES = 256 * 1024;
+const MAX_CIPHERTEXT_BYTES = 5 * 1024 * 1024;
 
 const SyncRecordSchema = z.object({
   tableKind: z.string().min(1),
