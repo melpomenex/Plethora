@@ -242,19 +242,20 @@ pub async fn prepare_document_target(
     };
 
     // Content hashes are strong identities for independently imported copies.
-    if let Some(hash) = document
-        .content_hash
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        candidate = sqlx::query_scalar(
-            "SELECT id FROM documents WHERE content_hash = ?1 AND id != ?2 ORDER BY id LIMIT 1",
-        )
-        .bind(hash)
-        .bind(&document.id)
-        .fetch_optional(&mut **tx)
-        .await?;
+    if candidate.is_none() {
+        if let Some(hash) = document
+            .content_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            candidate = sqlx::query_scalar(
+                "SELECT id FROM documents WHERE content_hash = ?1 AND id != ?2 ORDER BY id LIMIT 1",
+            )
+            .bind(hash)
+            .bind(&document.id)
+            .fetch_optional(&mut **tx)
+            .await?;
         }
     }
 
