@@ -155,11 +155,15 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
                 next_id = Some(entity_id);
                 continue;
             };
+            // Append-only histories (review results) must stage as appends;
+            // everything else re-stages as a whole-entity update.
+            let staging_op = super::registry::staging_operation(entity_type)
+                .unwrap_or(SyncOperation::Update);
             journal_entity(
                 &mut tx,
                 entity_type,
                 &entity_id,
-                SyncOperation::Update,
+                staging_op,
                 Some(0),
                 payload,
             )
@@ -440,37 +444,9 @@ mod tests {
     #[tokio::test]
     async fn review_payload_decodes_integer_stored_interval() {
         let pool = test_pool().await;
-        sqlx::query(
-            r#"
-            INSERT INTO learning_items (
-                id, item_type, question, answer, due_date, algorithm_type,
-                interval, ease_factor, date_created, date_modified
-            ) VALUES (
-                'item-1', 'basic', 'Q', 'A', '2026-01-01T00:00:00Z', 'fsrs',
-                1.0, 2.5, datetime('now'), datetime('now')
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("seed item");
+        seed_review_environment(&pool).await;
 
         // Bind 7 (not 7.0) so SQLite stores the INTEGER storage class.
-        sqlx::query(
-            r#"
-            INSERT INTO review_results (
-                id, session_id, item_id, rating, time_taken,
-                new_due_date, new_interval, new_ease_factor, timestamp
-            ) VALUES (
-                'rev-1', NULL, 'item-1', 3, 5,
-                '2026-01-02T00:00:00Z', 7, 2.5, '2026-01-01T00:00:00Z'
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("seed review");
-
         let storage: String = sqlx::query_scalar("SELECT typeof(new_interval) FROM review_results WHERE id = 'rev-1'")
             .fetch_one(&pool)
             .await
@@ -485,5 +461,65 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&payload).expect("payload json");
         assert_eq!(parsed["new_interval"], serde_json::json!(7.0));
         assert_eq!(parsed["new_ease_factor"], serde_json::json!(2.5));
+    }
+
+    // A fresh device stages its whole local library through the bootstrap
+    // scan. Review results are append-only: staging them as `Update` was
+    // rejected by the outbox operation guard and aborted the first
+    // "Sync Now" with "Operation update is not allowed for review_result".
+    #[tokio::test]
+    async fn bootstrap_scan_stages_review_results_as_append_events() {
+        let pool = test_pool().await;
+        seed_review_environment(&pool).await;
+
+        let progress = bootstrap_upload_scan(&pool).await.expect("bootstrap scan");
+        assert!(
+            progress.phase != "error",
+            "bootstrap scan must not fail on review results: {:?}",
+            progress
+        );
+
+        let staged: Vec<(String, String)> =
+            sqlx::query_as("SELECT entity_type, operation FROM sync_outbox")
+                .fetch_all(&pool)
+                .await
+                .expect("outbox");
+        let review = staged
+            .iter()
+            .find(|(entity_type, _)| entity_type == "review_result")
+            .expect("review result staged");
+        assert_eq!(review.1, "append_event");
+    }
+
+    async fn seed_review_environment(pool: &Pool<Sqlite>) {
+        sqlx::query(
+            r#"
+            INSERT INTO learning_items (
+                id, item_type, question, answer, due_date, algorithm_type,
+                interval, ease_factor, date_created, date_modified
+            ) VALUES (
+                'item-1', 'basic', 'Q', 'A', '2026-01-01T00:00:00Z', 'fsrs',
+                1.0, 2.5, datetime('now'), datetime('now')
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("seed item");
+
+        sqlx::query(
+            r#"
+            INSERT INTO review_results (
+                id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp
+            ) VALUES (
+                'rev-1', NULL, 'item-1', 3, 5,
+                '2026-01-02T00:00:00Z', 7, 2.5, '2026-01-01T00:00:00Z'
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("seed review");
     }
 }

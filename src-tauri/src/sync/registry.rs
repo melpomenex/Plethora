@@ -39,6 +39,17 @@ pub fn is_syncable(entity_type: EntityType) -> bool {
     entity_spec(entity_type).is_some()
 }
 
+/// The operation used when (re)staging an existing local entity during
+/// bootstrap. Append-only histories must be journaled as appends — `Update`
+/// is rejected by `operation_allowed` and would abort the whole bootstrap
+/// scan.
+pub fn staging_operation(entity_type: EntityType) -> Option<SyncOperation> {
+    match entity_spec(entity_type)?.merge_strategy {
+        MergeStrategy::AppendOnly => Some(SyncOperation::AppendEvent),
+        MergeStrategy::FieldLww | MergeStrategy::SetLike => Some(SyncOperation::Update),
+    }
+}
+
 pub fn operation_allowed(entity_type: EntityType, operation: SyncOperation) -> bool {
     match entity_spec(entity_type) {
         Some(spec) => match spec.merge_strategy {
