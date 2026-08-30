@@ -33,7 +33,7 @@ const SyncRecordSchema = z.object({
   aad: z.string().min(1),
   keyVersion: z.number().int().positive().default(1),
   changeId: z.string().min(1).optional(),
-  operation: z.string().min(1).optional(),
+  operation: z.enum(['create', 'update', 'delete', 'append_event']).optional(),
   baseRevision: z.number().int().optional(),
 });
 
@@ -212,9 +212,14 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
       const id = uuidv4();
       const offloaded = await maybeOffloadSyncPayload(userId, id, rec.payloadCiphertext);
 
+      const nextRevision = nextEntityRevision(serverRevision);
       const insertRes = await pool.query(
-        `INSERT INTO sync_records (id, user_id, table_kind, record_id, hlc, device_id, payload_ciphertext, aad, key_version, blob_storage_key, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        `INSERT INTO sync_records (
+           id, user_id, table_kind, record_id, hlc, device_id,
+           payload_ciphertext, aad, key_version, blob_storage_key,
+           change_id, operation, base_revision, entity_revision, created_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
          RETURNING seq_number`,
         [
           id,
@@ -227,6 +232,10 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
           rec.aad,
           rec.keyVersion,
           offloaded.blobStorageKey,
+          rec.changeId ?? null,
+          rec.operation ?? null,
+          rec.baseRevision ?? null,
+          nextRevision,
         ]
       );
 
@@ -234,7 +243,6 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
       latestSeq = Math.max(latestSeq, seq);
       accepted++;
 
-      const nextRevision = nextEntityRevision(serverRevision);
       await pool.query(
         `INSERT INTO entity_revisions (user_id, entity_type, entity_id, revision, updated_at)
          VALUES ($1, $2, $3, $4, NOW())
@@ -278,7 +286,8 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const result = await pool.query(
       `SELECT id, table_kind as "tableKind", record_id as "recordId", hlc, device_id as "deviceId",
               payload_ciphertext as "payloadCiphertext", aad, key_version as "keyVersion",
-              blob_storage_key as "blobStorageKey",
+              change_id as "changeId", operation, base_revision as "baseRevision",
+              entity_revision as "entityRevision", blob_storage_key as "blobStorageKey",
               seq_number as "seqNumber", created_at as "createdAt"
        FROM sync_records
        WHERE user_id = $1 AND seq_number > $2
