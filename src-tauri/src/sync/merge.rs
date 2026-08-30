@@ -219,6 +219,11 @@ async fn apply_learning_item(
         return Ok(ApplyOutcome::Applied);
     }
 
+    if let Some(item) = super::full_state::decode_learning_item(&record.payload) {
+        super::full_state::upsert_learning_item(tx, &item).await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
     #[derive(serde::Deserialize)]
     struct ItemPayload {
         id: String,
@@ -302,6 +307,11 @@ async fn apply_document(
             .bind(&record.record_id)
             .execute(&mut **tx)
             .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    if let Some(document) = super::full_state::decode_document(&record.payload) {
+        super::full_state::upsert_document(tx, &document).await?;
         return Ok(ApplyOutcome::Applied);
     }
 
@@ -474,6 +484,11 @@ async fn apply_extract(
             .bind(&record.record_id)
             .execute(&mut **tx)
             .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    if let Some(extract) = super::full_state::decode_extract(&record.payload) {
+        super::full_state::upsert_extract(tx, &extract).await?;
         return Ok(ApplyOutcome::Applied);
     }
 
