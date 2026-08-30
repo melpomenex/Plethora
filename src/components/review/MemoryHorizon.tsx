@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Sparkle } from "@phosphor-icons/react";
-import type { ArenaModelCandidate, SM20ArenaGradePreview } from "../../api/review";
+import type { ArenaModelCandidate, ArenaGradePreview } from "../../api/review";
 import type { ArenaSelectionDraft } from "../../stores/reviewStore";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -12,7 +12,7 @@ import { formatArenaDueDate, formatArenaInterval } from "./arenaFormatters";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 
 interface MemoryHorizonProps {
-  preview: SM20ArenaGradePreview;
+  preview: ArenaGradePreview;
   selection: ArenaSelectionDraft;
   chosenDays: number;
   chosenDueAt?: string;

@@ -2,7 +2,7 @@
  * AI workflow tasks for the legacy AI Workflows page — routed through runTask.
  */
 
-import { answerQuestion, extractKeyPoints, generateTitle, simplifyContent, summarizeContent, type SimplificationLevel } from "../../../api/ai";
+import { answerQuestion, extractKeyPoints, generateTitle, simplifyContent, summarizeContent, type SimplificationLevel } from "../../../../api/ai";
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../containment";
 import { registerTasks } from "../registry";
 import type { AITaskDefinition } from "../types";

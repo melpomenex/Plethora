@@ -1,3 +1,5 @@
+import type { AppleIntelligenceSnapshot } from "../apple/types";
+import type { AppleFmAvailability } from "../apple/foundation";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AIError } from "../errors";
 import { runChunkedGeneration } from "../apple/foundation";
@@ -9,15 +11,15 @@ const fm = vi.hoisted(() => ({
     requestId: args.requestId,
     text: `out:${args.text.slice(0, 12)}`,
   })),
-  availability: vi.fn(async () => ({ status: "available", tokenLimit: 4096 })),
-  snapshot: vi.fn(async () => ({
+  availability: vi.fn(async (): Promise<AppleFmAvailability> => ({ status: "available", tokenLimit: 4096 })),
+  snapshot: vi.fn(async (): Promise<AppleIntelligenceSnapshot> => ({
     appleOs: true,
-    foundationModels: { status: "available" as const },
-    speech: { status: "unavailable" as const },
-    visionDocuments: { status: "unavailable" as const },
-    spotlightSemantic: { status: "unavailable" as const },
-    naturalLanguageEmbeddings: { status: "unavailable" as const },
-    coreAi: { status: "unavailable" as const },
+    foundationModels: { status: "available" },
+    speech: { status: "unavailable" },
+    visionDocuments: { status: "unavailable" },
+    spotlightSemantic: { status: "unavailable" },
+    naturalLanguageEmbeddings: { status: "unavailable" },
+    coreAi: { status: "unavailable" },
     checkedAt: 1,
   })),
 }));

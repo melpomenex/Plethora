@@ -26,7 +26,7 @@ export function createAppleTranslationProvider(): TranslationProvider {
       if (!isAppleTranslationAvailable()) {
         throw new Error("platform_unsupported");
       }
-      const result = await invokeCommand<{ translatedText: string }>(
+      const invocation = invokeCommand<{ translatedText: string }>(
         "plugin:plethora-apple-intelligence|apple_translate_sentence",
         {
           request: {
@@ -35,8 +35,24 @@ export function createAppleTranslationProvider(): TranslationProvider {
             targetLanguage: request.targetLanguage,
           },
         },
-        { signal: options?.signal },
       );
+      if (!options?.signal) {
+        return { translatedText: (await invocation).translatedText };
+      }
+      const signal = options.signal;
+      // The native bridge has no cancellation channel; surface aborts
+      // promptly to the caller instead of leaving the promise pending.
+      const result = await Promise.race([
+        invocation,
+        new Promise<never>((_, reject) => {
+          const abort = () => reject(new DOMException("Aborted", "AbortError"));
+          if (signal.aborted) {
+            abort();
+          } else {
+            signal.addEventListener("abort", abort, { once: true });
+          }
+        }),
+      ]);
       return { translatedText: result.translatedText };
     },
   };

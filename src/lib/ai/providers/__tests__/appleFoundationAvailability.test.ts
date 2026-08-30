@@ -1,17 +1,19 @@
+import type { AppleIntelligenceSnapshot } from "../../apple/types";
+import type { AppleFmAvailability } from "../../apple/foundation";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppleFoundationProvider } from "../appleFoundationProvider";
 import { useSettingsStore } from "../../../../stores/settingsStore";
 
 const fm = vi.hoisted(() => ({
-  availability: vi.fn(async () => ({ status: "available", tokenLimit: 4096 })),
-  snapshot: vi.fn(async () => ({
+  availability: vi.fn(async (): Promise<AppleFmAvailability> => ({ status: "available", tokenLimit: 4096 })),
+  snapshot: vi.fn(async (): Promise<AppleIntelligenceSnapshot> => ({
     appleOs: true,
-    foundationModels: { status: "available" as const },
-    speech: { status: "unavailable" as const },
-    visionDocuments: { status: "unavailable" as const },
-    spotlightSemantic: { status: "unavailable" as const },
-    naturalLanguageEmbeddings: { status: "unavailable" as const },
-    coreAi: { status: "unavailable" as const },
+    foundationModels: { status: "available" },
+    speech: { status: "unavailable" },
+    visionDocuments: { status: "unavailable" },
+    spotlightSemantic: { status: "unavailable" },
+    naturalLanguageEmbeddings: { status: "unavailable" },
+    coreAi: { status: "unavailable" },
     checkedAt: 1,
   })),
 }));

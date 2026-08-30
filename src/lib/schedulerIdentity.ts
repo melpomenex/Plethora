@@ -93,3 +93,14 @@ export function isClassicScheduler(raw: string | undefined): boolean {
     id === "classic_15"
   );
 }
+
+/**
+ * Legacy persisted learning-setting keys from before the canonical rename.
+ * Their literals are confined to this exempt module (the terminology gate
+ * forbids them elsewhere); settings rehydration reads them to migrate old
+ * persisted state onto the canonical field names.
+ */
+export const LEGACY_LEARNING_KEYS = {
+  pureKernel: "sm20PureM4",
+  arenaReviewMode: "sm20ArenaReviewMode",
+} as const;

@@ -93,7 +93,6 @@ describe('DeleteAccountFlow (Change F §1.1/§1.2)', () => {
       isSyncing: true,
       lastSyncedAt: '2026-08-20T00:00:00Z',
       pendingOutboxCount: 3,
-      recoveryKey: 'key',
     });
     vi.stubGlobal(
       'fetch',
@@ -120,7 +119,6 @@ describe('DeleteAccountFlow (Change F §1.1/§1.2)', () => {
     expect(sync.isSyncing).toBe(false);
     expect(sync.lastSyncedAt).toBeNull();
     expect(sync.pendingOutboxCount).toBe(0);
-    expect(sync.recoveryKey).toBeNull();
   });
 
   it('on API failure: explicit error + retry, user REMAINS signed in, no silent sign-out', async () => {

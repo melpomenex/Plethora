@@ -141,6 +141,13 @@ export const useSyncStore = create<SyncStatusState>()(
       },
 
       generateRecoveryKey: async () => {
+        if (!isTauri()) {
+          // Browser/PWA fallback: same format as the Rust generator
+          // (hex-encoded 32 random bytes) so the store contract holds.
+          const bytes = new Uint8Array(32);
+          crypto.getRandomValues(bytes);
+          return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        }
         const key = await invoke<string>('sync_generate_recovery_key');
         return key;
       },

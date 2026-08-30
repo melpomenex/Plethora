@@ -252,7 +252,11 @@ async fn build_bootstrap_payload(
             >(
                 r#"
                 SELECT id, collection_id, session_id, item_id, rating, time_taken,
-                       COALESCE(new_due_date, timestamp), new_interval, new_ease_factor,
+                       COALESCE(new_due_date, timestamp),
+                       -- new_interval is declared INTEGER; whole-day FSRS
+                       -- intervals are stored with integer affinity and sqlx
+                       -- refuses to decode them as f64 without a cast.
+                       CAST(new_interval AS REAL), CAST(new_ease_factor AS REAL),
                        COALESCE(reviewed_at_ms, CAST(strftime('%s', timestamp) AS INTEGER) * 1000),
                        COALESCE(device_id, 'legacy-bootstrap')
                 FROM review_results WHERE id = ?1
@@ -411,4 +415,75 @@ pub fn revision_from_rfc3339(value: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|ts| timestamp_revision(ts.with_timezone(&chrono::Utc)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::migrations::run_migrations;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn test_pool() -> Pool<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("migrations");
+        pool
+    }
+
+    // review_results.new_interval is declared INTEGER: whole-day FSRS
+    // intervals are stored with integer affinity, and decoding the column as
+    // f64 (sqlx is strict about storage classes) used to abort the whole
+    // bootstrap with "mismatched types" on the first fresh-device scan.
+    #[tokio::test]
+    async fn review_payload_decodes_integer_stored_interval() {
+        let pool = test_pool().await;
+        sqlx::query(
+            r#"
+            INSERT INTO learning_items (
+                id, item_type, question, answer, due_date, algorithm_type,
+                interval, ease_factor, date_created, date_modified
+            ) VALUES (
+                'item-1', 'basic', 'Q', 'A', '2026-01-01T00:00:00Z', 'fsrs',
+                1.0, 2.5, datetime('now'), datetime('now')
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("seed item");
+
+        // Bind 7 (not 7.0) so SQLite stores the INTEGER storage class.
+        sqlx::query(
+            r#"
+            INSERT INTO review_results (
+                id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp
+            ) VALUES (
+                'rev-1', NULL, 'item-1', 3, 5,
+                '2026-01-02T00:00:00Z', 7, 2.5, '2026-01-01T00:00:00Z'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("seed review");
+
+        let storage: String = sqlx::query_scalar("SELECT typeof(new_interval) FROM review_results WHERE id = 'rev-1'")
+            .fetch_one(&pool)
+            .await
+            .expect("storage class");
+        assert_eq!(storage, "integer");
+
+        let mut tx = pool.begin().await.expect("begin");
+        let payload = build_bootstrap_payload(&mut tx, EntityType::ReviewResult, "rev-1")
+            .await
+            .expect("bootstrap payload");
+        let payload = payload.expect("payload present");
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).expect("payload json");
+        assert_eq!(parsed["new_interval"], serde_json::json!(7.0));
+        assert_eq!(parsed["new_ease_factor"], serde_json::json!(2.5));
+    }
 }

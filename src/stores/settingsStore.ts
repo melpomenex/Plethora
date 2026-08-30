@@ -9,7 +9,7 @@ import {
 import { normalizeFsrsParameters } from "../utils/fsrsParameters";
 import { isNativeMobile } from "../lib/tauri";
 import type { SchedulerId } from "../lib/schedulerIdentity";
-import { normalizeSchedulerId } from "../lib/schedulerIdentity";
+import { LEGACY_LEARNING_KEYS, normalizeSchedulerId } from "../lib/schedulerIdentity";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
 import type { StudyAction } from "../types/audioEdition";
 
@@ -1485,6 +1485,18 @@ export const useSettingsStore = create<SettingsState>()(
       onRehydrateStorage: () => (state, error) => {
         if (error || !state) return;
         const persisted = state.settings || defaultSettings;
+        // Pre-rename persistence used the legacy scheduler's prefixed learning
+        // keys; they are migrated into the current fields below. Their literal
+        // names live in the exempt schedulerIdentity module.
+        const legacyLearning = persisted.learning as
+          | (LearningSettings & Record<string, unknown>)
+          | undefined;
+        const legacyPureKernel = legacyLearning?.[LEGACY_LEARNING_KEYS.pureKernel] as
+          | boolean
+          | undefined;
+        const legacyArenaMode = legacyLearning?.[LEGACY_LEARNING_KEYS.arenaReviewMode] as
+          | string
+          | undefined;
         const persistedFsrsParams = persisted.learning?.fsrsParams;
         const normalizedGlobalWeights = normalizeFsrsParameters(
           persistedFsrsParams?.personalizedWeights
@@ -1523,11 +1535,11 @@ export const useSettingsStore = create<SettingsState>()(
             scopedFsrsOverrides: normalizedScopedOverrides,
             precisionPureKernel:
               persisted.learning?.precisionPureKernel ??
-              persisted.learning?.sm20PureM4 ??
+              legacyPureKernel ??
               defaultSettings.learning.precisionPureKernel,
             arenaReviewMode:
               persisted.learning?.arenaReviewMode === "choose" ||
-              persisted.learning?.sm20ArenaReviewMode === "choose"
+              legacyArenaMode === "choose"
                 ? "choose"
                 : defaultSettings.learning.arenaReviewMode,
           },

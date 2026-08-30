@@ -1,16 +1,18 @@
+import type { WindowsIntelligenceSnapshot } from "../../windows/types";
+import type { AppleFmAvailability } from "../../apple/foundation";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WindowsSystemProvider } from "../windowsSystemProvider";
 import { useSettingsStore } from "../../../../stores/settingsStore";
 
 const windows = vi.hoisted(() => ({
-  availability: vi.fn(async () => ({ status: "available", tokenLimit: 4096 })),
-  snapshot: vi.fn(async () => ({
+  availability: vi.fn(async (): Promise<AppleFmAvailability> => ({ status: "available", tokenLimit: 4096 })),
+  snapshot: vi.fn(async (): Promise<WindowsIntelligenceSnapshot> => ({
     windowsOs: true,
-    packageIdentity: true,
-    languageModel: { status: "available" as const },
-    ocr: { status: "unavailable" as const },
-    imageDescription: { status: "unavailable" as const },
-    embeddings: { status: "unavailable" as const },
+    packageIdentity: "mock-package",
+    languageModel: { status: "available" },
+    ocr: { status: "unavailable" },
+    imageDescription: { status: "unavailable" },
+    embeddings: { status: "unavailable" },
     checkedAt: 1,
   })),
 }));
@@ -49,7 +51,7 @@ describe("WindowsSystemProvider availability mapping", () => {
     windows.availability.mockResolvedValue({ status: "available", tokenLimit: 4096 });
     windows.snapshot.mockResolvedValue({
       windowsOs: true,
-      packageIdentity: true,
+      packageIdentity: "mock-package",
       languageModel: { status: "available" },
       ocr: { status: "unavailable" },
       imageDescription: { status: "unavailable" },
@@ -86,7 +88,7 @@ describe("WindowsSystemProvider availability mapping", () => {
   it("maps package_identity_missing to unavailable download state", async () => {
     windows.snapshot.mockResolvedValueOnce({
       windowsOs: true,
-      packageIdentity: false,
+      packageIdentity: null,
       languageModel: { status: "unavailable", reason: "package_identity_missing" },
       ocr: { status: "unavailable" },
       imageDescription: { status: "unavailable" },

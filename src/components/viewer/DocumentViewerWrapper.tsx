@@ -62,7 +62,7 @@ interface DocumentViewerWithAssistantProps {
   onPdfContextTextChange?: (text: string) => void;
   onPdfOcrContextTextChange?: (text: string | null) => void;
   contextPageWindow?: number;
-  onExtractCreated?: (extract: import("../../types/document").Extract, sourceContext?: ExtractSourceContext) => void;
+  onExtractCreated?: (extract: import("../../api/extracts").Extract, sourceContext?: ExtractSourceContext) => void;
   extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
   onEnded?: () => void;
   onArchive?: () => void;

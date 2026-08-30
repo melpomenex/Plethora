@@ -43,6 +43,10 @@ export function SyncSettingsPanel() {
   const plan = useEntitlementStore((state) => state.snapshot.plan);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [showImportForm, setShowImportForm] = useState(false);
+  const [importValue, setImportValue] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
   const storageLimitBytes = 10 * 1024 * 1024 * 1024;
 
   useEffect(() => {
@@ -56,6 +60,28 @@ export function SyncSettingsPanel() {
     await storeRecoveryKey(key);
     setActiveKey(key);
     setShowKeyModal(true);
+  };
+
+  const handleImportKey = async () => {
+    // Mirror the Rust-side normalization: separators and case never change
+    // the derived key, but it must be exactly 64 hex characters.
+    const normalized = importValue.replace(/[\s-]/g, "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(normalized)) {
+      setImportError("Recovery key must contain exactly 64 hexadecimal characters.");
+      return;
+    }
+    setImportBusy(true);
+    setImportError(null);
+    try {
+      await storeRecoveryKey(normalized);
+      await acknowledgeRecoveryKey();
+      setShowImportForm(false);
+      setImportValue("");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Failed to import recovery key.");
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const handleAcknowledgeKey = async () => {
@@ -240,16 +266,92 @@ export function SyncSettingsPanel() {
             </div>
           </div>
 
-          <button
-            onClick={() => void handleGenerateKey()}
-            disabled={recoveryKeyAcknowledged}
-            title={recoveryKeyAcknowledged ? "Recovery-key rotation is not available yet" : undefined}
-            className="px-3.5 py-1.5 border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
-          >
-            <ShieldCheck className="w-4 h-4 text-primary" />
-            {recoveryKeyAcknowledged ? "Recovery Key Configured" : "Generate Key"}
-          </button>
+          {!recoveryKeyAcknowledged ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleGenerateKey()}
+                className="px-3.5 py-1.5 border hover:bg-muted rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+                title="First device only — additional devices must import this key"
+              >
+                <ShieldCheck className="w-4 h-4 text-primary" />
+                Generate Key
+              </button>
+              <button
+                onClick={() => {
+                  setShowImportForm((open) => !open);
+                  setImportError(null);
+                }}
+                className="px-3.5 py-1.5 border hover:bg-muted rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+                title="Use the recovery key from your existing synced device"
+              >
+                <Key className="w-4 h-4 text-indigo-500" />
+                Import Key
+              </button>
+            </div>
+          ) : (
+            <button
+              disabled
+              title="Recovery-key rotation is not available yet"
+              className="px-3.5 py-1.5 border disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+            >
+              <ShieldCheck className="w-4 h-4 text-primary" />
+              Recovery Key Configured
+            </button>
+          )}
         </div>
+
+        {!recoveryKeyAcknowledged && (
+          <p className="text-xs text-muted-foreground">
+            Generate a key on your first device only. Every additional device
+            must import that same key — a device that generates its own key
+            cannot read or be read by the rest of the account.
+          </p>
+        )}
+
+        {showImportForm && !recoveryKeyAcknowledged && (
+          <div className="space-y-2 p-3 bg-muted/50 border rounded-lg">
+            <label htmlFor="recovery-key-import" className="text-sm font-medium">
+              Paste the recovery key from your existing synced device
+            </label>
+            <input
+              id="recovery-key-import"
+              type="text"
+              value={importValue}
+              onChange={(event) => {
+                setImportValue(event.target.value);
+                setImportError(null);
+              }}
+              placeholder="64 hexadecimal characters (dashes optional)"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full px-3 py-2 bg-background border rounded-lg font-mono text-xs break-all focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            {importError && (
+              <p className="text-xs text-red-500" role="alert">
+                {importError}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleImportKey()}
+                disabled={importBusy || importValue.trim().length === 0}
+                className="px-3.5 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 rounded-lg transition-colors text-sm font-medium"
+              >
+                {importBusy ? "Importing..." : "Import Key"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowImportForm(false);
+                  setImportValue("");
+                  setImportError(null);
+                }}
+                className="px-3.5 py-1.5 border hover:bg-muted rounded-lg transition-colors text-sm font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showKeyModal && activeKey && (

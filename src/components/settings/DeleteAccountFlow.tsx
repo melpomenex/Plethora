@@ -105,7 +105,6 @@ export function DeleteAccountFlow({ open, onClose }: DeleteAccountFlowProps) {
         isSyncing: false,
         lastSyncedAt: null,
         pendingOutboxCount: 0,
-        recoveryKey: null,
       });
       setStep({ kind: 'success' });
     } catch (err) {

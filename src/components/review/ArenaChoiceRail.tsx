@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 import { CheckCircle, MagicWand, SlidersHorizontal } from "@phosphor-icons/react";
-import type { ArenaModelCandidate, SM20ArenaGradePreview } from "../../api/review";
+import type { ArenaModelCandidate, ArenaGradePreview } from "../../api/review";
 import type { ArenaSelectionDraft } from "../../stores/reviewStore";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { useI18n } from "../../lib/i18n";
 import { formatArenaDueDate, formatArenaInterval } from "./arenaFormatters";
 
 interface ArenaChoiceRailProps {
-  preview: SM20ArenaGradePreview;
+  preview: ArenaGradePreview;
   selection: ArenaSelectionDraft;
   chosenDays: number;
   horizon: ReactNode;

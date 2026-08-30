@@ -72,9 +72,9 @@ function structuredTask(): AITaskDefinition<{ src: string }, PrerequisiteAnalysi
 }
 
 function routeOnDevice(
-  onDevice: FakeAppleFoundationProvider,
+  onDevice: InstanceType<typeof FakeAppleFoundationProvider>,
   cloudAnswer = "cloud answer"
-): FakeAppleFoundationProvider {
+): InstanceType<typeof FakeAppleFoundationProvider> {
   const cloud = new FakeAppleFoundationProvider({
     id: "cloud-llm",
     kind: "cloud",
