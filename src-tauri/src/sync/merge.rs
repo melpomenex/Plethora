@@ -805,7 +805,28 @@ async fn apply_collection(
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
     if matches!(record.operation, Some(SyncOperation::Delete)) {
-        sqlx::query("DELETE FROM collections WHERE id = ?1 AND id != '00000000-0000-0000-0000-000000000001'")
+        if record.record_id == crate::models::DEFAULT_COLLECTION_ID {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        for table in [
+            "documents",
+            "extracts",
+            "learning_items",
+            "review_sessions",
+            "review_results",
+            "annotations",
+            "categories",
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {} SET collection_id = ?1 WHERE collection_id = ?2",
+                table
+            ))
+            .bind(crate::models::DEFAULT_COLLECTION_ID)
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+        sqlx::query("DELETE FROM collections WHERE id = ?1")
             .bind(&record.record_id)
             .execute(&mut **tx)
             .await?;
