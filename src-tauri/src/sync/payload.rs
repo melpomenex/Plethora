@@ -56,6 +56,8 @@ struct ReviewResultSyncPayload<'a> {
     reviewed_at_ms: i64,
     device_id: &'a str,
     session_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    post_item: Option<&'a LearningItem>,
 }
 
 pub fn review_result_payload(
@@ -71,8 +73,39 @@ pub fn review_result_payload(
     device_id: &str,
     session_id: Option<&str>,
 ) -> Result<Vec<u8>, serde_json::Error> {
+    review_result_payload_with_item(
+        id,
+        item_id,
+        collection_id,
+        rating,
+        time_taken,
+        new_due_date,
+        new_interval,
+        new_ease_factor,
+        reviewed_at_ms,
+        device_id,
+        session_id,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn review_result_payload_with_item(
+    id: &str,
+    item_id: &str,
+    collection_id: &str,
+    rating: i32,
+    time_taken: i32,
+    new_due_date: &chrono::DateTime<chrono::Utc>,
+    new_interval: f64,
+    new_ease_factor: f64,
+    reviewed_at_ms: i64,
+    device_id: &str,
+    session_id: Option<&str>,
+    post_item: Option<&LearningItem>,
+) -> Result<Vec<u8>, serde_json::Error> {
     let payload = ReviewResultSyncPayload {
-        schema_version: 1,
+        schema_version: if post_item.is_some() { 2 } else { 1 },
         entity_type: "review_result",
         id,
         item_id,
@@ -85,6 +118,7 @@ pub fn review_result_payload(
         reviewed_at_ms,
         device_id,
         session_id,
+        post_item,
     };
     serde_json::to_vec(&payload)
 }
