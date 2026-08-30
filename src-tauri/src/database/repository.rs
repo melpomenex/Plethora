@@ -2702,11 +2702,8 @@ impl Repository {
             .await?;
         }
 
-        let item_payload = payload::learning_item_payload_with_fields(
-            item,
-            &["schedule", "tags", "media"],
-        )
-        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        let item_payload = payload::learning_item_payload_with_fields(item, &["schedule"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         mark_dirty(
             &mut tx,
             EntityType::LearningItem,
