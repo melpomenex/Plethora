@@ -19,6 +19,44 @@ export function showTranscriptionResolutionFailure(
   toast: ResolutionToastApi,
   retry?: () => void | Promise<void>,
 ): void {
+  if (resolution.reason === "missing-openrouter-key") {
+    toast.error(
+      "OpenRouter API Key Required",
+      resolution.substitution === "mobile-no-local"
+        ? "Local Nemotron cannot run on mobile. Add an OpenRouter API key in AI settings to use Nemotron via OpenRouter cloud."
+        : "Add an OpenRouter API key in AI provider settings to transcribe with OpenRouter.",
+      {
+        action: {
+          label: "Open AI Settings",
+          onClick: () => {
+            window.dispatchEvent(new CustomEvent("navigate-to-settings", {
+              detail: { section: "ai" },
+            }));
+          },
+        },
+      },
+    );
+    return;
+  }
+
+  if (resolution.reason === "mobile-local-unsupported") {
+    toast.error(
+      "Local STT Unavailable on Mobile",
+      "Local Whisper/Nemotron models cannot run on mobile. Use OpenRouter with Nemotron (configure in AI settings) or download an On-Device STT model in On-Device AI settings.",
+      {
+        action: {
+          label: "Open Settings",
+          onClick: () => {
+            window.dispatchEvent(new CustomEvent("navigate-to-settings", {
+              detail: { section: "audio-transcription" },
+            }));
+          },
+        },
+      },
+    );
+    return;
+  }
+
   if (resolution.reason === "missing-groq-key") {
     toast.error(
       "Groq API Key Required",

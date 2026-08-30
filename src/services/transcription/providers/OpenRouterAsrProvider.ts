@@ -98,8 +98,48 @@ export interface OpenRouterAsrProvider {
 
 type KeyResolver = (settings: Settings) => string;
 
+import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
+import { useSettingsStore } from "../../../stores/settingsStore";
+
+export function getOpenRouterApiKey(settings?: Settings): string {
+  // 1. Direct check in LLM providers store
+  try {
+    const providers = useLLMProvidersStore.getState().providers;
+    const candidate =
+      providers.find((p) => p.provider === "openrouter" && p.enabled && p.apiKey?.trim()) ||
+      providers.find((p) => p.provider === "openrouter" && p.apiKey?.trim());
+    if (candidate?.apiKey?.trim()) return candidate.apiKey.trim();
+  } catch {}
+
+  // 2. Try TTS auth adapter helper
+  try {
+    const effectiveSettings = settings ?? useSettingsStore.getState().settings;
+    const resolved = resolveProviderKey(OPENROUTER_ADAPTER, effectiveSettings);
+    if (resolved?.key?.trim()) return resolved.key.trim();
+  } catch {}
+
+  // 3. Try localStorage (e.g. background event / dynamic import before hydration)
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const raw = window.localStorage.getItem("llm-providers-storage");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const providers: Array<{ provider: string; apiKey?: string; enabled?: boolean }> = parsed?.state?.providers;
+        if (Array.isArray(providers)) {
+          const candidate =
+            providers.find((p) => p.provider === "openrouter" && p.enabled && p.apiKey?.trim()) ||
+            providers.find((p) => p.provider === "openrouter" && p.apiKey?.trim());
+          if (candidate?.apiKey?.trim()) return candidate.apiKey.trim();
+        }
+      }
+    }
+  } catch {}
+
+  return "";
+}
+
 function resolveOpenRouterKey(settings: Settings): string {
-  return resolveProviderKey(OPENROUTER_ADAPTER, settings).key;
+  return getOpenRouterApiKey(settings);
 }
 
 function audioFilename(audio: File | Blob): string {

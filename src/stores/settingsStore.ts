@@ -495,7 +495,7 @@ interface GroqTranscriptionSettings {
  * Audio Transcription Settings
  */
 interface AudioTranscriptionSettings {
-  provider: "local" | "groq" | "apple" | "android-ondevice";
+  provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
   /** User-facing transcription routing mode (preferred over legacy `provider`). */
   mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
   /** Provider category: Automatic, Local, OpenRouter, Premium. */

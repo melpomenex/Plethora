@@ -69,7 +69,7 @@ import { getSectionAudioUrl } from "../../stores/audioEditionGenerationStore";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
-import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq, transcribePodcastEpisodeOnDevice } from "../../api/podcast";
+import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq, transcribePodcastEpisodeWithOpenRouter, transcribePodcastEpisodeOnDevice } from "../../api/podcast";
 import { isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { resolveLocalMediaSource } from "./localMediaSource";
@@ -2613,7 +2613,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
         // doesn't work — route to Groq cloud transcription (which also yields
         // word-level timestamps for karaoke highlighting). Falls back to the
         // local command on desktop (when the provider isn't groq).
-        if (resolution.provider === "groq") {
+        if (resolution.provider === "openrouter") {
+          const audioUrl = remoteAudioUrl || document.filePath;
+          if (!audioUrl) {
+            showError("Transcription Failed", "No audio URL available for this episode.");
+            return;
+          }
+          await transcribePodcastEpisodeWithOpenRouter(episodeId, audioUrl, resolution.modelId, language);
+        } else if (resolution.provider === "groq") {
           const audioUrl = remoteAudioUrl || document.filePath;
           if (!audioUrl) {
             showError("Transcription Failed", "No audio URL available for this episode.");
@@ -2650,11 +2657,23 @@ const editionSectionIdsRef = useRef<string[]>([]);
       const language = currentAudioSettings.language === "auto" ? undefined : (currentAudioSettings.language || "en");
 
       // Route transcription based on model & provider.
-      // Groq (always on mobile, or when the user picks Groq on desktop) goes
-      // through the dedicated transcribe_audio_file_groq command — the
-      // auto-transcription queue worker only knows local Whisper/Parakeet models
-      // and has no Groq path, so queueing "groq" there fails to find a model.
-      if (resolution.provider === "groq") {
+      if (resolution.provider === "openrouter") {
+        if (!document.filePath) {
+          showError("Transcription Error", "No file path available for this document");
+          return;
+        }
+        setAudiobookTranscriptionProgress({ status: "starting", progress: 0 });
+        showInfo("Transcription Started", `Transcribing with ${engine}. You can keep listening while it runs.`);
+        try {
+          await audiobookApi.transcribeAudiobookWithOpenRouter(document.id, document.filePath, resolution.modelId, language);
+          await loadTranscript(document.id, document.id);
+          setAudiobookTranscriptionProgress(null);
+          showSuccess("Transcription Complete", "Audiobook transcript is ready.");
+        } catch (err) {
+          setAudiobookTranscriptionProgress(null);
+          showError("Transcription Failed", String(err));
+        }
+      } else if (resolution.provider === "groq") {
         if (!document.filePath) {
           showError("Transcription Error", "No file path available for this document");
           return;

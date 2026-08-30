@@ -722,6 +722,46 @@ export function DocumentViewer({
   // clearTextSelection) can always read the latest value without re-subscribing.
   const epubIframeWindowRef = useRef<Window | null>(null);
   epubIframeWindowRef.current = epubIframeWindow;
+
+  // Infer fileType from filePath if it's missing (legacy data or import issue)
+  const inferFileType = (doc?: typeof currentDocument): DocumentType => {
+    if (!doc) return "other";
+    if (doc.fileType && doc.fileType !== "other") {
+      const normalized = normalizeDocumentType(doc.fileType);
+      if (normalized) return normalized;
+    }
+    if (doc.filePath?.startsWith("kindle://") ||
+      doc.metadata?.source === "kindle-clippings") {
+      return "markdown";
+    }
+    // Fallback: infer from file extension
+    const ext = doc.filePath?.split(".").pop()?.toLowerCase();
+    const inferred = normalizeDocumentType(ext);
+    if (inferred) return inferred;
+    if (doc.tags?.some((tag) => {
+      const normalizedTag = tag.toLowerCase();
+      return normalizedTag === "audiobook" || normalizedTag === "audio";
+    })) {
+      return "audio";
+    }
+    if (
+      doc.fileType === "youtube" ||
+      doc.filePath?.includes("youtube.com") ||
+      doc.filePath?.includes("youtu.be") ||
+      doc.metadata?.url?.includes("youtube.com") ||
+      doc.metadata?.url?.includes("youtu.be") ||
+      doc.metadata?.originalUrl?.includes("youtube.com") ||
+      doc.metadata?.originalUrl?.includes("youtu.be")
+    ) {
+      return "youtube";
+    }
+    if (doc.content) {
+      return "markdown";
+    }
+    return "other";
+  };
+
+  const docType = inferFileType(currentDocument);
   const [pdfTextLayerRoots, setPdfTextLayerRoots] = useState<(HTMLDivElement | null)[]>([]);
   const [pdfScrollContainer, setPdfScrollContainer] = useState<HTMLElement | null>(null);
   const [pdfCanonicalPages, setPdfCanonicalPages] = useState<ReadonlyMap<number, PdfCanonicalPage>>(() => new Map());
@@ -873,56 +913,6 @@ export function DocumentViewer({
       }),
     [currentDocument?.contentHash, currentDocument?.id]
   );
-
-  // Infer fileType from filePath if it's missing (legacy data or import issue)
-  const inferFileType = (doc?: typeof currentDocument): DocumentType => {
-    if (!doc) return "other";
-    if (doc.fileType && doc.fileType !== "other") {
-      const normalized = normalizeDocumentType(doc.fileType);
-      if (normalized) return normalized;
-    }
-    // Kindle clippings documents use the synthetic `kindle://<sha>` path and
-    // have `metadata.source === "kindle-clippings"`. Their body is markdown
-    // (highlights as blockquotes, notes as bold paragraphs). Recognize them
-    // before the content check below so they render via MarkdownViewer even
-    // when the doc came through a list endpoint that NULLed `content` (the
-    // library summary endpoint strips content to keep the payload small).
-    // Without this, the gap between opening the doc and its full hydrate
-    // completing — or any path that opens the viewer without re-hydrating —
-    // would hit the "preview not available" wall.
-    if (doc.filePath?.startsWith("kindle://") ||
-      doc.metadata?.source === "kindle-clippings") {
-      return "markdown";
-    }
-    // Fallback: infer from file extension
-    const ext = doc.filePath?.split(".").pop()?.toLowerCase();
-    const inferred = normalizeDocumentType(ext);
-    if (inferred) return inferred;
-    if (doc.tags?.some((tag) => {
-      const normalizedTag = tag.toLowerCase();
-      return normalizedTag === "audiobook" || normalizedTag === "audio";
-    })) {
-      return "audio";
-    }
-    if (
-      doc.fileType === "youtube" ||
-      doc.filePath?.includes("youtube.com") ||
-      doc.filePath?.includes("youtu.be") ||
-      doc.metadata?.url?.includes("youtube.com") ||
-      doc.metadata?.url?.includes("youtu.be") ||
-      doc.metadata?.originalUrl?.includes("youtube.com") ||
-      doc.metadata?.originalUrl?.includes("youtu.be")
-    ) {
-      return "youtube";
-    }
-    // If document has content, treat as markdown
-    if (doc.content) {
-      return "markdown";
-    }
-    return "other";
-  };
-
-  const docType = inferFileType(currentDocument);
 
   // Audio Edition player mode (openspec add-audio-editions-and-hands-free-
   // study-mode): when a tab opens a document with `listenToEdition`, text

@@ -1,7 +1,9 @@
 import type { ModelProfile } from "../api/transcription";
+import { LOGICAL_STT_MODELS, type LogicalSttModelKey } from "../services/transcription/config";
+import { getOpenRouterApiKey } from "../services/transcription/providers/OpenRouterAsrProvider";
 
 export interface TranscriptionAudioSettings {
-  provider: "local" | "groq" | "apple" | "android-ondevice";
+  provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
   mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
   sttProvider?: "automatic" | "local" | "openrouter" | "premium";
   sttModel?: "automatic" | string;
@@ -40,20 +42,22 @@ export type TranscriptionPlatform = "desktop" | "native-mobile";
 export type Resolution =
   | {
       ok: true;
-      provider: "local" | "groq" | "apple" | "android-ondevice";
+      provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
       modelId: string;
       modelLabel: string;
       /** Android on-device was chosen even though the user never picked it. */
       autoOnDevice?: boolean;
-      substitution?: "mobile-no-local" | "on-device-unavailable";
+      substitution?: "mobile-no-local" | "on-device-unavailable" | "nemotron-cloud-substitute";
     }
   | {
       ok: false;
       reason:
         | "missing-groq-key"
+        | "missing-openrouter-key"
         | "model-not-installed"
         | "no-model-selected"
-        | "on-device-model-not-ready";
+        | "on-device-model-not-ready"
+        | "mobile-local-unsupported";
       modelId?: string;
       modelLabel?: string;
       substitution?: "mobile-no-local" | "on-device-unavailable";
@@ -105,6 +109,7 @@ export interface ResolveTranscriptionOptions {
   appleReady?: boolean;
   androidSttReady?: boolean;
   localNemotronReady?: boolean;
+  openRouterKey?: string;
 }
 
 export function resolveTranscription(
@@ -126,6 +131,46 @@ export function resolveTranscription(
     audioSettings.provider === "local"
   ) {
     return appleResolution();
+  }
+
+  // OpenRouter key resolution
+  const resolvedOpenRouterKey =
+    options.openRouterKey !== undefined
+      ? options.openRouterKey
+      : getOpenRouterApiKey();
+  const hasOpenRouterKey = Boolean(resolvedOpenRouterKey && resolvedOpenRouterKey.trim().length > 0);
+
+  // 1. Explicit OpenRouter selection
+  const explicitOpenRouter =
+    audioSettings.sttProvider === "openrouter" || audioSettings.provider === "openrouter";
+  if (explicitOpenRouter) {
+    const isNemotron =
+      !audioSettings.sttModel ||
+      audioSettings.sttModel === "automatic" ||
+      isNemotronModelId(audioSettings.sttModel);
+    const modelId = isNemotron
+      ? "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b"
+      : (LOGICAL_STT_MODELS[audioSettings.sttModel as LogicalSttModelKey]?.openRouterModelId ??
+        audioSettings.sttModel);
+    const modelLabel = isNemotron
+      ? "NVIDIA Nemotron 3.5 ASR 0.6B"
+      : (LOGICAL_STT_MODELS[audioSettings.sttModel as LogicalSttModelKey]?.displayName ??
+        audioSettings.sttModel);
+
+    if (!hasOpenRouterKey) {
+      return {
+        ok: false,
+        reason: "missing-openrouter-key",
+        modelId,
+        modelLabel,
+      };
+    }
+    return {
+      ok: true,
+      provider: "openrouter",
+      modelId,
+      modelLabel,
+    };
   }
 
   // Android on-device engine (android-on-device-transcription spec): explicit
@@ -162,31 +207,86 @@ export function resolveTranscription(
   }
 
   const appleUnavailable = audioSettings.provider === "apple" && options.appleReady === false;
-  const mobileLocalUnavailable =
-    (platform === "native-mobile" && audioSettings.provider === "local") || appleUnavailable;
-  if (mobileLocalUnavailable && androidSttEligible) {
-    // Default routing picks on-device on Android when a model is ready
-    // (spec: "Default routing picks on-device on Android").
-    const modelId = audioSettings.androidOnDevice?.modelId?.trim() || "auto";
+  const isMobileLocal =
+    (platform === "native-mobile" && (audioSettings.provider === "local" || audioSettings.sttProvider === "local")) ||
+    appleUnavailable;
+
+  if (isMobileLocal) {
+    if (androidSttEligible) {
+      // Default routing picks on-device on Android when a model is ready
+      const modelId = audioSettings.androidOnDevice?.modelId?.trim() || "auto";
+      return {
+        ok: true,
+        provider: "android-ondevice",
+        modelId,
+        modelLabel: modelId === "auto" ? "On-Device STT (auto)" : modelId,
+        autoOnDevice: true,
+      };
+    }
+
+    // On mobile, local Nemotron/Whisper cannot run directly.
+    const isNemotron = isNemotronModelId(audioSettings.sttModel);
+    if (isNemotron) {
+      if (hasOpenRouterKey) {
+        return {
+          ok: true,
+          provider: "openrouter",
+          modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+          modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+          substitution: "nemotron-cloud-substitute",
+        };
+      }
+      if (audioSettings.groq.apiKey.trim()) {
+        return {
+          ok: true,
+          provider: "groq",
+          modelId: audioSettings.groq.model,
+          modelLabel: groqModelLabel(audioSettings.groq.model),
+          substitution: "mobile-no-local",
+        };
+      }
+      return {
+        ok: false,
+        reason: "missing-openrouter-key",
+        modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+        substitution: "mobile-no-local",
+      };
+    }
+
+    if (audioSettings.groq.apiKey.trim()) {
+      return {
+        ok: true,
+        provider: "groq",
+        modelId: audioSettings.groq.model,
+        modelLabel: groqModelLabel(audioSettings.groq.model),
+        substitution: "mobile-no-local",
+      };
+    }
+    if (hasOpenRouterKey) {
+      return {
+        ok: true,
+        provider: "openrouter",
+        modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+        substitution: "mobile-no-local",
+      };
+    }
     return {
-      ok: true,
-      provider: "android-ondevice",
-      modelId,
-      modelLabel: modelId === "auto" ? "On-Device STT (auto)" : modelId,
-      autoOnDevice: true,
+      ok: false,
+      reason: "missing-groq-key",
+      modelId: audioSettings.groq.model,
+      modelLabel: groqModelLabel(audioSettings.groq.model),
+      substitution: "mobile-no-local",
     };
   }
-  const mobileSubstitution = mobileLocalUnavailable;
 
   const explicitCloud =
-    audioSettings.sttProvider === "openrouter" ||
-    (audioSettings.provider === "groq" &&
-      audioSettings.sttProvider !== "local" &&
-      audioSettings.sttProvider !== "automatic");
+    audioSettings.provider === "groq" &&
+    audioSettings.sttProvider !== "local" &&
+    audioSettings.sttProvider !== "automatic";
 
-  const provider = mobileSubstitution ? "groq" : explicitCloud ? "groq" : audioSettings.provider;
-
-  if (provider === "groq") {
+  if (explicitCloud) {
     const modelId = audioSettings.groq.model;
     const modelLabel = groqModelLabel(modelId);
     if (!audioSettings.groq.apiKey.trim()) {
@@ -195,7 +295,6 @@ export function resolveTranscription(
         reason: "missing-groq-key",
         modelId,
         modelLabel,
-        ...(mobileSubstitution ? { substitution: "mobile-no-local" as const } : {}),
       };
     }
     return {
@@ -203,7 +302,6 @@ export function resolveTranscription(
       provider: "groq",
       modelId,
       modelLabel,
-      ...(mobileSubstitution ? { substitution: "mobile-no-local" as const } : {}),
     };
   }
 
@@ -221,6 +319,15 @@ export function resolveTranscription(
           provider: "local",
           modelId: "nemotron-3.5-asr-0.6b",
           modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+        };
+      }
+      if (hasOpenRouterKey && (audioSettings.automaticFallback ?? true)) {
+        return {
+          ok: true,
+          provider: "openrouter",
+          modelId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+          modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+          substitution: "nemotron-cloud-substitute",
         };
       }
       return {
@@ -354,19 +461,32 @@ export async function resolveTranscriptionWithReadiness(
           })
           .catch(() => false),
   ]);
+  const openRouterKey =
+    options.openRouterKey !== undefined
+      ? options.openRouterKey
+      : getOpenRouterApiKey();
   return resolveTranscription(audioSettings, profiles, platform, {
     appleReady,
     androidSttReady,
     localNemotronReady,
+    openRouterKey,
   });
 }
 
 export function describeResolution(resolution: Resolution): string {
   if (resolution.ok === false) {
+    if (resolution.reason === "missing-openrouter-key") {
+      return resolution.substitution === "mobile-no-local"
+        ? "Local Nemotron is unavailable on mobile. Add an OpenRouter API key in AI settings to use Nemotron via OpenRouter cloud."
+        : "An OpenRouter API key is required. Configure it in AI provider settings.";
+    }
     if (resolution.reason === "missing-groq-key") {
       return resolution.substitution === "mobile-no-local"
         ? "Local transcription is unavailable on mobile. Add a Groq API key to use Groq instead."
         : "A Groq API key is required.";
+    }
+    if (resolution.reason === "mobile-local-unsupported") {
+      return "Local transcription is unavailable on mobile. Use OpenRouter with Nemotron or configure Groq.";
     }
     if (resolution.reason === "on-device-model-not-ready") {
       return "On-device transcription is selected but no model is downloaded. Download one in On-Device AI settings or configure Groq.";
@@ -378,18 +498,23 @@ export function describeResolution(resolution: Resolution): string {
   }
 
   const providerLabel =
-    resolution.provider === "groq"
-      ? "Groq"
-      : resolution.provider === "apple"
-        ? "Apple Speech"
-        : resolution.provider === "android-ondevice"
-          ? "On-Device STT"
-          : "Local STT";
+    resolution.provider === "openrouter"
+      ? "OpenRouter"
+      : resolution.provider === "groq"
+        ? "Groq"
+        : resolution.provider === "apple"
+          ? "Apple Speech"
+          : resolution.provider === "android-ondevice"
+            ? "On-Device STT"
+            : "Local STT";
   const engine = `${providerLabel} · ${resolution.modelLabel}`;
+  if (resolution.substitution === "nemotron-cloud-substitute") {
+    return `${engine}. Local Nemotron is unavailable on mobile, so OpenRouter cloud Nemotron is being used.`;
+  }
   if (resolution.substitution === "on-device-unavailable") {
     return `${engine}. On-device transcription is unavailable (no model downloaded), so Groq is being used instead.`;
   }
   return resolution.substitution === "mobile-no-local"
-    ? `${engine}. Local transcription is unavailable on mobile, so Groq is being used instead.`
+    ? `${engine}. Local transcription is unavailable on mobile, so ${providerLabel} is being used instead.`
     : engine;
 }

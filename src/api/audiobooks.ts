@@ -740,6 +740,34 @@ export async function transcribeAudiobookWithGroq(
   return segmentCount;
 }
 
+export async function transcribeAudiobookWithOpenRouter(
+  documentId: string,
+  filePath: string,
+  model?: string,
+  language?: string,
+): Promise<number> {
+  if (!isTauri()) {
+    throw new Error("OpenRouter audiobook transcription requires the app (Tauri) backend.");
+  }
+  const { getOpenRouterApiKey } = await import("../services/transcription/providers/OpenRouterAsrProvider");
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) {
+    throw new Error("OpenRouter API key not configured. Add an OpenRouter key in AI settings.");
+  }
+
+  const modelId = model || "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
+  const { invokeCommand } = await import("../lib/tauri");
+  const segmentCount = await invokeCommand<number>("transcribe_audio_file_groq", {
+    documentId,
+    filePath,
+    language: language ?? null,
+    groqApiKey: apiKey,
+    groqModel: modelId,
+    apiUrl: "https://openrouter.ai/api/v1/audio/transcriptions",
+  });
+  return segmentCount;
+}
+
 /**
  * Transcribe an imported audiobook entirely on device (Android sherpa-onnx
  * engine — SenseVoice multilingual / Parakeet English). Fully offline and

@@ -2786,7 +2786,7 @@ export function EPUBViewer({
       const doc = contents.document as globalThis.Document | undefined;
       if (!doc?.body) continue;
       const chapterHref = contents.url?.split("#")[0] ?? "";
-      const handler = (e: MouseEvent) => {
+      const handler = (e: globalThis.MouseEvent) => {
         if (e.defaultPrevented) return;
         const offset = charOffsetFromClick(doc, e.clientX, e.clientY);
         if (offset === null) return;

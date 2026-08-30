@@ -994,7 +994,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
         language,
         autoSegment,
       );
-      if (route === "groq") {
+      if (route === "groq" || route === "openrouter") {
         // Re-load episodes so the transcript button reflects the new status.
         if (selectedFeedId) loadEpisodes(selectedFeedId);
       }

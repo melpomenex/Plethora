@@ -57,13 +57,15 @@ import {
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
-import { resolveTranscription } from "../../lib/transcriptionProvider";
+import { resolveTranscription, isNemotronModelId } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { transcribeAudiobookWithGroq } from "../../api/audiobooks";
 import { isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
 import { isAppleSpeechReady } from "../../lib/ai/apple/speech";
+import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
+import { getOpenRouterApiKey } from "../../services/transcription/providers/OpenRouterAsrProvider";
 
-type Provider = 'local' | 'groq' | 'apple';
+type Provider = 'local' | 'groq' | 'apple' | 'openrouter';
 
 interface UntranscribedMediaDocument {
   id: string;
@@ -80,24 +82,23 @@ export function AudioTranscriptionSettings() {
   const { settings, updateSettings } = useSettingsStore();
   const queueStore = useTranscriptionQueueStore();
   const audioSettings = settings.audioTranscription;
-  // isTauri() is true inside the Android/iOS WebView (Tauri internals exist),
-  // so it does NOT distinguish desktop from mobile. Local STT (Whisper/sherpa
-  // sidecar + FFmpeg) only works on desktop — on mobile, transcription must go
-  // through Groq cloud (which provides word-level synced transcripts). Gate the
-  // Local STT tab + model download UI on actually being a desktop build.
   const isDesktop = isTauri() && !isNativeMobile();
   const appleOs = isAppleOsPlatform();
   const [appleReady, setAppleReady] = useState(false);
   const [activeTab, setActiveTab] = useState<Provider>(() => {
-    if (appleOs || isNativeMobile()) {
+    if (audioSettings.sttProvider === "openrouter" || audioSettings.provider === "openrouter") {
+      return "openrouter";
+    }
+    if (appleOs) {
       return audioSettings.provider === "groq" ? "groq" : "apple";
     }
+    if (isNativeMobile()) {
+      return "local";
+    }
     if (!isDesktop) return "groq";
-    // The Android on-device engine is configured from the On-Device AI panel;
-    // its settings tab here only owns the desktop engines.
     return audioSettings.provider === "apple" || audioSettings.provider === "android-ondevice"
       ? "local"
-      : audioSettings.provider;
+      : (audioSettings.provider as Provider);
   });
   const [enqueuingAll, setEnqueuingAll] = useState(false);
   
@@ -107,6 +108,35 @@ export function AudioTranscriptionSettings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [isKeyValid, setIsKeyValid] = useState(false);
+
+  // OpenRouter state
+  const openRouterKey = getOpenRouterApiKey();
+  const hasOpenRouterKey = Boolean(openRouterKey && openRouterKey.trim().length > 0);
+  const isNemotronSelected = isNemotronModelId(audioSettings.sttModel);
+  const isOpenRouterSelected = audioSettings.sttProvider === "openrouter" || audioSettings.provider === "openrouter";
+  const [openRouterKeyInput, setOpenRouterKeyInput] = useState("");
+  const [showOpenRouterKey, setShowOpenRouterKey] = useState(false);
+  const [isSavingOpenRouterKey, setIsSavingOpenRouterKey] = useState(false);
+
+  const handleSaveOpenRouterKey = async (key: string) => {
+    const trimmed = key.trim();
+    const providersStore = useLLMProvidersStore.getState();
+    const existing = providersStore.providers.find((p) => p.provider === "openrouter");
+    if (existing) {
+      await providersStore.updateProvider(existing.id, { apiKey: trimmed, enabled: true });
+    } else {
+      await providersStore.addProvider({
+        provider: "openrouter",
+        name: "OpenRouter",
+        apiKey: trimmed,
+        baseUrl: "https://openrouter.ai/api/v1",
+        model: "anthropic/claude-3.5-sonnet",
+        enabled: true,
+        temperature: 0.7,
+        maxTokens: 4096,
+      });
+    }
+  };
 
   const handleUpdateSettings = (updates: Partial<typeof audioSettings>) => {
     updateSettings({ audioTranscription: { ...audioSettings, ...updates } });
@@ -191,7 +221,15 @@ export function AudioTranscriptionSettings() {
 
   const handleProviderChange = (provider: Provider) => {
     setActiveTab(provider);
-    handleUpdateSettings({ provider });
+    if (provider === "openrouter") {
+      handleUpdateSettings({ provider: "openrouter", sttProvider: "openrouter" });
+    } else if (provider === "groq") {
+      handleUpdateSettings({ provider: "groq", sttProvider: "premium" });
+    } else if (provider === "apple") {
+      handleUpdateSettings({ provider: "apple" });
+    } else {
+      handleUpdateSettings({ provider: "local", sttProvider: "local" });
+    }
   };
 
   const safeProfiles = profiles ?? [];
@@ -362,19 +400,90 @@ export function AudioTranscriptionSettings() {
         ) : (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Cloud className="h-3.5 w-3.5" />
-            Cloud providers may send audio to configured services (OpenRouter, etc.).
+            Cloud providers may send audio to configured services (OpenRouter, Groq, etc.).
           </p>
         )}
-        {isDesktop ? (
-          <p className="text-xs text-muted-foreground">
-            Manage downloadable models in Local Models below.
-          </p>
-        ) : null}
+
+        {/* Nemotron & OpenRouter guidance banners */}
+        {isOpenRouterSelected && (
+          hasOpenRouterKey ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  OpenRouter API key connected. NVIDIA Nemotron 3.5 ASR transcribes via OpenRouter cloud — <strong>no model download required</strong>.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                <Warning className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>
+                  OpenRouter API key required. NVIDIA Nemotron 3.5 ASR runs in the cloud via OpenRouter.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('openrouter')}
+                className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+              >
+                Enter OpenRouter Key
+              </button>
+            </div>
+          )
+        )}
+
+        {audioSettings.sttProvider === "local" && isNemotronSelected && (
+          isNativeMobile() ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
+              <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>
+                  Local Nemotron GGUF runtime is desktop-only. To transcribe with Nemotron on mobile, switch Provider to <strong>OpenRouter</strong> (cloud API, no download needed).
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleUpdateSettings({ sttProvider: "openrouter" })}
+                className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                Switch to OpenRouter
+              </button>
+            </div>
+          ) : (
+            (() => {
+              const nemotronProfile = profiles.find((p) => isNemotronModelId(p.id));
+              const isNemotronInstalled = nemotronProfile?.installed ?? false;
+              if (isNemotronInstalled) {
+                return (
+                  <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>NVIDIA Nemotron 3.5 ASR (0.6B GGUF) is downloaded and installed locally.</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                    <Warning className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>NVIDIA Nemotron 3.5 ASR (0.6B GGUF) is not downloaded.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload("nemotron-3.5-asr-0.6b")}
+                    className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    Download Nemotron Model
+                  </button>
+                </div>
+              );
+            })()
+          )
+        )}
       </section>
 
-      {/* Web/PWA Notice - Only show in browser. Uses opacity-modified base
-          colors rather than -50/-950 palette steps, which are light-theme-only
-          and render as unreadable gray-on-gray under dark themes. */}
+      {/* Web/PWA Notice */}
       {!isDesktop && !appleOs && !isNativeMobile() && (
         <div className={cn(
           "rounded-xl border p-4 flex items-start gap-3 transition-all duration-300",
@@ -410,29 +519,25 @@ export function AudioTranscriptionSettings() {
         </div>
       )}
 
-      {/* Provider Selection Tabs. Whisper/sherpa local STT is desktop-only.
-          Apple Speech is the on-device mobile path; Groq remains opt-in cloud. */}
-      {(isDesktop || appleOs || isNativeMobile()) && (
-        <div className="flex gap-2 p-1 bg-muted rounded-xl">
-          {isDesktop && (
-          <button
-            onClick={() => handleProviderChange('local')}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all",
-              activeTab === 'local'
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
-            )}
-          >
-            <Sliders className="w-4 h-4" />
-            Local STT
-          </button>
+      {/* Provider Selection Tabs */}
+      <div className="flex gap-2 p-1 bg-muted rounded-xl flex-wrap">
+        <button
+          onClick={() => handleProviderChange('local')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all min-w-[120px]",
+            activeTab === 'local'
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
           )}
-          {(appleOs || isNativeMobile()) && (
+        >
+          <Sliders className="w-4 h-4" />
+          {isDesktop ? "Local STT" : "Local Models"}
+        </button>
+        {appleOs && (
           <button
             onClick={() => handleProviderChange('apple')}
             className={cn(
-              "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all",
+              "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all min-w-[120px]",
               activeTab === 'apple'
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
@@ -441,24 +546,38 @@ export function AudioTranscriptionSettings() {
             <Microphone className="w-4 h-4" />
             Apple Speech
           </button>
+        )}
+        <button
+          onClick={() => handleProviderChange('openrouter')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all min-w-[120px]",
+            activeTab === 'openrouter'
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
           )}
-          <button
-            onClick={() => handleProviderChange('groq')}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all",
-              activeTab === 'groq'
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
-            )}
-          >
-            <Cloud className="w-4 h-4" />
-            {t("settings.audioGroqCloud")}
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-green-500/20 text-green-600 rounded-full">
-              {t("settings.audioFreeTier")}
-            </span>
-          </button>
-        </div>
-      )}
+        >
+          <Cloud className="w-4 h-4 text-violet-500" />
+          OpenRouter
+          <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-violet-500/20 text-violet-600 dark:text-violet-400 rounded-full">
+            Nemotron
+          </span>
+        </button>
+        <button
+          onClick={() => handleProviderChange('groq')}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all min-w-[120px]",
+            activeTab === 'groq'
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+          )}
+        >
+          <Cloud className="w-4 h-4" />
+          {t("settings.audioGroqCloud")}
+          <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-green-500/20 text-green-600 rounded-full">
+            {t("settings.audioFreeTier")}
+          </span>
+        </button>
+      </div>
 
       {activeTab === "apple" && (
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-2">
@@ -471,17 +590,100 @@ export function AudioTranscriptionSettings() {
         </div>
       )}
 
-      {/* Web/PWA: Groq is the only option besides Apple on native mobile. */}
-      {!isDesktop && !appleOs && !isNativeMobile() && (
-        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm">
-          <p className="font-medium text-foreground">
-            {t("settings.audioTranscription")} — {t("settings.audioGroqCloud")}
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            Local transcription (Whisper/sherpa-onnx) is desktop-only. On the web,
-            Groq cloud transcription is used when configured.
-          </p>
-        </div>
+      {/* OpenRouter Settings Tab */}
+      {activeTab === 'openrouter' && (
+        <section className="bg-card border border-border rounded-xl p-5 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Cloud className="w-5 h-5 text-violet-500" />
+                <h4 className="font-semibold text-foreground">OpenRouter Speech-to-Text</h4>
+                <span className="px-2 py-0.5 text-[10px] font-medium bg-violet-500/10 text-violet-600 rounded-full">
+                  Cloud ASR
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                OpenRouter provides cloud-hosted speech-to-text models including NVIDIA Nemotron 3.5 ASR (0.6B) and Qwen3 ASR. 
+                Transcribes podcast episodes and audiobooks with word-level timestamps. 
+                <strong> No model download required</strong> — audio is transcribed securely via OpenRouter's API.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-foreground">OpenRouter API Key</label>
+              {hasOpenRouterKey && (
+                <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Key Connected
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type={showOpenRouterKey ? "text" : "password"}
+                value={openRouterKeyInput || (hasOpenRouterKey ? openRouterKey : "")}
+                onChange={(e) => setOpenRouterKeyInput(e.target.value)}
+                placeholder={hasOpenRouterKey ? "••••••••••••••••" : "sk-or-v1-..."}
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
+                className="shrink-0 px-3 py-2 border border-border rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                {showOpenRouterKey ? t("settings.audioHide") : t("settings.audioShow")}
+              </button>
+              <button
+                type="button"
+                disabled={!openRouterKeyInput.trim() || isSavingOpenRouterKey}
+                onClick={async () => {
+                  if (!openRouterKeyInput.trim()) return;
+                  setIsSavingOpenRouterKey(true);
+                  try {
+                    await handleSaveOpenRouterKey(openRouterKeyInput.trim());
+                    setOpenRouterKeyInput("");
+                    toast.success("OpenRouter API key saved", "Key is ready for transcription.");
+                  } catch (e) {
+                    toast.error("Failed to save key", String(e));
+                  } finally {
+                    setIsSavingOpenRouterKey(false);
+                  }
+                }}
+                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              You can get an API key from{" "}
+              <a
+                href="https://openrouter.ai/settings/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline hover:text-primary/80"
+              >
+                openrouter.ai/settings/keys
+              </a>
+              . Shared with LLM providers in Settings &rarr; AI.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Supported OpenRouter Models</p>
+            <ul className="text-xs text-muted-foreground space-y-1">
+              <li className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0"></span>
+                <span><strong>NVIDIA Nemotron 3.5 ASR 0.6B</strong> (<code>nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b</code>) — Multilingual, fast, karaoke word timings</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                <span><strong>Qwen3 ASR 0.6B / 1.7B</strong> (<code>qwen/qwen3-asr-0.6b</code>) — Multilingual</span>
+              </li>
+            </ul>
+          </div>
+        </section>
       )}
 
       {/* Local Settings */}
@@ -602,6 +804,35 @@ export function AudioTranscriptionSettings() {
                 <p className="leading-relaxed">
                   Models run as native sidecar processes with isolated memory. Whisper, Parakeet, and Nemotron support many languages; SenseVoice is optimized for Chinese, English, Japanese, Korean, and Cantonese. NVIDIA Nemotron requires a Hugging Face token (`HF_TOKEN`) after accepting the model license.
                 </p>
+              </div>
+            )}
+
+            {isNativeMobile() && (
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 text-xs text-muted-foreground space-y-2">
+                <p className="font-medium text-foreground flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-blue-600" />
+                  Mobile Speech-to-Text Architecture
+                </p>
+                <p className="leading-relaxed">
+                  On Android, on-device offline transcription uses <strong>SenseVoice</strong> and <strong>Parakeet</strong> models managed under <strong>Settings &rarr; AI &rarr; On-Device AI</strong>.
+                  NVIDIA Nemotron 3.5 ASR is available on mobile via <strong>OpenRouter</strong> (cloud API, no model download required).
+                </p>
+                <div className="flex gap-2 pt-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("navigate-to-settings", { detail: { section: "on-device-ai" } }))}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700"
+                  >
+                    Open On-Device AI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleProviderChange('openrouter')}
+                    className="px-3 py-1.5 bg-violet-600 text-white rounded-md text-xs font-medium hover:bg-violet-700"
+                  >
+                    Use OpenRouter Nemotron
+                  </button>
+                </div>
               </div>
             )}
             

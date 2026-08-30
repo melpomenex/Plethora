@@ -11,20 +11,24 @@ const mocks = vi.hoisted(() => ({
   enqueue: vi.fn(),
   transcribeAudiobookWithGroq: vi.fn(),
   transcribeAudiobookOnDevice: vi.fn(),
+  transcribeAudiobookWithOpenRouter: vi.fn(),
   transcribePodcastEpisode: vi.fn(),
   transcribePodcastEpisodeWithGroq: vi.fn(),
   transcribePodcastEpisodeOnDevice: vi.fn(),
+  transcribePodcastEpisodeWithOpenRouter: vi.fn(),
 }));
 
 vi.mock("../../api/transcription", () => ({ enqueueAutoTranscription: mocks.enqueue }));
 vi.mock("../../api/audiobooks", () => ({
   transcribeAudiobookWithGroq: mocks.transcribeAudiobookWithGroq,
   transcribeAudiobookOnDevice: mocks.transcribeAudiobookOnDevice,
+  transcribeAudiobookWithOpenRouter: mocks.transcribeAudiobookWithOpenRouter,
 }));
 vi.mock("../../api/podcast", () => ({
   transcribePodcastEpisode: mocks.transcribePodcastEpisode,
   transcribePodcastEpisodeWithGroq: mocks.transcribePodcastEpisodeWithGroq,
   transcribePodcastEpisodeOnDevice: mocks.transcribePodcastEpisodeOnDevice,
+  transcribePodcastEpisodeWithOpenRouter: mocks.transcribePodcastEpisodeWithOpenRouter,
 }));
 
 const profile = (id: string, name: string): ModelProfile => ({
@@ -245,5 +249,54 @@ describe("android on-device transcription routing", () => {
       true,
     );
     expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
+  });
+
+  it("routes openrouter resolution for podcasts to transcribePodcastEpisodeWithOpenRouter", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b" },
+      [],
+      "native-mobile",
+      { openRouterKey: "sk-or-test" },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routePodcastTranscription(
+      "episode-openrouter",
+      "https://audio/ep.mp3",
+      resolution,
+      "en",
+      true,
+    );
+    expect(route).toBe("openrouter");
+    expect(mocks.transcribePodcastEpisodeWithOpenRouter).toHaveBeenCalledWith(
+      "episode-openrouter",
+      "https://audio/ep.mp3",
+      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      "en",
+    );
+    expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
+    expect(mocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("routes openrouter resolution for documents to transcribeAudiobookWithOpenRouter", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), sttProvider: "openrouter", sttModel: "nemotron-3.5-asr-0.6b" },
+      [],
+      "desktop",
+      { openRouterKey: "sk-or-test" },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routeDocumentTranscription(
+      { id: "doc-openrouter", filePath: "/audio/book.mp3" },
+      resolution,
+      "en",
+    );
+    expect(route).toBe("openrouter");
+    expect(mocks.transcribeAudiobookWithOpenRouter).toHaveBeenCalledWith(
+      "doc-openrouter",
+      "/audio/book.mp3",
+      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      "en",
+    );
+    expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
   });
 });

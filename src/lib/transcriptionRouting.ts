@@ -1,8 +1,13 @@
-import { transcribeAudiobookWithGroq, transcribeAudiobookOnDevice } from "../api/audiobooks";
+import {
+  transcribeAudiobookWithGroq,
+  transcribeAudiobookOnDevice,
+  transcribeAudiobookWithOpenRouter,
+} from "../api/audiobooks";
 import {
   transcribePodcastEpisode,
   transcribePodcastEpisodeOnDevice,
   transcribePodcastEpisodeWithGroq,
+  transcribePodcastEpisodeWithOpenRouter,
 } from "../api/podcast";
 import { enqueueAutoTranscription } from "../api/transcription";
 import type { Document } from "../types/document";
@@ -12,7 +17,17 @@ export async function routeDocumentTranscription(
   document: Pick<Document, "id" | "filePath">,
   resolution: SuccessfulResolution,
   language: string,
-): Promise<"groq" | "local" | "android-ondevice"> {
+): Promise<"groq" | "local" | "android-ondevice" | "openrouter"> {
+  if (resolution.provider === "openrouter") {
+    await transcribeAudiobookWithOpenRouter(
+      document.id,
+      document.filePath,
+      resolution.modelId,
+      language === "auto" ? undefined : language,
+    );
+    return "openrouter";
+  }
+
   if (resolution.provider === "groq") {
     await transcribeAudiobookWithGroq(
       document.id,
@@ -47,7 +62,18 @@ export async function routePodcastTranscription(
   resolution: SuccessfulResolution,
   language: string,
   autoSegment: boolean,
-): Promise<"groq" | "local" | "android-ondevice"> {
+): Promise<"groq" | "local" | "android-ondevice" | "openrouter"> {
+  if (resolution.provider === "openrouter") {
+    if (!audioUrl) throw new Error("No audio URL available for this episode.");
+    await transcribePodcastEpisodeWithOpenRouter(
+      episodeId,
+      audioUrl,
+      resolution.modelId,
+      language === "auto" ? undefined : language,
+    );
+    return "openrouter";
+  }
+
   if (resolution.provider === "groq") {
     if (!audioUrl) throw new Error("No audio URL available for this episode.");
     await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);

@@ -9,6 +9,8 @@ import type {
 } from "./types";
 import { TranscriptionMode as Mode } from "./types";
 
+export type { LogicalSttModelKey };
+
 /** Logical model registry — maps user-facing model keys to execution targets. */
 export const LOGICAL_STT_MODEL_KEYS = {
   NEMOTRON: "nemotron-3.5-asr-0.6b",
@@ -192,10 +194,10 @@ export const ROUTER_DEFAULTS = {
  * settingsStore migration lands in Phase 2.
  */
 export function legacyProviderToMode(
-  provider: "local" | "groq" | "apple" | "android-ondevice",
+  provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter",
 ): TranscriptionMode {
   if (provider === "local") return Mode.Offline;
-  if (provider === "groq") return Mode.Fast;
+  if (provider === "groq" || provider === "openrouter") return Mode.Fast;
   return Mode.Auto;
 }
 
@@ -203,7 +205,7 @@ export function legacyProviderToMode(
 export function resolveTranscriptionMode(
   audio: {
     mode?: string;
-    provider: "local" | "groq" | "apple" | "android-ondevice";
+    provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
   },
 ): TranscriptionMode {
   switch (audio.mode) {
@@ -283,7 +285,7 @@ export function resolveLogicalModelProviderIds(
 
 export interface AudioTranscriptionRoutingInput {
   mode?: string;
-  provider: "local" | "groq" | "apple" | "android-ondevice";
+  provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
   sttProvider?: SttProviderCategory;
   sttModel?: SttModelSelection;
   preferLocal?: boolean;

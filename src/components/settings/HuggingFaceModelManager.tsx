@@ -36,6 +36,7 @@ import {
 } from "../../api/hfModels";
 import { cn } from "../../utils";
 import { useToast } from "../common/Toast";
+import { isTauri } from "../../lib/tauri";
 
 export type HfManagerMode = "stt" | "tts";
 

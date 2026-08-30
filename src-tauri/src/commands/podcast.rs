@@ -1290,8 +1290,12 @@ pub async fn transcribe_podcast_groq_chunks(
     language: Option<String>,
     groq_api_key: String,
     groq_model: Option<String>,
+    api_url: Option<String>,
 ) -> Result<Vec<GroqChunkSegment>> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
+    let endpoint = api_url.unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
+    let is_openrouter = endpoint.contains("openrouter.ai");
+    let provider_name = if is_openrouter { "OpenRouter" } else { "Groq" };
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .timeout(std::time::Duration::from_secs(120))
@@ -1305,7 +1309,8 @@ pub async fn transcribe_podcast_groq_chunks(
     );
     let chunks = split_audio_for_groq_mobile_inner(&app_handle, &client, &audio_url).await?;
     eprintln!(
-        "[podcast-transcribe] groq_chunks: {} chunks to transcribe",
+        "[podcast-transcribe] {}_chunks: {} chunks to transcribe",
+        provider_name.to_lowercase(),
         chunks.len()
     );
 
@@ -1315,7 +1320,7 @@ pub async fn transcribe_podcast_groq_chunks(
         let progress = 20 + ((i as f64 / chunks.len() as f64) * 65.0) as i64;
         let _ = app_handle.emit(
             "podcast://transcription-progress",
-            serde_json::json!({ "episodeId": &episode_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{}…", i + 1, chunks.len()) }),
+            serde_json::json!({ "episodeId": &episode_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{} via {}…", i + 1, chunks.len(), provider_name) }),
         );
 
         // Read chunk bytes from disk (stays in Rust — no IPC).
@@ -1323,12 +1328,13 @@ pub async fn transcribe_podcast_groq_chunks(
             PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e))
         })?;
         eprintln!(
-            "[podcast-transcribe] groq_chunks: chunk {} = {} bytes",
+            "[podcast-transcribe] {}_chunks: chunk {} = {} bytes",
+            provider_name.to_lowercase(),
             i,
             chunk_bytes.len()
         );
 
-        // Upload to Groq as multipart file (verbose_json + segment/word granularity).
+        // Upload to cloud as multipart file (verbose_json + segment/word granularity).
         let mut form = reqwest::multipart::Form::new()
             .text("model", model.clone())
             .text("response_format", "verbose_json".to_string())
@@ -1344,26 +1350,28 @@ pub async fn transcribe_podcast_groq_chunks(
         form = form.part("file", part);
 
         let resp = client
-            .post("https://api.groq.com/openai/v1/audio/transcriptions")
+            .post(&endpoint)
             .bearer_auth(&groq_api_key)
             .multipart(form)
             .send()
             .await
             .map_err(|e| {
-                PlethoraError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+                PlethoraError::Internal(format!("{} chunk {} upload failed: {}", provider_name, i, e))
             })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             eprintln!(
-                "[podcast-transcribe] groq_chunks: chunk {} FAILED ({}): {}",
+                "[podcast-transcribe] {}_chunks: chunk {} FAILED ({}): {}",
+                provider_name.to_lowercase(),
                 i,
                 status,
                 &body[..body.len().min(300)]
             );
             return Err(PlethoraError::Internal(format!(
-                "Groq chunk {} failed (HTTP {}): {}",
+                "{} chunk {} failed (HTTP {}): {}",
+                provider_name,
                 i,
                 status,
                 &body[..body.len().min(200)]
@@ -1473,8 +1481,12 @@ pub async fn transcribe_audio_file_groq(
     language: Option<String>,
     groq_api_key: String,
     groq_model: Option<String>,
+    api_url: Option<String>,
 ) -> Result<i64> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
+    let endpoint = api_url.unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
+    let is_openrouter = endpoint.contains("openrouter.ai");
+    let provider_name = if is_openrouter { "OpenRouter" } else { "Groq" };
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .timeout(std::time::Duration::from_secs(120))
@@ -1512,7 +1524,8 @@ pub async fn transcribe_audio_file_groq(
     let is_mp3 = file_path.to_ascii_lowercase().ends_with(".mp3");
     let chunks = split_audio_bytes_into_groq_chunks(&data, is_mp3, &chunks_dir)?;
     eprintln!(
-        "[audiobook-transcribe] groq: {} chunks for document {}",
+        "[audiobook-transcribe] {}: {} chunks for document {}",
+        provider_name.to_lowercase(),
         chunks.len(),
         document_id
     );
@@ -1547,9 +1560,9 @@ pub async fn transcribe_audio_file_groq(
         PlethoraError::Internal(format!("Failed to read transcript checkpoint: {}", e))
     })?;
 
-    // 4. Upload each chunk to Groq and persist segments as they arrive.
+    // 4. Upload each chunk and persist segments as they arrive.
     for (i, chunk) in chunks.iter().enumerate() {
-        // A Groq response is persisted only after the whole chunk has returned,
+        // A response is persisted only after the whole chunk has returned,
         // so any chunk beginning before the last saved segment belongs to a
         // completed checkpoint. A chunk beginning exactly at the checkpoint is
         // still pending and must run.
@@ -1559,7 +1572,7 @@ pub async fn transcribe_audio_file_groq(
         let progress = 15 + ((i as f64 / chunks.len() as f64) * 70.0) as i64;
         let _ = app_handle.emit(
             "audiobook://transcription-progress",
-            serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{} …", i + 1, chunks.len()) }),
+            serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{} via {}…", i + 1, chunks.len(), provider_name) }),
         );
 
         let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
@@ -1581,26 +1594,28 @@ pub async fn transcribe_audio_file_groq(
         form = form.part("file", part);
 
         let resp = client
-            .post("https://api.groq.com/openai/v1/audio/transcriptions")
+            .post(&endpoint)
             .bearer_auth(&groq_api_key)
             .multipart(form)
             .send()
             .await
             .map_err(|e| {
-                PlethoraError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+                PlethoraError::Internal(format!("{} chunk {} upload failed: {}", provider_name, i, e))
             })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             eprintln!(
-                "[audiobook-transcribe] groq: chunk {} FAILED ({}): {}",
+                "[audiobook-transcribe] {}: chunk {} FAILED ({}): {}",
+                provider_name.to_lowercase(),
                 i,
                 status,
                 &body[..body.len().min(300)]
             );
             return Err(PlethoraError::Internal(format!(
-                "Groq chunk {} failed (HTTP {}): {}",
+                "{} chunk {} failed (HTTP {}): {}",
+                provider_name,
                 i,
                 status,
                 &body[..body.len().min(200)]

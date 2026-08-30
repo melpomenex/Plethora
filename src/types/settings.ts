@@ -198,7 +198,7 @@ export interface GroqTranscriptionSettings {
 
 // Audio Transcription Settings
 export interface AudioTranscriptionSettings {
-  provider: "local" | "groq" | "apple" | "android-ondevice";
+  provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
   mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
   sttProvider?: "automatic" | "local" | "openrouter" | "premium";
   sttModel?: "automatic" | string;

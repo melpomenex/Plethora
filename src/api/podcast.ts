@@ -479,6 +479,66 @@ export async function transcribePodcastEpisodeWithGroq(
 }
 
 /**
+ * Transcribe a podcast episode via OpenRouter cloud transcription (Nemotron 3.5 ASR / Qwen3 ASR).
+ * Uploads audio chunks with word-level timestamps, persists segments, and emits progress events.
+ */
+export async function transcribePodcastEpisodeWithOpenRouter(
+  episodeId: string,
+  audioUrl: string,
+  model?: string,
+  language?: string,
+): Promise<void> {
+  const { emit } = await import("@tauri-apps/api/event");
+  const { getOpenRouterApiKey } = await import("../services/transcription/providers/OpenRouterAsrProvider");
+  await emit("podcast://transcription-progress", { episodeId, status: "processing", progress: 10, message: "Transcribing via OpenRouter (Nemotron)…" });
+
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) {
+    await emit("podcast://transcription-error", { episodeId, error: "OpenRouter API key not configured." });
+    throw new Error("OpenRouter API key not configured. Add an OpenRouter key in AI settings.");
+  }
+
+  const modelId = model || "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
+
+  try {
+    let resolvedUrl = audioUrl;
+    try {
+      resolvedUrl = await resolvePodcastAudioUrl(audioUrl);
+    } catch (e) {
+      console.warn("[podcast] resolvePodcastAudioUrl failed, using original URL:", e);
+    }
+
+    const segments = await invokeCommand<Array<{
+      start_ms: number;
+      end_ms: number;
+      text: string;
+      word_timings_json: string | null;
+    }>>("transcribe_podcast_groq_chunks", {
+      episodeId,
+      audioUrl: resolvedUrl,
+      language: language ?? null,
+      groqApiKey: apiKey,
+      groqModel: modelId,
+      apiUrl: "https://openrouter.ai/api/v1/audio/transcriptions",
+    });
+
+    if (segments.length === 0) {
+      throw new Error("OpenRouter returned no transcript segments.");
+    }
+
+    await emit("podcast://transcription-progress", { episodeId, status: "processing", progress: 90, message: "Saving transcript…" });
+    await savePodcastTranscriptSegments(episodeId, segments);
+
+    await emit("podcast://transcription-complete", { episodeId, segmentCount: segments.length, duration: null });
+    return;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await emit("podcast://transcription-error", { episodeId, error: message });
+    throw err;
+  }
+}
+
+/**
  * Transcribe a podcast episode entirely on device (Android sherpa-onnx
  * engine). Non-local episodes are downloaded through the existing
  * episode-download path first — the transcription itself is fully offline
