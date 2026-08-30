@@ -59,12 +59,13 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
     // Parent/reference entities must be published before their children.
     // This keeps the initial log replay valid even on databases that enforce
     // collection/document foreign keys.
-    let tables: [(&str, EntityType); 6] = [
+    let tables: [(&str, EntityType); 7] = [
         ("collections", EntityType::Collection),
         ("tags", EntityType::Tag),
         ("documents", EntityType::Document),
         ("extracts", EntityType::Extract),
         ("learning_items", EntityType::LearningItem),
+        ("review_results", EntityType::ReviewResult),
         ("settings", EntityType::Setting),
     ];
 
@@ -110,6 +111,23 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
         };
 
         for (entity_id,) in rows {
+            // A record pulled from the cloud is already represented remotely.
+            // Re-uploading it during bootstrap wastes bandwidth and, for
+            // append-only histories, can manufacture avoidable duplicates.
+            let already_remote: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2 AND server_revision IS NOT NULL LIMIT 1",
+            )
+            .bind(entity_type.as_str())
+            .bind(&entity_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if already_remote.is_some() {
+                completed += 1;
+                next_entity = Some(table.to_string());
+                next_id = Some(entity_id);
+                continue;
+            }
+
             let already_acked: Option<i64> = sqlx::query_scalar(
                 r#"
                 SELECT 1 FROM sync_outbox
@@ -234,6 +252,36 @@ async fn build_bootstrap_payload(
                 "is_dismissed": row.12 != 0,
                 "date_modified": row.13,
             })).map_err(|e| PlethoraError::Internal(format!("Bootstrap document payload: {e}")))?))
+        }
+        EntityType::ReviewResult => {
+            let row = sqlx::query_as::<_, (String, String, Option<String>, String, i32, i32, String, f64, f64, i64, String)>(
+                r#"
+                SELECT id, collection_id, session_id, item_id, rating, time_taken,
+                       COALESCE(new_due_date, timestamp), new_interval, new_ease_factor,
+                       COALESCE(reviewed_at_ms, CAST(strftime('%s', timestamp) AS INTEGER) * 1000),
+                       COALESCE(device_id, 'legacy-bootstrap')
+                FROM review_results WHERE id = ?1
+                "#,
+            )
+            .bind(entity_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            Ok(Some(payload::review_result_payload(
+                &row.0,
+                &row.3,
+                &row.1,
+                row.4,
+                row.5,
+                &chrono::DateTime::parse_from_rfc3339(&row.6)
+                    .map(|value| value.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                row.7,
+                row.8,
+                row.9,
+                &row.10,
+                row.2.as_deref(),
+            )
+            .map_err(|e| PlethoraError::Internal(format!("Bootstrap review payload: {e}")))?))
         }
         EntityType::Setting => {
             let row = sqlx::query_as::<_, (String, String)>(
