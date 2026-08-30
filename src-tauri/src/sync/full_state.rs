@@ -9,6 +9,116 @@ fn is_v2_payload(payload: &[u8]) -> bool {
         .is_some_and(|version| version >= 2)
 }
 
+pub const LEARNING_ITEM_GROUPS: &[&str] = &[
+    "collection", "content", "tags", "media", "schedule", "priority", "suspension",
+];
+pub const DOCUMENT_GROUPS: &[&str] = &[
+    "collection", "content", "tags", "position", "flags", "priority", "schedule", "activity",
+];
+pub const EXTRACT_GROUPS: &[&str] = &[
+    "collection", "content", "tags", "schedule", "priority", "activity",
+];
+
+pub fn sync_fields(payload: &[u8], all_groups: &[&str]) -> Vec<String> {
+    let raw = serde_json::from_slice::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|value| value.get("sync_fields").cloned())
+        .and_then(|value| value.as_array().cloned())
+        .map(|values| {
+            values
+                .into_iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| vec!["*".to_string()]);
+
+    if raw.iter().any(|field| field == "*") {
+        return all_groups.iter().map(|field| (*field).to_string()).collect();
+    }
+
+    raw.into_iter()
+        .filter(|field| all_groups.iter().any(|known| field == known))
+        .collect()
+}
+
+fn parse_hlc(raw: &str) -> (i64, i64) {
+    let mut parts = raw.split(':');
+    (
+        parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+    )
+}
+
+pub async fn winning_field_groups(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity_type: &str,
+    entity_id: &str,
+    hlc: &str,
+    device_id: &str,
+    fields: &[String],
+) -> Result<Vec<String>> {
+    let mut winners = Vec::new();
+    for field in fields {
+        let existing = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT last_hlc, last_device_id
+            FROM sync_field_state
+            WHERE entity_type = ?1 AND entity_id = ?2 AND field_group = ?3
+            "#,
+        )
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(field)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let wins = existing
+            .map(|(existing_hlc, existing_device)| {
+                let incoming = parse_hlc(hlc);
+                let current = parse_hlc(&existing_hlc);
+                incoming > current || (incoming == current && device_id > existing_device.as_str())
+            })
+            .unwrap_or(true);
+        if wins {
+            winners.push(field.clone());
+        }
+    }
+    Ok(winners)
+}
+
+pub async fn record_field_groups(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity_type: &str,
+    entity_id: &str,
+    hlc: &str,
+    device_id: &str,
+    fields: &[String],
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    for field in fields {
+        sqlx::query(
+            r#"
+            INSERT INTO sync_field_state (
+                entity_type, entity_id, field_group, last_hlc, last_device_id, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(entity_type, entity_id, field_group) DO UPDATE SET
+                last_hlc = excluded.last_hlc,
+                last_device_id = excluded.last_device_id,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(field)
+        .bind(hlc)
+        .bind(device_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 pub fn decode_learning_item(payload: &[u8]) -> Option<LearningItem> {
     if !is_v2_payload(payload) {
         return None;
