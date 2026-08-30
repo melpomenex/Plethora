@@ -332,6 +332,56 @@ impl Repository {
         })
     }
 
+    async fn journal_document_fields(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<Document> {
+        let row = sqlx::query("SELECT * FROM documents WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound(format!("Document {}", id)))?;
+        let document = Self::row_to_document(&row)?;
+        let payload = payload::document_payload_with_fields(&document, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Document,
+            id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        Ok(document)
+    }
+
+    async fn journal_extract_fields(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<Extract> {
+        let row = sqlx::query("SELECT * FROM extracts WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound(format!("Extract {}", id)))?;
+        let extract = Self::row_to_extract(&row)?;
+        let payload = payload::extract_payload_with_fields(&extract, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Extract,
+            id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        Ok(extract)
+    }
+
     // Helper to decode possibly-corrupt UTF-8 text columns without panicking.
     fn decode_optional_text(row: &SqliteRow, column: &str) -> Option<String> {
         match row.try_get::<Option<String>, _>(column) {
