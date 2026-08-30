@@ -3976,6 +3976,14 @@ pub const MIGRATIONS: &[Migration] = &[
             ON sync_field_state(entity_type, entity_id);
         "#,
     ),
+    Migration::new(
+        "112_sync_review_schedule_snapshots",
+        r#"
+        ALTER TABLE review_results ADD COLUMN sync_post_item_json TEXT;
+        CREATE INDEX IF NOT EXISTS idx_review_results_sync_order
+            ON review_results(item_id, reviewed_at_ms, device_id, id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
