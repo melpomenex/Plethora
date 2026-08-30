@@ -3088,6 +3088,74 @@ impl Repository {
         Ok(Some(updated))
     }
 
+    pub async fn update_learning_item_tags_and_metadata(
+        &self,
+        id: &str,
+        tags: &[String],
+        interaction_metadata: Option<&serde_json::Value>,
+    ) -> Result<LearningItem> {
+        let now = Utc::now();
+        let tags_json = serde_json::to_string(tags)?;
+        let metadata_json = interaction_metadata
+            .map(serde_json::to_string)
+            .transpose()?;
+        let mut tx = self.pool.begin().await?;
+
+        let rows = if interaction_metadata.is_some() {
+            sqlx::query(
+                "UPDATE learning_items SET tags = ?1, interaction_metadata = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(&tags_json)
+            .bind(&metadata_json)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(
+                "UPDATE learning_items SET tags = ?1, date_modified = ?2 WHERE id = ?3",
+            )
+            .bind(&tags_json)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        };
+
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Learning item {}", id)));
+        }
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let fields: &[&str] = if interaction_metadata.is_some() {
+            &["tags", "media"]
+        } else {
+            &["tags"]
+        };
+        let item_payload = payload::learning_item_payload_with_fields(&updated, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
+    }
+
     /// Update a learning item's user-set priority.
     /// Mirrors `update_document_priority`: sets the slider, derives
     /// the priority_score, flips `priority_explicitly_set`, and returns the
