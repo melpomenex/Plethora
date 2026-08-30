@@ -140,7 +140,7 @@ pub async fn apply_resolution_to_outbox(
         "keep_mine" | "both" => {
             if let Some(change_id) = change_id {
                 sqlx::query(
-                    "UPDATE sync_outbox SET sync_status = 'pending' WHERE change_id = ?1",
+                    "UPDATE sync_outbox SET sync_status = 'pending', base_revision = NULL WHERE change_id = ?1",
                 )
                 .bind(change_id)
                 .execute(pool)
