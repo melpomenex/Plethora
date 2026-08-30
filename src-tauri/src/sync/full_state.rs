@@ -284,12 +284,6 @@ pub async fn upsert_learning_item(
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
-            file_path = CASE
-                WHEN excluded.file_path != ''
-                 AND (documents.file_path = '' OR documents.file_path LIKE 'http://%' OR documents.file_path LIKE 'https://%')
-                THEN excluded.file_path
-                ELSE documents.file_path
-            END,
             extract_id = excluded.extract_id,
             document_id = excluded.document_id,
             item_type = excluded.item_type,
@@ -409,6 +403,12 @@ pub async fn upsert_document(
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
+            file_path = CASE
+                WHEN excluded.file_path != ''
+                 AND (documents.file_path = '' OR documents.file_path LIKE 'http://%' OR documents.file_path LIKE 'https://%')
+                THEN excluded.file_path
+                ELSE documents.file_path
+            END,
             title = excluded.title,
             file_type = excluded.file_type,
             content = excluded.content,
