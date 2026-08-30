@@ -128,6 +128,79 @@ impl SyncCrypto {
             .map_err(|e| format!("Decryption / authenticity verification failed: {}", e))
     }
 
+    /// Stable, account-secret identifier for a plaintext blob. Unlike a raw
+    /// SHA-256 this does not reveal cross-account equality or permit offline
+    /// guessing of common files by the storage service.
+    pub fn blob_reference(master_key: &[u8; 32], plaintext: &[u8]) -> String {
+        let digest = Sha256::digest(plaintext);
+        let hk = Hkdf::<Sha256>::new(Some(b"plethora-sync-blob-id-v1"), master_key);
+        let mut opaque = [0u8; 32];
+        hk.expand(&digest, &mut opaque)
+            .expect("32-byte HKDF expand must succeed");
+        format!("b1:{}", hex::encode(opaque))
+    }
+
+    fn derive_blob_key(master_key: &[u8; 32], blob_reference: &str) -> [u8; 32] {
+        let hk = Hkdf::<Sha256>::new(Some(b"plethora-sync-blob-key-v1"), master_key);
+        let mut key = [0u8; 32];
+        hk.expand(blob_reference.as_bytes(), &mut key)
+            .expect("32-byte HKDF expand must succeed");
+        key
+    }
+
+    /// Encrypt a binary blob client-side. The returned bytes are
+    /// nonce || AES-GCM ciphertext+tag and are safe to place in object storage.
+    pub fn encrypt_blob(
+        master_key: &[u8; 32],
+        plaintext: &[u8],
+    ) -> Result<(String, Vec<u8>), String> {
+        let blob_reference = Self::blob_reference(master_key, plaintext);
+        let key = Self::derive_blob_key(master_key, &blob_reference);
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| format!("Failed to create blob cipher: {e}"))?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext,
+                    aad: blob_reference.as_bytes(),
+                },
+            )
+            .map_err(|e| format!("Blob encryption failed: {e}"))?;
+        let mut out = Vec::with_capacity(nonce.len() + ciphertext.len());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ciphertext);
+        Ok((blob_reference, out))
+    }
+
+    pub fn decrypt_blob(
+        master_key: &[u8; 32],
+        blob_reference: &str,
+        encrypted: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        if encrypted.len() < 12 + 16 {
+            return Err("Encrypted blob is too short".into());
+        }
+        let key = Self::derive_blob_key(master_key, blob_reference);
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| format!("Failed to create blob cipher: {e}"))?;
+        let (nonce_bytes, ciphertext) = encrypted.split_at(12);
+        let plaintext = cipher
+            .decrypt(
+                Nonce::from_slice(nonce_bytes),
+                Payload {
+                    msg: ciphertext,
+                    aad: blob_reference.as_bytes(),
+                },
+            )
+            .map_err(|_| "Blob decryption / authenticity verification failed".to_string())?;
+        if Self::blob_reference(master_key, &plaintext) != blob_reference {
+            return Err("Blob identity verification failed".into());
+        }
+        Ok(plaintext)
+    }
+
     /// Wrap the master key for a paired device using X25519 + AES-GCM.
     pub fn wrap_master_key_for_peer(
         local_secret: &StaticSecret,
@@ -221,6 +294,26 @@ mod tests {
         let encrypted = SyncCrypto::encrypt_payload(&record_key, message, &aad_original).unwrap();
         let result = SyncCrypto::decrypt_payload(&record_key, &encrypted, &aad_tampered);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn blob_encryption_is_private_deduplicated_and_authenticated() {
+        let master = SyncCrypto::derive_master_key("blob-test-master");
+        let plaintext = b"same private document bytes";
+        let (reference_a, encrypted_a) = SyncCrypto::encrypt_blob(&master, plaintext).unwrap();
+        let (reference_b, encrypted_b) = SyncCrypto::encrypt_blob(&master, plaintext).unwrap();
+
+        assert_eq!(reference_a, reference_b, "same account/content dedupes");
+        assert_ne!(encrypted_a, encrypted_b, "random nonces hide ciphertext equality");
+        assert!(!reference_a.contains(&hex::encode(Sha256::digest(plaintext))));
+        assert_eq!(
+            SyncCrypto::decrypt_blob(&master, &reference_a, &encrypted_a).unwrap(),
+            plaintext
+        );
+
+        let mut tampered = encrypted_a;
+        *tampered.last_mut().unwrap() ^= 1;
+        assert!(SyncCrypto::decrypt_blob(&master, &reference_a, &tampered).is_err());
     }
 
     #[test]
