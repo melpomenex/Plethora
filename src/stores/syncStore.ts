@@ -31,6 +31,7 @@ export interface SyncStatusState {
   pendingOutboxCount: number;
   storageUsedBytes: number;
   wifiOnly: boolean;
+  hasMasterKey: boolean;
   recoveryKeyAcknowledged: boolean;
   openIssues: SyncIssue[];
   error: string | null;
@@ -85,6 +86,7 @@ export const useSyncStore = create<SyncStatusState>()(
       pendingOutboxCount: 0,
       storageUsedBytes: 0,
       wifiOnly: false,
+      hasMasterKey: false,
       recoveryKeyAcknowledged: false,
       openIssues: [],
       error: null,
@@ -103,14 +105,22 @@ export const useSyncStore = create<SyncStatusState>()(
         }
 
         try {
-          const [status, acknowledged] = await Promise.all([
+          const [status, acknowledged, hasMasterKey] = await Promise.all([
             invoke<SyncStatusPayload>('sync_get_status'),
             invoke<boolean>('sync_recovery_key_acknowledged'),
+            invoke<boolean>('sync_has_master_key'),
           ]);
           if (status) {
             applySyncStatus(set, get, status);
           }
-          set({ recoveryKeyAcknowledged: acknowledged });
+
+          let recoveryKeyAcknowledged = acknowledged;
+          if (acknowledged && !hasMasterKey) {
+            await invoke('sync_clear_recovery_ack');
+            recoveryKeyAcknowledged = false;
+          }
+
+          set({ recoveryKeyAcknowledged, hasMasterKey });
           await get().fetchStorageUsage();
         } catch {
           // Keep persisted status
@@ -154,12 +164,13 @@ export const useSyncStore = create<SyncStatusState>()(
 
       storeRecoveryKey: async (key: string) => {
         await invoke('sync_store_recovery_key', { recoveryKey: key });
+        set({ hasMasterKey: true });
         return true;
       },
 
       acknowledgeRecoveryKey: async () => {
         await invoke('sync_ack_recovery_key');
-        set({ recoveryKeyAcknowledged: true });
+        set({ recoveryKeyAcknowledged: true, hasMasterKey: true });
         return true;
       },
 
@@ -214,6 +225,7 @@ export const useSyncStore = create<SyncStatusState>()(
       partialize: (state) => ({
         lastSyncedAt: state.lastSyncedAt,
         wifiOnly: state.wifiOnly,
+        hasMasterKey: state.hasMasterKey,
         recoveryKeyAcknowledged: state.recoveryKeyAcknowledged,
       }),
     }

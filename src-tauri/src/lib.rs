@@ -2448,6 +2448,7 @@ pub fn run() {
             sync::sync_store_recovery_key,
             sync::sync_ack_recovery_key,
             sync::sync_recovery_key_acknowledged,
+            sync::sync_clear_recovery_ack,
             sync::sync_pairing_begin,
             sync::sync_pairing_export,
             sync::sync_pairing_accept,

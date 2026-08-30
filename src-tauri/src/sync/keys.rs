@@ -147,6 +147,33 @@ async fn persist_secret(account: &str, value: &str) -> Result<()> {
     }
 }
 
+async fn delete_secret(account: &str) -> Result<()> {
+    if keychain_enabled() {
+        let account = account.to_string();
+        tokio::task::spawn_blocking(move || {
+            let entry = keyring_entry(&account)?;
+            match entry.delete_credential() {
+                Ok(()) => Ok(()),
+                Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(PlethoraError::Internal(format!("sync keyring delete: {e}"))),
+            }
+        })
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("sync keyring delete join: {e}")))?
+    } else {
+        let path = file_path(account)?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| {
+                PlethoraError::Internal(format!(
+                    "Failed to delete sync key file {}: {e}",
+                    path.display()
+                ))
+            })?;
+        }
+        Ok(())
+    }
+}
+
 async fn load_secret(account: &str) -> Result<Option<String>> {
     if keychain_enabled() {
         let account = account.to_string();
@@ -228,6 +255,10 @@ pub async fn mark_recovery_key_acknowledged() -> Result<()> {
     persist_secret(RECOVERY_ACK_ACCOUNT, "1").await
 }
 
+pub async fn clear_recovery_acknowledgement() -> Result<()> {
+    delete_secret(RECOVERY_ACK_ACCOUNT).await
+}
+
 pub async fn load_device_secret() -> Result<x25519_dalek::StaticSecret> {
     if let Some(encoded) = load_secret(DEVICE_SECRET_ACCOUNT).await? {
         let bytes = base64::engine::general_purpose::STANDARD
@@ -271,4 +302,48 @@ pub fn verify_pairing_session(code: &str) -> bool {
         return false;
     }
     stored == code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn ensure_test_storage() -> PathBuf {
+        let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("plethora-sync-keys-test-{n}"));
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = init_storage(dir.clone());
+        dir
+    }
+
+    #[tokio::test]
+    async fn clear_recovery_acknowledgement_does_not_remove_master_key() {
+        let dir = ensure_test_storage();
+        let recovery_key = SyncCrypto::generate_recovery_key();
+        let master = store_master_key_from_recovery(&recovery_key)
+            .await
+            .expect("store master key");
+        mark_recovery_key_acknowledged()
+            .await
+            .expect("mark acknowledged");
+
+        assert!(recovery_key_acknowledged().await.expect("ack check"));
+        assert!(load_master_key().await.expect("load master").is_some());
+
+        clear_recovery_acknowledgement()
+            .await
+            .expect("clear acknowledgement");
+
+        assert!(!recovery_key_acknowledged().await.expect("ack cleared"));
+        let loaded = load_master_key()
+            .await
+            .expect("load master after clear")
+            .expect("master key still present");
+        assert_eq!(loaded, master);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

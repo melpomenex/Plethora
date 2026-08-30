@@ -43,8 +43,8 @@ use engine::{map_error, pull_remote, push_outbox, run_sync_cycle};
 use flags::sync_v2_enabled;
 use issues::SyncIssue;
 use keys::{
-    load_master_key, mark_recovery_key_acknowledged, recovery_key_acknowledged,
-    store_master_key_from_recovery,
+    clear_recovery_acknowledgement, load_master_key, mark_recovery_key_acknowledged,
+    recovery_key_acknowledged, store_master_key_from_recovery,
 };
 use outbox::count_pending;
 use pairing::{accept_pairing, begin_pairing, export_pairing_bundle, PairingAcceptRequest};
@@ -254,6 +254,11 @@ pub async fn sync_ack_recovery_key() -> Result<(), String> {
 #[tauri::command]
 pub async fn sync_recovery_key_acknowledged() -> Result<bool, String> {
     recovery_key_acknowledged().await.map_err(map_error)
+}
+
+#[tauri::command]
+pub async fn sync_clear_recovery_ack() -> Result<(), String> {
+    clear_recovery_acknowledgement().await.map_err(map_error)
 }
 
 #[tauri::command]
