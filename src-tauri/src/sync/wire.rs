@@ -155,9 +155,13 @@ pub fn decode_remote_record(
     master_key: Option<&[u8; 32]>,
     local_epoch: u32,
 ) -> Result<RemoteSyncRecord, String> {
-    if wire.key_version < local_epoch {
+    // Historical records intentionally keep the epoch they were encrypted
+    // under. The account master key can derive those record keys; revocation
+    // is enforced by the server transport/device ACL, not by making existing
+    // ciphertext unreadable. A future epoch is still invalid locally.
+    if wire.key_version > local_epoch {
         return Err(format!(
-            "Rejected stale key epoch {} (local {local_epoch})",
+            "Rejected future key epoch {} (local {local_epoch})",
             wire.key_version
         ));
     }
