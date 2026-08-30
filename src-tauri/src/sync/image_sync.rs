@@ -1,5 +1,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use sqlx::{Pool, Sqlite, Transaction};
 
 use crate::error::{PlethoraError, Result};
