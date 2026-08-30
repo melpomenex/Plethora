@@ -700,6 +700,7 @@ async fn extract_audio_cover_art_via_ffmpeg(
 #[tauri::command]
 pub async fn generate_audiobook_transcript(
     app_handle: AppHandle,
+    repo: State<'_, Repository>,
     file_path: String,
     model: String,
     language: String,
@@ -708,10 +709,27 @@ pub async fn generate_audiobook_transcript(
         ModelManager::new(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
 
     let selected_model = model;
-    if !model_manager.is_model_installed(&selected_model) {
+    let model_path = match crate::models::hf::manager::resolve_installed_path(
+        repo.pool(),
+        &selected_model,
+    )
+    .await
+    {
+        Some(p) => p,
+        None => {
+            if !model_manager.is_model_installed(&selected_model) {
+                return Err(PlethoraError::InvalidInput(format!(
+                    "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
+                    selected_model
+                )));
+            }
+            model_manager.get_model_path(&selected_model)
+        }
+    };
+    if !model_path.exists() {
         return Err(PlethoraError::InvalidInput(format!(
-            "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
-            selected_model
+            "Model path not found: {}",
+            model_path.display()
         )));
     }
 
@@ -737,12 +755,8 @@ pub async fn generate_audiobook_transcript(
             .map_err(|e| PlethoraError::Internal(format!("Failed to prepare audio: {}", e)))?;
         wav_path = Some(prepared.clone());
 
-        let model_path = model_manager.get_model_path(&selected_model);
-        // Route to the right engine based on the model family. Sherpa-onnx models
-        // (parakeet-*, sense-voice-*) run via the sherpa-onnx sidecar; everything
-        // else is a Whisper (ggml) model.
-        let is_parakeet = selected_model.starts_with("parakeet-");
-        let is_sense_voice = selected_model.starts_with("sense-voice-");
+        let route =
+            crate::models::hf::manager::stt_route_for_model(repo.pool(), &selected_model).await;
 
         let on_segment = move |seg: crate::transcription::engine::TranscriptSegment| {
             if let Ok(mut guard) = segments_for_cb.lock() {
@@ -750,22 +764,10 @@ pub async fn generate_audiobook_transcript(
             }
         };
 
-        if is_sense_voice {
-            engine
-                .transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        } else if is_parakeet {
-            engine
-                .transcribe_parakeet(&prepared, &model_path, &language, on_segment, None)
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        } else {
-            engine
-                .transcribe(&prepared, &model_path, &language, on_segment, None)
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        }
+        engine
+            .transcribe_route(&prepared, &model_path, &route, &language, on_segment, None)
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
 
         Ok::<(), PlethoraError>(())
     }

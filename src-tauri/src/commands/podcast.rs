@@ -583,9 +583,28 @@ async fn run_transcription_job(
         ModelManager::new(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
 
     let selected_model = model_id;
-    if !model_manager.is_model_installed(&selected_model) {
+    let model_path = match crate::models::hf::manager::resolve_installed_path(
+        repo.pool(),
+        &selected_model,
+    )
+    .await
+    {
+        Some(p) => p,
+        None => {
+            if !model_manager.is_model_installed(&selected_model) {
+                let _ = std::fs::remove_file(&temp_file);
+                let message = missing_requested_model_message(&selected_model);
+                repo.update_episode_transcript_status(&episode_id, "error", Some(&message), None)
+                    .await?;
+                cleanup(&tokens, &episode_id);
+                return Err(PlethoraError::InvalidInput(message));
+            }
+            model_manager.get_model_path(&selected_model)
+        }
+    };
+    if !model_path.exists() {
         let _ = std::fs::remove_file(&temp_file);
-        let message = missing_requested_model_message(&selected_model);
+        let message = format!("Model path not found: {}", model_path.display());
         repo.update_episode_transcript_status(&episode_id, "error", Some(&message), None)
             .await?;
         cleanup(&tokens, &episode_id);
@@ -605,7 +624,7 @@ async fn run_transcription_job(
     //   - the integer percent changed by >= 1, AND
     //   - >= 50ms elapsed since the last emit.
     // The final 100% is always emitted regardless of throttle. State is shared
-    // across the three engine branches below via an Arc (only one branch runs).
+    // across the engine via an Arc.
     // (last_emitted_pct, last_emit_instant)
     let throttle: Arc<Mutex<(i32, Instant)>> =
         Arc::new(Mutex::new((-1, Instant::now() - Duration::from_secs(1))));
@@ -626,81 +645,36 @@ async fn run_transcription_job(
             .await
             .map_err(|e| PlethoraError::Internal(format!("Audio preparation failed: {}", e)))?;
 
-        let model_path = model_manager.get_model_path(&selected_model);
-        // Route to the right engine based on the model family. Sherpa-onnx models
-        // (parakeet-*, sense-voice-*) run via the sherpa-onnx sidecar; everything
-        // else is a Whisper (ggml) model.
-        let is_parakeet = selected_model.starts_with("parakeet-");
-        let is_sense_voice = selected_model.starts_with("sense-voice-");
+        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &selected_model).await;
+        let progress_cb: Option<Box<dyn Fn(i32) + Send + Sync>> = Some(throttled_progress_cb(
+            app_clone.clone(),
+            ep_id.clone(),
+            throttle.clone(),
+        ));
+
+        let cancel_inner = cancel_clone.clone();
+        let segments_inner = segments_clone.clone();
+        let on_segment = move |seg: TranscriptSegment| {
+            if cancel_inner.load(Ordering::Relaxed) {
+                return;
+            }
+            if let Ok(mut guard) = segments_inner.lock() {
+                guard.push(seg);
+            }
+        };
 
         let cancel_post = cancel_clone.clone();
-        if is_sense_voice {
-            engine
-                .transcribe_sensevoice(
-                    &prepared,
-                    &model_path,
-                    &lang,
-                    move |seg| {
-                        if cancel_clone.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        if let Ok(mut guard) = segments_clone.lock() {
-                            guard.push(seg);
-                        }
-                    },
-                    Some(throttled_progress_cb(
-                        app_clone.clone(),
-                        ep_id.clone(),
-                        throttle.clone(),
-                    )),
-                )
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        } else if is_parakeet {
-            engine
-                .transcribe_parakeet(
-                    &prepared,
-                    &model_path,
-                    &lang,
-                    move |seg| {
-                        if cancel_clone.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        if let Ok(mut guard) = segments_clone.lock() {
-                            guard.push(seg);
-                        }
-                    },
-                    Some(throttled_progress_cb(
-                        app_clone.clone(),
-                        ep_id.clone(),
-                        throttle.clone(),
-                    )),
-                )
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        } else {
-            engine
-                .transcribe(
-                    &prepared,
-                    &model_path,
-                    &lang,
-                    move |seg| {
-                        if cancel_clone.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        if let Ok(mut guard) = segments_clone.lock() {
-                            guard.push(seg);
-                        }
-                    },
-                    Some(throttled_progress_cb(
-                        app_clone.clone(),
-                        ep_id.clone(),
-                        throttle.clone(),
-                    )),
-                )
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
-        }
+        engine
+            .transcribe_route(
+                &prepared,
+                &model_path,
+                &route,
+                &lang,
+                on_segment,
+                progress_cb,
+            )
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Transcription failed: {}", e)))?;
 
         if cancel_post.load(Ordering::Relaxed) {
             return Err(PlethoraError::Internal(

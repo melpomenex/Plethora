@@ -181,6 +181,22 @@ pub fn parse_model_id(id: &str) -> Option<(HfRuntime, String, String)> {
     Some((runtime, repo_id, revision))
 }
 
+/// Canonicalize an incoming model id (handling logical alias keys like `nemotron-3.5-asr-0.6b`).
+pub fn canonicalize_hf_model_id(id: &str) -> String {
+    if id == NEMOTRON_ASR_LOGICAL_KEY
+        || id == NEMOTRON_ASR_REPO_ID
+        || id == "nemotron-3.5-asr"
+        || id == "nemotron"
+    {
+        return model_id_for(
+            HfRuntime::NemotronAsr,
+            NEMOTRON_ASR_REPO_ID,
+            NEMOTRON_ASR_REVISION,
+        );
+    }
+    id.to_string()
+}
+
 pub fn install_dir_for(runtime: HfRuntime, app_data_dir: &Path) -> PathBuf {
     runtime.adapter().install_dir(app_data_dir)
 }
@@ -356,8 +372,9 @@ pub fn verify_on_disk(install_dir: &str, files: &[InstalledModelFile]) -> bool {
 /// Returns `None` when `id` is not an HF-managed model (the caller falls back
 /// to the pinned catalog).
 pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Option<PathBuf> {
-    let (runtime, _repo, _rev) = parse_model_id(id)?;
-    let model = registry_get(pool, id).await?;
+    let canonical = canonicalize_hf_model_id(id);
+    let (runtime, _repo, _rev) = parse_model_id(&canonical)?;
+    let model = registry_get(pool, &canonical).await?;
     if !model.installed && !verify_on_disk(&model.install_dir, &model.artifact_files) {
         return None;
     }
@@ -404,10 +421,11 @@ pub async fn resolve_run_contract(
     pool: &Pool<sqlx::Sqlite>,
     id: &str,
 ) -> Option<(HfRuntime, RunContract)> {
-    if parse_model_id(id).is_none() {
+    let canonical = canonicalize_hf_model_id(id);
+    if parse_model_id(&canonical).is_none() {
         return None;
     }
-    let model = registry_get(pool, id).await?;
+    let model = registry_get(pool, &canonical).await?;
     if !verify_on_disk(&model.install_dir, &model.artifact_files) {
         return None;
     }
@@ -429,15 +447,16 @@ pub async fn resolve_installed_tts(
     pool: &Pool<sqlx::Sqlite>,
     id: &str,
 ) -> Option<(PathBuf, RunContract)> {
-    let (runtime, contract) = resolve_run_contract(pool, id).await?;
+    let canonical = canonicalize_hf_model_id(id);
+    let (runtime, contract) = resolve_run_contract(pool, &canonical).await?;
     if runtime != HfRuntime::SherpaOnnxTts {
         return None;
     }
     if contract.validate().is_err() {
         return None;
     }
-    let (_tag, _repo, _rev) = parse_model_id(id)?;
-    let model = registry_get(pool, id).await?;
+    let (_tag, _repo, _rev) = parse_model_id(&canonical)?;
+    let model = registry_get(pool, &canonical).await?;
     Some((PathBuf::from(model.install_dir), contract))
 }
 
@@ -446,14 +465,15 @@ pub async fn resolve_installed_nemotron(
     pool: &Pool<sqlx::Sqlite>,
     id: &str,
 ) -> Option<(PathBuf, RunContract)> {
-    let (runtime, contract) = resolve_run_contract(pool, id).await?;
+    let canonical = canonicalize_hf_model_id(id);
+    let (runtime, contract) = resolve_run_contract(pool, &canonical).await?;
     if runtime != HfRuntime::NemotronAsr {
         return None;
     }
     if contract.validate().is_err() {
         return None;
     }
-    let model = registry_get(pool, id).await?;
+    let model = registry_get(pool, &canonical).await?;
     Some((PathBuf::from(model.install_dir), contract))
 }
 
@@ -523,6 +543,15 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
     } else if model_id.starts_with("parakeet-") {
         SttEngineRoute::Parakeet {
             model: "model.int8.onnx".to_string(),
+        }
+    } else if model_id == NEMOTRON_ASR_LOGICAL_KEY
+        || model_id == NEMOTRON_ASR_REPO_ID
+        || model_id == "nemotron-3.5-asr"
+        || model_id == "nemotron"
+        || model_id.contains("nemotron")
+    {
+        SttEngineRoute::Nemotron {
+            model_file: "nemotron-0.6b.gguf".to_string(),
         }
     } else {
         SttEngineRoute::Whisper
@@ -1471,5 +1500,50 @@ mod tests {
             stt_route_for_model(&pool, &sense.id).await,
             SttEngineRoute::SenseVoice { model: "model.int8.onnx".to_string() }
         );
+
+        // Nemotron alias resolution and routing.
+        assert_eq!(
+            canonicalize_hf_model_id(NEMOTRON_ASR_LOGICAL_KEY),
+            model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION)
+        );
+        assert_eq!(
+            stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
+            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+        );
+        assert_eq!(
+            stt_route_for_model(&pool, NEMOTRON_ASR_REPO_ID).await,
+            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+        );
+
+        // HF nemotron model registered.
+        let nemotron = InstalledHfModel {
+            id: model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION),
+            repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
+            revision: NEMOTRON_ASR_REVISION.to_string(),
+            runtime: HfRuntime::NemotronAsr,
+            artifact_kind: "nemotron-asr-gguf".to_string(),
+            install_dir: dir.path().to_str().unwrap().to_string(),
+            artifact_files: vec![
+                InstalledModelFile { path: "nemotron-0.6b.gguf".to_string(), size: 100, sha256: None },
+            ],
+            download_size_bytes: 100,
+            license: None,
+            run_contract: RunContract::NemotronAsr {
+                model_file: "nemotron-0.6b.gguf".to_string(),
+            },
+            installed_at: "2026-08-19T00:00:00Z".to_string(),
+            installed: true,
+        };
+        write_model_files(&nemotron);
+        registry_insert(&pool, &nemotron).await.unwrap();
+
+        // Resolves via logical key
+        assert_eq!(
+            stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
+            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+        );
+        let path = resolve_installed_path(&pool, NEMOTRON_ASR_LOGICAL_KEY).await;
+        assert!(path.is_some());
+        assert_eq!(path.unwrap(), dir.path().join("nemotron-0.6b.gguf"));
     }
 }
