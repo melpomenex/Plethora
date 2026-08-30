@@ -324,15 +324,16 @@ async fn apply_document(
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
     if matches!(record.operation, Some(SyncOperation::Delete)) {
+        let target_id = super::full_state::resolve_alias(tx, "document", &record.record_id).await?;
         sqlx::query("DELETE FROM documents WHERE id = ?1")
-            .bind(&record.record_id)
+            .bind(&target_id)
             .execute(&mut **tx)
             .await?;
         return Ok(ApplyOutcome::Applied);
     }
 
     if let Some(document) = super::full_state::decode_document(&record.payload) {
-        super::full_state::upsert_document(tx, &document).await?;
+        let _ = super::full_state::upsert_document(tx, &document).await?;
         return Ok(ApplyOutcome::Applied);
     }
 
