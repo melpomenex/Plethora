@@ -402,9 +402,9 @@ interface DocumentViewerProps {
   onMediaSectionsChange?: (sections: SectionNode[]) => void;
   hideRatingOrbs?: boolean;
   /**
-   * Origin the document was opened from. "documents" (library browsing) hides
-   * the inline rating orbs; "queue" (active review) keeps them. Combined with
-   * `hideRatingOrbs` into `shouldHideRatingOrbs`.
+   * Origin the document was opened from. Only "queue" (active review) keeps
+   * the inline rating orbs. Any other origin (or undefined) hides them. Combined
+   * with `hideRatingOrbs` into `shouldHideRatingOrbs`.
    */
   openedFrom?: string;
   onEnded?: () => void;
@@ -496,8 +496,8 @@ export function DocumentViewer({
   const { theme, themes: availableThemes, previewThemeId } = useTheme();
   // Rating orbs are a queue-review affordance: hide them when the caller opts
   // out (Scroll Mode renders its own overlay) or when the document was opened
-  // from the library/Documents view rather than the queue.
-  const shouldHideRatingOrbs = hideRatingOrbs || openedFrom === "documents";
+  // outside the queue (library browsing, search, recents, restored tabs, etc.).
+  const shouldHideRatingOrbs = hideRatingOrbs || openedFrom !== "queue";
   const { hydrateDocument, setCurrentDocument, updateDocument, updateDocumentOptimistic } = useDocumentStore(
     useShallow(s => ({
       hydrateDocument: s.hydrateDocument,
@@ -4541,8 +4541,8 @@ export function DocumentViewer({
         return;
       }
 
-      // Rating shortcuts (1-4) — only when viewing documents in queue
-      if (viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && queueNav.totalDocuments > 0) {
+      // Rating shortcuts (1-4) — only when actively reviewing documents in queue
+      if (!shouldHideRatingOrbs && openedFrom === "queue" && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && queueNav.totalDocuments > 0) {
         if (e.key >= "1" && e.key <= "4") {
           e.preventDefault();
           handleRatingRef.current?.(parseInt(e.key) as ReviewRating);
