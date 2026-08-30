@@ -2702,8 +2702,11 @@ impl Repository {
             .await?;
         }
 
-        let item_payload = payload::learning_item_payload(item)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        let item_payload = payload::learning_item_payload_with_fields(
+            item,
+            &["schedule", "tags", "media"],
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         mark_dirty(
             &mut tx,
             EntityType::LearningItem,
@@ -3016,61 +3019,76 @@ impl Repository {
         cloze_text: Option<&str>,
     ) -> Result<Option<LearningItem>> {
         let now = Utc::now();
-        // One of four statements depending on which optional columns were
-        // supplied, so omitted ones never appear in the UPDATE at all.
+        let mut tx = self.pool.begin().await?;
+
         let rows_affected = match (answer, cloze_text) {
-            (Some(answer), Some(cloze_text)) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
-                )
-                .bind(question)
-                .bind(answer)
-                .bind(cloze_text)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (Some(answer), None) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
-                )
-                .bind(question)
-                .bind(answer)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (None, Some(cloze_text)) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
-                )
-                .bind(question)
-                .bind(cloze_text)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (None, None) => {
-                sqlx::query("UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3")
-                    .bind(question)
-                    .bind(now)
-                    .bind(id)
-                    .execute(&self.pool)
-                    .await?
-                    .rows_affected()
-            }
+            (Some(answer), Some(cloze_text)) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
+            )
+            .bind(question)
+            .bind(answer)
+            .bind(cloze_text)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (Some(answer), None) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(question)
+            .bind(answer)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (None, Some(cloze_text)) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(question)
+            .bind(cloze_text)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (None, None) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3",
+            )
+            .bind(question)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
         };
 
         if rows_affected == 0 {
+            tx.rollback().await?;
             return Ok(None);
         }
-        self.get_learning_item_by_id(id).await
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let item_payload = payload::learning_item_payload_with_fields(&updated, &["content"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(Some(updated))
     }
 
     /// Update a learning item's user-set priority.
@@ -3085,7 +3103,8 @@ impl Repository {
         priority_score: f64,
     ) -> Result<LearningItem> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE learning_items SET
                 priority_slider = ?1,
@@ -3099,12 +3118,38 @@ impl Repository {
         .bind(priority_score)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(crate::error::PlethoraError::NotFound(format!(
+                "Learning item {}",
+                id
+            )));
+        }
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let item_payload = payload::learning_item_payload_with_fields(&updated, &["priority"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
         .await?;
 
-        self.get_learning_item_by_id(id).await?.ok_or_else(|| {
-            crate::error::PlethoraError::NotFound(format!("Learning item {}", id))
-        })
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn get_all_learning_items(&self) -> Result<Vec<LearningItem>> {
