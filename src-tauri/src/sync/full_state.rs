@@ -208,7 +208,7 @@ pub async fn resolve_alias(
     Ok(alias.unwrap_or_else(|| source_id.to_string()))
 }
 
-async fn register_alias(
+pub(crate) async fn register_alias(
     tx: &mut Transaction<'_, Sqlite>,
     entity_type: &str,
     source_id: &str,
@@ -405,7 +405,11 @@ pub async fn upsert_learning_item(
     let state = format!("{:?}", item.state).to_lowercase();
     let tags = serde_json::to_string(&item.tags)
         .map_err(|e| PlethoraError::Internal(format!("Sync item tags encode failed: {e}")))?;
-    let image_asset_ids = serde_json::to_string(&item.image_asset_ids)
+    let mut resolved_image_asset_ids = Vec::with_capacity(item.image_asset_ids.len());
+    for asset_id in &item.image_asset_ids {
+        resolved_image_asset_ids.push(resolve_alias(tx, "image_asset", asset_id).await?);
+    }
+    let image_asset_ids = serde_json::to_string(&resolved_image_asset_ids)
         .map_err(|e| PlethoraError::Internal(format!("Sync item assets encode failed: {e}")))?;
     let interaction_metadata = item
         .interaction_metadata
@@ -825,7 +829,11 @@ pub async fn apply_learning_item_groups(
             .await?;
     }
     if groups.iter().any(|group| group == "media") {
-        let image_asset_ids = serde_json::to_string(&item.image_asset_ids)
+        let mut resolved_image_asset_ids = Vec::with_capacity(item.image_asset_ids.len());
+        for asset_id in &item.image_asset_ids {
+            resolved_image_asset_ids.push(resolve_alias(tx, "image_asset", asset_id).await?);
+        }
+        let image_asset_ids = serde_json::to_string(&resolved_image_asset_ids)
             .map_err(|e| PlethoraError::Internal(format!("Sync item assets encode failed: {e}")))?;
         let interaction_metadata = item
             .interaction_metadata
