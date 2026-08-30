@@ -195,9 +195,38 @@ The production bundles will be in `src-tauri/target/release/bundle/`.
 | `npm run tauri:build:linux:binary` | Compile only (`--no-bundle`) |
 | `npm run tauri:bundle:linux:deb` | Bundle an existing binary into `.deb` |
 | `npm run tauri:build:linux:profile` | Build with per-phase timing summary |
-| `npm run clean:frontend:deep` | Remove `dist/`, Vite cache, and ESLint cache |
 
-**Cargo parallelism:** Linux Tauri builds compute a memory-aware default (`CARGO_BUILD_JOBS`, local cap 8). CI sets explicit per-arch values (x86_64: 2, aarch64: 3 on ~7 GB runners). Override explicitly:
+### Windows builds
+
+| Command | Purpose |
+|---------|---------|
+| `npm run tauri:build:windows:nsis` | Production NSIS installer |
+| `npm run tauri:build:windows:nsis:fast` | Fast local NSIS installer (no LTO) |
+| `npm run tauri:build:windows:binary` | Compile only |
+| `npm run tauri:bundle:windows:nsis` | Bundle existing binary to NSIS |
+| `npm run tauri:build:windows:profile` | Timed build summary |
+
+### macOS builds
+
+| Command | Purpose |
+|---------|---------|
+| `npm run tauri:build:macos:dmg` | Production `.dmg` |
+| `npm run tauri:build:macos:dmg:fast` | Fast local `.dmg` (no LTO) |
+| `npm run tauri:build:macos:binary` | Compile only |
+| `npm run tauri:build:macos:profile` | Timed build summary |
+
+### Android builds
+
+| Command | Purpose |
+|---------|---------|
+| `npm run tauri:build:android:apk` | Production APK |
+| `npm run tauri:build:android:apk:fast` | Fast local APK (no LTO; Gradle runs alongside rustc) |
+| `npm run tauri:build:android:profile` | Timed build summary |
+| `npm run tauri:android:build:store:aab` | Play Store AAB (release signing required) |
+
+`npm run clean:frontend:deep` removes `dist/`, Vite cache, and ESLint cache on all platforms.
+
+**Cargo parallelism:** All native builds compute a memory-aware default (`CARGO_BUILD_JOBS`, local cap 8). Android caps lower (2 local / 1 CI) because Gradle shares RAM. CI sets explicit per-arch values on ~7 GB runners. Override explicitly:
 
 ```bash
 CARGO_BUILD_JOBS=4 npm run tauri:build:linux:deb

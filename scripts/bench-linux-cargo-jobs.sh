@@ -30,7 +30,7 @@ measure_build() {
   printf '{"label":"%s","jobs":%s,"seconds":%s,"peak_rss_kb":%s}\n' "$label" "$jobs" "$elapsed" "${peak_rss:-0}"
 }
 
-source "$ROOT_DIR/scripts/tauri-linux-build-env.sh"
+source "$ROOT_DIR/scripts/cargo-build-env.sh"
 default_jobs="$CARGO_BUILD_JOBS"
 
 echo "Benchmarking cargo build --release (clean) ..."

@@ -15,19 +15,17 @@ esac
 # stack (see vendor/tauri-codegen-2.6.3 and tauri-apps/tauri#9882).
 export RUST_MIN_STACK="${RUST_MIN_STACK:-33554432}"
 
-if [[ "$cmd" == "build" ]]; then
-  # On Arch Linux and other modern distros, linuxdeploy's bundled strip binary
-  # doesn't support the .relr.dyn section (type 0x13) in newer ELF binaries.
-  # Use NO_STRIP=1 to skip stripping and let the system handle it.
+if [[ "$cmd" == "build" || "$cmd" == "android" ]]; then
+  if [[ "$cmd" == "android" ]]; then
+    export PLETHORA_ANDROID_BUILD=1
+  fi
   if [[ "$(uname -s)" == "Linux" ]]; then
     export NO_STRIP=1
-    # Cargo profile environment variables override Cargo.toml. Source the
-    # repository-owned memory envelope so a stale codegen-units=1 override
-    # cannot turn the main crate into a single oversized LLVM module.
-    source scripts/tauri-linux-build-env.sh
-    # shellcheck source=scripts/linux-build-accelerators.sh
-    source scripts/linux-build-accelerators.sh
   fi
+  # shellcheck source=scripts/cargo-build-env.sh
+  source scripts/cargo-build-env.sh
+  # shellcheck source=scripts/cargo-build-accelerators.sh
+  source scripts/cargo-build-accelerators.sh
 fi
 
 if [[ "$cmd" == "dev" ]]; then
