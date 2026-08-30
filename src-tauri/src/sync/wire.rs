@@ -169,7 +169,21 @@ pub fn decode_remote_record(
     let entity_type = entity_type_for_table_kind(&wire.table_kind)
         .ok_or_else(|| format!("Unsupported table kind {}", wire.table_kind))?;
 
-    let change_id = wire.change_id.clone().unwrap_or_else(|| wire.record_id.clone());
+    // Protocol-v1 servers deployed before envelope metadata persistence
+    // still have the original authenticated AAD. Its final two components are
+    // always change_id and epoch, so recover the change id from the right
+    // without depending on entity IDs/settings keys that may contain ':'.
+    let recovered_change_id = wire
+        .aad
+        .rsplit(':')
+        .nth(1)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let change_id = wire
+        .change_id
+        .clone()
+        .or(recovered_change_id)
+        .unwrap_or_else(|| wire.record_id.clone());
     let aad = if wire.aad.contains(':') {
         wire.aad.clone()
     } else {
@@ -195,8 +209,25 @@ pub fn decode_remote_record(
             &change_id,
         );
         let bytes = SyncCrypto::decrypt_payload(&record_key, &wire.payload_ciphertext, &aad)?;
-        let op = wire.operation.as_deref().and_then(parse_operation);
-        (bytes, op)
+        let explicit = wire.operation.as_deref().and_then(parse_operation);
+        let inferred = if explicit.is_none() {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| {
+                    if value.get("deleted_at").is_some() || value.get("deletedAt").is_some() {
+                        Some(SyncOperation::Delete)
+                    } else if entity_type == EntityType::ReviewResult {
+                        Some(SyncOperation::AppendEvent)
+                    } else {
+                        // Legacy create/update records are safely handled as
+                        // upserts by the current merge layer.
+                        Some(SyncOperation::Update)
+                    }
+                })
+        } else {
+            None
+        };
+        (bytes, explicit.or(inferred))
     };
 
     Ok(RemoteSyncRecord {
