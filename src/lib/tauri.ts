@@ -434,7 +434,7 @@ export async function convertFileSrc(path: string, protocol?: string): Promise<s
 export async function openFilePicker(options?: {
   title?: string;
   multiple?: boolean;
-  filters?: Array<{ name: string; extensions: string[] }>;
+  filters?: Array<{ name: string; extensions: readonly string[] }>;
 }): Promise<string[] | null> {
   // Native Android/iOS: the Tauri dialog plugin returns content:// URIs that
   // the Rust import backend can't read (it expects filesystem paths and calls
@@ -480,7 +480,7 @@ import { storeBrowserFile } from './browser-file-store';
  */
 function browserOpenFilePicker(options?: {
   multiple?: boolean;
-  filters?: Array<{ name: string; extensions: string[] }>;
+  filters?: Array<{ name: string; extensions: readonly string[] }>;
 }): Promise<string[] | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');

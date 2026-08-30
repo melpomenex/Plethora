@@ -500,7 +500,7 @@ export async function extractDocumentText(id: string): Promise<{ content: string
 export async function openFilePicker(options?: {
   title?: string;
   multiple?: boolean;
-  filters?: Array<{ name: string; extensions: string[] }>;
+  filters?: Array<{ name: string; extensions: readonly string[] }>;
 }): Promise<string[] | null> {
   return await tauriOpenFilePicker({
     ...options,
@@ -588,7 +588,7 @@ export interface StagedFolderFile {
  * mode (no Tauri backend) this is unavailable and resolves to an empty array.
  */
 export async function pickFolderDocuments(
-  extensions?: string[]
+  extensions?: readonly string[]
 ): Promise<StagedFolderFile[]> {
   if (isWebMode()) {
     // Folder import requires the native plugin (SAF / document picker / dialog),
@@ -613,7 +613,7 @@ export async function pickFolderDocuments(
  * Returns an empty array in pure browser/PWA or if the user cancels.
  */
 export async function pickFilesMobile(
-  options?: { multiple?: boolean; extensions?: string[] }
+  options?: { multiple?: boolean; extensions?: readonly string[] }
 ): Promise<StagedFolderFile[]> {
   if (isWebMode()) {
     return [];
