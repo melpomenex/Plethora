@@ -4,15 +4,15 @@ use crate::error::{PlethoraError, Result};
 use crate::plethora_auth::AuthManager;
 
 use super::cursor::{get_server_cursor, set_server_cursor, touch_successful_sync};
-use super::device::ensure_device_id;
+use super::device::{adopt_device_id, ensure_device_id};
 use super::flags::sync_v2_enabled;
 use super::gate::cloud_sync_enabled;
 use super::issues;
 use super::keys::{get_key_epoch, load_master_key, set_key_epoch};
 use super::merge::apply_remote_record;
 use super::outbox::{acknowledge_changes, drain_pending_batch};
-use super::transport::{pull_page, push_records};
-use super::types::{PullResult, PushResult, SyncRecord};
+use super::transport::{ack_cursor, pull_page, push_records};
+use super::types::{EntityType, PullResult, PushResult, SyncOperation, SyncRecord};
 use super::wire::{decode_remote_record, outbox_entry_to_wire, WireConflict, MAX_PUSH_RECORDS};
 use super::SyncEngine;
 
@@ -48,7 +48,7 @@ pub async fn push_outbox(
         .ok_or_else(|| PlethoraError::Internal("Sign in required for sync push".to_string()))?;
 
     let mut tx = repo.pool().begin().await?;
-    let device_id = ensure_device_id(&mut tx).await?;
+    let device_id = sync_device_id(&mut tx, auth).await?;
     tx.commit().await?;
 
     let master_key = require_master_key().await?;
@@ -74,9 +74,32 @@ pub async fn push_outbox(
             let mut batch_bytes = 0usize;
 
             for entry in &batch {
-                let wire =
-                    outbox_entry_to_wire(entry, &device_id, &account, Some(&master_key), key_epoch)
-                        .map_err(PlethoraError::Internal)?;
+                // Image outbox rows contain the local bytes so the domain write
+                // and journal remain atomic. Before encrypting the sync record,
+                // move those bytes into encrypted blob storage and replace the
+                // record payload with encrypted metadata + opaque blob identity.
+                let prepared_entry = if entry.entity_type == EntityType::ImageAsset
+                    && !matches!(entry.operation, SyncOperation::Delete)
+                {
+                    let mut prepared = entry.clone();
+                    prepared.payload = super::image_sync::prepare_payload_for_push(
+                        &access_token,
+                        &master_key,
+                        &entry.payload,
+                    )
+                    .await?;
+                    prepared
+                } else {
+                    entry.clone()
+                };
+                let wire = outbox_entry_to_wire(
+                    &prepared_entry,
+                    &device_id,
+                    &account,
+                    Some(&master_key),
+                    key_epoch,
+                )
+                .map_err(PlethoraError::Internal)?;
                 let wire_size = wire.payload_ciphertext.len() + wire.aad.len() + 64;
                 if !wire_batch.is_empty()
                     && (wire_batch.len() >= MAX_PUSH_RECORDS
@@ -153,10 +176,11 @@ pub async fn pull_remote(
     let account = require_account_id(auth).await?;
 
     let mut cursor = get_server_cursor(repo.pool()).await?;
+    let start_cursor = cursor;
     let mut applied_records = Vec::new();
 
     let mut tx = repo.pool().begin().await?;
-    let local_device_id = ensure_device_id(&mut tx).await?;
+    let local_device_id = sync_device_id(&mut tx, auth).await?;
     tx.commit().await?;
 
     loop {
@@ -204,11 +228,33 @@ pub async fn pull_remote(
 
     touch_successful_sync(repo.pool()).await?;
 
+    // The server only advances this device's cursor (and GCs tombstones) on an
+    // explicit ack, so it must be sent strictly after every pulled record has
+    // been applied and the new cursor persisted locally. A crash before the
+    // ack simply replays the page, which every apply path tolerates.
+    if cursor > start_cursor {
+        ack_cursor(&access_token, cursor).await?;
+    }
+
     Ok(PullResult {
         records: applied_records,
         cursor,
         has_more: false,
     })
+}
+
+/// Resolve the device id used to stamp sync traffic. The account issues the
+/// authoritative identity at sign-in (it is embedded in the access token), so
+/// adopt it whenever the auth session provides one; otherwise fall back to the
+/// locally persisted id.
+async fn sync_device_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    auth: &AuthManager,
+) -> Result<String> {
+    match auth.get_device_id() {
+        Some(auth_device_id) => adopt_device_id(tx, &auth_device_id).await,
+        None => ensure_device_id(tx).await,
+    }
 }
 
 pub async fn run_sync_cycle(
@@ -217,27 +263,32 @@ pub async fn run_sync_cycle(
     engine: &SyncEngine,
     entitlements: &EntitlementCache,
 ) -> Result<(PushResult, PullResult)> {
-    // A brand-new device must hydrate cloud state before publishing its local
-    // pre-sync library. Otherwise two populated libraries can race as if each
-    // were authoritative. This is intentionally keyed to the persisted pull
-    // cursor so it survives process restarts.
+    // A brand-new device stages its pre-existing local library before pulling,
+    // but does not publish it yet. Staging atomically assigns HLC/field clocks
+    // to local state, so the first remote snapshots cannot overwrite unsynced
+    // local fields merely because those fields had no clock. We then pull and
+    // reconcile cloud state before the staged outbox is sent.
     if get_server_cursor(repo.pool()).await? == 0 {
-        // Build only lightweight, local strong-identity aliases before the
-        // first cloud pull so an independently imported copy can merge into
-        // the existing document immediately.
         super::full_state::index_local_document_identities(repo.pool()).await?;
-        let _ = pull_remote(repo, auth, entitlements).await?;
-    }
-
-    // Bootstrap is an engine invariant, not a UI action. Periodic/background
-    // sync must eventually publish an existing library even if the user never
-    // presses a manual "Sync now" button. Each scan is bounded to 100 rows.
-    loop {
-        let progress = super::bootstrap::bootstrap_upload_scan(repo.pool()).await?;
-        if progress.phase != "upload" {
-            break;
+        super::image_sync::index_local_identities(repo.pool()).await?;
+        loop {
+            let progress = super::bootstrap::bootstrap_upload_scan(repo.pool()).await?;
+            if progress.phase != "upload" {
+                break;
+            }
+            tokio::task::yield_now().await;
         }
-        tokio::task::yield_now().await;
+        let _ = pull_remote(repo, auth, entitlements).await?;
+    } else {
+        // Bootstrap is an engine invariant, not a UI action. Each scan is
+        // bounded to 100 rows and survives process restarts.
+        loop {
+            let progress = super::bootstrap::bootstrap_upload_scan(repo.pool()).await?;
+            if progress.phase != "upload" {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
     }
 
     let push = push_outbox(repo, auth, entitlements).await?;

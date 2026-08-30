@@ -10,13 +10,31 @@ fn is_v2_payload(payload: &[u8]) -> bool {
 }
 
 pub const LEARNING_ITEM_GROUPS: &[&str] = &[
-    "collection", "content", "tags", "media", "schedule", "priority", "suspension",
+    "collection",
+    "content",
+    "tags",
+    "media",
+    "schedule",
+    "priority",
+    "suspension",
 ];
 pub const DOCUMENT_GROUPS: &[&str] = &[
-    "collection", "content", "tags", "position", "flags", "priority", "schedule", "activity",
+    "collection",
+    "content",
+    "tags",
+    "position",
+    "flags",
+    "priority",
+    "schedule",
+    "activity",
 ];
 pub const EXTRACT_GROUPS: &[&str] = &[
-    "collection", "content", "tags", "schedule", "priority", "activity",
+    "collection",
+    "content",
+    "tags",
+    "schedule",
+    "priority",
+    "activity",
 ];
 
 pub fn sync_fields(payload: &[u8], all_groups: &[&str]) -> Vec<String> {
@@ -33,7 +51,10 @@ pub fn sync_fields(payload: &[u8], all_groups: &[&str]) -> Vec<String> {
         .unwrap_or_else(|| vec!["*".to_string()]);
 
     if raw.iter().any(|field| field == "*") {
-        return all_groups.iter().map(|field| (*field).to_string()).collect();
+        return all_groups
+            .iter()
+            .map(|field| (*field).to_string())
+            .collect();
     }
 
     raw.into_iter()
@@ -149,13 +170,25 @@ fn canonicalize_source_url(raw: &str) -> Option<String> {
 
     // Tracking-only query parameters should never make two imports distinct.
     let tracking = [
-        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-        "utm_id", "gclid", "fbclid", "mc_cid", "mc_eid",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "utm_id",
+        "gclid",
+        "fbclid",
+        "mc_cid",
+        "mc_eid",
     ];
     if url.query().is_some() {
         let retained: Vec<(String, String)> = url
             .query_pairs()
-            .filter(|(key, _)| !tracking.iter().any(|blocked| key.eq_ignore_ascii_case(blocked)))
+            .filter(|(key, _)| {
+                !tracking
+                    .iter()
+                    .any(|blocked| key.eq_ignore_ascii_case(blocked))
+            })
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
             .collect();
         url.set_query(None);
@@ -180,8 +213,7 @@ fn portable_source_url(document: &Document) -> Option<String> {
 }
 
 pub fn document_identity_key(document: &Document) -> Option<String> {
-    if candidate.is_none() {
-        if let Some(hash) = document
+    if let Some(hash) = document
         .content_hash
         .as_deref()
         .map(str::trim)
@@ -261,8 +293,14 @@ pub(crate) async fn register_alias(
                 let parse = |raw: &str| {
                     let mut parts = raw.split(':');
                     (
-                        parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
-                        parts.next().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
+                        parts
+                            .next()
+                            .and_then(|v| v.parse::<i64>().ok())
+                            .unwrap_or(0),
+                        parts
+                            .next()
+                            .and_then(|v| v.parse::<i64>().ok())
+                            .unwrap_or(0),
                     )
                 };
                 let left = parse(&hlc);
@@ -386,14 +424,7 @@ pub async fn prepare_document_target(
     }
 
     let target = candidate.unwrap_or_else(|| document.id.clone());
-    register_alias(
-        tx,
-        "document",
-        &document.id,
-        &target,
-        identity.as_deref(),
-    )
-    .await?;
+    register_alias(tx, "document", &document.id, &target, identity.as_deref()).await?;
     Ok(target)
 }
 
@@ -485,18 +516,14 @@ pub async fn upsert_learning_item(
     )
     .bind(&item.id)
     .bind(&item.collection_id)
-    .bind(
-        match item.extract_id.as_deref() {
-            Some(id) => Some(resolve_alias(tx, "extract", id).await?),
-            None => None,
-        }
-    )
-    .bind(
-        match item.document_id.as_deref() {
-            Some(id) => Some(resolve_alias(tx, "document", id).await?),
-            None => None,
-        }
-    )
+    .bind(match item.extract_id.as_deref() {
+        Some(id) => Some(resolve_alias(tx, "extract", id).await?),
+        None => None,
+    })
+    .bind(match item.document_id.as_deref() {
+        Some(id) => Some(resolve_alias(tx, "document", id).await?),
+        None => None,
+    })
     .bind(item_type)
     .bind(&item.question)
     .bind(&item.answer)
@@ -544,7 +571,9 @@ pub async fn upsert_document(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
-        .map_err(|e| PlethoraError::Internal(format!("Sync document metadata encode failed: {e}")))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Sync document metadata encode failed: {e}"))
+        })?;
 
     sqlx::query(
         r#"
@@ -657,10 +686,7 @@ pub async fn upsert_document(
     Ok(target_id)
 }
 
-pub async fn upsert_extract(
-    tx: &mut Transaction<'_, Sqlite>,
-    extract: &Extract,
-) -> Result<()> {
+pub async fn upsert_extract(tx: &mut Transaction<'_, Sqlite>, extract: &Extract) -> Result<()> {
     let tags = serde_json::to_string(&extract.tags)
         .map_err(|e| PlethoraError::Internal(format!("Sync extract tags encode failed: {e}")))?;
     let selection_context = extract
@@ -668,13 +694,17 @@ pub async fn upsert_extract(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
-        .map_err(|e| PlethoraError::Internal(format!("Sync extract selection encode failed: {e}")))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Sync extract selection encode failed: {e}"))
+        })?;
     let progressive_summaries = extract
         .progressive_summaries
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
-        .map_err(|e| PlethoraError::Internal(format!("Sync extract summaries encode failed: {e}")))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Sync extract summaries encode failed: {e}"))
+        })?;
     let (stability, memory_difficulty) = extract
         .memory_state
         .as_ref()
@@ -789,7 +819,9 @@ pub async fn apply_learning_item_groups(
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| PlethoraError::Internal(format!("Sync cloze ranges encode failed: {e}")))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync cloze ranges encode failed: {e}"))
+            })?;
         let extract_id = match item.extract_id.as_deref() {
             Some(id) => Some(resolve_alias(tx, "extract", id).await?),
             None => None,
@@ -840,7 +872,9 @@ pub async fn apply_learning_item_groups(
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| PlethoraError::Internal(format!("Sync item metadata encode failed: {e}")))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync item metadata encode failed: {e}"))
+            })?;
         sqlx::query(
             "UPDATE learning_items SET image_asset_ids = ?1, interaction_metadata = ?2 WHERE id = ?3",
         )
@@ -936,7 +970,9 @@ pub async fn apply_document_groups(
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| PlethoraError::Internal(format!("Sync document metadata encode failed: {e}")))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync document metadata encode failed: {e}"))
+            })?;
         let source_url = portable_source_url(document).unwrap_or_default();
         sqlx::query(
             r#"
@@ -966,8 +1002,9 @@ pub async fn apply_document_groups(
         .await?;
     }
     if groups.iter().any(|group| group == "tags") {
-        let tags = serde_json::to_string(&document.tags)
-            .map_err(|e| PlethoraError::Internal(format!("Sync document tags encode failed: {e}")))?;
+        let tags = serde_json::to_string(&document.tags).map_err(|e| {
+            PlethoraError::Internal(format!("Sync document tags encode failed: {e}"))
+        })?;
         sqlx::query("UPDATE documents SET category = ?1, tags = ?2 WHERE id = ?3")
             .bind(&document.category)
             .bind(tags)
@@ -1076,13 +1113,17 @@ pub async fn apply_extract_groups(
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| PlethoraError::Internal(format!("Sync extract selection encode failed: {e}")))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync extract selection encode failed: {e}"))
+            })?;
         let progressive_summaries = extract
             .progressive_summaries
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| PlethoraError::Internal(format!("Sync extract summaries encode failed: {e}")))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync extract summaries encode failed: {e}"))
+            })?;
         sqlx::query(
             r#"
             UPDATE extracts SET
@@ -1114,8 +1155,9 @@ pub async fn apply_extract_groups(
         .await?;
     }
     if groups.iter().any(|group| group == "tags") {
-        let tags = serde_json::to_string(&extract.tags)
-            .map_err(|e| PlethoraError::Internal(format!("Sync extract tags encode failed: {e}")))?;
+        let tags = serde_json::to_string(&extract.tags).map_err(|e| {
+            PlethoraError::Internal(format!("Sync extract tags encode failed: {e}"))
+        })?;
         sqlx::query("UPDATE extracts SET tags = ?1, category = ?2 WHERE id = ?3")
             .bind(tags)
             .bind(&extract.category)
@@ -1165,7 +1207,6 @@ pub async fn apply_extract_groups(
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

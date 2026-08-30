@@ -14,7 +14,10 @@ import {
   nextEntityRevision,
   paginatePull,
   shouldConflict,
+  SYNC_HLC_PATTERN,
+  SYNC_OPERATIONS,
   SYNC_PROTOCOL_VERSION,
+  SYNC_TABLE_KINDS,
   TOMBSTONE_RETENTION_DAYS,
 } from '../../sync/pushPullLogic.js';
 
@@ -24,17 +27,17 @@ syncRouter.use(authMiddleware, requireCloudSync);
 
 const MAX_CIPHERTEXT_BYTES = 5 * 1024 * 1024;
 
-const SyncRecordSchema = z.object({
-  tableKind: z.string().min(1),
-  recordId: z.string().min(1),
-  hlc: z.string().min(1),
-  deviceId: z.string().min(1),
+export const SyncRecordSchema = z.object({
+  tableKind: z.enum(SYNC_TABLE_KINDS),
+  recordId: z.string().min(1).max(255),
+  hlc: z.string().regex(SYNC_HLC_PATTERN).max(100),
+  deviceId: z.string().uuid(),
   payloadCiphertext: z.string().min(1).max(MAX_CIPHERTEXT_BYTES),
-  aad: z.string().min(1),
+  aad: z.string().min(1).max(500),
   keyVersion: z.number().int().positive().default(1),
-  changeId: z.string().min(1).optional(),
-  operation: z.enum(['create', 'update', 'delete', 'append_event']).optional(),
-  baseRevision: z.number().int().optional(),
+  changeId: z.string().min(1).max(255).optional(),
+  operation: z.enum(SYNC_OPERATIONS).optional(),
+  baseRevision: z.number().int().nonnegative().optional(),
 });
 
 const PushPayloadSchema = z.object({
@@ -75,6 +78,64 @@ async function upsertDeviceCursor(
   );
 }
 
+function authenticatedDeviceId(req: AuthRequest): string {
+  if (!req.deviceId) {
+    throw new AppError(403, 'device_identity_required', 'An authenticated device identity is required for sync');
+  }
+  return req.deviceId;
+}
+
+async function registerDeviceCursor(userId: string, deviceId: string): Promise<void> {
+  const pool = getPool();
+  // Cursor rows keyed by ids the account never issued are leftovers from the
+  // pre-identity protocol (or from deleted devices). They would permanently
+  // pin tombstone GC at their stale seq and consume the device budget, so drop
+  // them before enforcing limits.
+  await pool.query(
+    `DELETE FROM sync_device_cursors
+     WHERE user_id = $1
+       AND device_id <> $2
+       AND device_id NOT IN (SELECT id FROM devices WHERE user_id = $1)`,
+    [userId, deviceId]
+  );
+  const rows = await pool.query(
+    'SELECT device_id FROM sync_device_cursors WHERE user_id = $1',
+    [userId]
+  );
+  const knownDevices = rows.rows.map((row) => String(row.device_id));
+  try {
+    assertDeviceAllowed(knownDevices, deviceId);
+  } catch (error) {
+    const err = error as Error & { statusCode?: number; code?: string };
+    throw new AppError(err.statusCode || 403, err.code || 'device_limit_reached', err.message);
+  }
+  await pool.query(
+    `INSERT INTO sync_device_cursors (user_id, device_id, last_seq, updated_at)
+     VALUES ($1, $2, 0, NOW())
+     ON CONFLICT (user_id, device_id) DO NOTHING`,
+    [userId, deviceId]
+  );
+}
+
+async function collectEligibleTombstones(userId: string): Promise<void> {
+  const pool = getPool();
+  const cursorRows = await pool.query(
+    'SELECT last_seq FROM sync_device_cursors WHERE user_id = $1',
+    [userId]
+  );
+  const minSeq = minDeviceCursorSeq(cursorRows.rows);
+  if (minSeq > 0) {
+    await pool.query(
+      `DELETE FROM sync_records
+       WHERE user_id = $1
+         AND seq_number <= $2
+         AND table_kind IN ('tombstones', 'tombstone')
+         AND created_at < NOW() - INTERVAL '${TOMBSTONE_RETENTION_DAYS} days'`,
+      [userId, minSeq]
+    );
+  }
+}
+
 async function getAccountSyncEpoch(userId: string): Promise<number> {
   const pool = getPool();
   const row = await pool.query('SELECT sync_key_epoch FROM users WHERE id = $1', [userId]);
@@ -111,24 +172,18 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
     }
     const { records } = parse.data;
     const userId = req.userId!;
+    const deviceId = authenticatedDeviceId(req);
     const pool = getPool();
     const accountEpoch = await getAccountSyncEpoch(userId);
     const revokedDevices = await loadRevokedSyncDevices(userId);
 
-    const deviceRows = await pool.query(
-      'SELECT device_id FROM sync_device_cursors WHERE user_id = $1',
-      [userId]
-    );
-    const knownDevices = deviceRows.rows.map((row) => String(row.device_id));
+    if (revokedDevices.has(deviceId)) {
+      throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
+    }
+    await registerDeviceCursor(userId, deviceId);
     for (const rec of records) {
-      try {
-        assertDeviceAllowed(knownDevices, rec.deviceId);
-        if (!knownDevices.includes(rec.deviceId)) {
-          knownDevices.push(rec.deviceId);
-        }
-      } catch (error) {
-        const err = error as Error & { statusCode?: number; code?: string };
-        throw new AppError(err.statusCode || 403, err.code || 'device_limit_reached', err.message);
+      if (rec.deviceId !== deviceId) {
+        throw new AppError(403, 'device_identity_mismatch', 'Sync record deviceId does not match the authenticated device');
       }
     }
 
@@ -152,10 +207,6 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
       } catch (error) {
         const err = error as Error & { statusCode?: number; code?: string };
         throw new AppError(err.statusCode || 403, err.code || 'stale_key_epoch', err.message);
-      }
-
-      if (revokedDevices.has(rec.deviceId)) {
-        throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
       }
 
       if (rec.changeId) {
@@ -335,14 +386,6 @@ syncRouter.post('/push', async (req: AuthRequest, res: Response, next) => {
           );
         }
 
-        await client.query(
-          `INSERT INTO sync_device_cursors (user_id, device_id, last_seq, updated_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (user_id, device_id)
-           DO UPDATE SET last_seq = GREATEST(sync_device_cursors.last_seq, EXCLUDED.last_seq), updated_at = NOW()`,
-          [userId, rec.deviceId, seq]
-        );
-
         await client.query('COMMIT');
         latestSeq = Math.max(latestSeq, seq);
         accepted++;
@@ -367,13 +410,19 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
     const userId = req.userId!;
     const cursor = Number(req.query.cursor || 0);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
-    const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : null;
-    if (deviceId) {
-      const revokedDevices = await loadRevokedSyncDevices(userId);
-      if (revokedDevices.has(deviceId)) {
-        throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
-      }
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit)) {
+      throw new AppError(400, 'validation_error', 'Invalid sync pull cursor or limit');
     }
+    const deviceId = authenticatedDeviceId(req);
+    const requestedDeviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : null;
+    if (requestedDeviceId && requestedDeviceId !== deviceId) {
+      throw new AppError(403, 'device_identity_mismatch', 'Pull deviceId does not match the authenticated device');
+    }
+    const revokedDevices = await loadRevokedSyncDevices(userId);
+    if (revokedDevices.has(deviceId)) {
+      throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
+    }
+    await registerDeviceCursor(userId, deviceId);
     const pool = getPool();
 
     const result = await pool.query(
@@ -401,26 +450,6 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
       }))
     );
 
-    if (deviceId) {
-      await upsertDeviceCursor(userId, deviceId, page.cursor);
-    }
-
-    const cursorRows = await pool.query(
-      'SELECT last_seq FROM sync_device_cursors WHERE user_id = $1',
-      [userId]
-    );
-    const minSeq = minDeviceCursorSeq(cursorRows.rows);
-    if (minSeq > 0) {
-      await pool.query(
-        `DELETE FROM sync_records
-         WHERE user_id = $1
-           AND seq_number <= $2
-           AND table_kind IN ('tombstones', 'tombstone')
-           AND created_at < NOW() - INTERVAL '${TOMBSTONE_RETENTION_DAYS} days'`,
-        [userId, minSeq]
-      );
-    }
-
     res.json({
       records,
       cursor: page.cursor,
@@ -428,6 +457,44 @@ syncRouter.get('/pull', async (req: AuthRequest, res: Response, next) => {
       protocolVersion: SYNC_PROTOCOL_VERSION,
       accountKeyEpoch: await getAccountSyncEpoch(userId),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /v1/sync/ack — the client calls this only after transactionally applying
+// and persisting all records through `cursor` in its local source of truth.
+syncRouter.post('/ack', async (req: AuthRequest, res: Response, next) => {
+  try {
+    readProtocolVersion(req);
+    const parse = z.object({ cursor: z.number().int().nonnegative().safe() }).safeParse(req.body);
+    if (!parse.success) {
+      throw new AppError(400, 'validation_error', 'Invalid sync cursor acknowledgment');
+    }
+    const userId = req.userId!;
+    const deviceId = authenticatedDeviceId(req);
+    const revokedDevices = await loadRevokedSyncDevices(userId);
+    if (revokedDevices.has(deviceId)) {
+      throw new AppError(403, 'device_revoked', 'Sync device has been revoked');
+    }
+
+    await registerDeviceCursor(userId, deviceId);
+    const pool = getPool();
+    const maxRow = await pool.query(
+      `SELECT GREATEST(
+         COALESCE((SELECT MAX(seq_number) FROM sync_records WHERE user_id = $1), 0),
+         COALESCE((SELECT MAX(last_seq) FROM sync_device_cursors WHERE user_id = $1), 0)
+       ) AS max_seq`,
+      [userId]
+    );
+    const maxSeq = Number(maxRow.rows[0]?.max_seq || 0);
+    if (parse.data.cursor > maxSeq) {
+      throw new AppError(400, 'cursor_ahead_of_server', 'Acknowledged cursor exceeds the account sync log');
+    }
+
+    await upsertDeviceCursor(userId, deviceId, parse.data.cursor);
+    await collectEligibleTombstones(userId);
+    res.json({ ok: true, cursor: parse.data.cursor });
   } catch (err) {
     next(err);
   }
@@ -459,6 +526,12 @@ syncRouter.post('/revoke-device', async (req: AuthRequest, res: Response, next) 
       `INSERT INTO sync_revoked_devices (user_id, sync_device_id, revoked_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (user_id, sync_device_id) DO UPDATE SET revoked_at = NOW()`,
+      [userId, parse.data.syncDeviceId]
+    );
+    // A revoked device never acks again; leaving its cursor row behind would
+    // pin tombstone GC at its last acknowledged position forever.
+    await pool.query(
+      'DELETE FROM sync_device_cursors WHERE user_id = $1 AND device_id = $2',
       [userId, parse.data.syncDeviceId]
     );
     const accountKeyEpoch = await incrementAccountSyncEpoch(userId);

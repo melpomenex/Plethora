@@ -6,17 +6,17 @@ use crate::database::{
 };
 use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
+use crate::models::{
+    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
+    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
+    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
+};
 use crate::sync::bootstrap;
 use crate::sync::journal::{journal_entity, notify_after_commit};
 use crate::sync::outbox::{self, learning_item_revision, mark_dirty};
 use crate::sync::payload::{self, delete_payload, timestamp_revision};
 use crate::sync::settings::is_syncable_setting_key;
 use crate::sync::types::{EntityType, SyncOperation};
-use crate::models::{
-    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
-    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
-    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
-};
 use chrono::Utc;
 use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
 use std::collections::HashMap;
@@ -43,7 +43,6 @@ pub struct WorkloadForecastGrouped {
     pub overdue_extracts: i64,
     pub overdue_video_extracts: i64,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ArenaReviewProvenance<'a> {
@@ -156,7 +155,8 @@ impl Repository {
     /// Decode one `learning_items` row into a `LearningItem`. Centralized so the
     /// four read methods stay in sync (and so the `updated_at` sync-clock field
     /// is mapped consistently — it is `None` on legacy rows until next review).
-    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {        let item_type_str: String = row.try_get("item_type")?;
+    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {
+        let item_type_str: String = row.try_get("item_type")?;
         let state_str: String = row.try_get("state")?;
         let tags_json: String = row.try_get("tags")?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
@@ -1538,12 +1538,13 @@ impl Repository {
 
     pub async fn clear_document_category(&self, id: &str) -> Result<Document> {
         let mut tx = self.pool.begin().await?;
-        let rows = sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
-            .bind(chrono::Utc::now())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let rows =
+            sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
+                .bind(chrono::Utc::now())
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
         if rows == 0 {
             tx.rollback().await?;
             return Err(PlethoraError::NotFound(format!("Document {}", id)));
@@ -3303,15 +3304,13 @@ impl Repository {
             .await?
             .rows_affected()
         } else {
-            sqlx::query(
-                "UPDATE learning_items SET tags = ?1, date_modified = ?2 WHERE id = ?3",
-            )
-            .bind(&tags_json)
-            .bind(now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected()
+            sqlx::query("UPDATE learning_items SET tags = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&tags_json)
+                .bind(now)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
         };
 
         if rows == 0 {
@@ -3458,6 +3457,20 @@ impl Repository {
         let now = Utc::now();
         let byte_size = i64::try_from(content.len()).unwrap_or(i64::MAX);
 
+        let asset = ImageAsset {
+            id: id.clone(),
+            mime_type: mime_type.to_string(),
+            file_name: file_name.map(str::to_string),
+            content: content.to_vec(),
+            byte_size,
+            sha256: sha256.to_string(),
+            width,
+            height,
+            created_at: now,
+            updated_at: now,
+            metadata: None,
+        };
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"
             INSERT INTO image_assets (
@@ -3475,22 +3488,22 @@ impl Repository {
         .bind(height)
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            &asset.id,
+            SyncOperation::Create,
+            Some(0),
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
 
-        Ok(ImageAsset {
-            id,
-            mime_type: mime_type.to_string(),
-            file_name: file_name.map(|s| s.to_string()),
-            content: content.to_vec(),
-            byte_size,
-            sha256: sha256.to_string(),
-            width,
-            height,
-            created_at: now,
-            updated_at: now,
-            metadata: None,
-        })
+        Ok(asset)
     }
 
     pub async fn get_image_asset(&self, id: &str) -> Result<Option<ImageAsset>> {
@@ -3507,7 +3520,10 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|row| row_to_image_asset(&row)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| row_to_image_asset(&row))
+            .collect())
     }
 
     pub async fn list_image_assets_with_usage(&self) -> Result<Vec<ImageAssetWithUsage>> {
@@ -3557,6 +3573,7 @@ impl Repository {
     /// Persist bounded browser metadata (capture context, provenance, smart
     /// organization state) on an image asset. Returns whether a row matched.
     pub async fn update_image_asset_metadata(&self, id: &str, metadata: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE image_assets SET
@@ -3568,10 +3585,30 @@ impl Repository {
         .bind(metadata)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let row = sqlx::query("SELECT * FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let asset = row_to_image_asset(&row);
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     /// Rename an image asset's display name.
@@ -3581,6 +3618,7 @@ impl Repository {
     /// `learning_items`), so `file_name` is a label only. Returns whether a row
     /// matched.
     pub async fn rename_image_asset(&self, id: &str, file_name: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE image_assets SET
@@ -3592,13 +3630,34 @@ impl Repository {
         .bind(file_name)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let row = sqlx::query("SELECT * FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let asset = row_to_image_asset(&row);
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn delete_image_asset_if_unreferenced(&self, id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) as count
@@ -3611,18 +3670,39 @@ impl Repository {
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
         if count > 0 {
+            tx.rollback().await?;
             return Ok(false);
         }
 
+        let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if exists.is_none() {
+            tx.rollback().await?;
+            return Ok(false);
+        }
         let result = sqlx::query("DELETE FROM image_assets WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
-
+        let sync_payload = delete_payload("image_asset", id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Delete,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(result.rows_affected() > 0)
     }
 
@@ -3773,8 +3853,9 @@ impl Repository {
 
         let mut tx = self.pool.begin().await?;
         let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
-        let post_item_json = serde_json::to_string(item)
-            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?;
+        let post_item_json = serde_json::to_string(item).map_err(|e| {
+            PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}"))
+        })?;
 
         sqlx::query(
             r#"
@@ -4147,14 +4228,13 @@ impl Repository {
         .await?
         .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
         .filter(|params| !params.is_empty() && params.iter().all(|value| value.is_finite()));
-        let m4_params =
-            sqlx::query_scalar::<_, String>("SELECT params FROM arena_model_params WHERE id = 'm4'")
-                .fetch_optional(&mut **tx)
-                .await?
-                .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
-                .filter(|params| {
-                    params.len() == 35 && params.iter().all(|value| value.is_finite())
-                });
+        let m4_params = sqlx::query_scalar::<_, String>(
+            "SELECT params FROM arena_model_params WHERE id = 'm4'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
+        .filter(|params| params.len() == 35 && params.iter().all(|value| value.is_finite()));
 
         Ok(PrecisionCollectionState {
             m2_optimizer,
@@ -4191,8 +4271,9 @@ impl Repository {
         let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
         let reviewed_at = Utc::now();
         let reviewed_at_ms = reviewed_at.timestamp_millis();
-        let post_item_json = serde_json::to_string(item)
-            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?;
+        let post_item_json = serde_json::to_string(item).map_err(|e| {
+            PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}"))
+        })?;
 
         if let Some(existing_item_id) = sqlx::query_scalar::<_, String>(
             "SELECT item_id FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
@@ -4262,7 +4343,8 @@ impl Repository {
             .await?
             .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item.id)))?;
         let current_item = Self::row_to_learning_item(&current_item_row)?;
-        let current_item_revision = crate::commands::review::precision_item_revision(&current_item)?;
+        let current_item_revision =
+            crate::commands::review::precision_item_revision(&current_item)?;
         if current_item_revision != expected_item_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -4271,8 +4353,7 @@ impl Repository {
         }
 
         let current_collection = Self::load_precision_collection_in_transaction(&mut tx).await?;
-        let current_arena_revision =
-            crate::commands::review::arena_revision(&current_collection)?;
+        let current_arena_revision = crate::commands::review::arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -5178,9 +5259,7 @@ impl Repository {
     }
 
     /// All feedback ordered chronologically: (article_id, sentiment, created_at_ms, title).
-    pub async fn get_all_rss_article_feedback(
-        &self,
-    ) -> Result<Vec<(String, String, i64, String)>> {
+    pub async fn get_all_rss_article_feedback(&self) -> Result<Vec<(String, String, i64, String)>> {
         let rows = sqlx::query(
             r#"SELECT f.article_id, f.sentiment, f.created_at, COALESCE(a.title, '') AS title
                FROM rss_article_feedback f
@@ -7571,9 +7650,10 @@ impl Repository {
             return Ok(());
         }
 
-        let mut tx = self.pool().begin().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx =
+            self.pool().begin().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
+            })?;
 
         for episode in episodes {
             let id = uuid::Uuid::new_v4().to_string();
@@ -7605,9 +7685,9 @@ impl Repository {
             .await?;
         }
 
-        tx.commit().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e)))?;
 
         Ok(())
     }
@@ -7726,12 +7806,14 @@ impl Repository {
         .bind(document_id)
         .fetch_optional(self.pool())
         .await?;
-        Ok(row.map(|(model_id, decode_offset_ms, segment_cursor)| TranscriptionCheckpoint {
-            document_id: document_id.to_string(),
-            model_id,
-            decode_offset_ms,
-            segment_cursor,
-        }))
+        Ok(row.map(
+            |(model_id, decode_offset_ms, segment_cursor)| TranscriptionCheckpoint {
+                document_id: document_id.to_string(),
+                model_id,
+                decode_offset_ms,
+                segment_cursor,
+            },
+        ))
     }
 
     /// Upsert the on-device transcription checkpoint for a document.
@@ -8128,18 +8210,20 @@ impl Repository {
         tag_id: &str,
         prerequisite_ids: &[String],
     ) -> Result<crate::models::Tag> {
-        let prereqs_json = serde_json::to_string(prerequisite_ids)
-            .map_err(|e| PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+        let prereqs_json = serde_json::to_string(prerequisite_ids).map_err(|e| {
+            PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
+        })?;
         let now = Utc::now().to_rfc3339();
         let mut tx = self.pool.begin().await?;
 
-        let rows = sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
-            .bind(&prereqs_json)
-            .bind(&now)
-            .bind(tag_id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let rows =
+            sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&prereqs_json)
+                .bind(&now)
+                .bind(tag_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
         if rows == 0 {
             tx.rollback().await?;
             return Err(PlethoraError::NotFound(format!("Tag not found: {tag_id}")));
@@ -8296,9 +8380,7 @@ impl Repository {
             .rows_affected();
 
         if rows == 0 {
-            return Err(PlethoraError::NotFound(format!(
-                "Tag not found: {tag_id}"
-            )));
+            return Err(PlethoraError::NotFound(format!("Tag not found: {tag_id}")));
         }
 
         tx.commit().await?;
@@ -8320,13 +8402,19 @@ impl Repository {
 
         for row in rows {
             let mut tag = Self::row_to_tag(&row)?;
-            if !tag.prerequisites.iter().any(|prerequisite| prerequisite == tag_id) {
+            if !tag
+                .prerequisites
+                .iter()
+                .any(|prerequisite| prerequisite == tag_id)
+            {
                 continue;
             }
-            tag.prerequisites.retain(|prerequisite| prerequisite != tag_id);
+            tag.prerequisites
+                .retain(|prerequisite| prerequisite != tag_id);
             tag.date_modified = now.clone();
-            let prereqs_json = serde_json::to_string(&tag.prerequisites)
-                .map_err(|e| PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+            let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
+                PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
+            })?;
             sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
                 .bind(&prereqs_json)
                 .bind(&tag.date_modified)
@@ -8754,12 +8842,18 @@ mod tests {
         let mut partial = saved.clone();
         partial.category = None;
         partial.is_favorite = !saved.is_favorite;
-        let preserved = repo.update_document(&doc.id, &partial).await.expect("preserve");
+        let preserved = repo
+            .update_document(&doc.id, &partial)
+            .await
+            .expect("preserve");
         assert_eq!(preserved.category.as_deref(), Some("History"));
 
         let mut empty = preserved.clone();
         empty.category = Some(String::new());
-        let still_preserved = repo.update_document(&doc.id, &empty).await.expect("preserve empty");
+        let still_preserved = repo
+            .update_document(&doc.id, &empty)
+            .await
+            .expect("preserve empty");
         assert_eq!(
             still_preserved.category.as_deref(),
             Some("History"),
@@ -8769,7 +8863,11 @@ mod tests {
         // CLEAR: the dedicated path is the only way to unset.
         let cleared = repo.clear_document_category(&doc.id).await.expect("clear");
         assert!(cleared.category.is_none());
-        let reloaded = repo.get_document(&doc.id).await.expect("read").expect("row");
+        let reloaded = repo
+            .get_document(&doc.id)
+            .await
+            .expect("read")
+            .expect("row");
         assert!(reloaded.category.is_none());
     }
 
@@ -8795,10 +8893,17 @@ mod tests {
             "<div><p>Plain <strong>bold</strong> content</p><figure><img src=\"data:image/png;base64,FULL\"/></figure></div>".to_string(),
         );
         let saved = repo.update_extract(&updated).await.expect("update");
-        assert_eq!(saved.html_content.as_deref(), updated.html_content.as_deref());
+        assert_eq!(
+            saved.html_content.as_deref(),
+            updated.html_content.as_deref()
+        );
 
         // …and the write roundtrips through a fresh read.
-        let reloaded = repo.get_extract(&created.id).await.expect("read").expect("row");
+        let reloaded = repo
+            .get_extract(&created.id)
+            .await
+            .expect("read")
+            .expect("row");
         assert!(reloaded
             .html_content
             .as_deref()
@@ -8824,11 +8929,15 @@ mod tests {
         // video extract, one overdue learning item.
         let mut overdue_extract = Extract::new(doc.id.clone(), "overdue extract".to_string());
         overdue_extract.next_review_date = Some(now - chrono::Duration::days(1));
-        repo.create_extract(&overdue_extract).await.expect("overdue extract");
+        repo.create_extract(&overdue_extract)
+            .await
+            .expect("overdue extract");
 
         let mut future_extract = Extract::new(doc.id.clone(), "future extract".to_string());
         future_extract.next_review_date = Some(now + chrono::Duration::days(2));
-        repo.create_extract(&future_extract).await.expect("future extract");
+        repo.create_extract(&future_extract)
+            .await
+            .expect("future extract");
 
         let video = crate::models::VideoExtract::with_scheduling(
             doc.id.clone(),
@@ -8837,22 +8946,38 @@ mod tests {
             "overdue segment".to_string(),
             now - chrono::Duration::days(1),
         );
-        repo.create_video_extract(&video).await.expect("overdue video extract");
+        repo.create_video_extract(&video)
+            .await
+            .expect("overdue video extract");
 
         let mut item = LearningItem::new(ItemType::Flashcard, "overdue card".to_string());
         item.due_date = now - chrono::Duration::days(1);
-        repo.create_learning_item(&item).await.expect("overdue card");
+        repo.create_learning_item(&item)
+            .await
+            .expect("overdue card");
 
         let start = Utc::now().date_naive();
-        let grouped = repo.get_workload_forecast_grouped(start, 7).await.expect("forecast");
+        let grouped = repo
+            .get_workload_forecast_grouped(start, 7)
+            .await
+            .expect("forecast");
 
         assert!(
             !grouped.extract_rows.is_empty(),
             "in-window extracts must be counted in the daily rows"
         );
-        assert_eq!(grouped.overdue_extracts, 1, "overdue text extract must be counted");
-        assert_eq!(grouped.overdue_video_extracts, 1, "overdue video extract must be counted");
-        assert_eq!(grouped.overdue_learning_items, 1, "overdue card must be counted");
+        assert_eq!(
+            grouped.overdue_extracts, 1,
+            "overdue text extract must be counted"
+        );
+        assert_eq!(
+            grouped.overdue_video_extracts, 1,
+            "overdue video extract must be counted"
+        );
+        assert_eq!(
+            grouped.overdue_learning_items, 1,
+            "overdue card must be counted"
+        );
     }
 
     fn sha_hex(bytes: &[u8]) -> String {
@@ -9765,7 +9890,6 @@ mod tests {
         assert_eq!(row.0, "ok", "Fresh migrated DB should pass integrity check");
     }
 
-
     #[tokio::test]
     async fn core_tables_exist_after_migration() {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
@@ -9877,8 +10001,16 @@ mod tests {
 
         // Verify initial state is none
         assert!(repo.get_arena_state().await.expect("get state").is_none());
-        assert!(repo.get_arena_m2_optimizer().await.expect("get m2").is_none());
-        assert!(repo.get_arena_m3_matrices().await.expect("get m3").is_none());
+        assert!(repo
+            .get_arena_m2_optimizer()
+            .await
+            .expect("get m2")
+            .is_none());
+        assert!(repo
+            .get_arena_m3_matrices()
+            .await
+            .expect("get m3")
+            .is_none());
 
         // Save arena state
         let arena_json = r#"{"weights":[6.0,14.0,45.0,25.0,10.0]}"#;

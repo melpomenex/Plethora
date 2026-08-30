@@ -51,7 +51,11 @@ pub struct AuthSessionJson {
 
 fn parse_api_error(body: &str, status: reqwest::StatusCode) -> String {
     if let Ok(envelope) = serde_json::from_str::<ApiErrorEnvelope>(body) {
-        if let Some(message) = envelope.error.and_then(|e| e.message).filter(|m| !m.is_empty()) {
+        if let Some(message) = envelope
+            .error
+            .and_then(|e| e.message)
+            .filter(|m| !m.is_empty())
+        {
             return message;
         }
     }
@@ -61,6 +65,7 @@ fn parse_api_error(body: &str, status: reqwest::StatusCode) -> String {
 fn auth_request_body(
     email: &str,
     password: &str,
+    device_id: Option<String>,
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Value {
@@ -71,8 +76,14 @@ fn auth_request_body(
         "platform".into(),
         json!(platform.unwrap_or_else(|| "desktop".to_string())),
     );
-    // Omit absent device names — serde_json::json!(None) becomes null, and the
-    // API's Zod schemas reject null for optional string fields.
+    // Re-login must reuse the account's device row for this install: the
+    // server stamps that identity into the access token, and sync traffic is
+    // rejected if it does not match. Omitted fields must stay absent —
+    // serde_json::json!(None) becomes null, and the API's Zod schemas reject
+    // null for optional fields.
+    if let Some(id) = device_id.filter(|value| !value.trim().is_empty()) {
+        body.insert("deviceId".into(), json!(id));
+    }
     if let Some(name) = device_name.filter(|value| !value.trim().is_empty()) {
         body.insert("deviceName".into(), json!(name));
     }
@@ -118,16 +129,25 @@ pub async fn register_account(
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Result<AuthSessionJson, String> {
-    post_auth("register", auth_request_body(&email, &password, device_name, platform)).await
+    post_auth(
+        "register",
+        auth_request_body(&email, &password, None, device_name, platform),
+    )
+    .await
 }
 
 pub async fn login_account(
     email: String,
     password: String,
+    device_id: Option<String>,
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Result<AuthSessionJson, String> {
-    post_auth("login", auth_request_body(&email, &password, device_name, platform)).await
+    post_auth(
+        "login",
+        auth_request_body(&email, &password, device_id, device_name, platform),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -136,7 +156,8 @@ mod tests {
 
     #[test]
     fn parse_api_error_extracts_message() {
-        let body = r#"{"error":{"code":"invalid_credentials","message":"Invalid email or password"}}"#;
+        let body =
+            r#"{"error":{"code":"invalid_credentials","message":"Invalid email or password"}}"#;
         let msg = parse_api_error(body, reqwest::StatusCode::UNAUTHORIZED);
         assert_eq!(msg, "Invalid email or password");
     }
@@ -147,10 +168,12 @@ mod tests {
             "user@example.com",
             "password123",
             None,
+            None,
             Some("desktop".to_string()),
         );
         let obj = body.as_object().expect("object payload");
         assert!(!obj.contains_key("deviceName"));
+        assert!(!obj.contains_key("deviceId"));
         assert_eq!(obj.get("platform").and_then(Value::as_str), Some("desktop"));
     }
 
@@ -159,6 +182,7 @@ mod tests {
         let body = auth_request_body(
             "user@example.com",
             "password123",
+            None,
             Some("Linux Desktop".to_string()),
             None,
         );
@@ -167,5 +191,33 @@ mod tests {
             obj.get("deviceName").and_then(Value::as_str),
             Some("Linux Desktop")
         );
+    }
+
+    #[test]
+    fn auth_request_body_reuses_device_id_on_login() {
+        let body = auth_request_body(
+            "user@example.com",
+            "password123",
+            Some("11111111-1111-4111-8111-111111111111".to_string()),
+            None,
+            Some("desktop".to_string()),
+        );
+        let obj = body.as_object().expect("object payload");
+        assert_eq!(
+            obj.get("deviceId").and_then(Value::as_str),
+            Some("11111111-1111-4111-8111-111111111111")
+        );
+
+        let blank = auth_request_body(
+            "user@example.com",
+            "password123",
+            Some("   ".to_string()),
+            None,
+            None,
+        );
+        assert!(!blank
+            .as_object()
+            .expect("object payload")
+            .contains_key("deviceId"));
     }
 }

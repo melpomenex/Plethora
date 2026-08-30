@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod chaos {
     use super::super::retry::{record_failure, record_success, should_attempt_now};
-    use super::super::wire::{decode_remote_record, outbox_entry_to_wire};
     use super::super::types::{EntityType, OutboxEntry, SyncOperation, SyncOutboxStatus};
+    use super::super::wire::{decode_remote_record, outbox_entry_to_wire};
 
     const TEST_MASTER_KEY: [u8; 32] = [7u8; 32];
 
@@ -29,13 +29,15 @@ mod chaos {
             created_at: 1,
             sync_status: SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
-        let decoded = decode_remote_record(&wire, 1, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode");
+        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("wire");
+        let decoded =
+            decode_remote_record(&wire, 1, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode");
         assert_eq!(decoded.record_id, "item-1");
     }
 
     #[test]
-    fn stale_epoch_records_are_rejected_on_pull() {
+    fn future_epoch_records_are_rejected_and_historical_stay_readable() {
         let entry = OutboxEntry {
             change_id: "chaos-2".to_string(),
             entity_type: EntityType::Document,
@@ -47,8 +49,22 @@ mod chaos {
             created_at: 1,
             sync_status: SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
-        let err = decode_remote_record(&wire, 1, "acct", Some(&TEST_MASTER_KEY), 2).expect_err("epoch");
+        // A record from a future epoch cannot be trusted: the account has not
+        // rotated forward yet, so it must never be applied.
+        let future = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 3)
+            .expect("wire");
+        let err = decode_remote_record(&future, 1, "acct", Some(&TEST_MASTER_KEY), 2)
+            .expect_err("future key epoch must be rejected");
         assert!(err.contains("epoch"));
+
+        // Records from past epochs are intentionally still decryptable: the
+        // current master key derives their record keys, and revocation is
+        // enforced by the server device ACL, not by ciphertext expiry.
+        let historical =
+            outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1)
+                .expect("wire");
+        let decoded = decode_remote_record(&historical, 1, "acct", Some(&TEST_MASTER_KEY), 2)
+            .expect("historical key epoch stays readable");
+        assert_eq!(decoded.record_id, "doc-1");
     }
 }

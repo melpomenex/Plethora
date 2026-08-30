@@ -107,9 +107,10 @@ pub fn decode_remote(payload: &[u8]) -> Option<RemoteImagePayload> {
 }
 
 pub async fn index_local_identities(pool: &Pool<Sqlite>) -> Result<usize> {
-    let rows = sqlx::query_as::<_, (String, String)>("SELECT id, sha256 FROM image_assets ORDER BY id")
-        .fetch_all(pool)
-        .await?;
+    let rows =
+        sqlx::query_as::<_, (String, String)>("SELECT id, sha256 FROM image_assets ORDER BY id")
+            .fetch_all(pool)
+            .await?;
     let mut tx = pool.begin().await?;
     for (id, sha256) in &rows {
         register_alias(
@@ -146,26 +147,20 @@ pub async fn prepare_target(
     .bind(&identity)
     .fetch_optional(&mut **tx)
     .await?;
-    let candidate = match candidate {
-        Some(id) => Some(id),
-        None => sqlx::query_scalar(
-            "SELECT id FROM image_assets WHERE sha256 = ?1 AND id != ?2 ORDER BY id LIMIT 1",
-        )
-        .bind(&payload.sha256)
-        .bind(&payload.id)
-        .fetch_optional(&mut **tx)
-        .await?,
-    };
+    let candidate =
+        match candidate {
+            Some(id) => Some(id),
+            None => sqlx::query_scalar(
+                "SELECT id FROM image_assets WHERE sha256 = ?1 AND id != ?2 ORDER BY id LIMIT 1",
+            )
+            .bind(&payload.sha256)
+            .bind(&payload.id)
+            .fetch_optional(&mut **tx)
+            .await?,
+        };
 
     let target = candidate.unwrap_or_else(|| payload.id.clone());
-    register_alias(
-        tx,
-        "image_asset",
-        &payload.id,
-        &target,
-        Some(&identity),
-    )
-    .await?;
+    register_alias(tx, "image_asset", &payload.id, &target, Some(&identity)).await?;
     Ok(target)
 }
 
@@ -215,10 +210,7 @@ pub async fn apply_remote(
     Ok(target_id)
 }
 
-pub async fn delete_remote(
-    tx: &mut Transaction<'_, Sqlite>,
-    source_id: &str,
-) -> Result<()> {
+pub async fn delete_remote(tx: &mut Transaction<'_, Sqlite>, source_id: &str) -> Result<()> {
     let target = resolve_alias(tx, "image_asset", source_id).await?;
     sqlx::query("DELETE FROM image_assets WHERE id = ?1")
         .bind(target)
@@ -274,4 +266,79 @@ pub async fn hydrate_if_needed(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::migrations::run_migrations;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn test_pool() -> Pool<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn remote_metadata_aliases_to_existing_plaintext_hash() {
+        let pool = test_pool().await;
+        sqlx::query(
+            r#"
+            INSERT INTO image_assets (
+                id, mime_type, file_name, content, byte_size, sha256,
+                width, height, created_at, updated_at
+            ) VALUES ('local-image', 'image/png', 'local.png', X'0102', 2,
+                      'abc123', 10, 20, datetime('now'), datetime('now'))
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("local image");
+
+        let remote = RemoteImagePayload {
+            schema_version: 2,
+            entity_type: "image_asset".into(),
+            id: "remote-image".into(),
+            mime_type: "image/png".into(),
+            file_name: Some("remote.png".into()),
+            byte_size: 2,
+            sha256: "abc123".into(),
+            width: Some(10),
+            height: Some(20),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            metadata: Some(r#"{"caption":"synced"}"#.into()),
+            blob_reference: format!("b1:{}", "a".repeat(64)),
+        };
+
+        let mut tx = pool.begin().await.expect("begin");
+        let target = apply_remote(&mut tx, &remote).await.expect("apply");
+        tx.commit().await.expect("commit");
+        assert_eq!(target, "local-image");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM image_assets")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+        let alias: String = sqlx::query_scalar(
+            "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = 'image_asset' AND source_id = 'remote-image'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("alias");
+        assert_eq!(alias, "local-image");
+        let blob: String = sqlx::query_scalar(
+            "SELECT sync_blob_reference FROM image_assets WHERE id = 'local-image'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("blob reference");
+        assert_eq!(blob, remote.blob_reference);
+    }
 }

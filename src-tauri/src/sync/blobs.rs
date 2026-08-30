@@ -1,5 +1,5 @@
 use crate::error::{PlethoraError, Result};
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -239,4 +239,18 @@ async fn parse_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -
     }
     serde_json::from_str(&body)
         .map_err(|e| PlethoraError::Internal(format!("Blob response parse failed: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn already_existing_blob_accepts_null_upload_url() {
+        let response: BlobUploadUrlResponse =
+            serde_json::from_str(r#"{"uploadUrl":null,"expiresAt":null,"alreadyExists":true}"#)
+                .expect("already-existing response");
+        assert!(response.already_exists);
+        assert!(response.upload_url.is_none());
+    }
 }
