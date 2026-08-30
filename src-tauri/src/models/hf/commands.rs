@@ -7,8 +7,10 @@ use super::hf_client::{
     params_millions, parse_repo_input, repo_display_name,
 };
 use super::manager::{
-    InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, model_id_for,
-    registry_list, resolve_install_target, uninstall,
+    InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, is_pinned_nemotron_repo,
+    model_id_for, registry_list, resolve_install_target, resolve_pinned_nemotron_install_target,
+    uninstall, NEMOTRON_ASR_GGUF_FILE, NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
+    nemotron_asr_catalog_entry,
 };
 use super::suitability::{Suitability, classify, disk_insufficient};
 use super::system_info::{SystemInfo, detect_system_info, models_root_dir};
@@ -139,12 +141,62 @@ fn infer_precision(info_files: &[HfFile]) -> Option<String> {
     }
 }
 
+async fn build_pinned_nemotron_inspection(
+    app_handle: &AppHandle,
+) -> std::result::Result<HfInspection, PlethoraError> {
+    let catalog = nemotron_asr_catalog_entry();
+    let target = resolve_pinned_nemotron_install_target(app_handle)
+        .await
+        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let app_data = app_data_dir(app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let system_info = detect_system_info(&models_root_dir(&app_data));
+    let artifact = target.artifact.clone();
+    let suitability = vec![ArtifactSuitability {
+        artifact: artifact.clone(),
+        suitability: classify(&system_info, Some(&artifact)),
+    }];
+
+    Ok(HfInspection {
+        repo_id: catalog.repo_id,
+        revision: catalog.revision,
+        name: catalog.display_name,
+        author: Some("nvidia".to_string()),
+        task: Some("automatic-speech-recognition".to_string()),
+        architecture: vec!["nemotron".to_string(), "asr".to_string()],
+        params_millions: Some(600),
+        precision: Some("gguf".to_string()),
+        download_size_bytes: target.artifact.download_size_bytes,
+        license: target.license.clone(),
+        files: vec![HfFileSummary {
+            path: NEMOTRON_ASR_GGUF_FILE.to_string(),
+            size: target
+                .artifact
+                .files
+                .first()
+                .and_then(|f| f.size)
+                .or(Some(NEMOTRON_ASR_SIZE_BYTES)),
+            sha256: target
+                .artifact
+                .files
+                .first()
+                .and_then(|f| f.sha256.clone()),
+        }],
+        candidates: vec![artifact],
+        suitability,
+        system_info,
+        estimates_labeled: false,
+    })
+}
+
 #[command]
 pub async fn hf_inspect_model(
     app_handle: AppHandle,
     repo_input: String,
 ) -> Result<HfInspection> {
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
+    if is_pinned_nemotron_repo(&parsed.repo_id) {
+        return build_pinned_nemotron_inspection(&app_handle).await;
+    }
     let client = hf_client();
     let revision = clean_revision(parsed.revision.as_deref().unwrap_or("main"));
     let revision = if revision.is_empty() { "main" } else { revision.as_str() };
@@ -283,10 +335,17 @@ pub async fn hf_install_model(
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
     let runtime = parse_runtime_arg(&runtime)?;
 
-    let target: InstallTarget =
+    let target: InstallTarget = if is_pinned_nemotron_repo(&parsed.repo_id)
+        && runtime == HfRuntime::NemotronAsr
+    {
+        resolve_pinned_nemotron_install_target(&app_handle)
+            .await
+            .map_err(|e| PlethoraError::Internal(e.to_string()))?
+    } else {
         resolve_install_target(&app_handle, &parsed, runtime, &artifact_kind)
             .await
-            .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+            .map_err(|e| PlethoraError::Internal(e.to_string()))?
+    };
 
     // Server-side hard gate: re-run the disk check so an artifact that no
     // longer fits (or a Not-Recommended override) can never install a model

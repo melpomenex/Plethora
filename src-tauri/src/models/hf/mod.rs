@@ -25,8 +25,9 @@ pub use hf_client::{
     FileMetadata, HfFile, HfRepoInfo, RepoInput, parse_repo_input,
 };
 pub use manager::{
-    InstalledHfModel, InstalledModelFile, is_nemotron_asr_installed, model_id_for,
-    nemotron_asr_catalog_entry, registry_is_installed, registry_list, registry_remove,
+    InstalledHfModel, InstalledModelFile, install_pinned_nemotron_asr, is_nemotron_asr_installed,
+    is_pinned_nemotron_repo, model_id_for, nemotron_asr_catalog_entry, registry_is_installed,
+    registry_list, registry_remove, resolve_pinned_nemotron_install_target, NEMOTRON_ASR_GGUF_FILE,
     NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, PinnedNemotronAsrCatalogEntry,
 };
 pub use suitability::{Suitability, SuitabilityLevel};

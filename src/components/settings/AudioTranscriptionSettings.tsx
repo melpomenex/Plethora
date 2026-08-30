@@ -600,7 +600,7 @@ export function AudioTranscriptionSettings() {
                   Local Transcription
                 </p>
                 <p className="leading-relaxed">
-                  Models run as native sidecar processes with isolated memory. Whisper and Parakeet support many languages; SenseVoice is optimized for Chinese, English, Japanese, Korean, and Cantonese.
+                  Models run as native sidecar processes with isolated memory. Whisper, Parakeet, and Nemotron support many languages; SenseVoice is optimized for Chinese, English, Japanese, Korean, and Cantonese. NVIDIA Nemotron requires a Hugging Face token (`HF_TOKEN`) after accepting the model license.
                 </p>
               </div>
             )}
@@ -627,6 +627,10 @@ export function AudioTranscriptionSettings() {
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary rounded-full">
                             High Quality
                           </span>
+                        ) : profile.id === "nemotron-3.5-asr-0.6b" ? (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-violet-500/10 text-violet-600 rounded-full">
+                            Nemotron ASR
+                          </span>
                         ) : (
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 rounded-full">
                             Desktop Whisper
@@ -639,8 +643,12 @@ export function AudioTranscriptionSettings() {
                       <p className="text-xs text-muted-foreground mb-2">{profile.description}</p>
                       <div className="flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
                         <span>{(profile.size_bytes / 1024 / 1024).toFixed(0)} MB</span>
-                        <span>•</span>
-                        <span>SHA256: {profile.sha256.substring(0, 8)}...</span>
+                        {profile.sha256 ? (
+                          <>
+                            <span>•</span>
+                            <span>SHA256: {profile.sha256.substring(0, 8)}...</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
 
@@ -690,9 +698,9 @@ export function AudioTranscriptionSettings() {
               <h4 className="font-semibold text-foreground">Install Models from Hugging Face</h4>
             </div>
             <p className="text-xs text-muted-foreground">
-              Install compatible whisper.cpp (ggml), sherpa-onnx (ONNX), or Nemotron ASR (GGUF)
-              models from Hugging Face. Plethora checks your hardware first and only offers models
-              the local runtimes can actually run.
+              Install compatible whisper.cpp (ggml) or sherpa-onnx (ONNX) models from Hugging Face.
+              Plethora checks your hardware first. For NVIDIA Nemotron ASR, use the Models &amp; Profiles
+              list above (gated repo; requires <code className="font-mono">HF_TOKEN</code>).
             </p>
             <HuggingFaceModelManager mode="stt" />
           </section>

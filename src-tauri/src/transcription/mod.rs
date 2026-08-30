@@ -17,6 +17,7 @@ use model_manager::{ModelManager, ModelProfile};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{command, AppHandle, Emitter, Manager, State};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TranscriptResponse {
@@ -35,18 +36,84 @@ pub async fn get_transcription_profiles(
     app_handle: AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<Vec<ModelProfile>> {
+    use crate::models::hf::adapters::HfRuntime;
+    use crate::models::hf::hf_client::resolve_download_url;
+    use crate::models::hf::manager::{
+        hf_stt_profiles, is_nemotron_asr_installed, model_id_for, nemotron_asr_catalog_entry,
+        NEMOTRON_ASR_GGUF_FILE, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
+    };
+
     let manager = ModelManager::new(&app_handle)
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     let mut profiles = manager.list_profiles();
-    // Merge user-installed Hugging Face STT models (whisper ggml + sherpa-onnx)
-    // into the picker so they are selectable without a fresh download.
-    let hf_profiles = crate::models::hf::manager::hf_stt_profiles(repo.pool()).await;
+
+    let catalog = nemotron_asr_catalog_entry();
+    profiles.push(ModelProfile {
+        id: NEMOTRON_ASR_LOGICAL_KEY.to_string(),
+        name: catalog.display_name,
+        description: "Multilingual streaming ASR (GGUF). Matches cloud OpenRouter Nemotron for prefer-local routing.".to_string(),
+        url: resolve_download_url(
+            NEMOTRON_ASR_REPO_ID,
+            NEMOTRON_ASR_REVISION,
+            NEMOTRON_ASR_GGUF_FILE,
+        ),
+        sha256: String::new(),
+        size_bytes: NEMOTRON_ASR_SIZE_BYTES,
+        installed: is_nemotron_asr_installed(repo.pool()).await,
+    });
+
+    let nemotron_hf_id = model_id_for(
+        HfRuntime::NemotronAsr,
+        NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    );
+    let hf_profiles = hf_stt_profiles(repo.pool())
+        .await
+        .into_iter()
+        .filter(|p| p.id != nemotron_hf_id)
+        .collect::<Vec<_>>();
     profiles.extend(hf_profiles);
     Ok(profiles)
 }
 
 #[command]
-pub async fn download_transcription_model(app_handle: AppHandle, id: String) -> Result<()> {
+pub async fn download_transcription_model(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+    id: String,
+) -> Result<()> {
+    use crate::models::hf::commands::{active_register, active_unregister};
+    use crate::models::hf::manager::{
+        install_pinned_nemotron_asr, model_id_for, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    };
+    use crate::models::hf::adapters::HfRuntime;
+
+    if id == NEMOTRON_ASR_LOGICAL_KEY || id == NEMOTRON_ASR_REPO_ID {
+        let cancel = CancellationToken::new();
+        let hf_id = model_id_for(
+            HfRuntime::NemotronAsr,
+            NEMOTRON_ASR_REPO_ID,
+            NEMOTRON_ASR_REVISION,
+        );
+        active_register(&app_handle, &hf_id, cancel.clone());
+        let result = install_pinned_nemotron_asr(
+            &app_handle,
+            &repo,
+            Some(NEMOTRON_ASR_LOGICAL_KEY),
+            cancel.clone(),
+        )
+        .await;
+        active_unregister(&app_handle, &hf_id);
+        result.map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+        let _ = app_handle.emit(
+            "transcription://download-complete",
+            NEMOTRON_ASR_LOGICAL_KEY.to_string(),
+        );
+        return Ok(());
+    }
+
     let manager = ModelManager::new(&app_handle)
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     manager
@@ -56,7 +123,28 @@ pub async fn download_transcription_model(app_handle: AppHandle, id: String) -> 
 }
 
 #[command]
-pub async fn delete_transcription_model(app_handle: AppHandle, id: String) -> Result<()> {
+pub async fn delete_transcription_model(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+    id: String,
+) -> Result<()> {
+    use crate::models::hf::adapters::HfRuntime;
+    use crate::models::hf::manager::{
+        model_id_for, uninstall, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    };
+
+    if id == NEMOTRON_ASR_LOGICAL_KEY || id == NEMOTRON_ASR_REPO_ID {
+        let hf_id = model_id_for(
+            HfRuntime::NemotronAsr,
+            NEMOTRON_ASR_REPO_ID,
+            NEMOTRON_ASR_REVISION,
+        );
+        return uninstall(&app_handle, &repo, &hf_id)
+            .await
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()));
+    }
+
     let manager = ModelManager::new(&app_handle)
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     manager

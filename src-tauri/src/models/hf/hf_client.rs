@@ -7,6 +7,7 @@
 //! a downloaded repository — it only reads JSON + plain-text metadata.
 
 use anyhow::{anyhow, Result};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -200,14 +201,32 @@ pub fn is_dir_prefix(path: &str) -> bool {
     path.ends_with('/')
 }
 
+/// Read a Hugging Face access token from the environment (standard `HF_TOKEN` or
+/// `HUGGING_FACE_HUB_TOKEN`). Required for gated NVIDIA model repos.
+fn hf_access_token() -> Option<String> {
+    ["HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok())
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
 /// A reqwest client tuned for HF hub requests (default headers, timeouts).
 pub fn hf_client() -> Client {
-    Client::builder()
+    let mut headers = HeaderMap::new();
+    if let Some(token) = hf_access_token() {
+        if let Ok(value) = HeaderValue::from_str(&format!("Bearer {token}")) {
+            headers.insert(AUTHORIZATION, value);
+        }
+    }
+    let mut builder = Client::builder()
         .user_agent("Plethora/2.7 (HF speech model manager)")
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .unwrap_or_else(|_| Client::new())
+        .timeout(std::time::Duration::from_secs(60));
+    if !headers.is_empty() {
+        builder = builder.default_headers(headers);
+    }
+    builder.build().unwrap_or_else(|_| Client::new())
 }
 
 /// Fetch repo info for `repo_id` (optionally pinned to a revision).
@@ -227,10 +246,15 @@ pub async fn fetch_repo_info(
         ));
     }
     if !response.status().is_success() {
-        return Err(anyhow!(
-            "Hugging Face API returned {} for {repo_id}",
-            response.status()
-        ));
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(anyhow!(
+                "Hugging Face API returned {status} for {repo_id}. Gated models require a token: \
+                 set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) after accepting the license at \
+                 https://huggingface.co/{repo_id}"
+            ));
+        }
+        return Err(anyhow!("Hugging Face API returned {status} for {repo_id}"));
     }
     let info: HfRepoInfo = response.json().await?;
     if info.private {

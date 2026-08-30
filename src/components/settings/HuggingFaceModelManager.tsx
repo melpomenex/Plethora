@@ -29,16 +29,12 @@ import { useHfModelStore } from "../../stores/useHfModelStore";
 import {
   RUNTIME_LABELS,
   formatBytes,
-  getNemotronAsrCatalogEntry,
   type HfArtifact,
   type HfRuntime,
   type InstalledHfModel,
-  type PinnedNemotronAsrCatalogEntry,
   type SuitabilityLevel,
 } from "../../api/hfModels";
-import { getMobileNemotronInstallRecommendation } from "../../services/transcription/DeviceCapabilityService";
 import { cn } from "../../utils";
-import { isTauri } from "../../lib/tauri";
 import { useToast } from "../common/Toast";
 
 export type HfManagerMode = "stt" | "tts";
@@ -124,8 +120,6 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
   const [overrideNotRecommended, setOverrideNotRecommended] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [installingKey, setInstallingKey] = useState<string | null>(null);
-  const [nemotronCatalog, setNemotronCatalog] = useState<PinnedNemotronAsrCatalogEntry | null>(null);
-  const [installingNemotron, setInstallingNemotron] = useState(false);
 
   const {
     installedModels,
@@ -150,45 +144,6 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [fetchInstalled]);
-
-  useEffect(() => {
-    if (mode !== "stt" || !isTauri()) return;
-    void getNemotronAsrCatalogEntry()
-      .then(setNemotronCatalog)
-      .catch(() => setNemotronCatalog(null));
-  }, [mode]);
-
-  const nemotronInstalled = useMemo(
-    () =>
-      (installedModels ?? []).some(
-        (m) => m.runtime === "nemotron-asr" && m.installed,
-      ),
-    [installedModels],
-  );
-
-  const mobileNemotronGate = useMemo(() => getMobileNemotronInstallRecommendation(), []);
-
-  const handleInstallNemotron = useCallback(async () => {
-    if (!nemotronCatalog) return;
-    setInstallingNemotron(true);
-    setError(null);
-    try {
-      const repoInput = `${nemotronCatalog.repoId}#${nemotronCatalog.revision}`;
-      const inspectionResult = await inspect(repoInput);
-      const artifact = inspectionResult.candidates.find((c) => c.runtime === "nemotron-asr");
-      if (!artifact) {
-        throw new Error("Nemotron ASR artifact not found in the pinned repository.");
-      }
-      await install(repoInput, artifact.runtime, artifact.kind);
-      toast.success("Nemotron installed", `${nemotronCatalog.displayName} is ready for offline routing.`);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
-      toast.error("Nemotron install failed", message);
-    } finally {
-      setInstallingNemotron(false);
-    }
-  }, [nemotronCatalog, inspect, install, toast]);
 
   const modeInstalled = useMemo(
     () => (installedModels ?? []).filter((m) => allowedRuntimes.includes(m.runtime)),
@@ -270,55 +225,6 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
           executed as code. Repositories that don't match a supported artifact are blocked.
         </p>
       </div>
-
-      {mode === "stt" && nemotronCatalog && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">{nemotronCatalog.displayName}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Speech-to-Text · {formatBytes(nemotronCatalog.sizeBytes)} · {nemotronCatalog.license}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Logical model: {nemotronCatalog.logicalKey}. Matches cloud OpenRouter Nemotron for
-                prefer-local routing. Native inference runtime ships in a future build; install now
-                to prepare offline weights.
-              </p>
-            </div>
-            {nemotronInstalled ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600">
-                <CheckCircle className="h-3.5 w-3.5" /> Installed
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={
-                  installingNemotron ||
-                  !mobileNemotronGate.allowed ||
-                  !isTauri()
-                }
-                onClick={() => void handleInstallNemotron()}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {installingNemotron ? (
-                  <CircleNotch className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                {installingNemotron ? "Installing…" : "Install Nemotron"}
-              </button>
-            )}
-          </div>
-          {mobileNemotronGate.warning && (
-            <p className="text-xs text-amber-700">{mobileNemotronGate.warning}</p>
-          )}
-          {!mobileNemotronGate.allowed && (
-            <p className="text-xs text-red-700">
-              This device cannot install local Nemotron. Use cloud OpenRouter Nemotron instead.
-            </p>
-          )}
-        </div>
-      )}
 
       {/* Input + inspect */}
       <div className="space-y-2">

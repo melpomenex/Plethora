@@ -6,6 +6,7 @@ import {
   ModelProfile,
   TranscriptSegment,
 } from "../api/transcription";
+import { LOGICAL_STT_MODEL_KEYS } from "../services/transcription/config";
 
 interface TranscriptionState {
   profiles: ModelProfile[];
@@ -121,6 +122,16 @@ if (isTauri()) {
     const { id, progress } = event.payload;
     useTranscriptionStore.getState().setDownloadProgress(id, progress);
     useTranscriptionStore.getState().setStatus('downloading');
+  });
+
+  safeListen<{ id: string; percent: number }>("hf://install-progress", (event) => {
+    const { id, percent } = event.payload;
+    const profileId =
+      id.includes("nemotron-asr") || id.includes("nemotron-3.5-asr")
+        ? LOGICAL_STT_MODEL_KEYS.NEMOTRON
+        : id;
+    useTranscriptionStore.getState().setDownloadProgress(profileId, percent);
+    useTranscriptionStore.getState().setStatus("downloading");
   });
 
   safeListen<string>("transcription://download-complete", (event) => {

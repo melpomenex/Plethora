@@ -21,8 +21,8 @@ use super::adapters::{
 };
 use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
 use super::hf_client::{
-    FileMetadata, RepoInput, build_file_index, clean_revision, fetch_repo_info, hf_client,
-    resolve_download_url, safe_dir_name,
+    FileMetadata, RepoInput, build_file_index, clean_revision, fetch_file_metadata, fetch_repo_info,
+    hf_client, resolve_download_url, safe_dir_name,
 };
 use crate::database::Repository;
 use anyhow::{anyhow, Result};
@@ -30,6 +30,7 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::Pool;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
@@ -40,6 +41,8 @@ pub const NEMOTRON_ASR_LOGICAL_KEY: &str = "nemotron-3.5-asr-0.6b";
 pub const NEMOTRON_ASR_REPO_ID: &str = "nvidia/nemotron-3.5-asr-0.6b";
 pub const NEMOTRON_ASR_REVISION: &str = "main";
 pub const NEMOTRON_ASR_SIZE_BYTES: u64 = 778_043_392;
+/// Repo-relative GGUF weights file for the pinned Nemotron catalog entry.
+pub const NEMOTRON_ASR_GGUF_FILE: &str = "nemotron-0.6b.gguf";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,6 +198,100 @@ pub fn canonicalize_hf_model_id(id: &str) -> String {
         );
     }
     id.to_string()
+}
+
+/// True when `repo_id` is the pinned first-party Nemotron ASR catalog repo.
+pub fn is_pinned_nemotron_repo(repo_id: &str) -> bool {
+    repo_id.trim().eq_ignore_ascii_case(NEMOTRON_ASR_REPO_ID)
+}
+
+/// Resolve a pinned Nemotron install target without calling the HF models API.
+///
+/// SHA-256 comes from the LFS pointer (`/raw/...`) so installs stay hash-pinned
+/// even when the repo is gated. Requires `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`)
+/// after accepting the NVIDIA license on Hugging Face.
+pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<InstallTarget> {
+    let client = hf_client();
+    let meta = fetch_file_metadata(
+        &client,
+        NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+        NEMOTRON_ASR_GGUF_FILE,
+    )
+    .await?;
+
+    let sha256 = meta.sha256.clone().ok_or_else(|| {
+        anyhow!(
+            "Could not resolve SHA-256 for {NEMOTRON_ASR_GGUF_FILE}. NVIDIA gated models require \
+             a Hugging Face token: set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) after accepting the \
+             license at https://huggingface.co/{NEMOTRON_ASR_REPO_ID}"
+        )
+    })?;
+    let size = meta.size.unwrap_or(NEMOTRON_ASR_SIZE_BYTES);
+
+    let mut file_metadata = HashMap::new();
+    file_metadata.insert(
+        NEMOTRON_ASR_GGUF_FILE.to_string(),
+        FileMetadata {
+            size: Some(size),
+            sha256: Some(sha256.clone()),
+        },
+    );
+
+    let artifact = Artifact {
+        runtime: HfRuntime::NemotronAsr,
+        kind: "nemotron-asr-gguf".to_string(),
+        label: "Nemotron ASR GGUF model".to_string(),
+        files: vec![ArtifactFile {
+            path: NEMOTRON_ASR_GGUF_FILE.to_string(),
+            size: Some(size),
+            sha256: Some(sha256),
+        }],
+        download_size_bytes: size,
+        run_contract: RunContract::NemotronAsr {
+            model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
+        },
+        estimated_memory_bytes: size.saturating_mul(2),
+        confidence: DetectionConfidence::Exact,
+        metadata: Default::default(),
+    };
+
+    let app_data = app_data_dir(app)?;
+    let install_dir = install_dir_for(HfRuntime::NemotronAsr, &app_data).join(safe_dir_name(
+        NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    ));
+    let model_id = model_id_for(
+        HfRuntime::NemotronAsr,
+        NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION,
+    );
+
+    Ok(InstallTarget {
+        repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
+        revision: NEMOTRON_ASR_REVISION.to_string(),
+        runtime: HfRuntime::NemotronAsr,
+        artifact,
+        model_id,
+        install_dir,
+        license: Some("nvidia-open-model-license".to_string()),
+        file_metadata,
+        progress_id: None,
+    })
+}
+
+/// Download + register the pinned Nemotron ASR catalog model.
+pub async fn install_pinned_nemotron_asr(
+    app: &AppHandle,
+    repo: &Repository,
+    progress_id: Option<&str>,
+    cancel: CancellationToken,
+) -> Result<InstalledHfModel> {
+    let mut target = resolve_pinned_nemotron_install_target(app).await?;
+    if let Some(id) = progress_id {
+        target.progress_id = Some(id.to_string());
+    }
+    install(app, repo, &target, cancel).await
 }
 
 pub fn install_dir_for(runtime: HfRuntime, app_data_dir: &Path) -> PathBuf {
@@ -578,6 +675,8 @@ pub struct InstallTarget {
     pub license: Option<String>,
     /// repo-relative path -> metadata (size/sha256)
     pub file_metadata: std::collections::HashMap<String, FileMetadata>,
+    /// Optional progress event id (defaults to `model_id`).
+    pub progress_id: Option<String>,
 }
 
 /// Re-fetch + re-detect the requested artifact, validating the runtime/kind
@@ -629,6 +728,7 @@ pub async fn resolve_install_target(
         install_dir,
         license: info.license.clone(),
         file_metadata: index.metadata,
+        progress_id: None,
     })
 }
 
@@ -781,10 +881,21 @@ pub async fn install(
     // hard block (the format is not fed to onnxruntime).
     ensure_sherpa_hash_pinned(target.runtime, &specs)?;
 
+    let progress_id = target
+        .progress_id
+        .as_deref()
+        .unwrap_or(&target.model_id);
+
     // Failure mid-download removes the whole per-repo dir (no orphan files).
-    let artifact_files =
-        download_artifact_files(&client, &target.install_dir, &specs, Some(app), &target.model_id, &cancel)
-            .await?;
+    let artifact_files = download_artifact_files(
+        &client,
+        &target.install_dir,
+        &specs,
+        Some(app),
+        progress_id,
+        &cancel,
+    )
+    .await?;
     let installed_size: u64 = artifact_files.iter().map(|f| f.size).sum();
     // Verify the installed file set satisfies the run contract.
     if !verify_on_disk(target.install_dir.to_string_lossy().as_ref(), &artifact_files) {
@@ -1062,6 +1173,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn is_pinned_nemotron_repo_matches_catalog_id() {
+        assert!(is_pinned_nemotron_repo(NEMOTRON_ASR_REPO_ID));
+        assert!(is_pinned_nemotron_repo("NVIDIA/Nemotron-3.5-ASR-0.6B"));
+        assert!(!is_pinned_nemotron_repo("nvidia/nemotron-3.5-asr-streaming-0.6b"));
     }
 
     // ── hash-less sherpa (ONNX) installs are refused (fail closed) ─────────
