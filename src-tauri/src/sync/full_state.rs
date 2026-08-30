@@ -758,6 +758,406 @@ pub async fn upsert_extract(
 
     Ok(())
 }
+pub async fn apply_learning_item_groups(
+    tx: &mut Transaction<'_, Sqlite>,
+    item: &LearningItem,
+    groups: &[String],
+) -> Result<()> {
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM learning_items WHERE id = ?1")
+        .bind(&item.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    if exists.is_none() {
+        return upsert_learning_item(tx, item).await;
+    }
+
+    if groups.iter().any(|group| group == "collection") {
+        sqlx::query("UPDATE learning_items SET collection_id = ?1 WHERE id = ?2")
+            .bind(&item.collection_id)
+            .bind(&item.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "content") {
+        let item_type = format!("{:?}", item.item_type).to_lowercase();
+        let cloze_ranges = item
+            .cloze_ranges
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Sync cloze ranges encode failed: {e}")))?;
+        let extract_id = match item.extract_id.as_deref() {
+            Some(id) => Some(resolve_alias(tx, "extract", id).await?),
+            None => None,
+        };
+        let document_id = match item.document_id.as_deref() {
+            Some(id) => Some(resolve_alias(tx, "document", id).await?),
+            None => None,
+        };
+        sqlx::query(
+            r#"
+            UPDATE learning_items SET
+                extract_id = ?1, document_id = ?2, item_type = ?3,
+                question = ?4, answer = ?5, cloze_text = ?6, cloze_ranges = ?7,
+                date_modified = MAX(date_modified, ?8)
+            WHERE id = ?9
+            "#,
+        )
+        .bind(extract_id)
+        .bind(document_id)
+        .bind(item_type)
+        .bind(&item.question)
+        .bind(&item.answer)
+        .bind(&item.cloze_text)
+        .bind(cloze_ranges)
+        .bind(item.date_modified)
+        .bind(&item.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "tags") {
+        let tags = serde_json::to_string(&item.tags)
+            .map_err(|e| PlethoraError::Internal(format!("Sync item tags encode failed: {e}")))?;
+        sqlx::query("UPDATE learning_items SET tags = ?1 WHERE id = ?2")
+            .bind(tags)
+            .bind(&item.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "media") {
+        let image_asset_ids = serde_json::to_string(&item.image_asset_ids)
+            .map_err(|e| PlethoraError::Internal(format!("Sync item assets encode failed: {e}")))?;
+        let interaction_metadata = item
+            .interaction_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Sync item metadata encode failed: {e}")))?;
+        sqlx::query(
+            "UPDATE learning_items SET image_asset_ids = ?1, interaction_metadata = ?2 WHERE id = ?3",
+        )
+        .bind(image_asset_ids)
+        .bind(interaction_metadata)
+        .bind(&item.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "schedule") {
+        let state = format!("{:?}", item.state).to_lowercase();
+        let (stability, memory_difficulty) = item
+            .memory_state
+            .as_ref()
+            .map(|state| (Some(state.stability), Some(state.difficulty)))
+            .unwrap_or((None, None));
+        sqlx::query(
+            r#"
+            UPDATE learning_items SET
+                difficulty = ?1, interval = ?2, ease_factor = ?3, due_date = ?4,
+                last_review_date = ?5, review_count = ?6, lapses = ?7, state = ?8,
+                memory_state_stability = ?9, memory_state_difficulty = ?10,
+                algorithm_type = ?11, algorithm_state = ?12, updated_at = ?13,
+                first_reviewed_at = ?14, date_modified = MAX(date_modified, ?15)
+            WHERE id = ?16
+            "#,
+        )
+        .bind(item.difficulty)
+        .bind(item.interval)
+        .bind(item.ease_factor)
+        .bind(item.due_date)
+        .bind(item.last_review_date)
+        .bind(item.review_count)
+        .bind(item.lapses)
+        .bind(state)
+        .bind(stability)
+        .bind(memory_difficulty)
+        .bind(&item.algorithm_type)
+        .bind(&item.algorithm_state)
+        .bind(&item.updated_at)
+        .bind(item.first_reviewed_at)
+        .bind(item.date_modified)
+        .bind(&item.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "priority") {
+        sqlx::query(
+            "UPDATE learning_items SET priority_slider = ?1, priority_score = ?2, priority_explicitly_set = ?3 WHERE id = ?4",
+        )
+        .bind(item.priority_slider)
+        .bind(item.priority_score)
+        .bind(item.priority_explicitly_set)
+        .bind(&item.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "suspension") {
+        sqlx::query("UPDATE learning_items SET is_suspended = ?1 WHERE id = ?2")
+            .bind(item.is_suspended)
+            .bind(&item.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn apply_document_groups(
+    tx: &mut Transaction<'_, Sqlite>,
+    document: &Document,
+    groups: &[String],
+) -> Result<String> {
+    let target_id = prepare_document_target(tx, document).await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM documents WHERE id = ?1")
+        .bind(&target_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    if exists.is_none() {
+        return upsert_document(tx, document).await;
+    }
+
+    if groups.iter().any(|group| group == "collection") {
+        sqlx::query("UPDATE documents SET collection_id = ?1 WHERE id = ?2")
+            .bind(&document.collection_id)
+            .bind(&target_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "content") {
+        let file_type = format!("{:?}", document.file_type).to_lowercase();
+        let metadata = document
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Sync document metadata encode failed: {e}")))?;
+        let source_url = portable_source_url(document).unwrap_or_default();
+        sqlx::query(
+            r#"
+            UPDATE documents SET
+                title = ?1,
+                file_path = CASE
+                    WHEN ?2 != '' AND (file_path = '' OR file_path LIKE 'http://%' OR file_path LIKE 'https://%')
+                    THEN ?2 ELSE file_path END,
+                file_type = ?3, content = ?4, content_hash = ?5, total_pages = ?6,
+                metadata = ?7, cover_image_url = ?8, cover_image_source = ?9,
+                date_modified = MAX(date_modified, ?10)
+            WHERE id = ?11
+            "#,
+        )
+        .bind(&document.title)
+        .bind(source_url)
+        .bind(file_type)
+        .bind(&document.content)
+        .bind(&document.content_hash)
+        .bind(document.total_pages)
+        .bind(metadata)
+        .bind(&document.cover_image_url)
+        .bind(&document.cover_image_source)
+        .bind(document.date_modified)
+        .bind(&target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "tags") {
+        let tags = serde_json::to_string(&document.tags)
+            .map_err(|e| PlethoraError::Internal(format!("Sync document tags encode failed: {e}")))?;
+        sqlx::query("UPDATE documents SET category = ?1, tags = ?2 WHERE id = ?3")
+            .bind(&document.category)
+            .bind(tags)
+            .bind(&target_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "position") {
+        sqlx::query(
+            r#"
+            UPDATE documents SET
+                current_page = ?1, current_scroll_percent = ?2, current_cfi = ?3,
+                current_view_state = ?4, position_json = ?5, progress_percent = ?6
+            WHERE id = ?7
+            "#,
+        )
+        .bind(document.current_page)
+        .bind(document.current_scroll_percent)
+        .bind(&document.current_cfi)
+        .bind(&document.current_view_state)
+        .bind(&document.position_json)
+        .bind(document.progress_percent)
+        .bind(&target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "flags") {
+        sqlx::query(
+            "UPDATE documents SET is_archived = ?1, is_favorite = ?2, is_dismissed = ?3 WHERE id = ?4",
+        )
+        .bind(document.is_archived)
+        .bind(document.is_favorite)
+        .bind(document.is_dismissed)
+        .bind(&target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "priority") {
+        sqlx::query(
+            "UPDATE documents SET priority_rating = ?1, priority_slider = ?2, priority_score = ?3, priority_explicitly_set = ?4 WHERE id = ?5",
+        )
+        .bind(document.priority_rating)
+        .bind(document.priority_slider)
+        .bind(document.priority_score)
+        .bind(document.priority_explicitly_set)
+        .bind(&target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "schedule") {
+        sqlx::query(
+            r#"
+            UPDATE documents SET
+                date_last_reviewed = ?1, next_reading_date = ?2, reading_count = ?3,
+                stability = ?4, difficulty = ?5, reps = ?6, consecutive_count = ?7,
+                interval_modifier = ?8, first_reviewed_at = ?9
+            WHERE id = ?10
+            "#,
+        )
+        .bind(document.date_last_reviewed)
+        .bind(document.next_reading_date)
+        .bind(document.reading_count)
+        .bind(document.stability)
+        .bind(document.difficulty)
+        .bind(document.reps)
+        .bind(document.consecutive_count)
+        .bind(document.interval_modifier)
+        .bind(document.first_reviewed_at)
+        .bind(&target_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "activity") {
+        sqlx::query("UPDATE documents SET total_time_spent = ?1 WHERE id = ?2")
+            .bind(document.total_time_spent)
+            .bind(&target_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(target_id)
+}
+
+pub async fn apply_extract_groups(
+    tx: &mut Transaction<'_, Sqlite>,
+    extract: &Extract,
+    groups: &[String],
+) -> Result<()> {
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM extracts WHERE id = ?1")
+        .bind(&extract.id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    if exists.is_none() {
+        return upsert_extract(tx, extract).await;
+    }
+
+    if groups.iter().any(|group| group == "collection") {
+        sqlx::query("UPDATE extracts SET collection_id = ?1 WHERE id = ?2")
+            .bind(&extract.collection_id)
+            .bind(&extract.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "content") {
+        let selection_context = extract
+            .selection_context
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Sync extract selection encode failed: {e}")))?;
+        let progressive_summaries = extract
+            .progressive_summaries
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Sync extract summaries encode failed: {e}")))?;
+        sqlx::query(
+            r#"
+            UPDATE extracts SET
+                document_id = ?1, content = ?2, html_content = ?3, source_url = ?4,
+                page_title = ?5, page_number = ?6, selection_context = ?7,
+                highlight_color = ?8, notes = ?9,
+                progressive_disclosure_level = ?10, max_disclosure_level = ?11,
+                progressive_summaries = ?12, source_hash = ?13,
+                date_modified = MAX(date_modified, ?14)
+            WHERE id = ?15
+            "#,
+        )
+        .bind(resolve_alias(tx, "document", &extract.document_id).await?)
+        .bind(&extract.content)
+        .bind(&extract.html_content)
+        .bind(&extract.source_url)
+        .bind(&extract.page_title)
+        .bind(extract.page_number)
+        .bind(selection_context)
+        .bind(&extract.highlight_color)
+        .bind(&extract.notes)
+        .bind(extract.progressive_disclosure_level)
+        .bind(extract.max_disclosure_level)
+        .bind(progressive_summaries)
+        .bind(&extract.source_hash)
+        .bind(extract.date_modified)
+        .bind(&extract.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "tags") {
+        let tags = serde_json::to_string(&extract.tags)
+            .map_err(|e| PlethoraError::Internal(format!("Sync extract tags encode failed: {e}")))?;
+        sqlx::query("UPDATE extracts SET tags = ?1, category = ?2 WHERE id = ?3")
+            .bind(tags)
+            .bind(&extract.category)
+            .bind(&extract.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "schedule") {
+        let (stability, memory_difficulty) = extract
+            .memory_state
+            .as_ref()
+            .map(|state| (Some(state.stability), Some(state.difficulty)))
+            .unwrap_or((None, None));
+        sqlx::query(
+            r#"
+            UPDATE extracts SET
+                memory_state_stability = ?1, memory_state_difficulty = ?2,
+                next_review_date = ?3, last_review_date = ?4,
+                review_count = ?5, reps = ?6
+            WHERE id = ?7
+            "#,
+        )
+        .bind(stability)
+        .bind(memory_difficulty)
+        .bind(extract.next_review_date)
+        .bind(extract.last_review_date)
+        .bind(extract.review_count)
+        .bind(extract.reps)
+        .bind(&extract.id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if groups.iter().any(|group| group == "priority") {
+        sqlx::query("UPDATE extracts SET priority_score = ?1, is_dismissed = ?2 WHERE id = ?3")
+            .bind(extract.priority_score)
+            .bind(extract.is_dismissed)
+            .bind(&extract.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if groups.iter().any(|group| group == "activity") {
+        sqlx::query("UPDATE extracts SET total_time_spent = ?1 WHERE id = ?2")
+            .bind(extract.total_time_spent)
+            .bind(&extract.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
