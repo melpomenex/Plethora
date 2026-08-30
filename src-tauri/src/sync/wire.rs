@@ -97,6 +97,7 @@ pub fn entity_type_for_table_kind(table_kind: &str) -> Option<EntityType> {
         "collections" | "collection" => Some(EntityType::Collection),
         "tags" | "tag" => Some(EntityType::Tag),
         "settings" | "setting" => Some(EntityType::Setting),
+        "image_assets" | "image_asset" => Some(EntityType::ImageAsset),
         "tombstones" | "tombstone" => Some(EntityType::Tombstone),
         _ => EntityType::parse(table_kind),
     }
