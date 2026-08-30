@@ -10,6 +10,7 @@ pub enum EntityType {
     Collection,
     Tag,
     Setting,
+    ImageAsset,
     Tombstone,
 }
 
@@ -23,6 +24,7 @@ impl EntityType {
             EntityType::Collection => "collection",
             EntityType::Tag => "tag",
             EntityType::Setting => "setting",
+            EntityType::ImageAsset => "image_asset",
             EntityType::Tombstone => "tombstone",
         }
     }
@@ -36,6 +38,7 @@ impl EntityType {
             "collection" | "collections" => Some(EntityType::Collection),
             "tag" | "tags" => Some(EntityType::Tag),
             "setting" | "settings" => Some(EntityType::Setting),
+            "image_asset" | "image_assets" => Some(EntityType::ImageAsset),
             "tombstone" | "tombstones" => Some(EntityType::Tombstone),
             _ => None,
         }
@@ -121,6 +124,7 @@ pub enum TableKind {
     Collections,
     Tags,
     Settings,
+    ImageAssets,
     Tombstones,
 }
 
@@ -134,6 +138,7 @@ impl TableKind {
             TableKind::Collections => "collections",
             TableKind::Tags => "tags",
             TableKind::Settings => "settings",
+            TableKind::ImageAssets => "image_assets",
             TableKind::Tombstones => "tombstones",
         }
     }
@@ -149,6 +154,7 @@ impl From<EntityType> for TableKind {
             EntityType::Collection => TableKind::Collections,
             EntityType::Tag => TableKind::Tags,
             EntityType::Setting => TableKind::Settings,
+            EntityType::ImageAsset => TableKind::ImageAssets,
             EntityType::Tombstone => TableKind::Tombstones,
         }
     }

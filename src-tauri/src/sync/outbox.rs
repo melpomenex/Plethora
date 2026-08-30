@@ -29,10 +29,31 @@ pub async fn mark_dirty(
         )));
     }
 
-    let _device_id = ensure_device_id(tx).await?;
+    let device_id = ensure_device_id(tx).await?;
     let hlc = next_hlc(tx).await?;
     let change_id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().timestamp_millis();
+
+    // The current client merge model is deterministic whole-entity LWW.
+    // Sending a server revision precondition for ordinary updates would turn
+    // multiple legitimate offline edits from one device into false conflicts
+    // (both were created from the same observed revision). Keep the server
+    // revision locally for diagnostics/future field merges, but only assert
+    // revision zero for a genuinely new entity.
+    let observed_revision: Option<i64> = sqlx::query_scalar(
+        "SELECT server_revision FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    )
+    .bind(entity_type.as_str())
+    .bind(entity_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten();
+    let effective_base_revision =
+        if matches!(operation, SyncOperation::Create) && base_revision == Some(0) {
+            Some(0)
+        } else {
+            None
+        };
 
     sqlx::query(
         r#"
@@ -46,7 +67,7 @@ pub async fn mark_dirty(
     .bind(entity_type.as_str())
     .bind(entity_id)
     .bind(operation.as_str())
-    .bind(base_revision)
+    .bind(effective_base_revision)
     .bind(&payload)
     .bind(&hlc)
     .bind(created_at)
@@ -54,12 +75,56 @@ pub async fn mark_dirty(
     .await
     .map_err(|e| PlethoraError::Internal(format!("Failed to write sync outbox: {e}")))?;
 
+    sqlx::query(
+        r#"
+        INSERT INTO sync_entity_state (
+            entity_type, entity_id, last_hlc, last_device_id,
+            server_revision, tombstoned, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+            last_hlc = excluded.last_hlc,
+            last_device_id = excluded.last_device_id,
+            server_revision = COALESCE(sync_entity_state.server_revision, excluded.server_revision),
+            tombstoned = excluded.tombstoned,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(entity_type.as_str())
+    .bind(entity_id)
+    .bind(&hlc)
+    .bind(&device_id)
+    .bind(observed_revision.or(effective_base_revision))
+    .bind(i64::from(matches!(operation, SyncOperation::Delete)))
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PlethoraError::Internal(format!("Failed to update sync entity state: {e}")))?;
+
+    let all_groups = match entity_type {
+        EntityType::LearningItem => Some(super::full_state::LEARNING_ITEM_GROUPS),
+        EntityType::Document => Some(super::full_state::DOCUMENT_GROUPS),
+        EntityType::Extract => Some(super::full_state::EXTRACT_GROUPS),
+        _ => None,
+    };
+    if let Some(all_groups) = all_groups {
+        let fields = super::full_state::sync_fields(&payload, all_groups);
+        super::full_state::record_field_groups(
+            tx,
+            entity_type.as_str(),
+            entity_id,
+            &hlc,
+            &device_id,
+            &fields,
+        )
+        .await?;
+    }
+
     Ok(OutboxEntry {
         change_id,
         entity_type,
         entity_id: entity_id.to_string(),
         operation,
-        base_revision,
+        base_revision: effective_base_revision,
         payload,
         hlc,
         created_at,

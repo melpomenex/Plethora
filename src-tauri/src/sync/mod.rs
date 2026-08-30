@@ -6,6 +6,8 @@ pub mod cursor;
 pub mod device;
 pub mod engine;
 pub mod flags;
+pub(crate) mod full_state;
+pub(crate) mod image_sync;
 pub mod gate;
 pub mod issues;
 pub mod journal;
@@ -354,9 +356,18 @@ pub async fn sync_upload_blob(
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
-    blobs::upload_blob_if_missing(&token, &bytes, content_type.as_deref().unwrap_or("application/octet-stream"))
+    let master_key = load_master_key()
         .await
-        .map_err(map_error)
+        .map_err(map_error)?
+        .ok_or_else(|| "Sync encryption key not configured".to_string())?;
+    blobs::upload_blob_if_missing(
+        &token,
+        &master_key,
+        &bytes,
+        content_type.as_deref().unwrap_or("application/octet-stream"),
+    )
+    .await
+    .map_err(map_error)
 }
 
 #[tauri::command]

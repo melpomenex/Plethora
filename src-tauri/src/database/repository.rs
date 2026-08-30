@@ -6,17 +6,17 @@ use crate::database::{
 };
 use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
+use crate::models::{
+    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
+    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
+    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
+};
 use crate::sync::bootstrap;
 use crate::sync::journal::{journal_entity, notify_after_commit};
 use crate::sync::outbox::{self, learning_item_revision, mark_dirty};
 use crate::sync::payload::{self, delete_payload, timestamp_revision};
 use crate::sync::settings::is_syncable_setting_key;
 use crate::sync::types::{EntityType, SyncOperation};
-use crate::models::{
-    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
-    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
-    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
-};
 use chrono::Utc;
 use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
 use std::collections::HashMap;
@@ -43,7 +43,6 @@ pub struct WorkloadForecastGrouped {
     pub overdue_extracts: i64,
     pub overdue_video_extracts: i64,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ArenaReviewProvenance<'a> {
@@ -156,7 +155,8 @@ impl Repository {
     /// Decode one `learning_items` row into a `LearningItem`. Centralized so the
     /// four read methods stay in sync (and so the `updated_at` sync-clock field
     /// is mapped consistently — it is `None` on legacy rows until next review).
-    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {        let item_type_str: String = row.try_get("item_type")?;
+    pub fn row_to_learning_item(row: &SqliteRow) -> Result<LearningItem> {
+        let item_type_str: String = row.try_get("item_type")?;
         let state_str: String = row.try_get("state")?;
         let tags_json: String = row.try_get("tags")?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
@@ -221,6 +221,195 @@ impl Repository {
                 .try_get::<i64, _>("priority_explicitly_set")
                 .map(|v| v != 0)
                 .unwrap_or(false),
+        })
+    }
+
+    pub(crate) fn row_to_document(row: &SqliteRow) -> Result<Document> {
+        let file_type: String = row.try_get("file_type")?;
+        let tags_json: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let metadata_json: Option<String> = row.try_get("metadata").ok().flatten();
+        let metadata = metadata_json.and_then(|json| serde_json::from_str(&json).ok());
+
+        Ok(Document {
+            id: row.try_get("id")?,
+            collection_id: row
+                .try_get("collection_id")
+                .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+            title: row.try_get("title")?,
+            file_path: row.try_get("file_path").unwrap_or_default(),
+            file_type: Self::parse_file_type(&file_type),
+            content: Self::decode_optional_text(row, "content"),
+            content_hash: row.try_get("content_hash").ok().flatten(),
+            total_pages: row.try_get("total_pages").ok().flatten(),
+            current_page: row.try_get("current_page").ok().flatten(),
+            current_scroll_percent: row.try_get("current_scroll_percent").ok().flatten(),
+            current_cfi: row.try_get("current_cfi").ok().flatten(),
+            current_view_state: row.try_get("current_view_state").ok().flatten(),
+            position_json: row.try_get("position_json").ok().flatten(),
+            progress_percent: row.try_get("progress_percent").ok().flatten(),
+            category: row.try_get("category").ok().flatten(),
+            tags,
+            date_added: row.try_get("date_added")?,
+            date_modified: row.try_get("date_modified")?,
+            date_last_reviewed: row.try_get("date_last_reviewed").ok().flatten(),
+            extract_count: row.try_get("extract_count").unwrap_or(0),
+            learning_item_count: row.try_get("learning_item_count").unwrap_or(0),
+            priority_rating: row.try_get("priority_rating").unwrap_or(0),
+            priority_slider: row.try_get("priority_slider").unwrap_or(0),
+            priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            priority_explicitly_set: row
+                .try_get::<Option<i64>, _>("priority_explicitly_set")
+                .ok()
+                .flatten()
+                .map(|value| value != 0)
+                .unwrap_or(false),
+            is_archived: row.try_get("is_archived").unwrap_or(false),
+            is_favorite: row.try_get("is_favorite").unwrap_or(false),
+            is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+            metadata,
+            cover_image_url: row.try_get("cover_image_url").ok().flatten(),
+            cover_image_source: row.try_get("cover_image_source").ok().flatten(),
+            next_reading_date: row.try_get("next_reading_date").ok().flatten(),
+            reading_count: row.try_get("reading_count").unwrap_or(0),
+            stability: row.try_get("stability").ok().flatten(),
+            difficulty: row.try_get("difficulty").ok().flatten(),
+            reps: row.try_get("reps").ok().flatten(),
+            total_time_spent: row.try_get("total_time_spent").ok().flatten(),
+            consecutive_count: row.try_get("consecutive_count").ok().flatten(),
+            interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+            first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
+        })
+    }
+
+    pub(crate) fn row_to_extract(row: &SqliteRow) -> Result<Extract> {
+        let tags_json: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let memory_state = Self::parse_memory_state(
+            row.try_get("memory_state_stability").ok().flatten(),
+            row.try_get("memory_state_difficulty").ok().flatten(),
+        );
+        let selection_context = row
+            .try_get::<Option<String>, _>("selection_context")
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok());
+
+        Ok(Extract {
+            id: row.try_get("id")?,
+            collection_id: row
+                .try_get("collection_id")
+                .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+            document_id: row.try_get("document_id")?,
+            content: row.try_get("content")?,
+            html_content: row.try_get("html_content").ok().flatten(),
+            source_url: row.try_get("source_url").ok().flatten(),
+            page_title: row.try_get("page_title").ok().flatten(),
+            page_number: row.try_get("page_number").ok().flatten(),
+            selection_context,
+            highlight_color: row.try_get("highlight_color").ok().flatten(),
+            notes: row.try_get("notes").ok().flatten(),
+            progressive_disclosure_level: row.try_get("progressive_disclosure_level").unwrap_or(0),
+            max_disclosure_level: row.try_get("max_disclosure_level").unwrap_or(3),
+            progressive_summaries: row
+                .try_get::<Option<String>, _>("progressive_summaries")
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str(&json).ok()),
+            date_created: row.try_get("date_created")?,
+            date_modified: row.try_get("date_modified")?,
+            tags,
+            category: row.try_get("category").ok().flatten(),
+            memory_state,
+            next_review_date: row.try_get("next_review_date").ok().flatten(),
+            last_review_date: row.try_get("last_review_date").ok().flatten(),
+            review_count: row.try_get("review_count").unwrap_or(0),
+            reps: row.try_get("reps").unwrap_or(0),
+            source_hash: row.try_get("source_hash").ok().flatten(),
+            priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+            total_time_spent: row.try_get("total_time_spent").ok().flatten(),
+        })
+    }
+
+    async fn journal_document_fields(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<Document> {
+        let row = sqlx::query("SELECT * FROM documents WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound(format!("Document {}", id)))?;
+        let document = Self::row_to_document(&row)?;
+        let payload = payload::document_payload_with_fields(&document, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Document,
+            id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        Ok(document)
+    }
+
+    async fn journal_extract_fields(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<Extract> {
+        let row = sqlx::query("SELECT * FROM extracts WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound(format!("Extract {}", id)))?;
+        let extract = Self::row_to_extract(&row)?;
+        let payload = payload::extract_payload_with_fields(&extract, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Extract,
+            id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        Ok(extract)
+    }
+
+    pub(crate) fn row_to_tag(row: &SqliteRow) -> Result<crate::models::Tag> {
+        let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
+        let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
+        let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok().flatten();
+        let centroid = centroid_blob.and_then(|bytes| {
+            if bytes.len() % 4 != 0 {
+                return None;
+            }
+            Some(
+                bytes
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect(),
+            )
+        });
+
+        Ok(crate::models::Tag {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            prerequisites,
+            maturity_threshold: row.try_get("maturity_threshold").unwrap_or(0.8),
+            centroid,
+            coherence: row.try_get("coherence").ok().flatten(),
+            item_count: row.try_get("item_count").unwrap_or(0),
+            avg_stability: row.try_get("avg_stability").ok().flatten(),
+            mature_count: row.try_get("mature_count").unwrap_or(0),
+            date_created: row.try_get("date_created")?,
+            date_modified: row.try_get("date_modified")?,
         })
     }
 
@@ -379,8 +568,10 @@ impl Repository {
             ));
         }
 
-        // Reassign all items to the default collection
-        let tables = [
+        let mut tx = self.pool.begin().await?;
+        // Collection deletion has deterministic cascading semantics: children
+        // remain in the library and move to Personal on every device.
+        for table in [
             "documents",
             "extracts",
             "learning_items",
@@ -388,19 +579,17 @@ impl Repository {
             "review_results",
             "annotations",
             "categories",
-        ];
-        for table in &tables {
-            let _ = sqlx::query(&format!(
-                "UPDATE {} SET collection_id = ? WHERE collection_id = ?",
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {} SET collection_id = ?1 WHERE collection_id = ?2",
                 table
             ))
             .bind(DEFAULT_COLLECTION_ID)
             .bind(id)
-            .execute(&self.pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
         }
 
-        let mut tx = self.pool.begin().await?;
         let delete_payload = delete_payload("collection", id)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         journal_entity(
@@ -413,14 +602,13 @@ impl Repository {
         )
         .await?;
 
-        sqlx::query("DELETE FROM collections WHERE id = ?")
+        sqlx::query("DELETE FROM collections WHERE id = ?1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
 
         tx.commit().await?;
         notify_after_commit();
-
         Ok(())
     }
 
@@ -536,70 +724,7 @@ impl Repository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-
-        match row {
-            Some(row) => {
-                let file_type: String = row.get("file_type");
-                let tags_json: String = row.get("tags");
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
-                let metadata_json: Option<String> = row.try_get("metadata")?;
-                let metadata: Option<crate::models::DocumentMetadata> =
-                    metadata_json.and_then(|json| serde_json::from_str(&json).ok());
-
-                Ok(Some(Document {
-                    id: row.get("id"),
-                    collection_id: row
-                        .try_get("collection_id")
-                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
-                    title: row.get("title"),
-                    file_path: row.get("file_path"),
-                    file_type: Self::parse_file_type(&file_type),
-                    content: Self::decode_optional_text(&row, "content"),
-                    content_hash: row.get("content_hash"),
-                    total_pages: row.get("total_pages"),
-                    current_page: row.get("current_page"),
-                    current_scroll_percent: row.try_get("current_scroll_percent").ok(),
-                    current_cfi: row.try_get("current_cfi").ok(),
-                    current_view_state: row.try_get("current_view_state").ok(),
-                    position_json: row.try_get("position_json").ok(),
-                    progress_percent: row.try_get("progress_percent").ok(),
-                    category: row.get("category"),
-                    tags,
-                    date_added: row.get("date_added"),
-                    date_modified: row.get("date_modified"),
-                    date_last_reviewed: row.get("date_last_reviewed"),
-                    extract_count: row.get("extract_count"),
-                    learning_item_count: row.get("learning_item_count"),
-                    priority_rating: row.get("priority_rating"),
-                    priority_slider: row.get("priority_slider"),
-                    priority_score: row.get("priority_score"),
-                    priority_explicitly_set: row
-                        .try_get::<Option<i64>, _>("priority_explicitly_set")
-                        .ok()
-                        .flatten()
-                        .map(|v| v != 0)
-                        .unwrap_or(false),
-                    is_archived: row.get("is_archived"),
-                    is_favorite: row.get("is_favorite"),
-                    is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
-                    metadata,
-                    cover_image_url: row.try_get("cover_image_url").ok(),
-                    cover_image_source: row.try_get("cover_image_source").ok(),
-                    // Scheduling fields - use try_get for compatibility with existing databases
-                    next_reading_date: row.try_get("next_reading_date").ok(),
-                    reading_count: row.try_get("reading_count").unwrap_or(0),
-                    stability: row.try_get("stability").ok(),
-                    difficulty: row.try_get("difficulty").ok(),
-                    reps: row.try_get("reps").ok(),
-                    total_time_spent: row.try_get("total_time_spent").ok(),
-                    consecutive_count: row.try_get("consecutive_count").ok(),
-                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
-                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
-                }))
-            }
-            None => Ok(None),
-        }
+        row.as_ref().map(Self::row_to_document).transpose()
     }
 
     pub async fn get_document_titles(&self, ids: &[String]) -> Result<HashMap<String, String>> {
@@ -1357,17 +1482,15 @@ impl Repository {
 
     pub async fn update_document(&self, id: &str, updates: &Document) -> Result<Document> {
         let tags_json = serde_json::to_string(&updates.tags)?;
-        // See document_repository.rs::update_document: empty-string == not provided,
-        // so partial updates don't clobber content-bearing columns (notably
-        // file_path, whose YouTube URL IS the content).
         let file_path = if updates.file_path.is_empty() {
             None
         } else {
             Some(&updates.file_path)
         };
-        let category = updates.category.as_ref().filter(|c| !c.is_empty());
+        let category = updates.category.as_ref().filter(|value| !value.is_empty());
 
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 title = ?1,
@@ -1394,29 +1517,42 @@ impl Repository {
         .bind(updates.is_favorite)
         .bind(updates.total_pages)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
 
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        let updated = Self::journal_document_fields(
+            &mut tx,
+            id,
+            &["content", "position", "tags", "priority", "flags"],
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
-    /// Clear a document's category. Deliberately separate from
-    /// `update_document`, whose empty-string-means-unprovided convention
-    /// (there to keep partial updates from clobbering content-bearing
-    /// columns) makes an explicit clear indistinguishable from "leave
-    /// unchanged" — the two must not share a path (issue #44 bug 11).
     pub async fn clear_document_category(&self, id: &str) -> Result<Document> {
-        sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
-            .bind(chrono::Utc::now())
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        let mut tx = self.pool.begin().await?;
+        let rows =
+            sqlx::query("UPDATE documents SET category = NULL, date_modified = ?1 WHERE id = ?2")
+                .bind(chrono::Utc::now())
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["tags"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     /// Reassign a document to a collection.
@@ -1425,7 +1561,9 @@ impl Repository {
     /// `collection_id` so that a partial update spreading a stale document
     /// cannot move it by accident. Returns whether a row was actually matched,
     /// so callers can distinguish "moved" from "no such document".
+
     pub async fn set_document_collection(&self, id: &str, collection_id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE documents SET
@@ -1437,10 +1575,17 @@ impl Repository {
         .bind(collection_id)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        Self::journal_document_fields(&mut tx, id, &["collection"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn update_document_cover(
@@ -1449,7 +1594,8 @@ impl Repository {
         cover_image_url: Option<String>,
         cover_image_source: Option<String>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 cover_image_url = ?1,
@@ -1462,9 +1608,16 @@ impl Repository {
         .bind(cover_image_source)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -1477,8 +1630,8 @@ impl Repository {
         metadata: Option<DocumentMetadata>,
     ) -> Result<()> {
         let metadata_json = metadata.as_ref().map(serde_json::to_string).transpose()?;
-
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 content = ?1,
@@ -1495,15 +1648,23 @@ impl Repository {
         .bind(metadata_json)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     /// Persist a pipeline-imported web article: sanitized content, metadata
     /// (including the `webArticle` provenance), canonical `source_url`, and
     /// cover image in ONE statement so an import never lands half-written.
+
     pub async fn update_web_article(
         &self,
         id: &str,
@@ -1563,6 +1724,7 @@ impl Repository {
         }
 
         let metadata_json = serde_json::to_string(&metadata)?;
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE documents SET
@@ -1580,10 +1742,17 @@ impl Repository {
         .bind(id)
         .bind(expected_date_modified)
         .bind(candidate.chars().count() as i64)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected() == 1)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        Self::journal_document_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn update_document_priority(
@@ -1594,12 +1763,8 @@ impl Repository {
         priority_score: f64,
     ) -> Result<Document> {
         let now = Utc::now();
-
-        // Flip priority_explicitly_set to 1 so the Alt+P popup can distinguish a
-        // user-committed priority (including an explicit 0) from a never-touched
-        // document. This is the single source of truth for "was this set?" —
-        // every commit through the popup (single or bulk) flows through here.
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 priority_rating = ?1,
@@ -1615,18 +1780,23 @@ impl Repository {
         .bind(priority_score)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn update_document_dismiss(&self, id: &str, is_dismissed: bool) -> Result<Document> {
         let now = Utc::now();
-
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 is_dismissed = ?1,
@@ -1637,12 +1807,17 @@ impl Repository {
         .bind(is_dismissed)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["flags"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn update_document_progress(
@@ -1654,9 +1829,8 @@ impl Repository {
         current_view_state: Option<String>,
     ) -> Result<Document> {
         let now = Utc::now();
-
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 current_page = COALESCE(?1, current_page),
@@ -1674,37 +1848,16 @@ impl Repository {
         .bind(now)
         .bind(id)
         .execute(&mut *tx)
-        .await?;
-
-        let position_json: Option<String> =
-            sqlx::query_scalar("SELECT position_json FROM documents WHERE id = ?1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        let item_payload = payload::document_position_payload(
-            id,
-            position_json.as_deref(),
-            None,
-            current_page,
-            current_scroll_percent,
-            current_cfi.as_deref(),
-        )
-        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        journal_entity(
-            &mut tx,
-            EntityType::Document,
-            id,
-            SyncOperation::Update,
-            Some(timestamp_revision(now)),
-            item_payload,
-        )
-        .await?;
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["position"]).await?;
         tx.commit().await?;
         notify_after_commit();
-
-        self.get_document(id)
-            .await?
-            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
+        Ok(updated)
     }
 
     pub async fn update_document_scheduling(
@@ -1717,7 +1870,8 @@ impl Repository {
         total_time_spent: Option<i32>,
     ) -> Result<()> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1738,13 +1892,21 @@ impl Repository {
         .bind(now)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
+
     pub async fn update_document_scheduling_with_consecutive(
         &self,
         id: &str,
@@ -1756,7 +1918,8 @@ impl Repository {
         consecutive_count: Option<i32>,
     ) -> Result<()> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1779,13 +1942,21 @@ impl Repository {
         .bind(now)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
+
     pub async fn restore_document_scheduling(
         &self,
         id: &str,
@@ -1797,7 +1968,8 @@ impl Repository {
         consecutive_count: Option<i32>,
         date_last_reviewed: Option<chrono::DateTime<Utc>>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 next_reading_date = ?1,
@@ -1820,9 +1992,16 @@ impl Repository {
         .bind(date_last_reviewed)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        Self::journal_document_fields(&mut tx, id, &["schedule", "activity"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -1987,60 +2166,7 @@ impl Repository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-
-        match row {
-            Some(row) => {
-                let tags_json: String = row.try_get("tags")?;
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
-                let stability: Option<f64> = row.try_get("memory_state_stability").ok();
-                let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-                let memory_state = Self::parse_memory_state(stability, difficulty);
-                let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-                let selection_context =
-                    selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
-
-                Ok(Some(Extract {
-                    id: row.try_get("id")?,
-                    collection_id: row
-                        .try_get("collection_id")
-                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
-                    document_id: row.try_get("document_id")?,
-                    content: row.try_get("content")?,
-                    html_content: row.try_get("html_content").ok(),
-                    source_url: row.try_get("source_url").ok(),
-                    page_title: row.try_get("page_title")?,
-                    page_number: row.try_get("page_number")?,
-                    selection_context,
-                    highlight_color: row.try_get("highlight_color")?,
-                    notes: row.try_get("notes")?,
-                    progressive_disclosure_level: row.try_get("progressive_disclosure_level")?,
-                    max_disclosure_level: row.try_get("max_disclosure_level")?,
-                    progressive_summaries: row
-                        .try_get::<Option<String>, _>("progressive_summaries")
-                        .ok()
-                        .flatten()
-                        .and_then(|s| serde_json::from_str(&s).ok()),
-                    date_created: row.try_get("date_created")?,
-                    date_modified: row.try_get("date_modified")?,
-                    tags,
-                    category: row.try_get("category")?,
-                    memory_state,
-                    next_review_date: row.try_get("next_review_date").ok(),
-                    last_review_date: row.try_get("last_review_date").ok(),
-                    review_count: row.try_get("review_count").unwrap_or(0),
-                    reps: row.try_get("reps").unwrap_or(0),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
-                    total_time_spent: row
-                        .try_get::<Option<i64>, _>("total_time_spent")
-                        .ok()
-                        .flatten(),
-                }))
-            }
-            None => Ok(None),
-        }
+        row.as_ref().map(Self::row_to_extract).transpose()
     }
 
     pub async fn list_extracts_by_document(&self, document_id: &str) -> Result<Vec<Extract>> {
@@ -2169,7 +2295,7 @@ impl Repository {
         let (stability, difficulty) = extract
             .memory_state
             .as_ref()
-            .map(|s| (Some(s.stability), Some(s.difficulty)))
+            .map(|state| (Some(state.stability), Some(state.difficulty)))
             .unwrap_or((None, None));
         let progressive_summaries_json = extract
             .progressive_summaries
@@ -2178,7 +2304,7 @@ impl Repository {
             .transpose()?;
 
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 content = ?1, html_content = ?2, source_url = ?3,
@@ -2218,27 +2344,24 @@ impl Repository {
         )
         .bind(&extract.id)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", extract.id)));
+        }
 
-        let item_payload = payload::extract_payload(extract)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        journal_entity(
-            &mut tx,
-            EntityType::Extract,
-            &extract.id,
-            SyncOperation::Update,
-            Some(timestamp_revision(extract.date_modified)),
-            item_payload,
-        )
-        .await?;
+        let updated =
+            Self::journal_extract_fields(&mut tx, &extract.id, &["content", "tags", "schedule"])
+                .await?;
         tx.commit().await?;
         notify_after_commit();
-
-        Ok(extract.clone())
+        Ok(updated)
     }
 
     pub async fn update_extract_disclosure_level(&self, id: &str, level: i32) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 progressive_disclosure_level = ?1,
@@ -2249,8 +2372,16 @@ impl Repository {
         .bind(level)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2430,7 +2561,8 @@ impl Repository {
         reps: Option<i32>,
         last_review_date: Option<chrono::DateTime<Utc>>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 next_review_date = ?1,
@@ -2451,15 +2583,22 @@ impl Repository {
         .bind(last_review_date)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn update_extract_priority(&self, id: &str, priority_score: f64) -> Result<()> {
-        let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts
             SET priority_score = ?1, date_modified = ?2
@@ -2467,16 +2606,24 @@ impl Repository {
             "#,
         )
         .bind(priority_score)
-        .bind(now)
+        .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn update_extract_dismissed(&self, id: &str, is_dismissed: bool) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 is_dismissed = ?1,
@@ -2487,14 +2634,22 @@ impl Repository {
         .bind(is_dismissed)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
     pub async fn forget_extract(&self, id: &str) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 memory_state_stability = 0.5,
@@ -2509,9 +2664,16 @@ impl Repository {
         )
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2520,7 +2682,8 @@ impl Repository {
         id: &str,
         far_future: chrono::DateTime<Utc>,
     ) -> Result<()> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE extracts SET
                 next_review_date = ?1,
@@ -2532,9 +2695,16 @@ impl Repository {
         .bind(far_future)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
-        .await?;
-
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Extract {}", id)));
+        }
+        Self::journal_extract_fields(&mut tx, id, &["schedule"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(())
     }
 
@@ -2542,13 +2712,28 @@ impl Repository {
     /// the document's *previous* score. Extracts whose priority has been
     /// individually overridden (and therefore differs from the previous
     /// document score) are left untouched.
+
     pub async fn cascade_document_priority(
         &self,
         document_id: &str,
         previous_score: f64,
         new_score: f64,
     ) -> Result<u64> {
-        let result = sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM extracts WHERE document_id = ?1 AND ABS(priority_score - ?2) < 0.001",
+        )
+        .bind(document_id)
+        .bind(previous_score)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if ids.is_empty() {
+            tx.rollback().await?;
+            return Ok(0);
+        }
+
+        sqlx::query(
             r#"
             UPDATE extracts SET
                 priority_score = ?1,
@@ -2560,13 +2745,19 @@ impl Repository {
         .bind(Utc::now())
         .bind(document_id)
         .bind(previous_score)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        Ok(result.rows_affected())
+        for id in &ids {
+            Self::journal_extract_fields(&mut tx, id, &["priority"]).await?;
+        }
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(ids.len() as u64)
     }
 
     // Learning item operations
+
     pub async fn create_learning_item(&self, item: &LearningItem) -> Result<LearningItem> {
         // Retry once on I/O errors (common on SD cards / low-storage devices)
         match self.create_learning_item_inner(item).await {
@@ -2702,7 +2893,7 @@ impl Repository {
             .await?;
         }
 
-        let item_payload = payload::learning_item_payload(item)
+        let item_payload = payload::learning_item_payload_with_fields(item, &["schedule"])
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         mark_dirty(
             &mut tx,
@@ -3016,61 +3207,142 @@ impl Repository {
         cloze_text: Option<&str>,
     ) -> Result<Option<LearningItem>> {
         let now = Utc::now();
-        // One of four statements depending on which optional columns were
-        // supplied, so omitted ones never appear in the UPDATE at all.
+        let mut tx = self.pool.begin().await?;
+
         let rows_affected = match (answer, cloze_text) {
-            (Some(answer), Some(cloze_text)) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
-                )
-                .bind(question)
-                .bind(answer)
-                .bind(cloze_text)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (Some(answer), None) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
-                )
-                .bind(question)
-                .bind(answer)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (None, Some(cloze_text)) => {
-                sqlx::query(
-                    "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
-                )
-                .bind(question)
-                .bind(cloze_text)
-                .bind(now)
-                .bind(id)
-                .execute(&self.pool)
-                .await?
-                .rows_affected()
-            }
-            (None, None) => {
-                sqlx::query("UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3")
-                    .bind(question)
-                    .bind(now)
-                    .bind(id)
-                    .execute(&self.pool)
-                    .await?
-                    .rows_affected()
-            }
+            (Some(answer), Some(cloze_text)) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
+            )
+            .bind(question)
+            .bind(answer)
+            .bind(cloze_text)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (Some(answer), None) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(question)
+            .bind(answer)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (None, Some(cloze_text)) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(question)
+            .bind(cloze_text)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            (None, None) => sqlx::query(
+                "UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3",
+            )
+            .bind(question)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
         };
 
         if rows_affected == 0 {
+            tx.rollback().await?;
             return Ok(None);
         }
-        self.get_learning_item_by_id(id).await
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let item_payload = payload::learning_item_payload_with_fields(&updated, &["content"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(Some(updated))
+    }
+
+    pub async fn update_learning_item_tags_and_metadata(
+        &self,
+        id: &str,
+        tags: &[String],
+        interaction_metadata: Option<&serde_json::Value>,
+    ) -> Result<LearningItem> {
+        let now = Utc::now();
+        let tags_json = serde_json::to_string(tags)?;
+        let metadata_json = interaction_metadata
+            .map(serde_json::to_string)
+            .transpose()?;
+        let mut tx = self.pool.begin().await?;
+
+        let rows = if interaction_metadata.is_some() {
+            sqlx::query(
+                "UPDATE learning_items SET tags = ?1, interaction_metadata = ?2, date_modified = ?3 WHERE id = ?4",
+            )
+            .bind(&tags_json)
+            .bind(&metadata_json)
+            .bind(now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query("UPDATE learning_items SET tags = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&tags_json)
+                .bind(now)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+        };
+
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Learning item {}", id)));
+        }
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let fields: &[&str] = if interaction_metadata.is_some() {
+            &["tags", "media"]
+        } else {
+            &["tags"]
+        };
+        let item_payload = payload::learning_item_payload_with_fields(&updated, fields)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
+        .await?;
+
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     /// Update a learning item's user-set priority.
@@ -3085,7 +3357,8 @@ impl Repository {
         priority_score: f64,
     ) -> Result<LearningItem> {
         let now = Utc::now();
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
             r#"
             UPDATE learning_items SET
                 priority_slider = ?1,
@@ -3099,12 +3372,38 @@ impl Repository {
         .bind(priority_score)
         .bind(now)
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(crate::error::PlethoraError::NotFound(format!(
+                "Learning item {}",
+                id
+            )));
+        }
+
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let updated = Self::row_to_learning_item(&row)?;
+        let item_payload = payload::learning_item_payload_with_fields(&updated, &["priority"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::LearningItem,
+            id,
+            SyncOperation::Update,
+            learning_item_revision(updated.updated_at.as_deref()),
+            item_payload,
+        )
         .await?;
 
-        self.get_learning_item_by_id(id).await?.ok_or_else(|| {
-            crate::error::PlethoraError::NotFound(format!("Learning item {}", id))
-        })
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
     }
 
     pub async fn get_all_learning_items(&self) -> Result<Vec<LearningItem>> {
@@ -3158,6 +3457,20 @@ impl Repository {
         let now = Utc::now();
         let byte_size = i64::try_from(content.len()).unwrap_or(i64::MAX);
 
+        let asset = ImageAsset {
+            id: id.clone(),
+            mime_type: mime_type.to_string(),
+            file_name: file_name.map(str::to_string),
+            content: content.to_vec(),
+            byte_size,
+            sha256: sha256.to_string(),
+            width,
+            height,
+            created_at: now,
+            updated_at: now,
+            metadata: None,
+        };
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"
             INSERT INTO image_assets (
@@ -3175,22 +3488,22 @@ impl Repository {
         .bind(height)
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            &asset.id,
+            SyncOperation::Create,
+            Some(0),
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
 
-        Ok(ImageAsset {
-            id,
-            mime_type: mime_type.to_string(),
-            file_name: file_name.map(|s| s.to_string()),
-            content: content.to_vec(),
-            byte_size,
-            sha256: sha256.to_string(),
-            width,
-            height,
-            created_at: now,
-            updated_at: now,
-            metadata: None,
-        })
+        Ok(asset)
     }
 
     pub async fn get_image_asset(&self, id: &str) -> Result<Option<ImageAsset>> {
@@ -3207,7 +3520,10 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|row| row_to_image_asset(&row)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| row_to_image_asset(&row))
+            .collect())
     }
 
     pub async fn list_image_assets_with_usage(&self) -> Result<Vec<ImageAssetWithUsage>> {
@@ -3257,6 +3573,7 @@ impl Repository {
     /// Persist bounded browser metadata (capture context, provenance, smart
     /// organization state) on an image asset. Returns whether a row matched.
     pub async fn update_image_asset_metadata(&self, id: &str, metadata: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE image_assets SET
@@ -3268,10 +3585,30 @@ impl Repository {
         .bind(metadata)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let row = sqlx::query("SELECT * FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let asset = row_to_image_asset(&row);
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     /// Rename an image asset's display name.
@@ -3281,6 +3618,7 @@ impl Repository {
     /// `learning_items`), so `file_name` is a label only. Returns whether a row
     /// matched.
     pub async fn rename_image_asset(&self, id: &str, file_name: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             r#"
             UPDATE image_assets SET
@@ -3292,13 +3630,34 @@ impl Repository {
         .bind(file_name)
         .bind(Utc::now())
         .bind(id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let row = sqlx::query("SELECT * FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let asset = row_to_image_asset(&row);
+        let sync_payload = crate::sync::image_sync::local_payload(&asset)?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(true)
     }
 
     pub async fn delete_image_asset_if_unreferenced(&self, id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) as count
@@ -3311,18 +3670,39 @@ impl Repository {
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
         if count > 0 {
+            tx.rollback().await?;
             return Ok(false);
         }
 
+        let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM image_assets WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if exists.is_none() {
+            tx.rollback().await?;
+            return Ok(false);
+        }
         let result = sqlx::query("DELETE FROM image_assets WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
-
+        let sync_payload = delete_payload("image_asset", id)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::ImageAsset,
+            id,
+            SyncOperation::Delete,
+            None,
+            sync_payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
         Ok(result.rows_affected() > 0)
     }
 
@@ -3470,18 +3850,20 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let reviewed_at_ms = reviewed_at.timestamp_millis();
-        let base_revision = learning_item_revision(item.updated_at.as_deref());
 
         let mut tx = self.pool.begin().await?;
         let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
+        let post_item_json = serde_json::to_string(item).map_err(|e| {
+            PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}"))
+        })?;
 
         sqlx::query(
             r#"
             INSERT INTO review_results (
                 id, collection_id, session_id, item_id, rating, time_taken,
                 new_due_date, new_interval, new_ease_factor, timestamp,
-                device_id, reviewed_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                device_id, reviewed_at_ms, sync_post_item_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             "#,
         )
         .bind(review_result_id)
@@ -3496,6 +3878,7 @@ impl Repository {
         .bind(reviewed_at)
         .bind(&device_id)
         .bind(reviewed_at_ms)
+        .bind(&post_item_json)
         .execute(&mut *tx)
         .await?;
 
@@ -3533,7 +3916,7 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        let review_payload = payload::review_result_payload(
+        let review_payload = payload::review_result_payload_with_item(
             review_result_id,
             &item.id,
             &item.collection_id,
@@ -3545,6 +3928,7 @@ impl Repository {
             reviewed_at_ms,
             &device_id,
             session_id,
+            Some(item),
         )
         .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         mark_dirty(
@@ -3557,15 +3941,14 @@ impl Repository {
         )
         .await?;
 
-        let item_payload = payload::learning_item_payload(item)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        let review_clock = format!("{reviewed_at_ms}:0");
+        crate::sync::full_state::record_field_groups(
             &mut tx,
-            EntityType::LearningItem,
+            "learning_item",
             &item.id,
-            SyncOperation::Update,
-            base_revision,
-            item_payload,
+            &review_clock,
+            &device_id,
+            &["schedule".to_string()],
         )
         .await?;
 
@@ -3845,14 +4228,13 @@ impl Repository {
         .await?
         .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
         .filter(|params| !params.is_empty() && params.iter().all(|value| value.is_finite()));
-        let m4_params =
-            sqlx::query_scalar::<_, String>("SELECT params FROM arena_model_params WHERE id = 'm4'")
-                .fetch_optional(&mut **tx)
-                .await?
-                .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
-                .filter(|params| {
-                    params.len() == 35 && params.iter().all(|value| value.is_finite())
-                });
+        let m4_params = sqlx::query_scalar::<_, String>(
+            "SELECT params FROM arena_model_params WHERE id = 'm4'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
+        .filter(|params| params.len() == 35 && params.iter().all(|value| value.is_finite()));
 
         Ok(PrecisionCollectionState {
             m2_optimizer,
@@ -3886,6 +4268,12 @@ impl Repository {
         review_cards: i32,
     ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
+        let device_id = crate::sync::device::ensure_device_id(&mut tx).await?;
+        let reviewed_at = Utc::now();
+        let reviewed_at_ms = reviewed_at.timestamp_millis();
+        let post_item_json = serde_json::to_string(item).map_err(|e| {
+            PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}"))
+        })?;
 
         if let Some(existing_item_id) = sqlx::query_scalar::<_, String>(
             "SELECT item_id FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
@@ -3909,10 +4297,11 @@ impl Repository {
                 id, collection_id, session_id, item_id, rating, time_taken,
                 new_due_date, new_interval, new_ease_factor, timestamp,
                 schedule_source, schedule_model_id, arena_commit_id,
-                arena_recommended_interval, arena_decision_time_ms, arena_snapshot
+                arena_recommended_interval, arena_decision_time_ms, arena_snapshot,
+                device_id, reviewed_at_ms, sync_post_item_json
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                ?11, ?12, ?13, ?14, ?15, ?16
+                ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
             )
             "#,
         )
@@ -3925,13 +4314,16 @@ impl Repository {
         .bind(item.due_date)
         .bind(item.interval)
         .bind(item.ease_factor)
-        .bind(Utc::now())
+        .bind(reviewed_at)
         .bind(provenance.schedule_source)
         .bind(provenance.schedule_model_id)
         .bind(provenance.arena_commit_id)
         .bind(provenance.recommended_interval)
         .bind(provenance.decision_time_ms as i64)
         .bind(provenance.snapshot)
+        .bind(&device_id)
+        .bind(reviewed_at_ms)
+        .bind(&post_item_json)
         .execute(&mut *tx)
         .await;
         if let Err(error) = inserted {
@@ -3951,7 +4343,8 @@ impl Repository {
             .await?
             .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item.id)))?;
         let current_item = Self::row_to_learning_item(&current_item_row)?;
-        let current_item_revision = crate::commands::review::precision_item_revision(&current_item)?;
+        let current_item_revision =
+            crate::commands::review::precision_item_revision(&current_item)?;
         if current_item_revision != expected_item_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -3960,8 +4353,7 @@ impl Repository {
         }
 
         let current_collection = Self::load_precision_collection_in_transaction(&mut tx).await?;
-        let current_arena_revision =
-            crate::commands::review::arena_revision(&current_collection)?;
+        let current_arena_revision = crate::commands::review::arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
             tx.rollback().await?;
             return Err(PlethoraError::ArenaPreviewStale(
@@ -4102,7 +4494,44 @@ impl Repository {
             .await?;
         }
 
+        let review_payload = payload::review_result_payload_with_item(
+            review_result_id,
+            &item.id,
+            &item.collection_id,
+            rating,
+            time_taken,
+            &item.due_date,
+            item.interval,
+            item.ease_factor,
+            reviewed_at_ms,
+            &device_id,
+            session_id,
+            Some(item),
+        )
+        .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        mark_dirty(
+            &mut tx,
+            EntityType::ReviewResult,
+            review_result_id,
+            SyncOperation::AppendEvent,
+            None,
+            review_payload,
+        )
+        .await?;
+
+        let review_clock = format!("{reviewed_at_ms}:0");
+        crate::sync::full_state::record_field_groups(
+            &mut tx,
+            "learning_item",
+            &item.id,
+            &review_clock,
+            &device_id,
+            &["schedule".to_string()],
+        )
+        .await?;
+
         tx.commit().await?;
+        notify_after_commit();
         Ok(true)
     }
 
@@ -4830,9 +5259,7 @@ impl Repository {
     }
 
     /// All feedback ordered chronologically: (article_id, sentiment, created_at_ms, title).
-    pub async fn get_all_rss_article_feedback(
-        &self,
-    ) -> Result<Vec<(String, String, i64, String)>> {
+    pub async fn get_all_rss_article_feedback(&self) -> Result<Vec<(String, String, i64, String)>> {
         let rows = sqlx::query(
             r#"SELECT f.article_id, f.sentiment, f.created_at, COALESCE(a.title, '') AS title
                FROM rss_article_feedback f
@@ -7223,9 +7650,10 @@ impl Repository {
             return Ok(());
         }
 
-        let mut tx = self.pool().begin().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx =
+            self.pool().begin().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
+            })?;
 
         for episode in episodes {
             let id = uuid::Uuid::new_v4().to_string();
@@ -7257,9 +7685,9 @@ impl Repository {
             .await?;
         }
 
-        tx.commit().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e)))?;
 
         Ok(())
     }
@@ -7378,12 +7806,14 @@ impl Repository {
         .bind(document_id)
         .fetch_optional(self.pool())
         .await?;
-        Ok(row.map(|(model_id, decode_offset_ms, segment_cursor)| TranscriptionCheckpoint {
-            document_id: document_id.to_string(),
-            model_id,
-            decode_offset_ms,
-            segment_cursor,
-        }))
+        Ok(row.map(
+            |(model_id, decode_offset_ms, segment_cursor)| TranscriptionCheckpoint {
+                document_id: document_id.to_string(),
+                model_id,
+                decode_offset_ms,
+                segment_cursor,
+            },
+        ))
     }
 
     /// Upsert the on-device transcription checkpoint for a document.
@@ -7772,34 +8202,7 @@ impl Repository {
         .fetch_optional(self.pool())
         .await?
         .ok_or_else(|| PlethoraError::NotFound(format!("Tag not found: {tag_id}")))?;
-
-        let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
-        let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
-        let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok();
-        let centroid: Option<Vec<f32>> = centroid_blob.and_then(|b| {
-            if b.len() % 4 != 0 {
-                return None;
-            }
-            let mut vec = Vec::with_capacity(b.len() / 4);
-            for chunk in b.chunks_exact(4) {
-                vec.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-            }
-            Some(vec)
-        });
-
-        Ok(crate::models::Tag {
-            id: row.try_get("id")?,
-            name: row.try_get("name")?,
-            prerequisites,
-            maturity_threshold: row.try_get("maturity_threshold").unwrap_or(0.8),
-            centroid,
-            coherence: row.try_get("coherence").ok(),
-            item_count: row.try_get("item_count").unwrap_or(0),
-            avg_stability: row.try_get("avg_stability").ok(),
-            mature_count: row.try_get("mature_count").unwrap_or(0),
-            date_created: row.try_get("date_created")?,
-            date_modified: row.try_get("date_modified")?,
-        })
+        Self::row_to_tag(&row)
     }
 
     pub async fn set_tag_prerequisites(
@@ -7811,15 +8214,44 @@ impl Repository {
             PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
         })?;
         let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
 
-        sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
-            .bind(&prereqs_json)
-            .bind(&now)
-            .bind(tag_id)
-            .execute(self.pool())
-            .await?;
+        let rows =
+            sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&prereqs_json)
+                .bind(&now)
+                .bind(tag_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Tag not found: {tag_id}")));
+        }
 
-        self.get_tag(tag_id).await
+        let row = sqlx::query(
+            "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                    item_count, avg_stability, mature_count, date_created, date_modified
+             FROM tags WHERE id = ?1",
+        )
+        .bind(tag_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let tag = Self::row_to_tag(&row)?;
+        let payload = payload::tag_payload(&tag)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            &mut tx,
+            EntityType::Tag,
+            tag_id,
+            SyncOperation::Update,
+            None,
+            payload,
+        )
+        .await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(tag)
     }
 
     pub async fn upsert_tag(
@@ -7853,7 +8285,15 @@ impl Repository {
             .bind(&id)
             .execute(&mut *tx)
             .await?;
-            let tag = self.get_tag(&id).await?;
+            let row = sqlx::query(
+                "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                        item_count, avg_stability, mature_count, date_created, date_modified
+                 FROM tags WHERE id = ?1",
+            )
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let tag = Self::row_to_tag(&row)?;
             let item_payload = payload::tag_payload(&tag)
                 .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
             journal_entity(
@@ -7940,9 +8380,7 @@ impl Repository {
             .rows_affected();
 
         if rows == 0 {
-            return Err(PlethoraError::NotFound(format!(
-                "Tag not found: {tag_id}"
-            )));
+            return Err(PlethoraError::NotFound(format!("Tag not found: {tag_id}")));
         }
 
         tx.commit().await?;
@@ -7951,23 +8389,55 @@ impl Repository {
     }
 
     pub async fn remove_tag_from_prerequisites(&self, tag_id: &str) -> Result<()> {
-        // Get all tags that reference this tag as a prerequisite
-        let all_tags = self.get_all_tags().await?;
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
+                    item_count, avg_stability, mature_count, date_created, date_modified
+             FROM tags",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         let now = Utc::now().to_rfc3339();
+        let mut changed = false;
 
-        for mut tag in all_tags {
-            if tag.prerequisites.contains(&tag_id.to_string()) {
-                tag.prerequisites.retain(|p| p != tag_id);
-                let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
-                    PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
-                })?;
-                sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
-                    .bind(&prereqs_json)
-                    .bind(&now)
-                    .bind(&tag.id)
-                    .execute(self.pool())
-                    .await?;
+        for row in rows {
+            let mut tag = Self::row_to_tag(&row)?;
+            if !tag
+                .prerequisites
+                .iter()
+                .any(|prerequisite| prerequisite == tag_id)
+            {
+                continue;
             }
+            tag.prerequisites
+                .retain(|prerequisite| prerequisite != tag_id);
+            tag.date_modified = now.clone();
+            let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
+                PlethoraError::Internal(format!("Failed to serialize prerequisites: {e}"))
+            })?;
+            sqlx::query("UPDATE tags SET prerequisites = ?1, date_modified = ?2 WHERE id = ?3")
+                .bind(&prereqs_json)
+                .bind(&tag.date_modified)
+                .bind(&tag.id)
+                .execute(&mut *tx)
+                .await?;
+            let payload = payload::tag_payload(&tag)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            journal_entity(
+                &mut tx,
+                EntityType::Tag,
+                &tag.id,
+                SyncOperation::Update,
+                None,
+                payload,
+            )
+            .await?;
+            changed = true;
+        }
+
+        tx.commit().await?;
+        if changed {
+            notify_after_commit();
         }
         Ok(())
     }
@@ -8372,12 +8842,18 @@ mod tests {
         let mut partial = saved.clone();
         partial.category = None;
         partial.is_favorite = !saved.is_favorite;
-        let preserved = repo.update_document(&doc.id, &partial).await.expect("preserve");
+        let preserved = repo
+            .update_document(&doc.id, &partial)
+            .await
+            .expect("preserve");
         assert_eq!(preserved.category.as_deref(), Some("History"));
 
         let mut empty = preserved.clone();
         empty.category = Some(String::new());
-        let still_preserved = repo.update_document(&doc.id, &empty).await.expect("preserve empty");
+        let still_preserved = repo
+            .update_document(&doc.id, &empty)
+            .await
+            .expect("preserve empty");
         assert_eq!(
             still_preserved.category.as_deref(),
             Some("History"),
@@ -8387,7 +8863,11 @@ mod tests {
         // CLEAR: the dedicated path is the only way to unset.
         let cleared = repo.clear_document_category(&doc.id).await.expect("clear");
         assert!(cleared.category.is_none());
-        let reloaded = repo.get_document(&doc.id).await.expect("read").expect("row");
+        let reloaded = repo
+            .get_document(&doc.id)
+            .await
+            .expect("read")
+            .expect("row");
         assert!(reloaded.category.is_none());
     }
 
@@ -8413,10 +8893,17 @@ mod tests {
             "<div><p>Plain <strong>bold</strong> content</p><figure><img src=\"data:image/png;base64,FULL\"/></figure></div>".to_string(),
         );
         let saved = repo.update_extract(&updated).await.expect("update");
-        assert_eq!(saved.html_content.as_deref(), updated.html_content.as_deref());
+        assert_eq!(
+            saved.html_content.as_deref(),
+            updated.html_content.as_deref()
+        );
 
         // …and the write roundtrips through a fresh read.
-        let reloaded = repo.get_extract(&created.id).await.expect("read").expect("row");
+        let reloaded = repo
+            .get_extract(&created.id)
+            .await
+            .expect("read")
+            .expect("row");
         assert!(reloaded
             .html_content
             .as_deref()
@@ -8442,11 +8929,15 @@ mod tests {
         // video extract, one overdue learning item.
         let mut overdue_extract = Extract::new(doc.id.clone(), "overdue extract".to_string());
         overdue_extract.next_review_date = Some(now - chrono::Duration::days(1));
-        repo.create_extract(&overdue_extract).await.expect("overdue extract");
+        repo.create_extract(&overdue_extract)
+            .await
+            .expect("overdue extract");
 
         let mut future_extract = Extract::new(doc.id.clone(), "future extract".to_string());
         future_extract.next_review_date = Some(now + chrono::Duration::days(2));
-        repo.create_extract(&future_extract).await.expect("future extract");
+        repo.create_extract(&future_extract)
+            .await
+            .expect("future extract");
 
         let video = crate::models::VideoExtract::with_scheduling(
             doc.id.clone(),
@@ -8455,22 +8946,38 @@ mod tests {
             "overdue segment".to_string(),
             now - chrono::Duration::days(1),
         );
-        repo.create_video_extract(&video).await.expect("overdue video extract");
+        repo.create_video_extract(&video)
+            .await
+            .expect("overdue video extract");
 
         let mut item = LearningItem::new(ItemType::Flashcard, "overdue card".to_string());
         item.due_date = now - chrono::Duration::days(1);
-        repo.create_learning_item(&item).await.expect("overdue card");
+        repo.create_learning_item(&item)
+            .await
+            .expect("overdue card");
 
         let start = Utc::now().date_naive();
-        let grouped = repo.get_workload_forecast_grouped(start, 7).await.expect("forecast");
+        let grouped = repo
+            .get_workload_forecast_grouped(start, 7)
+            .await
+            .expect("forecast");
 
         assert!(
             !grouped.extract_rows.is_empty(),
             "in-window extracts must be counted in the daily rows"
         );
-        assert_eq!(grouped.overdue_extracts, 1, "overdue text extract must be counted");
-        assert_eq!(grouped.overdue_video_extracts, 1, "overdue video extract must be counted");
-        assert_eq!(grouped.overdue_learning_items, 1, "overdue card must be counted");
+        assert_eq!(
+            grouped.overdue_extracts, 1,
+            "overdue text extract must be counted"
+        );
+        assert_eq!(
+            grouped.overdue_video_extracts, 1,
+            "overdue video extract must be counted"
+        );
+        assert_eq!(
+            grouped.overdue_learning_items, 1,
+            "overdue card must be counted"
+        );
     }
 
     fn sha_hex(bytes: &[u8]) -> String {
@@ -9383,7 +9890,6 @@ mod tests {
         assert_eq!(row.0, "ok", "Fresh migrated DB should pass integrity check");
     }
 
-
     #[tokio::test]
     async fn core_tables_exist_after_migration() {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
@@ -9495,8 +10001,16 @@ mod tests {
 
         // Verify initial state is none
         assert!(repo.get_arena_state().await.expect("get state").is_none());
-        assert!(repo.get_arena_m2_optimizer().await.expect("get m2").is_none());
-        assert!(repo.get_arena_m3_matrices().await.expect("get m3").is_none());
+        assert!(repo
+            .get_arena_m2_optimizer()
+            .await
+            .expect("get m2")
+            .is_none());
+        assert!(repo
+            .get_arena_m3_matrices()
+            .await
+            .expect("get m3")
+            .is_none());
 
         // Save arena state
         let arena_json = r#"{"weights":[6.0,14.0,45.0,25.0,10.0]}"#;

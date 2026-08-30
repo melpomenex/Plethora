@@ -1,8 +1,9 @@
 use crate::error::{PlethoraError, Result};
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::crypto::SyncCrypto;
 use super::transport::api_base_url;
 use super::wire::SYNC_PROTOCOL_VERSION;
 
@@ -15,7 +16,7 @@ pub struct BlobCheckResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobUploadUrlResponse {
-    pub upload_url: String,
+    pub upload_url: Option<String>,
     pub expires_at: Option<String>,
     #[serde(default)]
     pub already_exists: bool,
@@ -119,7 +120,11 @@ pub async fn request_download_url(
     parse_json(response).await
 }
 
-pub async fn download_and_verify(download_url: &str, expected_hash: &str) -> Result<Vec<u8>> {
+pub async fn download_and_decrypt(
+    download_url: &str,
+    expected_reference: &str,
+    master_key: &[u8; 32],
+) -> Result<Vec<u8>> {
     let client = reqwest::Client::new();
     let response = client
         .get(download_url)
@@ -132,17 +137,13 @@ pub async fn download_and_verify(download_url: &str, expected_hash: &str) -> Res
             response.status()
         )));
     }
-    let bytes = response
+    let encrypted = response
         .bytes()
         .await
         .map_err(|e| PlethoraError::Internal(format!("Blob body read failed: {e}")))?
         .to_vec();
-    if sha256_reference(&bytes) != expected_hash {
-        return Err(PlethoraError::Internal(
-            "Downloaded blob failed integrity check".into(),
-        ));
-    }
-    Ok(bytes)
+    SyncCrypto::decrypt_blob(master_key, expected_reference, &encrypted)
+        .map_err(|e| PlethoraError::Internal(format!("Blob integrity/decryption failed: {e}")))
 }
 
 pub async fn fetch_storage_usage(access_token: &str) -> Result<StorageUsageResponse> {
@@ -185,21 +186,44 @@ pub async fn complete_blob_upload(
 
 pub async fn upload_blob_if_missing(
     access_token: &str,
-    bytes: &[u8],
-    content_type: &str,
+    master_key: &[u8; 32],
+    plaintext: &[u8],
+    _content_type: &str,
 ) -> Result<String> {
-    let hash = sha256_reference(bytes);
-    let check = check_hashes(access_token, &[hash.clone()]).await?;
-    if check.existing.iter().any(|item| item == &hash) {
-        return Ok(hash);
+    let reference = SyncCrypto::blob_reference(master_key, plaintext);
+    let check = check_hashes(access_token, &[reference.clone()]).await?;
+    if check.existing.iter().any(|item| item == &reference) {
+        return Ok(reference);
     }
-    let upload = request_upload_url(access_token, &hash, bytes.len() as u64, content_type).await?;
+
+    let (encrypted_reference, encrypted) = SyncCrypto::encrypt_blob(master_key, plaintext)
+        .map_err(|e| PlethoraError::Internal(format!("Blob encryption failed: {e}")))?;
+    debug_assert_eq!(reference, encrypted_reference);
+
+    // Object storage receives ciphertext only. Do not leak the original MIME
+    // type through the storage layer; it belongs in encrypted entity metadata.
+    let upload = request_upload_url(
+        access_token,
+        &reference,
+        encrypted.len() as u64,
+        "application/octet-stream",
+    )
+    .await?;
     if upload.already_exists {
-        return Ok(hash);
+        return Ok(reference);
     }
-    upload_bytes(&upload.upload_url, bytes, content_type).await?;
-    complete_blob_upload(access_token, &hash, bytes.len() as u64, content_type).await?;
-    Ok(hash)
+    let upload_url = upload.upload_url.as_deref().ok_or_else(|| {
+        PlethoraError::Internal("Blob upload URL missing for a non-existing object".into())
+    })?;
+    upload_bytes(upload_url, &encrypted, "application/octet-stream").await?;
+    complete_blob_upload(
+        access_token,
+        &reference,
+        encrypted.len() as u64,
+        "application/octet-stream",
+    )
+    .await?;
+    Ok(reference)
 }
 
 async fn parse_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -> Result<T> {
@@ -215,4 +239,18 @@ async fn parse_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -
     }
     serde_json::from_str(&body)
         .map_err(|e| PlethoraError::Internal(format!("Blob response parse failed: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn already_existing_blob_accepts_null_upload_url() {
+        let response: BlobUploadUrlResponse =
+            serde_json::from_str(r#"{"uploadUrl":null,"expiresAt":null,"alreadyExists":true}"#)
+                .expect("already-existing response");
+        assert!(response.already_exists);
+        assert!(response.upload_url.is_none());
+    }
 }

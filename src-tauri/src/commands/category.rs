@@ -15,6 +15,9 @@
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
 use crate::models::Category;
+use crate::sync::journal::{journal_entity, notify_after_commit};
+use crate::sync::payload;
+use crate::sync::types::{EntityType, SyncOperation};
 use sqlx::Row;
 use tauri::State;
 
@@ -198,6 +201,20 @@ async fn category_rename(
 
     let mut tx = pool.begin().await?;
 
+    // Capture the exact affected identities before the rename. Querying by the
+    // new name afterwards would also pick up rows that already belonged to the
+    // merge target and incorrectly journal them as locally changed.
+    let document_ids: Vec<String> =
+        sqlx::query_scalar(r#"SELECT id FROM documents WHERE TRIM(category) = ?1"#)
+            .bind(&old_name)
+            .fetch_all(&mut *tx)
+            .await?;
+    let extract_ids: Vec<String> =
+        sqlx::query_scalar(r#"SELECT id FROM extracts WHERE TRIM(category) = ?1"#)
+            .bind(&old_name)
+            .fetch_all(&mut *tx)
+            .await?;
+
     let documents = sqlx::query(
         r#"UPDATE documents SET category = ?1, date_modified = ?2 WHERE TRIM(category) = ?3"#,
     )
@@ -250,7 +267,12 @@ async fn category_rename(
         }
     }
 
+    journal_category_assignments(&mut tx, &document_ids, &extract_ids).await?;
+
     tx.commit().await?;
+    if !document_ids.is_empty() || !extract_ids.is_empty() {
+        notify_after_commit();
+    }
 
     Ok(CategoryRenameResult {
         documents_updated: documents.rows_affected() as i64,
@@ -263,10 +285,7 @@ async fn category_rename(
 /// non-existent category) and removes the registry row. Runs in one
 /// transaction so a mid-sequence failure cannot leave items and the registry
 /// out of sync (rollback on error).
-async fn category_delete(
-    pool: &sqlx::SqlitePool,
-    name: &str,
-) -> Result<CategoryDeleteResult> {
+async fn category_delete(pool: &sqlx::SqlitePool, name: &str) -> Result<CategoryDeleteResult> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Err(PlethoraError::InvalidInput(
@@ -275,6 +294,17 @@ async fn category_delete(
     }
 
     let mut tx = pool.begin().await?;
+
+    let document_ids: Vec<String> =
+        sqlx::query_scalar(r#"SELECT id FROM documents WHERE TRIM(category) = ?1"#)
+            .bind(&name)
+            .fetch_all(&mut *tx)
+            .await?;
+    let extract_ids: Vec<String> =
+        sqlx::query_scalar(r#"SELECT id FROM extracts WHERE TRIM(category) = ?1"#)
+            .bind(&name)
+            .fetch_all(&mut *tx)
+            .await?;
 
     let documents = sqlx::query(
         r#"UPDATE documents SET category = NULL, date_modified = ?1 WHERE TRIM(category) = ?2"#,
@@ -297,12 +327,65 @@ async fn category_delete(
         .execute(&mut *tx)
         .await?;
 
+    journal_category_assignments(&mut tx, &document_ids, &extract_ids).await?;
+
     tx.commit().await?;
+    if !document_ids.is_empty() || !extract_ids.is_empty() {
+        notify_after_commit();
+    }
 
     Ok(CategoryDeleteResult {
         documents_cleared: documents.rows_affected() as i64,
         extracts_cleared: extracts.rows_affected() as i64,
     })
+}
+
+/// Journal category changes as part of the same transaction as the propagated
+/// domain writes. Category is part of the `tags` merge group for both entities.
+async fn journal_category_assignments(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    document_ids: &[String],
+    extract_ids: &[String],
+) -> Result<()> {
+    for id in document_ids {
+        let row = sqlx::query("SELECT * FROM documents WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+        let document = Repository::row_to_document(&row)?;
+        let sync_payload = payload::document_payload_with_fields(&document, &["tags"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Document,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+    }
+
+    for id in extract_ids {
+        let row = sqlx::query("SELECT * FROM extracts WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+        let extract = Repository::row_to_extract(&row)?;
+        let sync_payload = payload::extract_payload_with_fields(&extract, &["tags"])
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+        journal_entity(
+            tx,
+            EntityType::Extract,
+            id,
+            SyncOperation::Update,
+            None,
+            sync_payload,
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -385,7 +468,9 @@ mod tests {
     #[tokio::test]
     async fn create_category_rejects_empty_name() {
         let pool = setup_pool().await;
-        let err = category_create(&pool, "   ").await.expect_err("empty name must fail");
+        let err = category_create(&pool, "   ")
+            .await
+            .expect_err("empty name must fail");
         assert!(matches!(err, PlethoraError::InvalidInput(_)));
     }
 
@@ -397,7 +482,9 @@ mod tests {
         insert_extract(&pool, "e1", "d1", "Work").await;
         let created = category_create(&pool, "Work").await.expect("create");
 
-        let result = category_rename(&pool, "Work", "Career").await.expect("rename");
+        let result = category_rename(&pool, "Work", "Career")
+            .await
+            .expect("rename");
         assert_eq!(result.documents_updated, 2);
         assert_eq!(result.extracts_updated, 1);
 
@@ -407,16 +494,19 @@ mod tests {
             .expect("read categories");
         assert_eq!(docs, vec!["Career".to_string(), "Career".to_string()]);
 
-        let renamed: Option<String> = sqlx::query_scalar("SELECT name FROM categories WHERE id = ?1")
-            .bind(&created.id)
-            .fetch_optional(&pool)
-            .await
-            .expect("read registry");
+        let renamed: Option<String> =
+            sqlx::query_scalar("SELECT name FROM categories WHERE id = ?1")
+                .bind(&created.id)
+                .fetch_optional(&pool)
+                .await
+                .expect("read registry");
         assert_eq!(renamed, Some("Career".to_string()));
 
         let names = category_list(&pool).await.expect("list");
         assert!(names.iter().all(|c| c.name != "Work"));
-        assert!(names.iter().any(|c| c.name == "Career" && c.item_count == 3));
+        assert!(names
+            .iter()
+            .any(|c| c.name == "Career" && c.item_count == 3));
     }
 
     #[tokio::test]
@@ -426,9 +516,13 @@ mod tests {
         insert_document(&pool, "d1", "Work").await;
         insert_document(&pool, "d2", "Career").await;
         let _work_row = category_create(&pool, "Work").await.expect("create Work");
-        let career_row = category_create(&pool, "Career").await.expect("create Career");
+        let career_row = category_create(&pool, "Career")
+            .await
+            .expect("create Career");
 
-        let result = category_rename(&pool, "Work", "Career").await.expect("rename");
+        let result = category_rename(&pool, "Work", "Career")
+            .await
+            .expect("rename");
         assert_eq!(result.documents_updated, 1);
         assert_eq!(result.extracts_updated, 0);
 
@@ -469,7 +563,9 @@ mod tests {
         // registry empty (no synthetic row, no duplicates).
         insert_document(&pool, "d1", "Work").await;
 
-        let result = category_rename(&pool, "Work", "Career").await.expect("rename");
+        let result = category_rename(&pool, "Work", "Career")
+            .await
+            .expect("rename");
         assert_eq!(result.documents_updated, 1);
 
         let docs: Vec<String> = sqlx::query_scalar("SELECT category FROM documents")

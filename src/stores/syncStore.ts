@@ -121,10 +121,9 @@ export const useSyncStore = create<SyncStatusState>()(
         set({ isSyncing: true, error: null });
         try {
           if (isTauri()) {
-            let progress = await invoke<{ phase: string }>('sync_bootstrap_upload');
-            while (progress?.phase === 'upload') {
-              progress = await invoke('sync_bootstrap_upload');
-            }
+            // The Rust engine owns the crash-safe initial pull/bootstrap order.
+            // Keeping that invariant in one place also ensures background and
+            // manual sync behave identically.
             await invoke('sync_run');
             await get().init();
             set({ isSyncing: false, lastSyncedAt: new Date().toISOString(), error: null });

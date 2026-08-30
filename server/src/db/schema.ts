@@ -264,12 +264,18 @@ CREATE TABLE IF NOT EXISTS sync_records (
   payload_ciphertext TEXT NOT NULL,
   aad VARCHAR(500) NOT NULL,
   key_version INTEGER DEFAULT 1,
+  change_id VARCHAR(255),
+  operation VARCHAR(32),
+  base_revision BIGINT,
+  entity_revision BIGINT,
   seq_number BIGSERIAL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_records_user_seq ON sync_records(user_id, seq_number);
 CREATE INDEX IF NOT EXISTS idx_sync_records_dedupe ON sync_records(user_id, device_id, hlc);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_device_hlc_unique
+  ON sync_records(user_id, device_id, hlc);
 
 CREATE TABLE IF NOT EXISTS processed_changes (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -414,6 +420,20 @@ CREATE TABLE IF NOT EXISTS job_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, created_at);
+
+-- Sync record envelope metadata must round-trip with ciphertext. change_id is
+-- part of the per-record key derivation/AAD, so dropping it makes historical
+-- records undecryptable on another device.
+ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS change_id VARCHAR(255);
+ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS operation VARCHAR(32);
+ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS base_revision BIGINT;
+ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS entity_revision BIGINT;
+
+-- Make retry/idempotency guarantees database-enforced, not check-then-insert.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_device_hlc_unique
+  ON sync_records(user_id, device_id, hlc);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_change_id_unique
+  ON sync_records(user_id, change_id) WHERE change_id IS NOT NULL;
 
 -- Sync blob offload to object storage (large ciphertext → R2)
 ALTER TABLE sync_records ADD COLUMN IF NOT EXISTS blob_storage_key TEXT;

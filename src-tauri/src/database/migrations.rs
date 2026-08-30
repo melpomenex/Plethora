@@ -3911,6 +3911,88 @@ pub const MIGRATIONS: &[Migration] = &[
             ON sync_telemetry(created_at DESC);
         "#,
     ),
+    // Sync ordering/tombstone state is deliberately separate from domain
+    // timestamps. Domain date_modified/updated_at fields are user data and
+    // must never be repurposed as transport clocks.
+    Migration::new(
+        "109_sync_entity_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_entity_state (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            last_hlc TEXT NOT NULL,
+            last_device_id TEXT NOT NULL,
+            server_revision INTEGER,
+            tombstoned INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, entity_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_state_tombstone
+            ON sync_entity_state(tombstoned, updated_at);
+
+        -- A process can die after marking a row uploading, and older builds
+        -- left ordinary LWW conflicts in failed forever. Both are safe to
+        -- retry under the hardened idempotent protocol.
+        UPDATE sync_outbox
+        SET sync_status = 'pending'
+        WHERE sync_status = 'uploading';
+
+        UPDATE sync_outbox
+        SET sync_status = 'pending', base_revision = NULL
+        WHERE sync_status = 'failed' AND operation IN ('update', 'delete');
+        "#,
+    ),
+    Migration::new(
+        "110_sync_entity_aliases",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_entity_aliases (
+            entity_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            canonical_id TEXT NOT NULL,
+            identity_key TEXT,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, source_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_alias_canonical
+            ON sync_entity_aliases(entity_type, canonical_id);
+        CREATE INDEX IF NOT EXISTS idx_sync_entity_alias_identity
+            ON sync_entity_aliases(entity_type, identity_key)
+            WHERE identity_key IS NOT NULL;
+        "#,
+    ),
+    Migration::new(
+        "111_sync_field_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_field_state (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            field_group TEXT NOT NULL,
+            last_hlc TEXT NOT NULL,
+            last_device_id TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, entity_id, field_group)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_field_state_entity
+            ON sync_field_state(entity_type, entity_id);
+        "#,
+    ),
+    Migration::new(
+        "112_sync_review_schedule_snapshots",
+        r#"
+        ALTER TABLE review_results ADD COLUMN sync_post_item_json TEXT;
+        CREATE INDEX IF NOT EXISTS idx_review_results_sync_order
+            ON review_results(item_id, reviewed_at_ms, device_id, id);
+        "#,
+    ),
+    Migration::new(
+        "113_sync_image_blob_reference",
+        r#"
+        ALTER TABLE image_assets ADD COLUMN sync_blob_reference TEXT;
+        CREATE INDEX IF NOT EXISTS idx_image_assets_sync_blob_reference
+            ON image_assets(sync_blob_reference)
+            WHERE sync_blob_reference IS NOT NULL;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

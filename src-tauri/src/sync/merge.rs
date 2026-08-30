@@ -30,25 +30,247 @@ fn parse_hlc(raw: &str) -> (i64, i64) {
     (physical, logical)
 }
 
+fn sync_order_gt(left_hlc: &str, left_device: &str, right_hlc: &str, right_device: &str) -> bool {
+    let left = parse_hlc(left_hlc);
+    let right = parse_hlc(right_hlc);
+    left > right || (left == right && left_device > right_device)
+}
+
+async fn incoming_wins(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+    state_entity_id: &str,
+) -> Result<bool> {
+    let existing = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT last_hlc, last_device_id, tombstoned FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    )
+    .bind(record.entity_type.as_str())
+    .bind(state_entity_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(existing
+        .map(|(hlc, device, tombstoned)| {
+            if tombstoned != 0 && !matches!(record.operation, Some(SyncOperation::Create)) {
+                return false;
+            }
+            sync_order_gt(&record.hlc, &record.device_id, &hlc, &device)
+        })
+        .unwrap_or(true))
+}
+
+async fn record_sync_state(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+    state_entity_id: &str,
+    tombstoned: bool,
+) -> Result<()> {
+    let existing = sqlx::query_as::<_, (String, String, Option<i64>, i64)>(
+        r#"
+        SELECT last_hlc, last_device_id, server_revision, tombstoned
+        FROM sync_entity_state
+        WHERE entity_type = ?1 AND entity_id = ?2
+        "#,
+    )
+    .bind(record.entity_type.as_str())
+    .bind(state_entity_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let incoming_is_newer = existing
+        .as_ref()
+        .map(|(hlc, device, _, _)| sync_order_gt(&record.hlc, &record.device_id, hlc, device))
+        .unwrap_or(true);
+    let server_revision = existing
+        .as_ref()
+        .and_then(|(_, _, revision, _)| *revision)
+        .into_iter()
+        .chain(record.entity_revision)
+        .max();
+
+    if incoming_is_newer {
+        sqlx::query(
+            r#"
+            INSERT INTO sync_entity_state (
+                entity_type, entity_id, last_hlc, last_device_id,
+                server_revision, tombstoned, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                last_hlc = excluded.last_hlc,
+                last_device_id = excluded.last_device_id,
+                server_revision = excluded.server_revision,
+                tombstoned = excluded.tombstoned,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(record.entity_type.as_str())
+        .bind(state_entity_id)
+        .bind(&record.hlc)
+        .bind(&record.device_id)
+        .bind(server_revision)
+        .bind(if tombstoned { 1_i64 } else { 0_i64 })
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&mut **tx)
+        .await?;
+    } else if let Some(revision) = server_revision {
+        sqlx::query(
+            "UPDATE sync_entity_state SET server_revision = ?3, updated_at = ?4 WHERE entity_type = ?1 AND entity_id = ?2",
+        )
+        .bind(record.entity_type.as_str())
+        .bind(state_entity_id)
+        .bind(revision)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn blocked_by_tombstone(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+    state_entity_id: &str,
+) -> Result<bool> {
+    if matches!(
+        record.operation,
+        Some(SyncOperation::Create | SyncOperation::Delete)
+    ) {
+        return Ok(false);
+    }
+    let tombstoned: Option<i64> = sqlx::query_scalar(
+        "SELECT tombstoned FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    )
+    .bind(record.entity_type.as_str())
+    .bind(state_entity_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(tombstoned.unwrap_or(0) != 0)
+}
+
+async fn state_entity_id(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<String> {
+    if record.entity_type == EntityType::Document {
+        if let Some(document) = super::full_state::decode_document(&record.payload) {
+            return super::full_state::prepare_document_target(tx, &document).await;
+        }
+        return super::full_state::resolve_alias(tx, "document", &record.record_id).await;
+    }
+    if record.entity_type == EntityType::ImageAsset {
+        if let Some(image) = super::image_sync::decode_remote(&record.payload) {
+            return super::image_sync::prepare_target(tx, &image).await;
+        }
+        return super::full_state::resolve_alias(tx, "image_asset", &record.record_id).await;
+    }
+    Ok(record.record_id.clone())
+}
+
 pub async fn apply_remote_record(
     tx: &mut Transaction<'_, Sqlite>,
     local_device_id: &str,
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
+    // Receiving any valid remote record advances the local logical clock,
+    // even when the payload itself is stale or an echo of our own push.
+    super::clock::observe_hlc(tx, &record.hlc).await?;
+
     if record.device_id == local_device_id {
+        // Pulling our own accepted change is still useful: it teaches the
+        // client the server-assigned revision for the next local mutation.
+        if let Some(revision) = record.entity_revision {
+            sqlx::query(
+                "UPDATE sync_entity_state SET server_revision = ?3, updated_at = ?4 WHERE entity_type = ?1 AND entity_id = ?2",
+            )
+            .bind(record.entity_type.as_str())
+            .bind(&record.record_id)
+            .bind(revision)
+            .bind(chrono::Utc::now().timestamp_millis())
+            .execute(&mut **tx)
+            .await?;
+        }
         return Ok(ApplyOutcome::SkippedDuplicate);
     }
 
-    match record.entity_type {
-        EntityType::ReviewResult => apply_review_result(tx, record).await,
+    // Review events are immutable set members: every distinct event is kept.
+    if record.entity_type == EntityType::ReviewResult {
+        let outcome = apply_review_result(tx, record).await?;
+        // The event itself remains append-only; this state row only records
+        // cloud provenance/revision so bootstrap does not echo it back.
+        if matches!(
+            outcome,
+            ApplyOutcome::Applied | ApplyOutcome::SkippedDuplicate
+        ) {
+            record_sync_state(tx, record, &record.record_id, false).await?;
+        }
+        return Ok(outcome);
+    }
+
+    // Aliased strong document identities share one local ordering key, so an
+    // update/delete for either original UUID participates in the same LWW and
+    // tombstone history.
+    let state_id = state_entity_id(tx, record).await?;
+
+    let field_group_update = !matches!(record.operation, Some(SyncOperation::Delete))
+        && match record.entity_type {
+            EntityType::LearningItem => {
+                super::full_state::decode_learning_item(&record.payload).is_some()
+            }
+            EntityType::Document => super::full_state::decode_document(&record.payload).is_some(),
+            EntityType::Extract => super::full_state::decode_extract(&record.payload).is_some(),
+            _ => false,
+        };
+
+    if field_group_update && blocked_by_tombstone(tx, record, &state_id).await? {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    // Legacy/whole-entity records use one deterministic ordering rule. V2
+    // card/document/extract updates are instead gated independently per field
+    // group inside their apply functions, but entity tombstones always win.
+    if !field_group_update && !incoming_wins(tx, record, &state_id).await? {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
+    let outcome = match record.entity_type {
+        EntityType::ReviewResult => unreachable!(),
         EntityType::LearningItem => apply_learning_item(tx, record).await,
         EntityType::Document => apply_document(tx, record).await,
         EntityType::Extract => apply_extract(tx, record).await,
         EntityType::Collection => apply_collection(tx, record).await,
         EntityType::Tag => apply_tag(tx, record).await,
         EntityType::Setting => apply_setting(tx, record).await,
+        EntityType::ImageAsset => apply_image_asset(tx, record).await,
         EntityType::Tombstone => apply_tombstone(tx, record).await,
+    }?;
+
+    if outcome == ApplyOutcome::Applied {
+        record_sync_state(
+            tx,
+            record,
+            &state_id,
+            matches!(record.operation, Some(SyncOperation::Delete)),
+        )
+        .await?;
     }
+
+    Ok(outcome)
+}
+
+async fn apply_image_asset(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    if matches!(record.operation, Some(SyncOperation::Delete)) {
+        super::image_sync::delete_remote(tx, &record.record_id).await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    let payload = super::image_sync::decode_remote(&record.payload).ok_or_else(|| {
+        PlethoraError::Internal("Image metadata payload decode failed".to_string())
+    })?;
+    super::image_sync::apply_remote(tx, &payload).await?;
+    Ok(ApplyOutcome::Applied)
 }
 
 async fn apply_review_result(
@@ -68,6 +290,8 @@ async fn apply_review_result(
         reviewed_at_ms: i64,
         device_id: String,
         session_id: Option<String>,
+        #[serde(default)]
+        post_item: Option<crate::models::LearningItem>,
     }
 
     let parsed: ReviewPayload = serde_json::from_slice(&record.payload)
@@ -82,8 +306,8 @@ async fn apply_review_result(
         INSERT OR IGNORE INTO review_results (
             id, collection_id, session_id, item_id, rating, time_taken,
             new_due_date, new_interval, new_ease_factor, timestamp,
-            device_id, reviewed_at_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime(?10 / 1000.0, 'unixepoch'), ?11, ?12)
+            device_id, reviewed_at_ms, sync_post_item_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime(?10 / 1000.0, 'unixepoch'), ?11, ?12, ?13)
         "#,
     )
     .bind(&parsed.id)
@@ -98,12 +322,51 @@ async fn apply_review_result(
     .bind(parsed.reviewed_at_ms)
     .bind(&parsed.device_id)
     .bind(parsed.reviewed_at_ms)
+    .bind(
+        parsed
+            .post_item
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?,
+    )
     .execute(&mut **tx)
     .await?;
 
     if inserted.rows_affected() == 0 {
         return Ok(ApplyOutcome::SkippedDuplicate);
     }
+
+    if let Some(post_item) = parsed.post_item.as_ref() {
+        // Review scheduling is ordered by the immutable review event's actual
+        // review timestamp, with device id as a deterministic tie-break. This
+        // keeps sibling offline reviews in history without pretending either
+        // was computed from the other's resulting state.
+        let review_clock = format!("{}:0", parsed.reviewed_at_ms);
+        let fields = vec!["schedule".to_string()];
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "learning_item",
+            &parsed.item_id,
+            &review_clock,
+            &parsed.device_id,
+            &fields,
+        )
+        .await?;
+        if !winners.is_empty() {
+            super::full_state::apply_learning_item_groups(tx, post_item, &winners).await?;
+            super::full_state::record_field_groups(
+                tx,
+                "learning_item",
+                &parsed.item_id,
+                &review_clock,
+                &parsed.device_id,
+                &winners,
+            )
+            .await?;
+        }
+    }
+
     Ok(ApplyOutcome::Applied)
 }
 
@@ -119,29 +382,50 @@ async fn apply_learning_item(
         return Ok(ApplyOutcome::Applied);
     }
 
+    if let Some(item) = super::full_state::decode_learning_item(&record.payload) {
+        let fields = super::full_state::sync_fields(
+            &record.payload,
+            super::full_state::LEARNING_ITEM_GROUPS,
+        );
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "learning_item",
+            &item.id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        super::full_state::apply_learning_item_groups(tx, &item, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "learning_item",
+            &item.id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
     #[derive(serde::Deserialize)]
     struct ItemPayload {
         id: String,
+        collection_id: String,
         question: String,
         answer: Option<String>,
         due_date: String,
         algorithm_type: String,
+        updated_at: Option<String>,
     }
 
-    let parsed: ItemPayload = serde_json::from_slice(&record.payload)
-        .map_err(|e| PlethoraError::Internal(format!("Learning item payload decode failed: {e}")))?;
-
-    let existing_hlc: Option<String> =
-        sqlx::query_scalar("SELECT updated_at FROM learning_items WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(existing) = existing_hlc.as_deref() {
-        if !hlc_gt(&record.hlc, existing) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
+    let parsed: ItemPayload = serde_json::from_slice(&record.payload).map_err(|e| {
+        PlethoraError::Internal(format!("Learning item payload decode failed: {e}"))
+    })?;
 
     let due_date = DateTime::parse_from_rfc3339(&parsed.due_date)
         .map_err(|e| PlethoraError::Internal(format!("Invalid item due date: {e}")))?
@@ -160,7 +444,7 @@ async fn apply_learning_item(
                 answer = COALESCE(?2, answer),
                 due_date = ?3,
                 algorithm_type = ?4,
-                updated_at = ?5,
+                updated_at = COALESCE(?5, updated_at),
                 date_modified = datetime('now')
             WHERE id = ?6
             "#,
@@ -169,11 +453,14 @@ async fn apply_learning_item(
         .bind(&parsed.answer)
         .bind(due_date)
         .bind(&parsed.algorithm_type)
-        .bind(record.hlc.as_str())
+        .bind(&parsed.updated_at)
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(
+        record.operation,
+        Some(SyncOperation::Create | SyncOperation::Update)
+    ) {
         sqlx::query(
             r#"
             INSERT INTO learning_items (
@@ -181,18 +468,19 @@ async fn apply_learning_item(
                 ease_factor, due_date, date_created, date_modified, review_count, lapses,
                 state, is_suspended, tags, algorithm_type, updated_at
             ) VALUES (
-                ?1, '00000000-0000-0000-0000-000000000001', 'flashcard', ?2, ?3, 3, 0,
-                2.5, ?4, datetime('now'), datetime('now'), 0, 0,
-                'new', 0, '[]', ?5, ?6
+                ?1, ?2, 'flashcard', ?3, ?4, 3, 0,
+                2.5, ?5, datetime('now'), datetime('now'), 0, 0,
+                'new', 0, '[]', ?6, ?7
             )
             "#,
         )
         .bind(&parsed.id)
+        .bind(&parsed.collection_id)
         .bind(&parsed.question)
         .bind(&parsed.answer)
         .bind(due_date)
         .bind(&parsed.algorithm_type)
-        .bind(record.hlc.as_str())
+        .bind(&parsed.updated_at)
         .execute(&mut **tx)
         .await?;
     } else {
@@ -202,20 +490,45 @@ async fn apply_learning_item(
     Ok(ApplyOutcome::Applied)
 }
 
-fn remote_wins(record_hlc: &str, local_modified: DateTime<Utc>) -> bool {
-    let (physical, _) = parse_hlc(record_hlc);
-    physical > local_modified.timestamp_millis()
-}
-
 async fn apply_document(
     tx: &mut Transaction<'_, Sqlite>,
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
     if matches!(record.operation, Some(SyncOperation::Delete)) {
+        let target_id = super::full_state::resolve_alias(tx, "document", &record.record_id).await?;
         sqlx::query("DELETE FROM documents WHERE id = ?1")
-            .bind(&record.record_id)
+            .bind(&target_id)
             .execute(&mut **tx)
             .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
+    if let Some(document) = super::full_state::decode_document(&record.payload) {
+        let target_id = super::full_state::prepare_document_target(tx, &document).await?;
+        let fields =
+            super::full_state::sync_fields(&record.payload, super::full_state::DOCUMENT_GROUPS);
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "document",
+            &target_id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        let target_id = super::full_state::apply_document_groups(tx, &document, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "document",
+            &target_id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
         return Ok(ApplyOutcome::Applied);
     }
 
@@ -252,25 +565,15 @@ async fn apply_document(
             }
 
             let position: DocumentPositionPayload = serde_json::from_slice(&record.payload)
-                .map_err(|e| PlethoraError::Internal(format!("Document payload decode failed: {e}")))?;
-
-            let local_modified: Option<DateTime<Utc>> =
-                sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
-                    .bind(&position.id)
-                    .fetch_optional(&mut **tx)
-                    .await?;
-
-            if let Some(local) = local_modified {
-                if !remote_wins(&record.hlc, local) {
-                    return Ok(ApplyOutcome::SkippedOlder);
-                }
-            }
+                .map_err(|e| {
+                    PlethoraError::Internal(format!("Document payload decode failed: {e}"))
+                })?;
 
             let date_modified = DateTime::parse_from_rfc3339(&position.date_modified)
                 .map(|ts| ts.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now());
 
-            sqlx::query(
+            let updated = sqlx::query(
                 r#"
                 UPDATE documents SET
                     position_json = COALESCE(?1, position_json),
@@ -292,25 +595,19 @@ async fn apply_document(
             .execute(&mut **tx)
             .await?;
 
-            return Ok(ApplyOutcome::Applied);
+            // A compact position delta cannot materialize a missing document.
+            // Do not persist its HLC as the entity winner, or it could suppress
+            // the older full create/update that is capable of constructing it.
+            return Ok(if updated.rows_affected() == 0 {
+                ApplyOutcome::SkippedOlder
+            } else {
+                ApplyOutcome::Applied
+            });
         }
     };
 
-    let local_modified: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(local) = local_modified {
-        if !remote_wins(&record.hlc, local) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
-
-    let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
-        PlethoraError::Internal(format!("Document tags encode failed: {e}"))
-    })?;
+    let tags_json = serde_json::to_string(&parsed.tags)
+        .map_err(|e| PlethoraError::Internal(format!("Document tags encode failed: {e}")))?;
     let date_modified = DateTime::parse_from_rfc3339(&parsed.date_modified)
         .map(|ts| ts.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
@@ -356,7 +653,10 @@ async fn apply_document(
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(
+        record.operation,
+        Some(SyncOperation::Create | SyncOperation::Update)
+    ) {
         sqlx::query(
             r#"
             INSERT INTO documents (
@@ -408,6 +708,34 @@ async fn apply_extract(
         return Ok(ApplyOutcome::Applied);
     }
 
+    if let Some(extract) = super::full_state::decode_extract(&record.payload) {
+        let fields =
+            super::full_state::sync_fields(&record.payload, super::full_state::EXTRACT_GROUPS);
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "extract",
+            &extract.id,
+            &record.hlc,
+            &record.device_id,
+            &fields,
+        )
+        .await?;
+        if winners.is_empty() {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        super::full_state::apply_extract_groups(tx, &extract, &winners).await?;
+        super::full_state::record_field_groups(
+            tx,
+            "extract",
+            &extract.id,
+            &record.hlc,
+            &record.device_id,
+            &winners,
+        )
+        .await?;
+        return Ok(ApplyOutcome::Applied);
+    }
+
     #[derive(serde::Deserialize)]
     struct ExtractPayload {
         id: String,
@@ -426,21 +754,8 @@ async fn apply_extract(
     let parsed: ExtractPayload = serde_json::from_slice(&record.payload)
         .map_err(|e| PlethoraError::Internal(format!("Extract payload decode failed: {e}")))?;
 
-    let local_modified: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT date_modified FROM extracts WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(local) = local_modified {
-        if !remote_wins(&record.hlc, local) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
-
-    let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
-        PlethoraError::Internal(format!("Extract tags encode failed: {e}"))
-    })?;
+    let tags_json = serde_json::to_string(&parsed.tags)
+        .map_err(|e| PlethoraError::Internal(format!("Extract tags encode failed: {e}")))?;
     let selection_context_json = parsed
         .selection_context
         .as_ref()
@@ -484,7 +799,10 @@ async fn apply_extract(
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(
+        record.operation,
+        Some(SyncOperation::Create | SyncOperation::Update)
+    ) {
         sqlx::query(
             r#"
             INSERT INTO extracts (
@@ -524,7 +842,28 @@ async fn apply_collection(
     record: &RemoteSyncRecord,
 ) -> Result<ApplyOutcome> {
     if matches!(record.operation, Some(SyncOperation::Delete)) {
-        sqlx::query("DELETE FROM collections WHERE id = ?1 AND id != '00000000-0000-0000-0000-000000000001'")
+        if record.record_id == crate::models::DEFAULT_COLLECTION_ID {
+            return Ok(ApplyOutcome::SkippedOlder);
+        }
+        for table in [
+            "documents",
+            "extracts",
+            "learning_items",
+            "review_sessions",
+            "review_results",
+            "annotations",
+            "categories",
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {} SET collection_id = ?1 WHERE collection_id = ?2",
+                table
+            ))
+            .bind(crate::models::DEFAULT_COLLECTION_ID)
+            .bind(&record.record_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+        sqlx::query("DELETE FROM collections WHERE id = ?1")
             .bind(&record.record_id)
             .execute(&mut **tx)
             .await?;
@@ -540,9 +879,8 @@ async fn apply_collection(
         date_modified: String,
     }
 
-    let parsed: CollectionPayload = serde_json::from_slice(&record.payload).map_err(|e| {
-        PlethoraError::Internal(format!("Collection payload decode failed: {e}"))
-    })?;
+    let parsed: CollectionPayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Collection payload decode failed: {e}")))?;
 
     let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM collections WHERE id = ?1")
         .bind(&parsed.id)
@@ -605,9 +943,8 @@ async fn apply_tag(
     let parsed: TagPayload = serde_json::from_slice(&record.payload)
         .map_err(|e| PlethoraError::Internal(format!("Tag payload decode failed: {e}")))?;
 
-    let prereqs_json = serde_json::to_string(&parsed.prerequisites).map_err(|e| {
-        PlethoraError::Internal(format!("Tag prerequisites encode failed: {e}"))
-    })?;
+    let prereqs_json = serde_json::to_string(&parsed.prerequisites)
+        .map_err(|e| PlethoraError::Internal(format!("Tag prerequisites encode failed: {e}")))?;
 
     let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM tags WHERE id = ?1")
         .bind(&parsed.id)
@@ -702,9 +1039,8 @@ async fn apply_tombstone(
         target_entity_id: String,
     }
 
-    let parsed: TombstonePayload = serde_json::from_slice(&record.payload).map_err(|e| {
-        PlethoraError::Internal(format!("Tombstone payload decode failed: {e}"))
-    })?;
+    let parsed: TombstonePayload = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("Tombstone payload decode failed: {e}")))?;
 
     match parsed.target_entity_type.as_str() {
         "document" | "documents" => {
@@ -754,5 +1090,422 @@ mod tests {
         assert!(hlc_gt("200:1", "100:9"));
         assert!(hlc_gt("100:2", "100:1"));
         assert!(!hlc_gt("100:1", "100:2"));
+    }
+
+    async fn merge_test_pool() -> sqlx::Pool<Sqlite> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("memory db");
+        crate::database::migrations::run_migrations(&pool)
+            .await
+            .expect("migrations");
+        pool
+    }
+
+    fn remote_record(
+        entity_type: EntityType,
+        record_id: &str,
+        operation: SyncOperation,
+        hlc: &str,
+        device_id: &str,
+        payload: Vec<u8>,
+        seq: u64,
+    ) -> RemoteSyncRecord {
+        RemoteSyncRecord {
+            table_kind: entity_type.into(),
+            entity_type,
+            record_id: record_id.to_string(),
+            hlc: hlc.to_string(),
+            device_id: device_id.to_string(),
+            payload,
+            operation: Some(operation),
+            base_revision: None,
+            entity_revision: Some(seq as i64),
+            seq_number: seq,
+            key_epoch: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn independently_imported_same_document_dedupes_to_one_local_row() {
+        let pool = merge_test_pool().await;
+        let mut local = crate::models::Document::new(
+            "Local title".into(),
+            "/home/user/local.pdf".into(),
+            crate::models::FileType::Pdf,
+        );
+        local.id = "local-doc".into();
+        local.content = Some("same document body".into());
+        local.content_hash = Some("sha256:strong-content-id".into());
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_document(&mut tx, &local)
+            .await
+            .expect("local doc");
+        // `upsert_document` is the remote-apply path and sanitizes device-local
+        // paths down to portable URLs. A genuinely local document carries its
+        // real path because it was written by this device's repository, so seed
+        // it the same way instead of through the sync write path.
+        sqlx::query("UPDATE documents SET file_path = ?1 WHERE id = 'local-doc'")
+            .bind("/home/user/local.pdf")
+            .execute(&mut *tx)
+            .await
+            .expect("local path");
+        tx.commit().await.expect("commit");
+
+        let mut remote = local.clone();
+        remote.id = "remote-doc".into();
+        remote.title = "Remote title".into();
+        remote.file_path = "/other/device/book.pdf".into();
+        let payload = super::super::payload::document_payload(&remote).expect("payload");
+        let record = remote_record(
+            EntityType::Document,
+            &remote.id,
+            SyncOperation::Update,
+            "2000:0",
+            "remote-device",
+            payload,
+            1,
+        );
+
+        let mut tx = pool.begin().await.expect("begin");
+        let outcome = apply_remote_record(&mut tx, "local-device", &record)
+            .await
+            .expect("apply");
+        assert_eq!(outcome, ApplyOutcome::Applied);
+        tx.commit().await.expect("commit");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM documents")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+
+        let alias: String = sqlx::query_scalar(
+            "SELECT canonical_id FROM sync_entity_aliases WHERE entity_type = 'document' AND source_id = 'remote-doc'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("alias");
+        assert_eq!(alias, "local-doc");
+
+        let path: String =
+            sqlx::query_scalar("SELECT file_path FROM documents WHERE id = 'local-doc'")
+                .fetch_one(&pool)
+                .await
+                .expect("path");
+        assert_eq!(
+            path, "/home/user/local.pdf",
+            "remote device path must not overwrite local path"
+        );
+    }
+
+    #[tokio::test]
+    async fn disjoint_card_fields_merge_and_same_field_uses_deterministic_clock() {
+        let pool = merge_test_pool().await;
+        let mut item = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "local question".into(),
+        );
+        item.id = "item-merge".into();
+        item.answer = Some("local answer".into());
+        item.due_date = chrono::Utc::now();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &item)
+            .await
+            .expect("item");
+        super::super::full_state::record_field_groups(
+            &mut tx,
+            "learning_item",
+            &item.id,
+            "2000:0",
+            "local-device",
+            &["content".to_string()],
+        )
+        .await
+        .expect("local content clock");
+        tx.commit().await.expect("commit");
+
+        let mut scheduled = item.clone();
+        scheduled.interval = 14.0;
+        scheduled.due_date = chrono::Utc::now() + chrono::Duration::days(14);
+        let schedule_payload =
+            super::super::payload::learning_item_payload_with_fields(&scheduled, &["schedule"])
+                .expect("schedule payload");
+        let schedule_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "1500:0",
+            "remote-a",
+            schedule_payload,
+            1,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &schedule_record)
+                .await
+                .expect("schedule apply"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let stale_content = {
+            let mut value = scheduled.clone();
+            value.question = "stale remote question".into();
+            value
+        };
+        let stale_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "1900:0",
+            "remote-b",
+            super::super::payload::learning_item_payload_with_fields(&stale_content, &["content"])
+                .expect("content payload"),
+            2,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &stale_record)
+                .await
+                .expect("stale content"),
+            ApplyOutcome::SkippedOlder
+        );
+        tx.commit().await.expect("commit");
+
+        let row = sqlx::query("SELECT question, interval FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("item state");
+        assert_eq!(
+            sqlx::Row::get::<String, _>(&row, "question"),
+            "local question"
+        );
+        assert_eq!(sqlx::Row::get::<f64, _>(&row, "interval"), 14.0);
+
+        let mut newer_content = scheduled.clone();
+        newer_content.question = "new remote question".into();
+        let newer_record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "2100:0",
+            "remote-c",
+            super::super::payload::learning_item_payload_with_fields(&newer_content, &["content"])
+                .expect("new content payload"),
+            3,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &newer_record)
+                .await
+                .expect("new content"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let row = sqlx::query("SELECT question, interval FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("merged state");
+        assert_eq!(
+            sqlx::Row::get::<String, _>(&row, "question"),
+            "new remote question"
+        );
+        assert_eq!(sqlx::Row::get::<f64, _>(&row, "interval"), 14.0);
+    }
+
+    #[tokio::test]
+    async fn tombstone_blocks_late_offline_update_until_explicit_recreate() {
+        let pool = merge_test_pool().await;
+        let mut item =
+            crate::models::LearningItem::new(crate::models::ItemType::Flashcard, "question".into());
+        item.id = "item-delete".into();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &item)
+            .await
+            .expect("item");
+        tx.commit().await.expect("commit");
+
+        let delete = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Delete,
+            "3000:0",
+            "device-a",
+            super::super::payload::delete_payload("learning_item", &item.id)
+                .expect("delete payload"),
+            1,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &delete)
+                .await
+                .expect("delete"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+
+        let mut stale = item.clone();
+        stale.question = "offline edit after stale base".into();
+        let late_update = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "4000:0",
+            "device-b",
+            super::super::payload::learning_item_payload_with_fields(&stale, &["content"])
+                .expect("payload"),
+            2,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &late_update)
+                .await
+                .expect("late update"),
+            ApplyOutcome::SkippedOlder
+        );
+        tx.commit().await.expect("commit");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 0);
+
+        let recreate = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Create,
+            "5000:0",
+            "device-b",
+            super::super::payload::learning_item_payload(&stale).expect("recreate payload"),
+            3,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        assert_eq!(
+            apply_remote_record(&mut tx, "local-device", &recreate)
+                .await
+                .expect("recreate"),
+            ApplyOutcome::Applied
+        );
+        tx.commit().await.expect("commit");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM learning_items WHERE id = ?1")
+            .bind(&item.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_review_events_all_survive_and_latest_review_time_sets_schedule() {
+        let pool = merge_test_pool().await;
+        let mut base = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "review me".into(),
+        );
+        base.id = "item-review".into();
+
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &base)
+            .await
+            .expect("base item");
+        tx.commit().await.expect("commit");
+
+        let mut later = base.clone();
+        later.interval = 9.0;
+        later.due_date = chrono::DateTime::parse_from_rfc3339("2026-09-09T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let later_payload = super::super::payload::review_result_payload_with_item(
+            "review-later",
+            &base.id,
+            &base.collection_id,
+            3,
+            10,
+            &later.due_date,
+            later.interval,
+            later.ease_factor,
+            2_000,
+            "device-b",
+            None,
+            Some(&later),
+        )
+        .expect("later review payload");
+
+        let mut earlier = base.clone();
+        earlier.interval = 2.0;
+        earlier.due_date = chrono::DateTime::parse_from_rfc3339("2026-09-02T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let earlier_payload = super::super::payload::review_result_payload_with_item(
+            "review-earlier",
+            &base.id,
+            &base.collection_id,
+            2,
+            8,
+            &earlier.due_date,
+            earlier.interval,
+            earlier.ease_factor,
+            1_000,
+            "device-a",
+            None,
+            Some(&earlier),
+        )
+        .expect("earlier review payload");
+
+        // Deliberately deliver the later review first, then the earlier one.
+        for record in [
+            remote_record(
+                EntityType::ReviewResult,
+                "review-later",
+                SyncOperation::AppendEvent,
+                "1000:0",
+                "device-b",
+                later_payload,
+                1,
+            ),
+            remote_record(
+                EntityType::ReviewResult,
+                "review-earlier",
+                SyncOperation::AppendEvent,
+                "9000:0",
+                "device-a",
+                earlier_payload,
+                2,
+            ),
+        ] {
+            let mut tx = pool.begin().await.expect("begin");
+            apply_remote_record(&mut tx, "local-device", &record)
+                .await
+                .expect("review apply");
+            tx.commit().await.expect("commit");
+        }
+
+        let review_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM review_results WHERE item_id = ?1")
+                .bind(&base.id)
+                .fetch_one(&pool)
+                .await
+                .expect("review count");
+        assert_eq!(review_count, 2);
+
+        let interval: f64 = sqlx::query_scalar("SELECT interval FROM learning_items WHERE id = ?1")
+            .bind(&base.id)
+            .fetch_one(&pool)
+            .await
+            .expect("interval");
+        assert_eq!(
+            interval, 9.0,
+            "review timestamp ordering, not arrival/HLC, sets current schedule"
+        );
     }
 }

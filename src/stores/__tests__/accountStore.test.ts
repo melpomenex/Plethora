@@ -87,12 +87,16 @@ describe('Native account auth IPC contract', () => {
 
   it('uses Tauri camelCase command arguments for login', async () => {
     stubNativeAuth();
+    useAccountStore.setState({ deviceId: 'dev-native' });
 
     await useAccountStore.getState().signIn('native@example.com', 'password123', 'MacBook');
 
     expect(tauriMocks.invoke).toHaveBeenCalledWith('account_auth_login', {
       email: 'native@example.com',
       password: 'password123',
+      // The persisted device identity rides along so the server reuses this
+      // install's device row instead of issuing a new one per login.
+      deviceId: 'dev-native',
       deviceName: 'MacBook',
       platform: 'desktop',
     });

@@ -575,13 +575,12 @@ pub async fn update_learning_item_tags(
         .await?
         .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
-    item.tags = tags;
-    if let Some(interaction_metadata) = interaction_metadata {
-        item.interaction_metadata = Some(interaction_metadata);
-    }
-    item.date_modified = chrono::Utc::now();
-    repo.update_learning_item(&item).await?;
-    Ok(item)
+    repo.update_learning_item_tags_and_metadata(
+        &item_id,
+        &tags,
+        interaction_metadata.as_ref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -625,15 +624,14 @@ pub async fn revert_learning_item_version(
     let version: CardVersionEntry = serde_json::from_str(&value)
         .map_err(|e| PlethoraError::Internal(format!("Invalid version payload: {}", e)))?;
 
-    let mut item = repo
-        .get_learning_item(&item_id)
-        .await?
-        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
-    item.question = version.question;
-    item.answer = version.answer;
-    item.date_modified = chrono::Utc::now();
-    repo.update_learning_item(&item).await?;
-    Ok(item)
+    repo.update_learning_item_content(
+        &item_id,
+        &version.question,
+        version.answer.as_deref(),
+        None,
+    )
+    .await?
+    .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
 }
 
 #[tauri::command]

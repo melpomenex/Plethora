@@ -26,6 +26,8 @@ pub struct WireSyncRecord {
     pub operation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_revision: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_revision: Option<i64>,
 }
 
 fn default_key_version() -> u32 {
@@ -77,6 +79,7 @@ pub struct RemoteSyncRecord {
     pub payload: Vec<u8>,
     pub operation: Option<SyncOperation>,
     pub base_revision: Option<i64>,
+    pub entity_revision: Option<i64>,
     pub seq_number: u64,
     pub key_epoch: u32,
 }
@@ -94,6 +97,7 @@ pub fn entity_type_for_table_kind(table_kind: &str) -> Option<EntityType> {
         "collections" | "collection" => Some(EntityType::Collection),
         "tags" | "tag" => Some(EntityType::Tag),
         "settings" | "setting" => Some(EntityType::Setting),
+        "image_assets" | "image_asset" => Some(EntityType::ImageAsset),
         "tombstones" | "tombstone" => Some(EntityType::Tombstone),
         _ => EntityType::parse(table_kind),
     }
@@ -141,6 +145,7 @@ pub fn outbox_entry_to_wire(
         change_id: Some(entry.change_id.clone()),
         operation: Some(entry.operation.as_str().to_string()),
         base_revision: entry.base_revision,
+        entity_revision: None,
     })
 }
 
@@ -151,9 +156,13 @@ pub fn decode_remote_record(
     master_key: Option<&[u8; 32]>,
     local_epoch: u32,
 ) -> Result<RemoteSyncRecord, String> {
-    if wire.key_version < local_epoch {
+    // Historical records intentionally keep the epoch they were encrypted
+    // under. The account master key can derive those record keys; revocation
+    // is enforced by the server transport/device ACL, not by making existing
+    // ciphertext unreadable. A future epoch is still invalid locally.
+    if wire.key_version > local_epoch {
         return Err(format!(
-            "Rejected stale key epoch {} (local {local_epoch})",
+            "Rejected future key epoch {} (local {local_epoch})",
             wire.key_version
         ));
     }
@@ -161,7 +170,21 @@ pub fn decode_remote_record(
     let entity_type = entity_type_for_table_kind(&wire.table_kind)
         .ok_or_else(|| format!("Unsupported table kind {}", wire.table_kind))?;
 
-    let change_id = wire.change_id.clone().unwrap_or_else(|| wire.record_id.clone());
+    // Protocol-v1 servers deployed before envelope metadata persistence
+    // still have the original authenticated AAD. Its final two components are
+    // always change_id and epoch, so recover the change id from the right
+    // without depending on entity IDs/settings keys that may contain ':'.
+    let recovered_change_id = wire
+        .aad
+        .rsplit(':')
+        .nth(1)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let change_id = wire
+        .change_id
+        .clone()
+        .or(recovered_change_id)
+        .unwrap_or_else(|| wire.record_id.clone());
     let aad = if wire.aad.contains(':') {
         wire.aad.clone()
     } else {
@@ -187,8 +210,25 @@ pub fn decode_remote_record(
             &change_id,
         );
         let bytes = SyncCrypto::decrypt_payload(&record_key, &wire.payload_ciphertext, &aad)?;
-        let op = wire.operation.as_deref().and_then(parse_operation);
-        (bytes, op)
+        let explicit = wire.operation.as_deref().and_then(parse_operation);
+        let inferred = if explicit.is_none() {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| {
+                    if value.get("deleted_at").is_some() || value.get("deletedAt").is_some() {
+                        Some(SyncOperation::Delete)
+                    } else if entity_type == EntityType::ReviewResult {
+                        Some(SyncOperation::AppendEvent)
+                    } else {
+                        // Legacy create/update records are safely handled as
+                        // upserts by the current merge layer.
+                        Some(SyncOperation::Update)
+                    }
+                })
+        } else {
+            None
+        };
+        (bytes, explicit.or(inferred))
     };
 
     Ok(RemoteSyncRecord {
@@ -200,6 +240,7 @@ pub fn decode_remote_record(
         payload,
         operation,
         base_revision: wire.base_revision,
+        entity_revision: wire.entity_revision,
         seq_number,
         key_epoch: wire.key_version,
     })
