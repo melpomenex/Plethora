@@ -1,6 +1,7 @@
 use crate::error::{PlethoraError, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 
+use super::api_error::map_http_error;
 use super::wire::{
     PullResponseBody, PushRequestBody, PushResponseBody, WireSyncRecord, SYNC_PROTOCOL_VERSION,
 };
@@ -42,7 +43,7 @@ fn auth_headers(access_token: &str) -> Result<HeaderMap> {
 }
 
 pub async fn push_records(
-    access_token: &str,
+    access_token: String,
     records: Vec<WireSyncRecord>,
 ) -> Result<PushResponseBody> {
     if records.is_empty() {
@@ -57,7 +58,7 @@ pub async fn push_records(
     let url = format!("{}/v1/sync/push", api_base_url());
     let response = client
         .post(url)
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&PushRequestBody { records })
         .send()
         .await
@@ -73,9 +74,7 @@ pub async fn push_records(
         if let Some(account_epoch) = stale_key_epoch_from_body(&body) {
             return Err(PlethoraError::StaleSyncKeyEpoch { account_epoch });
         }
-        return Err(PlethoraError::Internal(format!(
-            "Sync push failed ({status}): {body}"
-        )));
+        return Err(map_http_error(status, &body, "Sync push failed"));
     }
 
     serde_json::from_str(&body)
@@ -83,7 +82,7 @@ pub async fn push_records(
 }
 
 pub async fn pull_page(
-    access_token: &str,
+    access_token: String,
     device_id: &str,
     cursor: u64,
     limit: usize,
@@ -97,7 +96,7 @@ pub async fn pull_page(
     );
     let response = client
         .get(url)
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .send()
         .await
         .map_err(|e| PlethoraError::Internal(format!("Sync pull request failed: {e}")))?;
@@ -109,9 +108,7 @@ pub async fn pull_page(
         .map_err(|e| PlethoraError::Internal(format!("Sync pull response read failed: {e}")))?;
 
     if !status.is_success() {
-        return Err(PlethoraError::Internal(format!(
-            "Sync pull failed ({status}): {body}"
-        )));
+        return Err(map_http_error(status, &body, "Sync pull failed"));
     }
 
     let parsed: PullResponseBody = serde_json::from_str(&body)
@@ -141,11 +138,11 @@ pub async fn pull_page(
     ))
 }
 
-pub async fn ack_cursor(access_token: &str, cursor: u64) -> Result<()> {
+pub async fn ack_cursor(access_token: String, cursor: u64) -> Result<()> {
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/sync/ack", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({ "cursor": cursor }))
         .send()
         .await
@@ -164,11 +161,11 @@ pub async fn ack_cursor(access_token: &str, cursor: u64) -> Result<()> {
     Ok(())
 }
 
-pub async fn increment_sync_epoch(access_token: &str) -> Result<u32> {
+pub async fn increment_sync_epoch(access_token: String) -> Result<u32> {
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/sync/increment-epoch", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -192,11 +189,11 @@ pub async fn increment_sync_epoch(access_token: &str) -> Result<u32> {
         .unwrap_or(1) as u32)
 }
 
-pub async fn revoke_sync_device(access_token: &str, sync_device_id: &str) -> Result<u32> {
+pub async fn revoke_sync_device(access_token: String, sync_device_id: &str) -> Result<u32> {
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/sync/revoke-device", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({ "syncDeviceId": sync_device_id }))
         .send()
         .await

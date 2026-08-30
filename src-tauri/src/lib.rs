@@ -1208,6 +1208,7 @@ pub fn run() {
                 app.manage(commands::podcast::OnDeviceSttJobs::default());
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
+                plethora_auth::init(app.handle().clone());
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
                 app.manage(Arc::new(sync::SyncEngine::new()));
                 sync::scheduler::init(app.handle().clone());

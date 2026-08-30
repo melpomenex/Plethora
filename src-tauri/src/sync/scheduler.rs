@@ -128,7 +128,11 @@ async fn run_scheduled_sync(app: &AppHandle, fast_lane: bool) -> Result<(), Stri
     }
 
     let auth = app.state::<Arc<AuthManager>>();
-    if auth.get_access_token().is_none() {
+    if auth.get_refresh_token().is_none() && auth.get_access_token().is_none() {
+        return Ok(());
+    }
+    if let Err(error) = auth.ensure_fresh_access_token().await {
+        auth.handle_refresh_failure(error);
         return Ok(());
     }
 

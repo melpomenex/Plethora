@@ -1,3 +1,5 @@
+pub mod api_error;
+pub mod authenticated;
 pub mod blobs;
 pub mod bootstrap;
 pub mod clock;
@@ -288,7 +290,7 @@ pub async fn sync_revoke_device_epoch(
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
-    let epoch = transport::increment_sync_epoch(&token)
+    let epoch = transport::increment_sync_epoch(token)
         .await
         .map_err(map_error)?;
     keys::set_key_epoch(epoch).await.map_err(map_error)?;
@@ -312,7 +314,7 @@ pub async fn sync_revoke_sync_device(
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
-    let epoch = transport::revoke_sync_device(&token, &sync_device_id)
+    let epoch = transport::revoke_sync_device(token, &sync_device_id)
         .await
         .map_err(map_error)?;
     keys::set_key_epoch(epoch).await.map_err(map_error)?;
@@ -347,7 +349,7 @@ pub async fn sync_fetch_storage_usage(
     let token = auth
         .get_access_token()
         .ok_or_else(|| "Sign in required".to_string())?;
-    let usage = blobs::fetch_storage_usage(&token).await.map_err(map_error)?;
+    let usage = blobs::fetch_storage_usage(token).await.map_err(map_error)?;
     engine.set_storage_used_bytes(usage.used_bytes);
     Ok(usage)
 }
@@ -366,7 +368,7 @@ pub async fn sync_upload_blob(
         .map_err(map_error)?
         .ok_or_else(|| "Sync encryption key not configured".to_string())?;
     blobs::upload_blob_if_missing(
-        &token,
+        token,
         &master_key,
         &bytes,
         content_type.as_deref().unwrap_or("application/octet-stream"),

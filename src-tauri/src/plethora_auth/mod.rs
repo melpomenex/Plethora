@@ -1,11 +1,21 @@
 use crate::build_profile;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter};
 
 mod cloud;
+mod refresh;
+mod token;
 pub use cloud::AuthSessionJson;
+pub use refresh::{refresh_access_token, RefreshError};
+
+static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
+
+pub fn init(app: AppHandle) {
+    let _ = APP_HANDLE.set(app);
+}
 
 /// Change F §2.2 — the fabricated mock sign-in must never exist in store
 /// (App Store distribution) builds. Development and sideload builds keep it,
@@ -49,11 +59,20 @@ pub struct AccountState {
     pub device_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotatedTokensEvent {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct AuthManager {
     state: Arc<RwLock<AccountState>>,
     tokens: Arc<RwLock<Option<AccountTokens>>>,
     devices: Arc<RwLock<Vec<DeviceInfo>>>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Default for AuthManager {
@@ -72,6 +91,7 @@ impl AuthManager {
             })),
             tokens: Arc::new(RwLock::new(None)),
             devices: Arc::new(RwLock::new(Vec::new())),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -124,6 +144,92 @@ impl AuthManager {
             .read()
             .ok()
             .and_then(|t| t.as_ref().map(|tok| tok.access_token.clone()))
+    }
+
+    pub fn get_refresh_token(&self) -> Option<String> {
+        self.tokens
+            .read()
+            .ok()
+            .and_then(|t| t.as_ref().map(|tok| tok.refresh_token.clone()))
+    }
+
+    pub fn update_tokens(&self, tokens: AccountTokens) {
+        if let Ok(mut lock) = self.tokens.write() {
+            *lock = Some(tokens);
+        }
+    }
+
+    fn emit_tokens_rotated(&self, tokens: &AccountTokens) {
+        let Some(app) = APP_HANDLE.get() else {
+            return;
+        };
+        let _ = app.emit(
+            "plethora-auth-tokens-rotated",
+            RotatedTokensEvent {
+                access_token: tokens.access_token.clone(),
+                refresh_token: tokens.refresh_token.clone(),
+                expires_in: tokens.expires_in,
+            },
+        );
+    }
+
+    fn emit_session_revoked(&self) {
+        let Some(app) = APP_HANDLE.get() else {
+            return;
+        };
+        let _ = app.emit("plethora-auth-session-revoked", ());
+    }
+
+    /// Rotate the access token when it is missing, undecodable, or near expiry.
+    pub async fn ensure_fresh_access_token(&self) -> Result<String, RefreshError> {
+        let needs_refresh = self
+            .get_access_token()
+            .map(|token| refresh::should_refresh_access_token(&token))
+            .unwrap_or(true);
+        if needs_refresh {
+            self.refresh_tokens().await?;
+        }
+        self.get_access_token()
+            .ok_or(RefreshError::NoRefreshToken)
+    }
+
+    /// Force a refresh even when the current access token still looks fresh.
+    pub async fn force_refresh_tokens(&self) -> Result<(), RefreshError> {
+        self.do_refresh(true).await
+    }
+
+    /// Single-flight refresh: concurrent callers share one network round-trip.
+    pub async fn refresh_tokens(&self) -> Result<(), RefreshError> {
+        self.do_refresh(false).await
+    }
+
+    async fn do_refresh(&self, force: bool) -> Result<(), RefreshError> {
+        let _guard = self.refresh_lock.lock().await;
+
+        if !force {
+            if let Some(access) = self.get_access_token() {
+                if !refresh::should_refresh_access_token(&access) {
+                    return Ok(());
+                }
+            }
+        }
+
+        let refresh_token = self.get_refresh_token().ok_or(RefreshError::NoRefreshToken)?;
+        let response = refresh_access_token(&refresh_token).await?;
+        let rotated = refresh::tokens_from_refresh(response);
+        self.update_tokens(rotated.clone());
+        self.emit_tokens_rotated(&rotated);
+        Ok(())
+    }
+
+    pub fn handle_refresh_failure(&self, error: RefreshError) {
+        if matches!(
+            error,
+            RefreshError::SessionRevoked | RefreshError::TokenExpired
+        ) {
+            self.set_signed_out();
+            self.emit_session_revoked();
+        }
     }
 
     pub fn get_user_id(&self) -> Option<String> {
@@ -256,8 +362,14 @@ pub fn account_sign_out(
 }
 
 #[tauri::command]
-pub fn account_refresh(auth: tauri::State<Arc<AuthManager>>) -> Result<AccountState, String> {
-    Ok(auth.get_state())
+pub async fn account_refresh(auth: tauri::State<'_, Arc<AuthManager>>) -> Result<AccountState, String> {
+    match auth.refresh_tokens().await {
+        Ok(()) => Ok(auth.get_state()),
+        Err(error) => {
+            auth.handle_refresh_failure(error.clone());
+            Err(error.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -279,6 +391,7 @@ pub fn account_revoke_device(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     #[test]
     fn mock_sign_in_is_refused_only_for_store_profile() {
@@ -357,5 +470,55 @@ mod tests {
 
         auth.revoke_device("d1");
         assert!(auth.get_devices()[0].revoked_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_rotates_stale_access_token() {
+        let auth = AuthManager::new();
+        let exp = chrono::Utc::now().timestamp() - 60;
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"alg":"none","typ":"JWT"}"#);
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(format!(r#"{{"exp":{exp}}}"#));
+        let expired = format!("{header}.{payload}.sig");
+
+        auth.set_signed_in(
+            UserProfile {
+                id: "u-1".to_string(),
+                email: "alice@example.com".to_string(),
+                subscription_tier: "pro".to_string(),
+            },
+            AccountTokens {
+                access_token: expired,
+                refresh_token: "refresh-1".to_string(),
+                expires_in: 900,
+            },
+            Some("dev-1".to_string()),
+        );
+
+        let body = r#"{"accessToken":"access-2","refreshToken":"refresh-2","expiresIn":900}"#;
+        let response: &'static [u8] = Box::leak(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .into_boxed_str()
+            .into_boxed_bytes(),
+        );
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            stream.write_all(response).unwrap();
+        });
+        std::env::set_var("PLETHORA_API_URL", format!("http://{addr}"));
+
+        auth.refresh_tokens().await.expect("refresh should succeed");
+        assert_eq!(auth.get_access_token().as_deref(), Some("access-2"));
+        assert_eq!(auth.get_refresh_token().as_deref(), Some("refresh-2"));
     }
 }

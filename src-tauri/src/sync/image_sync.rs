@@ -5,7 +5,9 @@ use sqlx::{Pool, Sqlite, Transaction};
 
 use crate::error::{PlethoraError, Result};
 use crate::models::ImageAsset;
+use crate::plethora_auth::AuthManager;
 
+use super::authenticated::with_bearer_retry;
 use super::blobs;
 use super::full_state::{register_alias, resolve_alias};
 use super::keys::load_master_key;
@@ -65,7 +67,7 @@ pub fn local_payload(asset: &ImageAsset) -> Result<Vec<u8>> {
 }
 
 pub async fn prepare_payload_for_push(
-    access_token: &str,
+    auth: &AuthManager,
     master_key: &[u8; 32],
     local_payload: &[u8],
 ) -> Result<Vec<u8>> {
@@ -81,8 +83,10 @@ pub async fn prepare_payload_for_push(
         ));
     }
 
-    let blob_reference =
-        blobs::upload_blob_if_missing(access_token, master_key, &content, &local.mime_type).await?;
+    let blob_reference = with_bearer_retry(auth, |token| {
+        blobs::upload_blob_if_missing(token, master_key, &content, &local.mime_type)
+    })
+    .await?;
     let remote = RemoteImagePayload {
         schema_version: 2,
         entity_type: "image_asset".into(),
@@ -221,7 +225,7 @@ pub async fn delete_remote(tx: &mut Transaction<'_, Sqlite>, source_id: &str) ->
 
 pub async fn hydrate_if_needed(
     pool: &Pool<Sqlite>,
-    access_token: &str,
+    auth: &AuthManager,
     asset_id: &str,
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
@@ -248,7 +252,10 @@ pub async fn hydrate_if_needed(
     let master_key = load_master_key()
         .await?
         .ok_or_else(|| PlethoraError::Internal("Sync encryption key not configured".into()))?;
-    let download = blobs::request_download_url(access_token, &blob_reference).await?;
+    let download = with_bearer_retry(auth, |token| {
+        blobs::request_download_url(token, &blob_reference)
+    })
+    .await?;
     let plaintext =
         blobs::download_and_decrypt(&download.download_url, &blob_reference, &master_key).await?;
     let actual_sha256 = format!("{:x}", sha2::Sha256::digest(&plaintext));

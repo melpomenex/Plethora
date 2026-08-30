@@ -3,6 +3,7 @@ use crate::entitlements::EntitlementCache;
 use crate::error::{PlethoraError, Result};
 use crate::plethora_auth::AuthManager;
 
+use super::authenticated::with_bearer_retry;
 use super::cursor::{get_server_cursor, set_server_cursor, touch_successful_sync};
 use super::device::{adopt_device_id, ensure_device_id};
 use super::flags::sync_v2_enabled;
@@ -43,9 +44,9 @@ pub async fn push_outbox(
         ));
     }
 
-    let access_token = auth
-        .get_access_token()
-        .ok_or_else(|| PlethoraError::Internal("Sign in required for sync push".to_string()))?;
+    if auth.get_refresh_token().is_none() && auth.get_access_token().is_none() {
+        return Err(PlethoraError::Internal("Sign in required for sync push".to_string()));
+    }
 
     let mut tx = repo.pool().begin().await?;
     let device_id = sync_device_id(&mut tx, auth).await?;
@@ -83,7 +84,7 @@ pub async fn push_outbox(
                 {
                     let mut prepared = entry.clone();
                     prepared.payload = super::image_sync::prepare_payload_for_push(
-                        &access_token,
+                        auth,
                         &master_key,
                         &entry.payload,
                     )
@@ -116,7 +117,7 @@ pub async fn push_outbox(
                 break 'outer;
             }
 
-            match push_records(&access_token, wire_batch).await {
+            match with_bearer_retry(auth, |token| push_records(token, wire_batch.clone())).await {
                 Ok(response) => break (response, change_ids),
                 Err(PlethoraError::StaleSyncKeyEpoch { account_epoch })
                     if account_epoch > key_epoch && stale_epoch_retries < 2 =>
@@ -167,9 +168,9 @@ pub async fn pull_remote(
         ));
     }
 
-    let access_token = auth
-        .get_access_token()
-        .ok_or_else(|| PlethoraError::Internal("Sign in required for sync pull".to_string()))?;
+    if auth.get_refresh_token().is_none() && auth.get_access_token().is_none() {
+        return Err(PlethoraError::Internal("Sign in required for sync pull".to_string()));
+    }
 
     let master_key = require_master_key().await?;
     let mut local_epoch = get_key_epoch().await?;
@@ -185,7 +186,10 @@ pub async fn pull_remote(
 
     loop {
         let (page, next_cursor, has_more, account_epoch) =
-            pull_page(&access_token, &local_device_id, cursor, 500).await?;
+            with_bearer_retry(auth, |token| {
+                pull_page(token, &local_device_id, cursor, 500)
+            })
+            .await?;
         if account_epoch > local_epoch {
             set_key_epoch(account_epoch).await?;
             local_epoch = account_epoch;
@@ -271,7 +275,7 @@ pub async fn pull_remote(
     // been applied and the new cursor persisted locally. A crash before the
     // ack simply replays the page, which every apply path tolerates.
     if cursor > start_cursor {
-        ack_cursor(&access_token, cursor).await?;
+        with_bearer_retry(auth, |token| ack_cursor(token, cursor)).await?;
     }
 
     Ok(PullResult {

@@ -1,10 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAccountStore } from '../accountStore';
+import { useAccountStore, __resetAuthEventListenersForTests } from '../accountStore';
 import { useDocumentStore } from '../documentStore';
 
 const tauriMocks = vi.hoisted(() => ({
   isTauri: false,
   invoke: vi.fn(),
+  listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+    tauriMocks.listenHandlers.set(event, handler);
+    return () => {
+      tauriMocks.listenHandlers.delete(event);
+    };
+  }),
 }));
 
 vi.mock('../../lib/tauri', async (importOriginal) => {
@@ -495,5 +505,62 @@ describe('Entitlement-safe startup & refresh (entitlement-persistence change)', 
     expect(snapshot.plan).toBe('pro');
     expect(snapshot.source).toBe('cache');
     expect(snapshot.accountId).toBe('u-1');
+  });
+});
+
+describe('Native auth event bridge', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetAuthEventListenersForTests();
+    tauriMocks.isTauri = true;
+    tauriMocks.listenHandlers.clear();
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true })));
+    tauriMocks.invoke.mockResolvedValue({});
+    useAccountStore.setState({
+      isAuthenticated: true,
+      user: { id: 'u-1', email: 'user@example.com', subscriptionTier: 'pro' },
+      tokens: { accessToken: 'access-1', refreshToken: 'refresh-1', expiresIn: 900 },
+      deviceId: 'dev-1',
+      devices: [],
+      loading: false,
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    tauriMocks.isTauri = false;
+    tauriMocks.listenHandlers.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('init registers a listener that applies native token rotation', async () => {
+    await useAccountStore.getState().init();
+
+    const handler = tauriMocks.listenHandlers.get('plethora-auth-tokens-rotated');
+    expect(handler).toBeTypeOf('function');
+
+    handler?.({
+      payload: {
+        accessToken: 'access-native-2',
+        refreshToken: 'refresh-native-2',
+        expiresIn: 900,
+      },
+    });
+
+    expect(useAccountStore.getState().tokens?.accessToken).toBe('access-native-2');
+    expect(useAccountStore.getState().tokens?.refreshToken).toBe('refresh-native-2');
+  });
+
+  it('session revocation from native auth signs the user out', async () => {
+    await useAccountStore.getState().init();
+
+    const handler = tauriMocks.listenHandlers.get('plethora-auth-session-revoked');
+    expect(handler).toBeTypeOf('function');
+
+    handler?.({ payload: null });
+    await vi.waitFor(() => {
+      expect(useAccountStore.getState().isAuthenticated).toBe(false);
+    });
+    expect(useAccountStore.getState().tokens).toBeNull();
   });
 });

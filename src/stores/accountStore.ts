@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { listen } from '@tauri-apps/api/event';
 import { invoke, isTauri } from '../lib/tauri';
 import { isTauriRuntimeTarget } from '../lib/runtimeTarget';
 import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
@@ -111,6 +112,48 @@ async function syncNativeSession(data: AuthSessionPayload) {
 
 function usesNativeCloudAuth(): boolean {
   return isTauriRuntimeTarget() || isTauri();
+}
+
+let authEventListenersRegistered = false;
+
+/** @internal Reset native auth event registration between unit tests. */
+export function __resetAuthEventListenersForTests(): void {
+  authEventListenersRegistered = false;
+}
+
+function registerNativeAuthEventListeners(
+  set: (partial: Partial<AccountStoreState>) => void,
+  get: () => AccountStoreState
+) {
+  if (!isTauri() || authEventListenersRegistered) {
+    return;
+  }
+  authEventListenersRegistered = true;
+
+  void listen<{
+    accessToken?: string;
+    access_token?: string;
+    refreshToken?: string;
+    refresh_token?: string;
+    expiresIn?: number;
+    expires_in?: number;
+  }>('plethora-auth-tokens-rotated', (event) => {
+    const payload = event.payload;
+    const accessToken = payload.accessToken ?? payload.access_token;
+    const refreshToken = payload.refreshToken ?? payload.refresh_token;
+    if (!accessToken || !refreshToken) return;
+    set({
+      tokens: {
+        accessToken,
+        refreshToken,
+        expiresIn: payload.expiresIn ?? payload.expires_in ?? 900,
+      },
+    });
+  });
+
+  void listen('plethora-auth-session-revoked', () => {
+    void get().signOut();
+  });
 }
 
 /** Decode a JWT's `exp` (seconds since epoch) without verification — an
@@ -455,6 +498,8 @@ export const useAccountStore = create<AccountStoreState>()(
         if (!isTauri()) {
           return;
         }
+
+        registerNativeAuthEventListeners(set, get);
 
         const { isAuthenticated, user, tokens, deviceId } = get();
 

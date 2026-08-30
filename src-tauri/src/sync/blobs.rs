@@ -3,6 +3,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::api_error::map_http_error;
 use super::crypto::SyncCrypto;
 use super::transport::api_base_url;
 use super::wire::SYNC_PROTOCOL_VERSION;
@@ -55,11 +56,11 @@ fn auth_headers(access_token: &str) -> Result<HeaderMap> {
     Ok(headers)
 }
 
-pub async fn check_hashes(access_token: &str, hashes: &[String]) -> Result<BlobCheckResponse> {
+pub async fn check_hashes(access_token: String, hashes: &[String]) -> Result<BlobCheckResponse> {
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/blobs/check", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({ "hashes": hashes }))
         .send()
         .await
@@ -68,7 +69,7 @@ pub async fn check_hashes(access_token: &str, hashes: &[String]) -> Result<BlobC
 }
 
 pub async fn request_upload_url(
-    access_token: &str,
+    access_token: String,
     hash: &str,
     size_bytes: u64,
     content_type: &str,
@@ -76,7 +77,7 @@ pub async fn request_upload_url(
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/blobs/upload-url", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({
             "hash": hash,
             "sizeBytes": size_bytes,
@@ -107,13 +108,13 @@ pub async fn upload_bytes(upload_url: &str, bytes: &[u8], content_type: &str) ->
 }
 
 pub async fn request_download_url(
-    access_token: &str,
+    access_token: String,
     hash: &str,
 ) -> Result<BlobDownloadUrlResponse> {
     let client = reqwest::Client::new();
     let response = client
         .get(format!("{}/v1/blobs/{}/download-url", api_base_url(), hash))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .send()
         .await
         .map_err(|e| PlethoraError::Internal(format!("Blob download-url failed: {e}")))?;
@@ -146,11 +147,11 @@ pub async fn download_and_decrypt(
         .map_err(|e| PlethoraError::Internal(format!("Blob integrity/decryption failed: {e}")))
 }
 
-pub async fn fetch_storage_usage(access_token: &str) -> Result<StorageUsageResponse> {
+pub async fn fetch_storage_usage(access_token: String) -> Result<StorageUsageResponse> {
     let client = reqwest::Client::new();
     let response = client
         .get(format!("{}/v1/blobs/usage", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .send()
         .await
         .map_err(|e| PlethoraError::Internal(format!("Storage usage failed: {e}")))?;
@@ -158,7 +159,7 @@ pub async fn fetch_storage_usage(access_token: &str) -> Result<StorageUsageRespo
 }
 
 pub async fn complete_blob_upload(
-    access_token: &str,
+    access_token: String,
     hash: &str,
     size_bytes: u64,
     content_type: &str,
@@ -166,7 +167,7 @@ pub async fn complete_blob_upload(
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/v1/blobs/complete", api_base_url()))
-        .headers(auth_headers(access_token)?)
+        .headers(auth_headers(&access_token)?)
         .json(&serde_json::json!({
             "hash": hash,
             "sizeBytes": size_bytes,
@@ -185,13 +186,13 @@ pub async fn complete_blob_upload(
 }
 
 pub async fn upload_blob_if_missing(
-    access_token: &str,
+    access_token: String,
     master_key: &[u8; 32],
     plaintext: &[u8],
     _content_type: &str,
 ) -> Result<String> {
     let reference = SyncCrypto::blob_reference(master_key, plaintext);
-    let check = check_hashes(access_token, &[reference.clone()]).await?;
+    let check = check_hashes(access_token.clone(), &[reference.clone()]).await?;
     if check.existing.iter().any(|item| item == &reference) {
         return Ok(reference);
     }
@@ -203,7 +204,7 @@ pub async fn upload_blob_if_missing(
     // Object storage receives ciphertext only. Do not leak the original MIME
     // type through the storage layer; it belongs in encrypted entity metadata.
     let upload = request_upload_url(
-        access_token,
+        access_token.clone(),
         &reference,
         encrypted.len() as u64,
         "application/octet-stream",
@@ -233,9 +234,7 @@ async fn parse_json<T: for<'de> Deserialize<'de>>(response: reqwest::Response) -
         .await
         .map_err(|e| PlethoraError::Internal(format!("Blob response read failed: {e}")))?;
     if !status.is_success() {
-        return Err(PlethoraError::Internal(format!(
-            "Blob request failed ({status}): {body}"
-        )));
+        return Err(map_http_error(status, &body, "Blob request failed"));
     }
     serde_json::from_str(&body)
         .map_err(|e| PlethoraError::Internal(format!("Blob response parse failed: {e}")))
