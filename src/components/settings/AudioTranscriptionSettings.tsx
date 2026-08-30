@@ -375,7 +375,7 @@ export function AudioTranscriptionSettings() {
               <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
                 <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                 <span>
-                  Nemotron GGUF runtime runs locally on desktop. On Android, transcribe offline using <strong>On-Device AI</strong> (SenseVoice / Parakeet) or cloud via <strong>Groq</strong>.
+                  Nemotron streaming runtime runs locally on desktop. On Android, transcribe offline using <strong>On-Device AI</strong> (SenseVoice / Parakeet) or cloud via <strong>Groq</strong>.
                 </span>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -403,7 +403,7 @@ export function AudioTranscriptionSettings() {
                 return (
                   <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>NVIDIA Nemotron 3.5 ASR (0.6B Q4_K_M GGUF) is downloaded and installed locally.</span>
+                    <span>NVIDIA Nemotron 3.5 ASR (0.6B streaming int8) is downloaded and installed locally.</span>
                   </div>
                 );
               }

@@ -9,7 +9,7 @@ use super::hf_client::{
 use super::manager::{
     InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, is_pinned_nemotron_repo,
     model_id_for, registry_list, resolve_install_target, resolve_pinned_nemotron_install_target,
-    uninstall, NEMOTRON_ASR_GGUF_FILE, NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
+    uninstall, NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
     nemotron_asr_catalog_entry,
 };
 use super::suitability::{Suitability, classify, disk_insufficient};
@@ -205,20 +205,16 @@ async fn build_pinned_nemotron_inspection(
         precision: Some("gguf".to_string()),
         download_size_bytes: target.artifact.download_size_bytes,
         license: target.license.clone(),
-        files: vec![HfFileSummary {
-            path: NEMOTRON_ASR_GGUF_FILE.to_string(),
-            size: target
-                .artifact
-                .files
-                .first()
-                .and_then(|f| f.size)
-                .or(Some(NEMOTRON_ASR_SIZE_BYTES)),
-            sha256: target
-                .artifact
-                .files
-                .first()
-                .and_then(|f| f.sha256.clone()),
-        }],
+        files: target
+            .artifact
+            .files
+            .iter()
+            .map(|f| HfFileSummary {
+                path: f.path.clone(),
+                size: f.size.or(Some(NEMOTRON_ASR_SIZE_BYTES)),
+                sha256: f.sha256.clone(),
+            })
+            .collect(),
         candidates: vec![artifact],
         suitability,
         system_info,

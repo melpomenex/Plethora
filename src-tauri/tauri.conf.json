@@ -44,6 +44,7 @@
     "externalBin": [
       "bin/whisper",
       "bin/sherpa-onnx",
+      "bin/sherpa-online",
       "bin/pocket-tts",
       "bin/notebooklm"
     ],

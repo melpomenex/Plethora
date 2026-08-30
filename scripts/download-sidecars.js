@@ -107,14 +107,18 @@ function ensureWhisperSource() {
 
 // Pinned sherpa-onnx version. NOTE: do NOT use the /releases/latest API endpoint
 // for this repo — it is stale. Bump this explicitly and update the asset map below.
-const SHERPA_ONNX_VERSION = 'v1.12.24';
+// v1.13.6 is pinned because it is the newest stable release containing the
+// streaming Nemotron-3.5 transducer support (k2-fsa/sherpa-onnx PR #3671,
+// merged 2026-06-12) required by the local Nemotron STT runtime
+// (implement-local-nemotron-onnx-stt).
+const SHERPA_ONNX_VERSION = 'v1.13.6';
 
 // Map a target triple to the sherpa-onnx prebuilt tarball asset for that platform.
 // Returns null for unsupported targets (the caller skips provisioning there).
-// NOTE: asset names are verified against the v1.12.24 release — they are NOT uniform
-// (Linux aarch64 has a `-cpu` suffix the others lack; Windows uses MSVC runtime
-// variants like `-MD-Release`). Update this map explicitly when bumping
-// SHERPA_ONNX_VERSION.
+// NOTE: asset names are NOT uniform (Linux aarch64 has a `-cpu` suffix the
+// others lack; Windows uses MSVC runtime variants like `-MD-Release`) — all
+// five names were re-verified to exist identically on the v1.13.6 release.
+// Update this map explicitly when bumping SHERPA_ONNX_VERSION.
 function sherpaAssetForTarget(targetTriple) {
   // macOS arm64 / x86_64: the `-jni` bundles contain bin/sherpa-onnx-offline + lib/libonnxruntime.
   if (targetTriple === 'aarch64-apple-darwin') {
@@ -182,6 +186,11 @@ function copyOnnxRuntimeLibs(dir, destDir) {
 function ensureSherpaSidecar(targetTriple) {
   const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
+  // The streaming (online) recognizer binary — same tarball, distinct
+  // externalBin name because `sherpa-onnx` already IS the offline binary in
+  // our bundle. Required by the local Nemotron STT runtime.
+  const onlineName = sidecarExecutableName('sherpa-online', targetTriple);
+  const onlinePath = path.join(BIN_DIR, onlineName);
   const versionMarker = path.join(BIN_DIR, '.sherpa-onnx-provisioned');
   let provisionedVersion = null;
   try {
@@ -189,7 +198,11 @@ function ensureSherpaSidecar(targetTriple) {
   } catch {
     // No marker: never provisioned with the version guard in place.
   }
-  if (isUsableSidecar(sherpaPath) && provisionedVersion === SHERPA_ONNX_VERSION) {
+  if (
+    isUsableSidecar(sherpaPath)
+    && isUsableSidecar(onlinePath)
+    && provisionedVersion === SHERPA_ONNX_VERSION
+  ) {
     return;
   }
 
@@ -216,7 +229,8 @@ function ensureSherpaSidecar(targetTriple) {
       .find(p => fs.existsSync(path.join(p, 'bin')));
     if (!extracted) throw new Error('sherpa-onnx tarball did not contain a bin/ directory');
 
-    // 1. Rename the offline CLI executable to the Tauri externalBin convention.
+    // 1. Rename the CLI executables to the Tauri externalBin convention:
+    //    offline (existing families) + online/streaming (Nemotron runtime).
     const offlineBinCandidates = [
       path.join(extracted, 'bin', 'sherpa-onnx-offline'),
       path.join(extracted, 'bin', 'sherpa-onnx-offline.exe'),
@@ -224,6 +238,14 @@ function ensureSherpaSidecar(targetTriple) {
     const offlineBin = offlineBinCandidates.find(c => fs.existsSync(c));
     if (!offlineBin) throw new Error('sherpa-onnx tarball missing bin/sherpa-onnx-offline');
     fs.copyFileSync(offlineBin, sherpaPath);
+
+    const onlineBinCandidates = [
+      path.join(extracted, 'bin', 'sherpa-onnx'),
+      path.join(extracted, 'bin', 'sherpa-onnx.exe'),
+    ];
+    const onlineBin = onlineBinCandidates.find(c => fs.existsSync(c));
+    if (!onlineBin) throw new Error(`sherpa-onnx tarball missing bin/sherpa-onnx (online) at ${SHERPA_ONNX_VERSION}`);
+    fs.copyFileSync(onlineBin, onlinePath);
 
     // 2. Copy runtime libraries into BIN_DIR. Upstream layouts differ: Unix
     // archives put them under lib/, while Windows packages may use bin/.
@@ -243,36 +265,41 @@ function ensureSherpaSidecar(targetTriple) {
       findAndCopyLibs(extracted, BIN_DIR, '.so.1');
     }
 
-    // 3. On macOS, add rpaths + re-sign so the binary is runnable as-is.
+    // 3. On macOS, add rpaths + re-sign so the binaries are runnable as-is.
     //    build.rs will also do this on every cargo build; doing it here too means
-    //    the sidecar works even before a cargo build runs.
+    //    the sidecars work even before a cargo build runs.
     if (assetInfo.os === 'macos') {
-      try {
-        execSync(`install_name_tool -add_rpath @executable_path ${shellQuote(sherpaPath)}`, { stdio: 'ignore' });
-      } catch { /* rpath may already exist */ }
-      try {
-        execSync(`install_name_tool -add_rpath @executable_path/../Resources/bin ${shellQuote(sherpaPath)}`, { stdio: 'ignore' });
-      } catch { /* rpath may already exist */ }
-      try {
-        execSync(`codesign --force --sign - ${shellQuote(sherpaPath)}`, { stdio: 'ignore' });
-      } catch { /* codesign best-effort */ }
+      for (const binPath of [sherpaPath, onlinePath]) {
+        try {
+          execSync(`install_name_tool -add_rpath @executable_path ${shellQuote(binPath)}`, { stdio: 'ignore' });
+        } catch { /* rpath may already exist */ }
+        try {
+          execSync(`install_name_tool -add_rpath @executable_path/../Resources/bin ${shellQuote(binPath)}`, { stdio: 'ignore' });
+        } catch { /* rpath may already exist */ }
+        try {
+          execSync(`codesign --force --sign - ${shellQuote(binPath)}`, { stdio: 'ignore' });
+        } catch { /* codesign best-effort */ }
+      }
     }
 
-    // On Linux, set RPATH=$ORIGIN so the binary finds libonnxruntime.so in the
+    // On Linux, set RPATH=$ORIGIN so the binaries find libonnxruntime.so in the
     // same directory without needing LD_LIBRARY_PATH at runtime. (Matches how the
     // whisper Linux sidecar is handled.) patchelf may not be installed in every
     // build env; the LD_LIBRARY_PATH fallback in engine.rs covers that case.
     if (assetInfo.os === 'linux') {
-      try {
-        execSync(`patchelf --set-rpath '$ORIGIN' ${shellQuote(sherpaPath)}`, { stdio: 'ignore' });
-      } catch {
-        console.log('Note: patchelf not available for sherpa-onnx; relying on LD_LIBRARY_PATH at runtime');
+      for (const binPath of [sherpaPath, onlinePath]) {
+        try {
+          execSync(`patchelf --set-rpath '$ORIGIN' ${shellQuote(binPath)}`, { stdio: 'ignore' });
+        } catch {
+          console.log('Note: patchelf not available for sherpa-onnx; relying on LD_LIBRARY_PATH at runtime');
+        }
       }
     }
 
     fs.chmodSync(sherpaPath, 0o755);
+    fs.chmodSync(onlinePath, 0o755);
     fs.writeFileSync(versionMarker, SHERPA_ONNX_VERSION);
-    console.log(`sherpa-onnx sidecar provisioned at ${sherpaPath}`);
+    console.log(`sherpa-onnx sidecars provisioned at ${sherpaPath} + ${onlinePath}`);
   } catch (err) {
     console.warn(`⚠️  sherpa-onnx provisioning failed for ${targetTriple}: ${err.message}`);
     console.warn('   Parakeet local transcription will be unavailable. Whisper/Groq still work.');
@@ -1050,6 +1077,7 @@ async function main() {
   const notebooklmPath = path.join(BIN_DIR, notebooklmName);
   const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
+  const sherpaOnlinePath = path.join(BIN_DIR, sidecarExecutableName('sherpa-online', targetTriple));
   const notebooklmSidecarPresent = fs.existsSync(notebooklmPath);
   const notebooklmSkipped = process.env.SKIP_NOTEBOOKLM_SIDECAR === '1';
   const notebooklmRequired = !notebooklmSkipped
@@ -1068,6 +1096,7 @@ async function main() {
     isUsableSidecar(ffmpegPath)
     && isUsableSidecar(whisperPath)
     && isUsableSidecar(sherpaPath)
+    && isUsableSidecar(sherpaOnlinePath)
     && (!notebooklmMustExist || notebooklmSidecarPresent)
     && (!notebooklmRequired || notebooklmRuntimeReady)
   ) {
@@ -1077,6 +1106,9 @@ async function main() {
       fs.chmodSync(whisperPath, 0o755);
       if (fs.existsSync(sherpaPath)) {
         fs.chmodSync(sherpaPath, 0o755);
+      }
+      if (fs.existsSync(sherpaOnlinePath)) {
+        fs.chmodSync(sherpaOnlinePath, 0o755);
       }
       if (fs.existsSync(notebooklmPath)) {
         fs.chmodSync(notebooklmPath, 0o755);
@@ -1346,11 +1378,14 @@ async function main() {
     if (fs.existsSync(sherpaPath)) {
       fs.chmodSync(sherpaPath, 0o755);
     }
+    if (fs.existsSync(sherpaOnlinePath)) {
+      fs.chmodSync(sherpaOnlinePath, 0o755);
+    }
   } catch {
     // Windows might fail chmod, ignore
   }
 
-  const unusableTranscriptionSidecars = [whisperPath, sherpaPath]
+  const unusableTranscriptionSidecars = [whisperPath, sherpaPath, sherpaOnlinePath]
     .filter(sidecarPath => !isUsableSidecar(sidecarPath));
   if (unusableTranscriptionSidecars.length > 0) {
     const message = `Required transcription sidecars are missing or empty: ${unusableTranscriptionSidecars.join(', ')}`;

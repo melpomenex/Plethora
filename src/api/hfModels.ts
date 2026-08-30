@@ -246,5 +246,5 @@ export const RUNTIME_LABELS: Record<HfRuntime, string> = {
   "whisper-cpp": "whisper.cpp (ggml)",
   "sherpa-onnx-stt": "sherpa-onnx (ONNX STT)",
   "sherpa-onnx-tts": "sherpa-onnx (ONNX TTS)",
-  "nemotron-asr": "Nemotron ASR (GGUF)",
+  "nemotron-asr": "Nemotron ASR (streaming ONNX)",
 };

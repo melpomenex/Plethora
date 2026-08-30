@@ -40,7 +40,7 @@ pub async fn get_transcription_profiles(
     use crate::models::hf::hf_client::resolve_download_url;
     use crate::models::hf::manager::{
         hf_stt_profiles, is_nemotron_asr_installed, model_id_for, nemotron_asr_catalog_entry,
-        NEMOTRON_ASR_GGUF_FILE, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
         NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
     };
 
@@ -52,15 +52,22 @@ pub async fn get_transcription_profiles(
     profiles.push(ModelProfile {
         id: NEMOTRON_ASR_LOGICAL_KEY.to_string(),
         name: catalog.display_name,
-        description: "Multilingual streaming ASR (GGUF). Matches cloud OpenRouter Nemotron for prefer-local routing.".to_string(),
+        description: "Multilingual streaming ASR (int8 ONNX, runs on-device via sherpa-onnx). Matches cloud OpenRouter Nemotron for prefer-local routing.".to_string(),
         url: resolve_download_url(
             NEMOTRON_ASR_REPO_ID,
             NEMOTRON_ASR_REVISION,
-            NEMOTRON_ASR_GGUF_FILE,
+            NEMOTRON_ASR_ENCODER_FILE,
         ),
         sha256: String::new(),
         size_bytes: NEMOTRON_ASR_SIZE_BYTES,
-        installed: is_nemotron_asr_installed(repo.pool()).await,
+        // Truthful availability: installed AND the streaming sidecar is
+        // usable, so prefer-local routing never targets a dead end (falls
+        // back to cloud per the existing resolution rules instead).
+        installed: is_nemotron_asr_installed(repo.pool()).await
+            && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+                &app_handle,
+                "sherpa-online",
+            ),
     });
 
     let nemotron_hf_id = model_id_for(
@@ -508,17 +515,27 @@ pub async fn remove_transcription_entry(
 }
 
 #[command]
-pub async fn is_local_nemotron_installed(repo: State<'_, Repository>) -> Result<bool> {
-    Ok(crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await)
+pub async fn is_local_nemotron_installed(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<bool> {
+    Ok(crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await
+        && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+            &app_handle,
+            "sherpa-online",
+        ))
 }
 
 #[command]
 pub async fn transcribe_local_nemotron(
+    app_handle: AppHandle,
     repo: State<'_, Repository>,
     audio_path: String,
     language: String,
 ) -> Result<TranscriptResponse> {
-    let _ = language;
+    use crate::models::hf::manager::SttEngineRoute;
+    use crate::transcription::engine::TranscriptionEngine;
+
     if !Path::new(&audio_path).exists() {
         return Err(crate::error::PlethoraError::NotFound(format!(
             "Audio file not found: {}",
@@ -547,8 +564,18 @@ pub async fn transcribe_local_nemotron(
         ));
     };
 
-    let model_file = match contract {
-        crate::models::hf::adapters::RunContract::NemotronAsr { model_file } => model_file,
+    let route = match contract {
+        crate::models::hf::adapters::RunContract::NemotronAsr {
+            encoder,
+            decoder,
+            joiner,
+            tokens,
+        } => SttEngineRoute::Nemotron {
+            encoder,
+            decoder,
+            joiner,
+            tokens,
+        },
         _ => {
             return Err(crate::error::PlethoraError::InvalidInput(
                 "LOCAL_MODEL_MISSING: Invalid Nemotron run contract.".to_string(),
@@ -556,14 +583,18 @@ pub async fn transcribe_local_nemotron(
         }
     };
 
-    let segments = crate::transcription::nemotron::transcribe_file(
-        &install_dir,
-        &model_file,
-        Path::new(&audio_path),
-        &language,
-    )
-    .await
-    .map_err(|e| crate::error::PlethoraError::InvalidInput(e.to_string()))?;
+    let engine = TranscriptionEngine::new(app_handle);
+    // Convert to the 16 kHz mono WAV the sherpa runtime expects (same as the
+    // podcast pipeline).
+    let prepared = engine
+        .prepare_audio(Path::new(&audio_path))
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let segments: Vec<engine::TranscriptSegment> =
+        engine.transcribe_route_collect(&prepared, &install_dir, &route, &language)
+            .await
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let _ = std::fs::remove_file(&prepared);
 
     Ok(TranscriptResponse {
         id: 0,

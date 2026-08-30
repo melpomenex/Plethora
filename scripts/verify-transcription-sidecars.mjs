@@ -95,12 +95,16 @@ const sherpa = findRequired(files, "sherpa-onnx sidecar", (file) => {
   const name = basename(file).toLowerCase();
   return name === "sherpa-onnx" || name === "sherpa-onnx.exe" || name.startsWith("sherpa-onnx-");
 });
+const sherpaOnline = findRequired(files, "sherpa-online sidecar", (file) => {
+  const name = basename(file).toLowerCase();
+  return name === "sherpa-online" || name === "sherpa-online.exe" || name.startsWith("sherpa-online-");
+});
 const onnxRuntime = findRequired(files, "ONNX Runtime library", (file) => {
   const name = basename(file).toLowerCase();
   return name.includes("onnxruntime") && /[.](dll|dylib|so)([.]\d+)*$/.test(name);
 });
 
-const runtimeDirs = [...new Set([dirname(whisper), dirname(sherpa), dirname(onnxRuntime)])];
+const runtimeDirs = [...new Set([dirname(whisper), dirname(sherpa), dirname(sherpaOnline), dirname(onnxRuntime)])];
 const env = { ...process.env };
 if (process.platform === "win32") {
   const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path") || "Path";
@@ -119,6 +123,7 @@ if (process.platform === "win32") {
 
 run(whisper, ["--help"], env, "Whisper runtime smoke test");
 run(sherpa, ["--help"], env, "sherpa runtime smoke test");
+run(sherpaOnline, ["--help"], env, "sherpa-online runtime smoke test");
 
 const workDir = mkdtempSync(join(tmpdir(), "incrementum-transcription-smoke-"));
 try {
@@ -142,4 +147,4 @@ try {
   rmSync(workDir, { recursive: true, force: true });
 }
 
-console.log(`Transcription sidecars verified: ${whisper}, ${sherpa}, ${onnxRuntime}`);
+console.log(`Transcription sidecars verified: ${whisper}, ${sherpa}, ${sherpaOnline}, ${onnxRuntime}`);

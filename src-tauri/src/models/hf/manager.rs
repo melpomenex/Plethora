@@ -37,15 +37,35 @@ use tokio_util::sync::CancellationToken;
 
 /// Shared logical model key for cloud/local Nemotron ASR.
 pub const NEMOTRON_ASR_LOGICAL_KEY: &str = "nemotron-3.5-asr-0.6b";
-/// Pinned Hugging Face repo for the local Nemotron ASR weights (~495 MB Q4_K_M GGUF).
-/// Uses the public ungated community repository (1.9M downloads) so downloads never
-/// require an HF account, token, or license agreement.
-pub const NEMOTRON_ASR_REPO_ID: &str = "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf";
+/// Pinned Hugging Face repo for the local Nemotron ASR weights: the official
+/// sherpa-onnx int8 export (560 ms chunk) of NVIDIA Nemotron 3.5 ASR streaming
+/// 0.6B — public and ungated, runnable by the bundled sherpa-onnx streaming
+/// sidecar as a split transducer. Hashes/sizes verified against the repo's LFS
+/// pointers on 2026-08-30 (implement-local-nemotron-onnx-stt).
+pub const NEMOTRON_ASR_REPO_ID: &str =
+    "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11";
 pub const NEMOTRON_ASR_REVISION: &str = "main";
-pub const NEMOTRON_ASR_SIZE_BYTES: u64 = 495_831_520;
-pub const NEMOTRON_ASR_SHA256: &str = "41c99fa5fb6f3d35f68e79adc3e755eca2232a8d921178bd647b71194792b8fd";
-/// Repo-relative GGUF weights file for the pinned Nemotron catalog entry.
-pub const NEMOTRON_ASR_GGUF_FILE: &str = "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf";
+pub const NEMOTRON_ASR_ENCODER_FILE: &str = "encoder.int8.onnx";
+pub const NEMOTRON_ASR_DECODER_FILE: &str = "decoder.int8.onnx";
+pub const NEMOTRON_ASR_JOINER_FILE: &str = "joiner.int8.onnx";
+pub const NEMOTRON_ASR_TOKENS_FILE: &str = "tokens.txt";
+pub const NEMOTRON_ASR_ENCODER_SHA256: &str =
+    "012e9321373af99021415e0b0eb3ec827b4be3153be6f30d9b448fe65e896e68";
+pub const NEMOTRON_ASR_DECODER_SHA256: &str =
+    "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0";
+pub const NEMOTRON_ASR_JOINER_SHA256: &str =
+    "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce";
+pub const NEMOTRON_ASR_TOKENS_SHA256: &str =
+    "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a";
+pub const NEMOTRON_ASR_ENCODER_SIZE_BYTES: u64 = 657_601_403;
+pub const NEMOTRON_ASR_DECODER_SIZE_BYTES: u64 = 14_978_075;
+pub const NEMOTRON_ASR_JOINER_SIZE_BYTES: u64 = 9_504_438;
+pub const NEMOTRON_ASR_TOKENS_SIZE_BYTES: u64 = 131_440;
+/// Combined download size of the pinned 4-file set (~651 MiB).
+pub const NEMOTRON_ASR_SIZE_BYTES: u64 = NEMOTRON_ASR_ENCODER_SIZE_BYTES
+    + NEMOTRON_ASR_DECODER_SIZE_BYTES
+    + NEMOTRON_ASR_JOINER_SIZE_BYTES
+    + NEMOTRON_ASR_TOKENS_SIZE_BYTES;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +87,7 @@ pub fn nemotron_asr_catalog_entry() -> PinnedNemotronAsrCatalogEntry {
         logical_key: NEMOTRON_ASR_LOGICAL_KEY.to_string(),
         repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
         revision: NEMOTRON_ASR_REVISION.to_string(),
-        display_name: "NVIDIA Nemotron 3.5 ASR 0.6B (Q4_K_M GGUF)".to_string(),
+        display_name: "NVIDIA Nemotron 3.5 ASR 0.6B (streaming int8)".to_string(),
         size_bytes: NEMOTRON_ASR_SIZE_BYTES,
         license: "nvidia-open-model-license".to_string(),
         capability: "asr".to_string(),
@@ -225,6 +245,8 @@ pub fn is_pinned_nemotron_repo(repo_id: &str) -> bool {
     r.eq_ignore_ascii_case(NEMOTRON_ASR_REPO_ID)
         || r.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-0.6b")
         || r.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-streaming-0.6b")
+        // Legacy GGUF artifact (pre-ONNX pin) — still recognized for cleanup.
+        || r.eq_ignore_ascii_case("handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf")
         || r.eq_ignore_ascii_case(NEMOTRON_ASR_LOGICAL_KEY)
 }
 
@@ -233,45 +255,77 @@ pub fn is_pinned_nemotron_repo(repo_id: &str) -> bool {
 /// SHA-256 is pinned to the verified community GGUF release and falls back to
 /// the known constant so downloads never fail with a SHA-256 error.
 pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<InstallTarget> {
+    // Probe the live repo for per-file LFS metadata (sha256/size); fall back
+    // to the pinned constants so an API hiccup never blocks a hash-verified
+    // install.
     let client = hf_metadata_client();
-    let meta = fetch_file_metadata(
-        &client,
-        NEMOTRON_ASR_REPO_ID,
-        NEMOTRON_ASR_REVISION,
-        NEMOTRON_ASR_GGUF_FILE,
-    )
-    .await
-    .unwrap_or_default();
-
-    let sha256 = meta
-        .sha256
-        .clone()
-        .unwrap_or_else(|| NEMOTRON_ASR_SHA256.to_string());
-    let size = meta.size.unwrap_or(NEMOTRON_ASR_SIZE_BYTES);
-
+    let pinned: [(&str, &str, u64); 4] = [
+        (
+            NEMOTRON_ASR_ENCODER_FILE,
+            NEMOTRON_ASR_ENCODER_SHA256,
+            NEMOTRON_ASR_ENCODER_SIZE_BYTES,
+        ),
+        (
+            NEMOTRON_ASR_DECODER_FILE,
+            NEMOTRON_ASR_DECODER_SHA256,
+            NEMOTRON_ASR_DECODER_SIZE_BYTES,
+        ),
+        (
+            NEMOTRON_ASR_JOINER_FILE,
+            NEMOTRON_ASR_JOINER_SHA256,
+            NEMOTRON_ASR_JOINER_SIZE_BYTES,
+        ),
+        (
+            NEMOTRON_ASR_TOKENS_FILE,
+            NEMOTRON_ASR_TOKENS_SHA256,
+            NEMOTRON_ASR_TOKENS_SIZE_BYTES,
+        ),
+    ];
     let mut file_metadata = HashMap::new();
-    file_metadata.insert(
-        NEMOTRON_ASR_GGUF_FILE.to_string(),
-        FileMetadata {
+    let mut artifact_files = Vec::with_capacity(pinned.len());
+    let mut total: u64 = 0;
+    for (path, fallback_sha, fallback_size) in pinned {
+        let meta = fetch_file_metadata(
+            &client,
+            NEMOTRON_ASR_REPO_ID,
+            NEMOTRON_ASR_REVISION,
+            path,
+        )
+        .await
+        .unwrap_or_default();
+        let sha256 = meta
+            .sha256
+            .clone()
+            .unwrap_or_else(|| fallback_sha.to_string());
+        let size = meta.size.unwrap_or(fallback_size);
+        total += size;
+        file_metadata.insert(
+            path.to_string(),
+            FileMetadata {
+                size: Some(size),
+                sha256: Some(sha256.clone()),
+            },
+        );
+        artifact_files.push(ArtifactFile {
+            path: path.to_string(),
             size: Some(size),
-            sha256: Some(sha256.clone()),
-        },
-    );
+            sha256: Some(sha256),
+        });
+    }
 
     let artifact = Artifact {
         runtime: HfRuntime::NemotronAsr,
-        kind: "nemotron-asr-gguf".to_string(),
-        label: "Nemotron ASR GGUF model".to_string(),
-        files: vec![ArtifactFile {
-            path: NEMOTRON_ASR_GGUF_FILE.to_string(),
-            size: Some(size),
-            sha256: Some(sha256),
-        }],
-        download_size_bytes: size,
+        kind: "nemotron-asr-onnx".to_string(),
+        label: "Nemotron ASR streaming transducer (ONNX)".to_string(),
+        files: artifact_files,
+        download_size_bytes: total,
         run_contract: RunContract::NemotronAsr {
-            model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
+            encoder: NEMOTRON_ASR_ENCODER_FILE.to_string(),
+            decoder: NEMOTRON_ASR_DECODER_FILE.to_string(),
+            joiner: NEMOTRON_ASR_JOINER_FILE.to_string(),
+            tokens: NEMOTRON_ASR_TOKENS_FILE.to_string(),
         },
-        estimated_memory_bytes: size.saturating_mul(2),
+        estimated_memory_bytes: total.saturating_mul(2),
         confidence: DetectionConfidence::Exact,
         metadata: Default::default(),
     };
@@ -518,16 +572,10 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
             }
             _ => None,
         },
-        HfRuntime::NemotronAsr => match model.run_contract {
-            RunContract::NemotronAsr { model_file } => {
-                let path = root.join(&model_file);
-                if !path.starts_with(&root) {
-                    return None;
-                }
-                Some(path)
-            }
-            _ => None,
-        },
+        // The Nemotron engine (sherpa-online split transducer) takes the
+        // install dir + per-file names from the route, like the sherpa STT
+        // engines.
+        HfRuntime::NemotronAsr => Some(root),
         // sherpa engines take the model *directory*.
         HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => Some(root),
     }
@@ -623,8 +671,14 @@ pub enum SttEngineRoute {
     },
     /// sherpa-onnx `--paraformer-model`.
     Paraformer { model: String },
-    /// Nemotron ASR GGUF (embedded runtime).
-    Nemotron { model_file: String },
+    /// Nemotron ASR streaming transducer via the sherpa-onnx online sidecar.
+    /// Fields are install-dir-relative paths.
+    Nemotron {
+        encoder: String,
+        decoder: String,
+        joiner: String,
+        tokens: String,
+    },
     /// A model that exists but is not an STT model (e.g. TTS).
     NotTranscription,
 }
@@ -661,7 +715,17 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
                 },
             },
             RunContract::SherpaTts { .. } => SttEngineRoute::NotTranscription,
-            RunContract::NemotronAsr { model_file } => SttEngineRoute::Nemotron { model_file },
+            RunContract::NemotronAsr {
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+            } => SttEngineRoute::Nemotron {
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+            },
         };
     }
     if model_id.starts_with("sense-voice-") {
@@ -680,7 +744,10 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
         || model_id.contains("nemotron")
     {
         SttEngineRoute::Nemotron {
-            model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
+            encoder: NEMOTRON_ASR_ENCODER_FILE.to_string(),
+            decoder: NEMOTRON_ASR_DECODER_FILE.to_string(),
+            joiner: NEMOTRON_ASR_JOINER_FILE.to_string(),
+            tokens: NEMOTRON_ASR_TOKENS_FILE.to_string(),
         }
     } else {
         SttEngineRoute::Whisper
@@ -1062,6 +1129,12 @@ pub async fn hf_stt_profiles(
         {
             continue;
         }
+        // Legacy GGUF rows (old contract shape) are not runnable — never
+        // offer them as selectable profiles; they stay removable in the
+        // model manager instead.
+        if m.runtime == HfRuntime::NemotronAsr && m.run_contract.validate().is_err() {
+            continue;
+        }
         let first_sha = m.artifact_files.first().and_then(|f| f.sha256.clone());
         let runtime_label = m.runtime.label();
         profiles.push(crate::transcription::model_manager::ModelProfile {
@@ -1301,6 +1374,7 @@ mod tests {
         }
         // All artifacts hash-pinned → allowed.
         assert!(ensure_sherpa_hash_pinned(HfRuntime::SherpaOnnxStt, &[with_sha.clone()]).is_ok());
+        assert!(ensure_sherpa_hash_pinned(HfRuntime::NemotronAsr, &[with_sha.clone()]).is_ok());
         // Whisper ggml is not hard-gated on a hash.
         assert!(ensure_sherpa_hash_pinned(HfRuntime::WhisperCpp, &[without_sha.clone()]).is_ok());
     }
@@ -1711,35 +1785,52 @@ mod tests {
             SttEngineRoute::SenseVoice { model: "model.int8.onnx".to_string() }
         );
 
-        // Nemotron alias resolution and routing.
+        // Nemotron alias resolution and routing. Before any registry row
+        // exists, the pinned 4-file ONNX fallback route is used.
+        let pinned_route = SttEngineRoute::Nemotron {
+            encoder: NEMOTRON_ASR_ENCODER_FILE.to_string(),
+            decoder: NEMOTRON_ASR_DECODER_FILE.to_string(),
+            joiner: NEMOTRON_ASR_JOINER_FILE.to_string(),
+            tokens: NEMOTRON_ASR_TOKENS_FILE.to_string(),
+        };
         assert_eq!(
             canonicalize_hf_model_id(NEMOTRON_ASR_LOGICAL_KEY),
             model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION)
         );
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
-            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
+            pinned_route.clone()
         );
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_REPO_ID).await,
-            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
+            pinned_route
         );
 
-        // HF nemotron model registered.
+        // HF nemotron model registered (ONNX split-transducer contract).
+        let onnx_files = [
+            NEMOTRON_ASR_ENCODER_FILE,
+            NEMOTRON_ASR_DECODER_FILE,
+            NEMOTRON_ASR_JOINER_FILE,
+            NEMOTRON_ASR_TOKENS_FILE,
+        ];
         let nemotron = InstalledHfModel {
             id: model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION),
             repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
             revision: NEMOTRON_ASR_REVISION.to_string(),
             runtime: HfRuntime::NemotronAsr,
-            artifact_kind: "nemotron-asr-gguf".to_string(),
+            artifact_kind: "nemotron-asr-onnx".to_string(),
             install_dir: dir.path().to_str().unwrap().to_string(),
-            artifact_files: vec![
-                InstalledModelFile { path: NEMOTRON_ASR_GGUF_FILE.to_string(), size: 100, sha256: None },
-            ],
-            download_size_bytes: 100,
+            artifact_files: onnx_files
+                .iter()
+                .map(|f| InstalledModelFile { path: f.to_string(), size: 100, sha256: None })
+                .collect(),
+            download_size_bytes: 400,
             license: None,
             run_contract: RunContract::NemotronAsr {
-                model_file: NEMOTRON_ASR_GGUF_FILE.to_string(),
+                encoder: NEMOTRON_ASR_ENCODER_FILE.to_string(),
+                decoder: NEMOTRON_ASR_DECODER_FILE.to_string(),
+                joiner: NEMOTRON_ASR_JOINER_FILE.to_string(),
+                tokens: NEMOTRON_ASR_TOKENS_FILE.to_string(),
             },
             installed_at: "2026-08-19T00:00:00Z".to_string(),
             installed: true,
@@ -1747,15 +1838,60 @@ mod tests {
         write_model_files(&nemotron);
         registry_insert(&pool, &nemotron).await.unwrap();
 
-        // Resolves via logical key (expectation updated for the ungated
-        // community GGUF rename in 1c7d4976; the test previously pinned the
-        // old `nemotron-0.6b.gguf` name).
+        // Resolves via logical key; the engine takes the install DIR (like the
+        // sherpa STT engines) with per-file names on the route.
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
-            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
+            SttEngineRoute::Nemotron {
+                encoder: NEMOTRON_ASR_ENCODER_FILE.to_string(),
+                decoder: NEMOTRON_ASR_DECODER_FILE.to_string(),
+                joiner: NEMOTRON_ASR_JOINER_FILE.to_string(),
+                tokens: NEMOTRON_ASR_TOKENS_FILE.to_string(),
+            }
         );
         let path = resolve_installed_path(&pool, NEMOTRON_ASR_LOGICAL_KEY).await;
-        assert!(path.is_some());
-        assert_eq!(path.unwrap(), dir.path().join(NEMOTRON_ASR_GGUF_FILE));
+        assert_eq!(path.unwrap(), dir.path());
+
+        // A legacy GGUF row (old contract shape) deserializes with empty
+        // fields, stays listed for cleanup, and is NOT runnable.
+        let legacy = InstalledHfModel {
+            id: model_id_for(
+                HfRuntime::NemotronAsr,
+                "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf",
+                "main",
+            ),
+            repo_id: "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf".to_string(),
+            revision: "main".to_string(),
+            runtime: HfRuntime::NemotronAsr,
+            artifact_kind: "nemotron-asr-gguf".to_string(),
+            install_dir: dir.path().to_str().unwrap().to_string(),
+            artifact_files: vec![InstalledModelFile {
+                path: "nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf".to_string(),
+                size: 100,
+                sha256: None,
+            }],
+            download_size_bytes: 100,
+            license: None,
+            run_contract: serde_json::from_str(
+                "{\"type\":\"nemotron-asr\",\"model_file\":\"nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf\"}",
+            )
+            .unwrap(),
+            installed_at: "2026-08-19T00:00:00Z".to_string(),
+            installed: true,
+        };
+        registry_insert(&pool, &legacy).await.unwrap();
+        let listed = registry_list(&pool).await.unwrap();
+        assert!(
+            listed.iter().any(|m| m.repo_id.contains("handy-computer")),
+            "legacy GGUF row stays listed (removable) instead of vanishing"
+        );
+        assert!(
+            legacy.run_contract.validate().is_err(),
+            "legacy GGUF contract must fail validation (not runnable)"
+        );
+        assert!(
+            !legacy.run_contract.paths_contained() == false,
+            "empty fields are contained (no phantom paths)"
+        );
     }
 }

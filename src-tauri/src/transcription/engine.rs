@@ -93,6 +93,11 @@ enum SherpaFamily {
     Zipformer,
     /// FunASR Paraformer — `--paraformer-model`.
     Paraformer,
+    /// NVIDIA Nemotron 3.5 ASR streaming transducer — the same split
+    /// `--encoder/--decoder/--joiner` argv as Zipformer, but dispatched to the
+    /// **online** (streaming) sherpa binary and parsed from its per-segment
+    /// JSON output (see `nemotron::parse_online_segments`).
+    NemotronTransducer,
 }
 
 /// The concrete files a sherpa-onnx STT invocation needs (paths already
@@ -194,7 +199,7 @@ impl TranscriptionEngine {
     /// bare "transcription failed" with no detail:
     ///   1. A 0-byte placeholder sidecar (e.g. sherpa-onnx on a target without a prebuilt asset).
     ///   2. A missing sidecar for the current target triple.
-    fn check_sidecar_usable(&self, name: &str) -> Option<String> {
+    pub(crate) fn check_sidecar_usable(&self, name: &str) -> Option<String> {
         let path = match self.sidecar_path(name) {
             Some(p) => p,
             None => {
@@ -740,28 +745,67 @@ impl TranscriptionEngine {
                     on_progress,
                 )
                 .await,
-            SttEngineRoute::Nemotron { model_file } => {
-                // `model_path` arrives as the resolved GGUF *file* for
-                // Nemotron (see `resolve_installed_path`), while
-                // `transcribe_file` takes (install_dir, model_file). Joining
-                // the file onto itself produced `<install>/<gguf>/<gguf>`.
-                let install_dir = model_path.parent().unwrap_or(model_path);
-                let segments = crate::transcription::nemotron::transcribe_file(
-                    install_dir,
-                    model_file,
+            SttEngineRoute::Nemotron {
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+            } => {
+                // `model_path` is the install dir (see `resolve_installed_path`);
+                // the route carries the split-transducer file names.
+                let files = SherpaModelFiles {
+                    model: model_path.join(encoder),
+                    tokens: Some(model_path.join(tokens)),
+                    decoder: Some(model_path.join(decoder)),
+                    joiner: Some(model_path.join(joiner)),
+                    use_itn: false,
+                };
+                self.transcribe_sherpa(
+                    SherpaFamily::NemotronTransducer,
+                    files,
                     audio_path,
+                    model_path,
                     language,
+                    on_segment,
+                    on_progress,
                 )
-                .await?;
-                for segment in segments {
-                    on_segment(segment);
-                }
-                Ok(())
+                .await
             }
             SttEngineRoute::NotTranscription => Err(anyhow!(
                 "This model is a TTS model and cannot be used for transcription."
             )),
         }
+    }
+
+    /// True when the named sidecar exists and is not a 0-byte placeholder
+    /// (availability gating for model profiles / routing).
+    pub fn sidecar_usable(app_handle: &AppHandle, name: &str) -> bool {
+        let engine = TranscriptionEngine::new(app_handle.clone());
+        engine.check_sidecar_usable(name).is_none()
+    }
+
+    /// `transcribe_route` with segment collection instead of a callback
+    /// (single-file command paths like `transcribe_local_nemotron`).
+    pub async fn transcribe_route_collect(
+        &self,
+        audio_path: &Path,
+        model_path: &Path,
+        route: &crate::models::hf::manager::SttEngineRoute,
+        language: &str,
+    ) -> Result<Vec<TranscriptSegment>> {
+        let segments: Vec<TranscriptSegment> = Vec::new();
+        let collected = std::sync::Arc::new(std::sync::Mutex::new(segments));
+        let sink = std::sync::Arc::clone(&collected);
+        self.transcribe_route(audio_path, model_path, route, language, move |seg| {
+            if let Ok(mut guard) = sink.lock() {
+                guard.push(seg);
+            }
+        }, None)
+        .await?;
+        Ok(collected
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default())
     }
 
     /// Shared sherpa-onnx transcription path used by all model families.
@@ -817,20 +861,19 @@ impl TranscriptionEngine {
         // Single-pass fast path: short audio (≤ one chunk) → one sidecar call,
         // one segment. Avoids chunk-WAV bookkeeping for the common short case.
         if total_duration_ms <= chunk_duration_ms {
-            let text = self
+            let raw = self
                 .run_sherpa_sidecar(family, files, audio_path, language)
                 .await?;
             if let Some(ref cb) = on_progress {
                 cb(100);
             }
-            if !text.trim().is_empty() {
-                on_segment(TranscriptSegment {
-                    start_ms: 0,
-                    end_ms: total_duration_ms,
-                    text: text.trim().to_string(),
-                    confidence: 1.0,
-                    words_json: None,
-                });
+            for segment in Self::segments_from_sidecar_output(
+                family,
+                &raw,
+                0,
+                total_duration_ms as i64,
+            ) {
+                on_segment(segment);
             }
             return Ok(());
         }
@@ -884,7 +927,7 @@ impl TranscriptionEngine {
             // Per-chunk transcription. A failed chunk shouldn't abort the whole
             // file — log and continue with an empty segment (matches the legacy
             // moonshine behavior).
-            let text = match self
+            let raw = match self
                 .run_sherpa_sidecar(family, files.clone(), &chunk_path, language)
                 .await
             {
@@ -896,14 +939,13 @@ impl TranscriptionEngine {
             };
             let _ = std::fs::remove_file(&chunk_path);
 
-            if !text.trim().is_empty() {
-                on_segment(TranscriptSegment {
-                    start_ms: chunk_start_ms as i64,
-                    end_ms: chunk_end_ms as i64,
-                    text: text.trim().to_string(),
-                    confidence: 1.0,
-                    words_json: None,
-                });
+            for segment in Self::segments_from_sidecar_output(
+                family,
+                &raw,
+                chunk_start_ms as i64,
+                chunk_end_ms as i64,
+            ) {
+                on_segment(segment);
             }
 
             chunk_idx += 1;
@@ -925,9 +967,16 @@ impl TranscriptionEngine {
         wav_path: &Path,
         language: &str,
     ) -> Result<String> {
+        // Nemotron runs on the streaming (online) binary; every other family
+        // on the offline one.
+        let binary = if matches!(family, SherpaFamily::NemotronTransducer) {
+            "sherpa-online"
+        } else {
+            "sherpa-onnx"
+        };
         // Guard against a missing or 0-byte placeholder sidecar before spawning,
         // so callers get an actionable message instead of a bare "failed".
-        if let Some(reason) = self.check_sidecar_usable("sherpa-onnx") {
+        if let Some(reason) = self.check_sidecar_usable(binary) {
             return Err(anyhow!(reason));
         }
 
@@ -950,8 +999,8 @@ impl TranscriptionEngine {
         let mut cmd = self
             .app_handle
             .shell()
-            .sidecar("sherpa-onnx")
-            .map_err(|e| anyhow!("sherpa-onnx sidecar not found: {}", e))?;
+            .sidecar(binary)
+            .map_err(|e| anyhow!("{} sidecar not found: {}", binary, e))?;
 
         // Belt-and-suspenders: the sidecar already has the right rpaths, but set the
         // library path too (matches the whisper pattern) so libonnxruntime resolves.
@@ -985,6 +1034,27 @@ impl TranscriptionEngine {
                 if files.use_itn {
                     args.push("--sense-voice-use-itn=1".to_string());
                 }
+            }
+            SherpaFamily::NemotronTransducer => {
+                // Identical split-transducer argv to Zipformer — the only
+                // differences are the binary (online) and the optional
+                // per-stream language hint.
+                args.push(format!("--encoder={}", files.model.to_string_lossy()));
+                if let Some(dec) = files.decoder.as_ref() {
+                    args.push(format!("--decoder={}", dec.to_string_lossy()));
+                }
+                if let Some(join) = files.joiner.as_ref() {
+                    args.push(format!("--joiner={}", join.to_string_lossy()));
+                }
+                // Per-stream language hint for prompt-conditioned multilingual
+                // models ("en", "ja", …). Empty/"auto" omits the flag so the
+                // model auto-detects; a region suffix ("en-US") is stripped.
+                let lang = language.trim().to_lowercase();
+                let lang = lang.split('-').next().unwrap_or("").trim().to_string();
+                if !lang.is_empty() && lang != "auto" {
+                    args.push(format!("--language={}", lang));
+                }
+                args.push("--num-threads=4".to_string());
             }
             SherpaFamily::Zipformer => {
                 // Split transducer: --encoder/--decoder/--joiner.
@@ -1051,9 +1121,28 @@ impl TranscriptionEngine {
             return Err(anyhow!(msg));
         }
 
-        // Extract the JSON result line from stderr. On silent/no-speech audio there
-        // is no JSON line at all — treat that as an empty transcript (Ok("")).
-        let text = stderr_buf
+        // Return the raw stderr: offline families extract the single JSON
+        // result line via `offline_text_from_output`; the streaming (Nemotron)
+        // family parses per-segment JSON lines via `nemotron::parse_online_segments`.
+        Ok(stderr_buf)
+    }
+
+    /// Derive per-chunk segments from a sidecar run's raw stderr.
+    ///
+    /// Offline families: the single `{"text": …}` line (if any) becomes one
+    /// segment spanning the chunk. The streaming family: every JSON line is a
+    /// timestamped segment (token timestamps + `start_time`, shifted by the
+    /// chunk offset). Silent/no-speech chunks yield no segments.
+    fn segments_from_sidecar_output(
+        family: SherpaFamily,
+        raw: &str,
+        chunk_start_ms: i64,
+        chunk_end_ms: i64,
+    ) -> Vec<TranscriptSegment> {
+        if matches!(family, SherpaFamily::NemotronTransducer) {
+            return crate::transcription::nemotron::parse_online_segments(raw, chunk_start_ms);
+        }
+        let text = raw
             .lines()
             .find(|l| l.trim_start().starts_with('{'))
             .and_then(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
@@ -1063,12 +1152,21 @@ impl TranscriptionEngine {
                     .map(|s| s.to_string())
             })
             .unwrap_or_default();
-        Ok(text)
+        if text.trim().is_empty() {
+            return Vec::new();
+        }
+        vec![TranscriptSegment {
+            start_ms: chunk_start_ms,
+            end_ms: chunk_end_ms,
+            text: text.trim().to_string(),
+            confidence: 1.0,
+            words_json: None,
+        }]
     }
 }
 
 /// True if a directory contains any file whose name starts with a known sidecar
-/// prefix (`whisper-`, `sherpa-onnx-`). Used to decide whether the dev source
+/// prefix (`whisper-`, `sherpa-onnx-`, `sherpa-online-`). Used to decide whether the dev source
 /// `bin/` dir is the right place to look for sidecar executables (as opposed to
 /// the resource dir, which in dev holds dylibs but not the externalBin binaries).
 fn dir_contains_sidecars(dir: &Path) -> bool {
@@ -1078,7 +1176,10 @@ fn dir_contains_sidecars(dir: &Path) -> bool {
     };
     for entry in entries.flatten() {
         if let Some(name) = entry.file_name().to_str() {
-            if name.starts_with("whisper-") || name.starts_with("sherpa-onnx-") {
+            if name.starts_with("whisper-")
+                || name.starts_with("sherpa-onnx-")
+                || name.starts_with("sherpa-online-")
+            {
                 return true;
             }
         }
@@ -1164,6 +1265,51 @@ fn build_wav_chunk(
 #[cfg(test)]
 mod tests {
     use super::sidecar_executable_name;
+    use super::{SherpaFamily, TranscriptSegment};
+
+    /// Recorded v1.13.6 streaming output for the pinned Nemotron model.
+    const ONLINE_FIXTURE: &str = include_str!("__fixtures__/sherpa-online-nemotron-output.txt");
+
+    #[test]
+    fn offline_output_becomes_one_chunk_bounded_segment() {
+        let raw = "config noise\n{\"text\":\"hello there\"}\n";
+        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+            SherpaFamily::SenseVoice,
+            raw,
+            30_000,
+            60_000,
+        );
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].text, "hello there");
+        assert_eq!(segs[0].start_ms, 30_000);
+        assert_eq!(segs[0].end_ms, 60_000);
+    }
+
+    #[test]
+    fn offline_silent_chunk_yields_no_segments() {
+        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+            SherpaFamily::SenseVoice,
+            "no json at all",
+            0,
+            30_000,
+        );
+        assert!(segs.is_empty());
+    }
+
+    #[test]
+    fn streaming_output_becomes_timestamped_segments_with_chunk_offset() {
+        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+            SherpaFamily::NemotronTransducer,
+            ONLINE_FIXTURE,
+            30_000,
+            60_000,
+        );
+        assert_eq!(segs.len(), 1);
+        assert!(segs[0].text.contains("tribal chief"));
+        // Fixture token timestamps 1.68 s → 7.12 s, shifted by the 30 s chunk.
+        assert_eq!(segs[0].start_ms, 30_000 + 1680);
+        assert_eq!(segs[0].end_ms, 30_000 + 7120);
+    }
 
     #[test]
     fn sidecar_names_follow_tauri_platform_convention() {

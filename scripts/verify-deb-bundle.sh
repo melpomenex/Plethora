@@ -25,6 +25,13 @@ for deb in "${debs[@]}"; do
     exit 1
   fi
 
+  # The streaming sherpa binary (local Nemotron runtime) can appear as
+  # `sherpa-online` or `sherpa-online-<target>`.
+  if ! grep -Eq '/sherpa-online([^/ ]*)$' <<<"$listing"; then
+    echo "Missing sherpa-online sidecar in $deb"
+    exit 1
+  fi
+
   # NotebookLM is bundled for desktop release artifacts. Fail if the runtime
   # or its sidecar is absent so a release cannot silently regress to a
   # first-run Python installation.

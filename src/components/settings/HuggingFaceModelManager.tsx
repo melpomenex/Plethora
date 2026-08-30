@@ -222,7 +222,7 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <p>
           Only models that match a Plethora-supported runtime (whisper.cpp ggml, sherpa-onnx
-          ONNX, or Nemotron ASR GGUF) can be installed. Downloaded files are verified and never
+          ONNX, or Nemotron ASR) can be installed. Downloaded files are verified and never
           executed as code. Repositories that don't match a supported artifact are blocked.
         </p>
       </div>
@@ -316,7 +316,7 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               No artifact in this repository is runnable by any installed Plethora speech runtime.
               Installation is blocked. Only repos exposing a ggml whisper model, a sherpa-onnx
-              ONNX model (with tokens), or a Nemotron ASR GGUF model can be installed.
+              ONNX model (with tokens), or a Nemotron ASR model can be installed.
             </div>
           ) : (
             <div className="space-y-2">

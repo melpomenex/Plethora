@@ -29,7 +29,8 @@ pub enum HfRuntime {
     SherpaOnnxStt,
     /// sherpa-onnx TTS (ONNX vits-family models).
     SherpaOnnxTts,
-    /// Nemotron ASR (GGUF, embedded runtime — install/check only until sidecar lands).
+    /// Nemotron ASR streaming transducer, run through the sherpa-onnx
+    /// online (streaming) sidecar as a split transducer (ONNX artifact).
     NemotronAsr,
 }
 
@@ -39,7 +40,7 @@ impl HfRuntime {
             HfRuntime::WhisperCpp => "whisper.cpp (ggml)",
             HfRuntime::SherpaOnnxStt => "sherpa-onnx (ONNX STT)",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx (ONNX TTS)",
-            HfRuntime::NemotronAsr => "Nemotron ASR (GGUF)",
+            HfRuntime::NemotronAsr => "Nemotron ASR (streaming ONNX)",
         }
     }
 
@@ -47,7 +48,7 @@ impl HfRuntime {
         match self {
             HfRuntime::WhisperCpp => "whisper",
             HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => "sherpa-onnx",
-            HfRuntime::NemotronAsr => "nemotron-asr",
+            HfRuntime::NemotronAsr => "sherpa-online",
         }
     }
 }
@@ -161,8 +162,18 @@ pub enum RunContract {
         data_dir: Option<String>,
     },
     NemotronAsr {
-        /// Primary GGUF weights file (repo-relative).
-        model_file: String,
+        /// Split-transducer encoder (repo-relative).
+        #[serde(default)]
+        encoder: String,
+        /// Split-transducer decoder (repo-relative).
+        #[serde(default)]
+        decoder: String,
+        /// Split-transducer joiner (repo-relative).
+        #[serde(default)]
+        joiner: String,
+        /// Tokens file (repo-relative).
+        #[serde(default)]
+        tokens: String,
     },
 }
 
@@ -236,7 +247,15 @@ impl RunContract {
                 }
                 files
             }
-            RunContract::NemotronAsr { model_file } => vec![model_file.as_str()],
+            RunContract::NemotronAsr {
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+            } => [encoder.as_str(), decoder.as_str(), joiner.as_str(), tokens.as_str()]
+                .into_iter()
+                .filter(|f| !f.is_empty())
+                .collect(),
         }
     }
 
@@ -324,9 +343,24 @@ impl RunContract {
                     }
                 }
             }
-            RunContract::NemotronAsr { model_file } => {
-                if model_file.is_empty() {
-                    return Err("nemotron-asr contract has an empty model_file".to_string());
+            RunContract::NemotronAsr {
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+            } => {
+                for (field, value) in [
+                    ("encoder", encoder),
+                    ("decoder", decoder),
+                    ("joiner", joiner),
+                    ("tokens", tokens),
+                ] {
+                    if value.is_empty() {
+                        return Err(format!(
+                            "nemotron-asr contract has an empty {field} (legacy GGUF rows are \
+                             not runnable — reinstall the model)"
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -900,10 +934,10 @@ impl RuntimeAdapter for NemotronAsrAdapter {
         "nemotron-asr"
     }
     fn label(&self) -> &'static str {
-        "Nemotron ASR (GGUF)"
+        "Nemotron ASR (streaming ONNX)"
     }
     fn required_metadata(&self) -> Vec<&'static str> {
-        vec!["*.gguf"]
+        vec!["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
     }
     fn install_dir(&self, app_data_dir: &Path) -> PathBuf {
         app_data_dir.join("models").join("nemotron-asr")
@@ -916,28 +950,54 @@ impl RuntimeAdapter for NemotronAsrAdapter {
         {
             return None;
         }
-        let gguf_files: Vec<_> = index
+        // The official sherpa-onnx exports are split transducers: encoder /
+        // decoder / joiner ONNX files (+ optional .int8. variants) + tokens.
+        let pick = |stem: &str| -> Option<String> {
+            let candidates: Vec<String> = index
+                .paths()
+                .into_iter()
+                .filter(|p| {
+                    let file = p.rsplit('/').next().unwrap_or(p);
+                    file == format!("{stem}.int8.onnx")
+                        || file == format!("{stem}.onnx")
+                        || (file.starts_with(stem) && file.ends_with(".onnx"))
+                })
+                .collect();
+            // Prefer the int8 variant, then the plain name, then any match.
+            candidates
+                .iter()
+                .find(|p| p.ends_with(".int8.onnx"))
+                .or_else(|| candidates.iter().find(|p| !p.contains(".int8.")))
+                .or_else(|| candidates.first())
+                .cloned()
+        };
+        let encoder = pick("encoder")?;
+        let decoder = pick("decoder")?;
+        let joiner = pick("joiner")?;
+        let tokens = index
             .paths()
             .into_iter()
-            .filter(|p| p.ends_with(".gguf"))
-            .collect();
-        if gguf_files.is_empty() {
-            return None;
-        }
-        let model_path = gguf_files
-            .into_iter()
-            .max_by_key(|p| index.size_of(p).unwrap_or(0))
-            .map(|p| p.to_string())?;
-        let files = vec![artifact_file(index, model_path.clone())];
+            .find(|p| p.rsplit('/').next().unwrap_or(p) == "tokens.txt")?
+            .to_string();
+
+        let files = vec![
+            artifact_file(index, encoder.clone()),
+            artifact_file(index, decoder.clone()),
+            artifact_file(index, joiner.clone()),
+            artifact_file(index, tokens.clone()),
+        ];
         let download_size = total_download_size(&files);
         Some(Artifact {
             runtime: HfRuntime::NemotronAsr,
-            kind: "nemotron-asr-gguf".to_string(),
-            label: "Nemotron ASR GGUF model".to_string(),
+            kind: "nemotron-asr-onnx".to_string(),
+            label: "Nemotron ASR streaming transducer (ONNX)".to_string(),
             files,
             download_size_bytes: download_size,
             run_contract: RunContract::NemotronAsr {
-                model_file: model_path,
+                encoder,
+                decoder,
+                joiner,
+                tokens,
             },
             estimated_memory_bytes: download_size.saturating_mul(2),
             confidence: if name.contains("nemotron") {

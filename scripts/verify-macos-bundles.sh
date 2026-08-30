@@ -29,6 +29,15 @@ verify_resources() {
   codesign --verify --strict "$whisper_sidecar"
   codesign --verify --strict "$sherpa_sidecar"
 
+  local sherpa_online_sidecar
+  sherpa_online_sidecar="$(find "$search_dir" -maxdepth 3 -type f -size +0c \( -name 'sherpa-online-*' -o -name 'sherpa-online' \) | head -n 1 || true)"
+  if [[ -z "$sherpa_online_sidecar" ]]; then
+    echo "Missing non-empty sherpa-online sidecar in $search_dir"
+    return 1
+  fi
+  echo "Found sherpa-online sidecar: $sherpa_online_sidecar"
+  codesign --verify --strict "$sherpa_online_sidecar"
+
   # Check for NotebookLM runtime
   local notebooklm_runtime
   notebooklm_runtime="$(find "$search_dir" -maxdepth 4 -type d -name 'notebooklm-runtime' | head -n 1 || true)"

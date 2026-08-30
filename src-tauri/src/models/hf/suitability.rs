@@ -430,7 +430,10 @@ mod tests {
                 data_dir: None,
             },
             HfRuntime::NemotronAsr => RunContract::NemotronAsr {
-                model_file: "nemotron-0.6b.gguf".into(),
+                encoder: "encoder.int8.onnx".into(),
+                decoder: "decoder.int8.onnx".into(),
+                joiner: "joiner.int8.onnx".into(),
+                tokens: "tokens.txt".into(),
             },
         };
         Artifact {
