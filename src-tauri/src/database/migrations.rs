@@ -3960,6 +3960,22 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE identity_key IS NOT NULL;
         "#,
     ),
+    Migration::new(
+        "111_sync_field_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_field_state (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            field_group TEXT NOT NULL,
+            last_hlc TEXT NOT NULL,
+            last_device_id TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (entity_type, entity_id, field_group)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_field_state_entity
+            ON sync_field_state(entity_type, entity_id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
