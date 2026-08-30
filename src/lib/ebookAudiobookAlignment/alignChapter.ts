@@ -1,12 +1,20 @@
 import type { AlignedWord, AlignChapterInput, AlignedChapter } from "./types";
-import { tokenizePlainText } from "./normalize";
+import { tokenizePlainText, type TextToken } from "./normalize";
 import { errorAlignTokens, alignmentMatchRate } from "./errorAlign/errorAlign";
 import { enforceMonotonicTimestamps, interpolateWordTimestamps } from "./interpolate";
 import { foldForMatch } from "../../utils/readerSpeechIndex";
 
+type EbookTokenWithChapter = TextToken & { chapterHref: string };
+
 export function alignChapter(input: AlignChapterInput): AlignedChapter {
   const { chapter, audioChapter, timeline } = input;
-  const ebookTokens = tokenizePlainText(chapter.plainText);
+  const sourceChapters = input.chapters?.length ? input.chapters : [chapter];
+  const ebookTokens: EbookTokenWithChapter[] = sourceChapters.flatMap((source) =>
+    tokenizePlainText(source.plainText).map((token) => ({
+      ...token,
+      chapterHref: source.href,
+    })),
+  );
   const chapterWords = timeline.words.filter(
     (w) => w.endMs > audioChapter.startMs && w.startMs < audioChapter.endMs,
   );
@@ -51,7 +59,7 @@ export function alignChapter(input: AlignChapterInput): AlignedChapter {
       text: ebookToken.text,
       locator: {
         kind: "epub",
-        chapterHref: chapter.href,
+        chapterHref: ebookToken.chapterHref,
         charOffset: ebookToken.charStart,
       },
       startMs,

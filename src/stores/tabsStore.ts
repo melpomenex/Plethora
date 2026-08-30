@@ -1669,15 +1669,18 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       const rehydratedTabs: Tab[] = [];
       for (const serialized of data.tabs) {
         try {
-          // A document viewer is driven entirely by `data.documentId` (TabWrapper
-          // spreads `data` as props). Without it the viewer renders nothing, so the
-          // tab would restore as a permanently blank pane. Drop it instead.
-          if (
-            (serialized.type === "document-viewer" ||
-              serialized.type === "audiobook-epub-sync") &&
-            !serialized.data?.documentId
-          ) {
+          // Document viewers need a documentId; split sync viewers are driven
+          // by the two document IDs instead. The old shared guard dropped all
+          // saved sync tabs because they never have a documentId.
+          if (serialized.type === "document-viewer" && !serialized.data?.documentId) {
             console.warn("Dropping document tab with no documentId:", serialized.id);
+            continue;
+          }
+          if (
+            serialized.type === "audiobook-epub-sync" &&
+            (!serialized.data?.audioDocumentId || !serialized.data?.epubDocumentId)
+          ) {
+            console.warn("Dropping audiobook sync tab with incomplete document IDs:", serialized.id);
             continue;
           }
           // The extract reader needs at least an extract id to rehydrate.

@@ -11,7 +11,7 @@
  - Progress tracking
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type SyntheticEvent } from "react";
 import {
   ArrowCounterClockwise,
   ArrowsInSimple,
@@ -152,6 +152,7 @@ interface AudiobookViewerProps {
   autoPlayOnOpen?: boolean;
   audioRef?: React.RefObject<HTMLAudioElement | null>;
   onTimeUpdate?: (currentTime: number) => void;
+  onDurationChange?: (duration: number) => void;
   /** Direct URL to stream remote audio (for podcast episodes) */
   remoteAudioUrl?: string;
   /** Podcast episode ID for position persistence */
@@ -259,6 +260,7 @@ export function AudiobookViewer({
   autoPlayOnOpen = false,
   audioRef: externalAudioRef,
   onTimeUpdate,
+  onDurationChange,
   remoteAudioUrl,
   episodeId,
   episodeTitle,
@@ -627,6 +629,18 @@ export function AudiobookViewer({
       return;
     }
 
+    // A parent such as the EPUB split view has already resolved this file to
+    // the range-capable media-server URL. Do not start a second desktop m4b
+    // preparation here: swapping the <audio src> from the playable URL to a
+    // later ffmpeg result resets currentTime and made playback appear stuck at
+    // 0:00. The direct source remains the source of truth for this session.
+    if (fileContent) {
+      setPreparedPlaybackPath(document.filePath);
+      setPreparedPlaybackSrc(fileContent);
+      setPlaybackError(null);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       try {
@@ -720,7 +734,7 @@ export function AudiobookViewer({
     return () => {
       cancelled = true;
     };
-  }, [document.id, document.filePath, retryAttempt]);
+  }, [document.id, document.filePath, fileContent, retryAttempt]);
 
   useEffect(() => {
     if (!isTauri() || !episodeId) {
@@ -1357,9 +1371,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
     toGlobalSeconds,
   ]);
   
-  const handleTimeUpdate = useCallback(() => {
-    if (audioRef.current) {
-      const time = audioRef.current.currentTime;
+  const handleTimeUpdate = useCallback((event?: SyntheticEvent<HTMLAudioElement>) => {
+    const audio = event?.currentTarget ?? audioRef.current;
+    if (audio) {
+      const time = audio.currentTime;
       setCurrentTime(time);
       currentTimeRef.current = time;
       currentGlobalTimeRef.current = toGlobalSeconds(currentPartIndex, time);
@@ -1488,8 +1503,8 @@ const editionSectionIdsRef = useRef<string[]>([]);
         }
       }
       
-      if (audioRef.current.buffered.length > 0) {
-        setBuffered(audioRef.current.buffered.end(audioRef.current.buffered.length - 1));
+      if (audio.buffered.length > 0) {
+        setBuffered(audio.buffered.end(audio.buffered.length - 1));
       }
     }
   }, [activeSegmentId, currentPartIndex, documentTranscriptSegments, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
@@ -1581,16 +1596,23 @@ const editionSectionIdsRef = useRef<string[]>([]);
     return () => window.removeEventListener("plethora-language-original-audio-range", onLanguageReplay);
   }, [audioRef, currentPartIndex, document.id, fromGlobalSeconds, multiPartInfo, seek]);
 
+  const publishAudioDuration = (audio: HTMLAudioElement | null) => {
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    setDuration(audio.duration);
+    durationRef.current = audio.duration;
+    onDurationChange?.(audio.duration);
+  };
+
   const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration);
-      durationRef.current = audioRef.current.duration;
+    const audio = audioRef.current;
+    if (audio) {
+      publishAudioDuration(audio);
       setPlaybackError(null);
       logAudiobookDiagnostic("playback", {
         documentId: document.id,
         filePath: document.filePath,
         status: "metadata",
-        elapsedMs: Math.round(audioRef.current.duration * 1000),
+        elapsedMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined,
       });
       attemptPendingSeek();
 
@@ -1599,11 +1621,15 @@ const editionSectionIdsRef = useRef<string[]>([]);
         pendingAutoplayAfterDownloadRef.current
       ) {
         pendingAutoplayAfterDownloadRef.current = false;
-        audioRef.current.play().catch(() => {
+        audio.play().catch(() => {
           setIsPlaying(false);
         });
       }
     }
+  };
+
+  const handleDurationChange = (event: SyntheticEvent<HTMLAudioElement>) => {
+    publishAudioDuration(event.currentTarget);
   };
 
   const handleCanPlay = () => {
@@ -3185,9 +3211,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
       {/* Audio element - use fallbackSrc (to override failing custom protocol sources), podcastLocalSrc (downloaded podcast), remoteAudioUrl (podcast stream), fileContent (blob URL), otherwise fall back to partSources */}
       <audio
         ref={audioRef}
-        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || fileContent || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
+        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || fileContent || preparedPlaybackSrc || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onDurationChange={handleDurationChange}
         onCanPlay={handleCanPlay}
         onProgress={handleProgress}
         onStalled={handleStalled}

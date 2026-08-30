@@ -7,7 +7,8 @@ import type {
 } from "./types";
 import { ALIGNMENT_MAP_VERSION } from "./types";
 import { alignChapter } from "./alignChapter";
-import { foldForAlignment } from "./normalize";
+import { foldForAlignment, tokenizePlainText } from "./normalize";
+import type { AlignedChapter } from "./types";
 
 function similarity(a: string, b: string): number {
   const na = foldForAlignment(a);
@@ -69,6 +70,74 @@ export function computePairId(
   return `${ebookDocId}:${audioDocId}:${ebookHash}:${audioHash}`;
 }
 
+/**
+ * Align a chapterless audiobook section-by-section. Running the edit-distance
+ * matrix over an entire book is quadratic in all EPUB and transcript words
+ * and can freeze the worker on normal-length books. A proportional word
+ * window keeps each comparison bounded while preserving the exact EPUB href
+ * and character offsets in the resulting locators.
+ */
+function alignSingleAudioChapterAcrossEbook(
+  chapters: EbookChapterInput[],
+  audioChapter: AudioChapterInput,
+  timeline: AlignBookInput["timeline"],
+): AlignedChapter {
+  const refCounts = chapters.map((chapter) => tokenizePlainText(chapter.plainText).length);
+  const totalRefCount = refCounts.reduce((sum, count) => sum + count, 0);
+  const totalHypCount = timeline.words.length;
+  let cumulativeRefCount = 0;
+  let previousHypIndex = 0;
+  const alignedParts: AlignedChapter[] = [];
+
+  for (let index = 0; index < chapters.length; index++) {
+    const chapter = chapters[index];
+    cumulativeRefCount += refCounts[index];
+    const nextHypIndex = index === chapters.length - 1 || totalRefCount === 0
+      ? totalHypCount
+      : Math.max(
+        previousHypIndex,
+        Math.round((cumulativeRefCount / totalRefCount) * totalHypCount),
+      );
+    const sectionWords = timeline.words.slice(previousHypIndex, nextHypIndex);
+    const sectionStartMs = index === 0
+      ? audioChapter.startMs
+      : sectionWords[0]?.startMs ?? alignedParts[index - 1]?.audioEndMs ?? audioChapter.startMs;
+    const sectionEndMs = index === chapters.length - 1
+      ? audioChapter.endMs
+      : sectionWords.at(-1)?.endMs ?? sectionStartMs;
+
+    alignedParts.push(alignChapter({
+      chapter,
+      audioChapter: {
+        ...audioChapter,
+        startMs: sectionStartMs,
+        endMs: Math.max(sectionEndMs, sectionStartMs + 1),
+      },
+      timeline: {
+        ...timeline,
+        words: sectionWords,
+      },
+    }));
+    previousHypIndex = nextHypIndex;
+  }
+
+  const words = alignedParts.flatMap((part) => part.words);
+  const confidenceDenominator = refCounts.reduce((sum, count) => sum + (count > 0 ? count : 0), 0);
+  const chapterConfidence = confidenceDenominator === 0
+    ? 0
+    : alignedParts.reduce((sum, part, index) => sum + part.chapterConfidence * refCounts[index], 0) / confidenceDenominator;
+
+  return {
+    ebookChapterHref: chapters[0]?.href ?? "",
+    audioChapterIndex: audioChapter.index,
+    audioStartMs: audioChapter.startMs,
+    audioEndMs: audioChapter.endMs,
+    chapterConfidence,
+    status: words.length === 0 ? "failed" : chapterConfidence >= 0.3 ? "complete" : "partial",
+    words,
+  };
+}
+
 export function alignBook(
   input: AlignBookInput,
   onProgress?: (p: AlignProgress) => void,
@@ -84,15 +153,24 @@ export function alignBook(
   for (let i = startFromChapter; i < input.audioChapters.length; i++) {
     const ac = input.audioChapters[i];
     const ec = chapterMap.get(ac.index);
+    // A chapterless audiobook is exposed by ffmpeg as one synthetic chapter.
+    // In that case the entire EPUB spine is the reference passage; pairing it
+    // with only the first EPUB section silently drops the rest of the book.
+    const sourceChapters = input.audioChapters.length === 1
+      ? input.chapters.filter((chapter) => chapter.plainText.trim())
+      : ec
+        ? [ec]
+        : [];
+    const primaryChapter = sourceChapters[0] ?? ec;
     onProgress?.({
       phase: "aligning",
       chapterIndex: i + 1,
       chapterTotal: total,
-      chapterHref: ec?.href,
-      message: ec ? `Aligning chapter ${i + 1} of ${total}` : `Skipping chapter ${i + 1}`,
+      chapterHref: primaryChapter?.href,
+      message: primaryChapter ? `Aligning chapter ${i + 1} of ${total}` : `Skipping chapter ${i + 1}`,
     });
 
-    if (!ec || !ec.plainText.trim()) {
+    if (!primaryChapter || !sourceChapters.some((chapter) => chapter.plainText.trim())) {
       alignedChapters.push({
         ebookChapterHref: ec?.href ?? "",
         audioChapterIndex: ac.index,
@@ -107,11 +185,13 @@ export function alignBook(
     }
 
     alignedChapters.push(
-      alignChapter({
-        chapter: ec,
-        audioChapter: ac,
-        timeline: input.timeline,
-      }),
+      sourceChapters.length > 1
+        ? alignSingleAudioChapterAcrossEbook(sourceChapters, ac, input.timeline)
+        : alignChapter({
+          chapter: primaryChapter,
+          audioChapter: ac,
+          timeline: input.timeline,
+        }),
     );
   }
 

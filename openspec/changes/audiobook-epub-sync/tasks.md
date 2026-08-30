@@ -40,3 +40,15 @@
 - [x] 5.3 Low-confidence warning — if alignment match rate < 50%, show dismissable banner suggesting chapter-only sync
 - [x] 5.4 Handle edge cases: no transcript yet (prompt to transcribe first), multi-part audiobooks, EPUBs with no TOC
 - [ ] 5.5 Test end-to-end with real audiobook+EPUB pairs — verify detection, context menu, alignment, scroll sync, highlight, click-to-seek
+
+## 6. Corrective implementation
+
+- [x] 6.1 Load whole-book transcripts from the durable document, chapter, default, and legacy start-time keys; merge and de-duplicate segments
+- [x] 6.2 Normalize missing audiobook chapter ends from the next chapter, media duration, or transcript duration
+- [x] 6.3 Extract every linear EPUB spine section for alignment instead of only mounted continuous-scroll sections
+- [x] 6.4 Align a single synthetic audiobook chapter across all EPUB sections and preserve per-section word locators
+- [x] 6.5 Rebuild stale cached maps against the current transcript fingerprint and auto-run alignment when all inputs are ready
+- [x] 6.6 Preserve an already-resolved `.m4b` source and publish delayed `durationchange` events so playback progress cannot remain at 0:00
+- [x] 6.7 Reattach sync click handlers as EPUB sections render and restore sync tabs with both document IDs
+- [x] 6.8 Add focused regression tests for chapter bounds, whole-book alignment, full-spine extraction, and `.m4b` time/duration updates
+- [ ] 6.9 Verify a real audiobook+EPUB pair on the target native runtime, including codec-specific playback and tap-to-seek

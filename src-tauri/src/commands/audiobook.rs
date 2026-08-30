@@ -208,7 +208,61 @@ fn parse_ffmetadata_output(filename: &str, output: &str, ffmpeg_stderr: &str) ->
         });
     }
 
+    // ffmetadata commonly omits the final chapter end, and the synthetic
+    // chapter above has no end at all. Resolve both cases here so every
+    // consumer (player, transcript sync, and chapter navigation) receives
+    // finite bounds instead of silently filtering out all transcript words.
+    let media_duration = metadata.duration;
+    for index in 0..metadata.chapters.len() {
+        let start = metadata.chapters[index].start_time;
+        let explicit_end = metadata.chapters[index].end_time;
+        let next_start = metadata
+            .chapters
+            .get(index + 1)
+            .map(|chapter| chapter.start_time);
+        let end = explicit_end
+            .filter(|value| *value > start)
+            .or_else(|| next_start.filter(|value| *value > start))
+            .or_else(|| (media_duration > start).then_some(media_duration));
+
+        if let Some(end) = end {
+            metadata.chapters[index].end_time = Some(end);
+            metadata.chapters[index].duration = Some((end - start).max(0.0));
+        }
+    }
+
     metadata
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ffmetadata_output;
+
+    #[test]
+    fn fills_missing_chapter_ends_from_next_chapter_and_duration() {
+        let metadata = parse_ffmetadata_output(
+            "book",
+            "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=42000\ntitle=One\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=42000\ntitle=Two\n",
+            "Duration: 00:01:40.00, start: 0.000000, bitrate: 64 kb/s",
+        );
+
+        assert_eq!(metadata.chapters[0].end_time, Some(42.0));
+        assert_eq!(metadata.chapters[1].end_time, Some(100.0));
+        assert_eq!(metadata.chapters[1].duration, Some(58.0));
+    }
+
+    #[test]
+    fn gives_chapterless_files_a_duration_bound() {
+        let metadata = parse_ffmetadata_output(
+            "book",
+            "",
+            "Duration: 00:10:00.00, start: 0.000000, bitrate: 64 kb/s",
+        );
+
+        assert_eq!(metadata.chapters.len(), 1);
+        assert_eq!(metadata.chapters[0].end_time, Some(600.0));
+        assert_eq!(metadata.chapters[0].duration, Some(600.0));
+    }
 }
 
 async fn extract_audiobook_info(

@@ -10,6 +10,7 @@ import {
   ArrowsClockwise,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { ResizableSplit } from "./ResizableSplit";
 import { AudiobookViewer } from "./AudiobookViewer";
 import { EPUBViewer } from "./EPUBViewer";
@@ -24,6 +25,7 @@ import {
   saveAlignmentMap,
   isAlignmentStale,
   computePairId,
+  normalizeAudioChapterBounds,
   type PlethoraAlignmentMap,
 } from "../../lib/ebookAudiobookAlignment";
 import { speechSectionsToChapters, simpleContentHash } from "../../lib/ebookAudiobookAlignment/epubChapterExtract";
@@ -41,6 +43,8 @@ export function AudiobookEpubSyncView({
   onClose,
 }: AudiobookEpubSyncViewProps) {
   const documents = useDocumentStore((s) => s.documents);
+  const activeTranscriptSegments = useTranscriptionStore((s) => s.activeSegments);
+  const activeTranscriptBookId = useTranscriptionStore((s) => s.activeTranscriptBookId);
   const audioDoc = documents.find((d) => d.id === audioDocumentId);
   const epubDoc = documents.find((d) => d.id === epubDocumentId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,10 +57,12 @@ export function AudiobookEpubSyncView({
 
   const [audioChapters, setAudioChapters] = useState<Array<{ title: string; startTime: number; endTime: number }>>([]);
   const [transcriptSegments, setTranscriptSegments] = useState<Array<{ text: string; startTime: number; endTime: number }>>([]);
+  const [audioDuration, setAudioDuration] = useState(0);
   const [epubToc, setEpubToc] = useState<Array<{ href: string; label: string }>>([]);
   const [speechSections, setSpeechSections] = useState<Array<{ spineIndex: number; href: string; text: string }>>([]);
 
   const [alignmentMap, setAlignmentMap] = useState<PlethoraAlignmentMap | null>(null);
+  const [alignmentCacheChecked, setAlignmentCacheChecked] = useState(false);
   const [alignProgress, setAlignProgress] = useState<string | null>(null);
   const [aligning, setAligning] = useState(false);
 
@@ -68,6 +74,33 @@ export function AudiobookEpubSyncView({
   const ebookHash = simpleContentHash(epubDocumentId, epubDoc?.filePath);
   const audioHash = simpleContentHash(audioDocumentId, audioDoc?.filePath);
   const pairId = computePairId(epubDocumentId, audioDocumentId, ebookHash, audioHash);
+
+  // The player publishes the transcript loaded after an in-viewer
+  // transcription. Prefer it while it belongs to this audiobook so opening
+  // the split view after transcription does not require a second reload.
+  const effectiveTranscriptSegments = useMemo(() => {
+    if (activeTranscriptBookId === audioDocumentId && activeTranscriptSegments.length > 0) {
+      return activeTranscriptSegments.map((segment) => ({
+        text: segment.text,
+        startTime: segment.start_ms / 1000,
+        endTime: segment.end_ms / 1000,
+      }));
+    }
+    return transcriptSegments;
+  }, [activeTranscriptBookId, activeTranscriptSegments, audioDocumentId, transcriptSegments]);
+
+  const transcriptTimeline = useMemo(() => {
+    if (effectiveTranscriptSegments.length === 0) return null;
+    return fromSegments(
+      effectiveTranscriptSegments.map((segment) => ({
+        text: segment.text,
+        startMs: Math.round(segment.startTime * 1000),
+        endMs: Math.round(segment.endTime * 1000),
+      })),
+      "plethora-audiobook",
+    );
+  }, [effectiveTranscriptSegments]);
+  const transcriptFingerprint = transcriptTimeline?.fingerprint ?? null;
 
   const useWordSync =
     alignmentMap !== null && alignmentMap.overallConfidence >= 0.3;
@@ -85,15 +118,39 @@ export function AudiobookEpubSyncView({
     [useWordSync],
   );
 
+  const handleAudioDurationChange = useCallback((duration: number) => {
+    if (Number.isFinite(duration) && duration > 0) {
+      setAudioDuration((previous) => Math.max(previous, duration));
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    loadAlignmentMap(pairId).then((map) => {
-      if (!cancelled && map && !isAlignmentStale(map, ebookHash, audioHash, map.transcriptFingerprint)) {
-        setAlignmentMap(map);
-      }
-    });
+    if (!transcriptFingerprint) {
+      setAlignmentMap(null);
+      setAlignmentCacheChecked(false);
+      return () => { cancelled = true; };
+    }
+    // Do not keep using a map while its transcript fingerprint is being
+    // checked. Otherwise a newly completed transcription can leave the old
+    // map active and suppress the automatic rebuild below.
+    setAlignmentMap(null);
+    setAlignmentCacheChecked(false);
+    loadAlignmentMap(pairId)
+      .then((map) => {
+        if (!cancelled && map && !isAlignmentStale(map, ebookHash, audioHash, transcriptFingerprint)) {
+          setAlignmentMap(map);
+        }
+      })
+      .catch(() => {
+        // A cache miss or an unavailable native cache should still allow a
+        // fresh alignment to run.
+      })
+      .finally(() => {
+        if (!cancelled) setAlignmentCacheChecked(true);
+      });
     return () => { cancelled = true; };
-  }, [pairId, ebookHash, audioHash]);
+  }, [pairId, ebookHash, audioHash, transcriptFingerprint]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -139,27 +196,54 @@ export function AudiobookEpubSyncView({
   useEffect(() => {
     if (!audioDoc?.filePath) return;
     let cancelled = false;
+    setAudioChapters([]);
+    setTranscriptSegments([]);
+    setAudioDuration(0);
     async function loadMeta() {
       try {
-        const chapters = await parseChapters(audioDoc!.filePath);
-        if (!cancelled && chapters.length > 0) {
-          setAudioChapters(chapters.map((c) => ({ title: c.title, startTime: c.startTime, endTime: c.endTime })));
+        const [chapters, meta] = await Promise.all([
+          parseChapters(audioDoc!.filePath),
+          parseAudiobookMetadata(audioDoc!.filePath),
+        ]);
+        const duration = Number.isFinite(meta.duration) && meta.duration > 0 ? meta.duration : 0;
+        if (!cancelled) {
+          setAudioDuration(duration);
+          const parsedChapters = chapters.length > 0 ? chapters : (meta.chapters ?? []);
+          setAudioChapters(normalizeAudioChapterBounds(parsedChapters, duration));
         }
-        const meta = await parseAudiobookMetadata(audioDoc!.filePath);
-        if (!cancelled && meta.chapters?.length) {
+
+        if (!cancelled) {
           const rawSegments: TranscriptionSegment[] = [];
-          for (const ch of meta.chapters) {
+          const transcriptIds = new Set<string>([audioDoc!.id, "default"]);
+          for (const ch of [...chapters, ...(meta.chapters ?? [])]) {
+            if (Number.isFinite(ch.id)) transcriptIds.add(String(ch.id));
+            if (Number.isFinite(ch.startTime)) transcriptIds.add(String(ch.startTime));
+          }
+
+          // Auto-transcription stores a whole-book row under document.id;
+          // legacy chapter transcription used chapter IDs or start times.
+          // Read all known keys and merge them so either history works.
+          for (const transcriptId of transcriptIds) {
             try {
-              const resp = await getTranscript(audioDoc!.id, String(ch.startTime));
+              const resp = await getTranscript(audioDoc!.id, transcriptId);
               if (resp?.segments) rawSegments.push(...resp.segments);
             } catch { /* partial */ }
           }
           if (rawSegments.length > 0 && !cancelled) {
-            setTranscriptSegments(rawSegments.map((seg) => ({
-              text: seg.text,
-              startTime: seg.start_ms / 1000,
-              endTime: seg.end_ms / 1000,
-            })));
+            const uniqueSegments = new Map<string, TranscriptionSegment>();
+            for (const segment of rawSegments) {
+              const key = `${segment.start_ms}:${segment.end_ms}:${segment.text}`;
+              uniqueSegments.set(key, segment);
+            }
+            setTranscriptSegments(
+              [...uniqueSegments.values()]
+                .sort((a, b) => a.start_ms - b.start_ms)
+                .map((seg) => ({
+                  text: seg.text,
+                  startTime: seg.start_ms / 1000,
+                  endTime: seg.end_ms / 1000,
+                })),
+            );
           }
         }
       } catch { /* ignore */ }
@@ -180,7 +264,7 @@ export function AudiobookEpubSyncView({
   );
 
   const runAlignment = useCallback(async () => {
-    if (transcriptSegments.length === 0) {
+    if (effectiveTranscriptSegments.length === 0 || !transcriptTimeline) {
       setAlignProgress("Transcribe the audiobook first.");
       return;
     }
@@ -194,7 +278,7 @@ export function AudiobookEpubSyncView({
 
     try {
       const timeline = fromSegments(
-        transcriptSegments.map((s) => ({
+        effectiveTranscriptSegments.map((s) => ({
           text: s.text,
           startMs: Math.round(s.startTime * 1000),
           endMs: Math.round(s.endTime * 1000),
@@ -203,7 +287,17 @@ export function AudiobookEpubSyncView({
       );
 
       const ebookChapters = speechSectionsToChapters(speechSections, epubToc);
-      const audioChapterInputs = audioChapters.map((c, index) => ({
+      const transcriptDuration = effectiveTranscriptSegments.reduce(
+        (max, segment) => Math.max(max, segment.endTime),
+        0,
+      );
+      const boundedAudioChapters = normalizeAudioChapterBounds(
+        audioChapters.length > 0
+          ? audioChapters
+          : [{ title: "Audiobook", startTime: 0, endTime: transcriptDuration }],
+        Math.max(audioDuration, transcriptDuration),
+      );
+      const audioChapterInputs = boundedAudioChapters.map((c, index) => ({
         index,
         title: c.title,
         startMs: Math.round(c.startTime * 1000),
@@ -252,25 +346,51 @@ export function AudiobookEpubSyncView({
       setAligning(false);
     }
   }, [
-    transcriptSegments,
+    effectiveTranscriptSegments,
+    transcriptTimeline,
     speechSections,
     epubToc,
     audioChapters,
+    audioDuration,
     epubDocumentId,
     audioDocumentId,
     ebookHash,
     audioHash,
   ]);
 
+  // Cached maps are intentionally preferred, but a newly transcribed pair
+  // should become usable without making the user discover the refresh icon.
+  // The attempt key prevents an error from spawning an alignment worker on
+  // every render while still allowing a new transcript or EPUB load to retry.
+  const alignmentAttemptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      alignmentMap || aligning || !transcriptFingerprint ||
+      !alignmentCacheChecked || speechSections.length === 0
+    ) return;
+    const attemptKey = `${pairId}:${transcriptFingerprint}:${speechSections.length}:${audioChapters.length}`;
+    if (alignmentAttemptRef.current === attemptKey) return;
+    alignmentAttemptRef.current = attemptKey;
+    void runAlignment();
+  }, [
+    alignmentMap,
+    alignmentCacheChecked,
+    aligning,
+    pairId,
+    runAlignment,
+    speechSections.length,
+    transcriptFingerprint,
+  ]);
+
   const syncSegments: SyncSegment[] = useMemo(
     () =>
-      transcriptSegments.map((seg, idx) => ({
+      effectiveTranscriptSegments.map((seg, idx) => ({
         index: idx,
         text: seg.text,
         startTime: seg.startTime,
         endTime: seg.endTime,
       })),
-    [transcriptSegments],
+    [effectiveTranscriptSegments],
   );
 
   const [syncState, setSyncState] = useState<{
@@ -346,6 +466,7 @@ export function AudiobookEpubSyncView({
           fileContent={mediaSource.src}
           audioRef={audioRef}
           onTimeUpdate={handleAudioTimeUpdate}
+          onDurationChange={handleAudioDurationChange}
           hideTitleHeader={true}
         />
       )}
@@ -430,7 +551,7 @@ export function AudiobookEpubSyncView({
 
         <button
           onClick={runAlignment}
-          disabled={aligning || transcriptSegments.length === 0}
+          disabled={aligning || effectiveTranscriptSegments.length === 0}
           className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground disabled:opacity-40"
           title="Sync text and audio (word-level alignment)"
         >
@@ -459,7 +580,7 @@ export function AudiobookEpubSyncView({
             fileName={epubDoc.title}
             documentId={epubDoc.id}
             onLoad={handleEpubLoad}
-            onSpeechSectionsChange={handleSpeechSections}
+            onAllSpeechSectionsChange={handleSpeechSections}
             syncSegments={useWordSync ? undefined : syncSegments}
             syncCurrentTime={useWordSync ? undefined : audioCurrentTime}
             onSyncStateChange={setSyncState}

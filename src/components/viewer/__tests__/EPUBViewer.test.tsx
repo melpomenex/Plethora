@@ -50,6 +50,7 @@ const mockBook = {
     navigation: Promise.resolve({ toc: [] }),
   },
   renderTo: vi.fn(() => mockRendition),
+  load: vi.fn(),
   spine: {
     length: 0,
     get: vi.fn(),
@@ -170,6 +171,7 @@ describe("EPUBViewer", () => {
     mockBook.ready = Promise.resolve();
     mobileState.isMobile = false;
     contentState.docs = [];
+    (mockBook.spine as any).spineItems = [];
     HTMLDivElement.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
       width: 100,
       height: 100,
@@ -213,6 +215,53 @@ describe("EPUBViewer", () => {
         { openAs: "epub" },
       ),
     );
+  });
+
+  it("extracts all linear spine sections for whole-book alignment", async () => {
+    const sections = [
+      {
+        index: 0,
+        href: "chapter-1.xhtml",
+        linear: true,
+        document: { body: { textContent: "First chapter text." } },
+        load: vi.fn().mockResolvedValue(undefined),
+      },
+      {
+        index: 1,
+        href: "chapter-2.xhtml",
+        linear: true,
+        document: { body: { textContent: "Second chapter text." } },
+        load: vi.fn().mockResolvedValue(undefined),
+      },
+      {
+        index: 2,
+        href: "nav.xhtml",
+        linear: false,
+        document: { body: { textContent: "Navigation" } },
+        load: vi.fn().mockResolvedValue(undefined),
+      },
+    ];
+    (mockBook.spine as any).spineItems = sections;
+    const onAllSpeechSectionsChange = vi.fn();
+
+    render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+        onAllSpeechSectionsChange={onAllSpeechSectionsChange}
+      />,
+    );
+
+    await waitFor(() => expect(onAllSpeechSectionsChange).toHaveBeenCalledWith([
+      { spineIndex: 0, href: "chapter-1.xhtml", text: "First chapter text." },
+      { spineIndex: 1, href: "chapter-2.xhtml", text: "Second chapter text." },
+    ]));
+    expect(sections[0].load).toHaveBeenCalled();
+    expect(sections[1].load).toHaveBeenCalled();
+    expect(sections[2].load).not.toHaveBeenCalled();
   });
 
   it("does not render the old mobile bottom toolbar when standalone", () => {

@@ -365,6 +365,8 @@ interface EPUBViewerProps {
    * the section so speech offsets resolve to EPUB anchors.
    */
   onSpeechSectionsChange?: (sections: Array<{ spineIndex: number; href: string; text: string }>) => void;
+  /** Full-spine speech text for alignment features that need the whole book. */
+  onAllSpeechSectionsChange?: (sections: Array<{ spineIndex: number; href: string; text: string }>) => void;
   /**
    * TOC navigation settled: rendition.display resolved, `relocated` fired, and
    * a render pass completed. The host resolves the now-visible anchor for TTS
@@ -438,6 +440,7 @@ export function EPUBViewer({
   onContextMenu,
   onContextTextChange,
   onSpeechSectionsChange,
+  onAllSpeechSectionsChange,
   onNavigationSettled,
   initialCfi,
   initialSearchMatchIndex,
@@ -574,9 +577,11 @@ export function EPUBViewer({
   // Use refs for callback props so the main loading effect doesn't re-run when they change
   const onContextTextChangeRef = useRef(onContextTextChange);
   const onSpeechSectionsChangeRef = useRef(onSpeechSectionsChange);
+  const onAllSpeechSectionsChangeRef = useRef(onAllSpeechSectionsChange);
   const onNavigationSettledRef = useRef(onNavigationSettled);
   onContextTextChangeRef.current = onContextTextChange;
   onSpeechSectionsChangeRef.current = onSpeechSectionsChange;
+  onAllSpeechSectionsChangeRef.current = onAllSpeechSectionsChange;
   onNavigationSettledRef.current = onNavigationSettled;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
@@ -1884,6 +1889,39 @@ export function EPUBViewer({
             });
           }
 
+          // The mounted-content callback above is deliberately lightweight and
+          // only serves TTS/context consumers. Audiobook alignment needs a
+          // stable reference for the whole book; continuous rendition only
+          // keeps a window of spine items mounted, so load every linear spine
+          // section once in reading order and publish it separately.
+          if (onAllSpeechSectionsChangeRef.current) {
+            void (async () => {
+              const sections: Array<{ spineIndex: number; href: string; text: string }> = [];
+              for (const section of spineItems) {
+                if (!mounted) return;
+                if (section?.linear === false) continue;
+                try {
+                  await section.load(epubBook.load.bind(epubBook));
+                  const text = String(
+                    section.document?.body?.textContent ??
+                    section.document?.documentElement?.textContent ??
+                    "",
+                  ).trim();
+                  if (text) {
+                    sections.push({
+                      spineIndex: Number.isFinite(section.index) ? section.index : sections.length,
+                      href: String(section.href ?? ""),
+                      text,
+                    });
+                  }
+                } catch (err) {
+                  console.warn("EPUBViewer: Failed to extract EPUB spine section:", err);
+                }
+              }
+              if (mounted) onAllSpeechSectionsChangeRef.current?.(sections);
+            })();
+          }
+
           // Mark initial display as complete after a delay to allow content to render
           // This prevents resize events from causing blank page issues
           setTimeout(() => {
@@ -2709,6 +2747,7 @@ export function EPUBViewer({
 
     const key = `${word.chapterHref}:${word.charOffset}:${word.text}`;
     const chapterChanged = lastSyncChapterRef.current !== word.chapterHref;
+    const wordChanged = key !== lastSyncWordKeyRef.current;
 
     const contentsList = rendition.getContents?.() ?? [];
     let matchedDoc: globalThis.Document | null = null;
@@ -2734,7 +2773,7 @@ export function EPUBViewer({
       return;
     }
 
-    if (key === lastSyncWordKeyRef.current && !chapterChanged) return;
+    if (!wordChanged && !chapterChanged) return;
 
     const ok = highlightWordAtOffset(
       matchedDoc,
@@ -2747,7 +2786,7 @@ export function EPUBViewer({
     lastSyncWordKeyRef.current = key;
     lastSyncChapterRef.current = word.chapterHref;
 
-    if (chapterChanged) {
+    if (chapterChanged || wordChanged) {
       scrollActiveSyncWordIntoView(matchedDoc);
     }
   }, [rendition]);
@@ -2779,12 +2818,13 @@ export function EPUBViewer({
   // Tap-to-seek: char-offset hit test (no pre-wrapped spans required)
   useEffect(() => {
     if (!rendition || !onSyncWordClick) return;
-    const contentsList = rendition.getContents?.() ?? [];
     const cleanups: Array<() => void> = [];
+    const attachedDocuments = new WeakSet<globalThis.Document>();
 
-    for (const contents of contentsList) {
+    const attachContents = (contents: any) => {
       const doc = contents.document as globalThis.Document | undefined;
-      if (!doc?.body) continue;
+      if (!doc?.body || attachedDocuments.has(doc)) return;
+      attachedDocuments.add(doc);
       const chapterHref = contents.url?.split("#")[0] ?? "";
       const handler = (e: globalThis.MouseEvent) => {
         if (e.defaultPrevented) return;
@@ -2796,8 +2836,24 @@ export function EPUBViewer({
       };
       doc.body.addEventListener("click", handler);
       cleanups.push(() => doc.body.removeEventListener("click", handler));
-    }
-    return () => cleanups.forEach((fn) => fn());
+    };
+
+    const attachMountedContents = () => {
+      for (const contents of rendition.getContents?.() ?? []) attachContents(contents);
+    };
+    attachMountedContents();
+    const onRendered = (_section: any, view: any) => {
+      attachContents(view?.contents ?? view);
+      attachMountedContents();
+    };
+    rendition.on("rendered", onRendered);
+    rendition.on("relocated", attachMountedContents);
+
+    return () => {
+      rendition.off("rendered", onRendered);
+      rendition.off("relocated", attachMountedContents);
+      cleanups.forEach((fn) => fn());
+    };
   }, [rendition, onSyncWordClick]);
 
   const handleTocClick = async (href: string) => {

@@ -82,6 +82,8 @@ export interface AudioChapterInput {
 
 export interface AlignChapterInput {
   chapter: EbookChapterInput;
+  /** Additional EPUB sections when one audio chapter spans the whole book. */
+  chapters?: EbookChapterInput[];
   audioChapter: AudioChapterInput;
   timeline: TranscriptionTimeline;
 }

@@ -34,6 +34,7 @@ export const AnalyticsTab = debugLazy("AnalyticsTab", () => import("./AnalyticsT
 export const SettingsTab = debugLazy("SettingsTab", () => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 
 export const DocumentViewer = debugLazy("DocumentViewer", () => import("../viewer/DocumentViewerWrapper").then(m => ({ default: m.DocumentViewer })));
+export const AudiobookEpubSyncView = debugLazy("AudiobookEpubSyncView", () => import("../viewer/AudiobookEpubSyncView").then(m => ({ default: m.AudiobookEpubSyncView })));
 export const DocumentExtractsTab = debugLazy("DocumentExtractsTab", () => import("./DocumentExtractsTab").then(m => ({ default: m.DocumentExtractsTab })));
 export const ExtractsTab = debugLazy("ExtractsTab", () => import("./ExtractsTab").then(m => ({ default: m.ExtractsTab })));
 export const ExtractReader = debugLazy("ExtractReader", () => import("./ExtractReader").then(m => ({ default: m.ExtractReader })));
@@ -116,7 +117,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   notebooklm: { content: NotebookLMTab, title: "NotebookLM", icon: "🤖", closable: true },
   "image-registry": { content: ImageRegistryTab, title: "Images", icon: "🖼️", closable: true },
   podcast: { content: PodcastTab, title: "Podcasts", icon: "🎙️", closable: true },
-  "audiobook-epub-sync": { content: DocumentViewer, title: "Audiobook Sync", icon: "🎧", closable: true },
+  "audiobook-epub-sync": { content: AudiobookEpubSyncView, title: "Audiobook Sync", icon: "🎧", closable: true },
   audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
   extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },

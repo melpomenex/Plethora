@@ -361,6 +361,32 @@ describe("desktop audiobook source resolution failures", () => {
     // No error is surfaced for a successful resolution.
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("keeps an already-resolved m4b source and publishes delayed duration/time events", async () => {
+    const onTimeUpdate = vi.fn();
+    const onDurationChange = vi.fn();
+    const { container } = render(
+      <AudiobookViewer
+        document={{ ...desktopDocument(), filePath: "/Users/test/Music/test-book.m4b" }}
+        fileContent="http://127.0.0.1:43123/stream?path=test-book.m4b"
+        onTimeUpdate={onTimeUpdate}
+        onDurationChange={onDurationChange}
+      />,
+    );
+
+    const audio = container.querySelector("audio");
+    expect(audio).not.toBeNull();
+    expect(audio?.getAttribute("src")).toBe("http://127.0.0.1:43123/stream?path=test-book.m4b");
+    await waitFor(() => expect(audiobookApiMocks.prepareAudiobookPlayback).not.toHaveBeenCalled());
+
+    Object.defineProperty(audio, "duration", { configurable: true, value: 321 });
+    Object.defineProperty(audio, "currentTime", { configurable: true, value: 12 });
+    fireEvent.durationChange(audio!);
+    fireEvent.timeUpdate(audio!);
+
+    expect(onDurationChange).toHaveBeenCalledWith(321);
+    expect(onTimeUpdate).toHaveBeenCalledWith(12);
+  });
 });
 
 describe("transcription provider routing and labels", () => {

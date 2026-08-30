@@ -29,6 +29,7 @@ const STRIP_PATTERNS = [
   /\b audiobook \b/gi,
   /\b unabridged \b/gi,
   /\b abridged \b/gi,
+  /[\s,;:_-]+(?:audio\s*book|unabridged|abridged|a\s*narrated\s*version)(?=$|[\s)\]])/gi,
   /\[\s*audiobook\s*\]/gi,
   /\[\s*unabridged\s*\]/gi,
   /,\s*\d+(?:st|nd|rd|th)\s+edition\b/gi,
