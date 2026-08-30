@@ -2,6 +2,11 @@ import type { ModelProfile } from "../api/transcription";
 
 export interface TranscriptionAudioSettings {
   provider: "local" | "groq" | "apple" | "android-ondevice";
+  mode?: "auto" | "fast" | "enhanced" | "realtime" | "offline";
+  sttProvider?: "automatic" | "local" | "openrouter" | "premium";
+  sttModel?: "automatic" | string;
+  preferLocal?: boolean;
+  automaticFallback?: boolean;
   preferredModelId?: string;
   language: string;
   groq: {
@@ -15,12 +20,20 @@ export interface TranscriptionAudioSettings {
 }
 
 export const MODEL_QUALITY_RANK = [
+  "nemotron-3.5-asr-0.6b",
+  "nvidia/nemotron-3.5-asr-0.6b",
   "parakeet-tdt-ctc-110m",
   "sense-voice-small",
   "small",
   "distil-small.en",
   "base",
 ] as const;
+
+export function isNemotronModelId(id?: string | null): boolean {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  return lower.includes("nemotron");
+}
 
 export type TranscriptionPlatform = "desktop" | "native-mobile";
 
@@ -68,10 +81,15 @@ function bestInstalledProfile(profiles: ModelProfile[]): ModelProfile | undefine
   );
   return profiles
     .filter((profile) => profile.installed)
-    .sort((left, right) =>
-      (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER)
-      - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-    )[0];
+    .sort((left, right) => {
+      const leftRank = isNemotronModelId(left.id) || isNemotronModelId(left.name)
+        ? -1
+        : (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER);
+      const rightRank = isNemotronModelId(right.id) || isNemotronModelId(right.name)
+        ? -1
+        : (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+      return leftRank - rightRank;
+    })[0];
 }
 
 function appleResolution(): Extract<Resolution, { ok: true }> {
@@ -83,11 +101,17 @@ function appleResolution(): Extract<Resolution, { ok: true }> {
   };
 }
 
+export interface ResolveTranscriptionOptions {
+  appleReady?: boolean;
+  androidSttReady?: boolean;
+  localNemotronReady?: boolean;
+}
+
 export function resolveTranscription(
   audioSettings: TranscriptionAudioSettings,
   profiles: ModelProfile[],
   platform: TranscriptionPlatform,
-  options: { appleReady?: boolean; androidSttReady?: boolean } = {},
+  options: ResolveTranscriptionOptions = {},
 ): Resolution {
   if (audioSettings.provider === "apple") {
     if (options.appleReady === false) {
@@ -153,7 +177,14 @@ export function resolveTranscription(
     };
   }
   const mobileSubstitution = mobileLocalUnavailable;
-  const provider = mobileSubstitution ? "groq" : audioSettings.provider;
+
+  const explicitCloud =
+    audioSettings.sttProvider === "openrouter" ||
+    (audioSettings.provider === "groq" &&
+      audioSettings.sttProvider !== "local" &&
+      audioSettings.sttProvider !== "automatic");
+
+  const provider = mobileSubstitution ? "groq" : explicitCloud ? "groq" : audioSettings.provider;
 
   if (provider === "groq") {
     const modelId = audioSettings.groq.model;
@@ -176,49 +207,132 @@ export function resolveTranscription(
     };
   }
 
-  const preferredModelId = audioSettings.preferredModelId?.trim();
-  if (preferredModelId) {
-    const preferred = profiles.find((profile) => profile.id === preferredModelId);
-    if (!preferred?.installed) {
+  const hasInstalledNemotronProfile = profiles.some(
+    (p) => p.installed && (isNemotronModelId(p.id) || isNemotronModelId(p.name)),
+  );
+  const nemotronAvailable = options.localNemotronReady === true || hasInstalledNemotronProfile;
+
+  // 1. Explicit model selection in sttModel
+  if (audioSettings.sttModel && audioSettings.sttModel !== "automatic") {
+    if (isNemotronModelId(audioSettings.sttModel)) {
+      if (nemotronAvailable || options.localNemotronReady !== false) {
+        return {
+          ok: true,
+          provider: "local",
+          modelId: "nemotron-3.5-asr-0.6b",
+          modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+        };
+      }
       return {
         ok: false,
         reason: "model-not-installed",
-        modelId: preferredModelId,
-        modelLabel: preferred?.name ?? preferredModelId,
+        modelId: audioSettings.sttModel,
+        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      };
+    }
+    const explicitProfile = profiles.find((p) => p.id === audioSettings.sttModel);
+    if (explicitProfile?.installed) {
+      return {
+        ok: true,
+        provider: "local",
+        modelId: explicitProfile.id,
+        modelLabel: explicitProfile.name,
+      };
+    }
+  }
+
+  // 2. Explicit preferredModelId
+  const preferredModelId = audioSettings.preferredModelId?.trim();
+  if (preferredModelId) {
+    if (isNemotronModelId(preferredModelId)) {
+      return {
+        ok: true,
+        provider: "local",
+        modelId: "nemotron-3.5-asr-0.6b",
+        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      };
+    }
+    const preferred = profiles.find((profile) => profile.id === preferredModelId);
+    if (preferred?.installed) {
+      return {
+        ok: true,
+        provider: "local",
+        modelId: preferred.id,
+        modelLabel: preferred.name,
+      };
+    }
+    // If preferred model is the uninstalled default "distil-small.en" and local Nemotron is ready, prioritize Nemotron
+    if (preferredModelId === "distil-small.en" && nemotronAvailable && (audioSettings.preferLocal ?? true)) {
+      return {
+        ok: true,
+        provider: "local",
+        modelId: "nemotron-3.5-asr-0.6b",
+        modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
       };
     }
     return {
-      ok: true,
-      provider: "local",
-      modelId: preferred.id,
-      modelLabel: preferred.name,
+      ok: false,
+      reason: "model-not-installed",
+      modelId: preferredModelId,
+      modelLabel: preferred?.name ?? preferredModelId,
     };
   }
 
-  const fallback = bestInstalledProfile(profiles);
-  if (!fallback) {
-    return { ok: false, reason: "no-model-selected" };
+  // 3. Prefer local Nemotron if ready and preferLocal is true
+  if (nemotronAvailable && (audioSettings.preferLocal ?? true)) {
+    return {
+      ok: true,
+      provider: "local",
+      modelId: "nemotron-3.5-asr-0.6b",
+      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+    };
   }
-  return {
-    ok: true,
-    provider: "local",
-    modelId: fallback.id,
-    modelLabel: profileLabel(profiles, fallback.id),
-  };
+
+  // 4. Fallback to best installed profile
+  const fallback = bestInstalledProfile(profiles);
+  if (fallback) {
+    return {
+      ok: true,
+      provider: "local",
+      modelId: fallback.id,
+      modelLabel: profileLabel(profiles, fallback.id),
+    };
+  }
+
+  // 5. If Nemotron is available as fallback
+  if (nemotronAvailable) {
+    return {
+      ok: true,
+      provider: "local",
+      modelId: "nemotron-3.5-asr-0.6b",
+      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+    };
+  }
+
+  if (preferredModelId) {
+    return {
+      ok: false,
+      reason: "model-not-installed",
+      modelId: preferredModelId,
+      modelLabel: preferredModelId,
+    };
+  }
+
+  return { ok: false, reason: "no-model-selected" };
 }
 
 /**
- * Async resolve with engine-readiness probes (Apple Speech + Android STT).
+ * Async resolve with engine-readiness probes (Apple Speech + Android STT + Local Nemotron).
  * Probes run only for the options not supplied; failures default to not-ready
- * so resolution degrades to the pre-on-device behavior.
+ * so resolution degrades gracefully.
  */
 export async function resolveTranscriptionWithReadiness(
   audioSettings: TranscriptionAudioSettings,
   profiles: ModelProfile[],
   platform: TranscriptionPlatform,
-  options: { appleReady?: boolean; androidSttReady?: boolean } = {},
+  options: ResolveTranscriptionOptions = {},
 ): Promise<Resolution> {
-  const [appleReady, androidSttReady] = await Promise.all([
+  const [appleReady, androidSttReady, localNemotronReady] = await Promise.all([
     options.appleReady !== undefined
       ? Promise.resolve(options.appleReady)
       : import("./ai/apple/speech")
@@ -229,10 +343,21 @@ export async function resolveTranscriptionWithReadiness(
       : import("./ai/android/androidStt")
           .then((m) => m.isAndroidSttReady())
           .catch(() => false),
+    options.localNemotronReady !== undefined
+      ? Promise.resolve(options.localNemotronReady)
+      : import("../api/transcription")
+          .then(async (m) => {
+            const { canRunLocalNemotron } = await import(
+              "../services/transcription/DeviceCapabilityService"
+            );
+            return canRunLocalNemotron() && (await m.isLocalNemotronInstalled());
+          })
+          .catch(() => false),
   ]);
   return resolveTranscription(audioSettings, profiles, platform, {
     appleReady,
     androidSttReady,
+    localNemotronReady,
   });
 }
 

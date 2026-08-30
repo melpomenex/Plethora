@@ -269,4 +269,61 @@ describe("resolveTranscription — android-ondevice matrix", () => {
     );
     expect(text).toContain("On-Device STT");
   });
+
+  it("prioritizes local Nemotron when installed on desktop with preferLocal", () => {
+    const res = resolveTranscription(
+      settings({ preferredModelId: undefined, preferLocal: true }),
+      [whisper],
+      "desktop",
+      { localNemotronReady: true }
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "local",
+      modelId: "nemotron-3.5-asr-0.6b",
+      modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+    });
+  });
+
+  it("resolves Nemotron when default distil-small.en is not installed but Nemotron is ready", () => {
+    const res = resolveTranscription(
+      settings({ preferredModelId: "distil-small.en", preferLocal: true }),
+      [],
+      "desktop",
+      { localNemotronReady: true }
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "local",
+      modelId: "nemotron-3.5-asr-0.6b",
+    });
+  });
+
+  it("honors explicit Nemotron sttModel selection", () => {
+    const res = resolveTranscription(
+      settings({ sttModel: "nemotron-3.5-asr-0.6b" }),
+      [],
+      "desktop",
+      { localNemotronReady: true }
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "local",
+      modelId: "nemotron-3.5-asr-0.6b",
+    });
+  });
+
+  it("still honors explicit Groq provider when requested even if Nemotron is ready", () => {
+    const res = resolveTranscription(
+      settings({ provider: "groq", sttProvider: undefined }),
+      [],
+      "desktop",
+      { localNemotronReady: true }
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "groq",
+      modelId: "whisper-large-v3-turbo",
+    });
+  });
 });

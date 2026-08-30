@@ -197,4 +197,53 @@ describe("android on-device transcription routing", () => {
       undefined,
     );
   });
+
+  it("routes local Nemotron resolution for documents to the auto queue", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), preferredModelId: undefined, preferLocal: true },
+      [whisper],
+      "desktop",
+      { localNemotronReady: true },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routeDocumentTranscription(
+      { id: "doc-1", filePath: "/audio/book.mp3" },
+      resolution,
+      "en",
+    );
+    expect(route).toBe("local");
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "doc-1",
+      "/audio/book.mp3",
+      "local",
+      "nemotron-3.5-asr-0.6b",
+      "en",
+    );
+    expect(mocks.transcribeAudiobookWithGroq).not.toHaveBeenCalled();
+  });
+
+  it("routes local Nemotron resolution for podcasts to transcribePodcastEpisode", async () => {
+    const resolution = resolveTranscription(
+      { ...baseSettings(), preferredModelId: undefined, preferLocal: true },
+      [whisper],
+      "desktop",
+      { localNemotronReady: true },
+    );
+    if (resolution.ok === false) throw new Error("unexpected failure");
+    const route = await routePodcastTranscription(
+      "episode-nemotron",
+      "https://audio/ep.mp3",
+      resolution,
+      "en",
+      true,
+    );
+    expect(route).toBe("local");
+    expect(mocks.transcribePodcastEpisode).toHaveBeenCalledWith(
+      "episode-nemotron",
+      "nemotron-3.5-asr-0.6b",
+      "en",
+      true,
+    );
+    expect(mocks.transcribePodcastEpisodeWithGroq).not.toHaveBeenCalled();
+  });
 });

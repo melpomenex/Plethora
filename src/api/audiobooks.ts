@@ -500,10 +500,13 @@ export async function generateTranscript(
  * Get the currently configured transcription provider
  */
 export function getTranscriptionProvider(): 'local' | 'groq' {
-  const provider = useSettingsStore.getState().settings.audioTranscription.provider;
-  // Only the local + Groq engines are reachable from the legacy video/import
-  // helpers; apple/android-ondevice route through their own flows.
-  return provider === 'groq' ? 'groq' : 'local';
+  const audioSettings = useSettingsStore.getState().settings.audioTranscription;
+  const explicitCloud =
+    audioSettings.sttProvider === "openrouter" ||
+    (audioSettings.provider === "groq" &&
+      audioSettings.sttProvider !== "local" &&
+      audioSettings.sttProvider !== "automatic");
+  return explicitCloud ? 'groq' : 'local';
 }
 
 /**
