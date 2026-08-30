@@ -126,6 +126,24 @@ async fn record_sync_state(
     Ok(())
 }
 
+async fn blocked_by_tombstone(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+    state_entity_id: &str,
+) -> Result<bool> {
+    if matches!(record.operation, Some(SyncOperation::Create | SyncOperation::Delete)) {
+        return Ok(false);
+    }
+    let tombstoned: Option<i64> = sqlx::query_scalar(
+        "SELECT tombstoned FROM sync_entity_state WHERE entity_type = ?1 AND entity_id = ?2",
+    )
+    .bind(record.entity_type.as_str())
+    .bind(state_entity_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(tombstoned.unwrap_or(0) != 0)
+}
+
 async fn state_entity_id(
     tx: &mut Transaction<'_, Sqlite>,
     record: &RemoteSyncRecord,
@@ -189,9 +207,13 @@ pub async fn apply_remote_record(
             _ => false,
         };
 
+    if field_group_update && blocked_by_tombstone(tx, record, &state_id).await? {
+        return Ok(ApplyOutcome::SkippedOlder);
+    }
+
     // Legacy/whole-entity records use one deterministic ordering rule. V2
     // card/document/extract updates are instead gated independently per field
-    // group inside their apply functions.
+    // group inside their apply functions, but entity tombstones always win.
     if !field_group_update && !incoming_wins(tx, record, &state_id).await? {
         return Ok(ApplyOutcome::SkippedOlder);
     }
