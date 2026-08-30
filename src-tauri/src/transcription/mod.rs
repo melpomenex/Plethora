@@ -83,7 +83,7 @@ pub async fn download_transcription_model(
     repo: State<'_, Repository>,
     id: String,
 ) -> Result<()> {
-    use crate::models::hf::commands::{active_register, active_unregister};
+    use crate::models::hf::commands::active_try_register;
     use crate::models::hf::manager::{
         install_pinned_nemotron_asr, is_pinned_nemotron_repo, model_id_for,
         NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
@@ -97,7 +97,12 @@ pub async fn download_transcription_model(
             NEMOTRON_ASR_REPO_ID,
             NEMOTRON_ASR_REVISION,
         );
-        active_register(&app_handle, &hf_id, cancel.clone());
+        // Same in-flight key as `hf_install_model`, so a Nemotron download
+        // started from either surface can never run twice concurrently.
+        let _guard = active_try_register(&app_handle, &hf_id, cancel.clone()).map_err(|e| {
+            // Keep the user-facing phrasing model-id-free.
+            crate::error::PlethoraError::Internal(e.to_string().replace(&hf_id, "Nemotron ASR"))
+        })?;
         let result = install_pinned_nemotron_asr(
             &app_handle,
             &repo,
@@ -105,7 +110,6 @@ pub async fn download_transcription_model(
             cancel.clone(),
         )
         .await;
-        active_unregister(&app_handle, &hf_id);
         result.map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
         let _ = app_handle.emit(
             "transcription://download-complete",

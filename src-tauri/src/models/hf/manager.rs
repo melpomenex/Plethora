@@ -22,7 +22,7 @@ use super::adapters::{
 use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
 use super::hf_client::{
     FileMetadata, RepoInput, build_file_index, clean_revision, fetch_file_metadata, fetch_repo_info,
-    hf_client, resolve_download_url, safe_dir_name,
+    hf_metadata_client, hf_download_client, resolve_download_url, safe_dir_name,
 };
 use crate::database::Repository;
 use anyhow::{anyhow, Result};
@@ -233,7 +233,7 @@ pub fn is_pinned_nemotron_repo(repo_id: &str) -> bool {
 /// SHA-256 is pinned to the verified community GGUF release and falls back to
 /// the known constant so downloads never fail with a SHA-256 error.
 pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<InstallTarget> {
-    let client = hf_client();
+    let client = hf_metadata_client();
     let meta = fetch_file_metadata(
         &client,
         NEMOTRON_ASR_REPO_ID,
@@ -720,7 +720,7 @@ pub async fn resolve_install_target(
     runtime: HfRuntime,
     artifact_kind: &str,
 ) -> Result<InstallTarget> {
-    let client = hf_client();
+    let client = hf_metadata_client();
     let revision = clean_revision(repo_input.revision.as_deref().unwrap_or("main"));
     let revision = if revision.is_empty() { "main" } else { revision.as_str() };
 
@@ -883,7 +883,11 @@ pub async fn install(
         ));
     }
 
-    let client = hf_client();
+    // Download client: no total timeout (a 60 s whole-request deadline would
+    // abort any multi-hundred-MB body mid-stream); connect + read-idle bounds
+    // instead, so only stalled connections die. Metadata probes elsewhere use
+    // the bounded `hf_metadata_client()`.
+    let client = hf_download_client();
 
     let specs: Vec<DownloadSpec> = target
         .artifact
@@ -915,26 +919,36 @@ pub async fn install(
 
     let progress_id = target
         .progress_id
-        .as_deref()
-        .unwrap_or(&target.model_id);
+        .clone()
+        .unwrap_or_else(|| target.model_id.clone());
 
     // Failure mid-download removes the whole per-repo dir (no orphan files).
-    let artifact_files = download_artifact_files(
+    // Every failure (download, verification, registry) emits a terminal
+    // `ok: false` install-finished event so the UI clears its progress state —
+    // without it a failed install left a phantom "in progress" row forever.
+    let artifact_files = match download_artifact_files(
         &client,
         &target.install_dir,
         &specs,
         Some(app),
-        progress_id,
+        &progress_id,
         &cancel,
     )
-    .await?;
+    .await
+    {
+        Ok(files) => files,
+        Err(e) => {
+            emit_install_finished(app, &install_failure_event(&progress_id, &e));
+            return Err(e);
+        }
+    };
     let installed_size: u64 = artifact_files.iter().map(|f| f.size).sum();
     // Verify the installed file set satisfies the run contract.
     if !verify_on_disk(target.install_dir.to_string_lossy().as_ref(), &artifact_files) {
         let _ = super::downloader::remove_dir_if_exists(&target.install_dir);
-        return Err(anyhow!(
-            "Model downloaded but installed files failed verification."
-        ));
+        let e = anyhow!("Model downloaded but installed files failed verification.");
+        emit_install_finished(app, &install_failure_event(&progress_id, &e));
+        return Err(e);
     }
 
     let model = InstalledHfModel {
@@ -952,18 +966,38 @@ pub async fn install(
         installed: true,
     };
 
-    registry_insert(repo.pool(), &model).await?;
+    if let Err(e) = registry_insert(repo.pool(), &model).await {
+        emit_install_finished(app, &install_failure_event(&progress_id, &e));
+        return Err(e);
+    }
 
-    let _ = app.emit(
-        FINISHED_EVENT,
-        InstallFinished {
-            id: model.id.clone(),
+    // Terminal event keyed by the same id the progress events used, so both
+    // UI stores (HF manager and transcription settings) clear their state.
+    emit_install_finished(
+        app,
+        &InstallFinished {
+            id: progress_id,
             ok: true,
             message: format!("Installed {}", model.repo_id),
         },
     );
 
     Ok(model)
+}
+
+/// Emit an install-finished event (best-effort; never fails the caller).
+pub(crate) fn emit_install_finished(app: &AppHandle, finished: &InstallFinished) {
+    let _ = app.emit(FINISHED_EVENT, finished);
+}
+
+/// The terminal event payload for a failed install (unit-tested separately
+/// from the emission itself, which needs a live AppHandle).
+pub(crate) fn install_failure_event(progress_id: &str, err: &anyhow::Error) -> InstallFinished {
+    InstallFinished {
+        id: progress_id.to_string(),
+        ok: false,
+        message: err.to_string(),
+    }
 }
 
 /// Uninstall: remove files + registry row. `app_data` is the app-data dir the
@@ -1050,6 +1084,31 @@ pub async fn hf_stt_profiles(
 mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Terminal failure events (fix-nemotron-model-download)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn failure_event_carries_progress_id_and_readable_message() {
+        let err = anyhow::anyhow!(
+            "Download failed: connection lost while downloading (inner detail); \
+             retried 3 times without success"
+        );
+        let event = install_failure_event("nemotron-3.5-asr-0.6b", &err);
+        assert_eq!(event.id, "nemotron-3.5-asr-0.6b");
+        assert!(!event.ok);
+        assert!(event.message.contains("connection lost"), "{}", event.message);
+        assert!(event.message.contains("retried"), "{}", event.message);
+    }
+
+    #[test]
+    fn failure_event_passes_cancel_message_through() {
+        let err = anyhow::anyhow!("Download cancelled");
+        let event = install_failure_event("some-id", &err);
+        assert!(!event.ok);
+        assert_eq!(event.message, "Download cancelled");
+    }
 
     async fn test_pool() -> Pool<sqlx::Sqlite> {
         let pool = SqlitePoolOptions::new()
@@ -1688,13 +1747,15 @@ mod tests {
         write_model_files(&nemotron);
         registry_insert(&pool, &nemotron).await.unwrap();
 
-        // Resolves via logical key
+        // Resolves via logical key (expectation updated for the ungated
+        // community GGUF rename in 1c7d4976; the test previously pinned the
+        // old `nemotron-0.6b.gguf` name).
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
-            SttEngineRoute::Nemotron { model_file: "nemotron-0.6b.gguf".to_string() }
+            SttEngineRoute::Nemotron { model_file: NEMOTRON_ASR_GGUF_FILE.to_string() }
         );
         let path = resolve_installed_path(&pool, NEMOTRON_ASR_LOGICAL_KEY).await;
         assert!(path.is_some());
-        assert_eq!(path.unwrap(), dir.path().join("nemotron-0.6b.gguf"));
+        assert_eq!(path.unwrap(), dir.path().join(NEMOTRON_ASR_GGUF_FILE));
     }
 }

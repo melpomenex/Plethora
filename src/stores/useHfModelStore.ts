@@ -125,14 +125,25 @@ if (isTauri()) {
   });
 
   safeListen<{ id: string; ok: boolean; message: string }>("hf://install-finished", (event) => {
+    const { id, ok, message } = event.payload;
     const state = useHfModelStore.getState();
-    state.setProgress({ ...state.progress[event.payload.id], percent: event.payload.ok ? 100 : 0 });
+    // Flash 100% only when a progress entry exists (a failure before the
+    // first chunk has none — never synthesize a `progress[undefined]` key).
+    if (ok && state.progress[id]) {
+      state.setProgress({ ...state.progress[id], percent: 100 });
+    }
+    // Failure/cancel terminal events clear the phantom "in progress" row and
+    // surface the readable message (the backend only started emitting ok:false
+    // with fix-nemotron-model-download; cancellations stay silent).
+    if (!ok && !/cancel/i.test(message)) {
+      state.setInstallState("error", message);
+    }
     void state.fetchInstalled().finally(() => {
       useHfModelStore.setState((prev) => {
         const progress = { ...prev.progress };
-        delete progress[event.payload.id];
+        delete progress[id];
         const installing = { ...prev.installing };
-        delete installing[event.payload.id];
+        delete installing[id];
         return { progress, installing };
       });
     });

@@ -2574,6 +2574,7 @@ export const fr: Dict = {
   "settings.audioDownloadToEnableDesc":
     "Choisissez un modèle ci-dessous. Chaque modèle inclut une description courte pour vous aider à choisir.",
   "settings.audioDownloading": "Téléchargement {percent}%",
+  "settings.audioDownloadingBytes": "Téléchargement {received}",
   "settings.audioEstimatedCost": "Coût estimé",
   "settings.audioFastCloud": "Transcription cloud rapide",
   "settings.audioFastCloudDesc":

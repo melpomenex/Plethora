@@ -3810,6 +3810,7 @@ export const en: Dict = {
     "A download is already in progress. Transcription will start after it finishes.",
   "settings.audioModelsAndProfiles": "Models & Profiles",
   "settings.audioDownloading": "Downloading {percent}%",
+  "settings.audioDownloadingBytes": "Downloading {received}",
   "settings.audioDeleteModel": "Delete model",
   "settings.audioDownload": "Download",
   "settings.audioOfflinePrivate": "Offline & Private",

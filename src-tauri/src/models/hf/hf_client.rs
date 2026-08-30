@@ -211,8 +211,8 @@ fn hf_access_token() -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-/// A reqwest client tuned for HF hub requests (default headers, timeouts).
-pub fn hf_client() -> Client {
+/// Shared client construction (default headers, user agent, connect bound).
+fn hf_client_builder() -> reqwest::ClientBuilder {
     let mut headers = HeaderMap::new();
     if let Some(token) = hf_access_token() {
         if let Ok(value) = HeaderValue::from_str(&format!("Bearer {token}")) {
@@ -221,12 +221,60 @@ pub fn hf_client() -> Client {
     }
     let mut builder = Client::builder()
         .user_agent("Plethora/2.7 (HF speech model manager)")
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60));
+        .connect_timeout(std::time::Duration::from_secs(15));
     if !headers.is_empty() {
         builder = builder.default_headers(headers);
     }
-    builder.build().unwrap_or_else(|_| Client::new())
+    builder
+}
+
+/// A reqwest client for small HF hub metadata requests (repo info, LFS pointer
+/// probes). These are bounded JSON/text payloads, so a total deadline is
+/// appropriate.
+pub fn hf_metadata_client() -> Client {
+    metadata_client_with_total_timeout(METADATA_TOTAL_TIMEOUT_SECS)
+}
+
+/// A reqwest client for streaming artifact bodies (multi-hundred-MB models).
+///
+/// Deliberately has **no total request timeout**: in reqwest 0.12 `.timeout()`
+/// is a whole-request deadline that includes streaming the body, which kills
+/// any download too large for the connection to finish within it. Instead the
+/// client bounds connection establishment and per-read inactivity
+/// (`read_timeout` refreshes on every chunk received), so a slow-but-alive
+/// stream runs to completion and only a genuinely stalled connection aborts.
+pub fn hf_download_client() -> Client {
+    download_client_with_read_timeout(READ_TIMEOUT_SECS)
+}
+
+/// Seconds without receiving any body bytes before a download attempt is
+/// considered stalled (the retry + resume loop then takes over).
+pub const READ_TIMEOUT_SECS: u64 = 60;
+
+/// Whole-request deadline for bounded metadata (JSON/pointer) requests.
+pub const METADATA_TOTAL_TIMEOUT_SECS: u64 = 60;
+
+/// Timeout-injectable variants so tests can exercise the timeout *semantics*
+/// (total vs read-idle) in milliseconds instead of minutes.
+pub(crate) fn download_client_with_read_timeout(read_secs: u64) -> Client {
+    hf_client_builder()
+        .read_timeout(std::time::Duration::from_secs(read_secs))
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
+
+pub(crate) fn metadata_client_with_total_timeout(total_secs: u64) -> Client {
+    hf_client_builder()
+        .timeout(std::time::Duration::from_secs(total_secs))
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
+
+/// Backwards-compatible alias: callers historically used `hf_client()` for
+/// metadata probes. New code should name the intent (`hf_metadata_client` /
+/// `hf_download_client`).
+pub fn hf_client() -> Client {
+    hf_metadata_client()
 }
 
 /// Fetch repo info for `repo_id` (optionally pinned to a revision).
@@ -235,7 +283,18 @@ pub async fn fetch_repo_info(
     repo_id: &str,
     revision: Option<&str>,
 ) -> Result<HfRepoInfo> {
-    let mut url = format!("{}/{}", HF_API_BASE, url_encode_segments(repo_id));
+    fetch_repo_info_from_base(client, HF_API_BASE, repo_id, revision).await
+}
+
+/// Base-URL-injectable core of [`fetch_repo_info`] (tests point it at a local
+/// server instead of the real API).
+async fn fetch_repo_info_from_base(
+    client: &Client,
+    api_base: &str,
+    repo_id: &str,
+    revision: Option<&str>,
+) -> Result<HfRepoInfo> {
+    let mut url = format!("{}/{}", api_base, url_encode_segments(repo_id));
     if let Some(rev) = revision.filter(|r| !r.is_empty() && *r != "main") {
         url.push_str(&format!("?revision={}", url_encode(rev)));
     }
@@ -256,7 +315,21 @@ pub async fn fetch_repo_info(
         }
         return Err(anyhow!("Hugging Face API returned {status} for {repo_id}"));
     }
-    let info: HfRepoInfo = response.json().await?;
+    // Read the body first so a non-JSON response (HTML block page, proxy error
+    // page, …) can be reported descriptively instead of surfacing a raw
+    // body-decoding error like "error decoding response body".
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| anyhow!("Hugging Face API request for {repo_id} failed: {e}"))?;
+    let info: HfRepoInfo = serde_json::from_slice(&body).map_err(|e| {
+        let snippet: String = String::from_utf8_lossy(&body).chars().take(200).collect();
+        let snippet = snippet.replace(['\n', '\r'], " ");
+        anyhow!(
+            "Hugging Face API returned an unexpected non-JSON response for {repo_id} ({e}). \
+             Response began with: {snippet:?}"
+        )
+    })?;
     if info.private {
         return Err(anyhow!(
             "Repository '{repo_id}' is private. Plethora can only install public models."
@@ -622,5 +695,103 @@ mod tests {
         let url = resolve_download_url("../evil/model", "main", "model.onnx");
         assert!(!url.contains("/../"), "raw traversal leaked via repo id: {url}");
         assert!(url.contains("/%2E%2E/evil/model/"), "{url}");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Client timeout semantics (download vs metadata clients)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    use crate::models::hf::test_support::TestServerBuilder;
+
+    #[test]
+    fn timeout_constants_are_pinned() {
+        assert_eq!(READ_TIMEOUT_SECS, 60);
+        assert_eq!(METADATA_TOTAL_TIMEOUT_SECS, 60);
+    }
+
+    #[tokio::test]
+    async fn download_client_has_no_total_timeout_but_read_idle_timeout() {
+        // A body that trickles 1 byte every 150 ms for ~2.4 s completes on the
+        // download client even with a 1 s read timeout: read timeouts refresh
+        // on every received chunk, and there is no whole-request deadline. A
+        // 1 s *total* timeout (the metadata client's policy) would kill it.
+        let body: Vec<u8> = (0..16u8).collect();
+        let server = TestServerBuilder::new(move |_| (200, body.clone()))
+            .trickle(1, 150)
+            .spawn()
+            .await;
+        let client = download_client_with_read_timeout(1);
+        let response = client.get(&server.url).send().await.expect("request ok");
+        let bytes = response.bytes().await.expect("trickled body completes");
+        assert_eq!(bytes.len(), 16, "full body received across the trickle");
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn download_client_aborts_genuinely_stalled_connections() {
+        // Server declares 1 MB but sends 1 KB and then goes silent: the read
+        // timeout (shortened to 1 s for the test) must abort the attempt.
+        let body = vec![0xABu8; 1024 * 1024];
+        let (builder, _delivered_rx) =
+            TestServerBuilder::new(move |_| (200, body.clone())).hold_after_bytes(1024);
+        let server = builder.spawn().await;
+        let client = download_client_with_read_timeout(1);
+        let response = client.get(&server.url).send().await.expect("request ok");
+        let err = response
+            .bytes()
+            .await
+            .expect_err("stalled body must time out");
+        assert!(err.is_timeout(), "expected a timeout error, got: {err}");
+        server.stop();
+    }
+
+    #[tokio::test]
+    async fn metadata_client_enforces_total_timeout_even_while_data_trickles() {
+        // Same trickle as above, but on a total-timeout client: the 1 s
+        // whole-request deadline fires even though bytes keep arriving — this
+        // is exactly why artifact downloads must not use this policy.
+        let body: Vec<u8> = (0..16u8).collect();
+        let server = TestServerBuilder::new(move |_| (200, body.clone()))
+            .trickle(1, 150)
+            .spawn()
+            .await;
+        let client = metadata_client_with_total_timeout(1);
+        let err = match client.get(&server.url).send().await {
+            Ok(response) => response
+                .bytes()
+                .await
+                .expect_err("total timeout must fire mid-trickle"),
+            Err(err) => err,
+        };
+        assert!(err.is_timeout(), "expected a timeout error, got: {err}");
+        server.stop();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Non-JSON metadata responses
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn repo_info_reports_descriptive_error_for_html_response() {
+        // An HTML block/proxy page instead of the expected JSON must surface a
+        // descriptive error, not a raw "error decoding response body".
+        let html = b"<html><body>502 Bad Gateway</body></html>".to_vec();
+        let server = TestServerBuilder::new(move |_| (200, html.clone()))
+            .spawn()
+            .await;
+        let err = fetch_repo_info_from_base(&Client::new(), &server.url, "owner/model", None)
+            .await
+            .map(|_| ())
+            .expect_err("non-JSON must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unexpected non-JSON response"),
+            "descriptive headline missing: {msg}"
+        );
+        assert!(
+            msg.contains("<html>"),
+            "underlying response snippet missing: {msg}"
+        );
+        server.stop();
     }
 }

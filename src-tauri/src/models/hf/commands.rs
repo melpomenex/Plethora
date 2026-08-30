@@ -3,7 +3,7 @@
 use super::adapters::{Artifact, DetectionConfidence, HfRuntime, detect_all};
 use super::downloader::PROGRESS_EVENT;
 use super::hf_client::{
-    HfFile, RepoInput, build_file_index, clean_revision, fetch_repo_info, hf_client,
+    HfFile, RepoInput, build_file_index, clean_revision, fetch_repo_info, hf_metadata_client,
     params_millions, parse_repo_input, repo_display_name,
 };
 use super::manager::{
@@ -23,7 +23,7 @@ use tauri::{AppHandle, Manager, State, command};
 use tokio_util::sync::CancellationToken;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Active-download tracking (cancel support)
+// Active-download tracking (cancel support + in-flight dedupe)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Managed state: install id -> cancellation token for in-flight downloads.
@@ -32,41 +32,79 @@ pub struct ActiveHfDownloads {
     pub map: Mutex<HashMap<String, CancellationToken>>,
 }
 
-pub fn active_register(app: &AppHandle, id: &str, token: CancellationToken) {
-    if let Some(state) = app.try_state::<ActiveHfDownloads>() {
-        state
-            .map
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id.to_string(), token);
+impl ActiveHfDownloads {
+    /// Register an in-flight install. Returns `false` when the id is already
+    /// downloading (duplicate-install rejection — two concurrent downloads
+    /// would interleave progress under one key and fight over the same
+    /// `.part` file).
+    pub fn try_register(&self, id: &str, token: CancellationToken) -> bool {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        if map.contains_key(id) {
+            return false;
+        }
+        map.insert(id.to_string(), token);
+        true
     }
-}
 
-pub fn active_unregister(app: &AppHandle, id: &str) {
-    if let Some(state) = app.try_state::<ActiveHfDownloads>() {
-        state
-            .map
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id);
+    pub fn unregister(&self, id: &str) {
+        self.map.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
-}
 
-pub fn active_cancel(app: &AppHandle, id: &str) -> bool {
-    let token = app.try_state::<ActiveHfDownloads>().and_then(|state| {
-        state
+    pub fn cancel(&self, id: &str) -> bool {
+        let token = self
             .map
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
-            .cloned()
-    });
-    if let Some(token) = token {
-        token.cancel();
-        true
-    } else {
-        false
+            .cloned();
+        if let Some(token) = token {
+            token.cancel();
+            true
+        } else {
+            false
+        }
     }
+}
+
+/// RAII guard: unregisters the install id on drop (including panics and early
+/// returns), so an aborted install can never wedge the "already downloading"
+/// gate shut.
+pub struct ActiveDownloadGuard {
+    pub app: AppHandle,
+    pub id: String,
+}
+
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        if let Some(state) = self.app.try_state::<ActiveHfDownloads>() {
+            state.unregister(&self.id);
+        }
+    }
+}
+
+/// Register `id` as in-flight, or fail with an "already downloading" error.
+pub fn active_try_register(
+    app: &AppHandle,
+    id: &str,
+    token: CancellationToken,
+) -> std::result::Result<ActiveDownloadGuard, PlethoraError> {
+    if let Some(state) = app.try_state::<ActiveHfDownloads>() {
+        if !state.try_register(id, token) {
+            return Err(PlethoraError::Internal(format!(
+                "{id} is already downloading; wait for it to finish or cancel it first"
+            )));
+        }
+    }
+    Ok(ActiveDownloadGuard {
+        app: app.clone(),
+        id: id.to_string(),
+    })
+}
+
+pub fn active_cancel(app: &AppHandle, id: &str) -> bool {
+    app.try_state::<ActiveHfDownloads>()
+        .map(|state| state.cancel(id))
+        .unwrap_or(false)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,7 +235,7 @@ pub async fn hf_inspect_model(
     if is_pinned_nemotron_repo(&parsed.repo_id) {
         return build_pinned_nemotron_inspection(&app_handle).await;
     }
-    let client = hf_client();
+    let client = hf_metadata_client();
     let revision = clean_revision(parsed.revision.as_deref().unwrap_or("main"));
     let revision = if revision.is_empty() { "main" } else { revision.as_str() };
 
@@ -358,10 +396,11 @@ pub async fn hf_install_model(
     }
 
     let cancel = CancellationToken::new();
-    active_register(&app_handle, &target.model_id, cancel.clone());
+    // Reject duplicate concurrent installs of the same model id; the guard
+    // unregisters on any exit path (success, error, panic).
+    let _guard = active_try_register(&app_handle, &target.model_id, cancel.clone())?;
 
     let result = install(&app_handle, &repo, &target, cancel.clone()).await;
-    active_unregister(&app_handle, &target.model_id);
 
     result.map_err(|e| PlethoraError::Internal(e.to_string()))
 }
@@ -415,5 +454,46 @@ mod tests {
             assert_eq!(parsed, *expected, "frontend value {raw:?}");
         }
         assert!(parse_runtime_arg("bogus").is_err());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // In-flight dedupe (fix-nemotron-model-download)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn duplicate_install_id_is_rejected_while_in_flight() {
+        let state = ActiveHfDownloads::default();
+        let first = CancellationToken::new();
+        assert!(
+            state.try_register("hf:nemotron-asr:repo", first.clone()),
+            "first registration succeeds"
+        );
+        assert!(
+            !state.try_register("hf:nemotron-asr:repo", CancellationToken::new()),
+            "second registration for the same id is rejected"
+        );
+        // A different id is unaffected.
+        assert!(state.try_register("other-model", CancellationToken::new()));
+    }
+
+    #[test]
+    fn unregister_frees_the_slot_for_the_next_install() {
+        let state = ActiveHfDownloads::default();
+        assert!(state.try_register("m1", CancellationToken::new()));
+        state.unregister("m1");
+        assert!(
+            state.try_register("m1", CancellationToken::new()),
+            "slot is reusable after unregister"
+        );
+    }
+
+    #[test]
+    fn cancel_fires_the_registered_token() {
+        let state = ActiveHfDownloads::default();
+        let token = CancellationToken::new();
+        assert!(state.try_register("m1", token.clone()));
+        assert!(!state.cancel("missing"), "unknown id reports false");
+        assert!(state.cancel("m1"));
+        assert!(token.is_cancelled(), "in-flight token is cancelled");
     }
 }

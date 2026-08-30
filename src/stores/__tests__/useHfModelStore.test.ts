@@ -6,11 +6,17 @@ const mocks = vi.hoisted(() => ({
   hfInstallModel: vi.fn(),
   hfCancelInstall: vi.fn(),
   hfUninstallModel: vi.fn(),
+  listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 
 vi.mock("../../lib/tauri", () => ({
   isTauri: () => true,
-  listen: vi.fn().mockResolvedValue(vi.fn()),
+  listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+    mocks.listenHandlers.set(event, handler);
+    return () => {
+      mocks.listenHandlers.delete(event);
+    };
+  }),
 }));
 
 vi.mock("../../api/hfModels", () => ({
@@ -102,5 +108,79 @@ describe("useHfModelStore", () => {
     mocks.hfUninstallModel.mockResolvedValue(undefined);
     await useHfModelStore.getState().uninstall("hf:whisper-cpp:someone/whisper-tiny");
     expect(mocks.hfUninstallModel).toHaveBeenCalledWith("hf:whisper-cpp:someone/whisper-tiny");
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Terminal failure events (fix-nemotron-model-download)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function emitInstallFinished(payload: { id: string; ok: boolean; message: string }) {
+    const handler = mocks.listenHandlers.get("hf://install-finished");
+    expect(handler, "install-finished listener registered").toBeDefined();
+    handler!({ payload });
+  }
+
+  it("ok:false finished event clears stale progress/installing state and surfaces the error", async () => {
+    useHfModelStore.getState().setProgress({
+      id: "hf:whisper-cpp:someone/whisper-tiny",
+      file: "ggml-tiny.bin",
+      received: 10,
+      total: 100,
+      percent: 10,
+    });
+    useHfModelStore.setState({ installState: "installing", error: null });
+
+    emitInstallFinished({
+      id: "hf:whisper-cpp:someone/whisper-tiny",
+      ok: false,
+      message: "Download failed: connection lost while downloading; retried 3 times without success",
+    });
+
+    // fetchInstalled resolves async inside the handler.
+    await vi.waitFor(() => {
+      const state = useHfModelStore.getState();
+      expect(state.progress).toEqual({});
+      expect(state.installing).toEqual({});
+    });
+    expect(useHfModelStore.getState().installState).toBe("error");
+    expect(useHfModelStore.getState().error).toContain("connection lost");
+  });
+
+  it("cancelled finished event clears state without flipping to error", async () => {
+    useHfModelStore.getState().setProgress({
+      id: "hf:whisper-cpp:someone/whisper-tiny",
+      file: "ggml-tiny.bin",
+      received: 5,
+      total: 100,
+      percent: 5,
+    });
+    useHfModelStore.setState({ installState: "installing", error: null });
+
+    emitInstallFinished({
+      id: "hf:whisper-cpp:someone/whisper-tiny",
+      ok: false,
+      message: "Download cancelled",
+    });
+
+    await vi.waitFor(() => {
+      const state = useHfModelStore.getState();
+      expect(state.progress).toEqual({});
+      expect(state.installing).toEqual({});
+    });
+    expect(useHfModelStore.getState().installState).toBe("installing");
+    expect(useHfModelStore.getState().error).toBeNull();
+  });
+
+  it("failure with no prior progress never synthesizes a progress[undefined] entry", async () => {
+    emitInstallFinished({
+      id: "some-unknown-id",
+      ok: false,
+      message: "Download failed: could not reach the server",
+    });
+    await vi.waitFor(() => {
+      expect(useHfModelStore.getState().progress).toEqual({});
+    });
+    expect(useHfModelStore.getState().progress).not.toHaveProperty("undefined");
+    expect(useHfModelStore.getState().installing).not.toHaveProperty("undefined");
   });
 });

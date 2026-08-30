@@ -11,6 +11,8 @@ import { LOGICAL_STT_MODEL_KEYS } from "../services/transcription/config";
 interface TranscriptionState {
   profiles: ModelProfile[];
   downloadProgress: Record<string, number>;
+  /** Raw byte counters for in-flight downloads (total 0 = unknown size). */
+  downloadBytes: Record<string, { received: number; total: number }>;
   transcriptionProgress: number;
   activeSegments: TranscriptSegment[];
   activeTranscriptBookId: string | null;
@@ -18,19 +20,21 @@ interface TranscriptionState {
   activeTranscriptChapterId: string | null;
   currentStatus: 'idle' | 'processing' | 'downloading';
   activeJob: { bookId: string, chapterId: string } | null;
-  
+
   fetchProfiles: () => Promise<void>;
   loadTranscript: (bookId: string, chapterId: string) => Promise<void>;
   addSegment: (segment: TranscriptSegment) => void;
   addSegments: (segments: TranscriptSegment[]) => void;
   setStatus: (status: 'idle' | 'processing' | 'downloading') => void;
   setDownloadProgress: (id: string, progress: number) => void;
+  setDownloadBytes: (id: string, received: number, total: number) => void;
   setTranscriptionProgress: (progress: number) => void;
 }
 
 export const useTranscriptionStore = create<TranscriptionState>((set) => ({
   profiles: [],
   downloadProgress: {},
+  downloadBytes: {},
   transcriptionProgress: 0,
   activeSegments: [],
   activeTranscriptBookId: null,
@@ -88,6 +92,12 @@ export const useTranscriptionStore = create<TranscriptionState>((set) => ({
     }));
   },
 
+  setDownloadBytes: (id, received, total) => {
+    set((state) => ({
+      downloadBytes: { ...state.downloadBytes, [id]: { received, total } }
+    }));
+  },
+
   setTranscriptionProgress: (progress) => set({ transcriptionProgress: progress }),
 }));
 
@@ -124,14 +134,39 @@ if (isTauri()) {
     useTranscriptionStore.getState().setStatus('downloading');
   });
 
-  safeListen<{ id: string; percent: number }>("hf://install-progress", (event) => {
-    const { id, percent } = event.payload;
+  safeListen<{ id: string; percent: number; received?: number; total?: number }>("hf://install-progress", (event) => {
+    const { id, percent, received, total } = event.payload;
     const profileId =
       id.includes("nemotron-asr") || id.includes("nemotron-3.5-asr")
         ? LOGICAL_STT_MODEL_KEYS.NEMOTRON
         : id;
-    useTranscriptionStore.getState().setDownloadProgress(profileId, percent);
-    useTranscriptionStore.getState().setStatus("downloading");
+    const state = useTranscriptionStore.getState();
+    state.setDownloadProgress(profileId, percent);
+    if (typeof received === "number") {
+      state.setDownloadBytes(profileId, received, typeof total === "number" ? total : 0);
+    }
+    state.setStatus("downloading");
+  });
+
+  // Terminal install events (success, failure, cancel) clear the download
+  // state for the model — before fix-nemotron-model-download the backend never
+  // emitted ok:false, so a failed download left `downloading` and a stale
+  // progress percentage behind.
+  safeListen<{ id: string; ok: boolean; message: string }>("hf://install-finished", (event) => {
+    const { id } = event.payload;
+    const profileId =
+      id.includes("nemotron-asr") || id.includes("nemotron-3.5-asr")
+        ? LOGICAL_STT_MODEL_KEYS.NEMOTRON
+        : id;
+    const state = useTranscriptionStore.getState();
+    state.setDownloadProgress(profileId, 0);
+    state.setDownloadBytes(profileId, 0, 0);
+    // Only step down from `downloading` — never clobber `processing` when an
+    // unrelated transcription job is running.
+    if (state.currentStatus === "downloading") {
+      state.setStatus("idle");
+    }
+    void state.fetchProfiles();
   });
 
   safeListen<string>("transcription://download-complete", (event) => {

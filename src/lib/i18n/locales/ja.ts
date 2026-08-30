@@ -2522,6 +2522,7 @@ export const ja: Dict = {
   "settings.audioDownloadToEnableDesc":
     "以下からモデルを選択してください。各モデルには説明が付いています。",
   "settings.audioDownloading": "{percent}% ダウンロード中",
+  "settings.audioDownloadingBytes": "{received} ダウンロード中",
   "settings.audioEstimatedCost": "推定コスト",
   "settings.audioFastCloud": "高速クラウド文字起こし",
   "settings.audioFastCloudDesc":

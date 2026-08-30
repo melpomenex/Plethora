@@ -75,7 +75,7 @@ const listUntranscribedMediaDocuments = (): Promise<UntranscribedMediaDocument[]
 export function AudioTranscriptionSettings() {
   const { t } = useI18n();
   const toast = useToast();
-  const { profiles = [], fetchProfiles, downloadProgress, currentStatus } = useTranscriptionStore();
+  const { profiles = [], fetchProfiles, downloadProgress, downloadBytes, currentStatus } = useTranscriptionStore();
   const { settings, updateSettings } = useSettingsStore();
   const queueStore = useTranscriptionQueueStore();
   const audioSettings = settings.audioTranscription;
@@ -672,7 +672,11 @@ export function AudioTranscriptionSettings() {
             <div className="grid gap-4">
               {profiles.map((profile) => {
                 const progress = downloadProgress[profile.id];
+                const bytes = downloadBytes[profile.id];
                 const isDownloading = progress !== undefined && currentStatus === 'downloading';
+                // Unknown total (server sent no size): show honest bytes instead
+                // of a misleading 0% (fix-nemotron-model-download).
+                const sizeUnknown = isDownloading && bytes !== undefined && !bytes.total;
                 const isInstalled = profile.installed;
                 
                 return (
@@ -721,12 +725,22 @@ export function AudioTranscriptionSettings() {
                         <div className="flex flex-col items-end gap-1">
                           <div className="flex items-center gap-2 text-xs font-medium text-primary">
                             <CircleNotch className="w-3 h-3 animate-spin" />
-                            <span>{t("settings.audioDownloading", { percent: Math.round(progress) })}</span>
+                            <span>
+                              {sizeUnknown
+                                ? t("settings.audioDownloadingBytes", {
+                                    received: `${(bytes.received / 1024 / 1024).toFixed(1)} MB`,
+                                  })
+                                : t("settings.audioDownloading", { percent: Math.round(progress) })}
+                            </span>
                           </div>
                           <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-primary transition-all duration-300"
-                              style={{ width: `${progress}%` }}
+                            <div
+                              className={
+                                sizeUnknown
+                                  ? "h-full w-full bg-primary animate-pulse"
+                                  : "h-full bg-primary transition-all duration-300"
+                              }
+                              style={sizeUnknown ? undefined : { width: `${progress}%` }}
                             />
                           </div>
                         </div>

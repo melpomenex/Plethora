@@ -47,7 +47,11 @@ export type Resolution =
       modelLabel: string;
       /** Android on-device was chosen even though the user never picked it. */
       autoOnDevice?: boolean;
-      substitution?: "mobile-no-local" | "on-device-unavailable" | "nemotron-cloud-substitute";
+      substitution?:
+        | "mobile-no-local"
+        | "mobile-groq-substitute"
+        | "on-device-unavailable"
+        | "nemotron-cloud-substitute";
     }
   | {
       ok: false;
@@ -466,6 +470,9 @@ export function describeResolution(resolution: Resolution): string {
   const engine = `${providerLabel} · ${resolution.modelLabel}`;
   if (resolution.substitution === "nemotron-cloud-substitute") {
     return `${engine}. Local Nemotron is unavailable on mobile, so OpenRouter cloud Nemotron is being used.`;
+  }
+  if (resolution.substitution === "mobile-groq-substitute") {
+    return `${engine}. Local transcription is unavailable on mobile, so Groq is being used instead.`;
   }
   if (resolution.substitution === "on-device-unavailable") {
     return `${engine}. On-device transcription is unavailable (no model downloaded), so Groq is being used instead.`;

@@ -2746,6 +2746,7 @@ export const zh: Dict = {
   "settings.audioDownloadToEnable": "下载模型以启用自动转录",
   "settings.audioDownloadToEnableDesc": "在下方选择一个模型。每个模型都有简短描述帮助你选择。",
   "settings.audioDownloading": "正在下载 {percent}%",
+  "settings.audioDownloadingBytes": "正在下载 {received}",
   "settings.audioEstimatedCost": "预估费用",
   "settings.audioFastCloud": "快速云端转录",
   "settings.audioFastCloudDesc":
