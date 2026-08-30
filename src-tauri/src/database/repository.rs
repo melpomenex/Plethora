@@ -224,6 +224,114 @@ impl Repository {
         })
     }
 
+    pub(crate) fn row_to_document(row: &SqliteRow) -> Result<Document> {
+        let file_type: String = row.try_get("file_type")?;
+        let tags_json: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let metadata_json: Option<String> = row.try_get("metadata").ok().flatten();
+        let metadata = metadata_json.and_then(|json| serde_json::from_str(&json).ok());
+
+        Ok(Document {
+            id: row.try_get("id")?,
+            collection_id: row
+                .try_get("collection_id")
+                .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+            title: row.try_get("title")?,
+            file_path: row.try_get("file_path").unwrap_or_default(),
+            file_type: Self::parse_file_type(&file_type),
+            content: Self::decode_optional_text(row, "content"),
+            content_hash: row.try_get("content_hash").ok().flatten(),
+            total_pages: row.try_get("total_pages").ok().flatten(),
+            current_page: row.try_get("current_page").ok().flatten(),
+            current_scroll_percent: row.try_get("current_scroll_percent").ok().flatten(),
+            current_cfi: row.try_get("current_cfi").ok().flatten(),
+            current_view_state: row.try_get("current_view_state").ok().flatten(),
+            position_json: row.try_get("position_json").ok().flatten(),
+            progress_percent: row.try_get("progress_percent").ok().flatten(),
+            category: row.try_get("category").ok().flatten(),
+            tags,
+            date_added: row.try_get("date_added")?,
+            date_modified: row.try_get("date_modified")?,
+            date_last_reviewed: row.try_get("date_last_reviewed").ok().flatten(),
+            extract_count: row.try_get("extract_count").unwrap_or(0),
+            learning_item_count: row.try_get("learning_item_count").unwrap_or(0),
+            priority_rating: row.try_get("priority_rating").unwrap_or(0),
+            priority_slider: row.try_get("priority_slider").unwrap_or(0),
+            priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            priority_explicitly_set: row
+                .try_get::<Option<i64>, _>("priority_explicitly_set")
+                .ok()
+                .flatten()
+                .map(|value| value != 0)
+                .unwrap_or(false),
+            is_archived: row.try_get("is_archived").unwrap_or(false),
+            is_favorite: row.try_get("is_favorite").unwrap_or(false),
+            is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+            metadata,
+            cover_image_url: row.try_get("cover_image_url").ok().flatten(),
+            cover_image_source: row.try_get("cover_image_source").ok().flatten(),
+            next_reading_date: row.try_get("next_reading_date").ok().flatten(),
+            reading_count: row.try_get("reading_count").unwrap_or(0),
+            stability: row.try_get("stability").ok().flatten(),
+            difficulty: row.try_get("difficulty").ok().flatten(),
+            reps: row.try_get("reps").ok().flatten(),
+            total_time_spent: row.try_get("total_time_spent").ok().flatten(),
+            consecutive_count: row.try_get("consecutive_count").ok().flatten(),
+            interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+            first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
+        })
+    }
+
+    pub(crate) fn row_to_extract(row: &SqliteRow) -> Result<Extract> {
+        let tags_json: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let memory_state = Self::parse_memory_state(
+            row.try_get("memory_state_stability").ok().flatten(),
+            row.try_get("memory_state_difficulty").ok().flatten(),
+        );
+        let selection_context = row
+            .try_get::<Option<String>, _>("selection_context")
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok());
+
+        Ok(Extract {
+            id: row.try_get("id")?,
+            collection_id: row
+                .try_get("collection_id")
+                .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+            document_id: row.try_get("document_id")?,
+            content: row.try_get("content")?,
+            html_content: row.try_get("html_content").ok().flatten(),
+            source_url: row.try_get("source_url").ok().flatten(),
+            page_title: row.try_get("page_title").ok().flatten(),
+            page_number: row.try_get("page_number").ok().flatten(),
+            selection_context,
+            highlight_color: row.try_get("highlight_color").ok().flatten(),
+            notes: row.try_get("notes").ok().flatten(),
+            progressive_disclosure_level: row.try_get("progressive_disclosure_level").unwrap_or(0),
+            max_disclosure_level: row.try_get("max_disclosure_level").unwrap_or(3),
+            progressive_summaries: row
+                .try_get::<Option<String>, _>("progressive_summaries")
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str(&json).ok()),
+            date_created: row.try_get("date_created")?,
+            date_modified: row.try_get("date_modified")?,
+            tags,
+            category: row.try_get("category").ok().flatten(),
+            memory_state,
+            next_review_date: row.try_get("next_review_date").ok().flatten(),
+            last_review_date: row.try_get("last_review_date").ok().flatten(),
+            review_count: row.try_get("review_count").unwrap_or(0),
+            reps: row.try_get("reps").unwrap_or(0),
+            source_hash: row.try_get("source_hash").ok().flatten(),
+            priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+            total_time_spent: row.try_get("total_time_spent").ok().flatten(),
+        })
+    }
+
     // Helper to decode possibly-corrupt UTF-8 text columns without panicking.
     fn decode_optional_text(row: &SqliteRow, column: &str) -> Option<String> {
         match row.try_get::<Option<String>, _>(column) {
@@ -536,70 +644,7 @@ impl Repository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-
-        match row {
-            Some(row) => {
-                let file_type: String = row.get("file_type");
-                let tags_json: String = row.get("tags");
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
-                let metadata_json: Option<String> = row.try_get("metadata")?;
-                let metadata: Option<crate::models::DocumentMetadata> =
-                    metadata_json.and_then(|json| serde_json::from_str(&json).ok());
-
-                Ok(Some(Document {
-                    id: row.get("id"),
-                    collection_id: row
-                        .try_get("collection_id")
-                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
-                    title: row.get("title"),
-                    file_path: row.get("file_path"),
-                    file_type: Self::parse_file_type(&file_type),
-                    content: Self::decode_optional_text(&row, "content"),
-                    content_hash: row.get("content_hash"),
-                    total_pages: row.get("total_pages"),
-                    current_page: row.get("current_page"),
-                    current_scroll_percent: row.try_get("current_scroll_percent").ok(),
-                    current_cfi: row.try_get("current_cfi").ok(),
-                    current_view_state: row.try_get("current_view_state").ok(),
-                    position_json: row.try_get("position_json").ok(),
-                    progress_percent: row.try_get("progress_percent").ok(),
-                    category: row.get("category"),
-                    tags,
-                    date_added: row.get("date_added"),
-                    date_modified: row.get("date_modified"),
-                    date_last_reviewed: row.get("date_last_reviewed"),
-                    extract_count: row.get("extract_count"),
-                    learning_item_count: row.get("learning_item_count"),
-                    priority_rating: row.get("priority_rating"),
-                    priority_slider: row.get("priority_slider"),
-                    priority_score: row.get("priority_score"),
-                    priority_explicitly_set: row
-                        .try_get::<Option<i64>, _>("priority_explicitly_set")
-                        .ok()
-                        .flatten()
-                        .map(|v| v != 0)
-                        .unwrap_or(false),
-                    is_archived: row.get("is_archived"),
-                    is_favorite: row.get("is_favorite"),
-                    is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
-                    metadata,
-                    cover_image_url: row.try_get("cover_image_url").ok(),
-                    cover_image_source: row.try_get("cover_image_source").ok(),
-                    // Scheduling fields - use try_get for compatibility with existing databases
-                    next_reading_date: row.try_get("next_reading_date").ok(),
-                    reading_count: row.try_get("reading_count").unwrap_or(0),
-                    stability: row.try_get("stability").ok(),
-                    difficulty: row.try_get("difficulty").ok(),
-                    reps: row.try_get("reps").ok(),
-                    total_time_spent: row.try_get("total_time_spent").ok(),
-                    consecutive_count: row.try_get("consecutive_count").ok(),
-                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
-                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
-                }))
-            }
-            None => Ok(None),
-        }
+        row.as_ref().map(Self::row_to_document).transpose()
     }
 
     pub async fn get_document_titles(&self, ids: &[String]) -> Result<HashMap<String, String>> {
@@ -1987,60 +2032,7 @@ impl Repository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-
-        match row {
-            Some(row) => {
-                let tags_json: String = row.try_get("tags")?;
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
-                let stability: Option<f64> = row.try_get("memory_state_stability").ok();
-                let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-                let memory_state = Self::parse_memory_state(stability, difficulty);
-                let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-                let selection_context =
-                    selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
-
-                Ok(Some(Extract {
-                    id: row.try_get("id")?,
-                    collection_id: row
-                        .try_get("collection_id")
-                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
-                    document_id: row.try_get("document_id")?,
-                    content: row.try_get("content")?,
-                    html_content: row.try_get("html_content").ok(),
-                    source_url: row.try_get("source_url").ok(),
-                    page_title: row.try_get("page_title")?,
-                    page_number: row.try_get("page_number")?,
-                    selection_context,
-                    highlight_color: row.try_get("highlight_color")?,
-                    notes: row.try_get("notes")?,
-                    progressive_disclosure_level: row.try_get("progressive_disclosure_level")?,
-                    max_disclosure_level: row.try_get("max_disclosure_level")?,
-                    progressive_summaries: row
-                        .try_get::<Option<String>, _>("progressive_summaries")
-                        .ok()
-                        .flatten()
-                        .and_then(|s| serde_json::from_str(&s).ok()),
-                    date_created: row.try_get("date_created")?,
-                    date_modified: row.try_get("date_modified")?,
-                    tags,
-                    category: row.try_get("category")?,
-                    memory_state,
-                    next_review_date: row.try_get("next_review_date").ok(),
-                    last_review_date: row.try_get("last_review_date").ok(),
-                    review_count: row.try_get("review_count").unwrap_or(0),
-                    reps: row.try_get("reps").unwrap_or(0),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
-                    total_time_spent: row
-                        .try_get::<Option<i64>, _>("total_time_spent")
-                        .ok()
-                        .flatten(),
-                }))
-            }
-            None => Ok(None),
-        }
+        row.as_ref().map(Self::row_to_extract).transpose()
     }
 
     pub async fn list_extracts_by_document(&self, document_id: &str) -> Result<Vec<Extract>> {
