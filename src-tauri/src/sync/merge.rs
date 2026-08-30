@@ -259,6 +259,8 @@ async fn apply_review_result(
         reviewed_at_ms: i64,
         device_id: String,
         session_id: Option<String>,
+        #[serde(default)]
+        post_item: Option<crate::models::LearningItem>,
     }
 
     let parsed: ReviewPayload = serde_json::from_slice(&record.payload)
@@ -273,8 +275,8 @@ async fn apply_review_result(
         INSERT OR IGNORE INTO review_results (
             id, collection_id, session_id, item_id, rating, time_taken,
             new_due_date, new_interval, new_ease_factor, timestamp,
-            device_id, reviewed_at_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime(?10 / 1000.0, 'unixepoch'), ?11, ?12)
+            device_id, reviewed_at_ms, sync_post_item_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime(?10 / 1000.0, 'unixepoch'), ?11, ?12, ?13)
         "#,
     )
     .bind(&parsed.id)
@@ -289,12 +291,51 @@ async fn apply_review_result(
     .bind(parsed.reviewed_at_ms)
     .bind(&parsed.device_id)
     .bind(parsed.reviewed_at_ms)
+    .bind(
+        parsed
+            .post_item
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| PlethoraError::Internal(format!("Review schedule snapshot encode failed: {e}")))?,
+    )
     .execute(&mut **tx)
     .await?;
 
     if inserted.rows_affected() == 0 {
         return Ok(ApplyOutcome::SkippedDuplicate);
     }
+
+    if let Some(post_item) = parsed.post_item.as_ref() {
+        // Review scheduling is ordered by the immutable review event's actual
+        // review timestamp, with device id as a deterministic tie-break. This
+        // keeps sibling offline reviews in history without pretending either
+        // was computed from the other's resulting state.
+        let review_clock = format!("{}:0", parsed.reviewed_at_ms);
+        let fields = vec!["schedule".to_string()];
+        let winners = super::full_state::winning_field_groups(
+            tx,
+            "learning_item",
+            &parsed.item_id,
+            &review_clock,
+            &parsed.device_id,
+            &fields,
+        )
+        .await?;
+        if !winners.is_empty() {
+            super::full_state::apply_learning_item_groups(tx, post_item, &winners).await?;
+            super::full_state::record_field_groups(
+                tx,
+                "learning_item",
+                &parsed.item_id,
+                &review_clock,
+                &parsed.device_id,
+                &winners,
+            )
+            .await?;
+        }
+    }
+
     Ok(ApplyOutcome::Applied)
 }
 
