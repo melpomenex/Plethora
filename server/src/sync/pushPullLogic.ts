@@ -1,5 +1,21 @@
 export const SYNC_PROTOCOL_VERSION = '1';
 
+export const SYNC_TABLE_KINDS = [
+  'learning_items', 'learning_item',
+  'review_results', 'review_result',
+  'documents', 'document',
+  'extracts', 'extract',
+  'collections', 'collection',
+  'tags', 'tag',
+  'settings', 'setting',
+  'image_assets', 'image_asset',
+  'tombstones', 'tombstone',
+] as const;
+
+export const SYNC_OPERATIONS = ['create', 'update', 'delete', 'append_event'] as const;
+
+export const SYNC_HLC_PATTERN = /^(?:0|[1-9]\d{0,18}):(?:0|[1-9]\d{0,18})$/;
+
 export function assertSyncProtocolVersion(headerValue: string | string[] | undefined): void {
   const raw = Array.isArray(headerValue) ? headerValue[0] : headerValue;
   const version = (raw || SYNC_PROTOCOL_VERSION).trim();
@@ -28,7 +44,7 @@ export function shouldConflict(baseRevision: number | undefined, serverRevision:
   if (baseRevision === undefined) {
     return false;
   }
-  return baseRevision < serverRevision;
+  return baseRevision !== serverRevision;
 }
 
 export function nextEntityRevision(current: number | null | undefined): number {
@@ -68,11 +84,5 @@ export function minDeviceCursorSeq(
   if (rows.length === 0) {
     return 0;
   }
-  return rows.reduce((min, row) => {
-    const value = Number(row.last_seq || 0);
-    if (min === 0) {
-      return value;
-    }
-    return Math.min(min, value);
-  }, 0);
+  return Math.min(...rows.map((row) => Number(row.last_seq ?? 0)));
 }

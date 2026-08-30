@@ -51,6 +51,7 @@ export function SyncSettingsPanel() {
   }, [listIssues]);
 
   const handleGenerateKey = async () => {
+    if (recoveryKeyAcknowledged) return;
     const key = await generateRecoveryKey();
     await storeRecoveryKey(key);
     setActiveKey(key);
@@ -241,10 +242,12 @@ export function SyncSettingsPanel() {
 
           <button
             onClick={() => void handleGenerateKey()}
-            className="px-3.5 py-1.5 border hover:bg-muted rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+            disabled={recoveryKeyAcknowledged}
+            title={recoveryKeyAcknowledged ? "Recovery-key rotation is not available yet" : undefined}
+            className="px-3.5 py-1.5 border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
           >
             <ShieldCheck className="w-4 h-4 text-primary" />
-            {recoveryKeyAcknowledged ? "Rotate Recovery Key" : "Generate Key"}
+            {recoveryKeyAcknowledged ? "Recovery Key Configured" : "Generate Key"}
           </button>
         </div>
       </div>

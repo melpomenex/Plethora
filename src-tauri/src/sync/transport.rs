@@ -141,6 +141,29 @@ pub async fn pull_page(
     ))
 }
 
+pub async fn ack_cursor(access_token: &str, cursor: u64) -> Result<()> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/sync/ack", api_base_url()))
+        .headers(auth_headers(access_token)?)
+        .json(&serde_json::json!({ "cursor": cursor }))
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync cursor ack request failed: {e}")))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Sync cursor ack read failed: {e}")))?;
+    if !status.is_success() {
+        return Err(PlethoraError::Internal(format!(
+            "Sync cursor ack failed ({status}): {body}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn increment_sync_epoch(access_token: &str) -> Result<u32> {
     let client = reqwest::Client::new();
     let response = client

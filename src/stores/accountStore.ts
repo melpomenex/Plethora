@@ -141,9 +141,11 @@ export const useAccountStore = create<AccountStoreState>()(
             const data = await invoke<AuthSessionPayload>('account_auth_login', {
               email,
               password,
-              // Tauri commands camel-case Rust argument names by default.
-              // `device_name` is the Rust identifier, but the IPC key is
-              // `deviceName` unless the command opts into snake_case.
+              // Re-login must reuse this install's device row: the server
+              // stamps the identity into the access token, and sync traffic
+              // is rejected when it does not match. Tauri commands camel-case
+              // Rust argument names by default (`device_id` -> `deviceId`).
+              deviceId: get().deviceId,
               deviceName,
               platform: 'desktop',
             });
@@ -152,7 +154,13 @@ export const useAccountStore = create<AccountStoreState>()(
             const res = await fetch(`${PLETHORA_API_URL}/v1/auth/login`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, password, deviceName, platform: 'desktop' }),
+              body: JSON.stringify({
+                email,
+                password,
+                deviceId: get().deviceId ?? undefined,
+                deviceName,
+                platform: 'desktop',
+              }),
             });
 
             if (!res.ok) {

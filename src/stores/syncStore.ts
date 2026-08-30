@@ -121,15 +121,9 @@ export const useSyncStore = create<SyncStatusState>()(
         set({ isSyncing: true, error: null });
         try {
           if (isTauri()) {
-            // Hydrate existing cloud state before scanning this device's
-            // pre-sync library. Bootstrap then uploads only entities that did
-            // not originate from the cloud, producing a true union instead of
-            // blindly echoing/replacing either side.
-            await invoke('sync_pull', { cursor: 0, limit: 500 });
-            let progress = await invoke<{ phase: string }>('sync_bootstrap_upload');
-            while (progress?.phase === 'upload') {
-              progress = await invoke('sync_bootstrap_upload');
-            }
+            // The Rust engine owns the crash-safe initial pull/bootstrap order.
+            // Keeping that invariant in one place also ensures background and
+            // manual sync behave identically.
             await invoke('sync_run');
             await get().init();
             set({ isSyncing: false, lastSyncedAt: new Date().toISOString(), error: null });

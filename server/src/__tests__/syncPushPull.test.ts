@@ -9,6 +9,7 @@ import {
   paginatePull,
   shouldConflict,
 } from '../sync/pushPullLogic.js';
+import { SyncRecordSchema } from '../routes/v1/sync.js';
 
 function looksLikePlaintextEnvelope(ciphertext: string): boolean {
   try {
@@ -21,6 +22,28 @@ function looksLikePlaintextEnvelope(ciphertext: string): boolean {
 }
 
 describe('sync push/pull logic', () => {
+  const validRecord = {
+    tableKind: 'learning_items',
+    recordId: 'item-1',
+    hlc: '1000:0',
+    deviceId: '11111111-1111-4111-8111-111111111111',
+    payloadCiphertext: 'opaque-base64-ciphertext',
+    aad: 'account:learning_item:item-1:change-1:1',
+    keyVersion: 1,
+    changeId: 'change-1',
+    operation: 'update',
+    baseRevision: 1,
+  };
+
+  it('validates routing metadata that can poison a pull log', () => {
+    expect(SyncRecordSchema.safeParse(validRecord).success).toBe(true);
+    expect(SyncRecordSchema.safeParse({ ...validRecord, tableKind: 'unknown' }).success).toBe(false);
+    expect(SyncRecordSchema.safeParse({ ...validRecord, operation: 'overwrite' }).success).toBe(false);
+    expect(SyncRecordSchema.safeParse({ ...validRecord, hlc: 'not-an-hlc' }).success).toBe(false);
+    expect(SyncRecordSchema.safeParse({ ...validRecord, baseRevision: -1 }).success).toBe(false);
+    expect(SyncRecordSchema.safeParse({ ...validRecord, deviceId: 'spoofed-device' }).success).toBe(false);
+  });
+
   it('accepts default protocol version when header missing', () => {
     expect(() => assertSyncProtocolVersion(undefined)).not.toThrow();
   });
@@ -53,6 +76,8 @@ describe('sync push/pull logic', () => {
 
   it('returns revision conflicts without accepting stale writes', () => {
     expect(shouldConflict(17, 18)).toBe(true);
+    expect(shouldConflict(19, 18)).toBe(true);
+    expect(shouldConflict(18, 18)).toBe(false);
     const conflict = {
       changeId: 'change-1',
       entityType: 'learning_items',
@@ -66,6 +91,8 @@ describe('sync push/pull logic', () => {
   it('computes the slowest device cursor for tombstone GC', () => {
     expect(minDeviceCursorSeq([])).toBe(0);
     expect(minDeviceCursorSeq([{ last_seq: 120 }, { last_seq: 80 }, { last_seq: 200 }])).toBe(80);
+    expect(minDeviceCursorSeq([{ last_seq: 0 }, { last_seq: 100 }])).toBe(0);
+    expect(minDeviceCursorSeq([{ last_seq: '25' }, { last_seq: null }])).toBe(0);
   });
 
   it('enforces a maximum number of sync devices', () => {

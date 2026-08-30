@@ -1,8 +1,12 @@
 //! Advanced queue management commands
 
 use crate::database::Repository;
-use crate::error::Result;
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, LearningItem};
+use crate::sync::journal::{journal_entity, notify_after_commit};
+use crate::sync::outbox::learning_item_revision;
+use crate::sync::payload;
+use crate::sync::types::{EntityType, SyncOperation};
 use chrono::{Datelike, Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -659,6 +663,57 @@ fn not_found(item_id: &str) -> crate::error::PlethoraError {
     crate::error::PlethoraError::NotFound(format!("Queue item {}", item_id))
 }
 
+/// Serialize and journal the post-mutation row while the domain transaction is
+/// still open. This keeps bulk operations from committing data that another
+/// device can never observe.
+async fn journal_queue_fields(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    kind: QueueEntityKind,
+    item_id: &str,
+    fields: &[&str],
+) -> Result<()> {
+    let row = match kind {
+        QueueEntityKind::Document => sqlx::query("SELECT * FROM documents WHERE id = ?1"),
+        QueueEntityKind::Extract => sqlx::query("SELECT * FROM extracts WHERE id = ?1"),
+        QueueEntityKind::LearningItem => sqlx::query("SELECT * FROM learning_items WHERE id = ?1"),
+    }
+    .bind(item_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let (entity_type, base_revision, sync_payload) = match kind {
+        QueueEntityKind::Document => {
+            let entity = Repository::row_to_document(&row)?;
+            let bytes = payload::document_payload_with_fields(&entity, fields)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            (EntityType::Document, None, bytes)
+        }
+        QueueEntityKind::Extract => {
+            let entity = Repository::row_to_extract(&row)?;
+            let bytes = payload::extract_payload_with_fields(&entity, fields)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            (EntityType::Extract, None, bytes)
+        }
+        QueueEntityKind::LearningItem => {
+            let entity = Repository::row_to_learning_item(&row)?;
+            let revision = learning_item_revision(entity.updated_at.as_deref());
+            let bytes = payload::learning_item_payload_with_fields(&entity, fields)
+                .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
+            (EntityType::LearningItem, revision, bytes)
+        }
+    };
+
+    journal_entity(
+        tx,
+        entity_type,
+        item_id,
+        SyncOperation::Update,
+        base_revision,
+        sync_payload,
+    )
+    .await
+}
+
 /// Set one priority slider value across a mixed selection.
 ///
 /// Priority exists on documents (rating + slider + score) and on extracts
@@ -705,6 +760,8 @@ pub(crate) async fn bulk_update_item_priorities_inner(
                 .bind(item_id)
                 .execute(&mut *tx)
                 .await?;
+                journal_queue_fields(&mut tx, QueueEntityKind::Document, item_id, &["priority"])
+                    .await?;
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::Extract) => {
@@ -716,6 +773,8 @@ pub(crate) async fn bulk_update_item_priorities_inner(
                 .bind(item_id)
                 .execute(&mut *tx)
                 .await?;
+                journal_queue_fields(&mut tx, QueueEntityKind::Extract, item_id, &["priority"])
+                    .await?;
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::LearningItem) => {
@@ -734,6 +793,9 @@ pub(crate) async fn bulk_update_item_priorities_inner(
     }
 
     tx.commit().await?;
+    if !result.succeeded.is_empty() {
+        notify_after_commit();
+    }
     Ok(result)
 }
 
@@ -786,6 +848,8 @@ pub(crate) async fn bulk_postpone_items_inner(
                 .bind(item_id)
                 .execute(&mut *tx)
                 .await?;
+                journal_queue_fields(&mut tx, QueueEntityKind::Document, item_id, &["schedule"])
+                    .await?;
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::LearningItem) => {
@@ -798,10 +862,22 @@ pub(crate) async fn bulk_postpone_items_inner(
                 .bind(item_id)
                 .execute(&mut *tx)
                 .await?;
+                journal_queue_fields(
+                    &mut tx,
+                    QueueEntityKind::LearningItem,
+                    item_id,
+                    &["schedule"],
+                )
+                .await?;
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::Extract) => {
                 // Extracts are scheduled through their parent document.
+                let document_id: String =
+                    sqlx::query_scalar("SELECT document_id FROM extracts WHERE id = ?")
+                        .bind(item_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
                 sqlx::query(
                     "UPDATE documents SET next_reading_date = \
                      datetime(COALESCE(next_reading_date, ?), '+' || ? || ' days'), \
@@ -813,6 +889,13 @@ pub(crate) async fn bulk_postpone_items_inner(
                 .bind(now)
                 .bind(item_id)
                 .execute(&mut *tx)
+                .await?;
+                journal_queue_fields(
+                    &mut tx,
+                    QueueEntityKind::Document,
+                    &document_id,
+                    &["schedule"],
+                )
                 .await?;
                 result.succeeded.push(item_id.clone());
             }
@@ -826,6 +909,9 @@ pub(crate) async fn bulk_postpone_items_inner(
     }
 
     tx.commit().await?;
+    if !result.succeeded.is_empty() {
+        notify_after_commit();
+    }
     Ok(result)
 }
 
@@ -886,10 +972,20 @@ pub(crate) async fn bulk_move_items_to_collection_inner(
             .bind(item_id)
             .execute(&mut *tx)
             .await?;
+        journal_queue_fields(
+            &mut tx,
+            *resolved.get(item_id).expect("resolved kind"),
+            item_id,
+            &["collection"],
+        )
+        .await?;
         result.succeeded.push(item_id.clone());
     }
 
     tx.commit().await?;
+    if !result.succeeded.is_empty() {
+        notify_after_commit();
+    }
     Ok(result)
 }
 
@@ -957,10 +1053,20 @@ pub(crate) async fn bulk_update_item_tags_inner(
         .bind(item_id)
         .execute(&mut *tx)
         .await?;
+        journal_queue_fields(
+            &mut tx,
+            *resolved.get(item_id).expect("resolved kind"),
+            item_id,
+            &["tags"],
+        )
+        .await?;
         result.succeeded.push(item_id.clone());
     }
 
     tx.commit().await?;
+    if !result.succeeded.is_empty() {
+        notify_after_commit();
+    }
     Ok(result)
 }
 
@@ -1065,10 +1171,29 @@ pub(crate) async fn bulk_set_item_lifecycle_inner(
             }
         }
 
+        let fields: &[&str] = match (transition, kind) {
+            (LifecycleTransition::Done, QueueEntityKind::Document) => &["flags"],
+            (LifecycleTransition::Dismiss, QueueEntityKind::Document) => &["flags"],
+            (LifecycleTransition::Done, QueueEntityKind::Extract)
+            | (LifecycleTransition::Dismiss, QueueEntityKind::Extract) => &["activity"],
+            (LifecycleTransition::Done, QueueEntityKind::LearningItem)
+            | (LifecycleTransition::Dismiss, QueueEntityKind::LearningItem) => &["suspension"],
+            (LifecycleTransition::Forget, QueueEntityKind::LearningItem) => &["schedule"],
+            (LifecycleTransition::Forget, QueueEntityKind::Document) => &["schedule"],
+            // No domain mutation occurred for extracts.
+            (LifecycleTransition::Forget, QueueEntityKind::Extract) => &[],
+        };
+        if !fields.is_empty() {
+            journal_queue_fields(&mut tx, kind, item_id, fields).await?;
+        }
+
         result.succeeded.push(item_id.clone());
     }
 
     tx.commit().await?;
+    if !result.succeeded.is_empty() {
+        notify_after_commit();
+    }
     Ok(result)
 }
 

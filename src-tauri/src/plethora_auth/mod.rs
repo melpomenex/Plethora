@@ -133,6 +133,17 @@ impl AuthManager {
             .and_then(|state| state.user.as_ref().map(|user| user.id.clone()))
     }
 
+    /// The device identity the account issued for this session. Sync records
+    /// must be stamped with it so the server can attribute them to this
+    /// device; `None` for sessions that predate device issuance.
+    pub fn get_device_id(&self) -> Option<String> {
+        self.state
+            .read()
+            .ok()
+            .and_then(|state| state.device_id.clone())
+            .filter(|id| !id.trim().is_empty())
+    }
+
     pub fn set_devices(&self, devices: Vec<DeviceInfo>) {
         if let Ok(mut lock) = self.devices.write() {
             *lock = devices;
@@ -211,10 +222,11 @@ pub async fn account_auth_register(
 pub async fn account_auth_login(
     email: String,
     password: String,
+    device_id: Option<String>,
     device_name: Option<String>,
     platform: Option<String>,
 ) -> Result<AuthSessionJson, String> {
-    cloud::login_account(email, password, device_name, platform).await
+    cloud::login_account(email, password, device_id, device_name, platform).await
 }
 
 #[tauri::command]
