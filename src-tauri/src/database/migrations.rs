@@ -3929,6 +3929,17 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         CREATE INDEX IF NOT EXISTS idx_sync_entity_state_tombstone
             ON sync_entity_state(tombstoned, updated_at);
+
+        -- A process can die after marking a row uploading, and older builds
+        -- left ordinary LWW conflicts in failed forever. Both are safe to
+        -- retry under the hardened idempotent protocol.
+        UPDATE sync_outbox
+        SET sync_status = 'pending'
+        WHERE sync_status = 'uploading';
+
+        UPDATE sync_outbox
+        SET sync_status = 'pending', base_revision = NULL
+        WHERE sync_status = 'failed' AND operation IN ('update', 'delete');
         "#,
     ),
 ];
