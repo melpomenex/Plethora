@@ -26,6 +26,8 @@ pub struct WireSyncRecord {
     pub operation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_revision: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_revision: Option<i64>,
 }
 
 fn default_key_version() -> u32 {
@@ -77,6 +79,7 @@ pub struct RemoteSyncRecord {
     pub payload: Vec<u8>,
     pub operation: Option<SyncOperation>,
     pub base_revision: Option<i64>,
+    pub entity_revision: Option<i64>,
     pub seq_number: u64,
     pub key_epoch: u32,
 }
@@ -141,6 +144,7 @@ pub fn outbox_entry_to_wire(
         change_id: Some(entry.change_id.clone()),
         operation: Some(entry.operation.as_str().to_string()),
         base_revision: entry.base_revision,
+        entity_revision: None,
     })
 }
 
@@ -200,6 +204,7 @@ pub fn decode_remote_record(
         payload,
         operation,
         base_revision: wire.base_revision,
+        entity_revision: wire.entity_revision,
         seq_number,
         key_epoch: wire.key_version,
     })
