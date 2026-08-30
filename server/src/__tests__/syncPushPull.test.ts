@@ -74,10 +74,10 @@ describe('sync push/pull logic', () => {
     expect(() => assertDeviceAllowed(known, 'device-0')).not.toThrow();
   });
 
-  it('rejects stale sync key epochs', () => {
-    expect(() => assertSyncEpoch(1, 2)).toThrow(/Stale sync key epoch/);
+  it('requires the exact account sync key epoch', () => {
+    expect(() => assertSyncEpoch(1, 2)).toThrow(/Invalid sync key epoch/);
     expect(() => assertSyncEpoch(2, 2)).not.toThrow();
-    expect(() => assertSyncEpoch(3, 2)).not.toThrow();
+    expect(() => assertSyncEpoch(3, 2)).toThrow(/Invalid sync key epoch/);
   });
 });
 
