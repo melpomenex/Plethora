@@ -19,9 +19,27 @@ impl SyncCrypto {
         hex::encode(bytes)
     }
 
+    /// Canonicalize user-entered recovery keys. The displayed form contains
+    /// separators for readability, but separators/whitespace must never alter
+    /// the derived account key.
+    pub fn normalize_recovery_key(recovery_key: &str) -> Result<String, String> {
+        let normalized: String = recovery_key
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && *ch != '-')
+            .flat_map(char::to_lowercase)
+            .collect();
+        if normalized.len() != 64 || !normalized.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err("Recovery key must contain exactly 64 hexadecimal characters".into());
+        }
+        Ok(normalized)
+    }
+
     /// User-facing grouped recovery key (4 × 16 hex chars).
     pub fn format_recovery_key_display(recovery_key: &str) -> String {
-        let normalized = recovery_key.replace('-', "");
+        let normalized: String = recovery_key
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && *ch != '-')
+            .collect();
         normalized
             .as_bytes()
             .chunks(16)
@@ -120,6 +138,9 @@ impl SyncCrypto {
         let peer_bytes = base64::engine::general_purpose::STANDARD
             .decode(peer_public_b64.as_bytes())
             .map_err(|e| format!("Invalid peer public key: {e}"))?;
+        if peer_bytes.len() != 32 {
+            return Err("Peer public key must be 32 bytes".into());
+        }
         if peer_bytes.len() != 32 {
             return Err("Peer public key must be 32 bytes".into());
         }
