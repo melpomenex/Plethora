@@ -276,8 +276,6 @@ CREATE INDEX IF NOT EXISTS idx_sync_records_user_seq ON sync_records(user_id, se
 CREATE INDEX IF NOT EXISTS idx_sync_records_dedupe ON sync_records(user_id, device_id, hlc);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_device_hlc_unique
   ON sync_records(user_id, device_id, hlc);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_records_change_id_unique
-  ON sync_records(user_id, change_id) WHERE change_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS processed_changes (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
