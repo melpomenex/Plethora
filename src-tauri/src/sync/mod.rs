@@ -7,6 +7,7 @@ pub mod device;
 pub mod engine;
 pub mod flags;
 pub(crate) mod full_state;
+pub(crate) mod image_sync;
 pub mod gate;
 pub mod issues;
 pub mod journal;
