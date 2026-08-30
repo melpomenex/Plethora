@@ -25,6 +25,8 @@ if [[ "$cmd" == "build" ]]; then
     # repository-owned memory envelope so a stale codegen-units=1 override
     # cannot turn the main crate into a single oversized LLVM module.
     source scripts/tauri-linux-build-env.sh
+    # shellcheck source=scripts/linux-build-accelerators.sh
+    source scripts/linux-build-accelerators.sh
   fi
 fi
 

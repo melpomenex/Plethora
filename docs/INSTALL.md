@@ -186,6 +186,38 @@ If you don't have them:
 
 The production bundles will be in `src-tauri/target/release/bundle/`.
 
+### Linux `.deb` builds (optimized pipeline)
+
+| Command | Purpose |
+|---------|---------|
+| `npm run tauri:build:linux:deb` | **Production release** `.deb` (thin LTO, full optimization) |
+| `npm run tauri:build:linux:deb:fast` | **Fast local package** for install/smoke testing (no LTO) |
+| `npm run tauri:build:linux:binary` | Compile only (`--no-bundle`) |
+| `npm run tauri:bundle:linux:deb` | Bundle an existing binary into `.deb` |
+| `npm run tauri:build:linux:profile` | Build with per-phase timing summary |
+| `npm run clean:frontend:deep` | Remove `dist/`, Vite cache, and ESLint cache |
+
+**Cargo parallelism:** Linux Tauri builds compute a memory-aware default (`CARGO_BUILD_JOBS`, local cap 8, CI cap 4). Override explicitly:
+
+```bash
+CARGO_BUILD_JOBS=4 npm run tauri:build:linux:deb
+```
+
+**Optional accelerators** (graceful fallback when absent):
+
+```bash
+# Compiler cache (recommended for repeated local builds)
+cargo install sccache
+export SCCACHE_CACHE_SIZE=10G
+
+# Faster GNU linker (optional)
+# Ubuntu: sudo apt install mold
+```
+
+Disable with `PLETHORA_DISABLE_SCCACHE=1` or `PLETHORA_DISABLE_MOLD=1`.
+
+Inspect `sccache` hit rate after a build: `sccache --show-stats`.
+
 ---
 
 ## Platform-Specific Instructions

@@ -1,13 +1,18 @@
 [build]
-# Parallel rustc jobs. A previous `jobs = 1` serialized the whole dependency
-# graph (~1 core busy, builds took 3-4x longer). 16 keeps peak memory in
-# check on 22 GB-RAM machines while keeping all cores fed; the large final
-# crate compiles as a single rustc regardless.
+# Default parallel rustc jobs when CARGO_BUILD_JOBS is unset. Linux Tauri
+# release builds source scripts/tauri-linux-build-env.sh for a memory-aware
+# override (local cap 8, CI cap 4). A previous `jobs = 1` serialized the
+# whole dependency graph (~3-4× slower).
 jobs = 16
 target-dir = "target"
 
-# LLD 22.1.5 is crashing during debug Tauri links on this host.
-# Try GNU ld for debug builds.
+# LLD 22.1.5 crashed during debug Tauri links on this host. GNU ld is the
+# default. Optional mold acceleration is enabled at build time via
+# scripts/linux-build-accelerators.sh when mold is installed.
 [target.x86_64-unknown-linux-gnu]
+linker = "gcc"
+rustflags = []
+
+[target.aarch64-unknown-linux-gnu]
 linker = "gcc"
 rustflags = []

@@ -256,7 +256,7 @@ jobs:
           POCKET_TTS_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
-          CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '1' || '' }}
+          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || '') }}
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.os == 'linux' && '4' || '' }}
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
