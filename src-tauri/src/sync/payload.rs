@@ -4,32 +4,24 @@ use crate::models::{Document, Extract, LearningItem};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-#[derive(Serialize)]
-struct LearningItemSyncPayload<'a> {
-    schema_version: u32,
-    entity_type: &'static str,
-    id: &'a str,
-    collection_id: &'a str,
-    question: &'a str,
-    answer: Option<&'a str>,
-    due_date: String,
-    algorithm_type: &'a str,
-    updated_at: Option<String>,
+fn versioned_entity_payload<T: Serialize>(
+    entity_type: &str,
+    value: &T,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut object = match serde_json::to_value(value)? {
+        serde_json::Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    };
+    object.insert("schema_version".into(), serde_json::Value::from(2_u64));
+    object.insert(
+        "entity_type".into(),
+        serde_json::Value::String(entity_type.to_string()),
+    );
+    serde_json::to_vec(&serde_json::Value::Object(object))
 }
 
 pub fn learning_item_payload(item: &LearningItem) -> Result<Vec<u8>, serde_json::Error> {
-    let payload = LearningItemSyncPayload {
-        schema_version: 1,
-        entity_type: "learning_item",
-        id: &item.id,
-        collection_id: &item.collection_id,
-        question: &item.question,
-        answer: item.answer.as_deref(),
-        due_date: item.due_date.to_rfc3339(),
-        algorithm_type: &item.algorithm_type,
-        updated_at: item.updated_at.clone(),
-    };
-    serde_json::to_vec(&payload)
+    versioned_entity_payload("learning_item", item)
 }
 
 #[derive(Serialize)]
@@ -93,46 +85,13 @@ pub fn delete_payload(entity_type: &str, entity_id: &str) -> Result<Vec<u8>, ser
     }))
 }
 
-#[derive(Serialize)]
-struct DocumentSyncPayload<'a> {
-    schema_version: u32,
-    entity_type: &'static str,
-    id: &'a str,
-    collection_id: &'a str,
-    title: &'a str,
-    category: Option<&'a str>,
-    tags: &'a [String],
-    position_json: Option<&'a str>,
-    progress_percent: Option<f64>,
-    current_page: Option<i32>,
-    current_scroll_percent: Option<f64>,
-    current_cfi: Option<&'a str>,
-    is_archived: bool,
-    is_favorite: bool,
-    is_dismissed: bool,
-    date_modified: String,
-}
-
 pub fn document_payload(document: &Document) -> Result<Vec<u8>, serde_json::Error> {
-    let payload = DocumentSyncPayload {
-        schema_version: 1,
-        entity_type: "document",
-        id: &document.id,
-        collection_id: &document.collection_id,
-        title: &document.title,
-        category: document.category.as_deref(),
-        tags: &document.tags,
-        position_json: document.position_json.as_deref(),
-        progress_percent: document.progress_percent,
-        current_page: document.current_page,
-        current_scroll_percent: document.current_scroll_percent,
-        current_cfi: document.current_cfi.as_deref(),
-        is_archived: document.is_archived,
-        is_favorite: document.is_favorite,
-        is_dismissed: document.is_dismissed,
-        date_modified: document.date_modified.to_rfc3339(),
-    };
-    serde_json::to_vec(&payload)
+    // file_path is installation-local and can expose OS usernames/paths. The
+    // synchronized document is reconstructed from encrypted metadata/content
+    // plus the blob layer, never from another device's filesystem path.
+    let mut portable = document.clone();
+    portable.file_path.clear();
+    versioned_entity_payload("document", &portable)
 }
 
 #[derive(Serialize)]
@@ -170,40 +129,8 @@ pub fn document_position_payload(
     serde_json::to_vec(&payload)
 }
 
-#[derive(Serialize)]
-struct ExtractSyncPayload<'a> {
-    schema_version: u32,
-    entity_type: &'static str,
-    id: &'a str,
-    collection_id: &'a str,
-    document_id: &'a str,
-    content: &'a str,
-    html_content: Option<&'a str>,
-    notes: Option<&'a str>,
-    highlight_color: Option<&'a str>,
-    tags: &'a [String],
-    category: Option<&'a str>,
-    selection_context: Option<&'a serde_json::Value>,
-    date_modified: String,
-}
-
 pub fn extract_payload(extract: &Extract) -> Result<Vec<u8>, serde_json::Error> {
-    let payload = ExtractSyncPayload {
-        schema_version: 1,
-        entity_type: "extract",
-        id: &extract.id,
-        collection_id: &extract.collection_id,
-        document_id: &extract.document_id,
-        content: &extract.content,
-        html_content: extract.html_content.as_deref(),
-        notes: extract.notes.as_deref(),
-        highlight_color: extract.highlight_color.as_deref(),
-        tags: &extract.tags,
-        category: extract.category.as_deref(),
-        selection_context: extract.selection_context.as_ref(),
-        date_modified: extract.date_modified.to_rfc3339(),
-    };
-    serde_json::to_vec(&payload)
+    versioned_entity_payload("extract", extract)
 }
 
 #[derive(Serialize)]
