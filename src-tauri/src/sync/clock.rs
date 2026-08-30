@@ -35,3 +35,51 @@ pub async fn next_hlc(tx: &mut Transaction<'_, Sqlite>) -> Result<String> {
 
     Ok(format!("{physical_ms}:{next_logical}"))
 }
+
+
+/// Observe a remote HLC before committing its mutation so the next local clock
+/// is causally after every record this device has applied.
+pub async fn observe_hlc(tx: &mut Transaction<'_, Sqlite>, remote_hlc: &str) -> Result<()> {
+    let mut parts = remote_hlc.split(':');
+    let remote_physical = parts
+        .next()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let remote_logical = parts
+        .next()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let row = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT logical_time, last_physical_ms FROM sync_clock WHERE id = 1",
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    let (local_logical, local_physical) = row.unwrap_or((0, 0));
+
+    let physical = local_physical.max(remote_physical);
+    let logical = if remote_physical > local_physical {
+        remote_logical
+    } else if remote_physical == local_physical {
+        local_logical.max(remote_logical)
+    } else {
+        local_logical
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO sync_clock (id, logical_time, last_physical_ms)
+        VALUES (1, ?1, ?2)
+        ON CONFLICT(id) DO UPDATE SET
+            logical_time = excluded.logical_time,
+            last_physical_ms = excluded.last_physical_ms
+        "#,
+    )
+    .bind(logical)
+    .bind(physical)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PlethoraError::Internal(format!("Failed to observe remote sync clock: {e}")))?;
+
+    Ok(())
+}
