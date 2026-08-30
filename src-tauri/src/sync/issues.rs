@@ -1,6 +1,6 @@
 use crate::error::{PlethoraError, Result};
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, Transaction};
 use uuid::Uuid;
 
 use super::wire::WireConflict;
@@ -48,6 +48,40 @@ pub async fn record_revision_conflict(pool: &Pool<Sqlite>, conflict: &WireConfli
     .execute(pool)
     .await
     .map_err(|e| PlethoraError::Internal(format!("Failed to record sync issue: {e}")))?;
+    Ok(())
+}
+
+/// Records a batch of pulled records that failed authenticity verification.
+/// Records written by a device that generated its own sync key (instead of
+/// importing the account recovery key) are cryptographically unrecoverable for
+/// every other device; they are surfaced here instead of aborting the pull.
+pub async fn record_undecryptable_records(
+    tx: &mut Transaction<'_, Sqlite>,
+    device_id: &str,
+    min_seq: u64,
+    max_seq: u64,
+    count: u64,
+) -> Result<()> {
+    let created_at = chrono::Utc::now().timestamp_millis();
+    let id = Uuid::new_v4().to_string();
+    let range = format!("seq {min_seq}-{max_seq} x{count}");
+    sqlx::query(
+        r#"
+        INSERT INTO sync_issues (
+            id, entity_type, entity_id, conflict_kind, local_change_id,
+            remote_hlc, server_revision, base_revision, status, created_at
+        ) VALUES (?1, 'sync_record', ?2, 'undecryptable', NULL, ?3, ?4, 0, 'open', ?5)
+        ON CONFLICT(id) DO NOTHING
+        "#,
+    )
+    .bind(&id)
+    .bind(device_id)
+    .bind(&range)
+    .bind(max_seq as i64)
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PlethoraError::Internal(format!("Failed to record undecryptable sync records: {e}")))?;
     Ok(())
 }
 
@@ -160,4 +194,48 @@ pub async fn apply_resolution_to_outbox(
         _ => {}
     }
     resolve_issue(pool, issue_id, resolution).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::migrations::run_migrations;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn test_pool() -> Pool<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn undecryptable_records_are_surfaced_as_open_issues() {
+        let pool = test_pool().await;
+        let mut tx = pool.begin().await.expect("begin");
+        record_undecryptable_records(
+            &mut tx,
+            "a6ef7ae5-d8bf-4af0-a6a5-3c209d78db49",
+            853,
+            958,
+            106,
+        )
+        .await
+        .expect("record");
+        tx.commit().await.expect("commit");
+
+        let issues = list_open_issues(&pool, 20).await.expect("list");
+        assert_eq!(issues.len(), 1);
+        let issue = &issues[0];
+        assert_eq!(issue.conflict_kind, "undecryptable");
+        assert_eq!(
+            issue.entity_id,
+            "a6ef7ae5-d8bf-4af0-a6a5-3c209d78db49".to_string()
+        );
+        assert_eq!(issue.server_revision, 958);
+        assert!(issue.local_change_id.is_none());
+    }
 }

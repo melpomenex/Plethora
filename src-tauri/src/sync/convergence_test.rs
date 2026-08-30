@@ -168,4 +168,71 @@ mod convergence {
         let remote = decode_remote_record(&page[0].0, page[0].1, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode");
         assert_eq!(remote.operation, Some(SyncOperation::Delete));
     }
+
+    // A device that generated its own recovery key encrypts under a master key
+    // no other device can derive. Such records must fail decode (so the pull
+    // loop quarantines them) while sibling records stay readable — one rogue
+    // record cannot take the whole page down with it.
+    #[test]
+    fn foreign_master_key_record_fails_decode_while_peers_decode() {
+        let foreign_master_key: [u8; 32] = [9u8; 32];
+        let mut server = MockSyncServer::new();
+
+        let payload = br#"{"schema_version":1,"entity_type":"learning_item","id":"item-1","collection_id":"col-1","question":"Q","answer":"A","due_date":"2026-01-01T00:00:00Z","algorithm_type":"fsrs","updated_at":null}"#;
+        let make_entry = |change_id: &str, entity_id: &str, hlc: &str| {
+            super::super::types::OutboxEntry {
+                change_id: change_id.to_string(),
+                entity_type: EntityType::LearningItem,
+                entity_id: entity_id.to_string(),
+                operation: SyncOperation::Update,
+                base_revision: None,
+                payload: payload.to_vec(),
+                hlc: hlc.to_string(),
+                created_at: 1,
+                sync_status: super::super::types::SyncOutboxStatus::Pending,
+            }
+        };
+
+        let good = outbox_entry_to_wire(
+            &make_entry("change-good", "item-good", "4000:0"),
+            "device-good",
+            "acct",
+            Some(&TEST_MASTER_KEY),
+            1,
+        )
+        .expect("wire");
+        let rogue = outbox_entry_to_wire(
+            &make_entry("change-rogue", "item-rogue", "4001:0"),
+            "device-rogue",
+            "acct",
+            Some(&foreign_master_key),
+            1,
+        )
+        .expect("wire");
+        server.push(vec![good, rogue]);
+
+        let (page, cursor, _) = server.pull(0);
+        assert_eq!(page.len(), 2);
+
+        let mut decoded = 0;
+        let mut quarantined = 0;
+        for (wire, seq) in page {
+            match decode_remote_record(&wire, seq, "acct", Some(&TEST_MASTER_KEY), 1) {
+                Ok(record) => {
+                    assert_eq!(record.device_id, "device-good");
+                    decoded += 1;
+                }
+                Err(reason) => {
+                    assert!(
+                        reason.contains("Decryption") || reason.contains("authenticity"),
+                        "unexpected reason: {reason}"
+                    );
+                    quarantined += 1;
+                }
+            }
+        }
+        assert_eq!(decoded, 1);
+        assert_eq!(quarantined, 1);
+        assert_eq!(cursor, 2);
+    }
 }

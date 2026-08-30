@@ -197,12 +197,45 @@ pub async fn pull_remote(
 
         let mut tx = repo.pool().begin().await?;
         let mut page_max_seq = cursor;
+        // device_id -> (min_seq, max_seq, count) of records that failed
+        // authenticity verification, aggregated so one rogue device produces
+        // one issue row instead of one per record.
+        let mut undecryptable: std::collections::BTreeMap<String, (u64, u64, u64)> =
+            std::collections::BTreeMap::new();
 
         for (wire, seq_number) in page {
             page_max_seq = page_max_seq.max(seq_number);
-            let remote =
-                decode_remote_record(&wire, seq_number, &account, Some(&master_key), local_epoch)
-                    .map_err(PlethoraError::Internal)?;
+            let remote = match decode_remote_record(
+                &wire,
+                seq_number,
+                &account,
+                Some(&master_key),
+                local_epoch,
+            ) {
+                Ok(remote) => remote,
+                Err(reason) => {
+                    // A record this device cannot decrypt was written under a
+                    // different master key (e.g. a device that generated its
+                    // own recovery key instead of importing the account's) or
+                    // its ciphertext is corrupt. Either way it is
+                    // cryptographically unrecoverable here; aborting the pull
+                    // would let one rogue device wedge the account log
+                    // forever, so surface an issue and skip past it.
+                    tracing::warn!(
+                        device_id = %wire.device_id,
+                        seq = seq_number,
+                        error = %reason,
+                        "skipping undecryptable sync record"
+                    );
+                    let entry = undecryptable
+                        .entry(wire.device_id.clone())
+                        .or_insert((seq_number, seq_number, 0));
+                    entry.0 = entry.0.min(seq_number);
+                    entry.1 = entry.1.max(seq_number);
+                    entry.2 += 1;
+                    continue;
+                }
+            };
             apply_remote_record(&mut tx, &local_device_id, &remote).await?;
 
             applied_records.push(SyncRecord {
@@ -215,6 +248,11 @@ pub async fn pull_remote(
                 aad: String::new(),
                 key_version: remote.key_epoch,
             });
+        }
+
+        for (device_id, (min_seq, max_seq, count)) in undecryptable {
+            issues::record_undecryptable_records(&mut tx, &device_id, min_seq, max_seq, count)
+                .await?;
         }
 
         tx.commit().await?;
