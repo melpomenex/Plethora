@@ -216,26 +216,16 @@ async fn apply_learning_item(
     #[derive(serde::Deserialize)]
     struct ItemPayload {
         id: String,
+        collection_id: String,
         question: String,
         answer: Option<String>,
         due_date: String,
         algorithm_type: String,
+        updated_at: Option<String>,
     }
 
     let parsed: ItemPayload = serde_json::from_slice(&record.payload)
         .map_err(|e| PlethoraError::Internal(format!("Learning item payload decode failed: {e}")))?;
-
-    let existing_hlc: Option<String> =
-        sqlx::query_scalar("SELECT updated_at FROM learning_items WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(existing) = existing_hlc.as_deref() {
-        if !hlc_gt(&record.hlc, existing) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
 
     let due_date = DateTime::parse_from_rfc3339(&parsed.due_date)
         .map_err(|e| PlethoraError::Internal(format!("Invalid item due date: {e}")))?
@@ -254,7 +244,7 @@ async fn apply_learning_item(
                 answer = COALESCE(?2, answer),
                 due_date = ?3,
                 algorithm_type = ?4,
-                updated_at = ?5,
+                updated_at = COALESCE(?5, updated_at),
                 date_modified = datetime('now')
             WHERE id = ?6
             "#,
@@ -263,11 +253,11 @@ async fn apply_learning_item(
         .bind(&parsed.answer)
         .bind(due_date)
         .bind(&parsed.algorithm_type)
-        .bind(record.hlc.as_str())
+        .bind(&parsed.updated_at)
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(record.operation, Some(SyncOperation::Create | SyncOperation::Update)) {
         sqlx::query(
             r#"
             INSERT INTO learning_items (
@@ -275,18 +265,19 @@ async fn apply_learning_item(
                 ease_factor, due_date, date_created, date_modified, review_count, lapses,
                 state, is_suspended, tags, algorithm_type, updated_at
             ) VALUES (
-                ?1, '00000000-0000-0000-0000-000000000001', 'flashcard', ?2, ?3, 3, 0,
-                2.5, ?4, datetime('now'), datetime('now'), 0, 0,
-                'new', 0, '[]', ?5, ?6
+                ?1, ?2, 'flashcard', ?3, ?4, 3, 0,
+                2.5, ?5, datetime('now'), datetime('now'), 0, 0,
+                'new', 0, '[]', ?6, ?7
             )
             "#,
         )
         .bind(&parsed.id)
+        .bind(&parsed.collection_id)
         .bind(&parsed.question)
         .bind(&parsed.answer)
         .bind(due_date)
         .bind(&parsed.algorithm_type)
-        .bind(record.hlc.as_str())
+        .bind(&parsed.updated_at)
         .execute(&mut **tx)
         .await?;
     } else {
@@ -294,11 +285,6 @@ async fn apply_learning_item(
     }
 
     Ok(ApplyOutcome::Applied)
-}
-
-fn remote_wins(record_hlc: &str, local_modified: DateTime<Utc>) -> bool {
-    let (physical, _) = parse_hlc(record_hlc);
-    physical > local_modified.timestamp_millis()
 }
 
 async fn apply_document(
@@ -348,18 +334,6 @@ async fn apply_document(
             let position: DocumentPositionPayload = serde_json::from_slice(&record.payload)
                 .map_err(|e| PlethoraError::Internal(format!("Document payload decode failed: {e}")))?;
 
-            let local_modified: Option<DateTime<Utc>> =
-                sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
-                    .bind(&position.id)
-                    .fetch_optional(&mut **tx)
-                    .await?;
-
-            if let Some(local) = local_modified {
-                if !remote_wins(&record.hlc, local) {
-                    return Ok(ApplyOutcome::SkippedOlder);
-                }
-            }
-
             let date_modified = DateTime::parse_from_rfc3339(&position.date_modified)
                 .map(|ts| ts.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now());
@@ -389,18 +363,6 @@ async fn apply_document(
             return Ok(ApplyOutcome::Applied);
         }
     };
-
-    let local_modified: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT date_modified FROM documents WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(local) = local_modified {
-        if !remote_wins(&record.hlc, local) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
 
     let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
         PlethoraError::Internal(format!("Document tags encode failed: {e}"))
@@ -450,7 +412,7 @@ async fn apply_document(
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(record.operation, Some(SyncOperation::Create | SyncOperation::Update)) {
         sqlx::query(
             r#"
             INSERT INTO documents (
@@ -520,18 +482,6 @@ async fn apply_extract(
     let parsed: ExtractPayload = serde_json::from_slice(&record.payload)
         .map_err(|e| PlethoraError::Internal(format!("Extract payload decode failed: {e}")))?;
 
-    let local_modified: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT date_modified FROM extracts WHERE id = ?1")
-            .bind(&parsed.id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(local) = local_modified {
-        if !remote_wins(&record.hlc, local) {
-            return Ok(ApplyOutcome::SkippedOlder);
-        }
-    }
-
     let tags_json = serde_json::to_string(&parsed.tags).map_err(|e| {
         PlethoraError::Internal(format!("Extract tags encode failed: {e}"))
     })?;
@@ -578,7 +528,7 @@ async fn apply_extract(
         .bind(&parsed.id)
         .execute(&mut **tx)
         .await?;
-    } else if matches!(record.operation, Some(SyncOperation::Create)) {
+    } else if matches!(record.operation, Some(SyncOperation::Create | SyncOperation::Update)) {
         sqlx::query(
             r#"
             INSERT INTO extracts (
