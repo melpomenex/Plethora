@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CaretDown,
   CaretUp,
@@ -42,6 +42,17 @@ export function ChatFlashcardCollection({
   const [expanded, setExpanded] = useState(false);
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Cleared on unmount so the "copied" reset can never fire after teardown
+  // (tests tear down jsdom mid-timer; the app avoids setState-after-unmount).
+  const copiedResetTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedResetTimer.current !== null) {
+        window.clearTimeout(copiedResetTimer.current);
+      }
+    },
+    []
+  );
   const visible = useMemo(
     () => expanded ? artifacts : artifacts.slice(0, Math.max(1, visibleLimit)),
     [artifacts, expanded, visibleLimit],
@@ -61,7 +72,13 @@ export function ChatFlashcardCollection({
     const success = await onCopy(artifacts);
     if (success === false) return;
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    if (copiedResetTimer.current !== null) {
+      window.clearTimeout(copiedResetTimer.current);
+    }
+    copiedResetTimer.current = window.setTimeout(() => {
+      copiedResetTimer.current = null;
+      setCopied(false);
+    }, 1800);
   };
 
   return (

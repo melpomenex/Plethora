@@ -136,9 +136,11 @@ describe('Privacy & Disclosure Registry Completeness', () => {
 
   it('code search agrees with registry claims: Vercel Analytics is Tauri-gated; no crash SDK ships', () => {
     // Vercel Analytics must stay gated behind !isTauri() to match web_analytics.
+    // Additional web-only negated gates (e.g. marketing-capture suppression)
+    // may chain after it, but the Tauri gate must come first.
     const mainTsx = readFileSync(join(__dirname, '..', '..', 'src', 'main.tsx'), 'utf8');
     expect(mainTsx).toContain('@vercel/analytics');
-    expect(mainTsx).toMatch(/!isTauri\(\)\s*&&\s*<Analytics\s*\/>/);
+    expect(mainTsx).toMatch(/!isTauri\(\)\s*&&\s*(?:![\w$]+\s*&&\s*)*<Analytics\s*\/>/);
 
     // No crash-reporting SDK may appear in dependencies while
     // telemetry_crash_reporting claims zero egress.

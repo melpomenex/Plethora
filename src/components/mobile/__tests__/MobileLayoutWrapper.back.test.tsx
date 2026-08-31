@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../../../test/utils";
 import { MobileLayoutWrapper } from "../MobileLayoutWrapper";
+// AdaptiveAppScaffold renders ThemeBackdrop, whose useTheme() requires the
+// app-root ThemeProvider (main.tsx mounts it above MainLayout/MobileLayoutWrapper).
+import { ThemeProvider } from "../../../contexts/ThemeContext";
 import {
   registerContextualBackHandler,
   resetContextualBackHandlersForTests,
@@ -32,7 +35,13 @@ describe("MobileLayoutWrapper back dispatch", () => {
   it("routes native back to the contextual handler and prevents the host default", () => {
     const contextual = vi.fn(() => true);
     registerContextualBackHandler(contextual);
-    render(<MobileLayoutWrapper><div>Content</div></MobileLayoutWrapper>);
+    render(
+      <ThemeProvider>
+        <MobileLayoutWrapper>
+          <div>Content</div>
+        </MobileLayoutWrapper>
+      </ThemeProvider>,
+    );
 
     const event = new Event("plethora:system-back", { cancelable: true });
     window.dispatchEvent(event);
@@ -46,7 +55,13 @@ describe("MobileLayoutWrapper back dispatch", () => {
     const contextual = vi.fn(() => true);
     registerOverlayDismissal(overlay);
     registerContextualBackHandler(contextual);
-    render(<MobileLayoutWrapper><div>Content</div></MobileLayoutWrapper>);
+    render(
+      <ThemeProvider>
+        <MobileLayoutWrapper>
+          <div>Content</div>
+        </MobileLayoutWrapper>
+      </ThemeProvider>,
+    );
 
     window.dispatchEvent(new Event("plethora:system-back", { cancelable: true }));
 

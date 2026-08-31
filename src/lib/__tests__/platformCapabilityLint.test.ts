@@ -39,6 +39,12 @@ const COMMAND_EXCEPTION_LIST: Record<string, string> = {
   "toggle-theme": "UI-only theme toggle.",
   "keyboard-shortcuts": "Help overlay; platform-neutral.",
   "paste-extract": "Gated via capabilityId core_extract in CommandCenter.",
+  "ask-my-library":
+    "Feature-flag gated (settings.features.aiLibraryRag) in getDefaultCommands; dispatches a DOM event to the platform-neutral SearchPage RAG surface (no native bridge).",
+  "translate-selection":
+    "Ungated-with-rationale: the palette action only dispatches a DOM event; no native bridge is called from the command itself.",
+  "record-lecture-android":
+    "Ungated-with-rationale: dispatches a DOM event consumed by LectureCaptureHost (MainLayout), which uses standard web media APIs; the Android speech provider degrades to the configured transcription provider off-Android.",
   "start-guided-tour": "Onboarding tour; platform-neutral.",
   "import-twitter-video":
     "Ungated-with-rationale: uses the Rust backend, which ships on iOS too (audit §Command palette).",

@@ -1,22 +1,78 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * Flashcard Studio adapter tests against the task-layer architecture: hint
+ * leakage checks and the resilient explain chain run for real over `runTask`
+ * output. Only the provider-availability boundary is faked — `../provider`
+ * resolves the on-device path and `../providers` routes to a scripted fake
+ * provider, so `runTask` builds and sends the real task requests.
+ */
 
-vi.mock("../onDeviceAI", async () => {
-  const actual = await vi.importActual<typeof import("../onDeviceAI")>("../onDeviceAI");
-  return {
-    ...actual,
-    generateNativePrompt: vi.fn(),
-    generateStreamingPrompt: vi.fn(),
-  };
-});
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  AIProvider,
+  AIRequest,
+  AIResponse,
+  AIStreamOptions,
+} from "../providers/types";
+import { fakeCapabilities } from "../__fixtures__/FakeAIProvider";
+
+const routing = vi.hoisted(() => ({ providers: [] as AIProvider[] }));
 
 vi.mock("../provider", () => ({
   resolveAiPath: vi.fn(async () => "ondevice"),
   prefersOnDevice: vi.fn(() => true),
   hasCloudProvider: vi.fn(() => false),
+  requestCloudFallback: vi.fn(async () => true),
 }));
 
-import { generateNativePrompt, generateStreamingPrompt } from "../onDeviceAI";
+vi.mock("../providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../providers")>()),
+  getRoutingProviders: () => routing.providers,
+}));
+
 import { explainCard, generateReviewHint } from "../flashcardStudioAI";
+
+/**
+ * A scripted provider that can emit exact streaming chunk boundaries (the
+ * shared `FakeAIProvider` always splits a response in half, which would hide
+ * the chunk contract `explainCard` forwards to its callers).
+ */
+type ScriptedResponse = Error | { response: AIResponse; chunks?: string[] };
+
+class ScriptedProvider implements AIProvider {
+  readonly requests: AIRequest[] = [];
+  callCount = 0;
+
+  constructor(
+    readonly id: string,
+    readonly kind: "ondevice" | "cloud",
+    private readonly script: ScriptedResponse[]
+  ) {}
+
+  async getCapabilities() {
+    return fakeCapabilities();
+  }
+
+  generateStream(req: AIRequest, opts: AIStreamOptions = {}): Promise<AIResponse> {
+    this.requests.push(req);
+    const entry = this.script[Math.min(this.callCount++, this.script.length - 1)];
+    return new Promise<AIResponse>((resolve, reject) => {
+      if (entry instanceof Error) {
+        reject(entry);
+        return;
+      }
+      for (const chunk of entry.chunks ?? (entry.response.text ? [entry.response.text] : [])) {
+        opts.onChunk?.(chunk);
+      }
+      resolve(entry.response);
+    });
+  }
+}
+
+function installProvider(script: ScriptedResponse[]): ScriptedProvider {
+  const provider = new ScriptedProvider("scripted-ondevice", "ondevice", script);
+  routing.providers = [provider];
+  return provider;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -30,13 +86,14 @@ describe("generateReviewHint", () => {
   });
 
   it("returns subtle hint when no leakage occurs", async () => {
-    vi.mocked(generateNativePrompt).mockResolvedValue({
-      requestId: "hint-1",
-      text: "Think about the central muscular organ in the chest.",
-      inputTokens: 10,
-      tokenLimit: 4096,
-      candidates: [],
-    });
+    installProvider([
+      {
+        response: {
+          requestId: "hint-1",
+          text: "Think about the central muscular organ in the chest.",
+        },
+      },
+    ]);
 
     const res = await generateReviewHint({
       question: "What pumps blood?",
@@ -48,13 +105,11 @@ describe("generateReviewHint", () => {
   });
 
   it("replaces hint if direct answer leaks in the hint text", async () => {
-    vi.mocked(generateNativePrompt).mockResolvedValue({
-      requestId: "hint-2",
-      text: "The answer is the heart.",
-      inputTokens: 10,
-      tokenLimit: 4096,
-      candidates: [],
-    });
+    installProvider([
+      {
+        response: { requestId: "hint-2", text: "The answer is the heart." },
+      },
+    ]);
 
     const res = await generateReviewHint({
       question: "What pumps blood?",
@@ -69,17 +124,12 @@ describe("generateReviewHint", () => {
 
 describe("explainCard", () => {
   it("streams explanation for a flashcard", async () => {
-    vi.mocked(generateStreamingPrompt).mockImplementation(async (req, opts) => {
-      opts?.onChunk?.("The heart is ");
-      opts?.onChunk?.("a muscular pump.");
-      return {
-        requestId: req.requestId,
-        text: "The heart is a muscular pump.",
-        inputTokens: 10,
-        tokenLimit: 4096,
-        candidates: [],
-      };
-    });
+    installProvider([
+      {
+        chunks: ["The heart is ", "a muscular pump."],
+        response: { requestId: "explain-1", text: "The heart is a muscular pump." },
+      },
+    ]);
 
     const chunks: string[] = [];
     const res = await explainCard(

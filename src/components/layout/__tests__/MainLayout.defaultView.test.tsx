@@ -69,6 +69,11 @@ vi.mock("../../tabs/TabRegistry", () => ({
     closable: serialized.closable,
     data: serialized.data,
   }),
+  // MainLayout warms common tab chunks once the backend gate clears
+  // (whenBackendReady().then(() => prefetchCommonTabs())). Omitting this
+  // export turns that late promise into an unhandled rejection after the
+  // test finishes.
+  prefetchCommonTabs: vi.fn(),
 }));
 
 import { MainLayout } from "../MainLayout";

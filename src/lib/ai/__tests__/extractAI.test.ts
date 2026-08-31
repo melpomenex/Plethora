@@ -1,22 +1,64 @@
+/**
+ * Extract adapter tests against the task-layer architecture: the adapters'
+ * delimited-format parsing (bullet lines, `Q:` lines, comma-separated tags)
+ * runs for real over `runTask`'s output. Only the provider-availability
+ * boundary is faked — `../provider` pins the on-device branch and
+ * `../providers` routes to a scripted `FakeAIProvider`, so requests are built
+ * by the real task definitions and dispatched by request content.
+ */
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AIProvider } from "../providers/types";
+import { FakeAIProvider, type FakeResponse } from "../__fixtures__/FakeAIProvider";
 
-vi.mock("../onDeviceAI", async () => {
-  const actual = await vi.importActual<typeof import("../onDeviceAI")>("../onDeviceAI");
-  return {
-    ...actual,
-    generateNativePrompt: vi.fn(),
-    summarize: vi.fn(),
-  };
-});
+const routing = vi.hoisted(() => ({ providers: [] as AIProvider[] }));
 
-import { generateNativePrompt, summarize } from "../onDeviceAI";
+vi.mock("../provider", () => ({
+  resolveAiPath: vi.fn(async () => "ondevice"),
+  prefersOnDevice: vi.fn(() => true),
+  hasCloudProvider: vi.fn(() => false),
+  runAiAction: vi.fn(
+    async (action: { onDevice: () => Promise<unknown> }) => action.onDevice()
+  ),
+  requestCloudFallback: vi.fn(async () => true),
+}));
+
+vi.mock("../providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../providers")>()),
+  getRoutingProviders: () => routing.providers,
+}));
+
 import {
   analyzeExtract,
   extractKeyPoints,
   generateStudyQuestions,
   suggestTags,
-  summarizeArticle,
 } from "../extractAI";
+
+/**
+ * Script one response (or thrown `Error`) per task, keyed by a needle found
+ * in that task's built request text. Needles are disjoint across the extract
+ * tasks and `passageSummarizeTask` (which `analyzeExtract` also drives).
+ */
+function installProvider(script: Record<string, string | Error>): FakeAIProvider {
+  const dispatch: FakeResponse = (req) => {
+    for (const [needle, outcome] of Object.entries(script)) {
+      if (req.text.includes(needle)) {
+        return outcome instanceof Error
+          ? outcome
+          : { requestId: req.requestId, text: outcome };
+      }
+    }
+    return new Error(`No scripted response for request: ${req.text.slice(0, 80)}`);
+  };
+  const provider = new FakeAIProvider({
+    id: "extract-ondevice",
+    kind: "ondevice",
+    responses: [dispatch],
+  });
+  routing.providers = [provider];
+  return provider;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -24,12 +66,8 @@ beforeEach(() => {
 
 describe("extractKeyPoints", () => {
   it("parses bullet lines into clean string array", async () => {
-    vi.mocked(generateNativePrompt).mockResolvedValue({
-      requestId: "kp-1",
-      text: "• First point\n• Second point\n* Third point",
-      inputTokens: 10,
-      tokenLimit: 4096,
-      candidates: [],
+    installProvider({
+      "core key points": "• First point\n• Second point\n* Third point",
     });
 
     const points = await extractKeyPoints("Sample text", 3);
@@ -39,12 +77,8 @@ describe("extractKeyPoints", () => {
 
 describe("generateStudyQuestions", () => {
   it("parses question lines into string array", async () => {
-    vi.mocked(generateNativePrompt).mockResolvedValue({
-      requestId: "sq-1",
-      text: "Q: What is A?\nQ: Why does B work?",
-      inputTokens: 10,
-      tokenLimit: 4096,
-      candidates: [],
+    installProvider({
+      "study questions": "Q: What is A?\nQ: Why does B work?",
     });
 
     const questions = await generateStudyQuestions("Sample text", 2);
@@ -54,12 +88,8 @@ describe("generateStudyQuestions", () => {
 
 describe("suggestTags", () => {
   it("cleans, lowercases, and deduplicates tags", async () => {
-    vi.mocked(generateNativePrompt).mockResolvedValue({
-      requestId: "tg-1",
-      text: "#Biology, Science, biology, #Physiology",
-      inputTokens: 10,
-      tokenLimit: 4096,
-      candidates: [],
+    installProvider({
+      "topic tags": "#Biology, Science, biology, #Physiology",
     });
 
     const tags = await suggestTags("Sample text", ["science"]);
@@ -69,24 +99,18 @@ describe("suggestTags", () => {
 
 describe("analyzeExtract", () => {
   it("runs subtasks independently so one failure does not block others", async () => {
-    vi.mocked(summarize).mockResolvedValue("Sample summary");
-    vi.mocked(generateNativePrompt).mockImplementation(async (req) => {
-      if (req.text.includes("key points")) {
-        throw new Error("key points failed");
-      }
-      return {
-        requestId: req.requestId,
-        text: "Q: Sample question?",
-        inputTokens: 10,
-        tokenLimit: 4096,
-        candidates: [],
-      };
+    installProvider({
+      "Summarize the key points": "Sample summary",
+      "core key points": new Error("key points failed"),
+      "study questions": "Q: Sample question?",
+      "topic tags": "biology, physiology",
     });
 
     const result = await analyzeExtract("Sample text");
     expect(result.summary).toBe("Sample summary");
     expect(result.keyPoints).toBeUndefined();
     expect(result.questions).toEqual(["Sample question?"]);
-    expect(result.provenance).toBe("ondevice-gemini-nano");
+    expect(result.suggestedTags).toEqual(["biology", "physiology"]);
+    expect(result.provenance).toBe("unified-router");
   });
 });

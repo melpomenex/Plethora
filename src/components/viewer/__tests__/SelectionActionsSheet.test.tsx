@@ -25,8 +25,17 @@ vi.mock("../../../lib/ai/useAiAvailability", () => ({
   useAiAvailability: () => availability,
 }));
 vi.mock("../../../lib/ai/passageAI", () => passage);
-vi.mock("../../../lib/ai/provider", () => ({ hasCloudProvider: () => true }));
-vi.mock("../../../lib/ai/onDeviceAI", () => ({
+vi.mock("../../../lib/ai/provider", async (importOriginal) => ({
+  // Partial mock: only force provider presence; keep the real
+  // `canOfferCloudRetryForSafety`/`requestCloudFallback` used by the failure path.
+  ...(await importOriginal<object>()),
+  hasCloudProvider: () => true,
+}));
+vi.mock("../../../lib/ai/onDeviceAI", async (importOriginal) => ({
+  // Keep the real error taxonomy exports (`OnDeviceAiError`,
+  // `ON_DEVICE_AI_ERROR_CODES`) — the real lib/ai/errors.ts branches on them
+  // when mapping a failed action, and a bare mock makes that mapping throw.
+  ...(await importOriginal<object>()),
   getOnDeviceRequirementStatus: vi.fn(async () => ({ status: "unavailable" })),
   isOnDeviceAiSupportedPlatform: () => isOnDeviceAiSupportedPlatform(),
   requestModelDownload: vi.fn(),

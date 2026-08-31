@@ -19,7 +19,7 @@ describe("scanForForbiddenStoreArtifacts", () => {
 
   it("passes clean production code", () => {
     const code = `
-      const api = fetch("https://api.plethora.app/v1/billing");
+      const api = fetch("https://api.useplethora.com/v1/billing");
       const xmlns = "http://www.w3.org/1999/xhtml";
       const secure = "wss://sync.plethora.app";
     `;

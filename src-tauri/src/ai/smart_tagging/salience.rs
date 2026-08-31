@@ -104,8 +104,17 @@ pub fn extract_salient_terms(parts: &DocumentContentParts, top_k: usize) -> Vec<
         });
     }
 
-    // Sort descending by score
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    // Sort descending by score. The tie-break on the term itself matters:
+    // `results` is built from HashMap iteration, so without it, terms with
+    // equal scores at the top-k cut survive (or drop out) in random
+    // per-process order — the baseline classifier then flipped fixtures
+    // like test_positive_fixture_linux_kernel_scheduling ~1 run in 3.
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.term.cmp(&b.term))
+    });
 
     if results.len() > top_k {
         results.truncate(top_k);
