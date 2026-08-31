@@ -34,6 +34,8 @@ import {
   deleteTranscriptionModel,
   downloadTranscriptionModel,
   enqueueAllUntranscribed,
+  getTranscriptionComputeDiagnostics,
+  type ComputeDiagnosticsReport,
 } from "../../api/transcription";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
 import { TranscriptionJobProgressLabel } from "../transcription/TranscriptionJobProgressLabel";
@@ -72,6 +74,22 @@ interface UntranscribedMediaDocument {
 const listUntranscribedMediaDocuments = (): Promise<UntranscribedMediaDocument[]> =>
   invokeCommand("get_untranscribed_media_documents");
 
+/** Display names for compute backend keys (serde snake_case from Rust). */
+const COMPUTE_BACKEND_LABELS: Record<string, string> = {
+  cuda: "CUDA",
+  tensor_rt: "TensorRT",
+  core_ml: "CoreML",
+  direct_ml: "DirectML",
+  win_ml: "WinML",
+  migraph_x: "MIGraphX",
+  migraphx: "MIGraphX",
+  open_vino: "OpenVINO",
+  vulkan: "Vulkan",
+  metal: "Metal",
+};
+
+const backendLabel = (key: string) => COMPUTE_BACKEND_LABELS[key] ?? key.toUpperCase();
+
 export function AudioTranscriptionSettings() {
   const { t } = useI18n();
   const toast = useToast();
@@ -95,6 +113,8 @@ export function AudioTranscriptionSettings() {
       : (audioSettings.provider as Provider);
   });
   const [enqueuingAll, setEnqueuingAll] = useState(false);
+  // GPU-first local compute diagnostics (accelerators, devices, health).
+  const [computeDiagnostics, setComputeDiagnostics] = useState<ComputeDiagnosticsReport | null>(null);
   
   // Local state for form inputs
   const [apiKeyInput, setApiKeyInput] = useState(audioSettings.groq?.apiKey ?? "");
@@ -104,6 +124,16 @@ export function AudioTranscriptionSettings() {
   const [isKeyValid, setIsKeyValid] = useState(false);
 
   const isNemotronSelected = isNemotronModelId(audioSettings.sttModel);
+
+  // Accelerator availability from the backend probe (excludes plain CPU).
+  const usableAccelerators = useMemo(() => {
+    if (!computeDiagnostics) return [] as string[];
+    return Object.entries(computeDiagnostics.runtime.providers)
+      .filter(([name, status]) => name !== "cpu" && status.runtime_usable)
+      .map(([name]) => name);
+  }, [computeDiagnostics]);
+  const gpuDevices = computeDiagnostics?.hardware.devices ?? [];
+  const degradedBackends = Object.keys(computeDiagnostics?.health_degraded_backends ?? {});
 
   const handleUpdateSettings = (updates: Partial<typeof audioSettings>) => {
     updateSettings({ audioTranscription: { ...audioSettings, ...updates } });
@@ -122,6 +152,9 @@ export function AudioTranscriptionSettings() {
     fetchProfiles().catch(() => undefined);
     if (isDesktop) {
       queueStore.fetchQueue().catch(() => undefined);
+      getTranscriptionComputeDiagnostics()
+        .then(setComputeDiagnostics)
+        .catch(() => setComputeDiagnostics(null));
     }
     if (appleOs || isNativeMobile()) {
       void isAppleSpeechReady().then(setAppleReady).catch(() => setAppleReady(false));
@@ -356,6 +389,69 @@ export function AudioTranscriptionSettings() {
             />
           </label>
         </div>
+
+        {/* GPU-first local compute selection (desktop runtimes only) */}
+        {isDesktop && (
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-muted/30 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="space-y-1.5 sm:flex-1">
+                <span className="text-xs font-medium text-muted-foreground">Compute device</span>
+                <select
+                  value={audioSettings.computeMode ?? "auto"}
+                  onChange={(event) =>
+                    handleUpdateSettings({
+                      computeMode: event.target.value as "auto" | "gpu" | "cpu",
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="auto">Automatic (Recommended)</option>
+                  <option value="gpu">Prefer GPU (CUDA / CoreML / DirectML)</option>
+                  <option value="cpu">CPU only</option>
+                </select>
+              </label>
+              {gpuDevices.length > 1 && (
+                <label className="space-y-1.5 sm:flex-1">
+                  <span className="text-xs font-medium text-muted-foreground">GPU override</span>
+                  <select
+                    value={
+                      audioSettings.deviceId != null ? String(audioSettings.deviceId) : ""
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      handleUpdateSettings({
+                        deviceId: value === "" ? undefined : Number(value),
+                      });
+                    }}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Default device</option>
+                    {gpuDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Lightning className="h-3.5 w-3.5 shrink-0" />
+              {usableAccelerators.length > 0
+                ? `Accelerators available: ${usableAccelerators
+                    .map(backendLabel)
+                    .join(", ")} — local jobs fall back to CPU on accelerator failure.`
+                : "No hardware accelerator detected — local transcription runs on CPU."}
+            </p>
+            {degradedBackends.length > 0 && (
+              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <Warning className="h-3.5 w-3.5 shrink-0" />
+                Temporarily disabled after a failure:{" "}
+                {degradedBackends.map(backendLabel).join(", ")} — jobs continue on CPU.
+              </p>
+            )}
+          </div>
+        )}
         {(audioSettings.sttProvider === "local" || resolveSttProvider(audioSettings) === "local") ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />

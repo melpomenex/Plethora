@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
@@ -26,6 +25,15 @@ struct PhasePayload {
     phase: String,
 }
 
+/// Emitted on `transcription://backend-fallback` when an accelerator run
+/// fails mid-job and the transcription seamlessly continues on CPU.
+#[derive(Clone, Serialize)]
+struct BackendFallbackPayload {
+    from: String,
+    to: String,
+    message: String,
+}
+
 pub struct TranscriptionEngine {
     app_handle: AppHandle,
 }
@@ -38,9 +46,6 @@ pub(crate) fn sidecar_executable_name(name: &str, target_triple: &str) -> String
     }
 }
 
-static VULKAN_CHECKED: AtomicBool = AtomicBool::new(false);
-static VULKAN_AVAILABLE: AtomicBool = AtomicBool::new(false);
-
 /// Set library path environment variable so sidecar binaries can find
 /// shared libraries (libonnxruntime, libggml, etc.) in the same directory.
 macro_rules! set_sidecar_env {
@@ -49,10 +54,19 @@ macro_rules! set_sidecar_env {
             #[cfg(target_os = "linux")]
             {
                 let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+                // Include CUDA/cuDNN search paths if present on Linux systems
+                let cuda_paths = ["/usr/local/cuda/lib64", "/usr/local/cuda/targets/x86_64-linux/lib", "/usr/lib/x86_64-linux-gnu"];
+                let mut extra_paths = vec![bin_str.to_string()];
+                for cp in cuda_paths {
+                    if std::path::Path::new(cp).exists() {
+                        extra_paths.push(cp.to_string());
+                    }
+                }
+                let prefix = extra_paths.join(":");
                 let path = if existing.is_empty() {
-                    bin_str.to_string()
+                    prefix
                 } else {
-                    format!("{}:{}", bin_str, existing)
+                    format!("{}:{}", prefix, existing)
                 };
                 $cmd = $cmd.env("LD_LIBRARY_PATH", path);
             }
@@ -126,7 +140,7 @@ impl TranscriptionEngine {
     /// miss the sidecar executables, and every transcription fails with "sidecar not
     /// found". To handle this we prefer the dev source `bin/` dir when it exists and
     /// actually contains sidecars; otherwise fall back to the resource dir.
-    fn sidecar_bin_dir(&self) -> Option<PathBuf> {
+    pub(crate) fn sidecar_bin_dir(&self) -> Option<PathBuf> {
         // Dev source dir: the src-tauri/bin checked into the repo. In a dev build
         // this is where the real sidecar binaries live.
         let dev_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin");
@@ -227,24 +241,6 @@ impl TranscriptionEngine {
             )),
             Ok(_) => None,
         }
-    }
-
-    /// Checks whether libggml-vulkan.so is present in the sidecar bin directory.
-    /// Caches the result after the first check.
-    fn vulkan_available(&self) -> bool {
-        if VULKAN_CHECKED.load(Ordering::Relaxed) {
-            return VULKAN_AVAILABLE.load(Ordering::Relaxed);
-        }
-        let available = self
-            .sidecar_bin_dir()
-            .map(|dir| dir.join("libggml-vulkan.so").exists())
-            .unwrap_or(false);
-        if available {
-            println!("[TranscriptionEngine] Vulkan GPU backend detected");
-        }
-        VULKAN_AVAILABLE.store(available, Ordering::Relaxed);
-        VULKAN_CHECKED.store(true, Ordering::Relaxed);
-        available
     }
 
     /// Converts audio to 16kHz WAV as required by whisper.cpp.
@@ -365,20 +361,6 @@ impl TranscriptionEngine {
             args.push(language.to_string());
         }
 
-        let use_gpu = self.vulkan_available();
-
-        let phase = if use_gpu {
-            "transcribing-gpu"
-        } else {
-            "transcribing-cpu"
-        };
-        let _ = self.app_handle.emit(
-            "transcription://phase",
-            PhasePayload {
-                phase: phase.to_string(),
-            },
-        );
-
         // Guard against a missing or 0-byte placeholder sidecar before spawning,
         // so the user gets an actionable message instead of a bare "failed".
         if let Some(reason) = self.check_sidecar_usable("whisper") {
@@ -406,6 +388,10 @@ impl TranscriptionEngine {
         let mut stdout_buf = String::new();
         let mut stderr_buf = String::new();
         let mut stderr_line_buf = String::new();
+        // Whether the startup banner told us which backend whisper actually
+        // runs on. Reported once; the neutral (no-phase) UI state is kept
+        // until the truth is known instead of guessing from library presence.
+        let mut backend_reported = false;
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -422,11 +408,48 @@ impl TranscriptionEngine {
                         let line = stderr_line_buf[..newline_idx].trim().to_string();
                         stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
 
+                        // Ground-truth compute telemetry: whisper.cpp prints its
+                        // backend choice on stderr at startup — "use gpu = 1"
+                        // plus a ggml_<backend>_init line (metal/cuda/vulkan),
+                        // or "use gpu = 0" when CPU-only.
+                        if !backend_reported {
+                            let gpu_active = line.contains("use gpu = 1")
+                                || line.contains("ggml_metal_device_init")
+                                || line.contains("ggml_cuda_init")
+                                || line.contains("ggml_vulkan_init");
+                            let cpu_active = line.contains("use gpu = 0");
+                            if gpu_active || cpu_active {
+                                backend_reported = true;
+                                let _ = self.app_handle.emit(
+                                    "transcription://phase",
+                                    PhasePayload {
+                                        phase: if gpu_active {
+                                            "transcribing-gpu".to_string()
+                                        } else {
+                                            "transcribing-cpu".to_string()
+                                        },
+                                    },
+                                );
+                            }
+                        }
+
                         // Parse progress: "progress = 5%"
                         if let Some(idx) = line.find("progress =") {
                             let rest = &line[idx + 10..];
                             if let Some(end) = rest.find('%') {
                                 if let Ok(p) = rest[..end].trim().parse::<i32>() {
+                                    // If the build never printed a backend banner,
+                                    // report the conservative default once progress
+                                    // starts so the UI is never left without a phase.
+                                    if !backend_reported {
+                                        backend_reported = true;
+                                        let _ = self.app_handle.emit(
+                                            "transcription://phase",
+                                            PhasePayload {
+                                                phase: "transcribing-cpu".to_string(),
+                                            },
+                                        );
+                                    }
                                     let _ = self.app_handle.emit(
                                         "transcription://progress",
                                         ProgressPayload { progress: p },
@@ -839,6 +862,19 @@ impl TranscriptionEngine {
             ));
         }
 
+        // The streaming (Nemotron) family takes a dedicated whole-file path:
+        // the online sidecar loads the model once and processes the entire WAV
+        // in one persistent session (measured ~0.19 RTF with flat ~2.1 GB RSS
+        // on an 11-minute file). The 30 s chunk loop below would only add a
+        // ~2.1 s model reload + session reset per chunk — exactly the overhead
+        // the persistent-session architecture removes — and streaming output
+        // would lose cross-chunk endpointing context at every boundary.
+        if matches!(family, SherpaFamily::NemotronTransducer) {
+            return self
+                .transcribe_nemotron_streaming(files, audio_path, language, on_segment, on_progress)
+                .await;
+        }
+
         let _ = self.app_handle.emit(
             "transcription://phase",
             PhasePayload {
@@ -862,7 +898,7 @@ impl TranscriptionEngine {
         // one segment. Avoids chunk-WAV bookkeeping for the common short case.
         if total_duration_ms <= chunk_duration_ms {
             let raw = self
-                .run_sherpa_sidecar(family, files, audio_path, language)
+                .run_sherpa_sidecar(family, files, audio_path, language, "cpu", None, 0, None)
                 .await?;
             if let Some(ref cb) = on_progress {
                 cb(100);
@@ -928,7 +964,16 @@ impl TranscriptionEngine {
             // file — log and continue with an empty segment (matches the legacy
             // moonshine behavior).
             let raw = match self
-                .run_sherpa_sidecar(family, files.clone(), &chunk_path, language)
+                .run_sherpa_sidecar(
+                    family,
+                    files.clone(),
+                    &chunk_path,
+                    language,
+                    "cpu",
+                    None,
+                    0,
+                    None,
+                )
                 .await
             {
                 Ok(t) => t,
@@ -960,12 +1005,175 @@ impl TranscriptionEngine {
         Ok(())
     }
 
+    /// Whole-audio streaming transcription for the Nemotron online model, with
+    /// GPU-first backend selection and a strict local GPU → CPU fallback.
+    ///
+    /// The execution backend is resolved through `ComputeBackendSelector`
+    /// (user policy from the mirrored transcription config → detected hardware
+    /// → probed runtime providers → model support → session health cache). If
+    /// the accelerator run fails, the backend is marked degraded so later jobs
+    /// this session skip it, the UI is notified via
+    /// `transcription://backend-fallback`, and the whole file is retried on
+    /// CPU. The fallback is strictly local — a local job never escapes to a
+    /// cloud provider (Groq/OpenRouter) because an accelerator failed.
+    async fn transcribe_nemotron_streaming(
+        &self,
+        files: SherpaModelFiles,
+        audio_path: &Path,
+        language: &str,
+        on_segment: impl Fn(TranscriptSegment),
+        on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
+    ) -> Result<()> {
+        use crate::transcription::compute_backend as compute;
+
+        let hardware = compute::detect_hardware();
+        let runtime = compute::probe_runtime_capabilities(self.sidecar_bin_dir().as_deref());
+        let model = compute::ModelCapabilities {
+            model_id: "nemotron-3.5-asr-0.6b".to_string(),
+            supported_backends: vec![
+                compute::ComputeBackend::Cuda,
+                compute::ComputeBackend::CoreMl,
+                compute::ComputeBackend::DirectMl,
+                compute::ComputeBackend::Cpu,
+            ],
+            min_vram_bytes: Some(1500 * 1024 * 1024),
+        };
+        let health = compute::get_health_cache();
+
+        // User policy comes from the settings mirror; absent → Auto.
+        let (mode, preferred_device) =
+            match self.app_handle.try_state::<crate::database::Repository>() {
+                Some(repo) => {
+                    let config =
+                        crate::commands::transcription_config::read_transcription_config(&repo)
+                            .await;
+                    (
+                        config
+                            .as_ref()
+                            .and_then(|c| c.compute_mode.as_deref())
+                            .map(compute::TranscriptionComputeMode::from_str)
+                            .unwrap_or_default(),
+                        config.as_ref().and_then(|c| c.device_id),
+                    )
+                }
+                None => (compute::TranscriptionComputeMode::default(), None),
+            };
+
+        let selection = compute::ComputeBackendSelector::select_backend(
+            mode,
+            &hardware,
+            &runtime,
+            &model,
+            &health,
+            preferred_device,
+        );
+
+        let provider = match selection.primary.backend {
+            compute::ComputeBackend::Cuda => "cuda",
+            compute::ComputeBackend::CoreMl => "coreml",
+            compute::ComputeBackend::DirectMl => "directml",
+            _ => "cpu",
+        };
+        let device_id = if provider == "cpu" {
+            None
+        } else {
+            selection.primary.device_id
+        };
+
+        let phase = if provider == "cpu" {
+            "transcribing-cpu"
+        } else {
+            "transcribing-gpu"
+        };
+        let _ = self.app_handle.emit(
+            "transcription://phase",
+            PhasePayload {
+                phase: phase.to_string(),
+            },
+        );
+        if let Some(ref cb) = on_progress {
+            cb(5);
+        }
+
+        let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(0);
+
+        let raw = match self
+            .run_sherpa_sidecar(
+                SherpaFamily::NemotronTransducer,
+                files.clone(),
+                audio_path,
+                language,
+                provider,
+                device_id,
+                total_duration_ms,
+                on_progress.as_deref(),
+            )
+            .await
+        {
+            Ok(raw) => raw,
+            Err(err) if provider != "cpu" => {
+                tracing::warn!(
+                    backend = %selection.primary.backend,
+                    error = %err,
+                    "accelerator failed for Nemotron; continuing on CPU"
+                );
+                health.mark_degraded(selection.primary.backend, err.to_string());
+                let _ = self.app_handle.emit(
+                    "transcription://backend-fallback",
+                    BackendFallbackPayload {
+                        from: selection.primary.backend.to_string(),
+                        to: "CPU".to_string(),
+                        message: "GPU unavailable — continuing on CPU".to_string(),
+                    },
+                );
+                let _ = self.app_handle.emit(
+                    "transcription://phase",
+                    PhasePayload {
+                        phase: "transcribing-cpu".to_string(),
+                    },
+                );
+                if let Some(ref cb) = on_progress {
+                    cb(5);
+                }
+                self.run_sherpa_sidecar(
+                    SherpaFamily::NemotronTransducer,
+                    files,
+                    audio_path,
+                    language,
+                    "cpu",
+                    None,
+                    total_duration_ms,
+                    on_progress.as_deref(),
+                )
+                .await?
+            }
+            Err(err) => return Err(err),
+        };
+
+        for segment in crate::transcription::nemotron::parse_online_segments(&raw, 0) {
+            on_segment(segment);
+        }
+        if let Some(ref cb) = on_progress {
+            cb(100);
+        }
+        Ok(())
+    }
+
+    /// `provider` selects the execution provider ("cpu", "cuda", "coreml",
+    /// "directml") for the streaming family; offline families always run on
+    /// CPU. `device_id` picks the GPU index for CUDA/DirectML. For the
+    /// streaming family with a known `total_duration_ms`, completed-segment
+    /// JSON lines on stderr drive live `on_progress` updates.
     async fn run_sherpa_sidecar(
         &self,
         family: SherpaFamily,
         files: SherpaModelFiles,
         wav_path: &Path,
         language: &str,
+        provider: &str,
+        device_id: Option<u32>,
+        total_duration_ms: i64,
+        on_progress: Option<&(dyn Fn(i32) + Send + Sync)>,
     ) -> Result<String> {
         // Nemotron runs on the streaming (online) binary; every other family
         // on the offline one.
@@ -1054,7 +1262,17 @@ impl TranscriptionEngine {
                 if !lang.is_empty() && lang != "auto" {
                     args.push(format!("--language={}", lang));
                 }
-                args.push("--num-threads=4".to_string());
+                // Execution provider: cpu (default), cuda, coreml, directml
+                // depending on what `ComputeBackendSelector` picked.
+                args.push(format!("--provider={}", provider));
+                if provider != "cpu" {
+                    if let Some(id) = device_id {
+                        // GPU index (meaningful for CUDA/TRT; harmless elsewhere).
+                        args.push(format!("--device={}", id));
+                    }
+                } else {
+                    args.push("--num-threads=4".to_string());
+                }
             }
             SherpaFamily::Zipformer => {
                 // Split transducer: --encoder/--decoder/--joiner.
@@ -1079,14 +1297,82 @@ impl TranscriptionEngine {
             .map_err(|e| anyhow!("Failed to launch sidecar 'sherpa-onnx': {}", e))?;
 
         let mut success = false;
+        // Whole-file streaming runs emit one JSON line per endpointed segment,
+        // so the transcript can be megabytes — the 16 KB cap used to truncate
+        // long-audio transcripts. Keep a generous 16 MB ceiling purely as a
+        // guard against pathological output.
+        let stderr_cap = 16 * 1024 * 1024;
         let mut stderr_buf = String::new();
+        let mut stderr_line_buf = String::new();
+        // sherpa-onnx can silently continue on CPU when the requested provider
+        // isn't available at runtime ("… Fallback to cpu!") while still exiting
+        // 0 — detect that notice once and correct the reported backend.
+        let mut silent_cpu_fallback = false;
         while let Some(event) = rx.recv().await {
             match event {
                 // sherpa-onnx writes its result JSON to stderr (stdout stays empty).
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    if stderr_buf.len() < 16_000 {
+                    if stderr_buf.len() < stderr_cap {
                         stderr_buf.push_str(&line_str);
+                    }
+                    stderr_line_buf.push_str(&line_str);
+                    while let Some(newline_idx) = stderr_line_buf.find('\n') {
+                        let complete_line = stderr_line_buf[..newline_idx].trim().to_string();
+                        stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
+
+                        if provider != "cpu"
+                            && !silent_cpu_fallback
+                            && complete_line.contains("Fallback to cpu")
+                        {
+                            silent_cpu_fallback = true;
+                            let backend = match provider {
+                                "cuda" => Some(crate::transcription::compute_backend::ComputeBackend::Cuda),
+                                "coreml" => Some(crate::transcription::compute_backend::ComputeBackend::CoreMl),
+                                "directml" => Some(crate::transcription::compute_backend::ComputeBackend::DirectMl),
+                                _ => None,
+                            };
+                            if let Some(backend) = backend {
+                                crate::transcription::compute_backend::get_health_cache()
+                                    .mark_degraded(
+                                        backend,
+                                        "sherpa runtime lacks this execution provider".to_string(),
+                                    );
+                            }
+                            let _ = self.app_handle.emit(
+                                "transcription://phase",
+                                PhasePayload {
+                                    phase: "transcribing-cpu".to_string(),
+                                },
+                            );
+                            let _ = self.app_handle.emit(
+                                "transcription://backend-fallback",
+                                BackendFallbackPayload {
+                                    from: provider.to_string(),
+                                    to: "CPU".to_string(),
+                                    message: "GPU unavailable — continuing on CPU".to_string(),
+                                },
+                            );
+                        }
+
+                        // Streaming family: segment JSON lines arrive while the
+                        // recognizer runs — feed each one's decoded position
+                        // into the progress callback for live whole-file progress.
+                        if total_duration_ms > 0
+                            && matches!(family, SherpaFamily::NemotronTransducer)
+                        {
+                            if let Some(p) =
+                                streaming_progress_from_line(&complete_line, total_duration_ms)
+                            {
+                                let _ = self.app_handle.emit(
+                                    "transcription://progress",
+                                    ProgressPayload { progress: p },
+                                );
+                                if let Some(cb) = on_progress {
+                                    cb(p);
+                                }
+                            }
+                        }
                     }
                 }
                 CommandEvent::Terminated(payload) => {
@@ -1228,6 +1514,32 @@ fn find_wav_data_chunk(data: &[u8]) -> Option<(u64, u64)> {
     }
 }
 
+/// Estimate whole-file progress from one streaming-segment JSON line emitted
+/// by the online sidecar. `start_time` is the absolute stream position of the
+/// segment start and `timestamps` are segment-relative, so
+/// `start_time + last timestamp` ≈ how far into the audio the recognizer has
+/// decoded. Non-JSON lines (config echo, RTF stats) and unknown shapes return
+/// None. Clamped to 5..=95 so the value never regresses past the initial 5%
+/// or pre-empt the caller's final 100.
+fn streaming_progress_from_line(line: &str, total_duration_ms: i64) -> Option<i32> {
+    if total_duration_ms <= 0 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    let start = value.get("start_time").and_then(|t| t.as_f64())?;
+    let last_ts = value
+        .get("timestamps")
+        .and_then(|t| t.as_array())
+        .and_then(|a| a.last())
+        .and_then(|t| t.as_f64())
+        .unwrap_or(0.0);
+    let decoded_ms = ((start + last_ts) * 1000.0) as i64;
+    if decoded_ms <= 0 {
+        return None;
+    }
+    Some((((decoded_ms * 100) / total_duration_ms) as i32).clamp(5, 95))
+}
+
 /// Build a minimal 44-byte-header PCM WAV from raw samples. Used to feed
 /// per-chunk slices of a long source WAV into sherpa-onnx (which has no
 /// built-in chunking and would otherwise load the entire multi-hour file into
@@ -1321,5 +1633,34 @@ mod tests {
             sidecar_executable_name("sherpa-onnx", "aarch64-apple-darwin"),
             "sherpa-onnx-aarch64-apple-darwin"
         );
+    }
+
+    #[test]
+    fn streaming_progress_tracks_decoded_position() {
+        // Segment starting 60 s into a 10-minute file, last token at 62.5 s.
+        let line = concat!(
+            r#"{"text": "hello", "tokens": [" hello"], "timestamps": [2.5], "#,
+            r#""start_time": 60.0, "segment": 12}"#
+        );
+        assert_eq!(super::streaming_progress_from_line(line, 600_000), Some(10));
+        // Near the end: clamped to 95, never 100 (the caller sets that).
+        let late = concat!(
+            r#"{"text": "end", "tokens": [" end"], "timestamps": [1.0], "#,
+            r#""start_time": 599.0, "segment": 200}"#
+        );
+        assert_eq!(super::streaming_progress_from_line(late, 600_000), Some(95));
+    }
+
+    #[test]
+    fn streaming_progress_ignores_noise_lines() {
+        assert_eq!(super::streaming_progress_from_line("Number of threads: 4", 60_000), None);
+        assert_eq!(super::streaming_progress_from_line("not json at all", 60_000), None);
+        // JSON without start_time (not a result line).
+        assert_eq!(super::streaming_progress_from_line(r#"{"text": "x"}"#, 60_000), None);
+        // Zero decoded position yields nothing rather than a fake 0%.
+        let zero = r#"{"text": "", "timestamps": [], "start_time": 0.0}"#;
+        assert_eq!(super::streaming_progress_from_line(zero, 60_000), None);
+        // Unknown total duration → no progress estimate.
+        assert_eq!(super::streaming_progress_from_line(zero, 0), None);
     }
 }

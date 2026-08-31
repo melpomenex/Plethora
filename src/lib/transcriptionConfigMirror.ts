@@ -8,6 +8,9 @@ function mirroredConfig(settings: AudioSettings) {
     provider: settings.provider,
     preferred_model_id: settings.preferredModelId ?? null,
     language: settings.language,
+    // Local compute policy consumed by the GPU-first backend selector.
+    compute_mode: settings.computeMode ?? "auto",
+    device_id: settings.deviceId ?? null,
   };
 }
 

@@ -11,6 +11,10 @@ pub struct TranscriptionConfig {
     pub provider: String,
     pub preferred_model_id: Option<String>,
     pub language: String,
+    #[serde(default)]
+    pub compute_mode: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<u32>,
 }
 
 pub async fn read_transcription_config(repo: &Repository) -> Option<TranscriptionConfig> {
@@ -47,6 +51,8 @@ mod tests {
             provider: "local".into(),
             preferred_model_id: Some("parakeet-tdt-ctc-110m".into()),
             language: "en".into(),
+            compute_mode: None,
+            device_id: None,
         })
         .unwrap();
         assert!(json.contains("preferred_model_id"));

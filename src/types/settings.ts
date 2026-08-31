@@ -231,6 +231,12 @@ export interface AudioTranscriptionSettings {
     /** Thermal pacing: capped (2 threads, default) or full (4 threads). */
     pacing: "capped" | "full";
   };
+  /** Local STT compute policy for accelerated engines (Nemotron, Whisper):
+   *  auto = best available accelerator with CPU fallback, gpu = prefer
+   *  accelerator (CUDA / CoreML / DirectML), cpu = CPU only. */
+  computeMode?: "auto" | "gpu" | "cpu";
+  /** GPU index override for multi-GPU machines (from compute diagnostics). */
+  deviceId?: number;
 }
 
 export type TTSRequestMode = "direct" | "proxy";

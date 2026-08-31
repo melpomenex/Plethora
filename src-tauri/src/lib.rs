@@ -2332,6 +2332,7 @@ pub fn run() {
             transcription::download_transcription_model,
             transcription::delete_transcription_model,
             transcription::start_transcription,
+            transcription::transcription_compute_diagnostics,
             models::hf::commands::hf_inspect_model,
             models::hf::commands::hf_install_model,
             models::hf::commands::hf_cancel_install,

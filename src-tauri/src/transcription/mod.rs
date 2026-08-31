@@ -1,4 +1,5 @@
 pub mod auto_queue;
+pub mod compute_backend;
 pub mod engine;
 pub mod idle_scanner;
 pub mod job_queue;
@@ -602,3 +603,62 @@ pub async fn transcribe_local_nemotron(
         segments,
     })
 }
+
+#[command]
+pub async fn transcription_compute_diagnostics(
+    app_handle: AppHandle,
+) -> Result<compute_backend::ComputeDiagnosticsReport> {
+    use compute_backend::*;
+
+    let hw = detect_hardware();
+    let engine = engine::TranscriptionEngine::new(app_handle);
+    let bin_dir = engine.sidecar_bin_dir();
+    let runtime = probe_runtime_capabilities(bin_dir.as_deref());
+
+    // Sample default model capabilities for Nemotron & Whisper
+    let model_compatibilities = vec![
+        ModelCapabilities {
+            model_id: "nemotron-3.5-asr-0.6b".to_string(),
+            supported_backends: vec![
+                ComputeBackend::Cuda,
+                ComputeBackend::CoreMl,
+                ComputeBackend::DirectMl,
+                ComputeBackend::Cpu,
+            ],
+            min_vram_bytes: Some(1500 * 1024 * 1024),
+        },
+        ModelCapabilities {
+            model_id: "whisper-base".to_string(),
+            supported_backends: vec![
+                ComputeBackend::Cuda,
+                ComputeBackend::Metal,
+                ComputeBackend::Vulkan,
+                ComputeBackend::Cpu,
+            ],
+            min_vram_bytes: Some(1024 * 1024 * 1024),
+        },
+    ];
+
+    let health = get_health_cache();
+    let mut health_degraded_backends = std::collections::HashMap::new();
+    for backend in [
+        ComputeBackend::Cuda,
+        ComputeBackend::CoreMl,
+        ComputeBackend::DirectMl,
+        ComputeBackend::Metal,
+        ComputeBackend::Vulkan,
+    ] {
+        if let Some(reason) = health.is_degraded(backend) {
+            health_degraded_backends.insert(backend.to_string(), reason);
+        }
+    }
+
+    Ok(ComputeDiagnosticsReport {
+        hardware: hw,
+        runtime,
+        active_compute_mode: TranscriptionComputeMode::Auto,
+        model_compatibilities,
+        health_degraded_backends,
+    })
+}
+

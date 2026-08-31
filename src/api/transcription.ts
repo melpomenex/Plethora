@@ -25,6 +25,47 @@ export interface TranscriptResponse {
   segments: TranscriptSegment[];
 }
 
+// GPU-first local transcription compute diagnostics
+// (mirrors src-tauri/src/transcription/compute_backend.rs)
+
+export interface ComputeDeviceInfo {
+  id: number;
+  name: string;
+  vendor: string;
+  vram_bytes?: number | null;
+  free_vram_bytes?: number | null;
+}
+
+export interface ComputeProviderStatus {
+  available: boolean;
+  runtime_usable: boolean;
+  reason_unavailable?: string | null;
+}
+
+export interface ComputeDiagnosticsReport {
+  hardware: {
+    cpu_threads: number;
+    devices: ComputeDeviceInfo[];
+  };
+  runtime: {
+    providers: Record<string, ComputeProviderStatus>;
+  };
+  active_compute_mode: "auto" | "gpu_preferred" | "cpu_only";
+  model_compatibilities: {
+    model_id: string;
+    supported_backends: string[];
+    min_vram_bytes?: number | null;
+  }[];
+  health_degraded_backends: Record<string, string>;
+}
+
+export const getTranscriptionComputeDiagnostics = (): Promise<ComputeDiagnosticsReport | null> => {
+  if (!isTauri()) {
+    return Promise.resolve(null);
+  }
+  return invokeCommand<ComputeDiagnosticsReport>("transcription_compute_diagnostics");
+};
+
 export const getTranscriptionProfiles = async (): Promise<ModelProfile[]> => {
   if (isTauri()) {
     try {

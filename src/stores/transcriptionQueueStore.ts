@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { listen, isTauri } from "../lib/tauri";
+import { useToastStore, ToastType } from "../components/common/Toast";
 import {
   getTranscriptionQueue,
   cancelTranscriptionJob,
@@ -18,6 +19,8 @@ interface TranscriptionQueueState {
   activeSegments: number;
   activePhase: string | null;
   isLoading: boolean;
+  /** Human-readable notice when a job fell back from an accelerator to CPU. */
+  backendFallbackNotice: string | null;
 
   fetchQueue: () => Promise<void>;
   cancel: (id: string) => Promise<void>;
@@ -34,6 +37,7 @@ export const useTranscriptionQueueStore = create<TranscriptionQueueState>((set, 
   activeSegments: 0,
   activePhase: null,
   isLoading: false,
+  backendFallbackNotice: null,
 
   fetchQueue: async () => {
     set({ isLoading: true });
@@ -105,6 +109,22 @@ if (isTauri()) {
   safeListen<{ phase: string }>("transcription://phase", (event) => {
     useTranscriptionQueueStore.setState({ activePhase: event.payload.phase });
   });
+
+  // Non-modal notice when an accelerator run fails mid-job and the engine
+  // seamlessly continues on CPU (local stays local — never a cloud fallback).
+  safeListen<{ from: string; to: string; message: string }>(
+    "transcription://backend-fallback",
+    (event) => {
+      const detail = event.payload?.message ?? "GPU unavailable — continuing on CPU";
+      useTranscriptionQueueStore.setState({ backendFallbackNotice: detail });
+      useToastStore.getState().addToast({
+        type: ToastType.Warning,
+        title: "GPU transcription unavailable",
+        message: detail,
+        duration: 8000,
+      });
+    }
+  );
 
   safeListen<void>("transcription://idle", () => {
     useTranscriptionQueueStore.setState({ activeProgress: 0, activeSegments: 0, activePhase: null });

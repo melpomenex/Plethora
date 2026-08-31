@@ -22,24 +22,38 @@
 //! and the parser tests run against that fixture (v1.13.6).
 
 use crate::transcription::engine::TranscriptSegment;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One JSON result line from the sherpa-onnx online binary.
 #[derive(Debug, Deserialize)]
 struct OnlineResult {
     text: String,
     #[serde(default)]
+    tokens: Vec<String>,
+    #[serde(default)]
     timestamps: Vec<f32>,
     #[serde(default)]
     start_time: f32,
 }
 
+/// Word-level timing entry stored in `words_json`.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct NemotronWordTiming {
+    pub word: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
 /// Parse the online binary's raw stderr into timestamped segments.
 ///
 /// `offset_ms` shifts every segment by the containing audio chunk's start
-/// (the engine transcribes long files in 30 s windows). Lines that are not
-/// JSON objects (config dumps, echo lines, RTF stats) are skipped; malformed
-/// JSON lines are skipped rather than failing the whole transcription.
+/// (or resume start). If token-level timestamps are present, the transcript is
+/// split into natural sentence segments (on punctuation or ~12s max duration)
+/// with embedded word timings (`words_json`).
+///
+/// Lines that are not JSON objects (config dumps, echo lines, RTF stats) are
+/// skipped; malformed JSON lines are skipped rather than failing the whole
+/// transcription.
 pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment> {
     let mut segments = Vec::new();
     for line in raw.lines() {
@@ -54,26 +68,144 @@ pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment
         if text.is_empty() {
             continue;
         }
-        // Timestamps are token-level seconds relative to `start_time`
-        // (seconds, also relative to the wav fed to the binary).
+
         let base_ms = (result.start_time * 1000.0).round() as i64;
-        let (first, last) = match (
-            result.timestamps.first(),
-            result.timestamps.last(),
-        ) {
-            (Some(f), Some(l)) => (
-                (f * 1000.0).round() as i64,
-                (l * 1000.0).round() as i64,
-            ),
-            _ => (0, 0),
+
+        // If tokens and timestamps aren't available or have mismatched lengths,
+        // fall back to a single segment for this JSON line.
+        if result.tokens.is_empty() || result.tokens.len() != result.timestamps.len() {
+            let (first, last) = match (result.timestamps.first(), result.timestamps.last()) {
+                (Some(f), Some(l)) => (
+                    (f * 1000.0).round() as i64,
+                    (l * 1000.0).round() as i64,
+                ),
+                _ => (0, 0),
+            };
+            segments.push(TranscriptSegment {
+                start_ms: offset_ms + base_ms + first,
+                end_ms: offset_ms + base_ms + last,
+                text: text.to_string(),
+                confidence: 1.0,
+                words_json: None,
+            });
+            continue;
+        }
+
+        // Reconstruct words from BPE/SentencePiece tokens
+        let mut words: Vec<NemotronWordTiming> = Vec::new();
+        let mut cur_word = String::new();
+        let mut cur_word_start = 0i64;
+        let mut cur_word_end = 0i64;
+
+        for (tok, &ts) in result.tokens.iter().zip(result.timestamps.iter()) {
+            let t_ms = base_ms + (ts * 1000.0).round() as i64;
+            let is_new_word = tok.starts_with(' ') || tok.starts_with(' ');
+
+            if is_new_word && !cur_word.trim().is_empty() {
+                words.push(NemotronWordTiming {
+                    word: cur_word.trim().to_string(),
+                    start_ms: cur_word_start,
+                    end_ms: cur_word_end,
+                });
+                cur_word.clear();
+            }
+
+            let clean = tok.trim_start_matches(|c| c == ' ' || c == ' ');
+            if cur_word.is_empty() {
+                cur_word.push_str(clean);
+                cur_word_start = t_ms;
+                cur_word_end = t_ms;
+            } else {
+                cur_word.push_str(clean);
+                cur_word_end = t_ms;
+            }
+        }
+
+        if !cur_word.trim().is_empty() {
+            words.push(NemotronWordTiming {
+                word: cur_word.trim().to_string(),
+                start_ms: cur_word_start,
+                end_ms: cur_word_end,
+            });
+        }
+
+        if words.is_empty() {
+            let (first, last) = match (result.timestamps.first(), result.timestamps.last()) {
+                (Some(f), Some(l)) => (
+                    (f * 1000.0).round() as i64,
+                    (l * 1000.0).round() as i64,
+                ),
+                _ => (0, 0),
+            };
+            segments.push(TranscriptSegment {
+                start_ms: offset_ms + base_ms + first,
+                end_ms: offset_ms + base_ms + last,
+                text: text.to_string(),
+                confidence: 1.0,
+                words_json: None,
+            });
+            continue;
+        }
+
+        // Slice words into segments based on sentence-ending punctuation or max duration
+        let mut cur_seg_words: Vec<NemotronWordTiming> = Vec::new();
+
+        let flush_segment = |seg_words: &[NemotronWordTiming], segs: &mut Vec<TranscriptSegment>| {
+            if seg_words.is_empty() {
+                return;
+            }
+            let seg_start = seg_words.first().unwrap().start_ms;
+            let seg_end = seg_words.last().unwrap().end_ms;
+            let seg_text = seg_words
+                .iter()
+                .map(|w| w.word.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let shifted_words: Vec<NemotronWordTiming> = seg_words
+                .iter()
+                .map(|w| NemotronWordTiming {
+                    word: w.word.clone(),
+                    start_ms: offset_ms + w.start_ms,
+                    end_ms: offset_ms + w.end_ms,
+                })
+                .collect();
+
+            let words_json = serde_json::to_string(&shifted_words).ok();
+
+            segs.push(TranscriptSegment {
+                start_ms: offset_ms + seg_start,
+                end_ms: offset_ms + seg_end,
+                text: seg_text,
+                confidence: 1.0,
+                words_json,
+            });
         };
-        segments.push(TranscriptSegment {
-            start_ms: offset_ms + base_ms + first,
-            end_ms: offset_ms + base_ms + last,
-            text: text.to_string(),
-            confidence: 1.0,
-            words_json: None,
-        });
+
+        for w in words {
+            let ends_sentence = w.word.ends_with('.')
+                || w.word.ends_with('?')
+                || w.word.ends_with('!')
+                || w.word.ends_with('。')
+                || w.word.ends_with('？')
+                || w.word.ends_with('！')
+                || w.word.ends_with(';')
+                || w.word.ends_with('；');
+
+            let too_long = !cur_seg_words.is_empty()
+                && (w.end_ms - cur_seg_words[0].start_ms) >= 12_000;
+
+            cur_seg_words.push(w);
+
+            if ends_sentence || (too_long && cur_seg_words.len() >= 3) {
+                flush_segment(&cur_seg_words, &mut segments);
+                cur_seg_words.clear();
+            }
+        }
+
+        if !cur_seg_words.is_empty() {
+            flush_segment(&cur_seg_words, &mut segments);
+        }
     }
     segments
 }
@@ -144,5 +276,21 @@ The tribal chief then called for the boy
     fn empty_output_yields_no_segments() {
         assert!(parse_online_segments("", 0).is_empty());
         assert!(parse_online_segments("no json here at all", 0).is_empty());
+    }
+
+    #[test]
+    fn splits_long_multi_sentence_transcripts() {
+        let raw = "{\"text\": \"Hello world. This is a test! And here is more.\", \"tokens\": [\" Hello\", \" world\", \".\", \" This\", \" is\", \" a\", \" test\", \"!\", \" And\", \" here\", \" is\", \" more\", \".\"], \"timestamps\": [0.1, 0.5, 0.6, 1.0, 1.2, 1.4, 1.8, 1.9, 2.5, 2.7, 2.9, 3.2, 3.3], \"start_time\": 0.0}\n";
+        let segments = parse_online_segments(raw, 0);
+        assert_eq!(segments.len(), 3, "should split into 3 sentences");
+        assert_eq!(segments[0].text, "Hello world.");
+        assert_eq!(segments[1].text, "This is a test!");
+        assert_eq!(segments[2].text, "And here is more.");
+        assert!(segments[0].words_json.is_some());
+        let words: Vec<NemotronWordTiming> =
+            serde_json::from_str(segments[0].words_json.as_ref().unwrap()).unwrap();
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].word, "Hello");
+        assert_eq!(words[1].word, "world.");
     }
 }

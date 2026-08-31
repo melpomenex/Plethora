@@ -535,6 +535,11 @@ interface AudioTranscriptionSettings {
     /** Thermal pacing: capped (2 threads, default) or full (4 threads). */
     pacing: "capped" | "full";
   };
+  /** Local STT compute policy: auto (best accelerator), gpu, cpu.
+   *  See the same field in types/settings.ts. */
+  computeMode?: "auto" | "gpu" | "cpu";
+  /** GPU index override for multi-GPU machines. */
+  deviceId?: number;
 }
 
 /**
@@ -1239,6 +1244,9 @@ export const defaultSettings: Settings = {
       modelId: "",
       pacing: "capped",
     },
+    // Local compute policy for accelerated engines: pick the best available
+    // accelerator automatically and fall back to CPU on failure.
+    computeMode: "auto",
     premiumMinutesUsed: 0,
     premiumMonthlyAllowance: 120,
     deepgram: {
