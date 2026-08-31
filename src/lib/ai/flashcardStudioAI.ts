@@ -9,6 +9,7 @@
  */
 
 import { OnDeviceAiError } from "./onDeviceAI";
+import { isCancelledError } from "./errors";
 import { extractClozeDeletion, normalizeText } from "./cardValidator";
 import { resolveAiPath } from "./provider";
 import { fnv1aHash } from "./providers/types";
@@ -126,6 +127,10 @@ export async function explainCard(
         };
       }
     } catch (err) {
+      // A cancellation is the user's decision, not a failure to route
+      // around — re-throw instead of retrying on the already-aborted
+      // signal and resolving with fallback text (same rule as runAiAction).
+      if (isCancelledError(err)) throw err;
       console.warn("[explainCard] Streaming failed, falling back to native prompt:", err);
     }
   }
@@ -146,6 +151,7 @@ export async function explainCard(
       };
     }
   } catch (err) {
+    if (isCancelledError(err)) throw err;
     console.warn("[explainCard] generateNativePrompt failed:", err);
   }
 

@@ -30,6 +30,7 @@ vi.mock("../providers", async (importOriginal) => ({
 }));
 
 import { explainCard, generateReviewHint } from "../flashcardStudioAI";
+import { AIError } from "../errors";
 
 /**
  * A scripted provider that can emit exact streaming chunk boundaries (the
@@ -140,5 +141,29 @@ describe("explainCard", () => {
 
     expect(res.explanation).toBe("The heart is a muscular pump.");
     expect(chunks).toEqual(["The heart is ", "a muscular pump."]);
+  });
+
+  it("propagates cancellation instead of retrying and resolving with fallback text", async () => {
+    const aborted = new AbortController();
+    aborted.abort();
+    // Both attempts reject as cancelled (the second runs on the already
+    // aborted signal): explainCard must re-throw, never serve the canned
+    // fallback explanation for an action the user abandoned.
+    const cancelled = new AIError("Cancelled", "The request was cancelled.", {
+      code: "cancelled",
+    });
+    const provider = installProvider([cancelled, cancelled]);
+
+    await expect(
+      explainCard(
+        { question: "What pumps blood?", answer: "The heart", card_type: "qa" },
+        undefined,
+        { signal: aborted.signal }
+      )
+    ).rejects.toMatchObject({ category: "Cancelled", code: "cancelled" });
+
+    // The already-aborted signal must not be retried on the non-streaming
+    // path, and the canned fallback must not be served.
+    expect(provider.callCount).toBe(1);
   });
 });
