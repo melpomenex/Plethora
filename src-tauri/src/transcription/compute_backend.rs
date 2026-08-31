@@ -303,22 +303,22 @@ pub fn probe_runtime_capabilities(
 
     #[cfg(target_os = "macos")]
     {
-        providers.insert(
-            ComputeBackend::CoreMl,
-            ProviderStatus {
-                available: true,
-                runtime_usable: true,
-                reason_unavailable: None,
-            },
-        );
-        providers.insert(
-            ComputeBackend::Metal,
-            ProviderStatus {
-                available: true,
-                runtime_usable: true,
-                reason_unavailable: None,
-            },
-        );
+        // The bundled sherpa-onnx sidecar is a CPU build on macOS too —
+        // claiming CoreML/Metal here made every local job launch with
+        // --provider=coreml, watch the recognizer refuse it, and fall back
+        // to CPU after a wasted attempt (plus a confusing "GPU unavailable"
+        // toast). Report honestly until a CoreML-capable runtime ships.
+        let reason = "GPU acceleration is not bundled on macOS yet — local transcription runs on the CPU";
+        for backend in [ComputeBackend::CoreMl, ComputeBackend::Metal] {
+            providers.insert(
+                backend,
+                ProviderStatus {
+                    available: false,
+                    runtime_usable: false,
+                    reason_unavailable: Some(reason.to_string()),
+                },
+            );
+        }
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
@@ -1549,9 +1552,43 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         // 0 — detect that notice once and correct the reported backend.
         let mut silent_cpu_fallback = false;
         let mut raw_chunk: Vec<u8> = Vec::with_capacity(8 * 1024);
+        // File mode emits segment output only at completion (see
+        // `learned_rtf_map`), so whole-file progress is interpolated from the
+        // learned decode pace on a slow tick while the stderr reader waits.
+        let run_started = Instant::now();
+        let mut max_reported_progress = 5i32; // caller already sent the initial 5%
+        let mut progress_ticker = tokio::time::interval(Duration::from_secs(2));
+        progress_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let progress_tick_enabled =
+            total_duration_ms > 0 && matches!(family, SherpaFamily::NemotronTransducer);
+        let report_progress = |p: i32,
+                               max_seen: &mut i32,
+                               on_progress: &Option<&(dyn Fn(i32) + Send + Sync)>| {
+            if p < *max_seen {
+                return;
+            }
+            *max_seen = p;
+            let _ = self.app_handle.emit(
+                "transcription://progress",
+                ProgressPayload { progress: p },
+            );
+            if let Some(cb) = on_progress {
+                cb(p);
+            }
+        };
         loop {
             use tokio::io::AsyncBufReadExt;
-            let n = stderr_pipe.read_until(b'\n', &mut raw_chunk).await?;
+            let n = tokio::select! {
+                read = stderr_pipe.read_until(b'\n', &mut raw_chunk) => read?,
+                _ = progress_ticker.tick(), if progress_tick_enabled => {
+                    if let Some(p) =
+                        interpolated_progress(provider, run_started, total_duration_ms, max_reported_progress)
+                    {
+                        report_progress(p, &mut max_reported_progress, &on_progress);
+                    }
+                    continue;
+                }
+            };
             if n == 0 {
                 break; // EOF — recognizer finished (or died without output)
             }
@@ -1599,28 +1636,27 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     );
                 }
 
-                // Streaming family: segment JSON lines arrive while the
-                // recognizer runs — feed each one's decoded position
-                // into the progress callback for live whole-file progress.
+                // Real decoded positions from segment lines. In file mode
+                // these arrive as a burst at completion (still useful: they
+                // correct any interpolation overshoot before the final 100).
                 if total_duration_ms > 0
                     && matches!(family, SherpaFamily::NemotronTransducer)
                 {
                     if let Some(p) =
                         streaming_progress_from_line(&complete_line, total_duration_ms)
                     {
-                        let _ = self.app_handle.emit(
-                            "transcription://progress",
-                            ProgressPayload { progress: p },
-                        );
-                        if let Some(cb) = on_progress {
-                            cb(p);
-                        }
+                        report_progress(p, &mut max_reported_progress, &on_progress);
                     }
                 }
             }
         }
         let status = child.wait().await?;
         success = status.code() == Some(0);
+        if success && progress_tick_enabled && !silent_cpu_fallback {
+            // Never teach the accelerator's pace from a run that silently
+            // fell back to CPU inside the recognizer.
+            record_learned_rtf(provider, run_started, total_duration_ms);
+        }
 
         if !success {
             let stderr_clean = stderr_buf.trim();
@@ -1756,6 +1792,92 @@ fn find_wav_data_chunk(data: &[u8]) -> Option<(u64, u64)> {
 /// Estimate whole-file progress from one streaming-segment JSON line emitted
 /// by the online sidecar. `start_time` is the absolute stream position of the
 /// segment start and `timestamps` are segment-relative, so
+/// Measured decode pace per provider ("cpu"/"cuda"): RTF = decode seconds per
+/// audio second, learned from completed runs so the *next* run can interpolate
+/// progress accurately. sherpa-onnx's file mode emits ALL segment output only
+/// when the file completes (verified 2026-08-31: 90 s into a CPU decode of a
+/// 101-min file, zero segment lines on stderr), so per-segment progress never
+/// fires mid-run — without interpolation the UI sits at its initial value for
+/// the whole job ("stuck at 33%" in the podcast view). Seeds are measured
+/// RTX 2060 Super / desktop-CPU numbers; the first run on new hardware uses
+/// its seed and then teaches the map.
+fn learned_rtf_map() -> &'static Mutex<HashMap<&'static str, f64>> {
+    static MAP: OnceLock<Mutex<HashMap<&'static str, f64>>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut m = HashMap::new();
+        m.insert("cpu", 0.15);
+        m.insert("cuda", 0.06);
+        Mutex::new(m)
+    })
+}
+
+/// Fixed start-up cost (model load + session init) before decoding begins.
+fn model_load_allowance_secs(provider: &str) -> f64 {
+    match provider {
+        // fp32 weights (~2.5 GB) + cuDNN init.
+        "cuda" => 25.0,
+        _ => 6.0,
+    }
+}
+
+/// Interpolated whole-file progress for a running recognizer: elapsed decode
+/// time over the expected total (audio × learned RTF), clamped to 5..=95 and
+/// never below `floor` so it cannot regress under a real segment anchor.
+fn interpolated_progress(
+    provider: &str,
+    started: Instant,
+    total_duration_ms: i64,
+    floor: i32,
+) -> Option<i32> {
+    if total_duration_ms <= 0 {
+        return None;
+    }
+    let elapsed_ms = started.elapsed().as_millis() as f64;
+    let rtf = {
+        let map = learned_rtf_map().lock().unwrap_or_else(|e| e.into_inner());
+        map.get(provider).copied().unwrap_or(0.15)
+    };
+    interpolated_progress_from(
+        elapsed_ms,
+        model_load_allowance_secs(provider),
+        rtf,
+        total_duration_ms,
+        floor,
+    )
+}
+
+/// Pure core of [`interpolated_progress`] (unit-testable without a clock).
+fn interpolated_progress_from(
+    elapsed_ms: f64,
+    load_allowance_secs: f64,
+    rtf: f64,
+    total_duration_ms: i64,
+    floor: i32,
+) -> Option<i32> {
+    if total_duration_ms <= 0 || rtf <= 0.0 {
+        return None;
+    }
+    let decode_ms = (elapsed_ms - load_allowance_secs * 1000.0).max(0.0);
+    let expected_ms = total_duration_ms as f64 * rtf;
+    let p = 5.0 + 90.0 * (decode_ms / expected_ms).min(1.0);
+    Some((p as i32).clamp(floor, 95))
+}
+
+/// Teach the pace map from a completed successful run.
+fn record_learned_rtf(provider: &str, started: Instant, total_duration_ms: i64) {
+    if total_duration_ms <= 0 {
+        return;
+    }
+    let elapsed_s = started.elapsed().as_secs_f64();
+    let decode_s = (elapsed_s - model_load_allowance_secs(provider)).max(1.0);
+    let measured = decode_s / (total_duration_ms as f64 / 1000.0);
+    if !(0.005..=3.0).contains(&measured) {
+        return; // nonsensical measurement (e.g. reused process) — keep the old pace
+    }
+    let mut map = learned_rtf_map().lock().unwrap_or_else(|e| e.into_inner());
+    map.insert(if provider == "cuda" { "cuda" } else { "cpu" }, measured);
+}
+
 /// `start_time + last timestamp` ≈ how far into the audio the recognizer has
 /// decoded. Non-JSON lines (config echo, RTF stats) and unknown shapes return
 /// None. Clamped to 5..=95 so the value never regresses past the initial 5%
@@ -1962,6 +2084,49 @@ mod tests {
         };
         let kept = engine.fp32_files_for_gpu(&int8, &small_gpu, None);
         assert_eq!(kept.model, int8.model, "small GPUs keep the int8 files");
+    }
+
+    #[test]
+    fn interpolated_progress_stages_and_caps() {
+        use super::interpolated_progress_from;
+        // 100 s of audio at RTF 0.1 → expect ~10 s decode after allowance.
+        let total = 100_000i64;
+        // During model load: pinned to the floor (5).
+        assert_eq!(
+            interpolated_progress_from(3_000.0, 6.0, 0.1, total, 5),
+            Some(5)
+        );
+        // Half decoded → 5 + 90*0.5 = 50.
+        assert_eq!(
+            interpolated_progress_from(6_000.0 + 5_000.0, 6.0, 0.1, total, 5),
+            Some(50)
+        );
+        // Past the expected end → capped at 95, never 100 (caller owns that).
+        assert_eq!(
+            interpolated_progress_from(6_000.0 + 60_000.0, 6.0, 0.1, total, 5),
+            Some(95)
+        );
+        // Never regresses below a real anchor.
+        assert_eq!(
+            interpolated_progress_from(0.0, 6.0, 0.1, total, 60),
+            Some(60)
+        );
+        // Degenerate inputs.
+        assert_eq!(interpolated_progress_from(1.0, 6.0, 0.1, 0, 5), None);
+        assert_eq!(interpolated_progress_from(1.0, 6.0, 0.0, total, 5), None);
+    }
+
+    #[test]
+    fn pace_seeds_cover_both_backends() {
+        let map = super::learned_rtf_map()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for key in ["cpu", "cuda"] {
+            let rtf = map.get(key).expect("seed present");
+            // Both seeds must be sane decode paces (read-only test: never
+            // insert, other tests interpolate from these).
+            assert!((0.01..=1.0).contains(rtf), "{key} seed {rtf}");
+        }
     }
 
     #[test]
