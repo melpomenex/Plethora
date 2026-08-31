@@ -241,7 +241,7 @@ fn os_version() -> Option<String> {
 
 /// Query a disk's free/total space on the volume that contains `dir`, using
 /// sysinfo's mounted-disk list. Returns `None` when the volume can't be mapped.
-fn volume_space(dir: &Path) -> Option<(u64, u64)> {
+pub(crate) fn volume_space(dir: &Path) -> Option<(u64, u64)> {
     let disks = sysinfo::Disks::new_with_refreshed_list();
     let mount = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     // Pick the disk whose mount point is the longest prefix of the path.

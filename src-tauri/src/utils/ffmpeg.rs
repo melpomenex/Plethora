@@ -77,7 +77,7 @@ fn enhanced_path() -> String {
 }
 
 /// Get the ffmpeg command with PATH enhanced for macOS Homebrew.
-pub fn ffmpeg_command(app_handle: &AppHandle) -> Result<Command> {
+pub fn ffmpeg_command<R: tauri::Runtime>(app_handle: &AppHandle<R>) -> Result<Command> {
     let ffmpeg_path = resolve_ffmpeg_path().ok_or_else(|| {
         anyhow!(
             "ffmpeg is not installed. Install it with: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)"

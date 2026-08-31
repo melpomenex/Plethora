@@ -311,6 +311,9 @@ debug-assertions = false
 [dev-dependencies]
 filetime = "0.2"
 tower05 = { package = "tower", version = "0.5", features = ["util"] }
+# tauri's `test` feature exposes mock_app/mock_builder for the ignored
+# live GPU-runtime provisioning test (run explicitly with --ignored).
+tauri = { version = "=2.11.5", features = ["test"] }
 
 [patch.crates-io]
 burn-ndarray = { path = "../vendor/burn-ndarray-0.17.1" }

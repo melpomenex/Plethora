@@ -1,6 +1,7 @@
 pub mod auto_queue;
 pub mod compute_backend;
 pub mod engine;
+pub mod gpu_runtime;
 pub mod idle_scanner;
 pub mod job_queue;
 pub mod model_manager;
@@ -119,6 +120,10 @@ pub async fn download_transcription_model(
         )
         .await;
         result.map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+        // Out-of-the-box GPU: the user just committed to local STT — if this
+        // machine has a supported NVIDIA GPU, start provisioning the GPU
+        // runtime now (no-op otherwise; guarded against duplicates).
+        gpu_runtime::ensure_installed(&app_handle);
         let _ = app_handle.emit(
             "transcription://download-complete",
             NEMOTRON_ASR_LOGICAL_KEY.to_string(),
@@ -611,9 +616,10 @@ pub async fn transcription_compute_diagnostics(
     use compute_backend::*;
 
     let hw = detect_hardware();
+    let gpu = gpu_runtime::evaluate(&app_handle);
     let engine = engine::TranscriptionEngine::new(app_handle);
     let bin_dir = engine.sidecar_bin_dir();
-    let runtime = probe_runtime_capabilities(bin_dir.as_deref());
+    let runtime = probe_runtime_capabilities(bin_dir.as_deref(), Some(&gpu));
 
     // Sample default model capabilities for Nemotron & Whisper
     let model_compatibilities = vec![
@@ -660,5 +666,42 @@ pub async fn transcription_compute_diagnostics(
         model_compatibilities,
         health_degraded_backends,
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GPU runtime (out-of-the-box NVIDIA acceleration for local STT)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Current GPU runtime state for the settings card. Pure read.
+#[command]
+pub async fn gpu_runtime_status(
+    app_handle: AppHandle,
+) -> Result<gpu_runtime::GpuRuntimeStatus> {
+    Ok(gpu_runtime::evaluate(&app_handle))
+}
+
+/// Download + provision the GPU runtime (long-running; progress arrives on
+/// `gpu-runtime://install-progress`, cancel via `gpu_runtime_install_cancel`).
+#[command]
+pub async fn gpu_runtime_install(app_handle: AppHandle) -> Result<()> {
+    let cancel = CancellationToken::new();
+    gpu_runtime::install(&app_handle, cancel)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
+}
+
+/// Cancel an in-flight GPU runtime install (idempotent).
+#[command]
+pub async fn gpu_runtime_install_cancel(app_handle: AppHandle) -> Result<()> {
+    gpu_runtime::cancel_install(&app_handle);
+    Ok(())
+}
+
+/// Remove the provisioned GPU runtime; local STT returns to the bundled CPU
+/// sidecar (and can be re-provisioned at any time).
+#[command]
+pub async fn gpu_runtime_uninstall(app_handle: AppHandle) -> Result<()> {
+    gpu_runtime::uninstall(&app_handle)
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
 }
 

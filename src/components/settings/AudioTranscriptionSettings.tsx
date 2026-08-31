@@ -29,6 +29,7 @@ import {
 } from "@phosphor-icons/react";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { HuggingFaceModelManager } from "./HuggingFaceModelManager";
+import { GpuRuntimeCard } from "./GpuRuntimeCard";
 import { Switch } from "../common/Switch";
 import {
   deleteTranscriptionModel,
@@ -38,6 +39,7 @@ import {
   type ComputeDiagnosticsReport,
 } from "../../api/transcription";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
+import { useGpuRuntimeStore } from "../../stores/useGpuRuntimeStore";
 import { TranscriptionJobProgressLabel } from "../transcription/TranscriptionJobProgressLabel";
 import { TranscriptionMode } from "../../services/transcription";
 import {
@@ -160,6 +162,17 @@ export function AudioTranscriptionSettings() {
       void isAppleSpeechReady().then(setAppleReady).catch(() => setAppleReady(false));
     }
   }, [fetchProfiles, isDesktop, appleOs]);
+
+  // When the GPU runtime finishes installing, the accelerator probe result
+  // changes — re-pull diagnostics so "Accelerators available" goes truthful.
+  const gpuReady = useGpuRuntimeStore((s) => s.status?.ready ?? false);
+  useEffect(() => {
+    if (gpuReady && isDesktop) {
+      getTranscriptionComputeDiagnostics()
+        .then(setComputeDiagnostics)
+        .catch(() => undefined);
+    }
+  }, [gpuReady, isDesktop]);
 
 
 
@@ -450,6 +463,9 @@ export function AudioTranscriptionSettings() {
                 {degradedBackends.map(backendLabel).join(", ")} — jobs continue on CPU.
               </p>
             )}
+            {/* NVIDIA GPU runtime: status / install / progress (renders nothing
+                without an NVIDIA GPU). See transcription/gpu_runtime.rs. */}
+            <GpuRuntimeCard />
           </div>
         )}
         {(audioSettings.sttProvider === "local" || resolveSttProvider(audioSettings) === "local") ? (

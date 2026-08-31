@@ -34,8 +34,10 @@ struct BackendFallbackPayload {
     message: String,
 }
 
-pub struct TranscriptionEngine {
-    app_handle: AppHandle,
+/// Generic over the Tauri runtime so tests can drive the full spawn path
+/// with a mock app; production code uses the default (`Wry`) invisibly.
+pub struct TranscriptionEngine<R: tauri::Runtime = tauri::Wry> {
+    app_handle: AppHandle<R>,
 }
 
 pub(crate) fn sidecar_executable_name(name: &str, target_triple: &str) -> String {
@@ -90,6 +92,143 @@ macro_rules! set_sidecar_env {
     };
 }
 
+/// Where and how to run a sherpa-onnx sidecar process. Sherpa is spawned via
+/// an absolute path + `tokio::process` (not the shell plugin's `sidecar()`
+/// API) because the GPU build is provisioned into app data at runtime —
+/// invisible to the compile-time externalBin manifest.
+struct SherpaSpawnTarget {
+    /// Absolute binary path: the provisioned GPU runtime or the bundled CPU
+    /// sidecar.
+    path: PathBuf,
+    /// Library dirs that must win the loader search path (GPU runs). When
+    /// non-empty the bundled bin dir is deliberately excluded: it carries a
+    /// CPU `libonnxruntime.so` with the same soname that would shadow the
+    /// CUDA-enabled one.
+    prefer_lib_dirs: Vec<PathBuf>,
+}
+
+impl<R: tauri::Runtime> TranscriptionEngine<R> {
+    /// Resolve the sherpa binary for a run. When an accelerator was
+    /// requested and the provisioned GPU runtime verifies on disk
+    /// (manifest-checked, so existence == usable), run its binary; otherwise
+    /// fall back to the bundled CPU sidecar with the usual pre-flight guard.
+    fn resolve_sherpa_spawn(&self, binary: &str, provider: &str) -> Result<SherpaSpawnTarget> {
+        if provider != "cpu" {
+            if let Some(bin) =
+                crate::transcription::gpu_runtime::runtime_bin(&self.app_handle, binary)
+            {
+                let lib =
+                    crate::transcription::gpu_runtime::runtime_lib_dir(&self.app_handle)
+                        .unwrap_or_else(|| {
+                            bin.parent()
+                                .map(|p| p.join("lib"))
+                                .unwrap_or_else(|| bin.clone())
+                        });
+                tracing::debug!(
+                    binary = %bin.display(),
+                    lib = %lib.display(),
+                    "sherpa GPU runtime spawn"
+                );
+                return Ok(SherpaSpawnTarget {
+                    path: bin,
+                    prefer_lib_dirs: vec![lib],
+                });
+            }
+        }
+        // Bundled CPU sidecar — same pre-flight guard as before.
+        if let Some(reason) = self.check_sidecar_usable(binary) {
+            return Err(anyhow!(reason));
+        }
+        let path = self.sidecar_path(binary).ok_or_else(|| {
+            anyhow!(
+                "Could not resolve sidecar '{}' location. Transcription is unavailable.",
+                binary
+            )
+        })?;
+        Ok(SherpaSpawnTarget {
+            path,
+            prefer_lib_dirs: Vec::new(),
+        })
+    }
+}
+
+/// Compose the loader environment for a tokio-spawned sidecar. Mirrors
+/// `set_sidecar_env!` (kept for the shell-plugin spawns) with one addition:
+/// `target.prefer_lib_dirs` (the GPU runtime's lib dir) is placed ahead of
+/// everything and suppresses the bundled bin dir — see `SherpaSpawnTarget`.
+fn apply_sidecar_loader_env(
+    cmd: &mut tokio::process::Command,
+    target: &SherpaSpawnTarget,
+    bin_dir: Option<&Path>,
+) {
+    #[cfg(target_os = "linux")]
+    {
+        let mut extra_paths: Vec<String> = target
+            .prefer_lib_dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        if extra_paths.is_empty() {
+            if let Some(dir) = bin_dir.and_then(|d| d.to_str()) {
+                extra_paths.push(dir.to_string());
+            }
+        }
+        // System CUDA toolkit paths (if the user happens to have one) only
+        // matter for bundled CPU runs; GPU runs are self-contained.
+        if target.prefer_lib_dirs.is_empty() {
+            for cp in [
+                "/usr/local/cuda/lib64",
+                "/usr/local/cuda/targets/x86_64-linux/lib",
+                "/usr/lib/x86_64-linux-gnu",
+            ] {
+                if Path::new(cp).exists() {
+                    extra_paths.push(cp.to_string());
+                }
+            }
+        }
+        if !extra_paths.is_empty() {
+            let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+            let prefix = extra_paths.join(":");
+            let path = if existing.is_empty() {
+                prefix
+            } else {
+                format!("{}:{}", prefix, existing)
+            };
+            cmd.env("LD_LIBRARY_PATH", path);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut dirs: Vec<String> = target
+            .prefer_lib_dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        if dirs.is_empty() {
+            if let Some(dir) = bin_dir.and_then(|d| d.to_str()) {
+                dirs.push(dir.to_string());
+            }
+        }
+        if let Some(first) = dirs.first() {
+            let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let path = if existing.is_empty() {
+                first.clone()
+            } else {
+                format!("{}:{}", first, existing)
+            };
+            cmd.env("DYLD_LIBRARY_PATH", path);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = target;
+        if let Some(dir) = bin_dir.and_then(|d| d.to_str()) {
+            let existing = std::env::var("PATH").unwrap_or_default();
+            cmd.env("PATH", format!("{};{}", dir, existing));
+        }
+    }
+}
+
 /// Which sherpa-onnx model family a model belongs to. Each family uses a
 /// different set of CLI flags but the same sidecar binary and the same
 /// JSON-on-stderr result format.
@@ -126,8 +265,8 @@ struct SherpaModelFiles {
     use_itn: bool,
 }
 
-impl TranscriptionEngine {
-    pub fn new(app_handle: AppHandle) -> Self {
+impl<R: tauri::Runtime> TranscriptionEngine<R> {
+    pub fn new(app_handle: AppHandle<R>) -> Self {
         Self { app_handle }
     }
 
@@ -802,7 +941,7 @@ impl TranscriptionEngine {
 
     /// True when the named sidecar exists and is not a 0-byte placeholder
     /// (availability gating for model profiles / routing).
-    pub fn sidecar_usable(app_handle: &AppHandle, name: &str) -> bool {
+    pub fn sidecar_usable(app_handle: &AppHandle<R>, name: &str) -> bool {
         let engine = TranscriptionEngine::new(app_handle.clone());
         engine.check_sidecar_usable(name).is_none()
     }
@@ -1005,6 +1144,54 @@ impl TranscriptionEngine {
         Ok(())
     }
 
+    /// Swap the int8 transducer files for the fp32 set from the provisioned
+    /// GPU runtime, when one exists and the target device has the VRAM for
+    /// it (~4 GB). Falls back to the caller's (int8) files otherwise.
+    fn fp32_files_for_gpu(
+        &self,
+        files: &SherpaModelFiles,
+        hardware: &crate::transcription::compute_backend::HardwareCapabilities,
+        device_id: Option<u32>,
+    ) -> SherpaModelFiles {
+        let Some(dir) = crate::transcription::gpu_runtime::runtime_fp32_model_dir(&self.app_handle)
+        else {
+            return files.clone();
+        };
+        // encoder.onnx carries its weights in encoder.data (ONNX external
+        // data); the manifest covers both, this is belt-and-suspenders.
+        if !dir.join("encoder.onnx").is_file() || !dir.join("encoder.data").is_file() {
+            return files.clone();
+        }
+        const FP32_MIN_VRAM: u64 = 4_000_000_000;
+        let device = match device_id {
+            Some(id) => hardware.devices.iter().find(|d| d.id == id),
+            None => hardware
+                .devices
+                .iter()
+                .find(|d| d.vendor.eq_ignore_ascii_case("nvidia")),
+        };
+        if let Some(device) = device {
+            if let Some(vram) = device.vram_bytes {
+                if vram < FP32_MIN_VRAM {
+                    tracing::debug!(
+                        device = %device.name,
+                        vram_bytes = vram,
+                        "GPU lacks VRAM for the fp32 model; keeping int8 files"
+                    );
+                    return files.clone();
+                }
+            }
+        }
+        tracing::debug!(model_dir = %dir.display(), "GPU session uses the fp32 model");
+        SherpaModelFiles {
+            model: dir.join("encoder.onnx"),
+            tokens: Some(dir.join("tokens.txt")),
+            decoder: Some(dir.join("decoder.onnx")),
+            joiner: Some(dir.join("joiner.onnx")),
+            use_itn: files.use_itn,
+        }
+    }
+
     /// Whole-audio streaming transcription for the Nemotron online model, with
     /// GPU-first backend selection and a strict local GPU → CPU fallback.
     ///
@@ -1027,7 +1214,11 @@ impl TranscriptionEngine {
         use crate::transcription::compute_backend as compute;
 
         let hardware = compute::detect_hardware();
-        let runtime = compute::probe_runtime_capabilities(self.sidecar_bin_dir().as_deref());
+        let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
+        let runtime = compute::probe_runtime_capabilities(
+            self.sidecar_bin_dir().as_deref(),
+            Some(&gpu),
+        );
         let model = compute::ModelCapabilities {
             model_id: "nemotron-3.5-asr-0.6b".to_string(),
             supported_backends: vec![
@@ -1068,6 +1259,20 @@ impl TranscriptionEngine {
             preferred_device,
         );
 
+        // Out-of-the-box GPU: when this machine could run the GPU runtime but
+        // it is not provisioned yet (and nobody is already installing it),
+        // kick off the auto-provision in the background. This job — and every
+        // job until it lands — simply runs on CPU; the settings card surfaces
+        // download progress.
+        if selection.primary.backend != compute::ComputeBackend::Cuda
+            && mode != compute::TranscriptionComputeMode::CpuOnly
+            && gpu.supported
+            && !gpu.installed
+            && !gpu.installing
+        {
+            crate::transcription::gpu_runtime::ensure_installed(&self.app_handle);
+        }
+
         let provider = match selection.primary.backend {
             compute::ComputeBackend::Cuda => "cuda",
             compute::ComputeBackend::CoreMl => "coreml",
@@ -1097,10 +1302,23 @@ impl TranscriptionEngine {
 
         let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(0);
 
+        // GPU sessions prefer the fp32 model shipped with the provisioned
+        // GPU runtime: int8 ops have no CUDA kernels (they fall back to the
+        // CPU provider inside the session and measure at CPU parity or
+        // worse), while fp32 runs fully on CUDA (~3.3× the CPU path on an
+        // RTX 2060 Super — see FP32_MODEL_FILES). Gated on VRAM because the
+        // fp32 weights need ~4 GB; smaller cards keep the int8 files on GPU
+        // (or fall back to CPU via the error path below).
+        let gpu_files = if provider != "cpu" {
+            self.fp32_files_for_gpu(&files, &hardware, device_id)
+        } else {
+            files.clone()
+        };
+
         let raw = match self
             .run_sherpa_sidecar(
                 SherpaFamily::NemotronTransducer,
-                files.clone(),
+                gpu_files,
                 audio_path,
                 language,
                 provider,
@@ -1204,17 +1422,9 @@ impl TranscriptionEngine {
             )),
         };
 
-        let mut cmd = self
-            .app_handle
-            .shell()
-            .sidecar(binary)
-            .map_err(|e| anyhow!("{} sidecar not found: {}", binary, e))?;
-
-        // Belt-and-suspenders: the sidecar already has the right rpaths, but set the
-        // library path too (matches the whisper pattern) so libonnxruntime resolves.
-        if let Some(bin_dir) = self.sidecar_bin_dir() {
-            set_sidecar_env!(cmd, &bin_dir);
-        }
+        // Resolve the run target up front (GPU runtime vs bundled CPU
+        // sidecar) so a missing binary fails before any process is built.
+        let spawn_target = self.resolve_sherpa_spawn(binary, provider)?;
 
         // Build the per-family CLI args. All families share --tokens + the wav path;
         // only the model-specifier flag differs.
@@ -1270,9 +1480,18 @@ impl TranscriptionEngine {
                         // GPU index (meaningful for CUDA/TRT; harmless elsewhere).
                         args.push(format!("--device={}", id));
                     }
-                } else {
-                    args.push("--num-threads=4".to_string());
                 }
+                // Thread count matters on BOTH paths: it is the CPU-side pool
+                // for CPU runs, and — importantly — the pool onnxruntime uses
+                // for the int8 ops without CUDA kernels that fall back to the
+                // CPU execution provider inside a CUDA session (measured 2×
+                // RTF difference between 1 and N threads on a 560 ms
+                // streaming transducer).
+                let threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+                    .clamp(2, 8);
+                args.push(format!("--num-threads={threads}"));
             }
             SherpaFamily::Zipformer => {
                 // Split transducer: --encoder/--decoder/--joiner.
@@ -1291,10 +1510,31 @@ impl TranscriptionEngine {
         }
         args.push(wav_path.to_string_lossy().to_string());
 
-        let (mut rx, _) = cmd
-            .args(args)
-            .spawn()
-            .map_err(|e| anyhow!("Failed to launch sidecar 'sherpa-onnx': {}", e))?;
+        // Absolute-path spawn (see SherpaSpawnTarget): supports both the
+        // bundled CPU sidecar and the runtime-provisioned GPU build, with a
+        // loader path that makes the right libonnxruntime win.
+        let mut cmd = tokio::process::Command::new(&spawn_target.path);
+        cmd.args(&args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            // Reap the recognizer if the future is dropped mid-run (job
+            // cancel, queue shutdown) instead of leaking a GPU process.
+            .kill_on_drop(true);
+        apply_sidecar_loader_env(&mut cmd, &spawn_target, self.sidecar_bin_dir().as_deref());
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow!(
+                "Failed to launch sidecar '{}': {}",
+                spawn_target.path.display(),
+                e
+            )
+        })?;
+        let mut stderr_pipe = tokio::io::BufReader::new(
+            child
+                .stderr
+                .take()
+                .ok_or_else(|| anyhow!("Failed to pipe sidecar stderr"))?,
+        );
 
         let mut success = false;
         // Whole-file streaming runs emit one JSON line per endpointed segment,
@@ -1308,80 +1548,79 @@ impl TranscriptionEngine {
         // isn't available at runtime ("… Fallback to cpu!") while still exiting
         // 0 — detect that notice once and correct the reported backend.
         let mut silent_cpu_fallback = false;
-        while let Some(event) = rx.recv().await {
-            match event {
-                // sherpa-onnx writes its result JSON to stderr (stdout stays empty).
-                CommandEvent::Stderr(line) => {
-                    let line_str = String::from_utf8_lossy(&line);
-                    if stderr_buf.len() < stderr_cap {
-                        stderr_buf.push_str(&line_str);
+        let mut raw_chunk: Vec<u8> = Vec::with_capacity(8 * 1024);
+        loop {
+            use tokio::io::AsyncBufReadExt;
+            let n = stderr_pipe.read_until(b'\n', &mut raw_chunk).await?;
+            if n == 0 {
+                break; // EOF — recognizer finished (or died without output)
+            }
+            let line_str = String::from_utf8_lossy(&raw_chunk).into_owned();
+            raw_chunk.clear();
+            if stderr_buf.len() < stderr_cap {
+                stderr_buf.push_str(&line_str);
+            }
+            stderr_line_buf.push_str(&line_str);
+            while let Some(newline_idx) = stderr_line_buf.find('\n') {
+                let complete_line = stderr_line_buf[..newline_idx].trim().to_string();
+                stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
+
+                if provider != "cpu"
+                    && !silent_cpu_fallback
+                    && complete_line.contains("Fallback to cpu")
+                {
+                    silent_cpu_fallback = true;
+                    let backend = match provider {
+                        "cuda" => Some(crate::transcription::compute_backend::ComputeBackend::Cuda),
+                        "coreml" => Some(crate::transcription::compute_backend::ComputeBackend::CoreMl),
+                        "directml" => Some(crate::transcription::compute_backend::ComputeBackend::DirectMl),
+                        _ => None,
+                    };
+                    if let Some(backend) = backend {
+                        crate::transcription::compute_backend::get_health_cache()
+                            .mark_degraded(
+                                backend,
+                                "sherpa runtime lacks this execution provider".to_string(),
+                            );
                     }
-                    stderr_line_buf.push_str(&line_str);
-                    while let Some(newline_idx) = stderr_line_buf.find('\n') {
-                        let complete_line = stderr_line_buf[..newline_idx].trim().to_string();
-                        stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
+                    let _ = self.app_handle.emit(
+                        "transcription://phase",
+                        PhasePayload {
+                            phase: "transcribing-cpu".to_string(),
+                        },
+                    );
+                    let _ = self.app_handle.emit(
+                        "transcription://backend-fallback",
+                        BackendFallbackPayload {
+                            from: provider.to_string(),
+                            to: "CPU".to_string(),
+                            message: "GPU unavailable — continuing on CPU".to_string(),
+                        },
+                    );
+                }
 
-                        if provider != "cpu"
-                            && !silent_cpu_fallback
-                            && complete_line.contains("Fallback to cpu")
-                        {
-                            silent_cpu_fallback = true;
-                            let backend = match provider {
-                                "cuda" => Some(crate::transcription::compute_backend::ComputeBackend::Cuda),
-                                "coreml" => Some(crate::transcription::compute_backend::ComputeBackend::CoreMl),
-                                "directml" => Some(crate::transcription::compute_backend::ComputeBackend::DirectMl),
-                                _ => None,
-                            };
-                            if let Some(backend) = backend {
-                                crate::transcription::compute_backend::get_health_cache()
-                                    .mark_degraded(
-                                        backend,
-                                        "sherpa runtime lacks this execution provider".to_string(),
-                                    );
-                            }
-                            let _ = self.app_handle.emit(
-                                "transcription://phase",
-                                PhasePayload {
-                                    phase: "transcribing-cpu".to_string(),
-                                },
-                            );
-                            let _ = self.app_handle.emit(
-                                "transcription://backend-fallback",
-                                BackendFallbackPayload {
-                                    from: provider.to_string(),
-                                    to: "CPU".to_string(),
-                                    message: "GPU unavailable — continuing on CPU".to_string(),
-                                },
-                            );
-                        }
-
-                        // Streaming family: segment JSON lines arrive while the
-                        // recognizer runs — feed each one's decoded position
-                        // into the progress callback for live whole-file progress.
-                        if total_duration_ms > 0
-                            && matches!(family, SherpaFamily::NemotronTransducer)
-                        {
-                            if let Some(p) =
-                                streaming_progress_from_line(&complete_line, total_duration_ms)
-                            {
-                                let _ = self.app_handle.emit(
-                                    "transcription://progress",
-                                    ProgressPayload { progress: p },
-                                );
-                                if let Some(cb) = on_progress {
-                                    cb(p);
-                                }
-                            }
+                // Streaming family: segment JSON lines arrive while the
+                // recognizer runs — feed each one's decoded position
+                // into the progress callback for live whole-file progress.
+                if total_duration_ms > 0
+                    && matches!(family, SherpaFamily::NemotronTransducer)
+                {
+                    if let Some(p) =
+                        streaming_progress_from_line(&complete_line, total_duration_ms)
+                    {
+                        let _ = self.app_handle.emit(
+                            "transcription://progress",
+                            ProgressPayload { progress: p },
+                        );
+                        if let Some(cb) = on_progress {
+                            cb(p);
                         }
                     }
                 }
-                CommandEvent::Terminated(payload) => {
-                    success = payload.code == Some(0);
-                    break;
-                }
-                _ => {}
             }
         }
+        let status = child.wait().await?;
+        success = status.code() == Some(0);
 
         if !success {
             let stderr_clean = stderr_buf.trim();
@@ -1582,10 +1821,153 @@ mod tests {
     /// Recorded v1.13.6 streaming output for the pinned Nemotron model.
     const ONLINE_FIXTURE: &str = include_str!("__fixtures__/sherpa-online-nemotron-output.txt");
 
+    /// LIVE end-to-end run of the refactored absolute-path spawn path, both
+    /// variants: the full `transcribe_sherpa` route (Auto → CUDA when the
+    /// provisioned GPU runtime verifies) and a direct CPU
+    /// `run_sherpa_sidecar` spawn. Requires the GPU runtime provisioned
+    /// (gpu_runtime live test) and the Nemotron model installed in the real
+    /// app data dir.
+    ///
+    ///   cargo test --lib live_engine_spawns -- --ignored --nocapture
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "live test: runs the real sherpa sidecars against the installed model"]
+    async fn live_engine_spawns_gpu_and_cpu_sherpa_sessions() {
+        use tauri::Manager;
+        let app = tauri::test::mock_builder()
+            .build(tauri::generate_context!())
+            .expect("mock app from the repo tauri.conf.json");
+        let handle = app.handle().clone();
+        let gpu = crate::transcription::gpu_runtime::evaluate(&handle);
+        let model_dir = handle
+            .path()
+            .app_data_dir()
+            .unwrap()
+            .join("models/nemotron-asr/csukuangfj2_sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11");
+        if !gpu.ready || !model_dir.join("encoder.int8.onnx").exists() {
+            println!(
+                "SKIPPED: needs a provisioned GPU runtime + installed Nemotron model (ready={})",
+                gpu.ready
+            );
+            return;
+        }
+
+        let wav = std::env::temp_dir().join("gpu-engine-live-test.wav");
+        let ff = tokio::process::Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "2"])
+            .arg(&wav)
+            .output()
+            .await
+            .expect("ffmpeg");
+        assert!(ff.status.success());
+
+        let files = super::SherpaModelFiles {
+            model: model_dir.join("encoder.int8.onnx"),
+            tokens: Some(model_dir.join("tokens.txt")),
+            decoder: Some(model_dir.join("decoder.int8.onnx")),
+            joiner: Some(model_dir.join("joiner.int8.onnx")),
+            use_itn: false,
+        };
+        let engine = super::TranscriptionEngine::new(handle.clone());
+
+        // Full route under Auto policy → CUDA spawn of the provisioned GPU
+        // binary with the GPU lib dir first on the loader path.
+        let segments = std::sync::Mutex::new(Vec::new());
+        engine
+            .transcribe_sherpa(
+                SherpaFamily::NemotronTransducer,
+                files.clone(),
+                &wav,
+                &model_dir,
+                "auto",
+                |s: TranscriptSegment| segments.lock().unwrap().push(s),
+                None,
+            )
+            .await
+            .expect("GPU session through the engine must succeed");
+        println!(
+            "gpu route ok ({} segments collected; silence input yields none)",
+            segments.lock().unwrap().len()
+        );
+
+        // Direct CPU spawn of the bundled sidecar (the pre-refactor default
+        // path) must keep working unchanged.
+        let raw = engine
+            .run_sherpa_sidecar(
+                SherpaFamily::NemotronTransducer,
+                files,
+                &wav,
+                "auto",
+                "cpu",
+                None,
+                2000,
+                None,
+            )
+            .await
+            .expect("CPU spawn must succeed");
+        assert!(!raw.trim().is_empty(), "CPU run must produce output");
+        println!("cpu spawn ok ({} bytes of output)", raw.len());
+    }
+
+    /// LIVE: the GPU file remap must hand the engine the fp32 set from the
+    /// provisioned runtime when the device has VRAM for it, and keep the
+    /// int8 files when it does not.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "live test: needs a provisioned GPU runtime"]
+    async fn live_fp32_remap_follows_vram() {
+        use std::path::PathBuf;
+        use tauri::Manager;
+        let app = tauri::test::mock_builder()
+            .build(tauri::generate_context!())
+            .expect("mock app");
+        let handle = app.handle().clone();
+        if !crate::transcription::gpu_runtime::evaluate(&handle).ready {
+            println!("SKIPPED: GPU runtime not provisioned");
+            return;
+        }
+        let engine = super::TranscriptionEngine::new(handle);
+        let int8 = super::SherpaModelFiles {
+            model: PathBuf::from("/int8/encoder.int8.onnx"),
+            tokens: Some(PathBuf::from("/int8/tokens.txt")),
+            decoder: Some(PathBuf::from("/int8/decoder.int8.onnx")),
+            joiner: Some(PathBuf::from("/int8/joiner.int8.onnx")),
+            use_itn: false,
+        };
+        let big_gpu = crate::transcription::compute_backend::HardwareCapabilities {
+            cpu_threads: 8,
+            devices: vec![crate::transcription::compute_backend::DeviceInfo {
+                id: 0,
+                name: "RTX".into(),
+                vendor: "nvidia".into(),
+                vram_bytes: Some(8 * 1024 * 1024 * 1024),
+                free_vram_bytes: None,
+            }],
+        };
+        let remapped = engine.fp32_files_for_gpu(&int8, &big_gpu, None);
+        assert!(
+            remapped.model.ends_with("model/encoder.onnx"),
+            "expected the fp32 encoder, got {}",
+            remapped.model.display()
+        );
+        let small_gpu = crate::transcription::compute_backend::HardwareCapabilities {
+            cpu_threads: 8,
+            devices: vec![crate::transcription::compute_backend::DeviceInfo {
+                id: 0,
+                name: "MX150".into(),
+                vendor: "nvidia".into(),
+                vram_bytes: Some(2 * 1024 * 1024 * 1024),
+                free_vram_bytes: None,
+            }],
+        };
+        let kept = engine.fp32_files_for_gpu(&int8, &small_gpu, None);
+        assert_eq!(kept.model, int8.model, "small GPUs keep the int8 files");
+    }
+
     #[test]
     fn offline_output_becomes_one_chunk_bounded_segment() {
         let raw = "config noise\n{\"text\":\"hello there\"}\n";
-        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+        let segs = super::TranscriptionEngine::<tauri::Wry>::segments_from_sidecar_output(
             SherpaFamily::SenseVoice,
             raw,
             30_000,
@@ -1599,7 +1981,7 @@ mod tests {
 
     #[test]
     fn offline_silent_chunk_yields_no_segments() {
-        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+        let segs = super::TranscriptionEngine::<tauri::Wry>::segments_from_sidecar_output(
             SherpaFamily::SenseVoice,
             "no json at all",
             0,
@@ -1610,7 +1992,7 @@ mod tests {
 
     #[test]
     fn streaming_output_becomes_timestamped_segments_with_chunk_offset() {
-        let segs = super::TranscriptionEngine::segments_from_sidecar_output(
+        let segs = super::TranscriptionEngine::<tauri::Wry>::segments_from_sidecar_output(
             SherpaFamily::NemotronTransducer,
             ONLINE_FIXTURE,
             30_000,

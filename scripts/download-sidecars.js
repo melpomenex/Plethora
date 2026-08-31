@@ -1396,8 +1396,13 @@ async function main() {
   }
 
   console.log('Sidecars ready:', fs.readdirSync(BIN_DIR));
-  
-  // GPU Support Summary
+
+  // GPU note: the bundled sherpa-onnx sidecar is intentionally the CPU build
+  // for every platform — NVIDIA GPU acceleration is NOT provisioned here. On
+  // Linux x64 the app provisions a CUDA-enabled sherpa-onnx build + CUDA
+  // libraries into app data at runtime (see
+  // src-tauri/src/transcription/gpu_runtime.rs), keyed off the detected
+  // NVIDIA driver version. Nothing to do in this script for that.
   console.log('\n=== GPU Acceleration Status ===');
   if (platform === 'darwin') {
     if (process.arch === 'arm64') {
@@ -1406,12 +1411,7 @@ async function main() {
       console.log('⚠️  GPU: Not available (Intel Mac - CPU only)');
     }
   } else if (platform === 'linux') {
-    try {
-      execSync('command -v nvcc', { stdio: 'ignore' });
-      console.log('✅ CUDA GPU: ENABLED (NVIDIA)');
-    } catch {
-      console.log('⚠️  GPU: Not detected - Using CPU (Install NVIDIA drivers for CUDA support)');
-    }
+    console.log('ℹ️  Bundled sidecars are CPU-only; NVIDIA CUDA support is runtime-provisioned by the app (gpu_runtime.rs).');
   } else if (platform === 'win32') {
     console.log('⚠️  GPU: Windows builds are CPU-only (GPU support pending)');
   }

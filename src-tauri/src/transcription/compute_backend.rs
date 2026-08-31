@@ -256,6 +256,10 @@ pub fn detect_hardware() -> HardwareCapabilities {
                 }
             }
         }
+        // Enrich (or supply) NVIDIA entries with the real adapter name and
+        // VRAM from nvidia-smi when it answers — the /sys scan alone cannot
+        // see either, which left the Nemotron min-VRAM gate unenforceable.
+        enrich_with_nvidia_smi(&mut devices);
     }
 
     #[cfg(target_os = "windows")]
@@ -277,7 +281,14 @@ pub fn detect_hardware() -> HardwareCapabilities {
 }
 
 /// Probes runtime capability for supported providers.
-pub fn probe_runtime_capabilities(sidecar_bin_dir: Option<&std::path::Path>) -> RuntimeCapabilities {
+///
+/// `gpu_runtime` is the live evaluation from `gpu_runtime::evaluate` (driver
+/// detection + provisioned-runtime verification). Passing `None` falls back
+/// to conservative file-existence checks.
+pub fn probe_runtime_capabilities(
+    sidecar_bin_dir: Option<&std::path::Path>,
+    gpu_runtime: Option<&crate::transcription::gpu_runtime::GpuRuntimeStatus>,
+) -> RuntimeCapabilities {
     let mut providers = HashMap::new();
 
     // CPU is always available
@@ -313,7 +324,7 @@ pub fn probe_runtime_capabilities(sidecar_bin_dir: Option<&std::path::Path>) -> 
     #[cfg(not(target_os = "macos"))]
     {
         // Check for CUDA runtime libraries
-        let cuda_usable = check_cuda_usable(sidecar_bin_dir);
+        let cuda_usable = check_cuda_usable(sidecar_bin_dir, gpu_runtime);
         providers.insert(
             ComputeBackend::Cuda,
             ProviderStatus {
@@ -341,34 +352,40 @@ pub fn probe_runtime_capabilities(sidecar_bin_dir: Option<&std::path::Path>) -> 
 }
 
 #[cfg(not(target_os = "macos"))]
-fn check_cuda_usable(sidecar_bin_dir: Option<&std::path::Path>) -> (bool, Option<String>) {
-    // Check if CUDA execution provider library exists or can load
+fn check_cuda_usable(
+    sidecar_bin_dir: Option<&std::path::Path>,
+    gpu_runtime: Option<&crate::transcription::gpu_runtime::GpuRuntimeStatus>,
+) -> (bool, Option<String>) {
+    // With a live GPU-runtime evaluation, report *that* — it answers the
+    // questions the old file-existence probe could not: is there an NVIDIA
+    // driver, is it new enough for a CUDA runtime, and is the CUDA-capable
+    // sidecar + provider actually installed? Promising CUDA here without the
+    // runtime is exactly what produced the per-job "GPU unavailable" fallback
+    // toast on NVIDIA machines (CPU-only bundled sidecar).
+    if let Some(status) = gpu_runtime {
+        if !status.supported || !status.ready {
+            return (false, status.reason.clone());
+        }
+        return (true, None);
+    }
+
+    // No evaluation available (no AppHandle): conservative file checks. The
+    // provisioned runtime lives in app data, which cannot be resolved here,
+    // so honor only a provider lib placed next to the bundled sidecar.
     #[cfg(target_os = "linux")]
     {
-        // Look for libonnxruntime_providers_cuda.so or libcuda.so
-        let lib_names = ["libonnxruntime_providers_cuda.so", "libcuda.so.1", "libcuda.so"];
-        let mut found = false;
         if let Some(dir) = sidecar_bin_dir {
-            for name in &lib_names {
-                if dir.join(name).exists() {
-                    found = true;
-                    break;
-                }
+            if dir.join("libonnxruntime_providers_cuda.so").exists() {
+                return (true, None);
             }
         }
-        if !found {
-            if std::path::Path::new("/usr/lib/x86_64-linux-gnu/libcuda.so.1").exists()
-                || std::path::Path::new("/usr/lib64/libcuda.so.1").exists()
-                || std::path::Path::new("/usr/lib/libcuda.so").exists()
-            {
-                found = true;
-            }
-        }
-        if found {
-            (true, None)
-        } else {
-            (false, Some("CUDA libraries (libcuda.so/libonnxruntime_providers_cuda.so) not found".to_string()))
-        }
+        return (
+            false,
+            Some(
+                "CUDA execution provider not found (the GPU runtime downloads automatically on first use)"
+                    .to_string(),
+            ),
+        );
     }
     #[cfg(target_os = "windows")]
     {
@@ -387,6 +404,73 @@ fn check_cuda_usable(sidecar_bin_dir: Option<&std::path::Path>) -> (bool, Option
         } else {
             (false, Some("CUDA libraries (onnxruntime_providers_cuda.dll) not found".to_string()))
         }
+    }
+}
+
+/// Parse `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits`
+/// output (one "NVIDIA GeForce RTX 2060 SUPER, 8192" line per GPU) into
+/// (name, vram_bytes) pairs. Empty when nvidia-smi is absent or errors.
+#[cfg(target_os = "linux")]
+fn parse_nvidia_smi_devices(output: &str) -> Vec<(String, u64)> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (name, vram_mib) = line.split_once(',')?;
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            // MiB (nounits) → bytes; a parse failure still yields the name.
+            let vram = vram_mib
+                .trim()
+                .parse::<u64>()
+                .ok()
+                .map(|mib| mib.saturating_mul(1024 * 1024));
+            Some((name.to_string(), vram.unwrap_or(0)))
+        })
+        .collect()
+}
+
+/// Fill NVIDIA device entries with real names + VRAM from nvidia-smi, in
+/// order; on headless boxes (no /sys DRM card) the smi entries are appended.
+#[cfg(target_os = "linux")]
+fn enrich_with_nvidia_smi(devices: &mut Vec<DeviceInfo>) {
+    let Ok(output) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    let smi = parse_nvidia_smi_devices(&String::from_utf8_lossy(&output.stdout));
+    if smi.is_empty() {
+        return;
+    }
+    let mut next = smi.iter().cloned();
+    let mut appended = 0usize;
+    for device in devices.iter_mut() {
+        if device.vendor == "nvidia" {
+            if let Some((name, vram)) = next.next() {
+                device.name = name;
+                device.vram_bytes = Some(vram);
+                appended += 1;
+            }
+        }
+    }
+    // Headless NVIDIA (no display DRM node): add what smi saw.
+    for (name, vram) in next {
+        devices.push(DeviceInfo {
+            id: devices.len() as u32,
+            name,
+            vendor: "nvidia".to_string(),
+            vram_bytes: Some(vram),
+            free_vram_bytes: None,
+        });
+    }
+    if appended == 0 && devices.is_empty() {
+        tracing::debug!("nvidia-smi reported GPUs but none matched the /sys scan");
     }
 }
 
@@ -713,5 +797,101 @@ mod tests {
 
         let corrupt = ComputeError::ModelFileCorrupt("bad checksum".to_string());
         assert!(!corrupt.triggers_cpu_fallback());
+    }
+
+    /// Builder for probe-level GPU runtime statuses (mirrors
+    /// `gpu_runtime::evaluate` output shapes without an AppHandle).
+    #[cfg(not(target_os = "macos"))]
+    fn gpu_status(
+        nvidia_detected: bool,
+        supported: bool,
+        ready: bool,
+        reason: Option<&str>,
+    ) -> crate::transcription::gpu_runtime::GpuRuntimeStatus {
+        crate::transcription::gpu_runtime::GpuRuntimeStatus {
+            nvidia_detected,
+            driver_version: (nvidia_detected).then(|| "595.84".to_string()),
+            supported,
+            flavor: supported.then_some("cuda-13"),
+            installed: ready,
+            installing: false,
+            ready,
+            reason: reason.map(|r| r.to_string()),
+            download_size_bytes: 0,
+            on_disk_bytes: 0,
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn cuda_probe_reports_honest_reasons_per_runtime_state() {
+        use crate::transcription::gpu_runtime::GpuRuntimeStatus;
+        let cases: Vec<(GpuRuntimeStatus, bool, bool)> = vec![
+            // No NVIDIA driver at all.
+            (gpu_status(false, false, false, Some("No NVIDIA GPU driver detected")), false, true),
+            // Driver present but too old for any flavor.
+            (
+                gpu_status(
+                    true,
+                    false,
+                    false,
+                    Some("NVIDIA driver 470 is too old for CUDA (needs ≥ 525.x)"),
+                ),
+                false,
+                true,
+            ),
+            // Supported driver, runtime not yet provisioned.
+            (
+                gpu_status(
+                    true,
+                    true,
+                    false,
+                    Some("GPU runtime not installed yet"),
+                ),
+                false,
+                true,
+            ),
+            // Fully provisioned → usable, no reason.
+            (gpu_status(true, true, true, None), true, false),
+        ];
+        for (status, expect_usable, expect_reason) in cases {
+            let runtime = probe_runtime_capabilities(None, Some(&status));
+            let cuda = runtime
+                .providers
+                .get(&ComputeBackend::Cuda)
+                .expect("cuda provider always present off-macOS");
+            assert_eq!(cuda.runtime_usable, expect_usable, "reason: {:?}", cuda.reason_unavailable);
+            assert_eq!(
+                cuda.reason_unavailable.is_some(),
+                expect_reason,
+                "reason presence mismatch: {:?}",
+                cuda.reason_unavailable
+            );
+        }
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    #[test]
+    fn cuda_probe_without_evaluation_is_conservative() {
+        // No sidecar dir, no evaluation → never claims CUDA.
+        let runtime = probe_runtime_capabilities(None, None);
+        let cuda = runtime.providers.get(&ComputeBackend::Cuda).unwrap();
+        assert!(!cuda.runtime_usable);
+        assert!(cuda.reason_unavailable.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nvidia_smi_csv_parses_names_and_vram() {
+        let parsed = parse_nvidia_smi_devices(
+            "NVIDIA GeForce RTX 2060 SUPER, 8192\nNVIDIA GeForce GTX 1080, 8192\n\nbogus line without comma",
+        );
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].0, "NVIDIA GeForce RTX 2060 SUPER");
+        assert_eq!(parsed[0].1, 8192 * 1024 * 1024);
+        // A non-numeric VRAM column still yields the device with 0 bytes.
+        let headless = parse_nvidia_smi_devices("NVIDIA A10G, [N/A]");
+        assert_eq!(headless.len(), 1);
+        assert_eq!(headless[0].1, 0);
     }
 }
