@@ -54,7 +54,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     // scale — same shared control, keyboard mapping, and touch joystick as
     // the review session.
     const ratingSchema = useRatingSchema();
-    const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
+    const useNativeGrades = ratingSchema.type === "six-grade";
     const isAnswerRevealedRef = useRef(isAnswerRevealed);
     isAnswerRevealedRef.current = isAnswerRevealed;
 

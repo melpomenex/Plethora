@@ -200,7 +200,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   // surface the native scale instead of squeezing it into the 4 Anki-style
   // buttons. The scale is declared by the shared rating schema.
   const ratingSchema = useRatingSchema();
-  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
+  const useNativeGrades = ratingSchema.type === "six-grade";
   const canChooseArenaMode = useSettingsStore(
     (state) =>
       featureFlags.reviewAlgorithmArena &&

@@ -346,7 +346,7 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
   // joystick; four-grade schedulers (and desktop) keep the classic 4-direction
   // swipe. The scale is declared by the shared rating schema.
   const ratingSchema = useRatingSchema();
-  const useNativeGrades = ratingSchema.type === "six-grade" || (ratingSchema.type as string) ;
+  const useNativeGrades = ratingSchema.type === "six-grade";
   const isTouch = useIsTouchRating();
   const useJoystick = useNativeGrades && isTouch;
   const haptic = useHapticFeedback();
