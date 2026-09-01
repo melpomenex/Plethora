@@ -3292,7 +3292,6 @@ impl Repository {
         .bind(stability)
         .bind(difficulty)
         .bind(stability_fast)
-        .bind(&item.id)
         .bind(&interaction_metadata_json)
         .bind(&item.algorithm_type)
         .bind(&item.algorithm_state)
@@ -3300,6 +3299,7 @@ impl Repository {
         .bind(&tags_json)
         .bind(item.difficulty)
         .bind(item.first_reviewed_at)
+        .bind(&item.id)
         .execute(&mut *tx)
         .await?;
 
@@ -4034,7 +4034,6 @@ impl Repository {
         .bind(stability)
         .bind(difficulty)
         .bind(stability_fast)
-        .bind(&item.id)
         .bind(&interaction_metadata_json)
         .bind(&item.algorithm_type)
         .bind(&item.algorithm_state)
@@ -4042,6 +4041,7 @@ impl Repository {
         .bind(&tags_json)
         .bind(item.difficulty)
         .bind(item.first_reviewed_at)
+        .bind(&item.id)
         .execute(&mut *tx)
         .await?;
 

@@ -14,8 +14,8 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:25b0fb91fb4c33e83b07a651ea82d849e7075831d616fe741da8b0c8dd9213b3",
-  "generatedAt": "2026-08-30T15:05:46.437Z",
+  "corpusHash": "sha256:1d8720570edd81d18109273ac9d9f2aefc0b4c4431ecf76c7bcc2a0d60c0ab3f",
+  "generatedAt": "2026-09-01T12:19:33.310Z",
   "totalDocs": 75,
   "totalChunks": 226,
   "aliasMap": {
@@ -298,12 +298,13 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "adaptive": "scheduler.adaptive",
     "sinc matrix": "scheduler.adaptive",
     "adaptive algorithm": "scheduler.adaptive",
-    "fsrs-6 spaced repetition": "scheduler.fsrs",
+    "fsrs-7 spaced repetition": "scheduler.fsrs",
     "fsrs": "scheduler.fsrs",
-    "fsrs-6": "scheduler.fsrs",
+    "fsrs-7": "scheduler.fsrs",
     "modern srs": "scheduler.fsrs",
     "target retention": "scheduler.fsrs",
     "memory stability": "scheduler.fsrs",
+    "dual trace": "scheduler.fsrs",
     "postpone engine": "scheduler.postpone",
     "backlog manager": "scheduler.postpone",
     "auto postpone": "scheduler.postpone",
@@ -2961,7 +2962,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     },
     {
       "id": "scheduler.fsrs",
-      "title": "FSRS-6 Spaced Repetition",
+      "title": "FSRS-7 Spaced Repetition",
       "domain": "scheduling",
       "status": "implemented",
       "platforms": [
@@ -2971,15 +2972,16 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "mobile-android",
         "mobile-ios"
       ],
-      "summary": "Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).",
-      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).",
-      "why": "FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy heuristic schedulers while maintaining target retention.",
+      "summary": "Production 34-parameter Free Spaced Repetition Scheduler with dual-trace memory state (slow and fast stability) and customizable target retention (default 90%).",
+      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm. FSRS-7 is the sole production scheduler; adjust your desired retention rate (e.g., 90%).",
+      "why": "FSRS-7 models human forgetting with a dual-trace memory state and fractional elapsed-time scheduling, improving interval accuracy over earlier single-trace FSRS versions while maintaining target retention.",
       "aliases": [
         "fsrs",
-        "fsrs-6",
+        "fsrs-7",
         "modern srs",
         "target retention",
-        "memory stability"
+        "memory stability",
+        "dual trace"
       ],
       "settings": [
         "scheduler.algorithm",
@@ -3000,13 +3002,14 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "filePath": "docs/product/features/scheduling/fsrs-algorithm.md",
       "sections": {
-        "intro": "# FSRS-6 Spaced Repetition",
-        "Purpose": "Implements the state-of-the-art Free Spaced Repetition Scheduler (FSRS-6), calculating exact memory Stability ($S$) and Difficulty ($D$) to minimize total repetition load.",
-        "User-Facing Behavior": "- Displays four rating buttons during review: `[Again (1)]`, `[Hard (2)]`, `[Good (3)]`, `[Easy (4)]` with projected next interval previews (e.g. `1d`, `3d`, `8d`, `21d`).\n- Memory state inspector shows current Stability (days) and Retrievability percentage (e.g., $R = 91.4\\%$).\n- Retention slider allows adjusting desired retention between 70% and 97%.",
-        "Exact Behavioral Rules": "1. Retrievability $R(t, S)$ follows the power forgetting curve:\n   $$R(t, S) = \\left(1 + \\text{FACTOR} \\times \\frac{t}{S}\\right)^{\\text{DECAY}}$$\n2. Next interval $I$ is calculated directly from desired retention $r$:\n   $$I(r, S) = \\frac{S}{\\text{FACTOR}} \\times \\left(r^{1/\\text{DECAY}} - 1\\right)$$\n3. Stability increases exponentially after successful recall and decreases upon lapse.",
-        "Rationale": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
+        "intro": "# FSRS-7 Spaced Repetition",
+        "Purpose": "Implements the production Free Spaced Repetition Scheduler (FSRS-7), calculating dual-trace memory state — slow **Stability** ($S$), fast **Stability (fast)** ($S_\\text{fast}$), and **Difficulty** ($D$) — to minimize total repetition load.",
+        "User-Facing Behavior": "- Displays four rating buttons during review: `[Again (1)]`, `[Hard (2)]`, `[Good (3)]`, `[Easy (4)]` with projected next interval previews (e.g. `1d`, `3d`, `8d`, `21d`).\n- Memory state inspector shows slow stability, fast stability, difficulty, and retrievability percentage (e.g., $R = 91.4\\%$).\n- Retention slider allows adjusting desired retention between 70% and 97%.\n- FSRS-7 is the only scheduler offered in Learning settings; legacy schedulers are retained in code but hidden.",
+        "Dual-Trace Model": "FSRS-7 maintains two stability traces per item:\n- **Slow trace** (`stability`): long-horizon memory strength used for interval growth.\n- **Fast trace** (`stability_fast`): short-horizon recall dynamics.\n- **Retrievability** is computed from a mixture of both traces, not from a single stability value.\n\nFractional elapsed days (e.g. a 30-minute gap) are passed through to scheduling without rounding to whole days.",
+        "Exact Behavioral Rules": "1. Retrievability follows the FSRS-7 dual-trace forgetting model (mixture of slow- and fast-trace components).\n2. Next interval $I$ is solved from desired retention $r$ using the active dual-trace state.\n3. Both stability traces update independently after each review; difficulty updates with mean-reversion damping.",
+        "Rationale": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews. FSRS-7 extends the model with dual traces and fractional elapsed time for more accurate same-day and short-gap scheduling.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.fsrs.requestRetention` | `0.90` | Target retention probability (90%) |\n| `scheduler.fsrs.maximumIntervalDays` | `36500` | Maximum interval ceiling (100 years) |",
-        "Platform Behavior": "- **All Platforms**: Implemented natively in Rust (`src-tauri/src/commands/fsrs.rs`) and TypeScript client fallback."
+        "Platform Behavior": "- **All Platforms**: Implemented natively in Rust (`src-tauri/src/algorithms/fsrs7/`) with a TypeScript scalar port for browser parity (`src/algorithms/fsrs7/`).\n- **Upstream**: Vendored from [open-spaced-repetition/fsrs-rs](https://github.com/open-spaced-repetition/fsrs-rs) (BSD-3-Clause). See `vendor/fsrs-rs-fsrs7/UPSTREAM.md`."
       }
     },
     {
@@ -9586,16 +9589,17 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.fsrs#summary",
       "docId": "scheduler.fsrs",
-      "title": "FSRS-6 Spaced Repetition",
+      "title": "FSRS-7 Spaced Repetition",
       "domain": "scheduling",
       "section": "Summary & How-To",
-      "content": "Title: FSRS-6 Spaced Repetition\nDomain: scheduling\nSummary: Modern 19-parameter Free Spaced Repetition Scheduler computing memory Stability and Difficulty with customizable target retention (default 90%).\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select FSRS-6. Set your desired retention rate (e.g., 90%).\nRationale: FSRS models human forgetting with modern neural optimization, cutting study time by ~20-30% compared to legacy heuristic schedulers while maintaining target retention.\nAliases: fsrs, fsrs-6, modern srs, target retention, memory stability\nSettings: scheduler.algorithm, scheduler.fsrs.requestRetention, scheduler.fsrs.maximumIntervalDays",
+      "content": "Title: FSRS-7 Spaced Repetition\nDomain: scheduling\nSummary: Production 34-parameter Free Spaced Repetition Scheduler with dual-trace memory state (slow and fast stability) and customizable target retention (default 90%).\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm. FSRS-7 is the sole production scheduler; adjust your desired retention rate (e.g., 90%).\nRationale: FSRS-7 models human forgetting with a dual-trace memory state and fractional elapsed-time scheduling, improving interval accuracy over earlier single-trace FSRS versions while maintaining target retention.\nAliases: fsrs, fsrs-7, modern srs, target retention, memory stability, dual trace\nSettings: scheduler.algorithm, scheduler.fsrs.requestRetention, scheduler.fsrs.maximumIntervalDays",
       "aliases": [
         "fsrs",
-        "fsrs-6",
+        "fsrs-7",
         "modern srs",
         "target retention",
-        "memory stability"
+        "memory stability",
+        "dual trace"
       ],
       "tags": [
         "scheduling",
@@ -9603,10 +9607,11 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "scheduler.fsrs.requestRetention",
         "scheduler.fsrs.maximumIntervalDays",
         "fsrs",
-        "fsrs-6",
+        "fsrs-7",
         "modern srs",
         "target retention",
-        "memory stability"
+        "memory stability",
+        "dual trace"
       ],
       "platforms": [
         "desktop-macos",
@@ -9627,16 +9632,17 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.fsrs#rules",
       "docId": "scheduler.fsrs",
-      "title": "FSRS-6 Spaced Repetition › Behavioral Rules",
+      "title": "FSRS-7 Spaced Repetition › Behavioral Rules",
       "domain": "scheduling",
       "section": "Exact Behavioral Rules",
-      "content": "1. Retrievability $R(t, S)$ follows the power forgetting curve:\n   $$R(t, S) = \\left(1 + \\text{FACTOR} \\times \\frac{t}{S}\\right)^{\\text{DECAY}}$$\n2. Next interval $I$ is calculated directly from desired retention $r$:\n   $$I(r, S) = \\frac{S}{\\text{FACTOR}} \\times \\left(r^{1/\\text{DECAY}} - 1\\right)$$\n3. Stability increases exponentially after successful recall and decreases upon lapse.",
+      "content": "1. Retrievability follows the FSRS-7 dual-trace forgetting model (mixture of slow- and fast-trace components).\n2. Next interval $I$ is solved from desired retention $r$ using the active dual-trace state.\n3. Both stability traces update independently after each review; difficulty updates with mean-reversion damping.",
       "aliases": [
         "fsrs",
-        "fsrs-6",
+        "fsrs-7",
         "modern srs",
         "target retention",
-        "memory stability"
+        "memory stability",
+        "dual trace"
       ],
       "tags": [
         "scheduling",
@@ -9661,16 +9667,17 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.fsrs#rationale",
       "docId": "scheduler.fsrs",
-      "title": "FSRS-6 Spaced Repetition › Purpose & Rationale",
+      "title": "FSRS-7 Spaced Repetition › Purpose & Rationale",
       "domain": "scheduling",
       "section": "Rationale",
-      "content": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews.",
+      "content": "Legacy heuristic algorithms rely on fixed step multipliers. FSRS uses empirical maximum likelihood estimation over millions of real human study reviews. FSRS-7 extends the model with dual traces and fractional elapsed time for more accurate same-day and short-gap scheduling.",
       "aliases": [
         "fsrs",
-        "fsrs-6",
+        "fsrs-7",
         "modern srs",
         "target retention",
-        "memory stability"
+        "memory stability",
+        "dual trace"
       ],
       "tags": [
         "scheduling",
