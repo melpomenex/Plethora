@@ -405,6 +405,13 @@ fn check_cuda_usable(
             (false, Some("CUDA libraries (onnxruntime_providers_cuda.dll) not found".to_string()))
         }
     }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        (
+            false,
+            Some("CUDA execution provider not available on this platform".to_string()),
+        )
+    }
 }
 
 /// Parse `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits`
