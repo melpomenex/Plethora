@@ -1,0 +1,100 @@
+{
+  "description": "Memory benchmark baselines (fix-linux-release-memory-retention). Re-record on the reference Linux machine after post-fix verification — see docs/memory-profile.md Phase 8.",
+  "profiles": {
+    "linux-release": {
+      "machineProfile": {
+        "platform": "linux",
+        "platformKind": "linux",
+        "osRelease": "Kubuntu 24.04 LTS",
+        "kernel": "6.8.0",
+        "webkitGtkVersion": null,
+        "cpuModel": "AMD Ryzen 9 5900X",
+        "totalRamBytes": 25769803776,
+        "appVersion": null,
+        "buildProfile": "release",
+        "corpusHashes": {
+          "pdf-1.pdf": "283995e4d47ffaa80c58c062b7d03085375b9e08c3933ceb9dcd2fbd0d7c833b",
+          "pdf-2.pdf": "a2e7e0f602509384ddd14d41110704ff21338c44a79de954cafb9b2cb8b629c8",
+          "epub-1.epub": "1fc271d6aa62657b22dff4a6bb5c7521fc4394e99119ec603cab0724e1508035",
+          "epub-2.epub": "bc315d26ac6d183fa3ece1826a2aabd2bfeb426140d40a434e7bdc75a4f8feee",
+          "long-text-1.txt": "ee43153fc95e58b69f4d696e197c1eb7da549c5a4da9b227303243c1d099b1bf"
+        }
+      },
+      "ratchet": {
+        "warmUpCycles": 2,
+        "referenceWindow": 3,
+        "finalVsReferenceAllowanceBytes": 268435456,
+        "slopePerCycleAllowanceBytes": 8388608,
+        "cycleCount": 8
+      },
+      "metrics": {
+        "idle-total": {
+          "baseline": 2050000000,
+          "kind": "gated",
+          "relativeAllowance": 0.15,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 134217728,
+          "samples": 3,
+          "note": "Interim target from pre-fix investigation (~1.9 GiB idle); re-record post-fix."
+        },
+        "four-tabs-total": {
+          "baseline": 3478923509,
+          "kind": "gated",
+          "relativeAllowance": 0.15,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 134217728,
+          "samples": 3
+        },
+        "post-close-web-content-pss": {
+          "baseline": 1325400064,
+          "kind": "gated",
+          "relativeAllowance": 0.15,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 67108864,
+          "samples": 3,
+          "note": "Target: idle web PSS + 250 MiB (design D5 interim)."
+        },
+        "idle-final-web-content-pss": {
+          "baseline": 1433272320,
+          "kind": "gated",
+          "relativeAllowance": 0.15,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 67108864,
+          "samples": 3,
+          "note": "Target: idle web PSS + 350 MiB (design D5 interim)."
+        },
+        "one-document-web-delta": {
+          "baseline": 1153433600,
+          "kind": "diagnostic",
+          "relativeAllowance": 0.2,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 134217728,
+          "samples": 3
+        },
+        "web-content-pss": {
+          "baseline": 2407959552,
+          "kind": "diagnostic",
+          "relativeAllowance": 0.15,
+          "absoluteFloorBytes": 67108864,
+          "absoluteCeilingBytes": 268435456,
+          "observedVarianceBytes": 134217728,
+          "samples": 3
+        },
+        "native-pss": {
+          "baseline": 946864128,
+          "kind": "diagnostic",
+          "relativeAllowance": 0.1,
+          "absoluteFloorBytes": 33554432,
+          "absoluteCeilingBytes": 134217728,
+          "observedVarianceBytes": 16777216,
+          "samples": 3
+        }
+      }
+    }
+  }
+}

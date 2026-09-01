@@ -14,6 +14,7 @@ import {
   evaluateRatchet,
   olsSlope,
   profileMismatch,
+  resolveBaselinesForResult,
   DEFAULT_RESULT_PATH,
   DEFAULT_BASELINES_PATH,
 } from "../check-memory-budget.mjs";
@@ -262,6 +263,16 @@ test("evaluateRatchet catches final-vs-reference growth", () => {
   assert.equal(out.final, 200 * MiB);
 });
 
+test("debug result skips gate when only linux-release profile is committed", () => {
+  const out = compareMemoryResults({
+    result: result({ environment: profile({ buildProfile: "debug" }) }),
+    baselines: { profiles: { "linux-release": baselines() } },
+  });
+  assert.equal(out.skipGate, true);
+  assert.equal(out.usable, false);
+  assert.match(out.reason, /linux-debug/);
+});
+
 test("running the gate never modifies the baselines file (task 11.11)", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "membench-gate-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -290,9 +301,9 @@ test("running the gate never modifies the baselines file (task 11.11)", async (t
   } catch (error) {
     exitCode = error.status;
   }
-  // No baselines recorded yet -> the gate must refuse (exit 2) rather than
-  // invent numbers, and it must not have created/modified the baselines file.
-  assert.equal(exitCode, 2);
+  // Debug result with multi-profile baselines but no linux-debug profile: the
+  // gate skips rather than comparing against the wrong profile.
+  assert.equal(exitCode, 0);
 
   let after = null;
   try {

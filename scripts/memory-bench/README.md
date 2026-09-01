@@ -12,7 +12,7 @@ collector, soak tiers, and TTS/edition stages.
 | Module | Purpose |
 |---|---|
 | `smaps-rollup.js` | Strict parser for `/proc/<pid>/smaps_rollup` (Linux). Fields: `Pss`, `Pss_Anon`, `Pss_File`, `Pss_Shmem`, `Private_Dirty`, `Rss`, `Swap`. Unknown/absent fields are `null`, never `0`; malformed input yields an attributed error. |
-| `discovery.js` | Linux process discovery rooted at the launched PID: relationship by process group **and** ancestor chain, verified by the `PLETHORA_MEMORY_RUN_ID` marker in `/proc/<pid>/environ`. Role classification: `native`, `web-content`, `network`, `other`. |
+| `discovery.js` | Linux process discovery rooted at the launched PID: relationship by process group **and** ancestor chain, verified by the `PLETHORA_MEMORY_RUN_ID` marker in `/proc/<pid>/environ`. Role classification: `native`, `web-content`, `network`, `other` (handles 15-char `comm` truncation via prefix match and `/proc/<pid>/exe`). |
 | `sample.js` | Per-process sampling (an exited process is recorded absent with a reason, never a failure) and tree aggregation (total sums proportional fields only, never `Rss`; `treeHeadlineBytes` picks the platform headline). |
 | `macos-footprint.js` | macOS collector: invokes the native helper, re-verifies ancestry, records per-process `markerVerified`, normalizes into the shared sample shape (`Pss` carries `ri_phys_footprint`; `Rss` populated, never summed). |
 | `native/macos-footprint/` | Standalone cargo helper (libproc/`proc_pid_rusage` FFI; **never linked into the app**). Built on demand by the driver on darwin (`cargo build --release`). |

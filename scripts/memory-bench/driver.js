@@ -31,7 +31,7 @@ import { waitForSettle } from "./settle.js";
 import { discoverProcesses } from "./discovery.js";
 import { aggregateSample, readProcessSample, treeHeadlineBytes } from "./sample.js";
 import { sampleMacOsTree, ensureHelperBuilt } from "./macos-footprint.js";
-import { writeResult, collectEnvironment } from "./result.js";
+import { writeResult, collectEnvironment, inferBuildProfile } from "./result.js";
 import { sleep } from "./util.js";
 
 export const DEFAULT_OUTPUT = join(process.cwd(), ".bench", "memory-result.json");
@@ -414,7 +414,10 @@ export async function runScenario(deps) {
 
   // The result is written even for unreliable runs — the failure is visible in
   // the file and the gate refuses to compare unreliable numbers.
-  const environment = collectEnvironment({ platform: options.platform ?? process.platform });
+  const environment = collectEnvironment({
+    platform: options.platform ?? process.platform,
+    buildProfile: inferBuildProfile(options.app, options.profile),
+  });
   const result = writeResult({
     path: outputPath,
     samples,
@@ -455,12 +458,14 @@ function parseArgs(argv) {
     stepTimeoutMs: 120_000,
     provisionOnly: false,
     help: false,
+    profile: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
     switch (arg) {
       case "--app": options.app = next(); break;
+      case "--profile": options.profile = next(); break;
       case "--cycles": options.cycles = Number(next()); break;
       case "--tts-cycles": options.ttsCycles = Number(next()); break;
       case "--edition-cycles": options.editionCycles = Number(next()); break;
@@ -488,6 +493,7 @@ const USAGE = `Usage: node scripts/memory-bench/driver.js [options]
 
 Options:
   --app <binary>            app binary (default: src-tauri/target/debug/plethora-tauri)
+  --profile <release|debug> build profile override (default: inferred from --app path)
   --cycles <n>              repeated open/close cycle count (default 8)
   --tts-cycles <n>          TTS synthesize/play/dispose cycles (default 12; alternating
                             persistent-cache hit/miss variants — task 4.1)

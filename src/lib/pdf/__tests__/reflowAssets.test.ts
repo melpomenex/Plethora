@@ -8,11 +8,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { PDFDocumentProxy, PageViewport, RenderTask } from "pdfjs-dist";
 
 vi.mock("../../../api/pdfReflow", () => ({
-  putPdfReflowAsset: vi.fn(async () => "asset-0123456789abcdef"),
+  putPdfReflowAsset: vi.fn(async (ctx: { documentId: string }) => `asset-${ctx.documentId}`),
   getPdfReflowAsset: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
-import { ensureRegionAssetUrl, renderAndStoreRegionAsset } from "../reflowAssets";
+import {
+  ensureRegionAssetUrl,
+  renderAndStoreRegionAsset,
+  releaseDocumentResources,
+  clearAssetUrlCache,
+  fetchAssetObjectUrl,
+} from "../reflowAssets";
 
 function makeViewport(width: number, height: number, scale: number): PageViewport {
   return { width: width * scale, height: height * scale, scale } as PageViewport;
@@ -63,6 +69,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearAssetUrlCache();
   vi.restoreAllMocks();
 });
 
@@ -76,7 +83,7 @@ describe("renderAndStoreRegionAsset", () => {
       rect: { x0: 105, y0: 400, x1: 510, y1: 583 },
       context,
     });
-    expect(asset).toEqual({ assetId: "asset-0123456789abcdef", width: 818, height: 374 });
+    expect(asset).toEqual({ assetId: "asset-doc-1", width: 818, height: 374 });
   });
 
   it("clamps the pad at the page edges instead of overreading the canvas", async () => {
@@ -90,7 +97,7 @@ describe("renderAndStoreRegionAsset", () => {
       rect: { x0: 600, y0: 0, x1: 612, y1: 12 },
       context,
     });
-    expect(asset).toEqual({ assetId: "asset-0123456789abcdef", width: 25, height: 25 });
+    expect(asset).toEqual({ assetId: "asset-doc-1", width: 25, height: 25 });
   });
 
   it("scales the pad with the crop size (thin strips are not inflated)", async () => {
@@ -137,6 +144,49 @@ describe("ensureRegionAssetUrl", () => {
       expect(createObjectURL).toHaveBeenCalled();
     } finally {
       delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    }
+  });
+});
+
+describe("releaseDocumentResources", () => {
+  it("revokes object URLs for one document and leaves sibling documents intact", async () => {
+    const urlsByDoc = new Map<string, string>();
+    let seq = 0;
+    const createObjectURL = vi.fn(() => `blob:mock-${++seq}`);
+    const revokeObjectURL = vi.fn((url: string) => {
+      for (const [docId, cached] of urlsByDoc.entries()) {
+        if (cached === url) urlsByDoc.delete(docId);
+      }
+    });
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    try {
+      const { pdf } = makeFakePdf();
+      await renderAndStoreRegionAsset({
+        pdf,
+        pageNumber: 1,
+        rect: { x0: 105, y0: 400, x1: 510, y1: 583 },
+        context,
+      });
+      urlsByDoc.set("doc-1", "blob:mock-1");
+      const contextB = { ...context, documentId: "doc-2" };
+      await renderAndStoreRegionAsset({
+        pdf,
+        pageNumber: 1,
+        rect: { x0: 105, y0: 400, x1: 510, y1: 583 },
+        context: contextB,
+      });
+      urlsByDoc.set("doc-2", "blob:mock-2");
+
+      releaseDocumentResources("doc-1");
+
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-1");
+      const siblingUrl = await fetchAssetObjectUrl(contextB, "asset-doc-2");
+      expect(siblingUrl).toBe("blob:mock-2");
+    } finally {
+      clearAssetUrlCache();
+      delete (URL as { createObjectURL?: unknown }).createObjectURL;
+      delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
     }
   });
 });

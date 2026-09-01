@@ -57,6 +57,36 @@ export const PROFILE_FIELDS = [
 // Metric extraction from the harness result
 // ---------------------------------------------------------------------------
 
+function stageRolePss(samples, key, role) {
+  const sample = (samples ?? []).find((s) => s.key === key);
+  if (!sample) return null;
+  const bytes = (sample.processes ?? [])
+    .filter((p) => p.present && p.role === role)
+    .reduce((sum, p) => sum + (p.values?.Pss ?? 0), 0);
+  return bytes > 0 ? bytes : null;
+}
+
+/**
+ * Select the baseline block for a harness result. Supports a flat legacy file
+ * or a multi-profile file keyed by `${platformKind}-${buildProfile}`.
+ */
+export function resolveBaselinesForResult(baselines, result) {
+  if (!baselines?.profiles) return { baselines, profileKey: null, skipGate: false };
+  const platformKind = result.environment?.platformKind ?? result.environment?.platform ?? "linux";
+  const buildProfile = result.environment?.buildProfile ?? "debug";
+  const profileKey = `${platformKind}-${buildProfile}`;
+  const selected = baselines.profiles[profileKey];
+  if (!selected) {
+    return {
+      baselines: null,
+      profileKey,
+      skipGate: true,
+      reason: `no committed baseline profile "${profileKey}" (diagnostic-only run)`,
+    };
+  }
+  return { baselines: selected, profileKey, skipGate: false };
+}
+
 /**
  * Extract the gated/diagnostic metrics from a harness result.
  *
@@ -79,6 +109,9 @@ export function extractMetrics(result) {
     "peak-total": maxOrNull(samples.map((s) => s.total?.Pss ?? null)),
     "native-pss": peakProcessRole(samples, "native"),
     "web-content-pss": peakProcessRole(samples, "web-content"),
+    "post-close-web-content-pss": stageRolePss(samples, "all-closed", "web-content"),
+    "idle-final-web-content-pss": stageRolePss(samples, "idle-final", "web-content"),
+    "one-document-web-delta": deltaRolePss(samples, "one-doc", "idle-fresh", "web-content"),
   };
   // Soak metrics (task 8.2): present only when the run included an idle-soak
   // stage; baselines decide whether they are gated.
@@ -134,6 +167,13 @@ function peakProcessRole(samples, role) {
     if (roleBytes > 0 && (peak === null || roleBytes > peak)) peak = roleBytes;
   }
   return peak;
+}
+
+function deltaRolePss(samples, laterKey, earlierKey, role) {
+  const later = stageRolePss(samples, laterKey, role);
+  const earlier = stageRolePss(samples, earlierKey, role);
+  if (later == null || earlier == null) return null;
+  return later - earlier;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +311,22 @@ export function allowedGrowth(baselineBytes, metric) {
  *   ratchet: Array<object>, evaluation: object|null
  * }}
  */
-export function compareMemoryResults({ result, baselines }) {
+export function compareMemoryResults({ result, baselines: baselinesInput }) {
+  const resolved = resolveBaselinesForResult(baselinesInput, result);
+  if (resolved.skipGate) {
+    return {
+      usable: false,
+      skipGate: true,
+      reason: resolved.reason,
+      profileKey: resolved.profileKey,
+      rows: [],
+      failures: [],
+      warnings: [],
+      ratchet: [],
+      evaluation: null,
+    };
+  }
+  const baselines = resolved.baselines;
   // Unusable inputs get no verdict at all (exit 2 in the CLI).
   if (!baselines || typeof baselines !== "object" || !baselines.metrics || !baselines.machineProfile) {
     return { usable: false, reason: "baselines file has no metrics/machineProfile block", rows: [], failures: [], warnings: [], ratchet: [], evaluation: null };
@@ -422,6 +477,10 @@ export function main(argv = process.argv) {
   const outcome = compareMemoryResults({ result, baselines });
 
   if (!outcome.usable) {
+    if (outcome.skipGate) {
+      console.warn(`[memory-budget] Skipping gate: ${outcome.reason}`);
+      process.exit(0);
+    }
     console.error(`[memory-budget] Cannot issue a verdict: ${outcome.reason}`);
     process.exit(2);
   }

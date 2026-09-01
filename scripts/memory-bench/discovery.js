@@ -20,7 +20,7 @@
  * tree (see scripts/__tests__/memoryBenchDiscovery.test.ts).
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 
 /** Environment variable the driver sets on the launched app. */
@@ -71,16 +71,48 @@ export function readRunIdMarker(procRoot, pid) {
   }
 }
 
+/** Linux truncates /proc/<pid>/comm to 15 characters (e.g. WebKitWebProce). */
+const WEB_CONTENT_MARKERS = [
+  "webcontent",
+  "webkitwebprocess",
+  "webkitwebpro", // truncated comm
+];
+const NETWORK_MARKERS = [
+  "webkitnetworkprocess",
+  "webkitnetworkpr", // truncated comm
+];
+
+function readExePath(procRoot, pid) {
+  try {
+    return readlinkSync(join(procRoot, String(pid), "exe"));
+  } catch {
+    return "";
+  }
+}
+
+function readCmdline(procRoot, pid) {
+  try {
+    return readFileSync(join(procRoot, String(pid), "cmdline"))
+      .toString("utf8")
+      .replace(/\0/g, " ");
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Classify a process by role from its executable/comm name.
  * The launched app itself is "native"; WebKitGTK auxiliary processes are
  * classified by name; anything else marked by the run id is "other".
+ *
+ * Prefers the full executable path and cmdline when readable — Linux comm
+ * names are truncated to 15 characters and miss "WebKitWebProcess".
  */
-export function classifyRole({ pid, launchedPid, name }) {
+export function classifyRole({ pid, launchedPid, name, exe, cmdline }) {
   if (pid === launchedPid) return ROLES.NATIVE;
-  const n = (name || "").toLowerCase();
-  if (n.includes("webcontent") || n.includes("webkitwebprocess")) return ROLES.WEB_CONTENT;
-  if (n.includes("network") || n.includes("webkitnetworkprocess")) return ROLES.NETWORK;
+  const haystack = [name, exe, cmdline].map((s) => (s || "").toLowerCase()).join(" ");
+  if (WEB_CONTENT_MARKERS.some((m) => haystack.includes(m))) return ROLES.WEB_CONTENT;
+  if (NETWORK_MARKERS.some((m) => haystack.includes(m))) return ROLES.NETWORK;
   return ROLES.OTHER;
 }
 
@@ -112,7 +144,9 @@ export function discoverProcesses({ procRoot = "/proc", launchedPid, runId }) {
     const ppid = status.PPid ? Number(status.PPid) : NaN;
     const pgrp = status.NSpgid ? Number(status.NSpgid) : NaN;
     const name = status.Name ?? "";
-    candidates.push({ pid, ppid, pgrp, name });
+    const exe = readExePath(procRoot, pid);
+    const cmdline = readCmdline(procRoot, pid);
+    candidates.push({ pid, ppid, pgrp, name, exe, cmdline });
   }
 
   const launchedStatus = candidates.find((c) => c.pid === launchedPid);
@@ -151,7 +185,13 @@ export function discoverProcesses({ procRoot = "/proc", launchedPid, runId }) {
     if (readRunIdMarker(procRoot, candidate.pid) !== runId) continue;
     discovered.push({
       ...candidate,
-      role: classifyRole({ pid: candidate.pid, launchedPid, name: candidate.name }),
+      role: classifyRole({
+        pid: candidate.pid,
+        launchedPid,
+        name: candidate.name,
+        exe: candidate.exe,
+        cmdline: candidate.cmdline,
+      }),
     });
   }
 

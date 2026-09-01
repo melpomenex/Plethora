@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverProcesses, RUN_ID_ENV, ROLES } from "../memory-bench/discovery.js";
+import { discoverProcesses, RUN_ID_ENV, ROLES, classifyRole } from "../memory-bench/discovery.js";
 
 const RUN_ID = "run-abc123";
 
@@ -143,4 +143,29 @@ test("a missing /proc root produces an attributed error", () => {
     () => discoverProcesses({ procRoot: join(tmpdir(), "does-not-exist-membench"), launchedPid: 100, runId: RUN_ID }),
     /cannot read/,
   );
+});
+
+test("classifyRole maps truncated Linux WebKit comm names", () => {
+  assert.equal(
+    classifyRole({ pid: 101, launchedPid: 100, name: "WebKitWebProce" }),
+    ROLES.WEB_CONTENT,
+  );
+  assert.equal(
+    classifyRole({ pid: 102, launchedPid: 100, name: "WebKitNetworkPr" }),
+    ROLES.NETWORK,
+  );
+});
+
+test("truncated comm names are classified via discovery", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "membench-proc-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeProcTree(root, {
+    100: { status: statusFile("plethora-tauri", 1, 500), marker: true },
+    101: { status: statusFile("WebKitWebProce", 100, 500), marker: true },
+    102: { status: statusFile("WebKitNetworkPr", 100, 500), marker: true },
+  });
+  const found = discoverProcesses({ procRoot: root, launchedPid: 100, runId: RUN_ID });
+  const byPid = Object.fromEntries(found.map((p) => [p.pid, p]));
+  assert.equal(byPid[101].role, ROLES.WEB_CONTENT);
+  assert.equal(byPid[102].role, ROLES.NETWORK);
 });

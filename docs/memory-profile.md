@@ -1003,3 +1003,80 @@ reads `scripts/memory-baselines.json`; a test pins this).
    `scripts/memory-baselines.json`; the PR description must say why the
    memory behavior changed (the same protocol as `scripts/perf-baselines.json`
    and `scripts/bundle-budgets.json`).
+
+---
+
+## Phase 8 — Linux release post-close retention (fix-linux-release-memory-retention)
+
+Evidence from release profiling on Kubuntu (Ryzen 5900X, 24 GiB, harness
+`reliable: true`, 2026-09). **Pre-fix** numbers used a harness that
+misclassified WebKitGTK processes (`WebKitWebProce` truncated comm → `other`);
+corrected role attribution is required before comparing web-content PSS.
+
+### Pre-fix release PSS (tree total / native / web-other)
+
+| Stage | Total | Native | Web/other* |
+|-------|-------|--------|------------|
+| idle-fresh | ~1.92 GiB | ~900 MiB | ~986 MiB |
+| four-tabs | ~3.24 GiB | ~902 MiB | ~2,298 MiB |
+| all-closed | ~2.98 GiB | ~903 MiB | ~2,039 MiB |
+| idle-final | ~3.12 GiB | ~903 MiB | ~2,184 MiB |
+
+\*Before the harness fix, web-content PSS was inflated into `other` on Linux.
+
+### Findings
+
+- **No release native leak:** native PSS is flat (~900 MiB) across open,
+  close, and cycle stages.
+- **Renderer retention:** ~1 GiB web PSS remains above idle after all tabs
+  close; slow ratchet across cycles (+~145 MiB web over the harness).
+- **Debug-only native ratchet:** debug builds retain ~2.2 GiB native after
+  close (not gated for release).
+
+### Fixes applied (this change)
+
+1. **Harness:** prefix-match WebKit `comm` truncation; record `buildProfile`
+   in result JSON; `linux-release` profile in `scripts/memory-baselines.json`.
+2. **Renderer:** `releaseDocumentResources(documentId)` revokes per-document
+   reflow object URLs on tab close / pdf.js reset (shared asset ids preserved
+   when another tab still references them).
+
+### Module-global caches surviving tab close (task 2.3)
+
+| Cache | Location | Bounded? | Released on close? |
+|-------|----------|----------|---------------------|
+| Reflow object URLs | `reflowAssets.ts` | Per asset id | **Yes** (this change) |
+| PDF reflow disk cache | Rust `pdf_reflow` | Cross-document | No (disk; re-fetch on reopen) |
+| `documentStore` thread cache | `documentStore.ts` | TTL | Partial (not per-tab) |
+| TTS IndexedDB cache | `ttsCache.ts` | 500 MiB cap | No (by design) |
+| Inactive mounted tabs | `TabContent` | `readerTabCap` | N/A (not closed) |
+
+### WebKit heap snapshots (task 2.1 / 5.1)
+
+Repeatable procedure on Linux release:
+
+```bash
+npm run tauri:build:local:release   # or your release binary path
+npm run bench:memory -- --app target/release/plethora-tauri --cycles 4
+# During harness pauses (or a manual session), attach WebKit Web Inspector to
+# the web process and save heap snapshots at:
+#   B — four-tabs open
+#   C — all tabs closed (after settle)
+#   D — idle-final (after cycles)
+# Record retained sizes for ArrayBuffer, Blob, pdf.js DocumentProxy, detached
+# DOM/canvas nodes, and store singletons in this section.
+```
+
+Heaptrack on debug native ratchet (task 2.2): optional diagnostic — run only
+when investigating the debug-only ~2.2 GiB native high-water; not expected to
+affect release gates.
+
+### Post-fix verification (tasks 4.1–4.3)
+
+Re-run three consecutive reliable release harness runs on the reference machine
+and update `scripts/memory-baselines.json` `linux-release` entries from measured
+values. Interim acceptance until re-recorded:
+
+- post-close web PSS ≤ idle web PSS + **250 MiB**
+- idle-final web PSS ≤ idle web PSS + **350 MiB**
+

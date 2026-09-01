@@ -46,7 +46,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelection";
-import { ensureRegionAssetUrl } from "../../lib/pdf/reflowAssets";
+import { ensureRegionAssetUrl, releaseDocumentResources } from "../../lib/pdf/reflowAssets";
 import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
   deriveCurrentPageFromOffsets,
@@ -1543,6 +1543,7 @@ export function PDFViewer({
       // Task 5.1: destroy the pdf.js document and its loading task (this also
       // aborts an in-flight load). Runs on unmount AND on document change.
       pdfDocumentHolder.reset();
+      releaseDocumentResources(documentId);
       for (const transport of nativeTransports) transport.abort();
       passwordSubmitRef.current = null;
       // Task 5.2: release per-page rendering state held by the viewer.

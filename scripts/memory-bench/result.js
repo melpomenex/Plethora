@@ -30,6 +30,22 @@ function runCapture(command, args) {
   }
 }
 
+/**
+ * Infer release vs debug from an explicit flag or the launched binary path.
+ * Exported for driver + unit tests.
+ */
+export function inferBuildProfile(appPath, explicitProfile = null) {
+  if (explicitProfile === "release" || explicitProfile === "debug") return explicitProfile;
+  const normalized = (appPath || "").replace(/\\/g, "/").toLowerCase();
+  if (/\/release\//.test(normalized) || normalized.endsWith("/release/plethora-tauri")) {
+    return "release";
+  }
+  if (/\/debug\//.test(normalized) || normalized.endsWith("/debug/plethora-tauri")) {
+    return "debug";
+  }
+  return "debug";
+}
+
 /** Machine-profile fields recorded with every result. */
 export function collectEnvironment(
   { appVersion = null, buildProfile = null, platform = process.platform } = {},

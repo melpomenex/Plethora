@@ -15,6 +15,32 @@ import type { PdfRect } from "../../types/pdfCanonical";
 const CROP_RENDER_SCALE = 2.0;
 
 const objectUrlCache = new Map<string, string>();
+/** documentId -> asset ids with live object URLs in the module cache. */
+const documentAssetIds = new Map<string, Set<string>>();
+/** Bumped on release so in-flight renders skip re-caching after close. */
+const documentGenerations = new Map<string, number>();
+
+function documentGeneration(documentId: string): number {
+  return documentGenerations.get(documentId) ?? 0;
+}
+
+function trackDocumentAsset(documentId: string, assetId: string): void {
+  let ids = documentAssetIds.get(documentId);
+  if (!ids) {
+    ids = new Set();
+    documentAssetIds.set(documentId, ids);
+  }
+  ids.add(assetId);
+}
+
+function cacheObjectUrl(documentId: string, assetId: string, objectUrl: string, generation: number): void {
+  if (generation !== documentGeneration(documentId)) {
+    if (typeof URL?.revokeObjectURL === "function") URL.revokeObjectURL(objectUrl);
+    return;
+  }
+  objectUrlCache.set(assetId, objectUrl);
+  trackDocumentAsset(documentId, assetId);
+}
 
 export function assetCacheKey(documentId: string, blockId: string): string {
   return `${documentId}:${blockId}`;
@@ -53,6 +79,7 @@ export async function renderAndStoreRegionAsset(params: {
   context: PdfReflowCacheContext;
 }): Promise<PdfRegionAsset | null> {
   const { pdf, pageNumber, rect, context } = params;
+  const generation = documentGeneration(context.documentId);
   try {
     const page = await pdf.getPage(pageNumber);
     // Base geometry is in the model rect's basis: UNROTATED user space
@@ -135,13 +162,13 @@ export async function renderAndStoreRegionAsset(params: {
       const base64 = bytesToBase64(bytes);
       assetId = await putPdfReflowAsset(context, base64);
       if (assetId && objectUrl) {
-        objectUrlCache.set(assetId, objectUrl);
+        cacheObjectUrl(context.documentId, assetId, objectUrl, generation);
       }
     } catch (putError) {
       console.debug("[PDF reflow] Native asset cache write non-fatal:", putError);
       assetId = `mem-${pageNumber}-${srcX}-${srcY}`;
       if (objectUrl) {
-        objectUrlCache.set(assetId, objectUrl);
+        cacheObjectUrl(context.documentId, assetId, objectUrl, generation);
       }
     }
 
@@ -160,12 +187,14 @@ export async function fetchAssetObjectUrl(
   const cached = objectUrlCache.get(assetId);
   if (cached) return cached;
   if (typeof URL?.createObjectURL !== "function") return null;
+  const generation = documentGeneration(context.documentId);
   try {
     const bytes = await getPdfReflowAsset(context, assetId);
     if (!bytes) return null;
+    if (generation !== documentGeneration(context.documentId)) return null;
     try {
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/png" }));
-      objectUrlCache.set(assetId, url);
+      cacheObjectUrl(context.documentId, assetId, url, generation);
       return url;
     } catch {
       return null;
@@ -190,11 +219,35 @@ export async function ensureRegionAssetUrl(params: {
   return { url, width: asset.width, height: asset.height };
 }
 
+/** Revoke in-memory reflow object URLs and abandon in-flight cache writes for one document. */
+export function releaseDocumentResources(documentId: string): void {
+  documentGenerations.set(documentId, documentGeneration(documentId) + 1);
+  const assetIds = documentAssetIds.get(documentId);
+  if (!assetIds) return;
+  for (const assetId of assetIds) {
+    let referencedElsewhere = false;
+    for (const [otherDocId, ids] of documentAssetIds.entries()) {
+      if (otherDocId !== documentId && ids.has(assetId)) {
+        referencedElsewhere = true;
+        break;
+      }
+    }
+    if (!referencedElsewhere) {
+      const url = objectUrlCache.get(assetId);
+      if (url && typeof URL?.revokeObjectURL === "function") URL.revokeObjectURL(url);
+      objectUrlCache.delete(assetId);
+    }
+  }
+  documentAssetIds.delete(documentId);
+}
+
 /** test-only: drop object URL cache entries. */
 export function clearAssetUrlCache(): void {
   for (const url of objectUrlCache.values()) {
     if (typeof URL?.revokeObjectURL === "function") URL.revokeObjectURL(url);
   }
   objectUrlCache.clear();
+  documentAssetIds.clear();
+  documentGenerations.clear();
 }
 
