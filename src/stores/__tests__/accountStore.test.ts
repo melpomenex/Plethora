@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAccountStore, __resetAuthEventListenersForTests } from '../accountStore';
+import { useAccountStore, __resetAuthEventListenersForTests, __resetRefreshInFlightForTests } from '../accountStore';
 import { useDocumentStore } from '../documentStore';
 
 const tauriMocks = vi.hoisted(() => ({
@@ -67,6 +67,7 @@ function stubLoginSuccess() {
 beforeEach(() => {
   tauriMocks.isTauri = false;
   tauriMocks.invoke.mockReset();
+  __resetRefreshInFlightForTests();
   localStorage.clear();
   useAccountStore.setState({
     isAuthenticated: false,
@@ -404,11 +405,21 @@ describe('Entitlement-safe startup & refresh (entitlement-persistence change)', 
       },
     });
     tauriMocks.isTauri = true;
-    tauriMocks.invoke.mockReset();
+    tauriMocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'account_refresh') {
+        return {
+          accessToken: 'access-2',
+          refreshToken: 'refresh-2',
+          expiresIn: 900,
+        };
+      }
+      if (command === 'account_sync_session') return {};
+      return {};
+    });
 
     await useAccountStore.getState().init();
 
-    // Token refresh endpoint was hit (rotating the expired token)…
+    expect(tauriMocks.invoke).toHaveBeenCalledWith('account_refresh');
     const mirror = tauriMocks.invoke.mock.calls.find(
       (call) => call[0] === 'account_sync_session',
     );
@@ -505,6 +516,89 @@ describe('Entitlement-safe startup & refresh (entitlement-persistence change)', 
     expect(snapshot.plan).toBe('pro');
     expect(snapshot.source).toBe('cache');
     expect(snapshot.accountId).toBe('u-1');
+  });
+});
+
+describe('Native refresh delegation (auth-refresh-ownership)', () => {
+  beforeEach(() => {
+    tauriMocks.isTauri = true;
+    tauriMocks.invoke.mockImplementation(async (command: string) => {
+      if (command === 'account_refresh') {
+        return {
+          accessToken: 'access-native-2',
+          refreshToken: 'refresh-native-2',
+          expiresIn: 900,
+        };
+      }
+      if (command === 'account_sync_session') return {};
+      return {};
+    });
+    useAccountStore.setState({
+      isAuthenticated: true,
+      user: { id: 'u-1', email: 'user@example.com', subscriptionTier: 'pro' },
+      tokens: { accessToken: 'access-1', refreshToken: 'refresh-1', expiresIn: 900 },
+      deviceId: 'dev-1',
+      devices: [],
+      loading: false,
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    tauriMocks.isTauri = false;
+  });
+
+  it('refresh on Tauri invokes account_refresh instead of fetch', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await useAccountStore.getState().refresh();
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith('account_refresh');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(useAccountStore.getState().tokens?.accessToken).toBe('access-native-2');
+    expect(useAccountStore.getState().tokens?.refreshToken).toBe('refresh-native-2');
+  });
+});
+
+describe('PWA concurrent refresh coalescing', () => {
+  it('concurrent refresh callers share one network request', async () => {
+    let refreshCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/v1/auth/login')) {
+          return jsonResponse({
+            user: { id: 'u-1', email: 'user@example.com', subscriptionTier: 'free' },
+            tokens: { accessToken: 'access-1', refreshToken: 'refresh-1', expiresIn: 900 },
+            device: { id: 'dev-1' },
+          });
+        }
+        if (url.endsWith('/v1/auth/token/refresh')) {
+          refreshCalls += 1;
+          await new Promise((r) => setTimeout(r, 25));
+          return jsonResponse({
+            accessToken: 'access-2',
+            refreshToken: 'refresh-2',
+            expiresIn: 900,
+          });
+        }
+        return jsonResponse({ ok: true });
+      })
+    );
+
+    await useAccountStore.getState().signIn('user@example.com', 'password123');
+    __resetRefreshInFlightForTests();
+    refreshCalls = 0;
+
+    await Promise.all([
+      useAccountStore.getState().refresh(),
+      useAccountStore.getState().refresh(),
+    ]);
+
+    expect(refreshCalls).toBe(1);
+    expect(useAccountStore.getState().tokens?.refreshToken).toBe('refresh-2');
   });
 });
 

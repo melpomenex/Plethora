@@ -121,6 +121,13 @@ export function __resetAuthEventListenersForTests(): void {
   authEventListenersRegistered = false;
 }
 
+/** Coalesces concurrent PWA refresh callers into one network round-trip. */
+let refreshInFlight: Promise<void> | null = null;
+
+export function __resetRefreshInFlightForTests(): void {
+  refreshInFlight = null;
+}
+
 function registerNativeAuthEventListeners(
   set: (partial: Partial<AccountStoreState>) => void,
   get: () => AccountStoreState
@@ -393,60 +400,91 @@ export const useAccountStore = create<AccountStoreState>()(
         const tokens = get().tokens;
         if (!tokens?.refreshToken) return;
 
-        try {
-          const res = await fetch(`${PLETHORA_API_URL}/v1/auth/token/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-          });
+        const doRefresh = async () => {
+          const attemptedRefreshToken = get().tokens?.refreshToken;
+          if (!attemptedRefreshToken) return;
 
-          if (!res.ok) {
-            if (res.status === 401) {
-              // Distinguish a genuine Plethora API rejection from a captive
-              // portal / MITM proxy answering a bare 401 page: only the API
-              // error shape revokes the session.
-              const body = (await res.json().catch(() => null)) as ServerApiError | null;
-              if (body?.error?.code) {
-                // Refresh token rejected (expired/revoked family, or session
-                // cascade-deleted by account deletion elsewhere): transition
-                // cleanly to signed-out local mode (Change F §2.3).
-                await get().signOut();
+          try {
+            if (isTauri()) {
+              const result = await invoke<{
+                accessToken?: string;
+                access_token?: string;
+                refreshToken?: string;
+                refresh_token?: string;
+                expiresIn?: number;
+                expires_in?: number;
+              }>('account_refresh');
+
+              const accessToken = result.accessToken ?? result.access_token;
+              const refreshToken = result.refreshToken ?? result.refresh_token;
+              if (accessToken && refreshToken) {
+                set({
+                  tokens: {
+                    accessToken,
+                    refreshToken,
+                    expiresIn: result.expiresIn ?? result.expires_in ?? 900,
+                  },
+                });
               }
+            } else {
+              const res = await fetch(`${PLETHORA_API_URL}/v1/auth/token/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken: attemptedRefreshToken }),
+              });
+
+              if (!res.ok) {
+                if (res.status === 401) {
+                  const body = (await res.json().catch(() => null)) as ServerApiError | null;
+                  if (body?.error?.code) {
+                    const currentRefresh = get().tokens?.refreshToken;
+                    if (currentRefresh && currentRefresh !== attemptedRefreshToken) {
+                      return;
+                    }
+                    await get().signOut();
+                  }
+                }
+                return;
+              }
+
+              const data = await res.json();
+              set({
+                tokens: {
+                  accessToken: data.accessToken,
+                  refreshToken: data.refreshToken,
+                  expiresIn: data.expiresIn,
+                },
+              });
             }
-            return;
-          }
 
-          const data = await res.json();
-          set((state) => ({
-            tokens: {
-              accessToken: data.accessToken,
-              refreshToken: data.refreshToken,
-              expiresIn: data.expiresIn,
-            },
-          }));
-
-          // Native entitlement fetches present the token from the Rust
-          // AuthManager — without re-mirroring, rotation never reaches them
-          // and every subsequent refresh would keep using the stale token.
-          const { user, deviceId } = get();
-          if (isTauri() && user && data.accessToken) {
-            await invoke('account_sync_session', {
-              user: {
-                id: user.id,
-                email: user.email,
-                subscription_tier: user.subscriptionTier ?? 'free',
-              },
-              tokens: {
-                access_token: data.accessToken,
-                refresh_token: data.refreshToken,
-                expires_in: data.expiresIn,
-              },
-              deviceId: deviceId ?? null,
-            }).catch(() => {});
+            const { user, deviceId } = get();
+            const currentTokens = get().tokens;
+            if (isTauri() && user && currentTokens?.accessToken) {
+              await invoke('account_sync_session', {
+                user: {
+                  id: user.id,
+                  email: user.email,
+                  subscription_tier: user.subscriptionTier ?? 'free',
+                },
+                tokens: {
+                  access_token: currentTokens.accessToken,
+                  refresh_token: currentTokens.refreshToken,
+                  expires_in: currentTokens.expiresIn ?? 900,
+                },
+                deviceId: deviceId ?? null,
+              }).catch(() => {});
+            }
+          } catch {
+            // Keep state offline
           }
-        } catch {
-          // Keep state offline
+        };
+
+        if (!refreshInFlight) {
+          refreshInFlight = doRefresh().finally(() => {
+            refreshInFlight = null;
+          });
         }
+        await refreshInFlight;
       },
 
       loadDevices: async () => {

@@ -59,6 +59,15 @@ pub struct AccountState {
     pub device_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRefreshResponse {
+    pub state: AccountState,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotatedTokensEvent {
@@ -151,6 +160,10 @@ impl AuthManager {
             .read()
             .ok()
             .and_then(|t| t.as_ref().map(|tok| tok.refresh_token.clone()))
+    }
+
+    pub fn get_tokens(&self) -> Option<AccountTokens> {
+        self.tokens.read().ok().and_then(|t| t.clone())
     }
 
     pub fn update_tokens(&self, tokens: AccountTokens) {
@@ -362,11 +375,32 @@ pub fn account_sign_out(
 }
 
 #[tauri::command]
-pub async fn account_refresh(auth: tauri::State<'_, Arc<AuthManager>>) -> Result<AccountState, String> {
+pub async fn account_refresh(
+    auth: tauri::State<'_, Arc<AuthManager>>,
+) -> Result<AccountRefreshResponse, String> {
+    let attempted = auth.get_refresh_token();
     match auth.refresh_tokens().await {
-        Ok(()) => Ok(auth.get_state()),
+        Ok(()) => {
+            let tokens = auth.get_tokens();
+            Ok(AccountRefreshResponse {
+                state: auth.get_state(),
+                access_token: tokens.as_ref().map(|t| t.access_token.clone()),
+                refresh_token: tokens.as_ref().map(|t| t.refresh_token.clone()),
+                expires_in: tokens.as_ref().map(|t| t.expires_in),
+            })
+        }
         Err(error) => {
-            auth.handle_refresh_failure(error.clone());
+            if matches!(
+                error,
+                RefreshError::SessionRevoked | RefreshError::TokenExpired
+            ) {
+                if let Some(attempted_token) = attempted {
+                    if auth.get_refresh_token().as_deref() != Some(attempted_token.as_str()) {
+                        return Err(error.to_string());
+                    }
+                }
+                auth.handle_refresh_failure(error.clone());
+            }
             Err(error.to_string())
         }
     }
