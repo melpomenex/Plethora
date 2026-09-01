@@ -375,6 +375,10 @@ export const en: Dict = {
   "settings.aboutDesc":
     "Plethora is your companion for incremental reading and spaced repetition learning. Import documents, create extracts, and review with scientifically-proven algorithms.",
   "settings.github": "GitHub",
+  "settings.openSourceNotices": "Open Source Notices",
+  "settings.openSourceNoticesDesc": "Third-party components included with Plethora and their licenses.",
+  "settings.noticeLicense": "License",
+  "settings.noticeCopyright": "Copyright",
   "settings.documentation": "Documentation",
   "settings.discord": "Discord",
   "settings.resetToDefault": "Reset to Default",
@@ -597,9 +601,9 @@ export const en: Dict = {
   "onboarding.tour.review.grading.title": "Grading controls",
   "onboarding.tour.review.grading.body":
     "After each card, pick the rating that matches your recall. The scheduler uses that signal to decide when to show the card again — better recall, longer interval.",
-  "onboarding.tour.review.algorithm.title": "Pick your algorithm",
+  "onboarding.tour.review.algorithm.title": "FSRS-7 scheduling",
   "onboarding.tour.review.algorithm.body":
-    "Plethora ships several schedulers — FSRS-6, Plethora Adaptive, Plethora Precision, and Plethora Classic. Choose the one that fits your style in Settings → Learning.",
+    "Plethora uses FSRS-7 for spaced repetition — a modern scheduler that models memory with dual stability tracks and supports same-day reviews. Adjust retention and intervals in Settings → Learning.",
   "onboarding.tour.knowledge.analytics.title": "Analytics",
   "onboarding.tour.knowledge.analytics.body":
     "See your retention rate, review activity, and progress over time. The numbers update as you review.",
@@ -3578,7 +3582,8 @@ export const en: Dict = {
   "learningSettings.algorithm": "Algorithm",
   "learningSettings.spacedRepetition": "Spaced Repetition Algorithm",
   "learningSettings.fsrsDesc":
-    "Free Spaced Repetition Scheduler -- optimal retention-based scheduling",  "learningSettings.classicDesc": "A straightforward, predictable scheduler for users who prefer a simpler scheduling model.",
+    "FSRS-7 — dual-trace spaced repetition with fractional elapsed-time scheduling",
+  "learningSettings.classicDesc": "A straightforward, predictable scheduler for users who prefer a simpler scheduling model.",
   "learningSettings.adaptiveDesc": "An adaptive scheduler that continuously adjusts review timing based on your performance and memory behavior.",
   "learningSettings.precisionDesc": "Plethora's most advanced scheduler, modeling learner performance in more detail to optimize retention and review timing.",
   "learningSettings.desiredRetention": "Desired Retention: {value}%",

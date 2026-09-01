@@ -588,10 +588,7 @@ fn parse_extract_row(row: &sqlx::sqlite::SqliteRow) -> Result<Extract> {
     let stability: Option<f64> = row.try_get("memory_state_stability").ok();
     let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
     let memory_state = match (stability, difficulty) {
-        (Some(stability), Some(difficulty)) => Some(MemoryState {
-            stability,
-            difficulty,
-        }),
+        (Some(stability), Some(difficulty)) => Some(MemoryState::new(stability, difficulty)),
         _ => None,
     };
     let selection_context = row
@@ -671,10 +668,7 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
     let stability: Option<f64> = row.try_get("memory_state_stability").ok();
     let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
     let memory_state = match (stability, difficulty) {
-        (Some(stability), Some(difficulty)) => Some(MemoryState {
-            stability,
-            difficulty,
-        }),
+        (Some(stability), Some(difficulty)) => Some(MemoryState::new(stability, difficulty)),
         _ => None,
     };
 

@@ -1,7 +1,7 @@
 import { useSettingsStore } from "../stores";
 import { useEffect } from "react";
 import { useI18n } from "../lib/i18n";
-import { LEGACY_SELECTABLE_SCHEDULERS } from "../lib/schedulerCatalog";
+import { schedulerLabel } from "../lib/schedulerCatalog";
 
 export function Settings() {
   const { t } = useI18n();
@@ -83,19 +83,9 @@ export function Settings() {
                   {t("settingsLegacy.spacedRepetitionAlgorithm")}
                 </div>
               </div>
-              <select
-                aria-label="Algorithm"
-                value={settings.learning.algorithm}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as any } })}
-                className="px-3 py-2 bg-background border border-border rounded-md text-foreground"
-              >
-                {LEGACY_SELECTABLE_SCHEDULERS.map((scheduler) => (
-                  <option key={scheduler.id} value={scheduler.id}>
-                    {scheduler.id === "fsrs" ? t("settingsLegacy.fsrsRecommended") : scheduler.label}
-                  </option>
-                ))}
-              </select>
+              <div className="px-3 py-2 text-sm font-medium text-foreground">
+                {schedulerLabel("fsrs")}
+              </div>
             </div>
 
             <div className="flex items-center justify-between">

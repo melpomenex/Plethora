@@ -50,8 +50,8 @@ export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
     handler: () => dispatchNavigation("/settings?tab=appearance"),
   },
   "settings.learning.algorithm": {
-    label: "Configure SRS Algorithm",
-    description: "Switch between FSRS-6, Plethora Adaptive, and Plethora Precision algorithms or adjust retention targets",
+    label: "Configure FSRS-7",
+    description: "Adjust FSRS-7 retention targets, maximum intervals, and personalized parameters",
     handler: () => dispatchNavigation("/settings?tab=learning&focus=algorithm"),
   },
   "settings.tts.general": {

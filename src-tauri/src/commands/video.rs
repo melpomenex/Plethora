@@ -791,6 +791,7 @@ pub async fn rate_video_extract(
         Some(crate::models::MemoryState {
             stability: result.stability,
             difficulty: result.difficulty,
+            stability_fast: None,
         }),
         Some(new_review_count),
         Some(new_reps),

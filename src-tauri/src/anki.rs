@@ -630,10 +630,7 @@ async fn build_learning_item(
             let stability = json.get("s").and_then(|v| v.as_f64());
             let difficulty = json.get("d").and_then(|v| v.as_f64());
             if let (Some(s), Some(d)) = (stability, difficulty) {
-                item.memory_state = Some(MemoryState {
-                    stability: s,
-                    difficulty: d,
-                });
+                item.memory_state = Some(MemoryState::new(s, d));
                 item.algorithm_type = "fsrs".to_string();
             }
         }

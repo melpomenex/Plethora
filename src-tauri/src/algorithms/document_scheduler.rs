@@ -1,11 +1,11 @@
 //! Document scheduler implementation.
 //!
-//! This module provides document scheduling using the fsrs-rs FSRS-6 algorithm.
+//! This module provides document scheduling using the fsrs-rs FSRS-7 algorithm.
 
+use crate::algorithms::fsrs7::{self, create_fsrs7, from_fsrs_memory_state};
 use crate::error::Result;
-use crate::models::ReviewRating;
+use crate::models::{MemoryState, ReviewRating};
 use chrono::{Duration, Utc};
-use fsrs::{MemoryState, FSRS};
 use serde::{Deserialize, Serialize};
 
 /// Document scheduler parameters
@@ -40,20 +40,22 @@ pub struct DocumentScheduleResult {
     pub difficulty: f64,
     /// Interval in days
     pub interval_days: i64,
+    /// FSRS-7 fast stability track
+    pub stability_fast: Option<f64>,
     /// Scheduling reason/explanation
     pub scheduling_reason: String,
 }
 
-/// Document scheduler using FSRS-6 algorithm
+/// Document scheduler using FSRS-7 algorithm
 pub struct DocumentScheduler {
     params: DocumentSchedulerParams,
-    fsrs: FSRS,
+    fsrs: fsrs::FSRS,
 }
 
 impl DocumentScheduler {
     /// Create a new document scheduler
     pub fn new(params: DocumentSchedulerParams) -> Self {
-        let fsrs = FSRS::new(Some(&[])).expect("fsrs::FSRS default parameters must be valid");
+        let fsrs = create_fsrs7().expect("fsrs::FSRS default parameters must be valid");
         Self { params, fsrs }
     }
 
@@ -76,19 +78,38 @@ impl DocumentScheduler {
         current_difficulty: Option<f64>,
         elapsed_days: f64,
     ) -> Result<DocumentScheduleResult> {
-        let memory_state = match (current_stability, current_difficulty) {
+        self.schedule_document_with_fast_stability(
+            rating,
+            current_stability,
+            current_difficulty,
+            None,
+            elapsed_days,
+        )
+    }
+
+    pub fn schedule_document_with_fast_stability(
+        &self,
+        rating: ReviewRating,
+        current_stability: Option<f64>,
+        current_difficulty: Option<f64>,
+        current_stability_fast: Option<f64>,
+        elapsed_days: f64,
+    ) -> Result<DocumentScheduleResult> {
+        let plethora_memory = match (current_stability, current_difficulty) {
             (Some(stability), Some(difficulty)) if stability > 0.0 && difficulty > 0.0 => {
                 Some(MemoryState {
-                    stability: stability as f32,
-                    difficulty: difficulty as f32,
+                    stability,
+                    difficulty,
+                    stability_fast: current_stability_fast,
                 })
             }
             _ => None,
         };
 
-        let elapsed_days = elapsed_days.max(0.0) as u32;
-        let next_states = self.fsrs.next_states(
-            memory_state,
+        let elapsed_days = elapsed_days.max(0.0) as f32;
+        let next_states = fsrs7::next_states_fractional(
+            &self.fsrs,
+            plethora_memory.as_ref(),
             self.params.target_retention as f32,
             elapsed_days,
         )?;
@@ -114,14 +135,17 @@ impl DocumentScheduler {
 
         let next_review = Utc::now() + Duration::days(interval_days);
 
+        let memory = from_fsrs_memory_state(&next_state.memory);
+
         Ok(DocumentScheduleResult {
             next_review,
-            stability: next_state.memory.stability as f64,
-            difficulty: next_state.memory.difficulty as f64,
+            stability: memory.stability,
+            difficulty: memory.difficulty,
+            stability_fast: memory.stability_fast,
             interval_days,
             scheduling_reason: format!(
-                "FSRS-6 (fsrs-rs) - Rating: {:?}, Stability: {:.2}, Difficulty: {:.2}",
-                rating, next_state.memory.stability, next_state.memory.difficulty
+                "FSRS-7 (fsrs-rs) - Rating: {:?}, Stability: {:.2}, Difficulty: {:.2}",
+                rating, memory.stability, memory.difficulty
             ),
         })
     }

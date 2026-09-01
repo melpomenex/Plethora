@@ -10,6 +10,24 @@ import type { ArenaModelId, SchedulerId } from "./schedulerIdentity";
 import { getRatingSchema, type RatingSchema } from "./rating-grades";
 
 export type { ArenaModelId, SchedulerId } from "./schedulerIdentity";
+export {
+  isProductionScheduler,
+  normalizeToProductionScheduler,
+  PRODUCTION_SCHEDULER_ID,
+} from "./schedulerIdentity";
+
+export type SchedulerLifecycle = "production" | "legacy";
+
+/** User-visible lifecycle status for each canonical scheduler id. */
+export const SCHEDULER_LIFECYCLE: Record<SchedulerId, SchedulerLifecycle> = {
+  fsrs: "production",
+  adaptive: "legacy",
+  precision: "legacy",
+  classic: "legacy",
+  classic_5: "legacy",
+  classic_8: "legacy",
+  classic_15: "legacy",
+};
 
 export interface SchedulerInfo {
   id: SchedulerId;
@@ -22,8 +40,8 @@ export interface SchedulerInfo {
 export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
   fsrs: {
     id: "fsrs",
-    label: "FSRS-6",
-    shortLabel: "FSRS-6",
+    label: "FSRS-7",
+    shortLabel: "FSRS-7",
     descriptionKey: "learningSettings.fsrsDesc",
     thirdParty: true,
   },
@@ -72,12 +90,7 @@ export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
 };
 
 /** Schedulers offered in the main learning settings selector, in order. */
-export const SELECTABLE_SCHEDULERS: SchedulerInfo[] = [
-  SCHEDULER_CATALOG.fsrs,
-  SCHEDULER_CATALOG.adaptive,
-  SCHEDULER_CATALOG.precision,
-  SCHEDULER_CATALOG.classic,
-];
+export const SELECTABLE_SCHEDULERS: SchedulerInfo[] = [SCHEDULER_CATALOG.fsrs];
 
 /** Legacy selectors expose the full historical id set. */
 export const LEGACY_SELECTABLE_SCHEDULERS: SchedulerInfo[] = [

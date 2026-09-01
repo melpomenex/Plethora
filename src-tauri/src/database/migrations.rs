@@ -4002,6 +4002,32 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE transcription_queue ADD COLUMN transcription_mode TEXT NOT NULL DEFAULT 'auto';
         "#,
     ),
+    // Migration 115: FSRS-7 dual-trace memory state and migration bookkeeping.
+    Migration::new(
+        "115_fsrs7_memory_state_and_migration",
+        r#"
+        ALTER TABLE learning_items ADD COLUMN memory_state_stability_fast REAL;
+        ALTER TABLE learning_items ADD COLUMN fsrs_implementation_version TEXT;
+        ALTER TABLE learning_items ADD COLUMN legacy_algorithm_type TEXT;
+        ALTER TABLE learning_items ADD COLUMN legacy_algorithm_state TEXT;
+
+        CREATE TABLE IF NOT EXISTS fsrs7_migration_runs (
+            id TEXT PRIMARY KEY,
+            started_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            status TEXT NOT NULL,
+            items_total INTEGER NOT NULL DEFAULT 0,
+            items_migrated INTEGER NOT NULL DEFAULT 0,
+            last_item_id TEXT,
+            error_message TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_fsrs7_migration_runs_status
+            ON fsrs7_migration_runs(status, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_fsrs7_version
+            ON learning_items(fsrs_implementation_version)
+            WHERE fsrs_implementation_version IS NOT NULL;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

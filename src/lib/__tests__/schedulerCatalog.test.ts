@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ARENA_MODEL_LABEL_ORDER,
   ARENA_MODEL_LABELS,
+  PRODUCTION_SCHEDULER_ID,
   SCHEDULER_CATALOG,
+  SCHEDULER_LIFECYCLE,
   SELECTABLE_SCHEDULERS,
+  isProductionScheduler,
+  normalizeToProductionScheduler,
   schedulerDescriptionKey,
   schedulerLabel,
   schedulerShortLabel,
@@ -28,7 +32,7 @@ describe("schedulerCatalog", () => {
   });
 
   it("keeps FSRS under its own third-party name", () => {
-    expect(schedulerLabel("fsrs")).toBe("FSRS-6");
+    expect(schedulerLabel("fsrs")).toBe("FSRS-7");
     expect(SCHEDULER_CATALOG.fsrs.thirdParty).toBe(true);
     expect(SCHEDULER_CATALOG.precision.thirdParty).toBe(false);
   });
@@ -56,8 +60,25 @@ describe("schedulerCatalog", () => {
     expect(schedulerShortLabel("precision")).toBe("Precision");
   });
 
-  it("offers the main selector set (fsrs/adaptive/precision/classic)", () => {
-    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual(["fsrs", "adaptive", "precision", "classic"]);
+  it("offers only FSRS-7 in the main selector", () => {
+    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual(["fsrs"]);
+    expect(schedulerLabel("fsrs")).toBe("FSRS-7");
+  });
+
+  it("marks FSRS as production and legacy schedulers as legacy", () => {
+    expect(SCHEDULER_LIFECYCLE.fsrs).toBe("production");
+    expect(SCHEDULER_LIFECYCLE.adaptive).toBe("legacy");
+    expect(SCHEDULER_LIFECYCLE.precision).toBe("legacy");
+    expect(SCHEDULER_LIFECYCLE.classic).toBe("legacy");
+    expect(isProductionScheduler("fsrs")).toBe(true);
+    expect(isProductionScheduler("precision")).toBe(false);
+    expect(PRODUCTION_SCHEDULER_ID).toBe("fsrs");
+  });
+
+  it("normalizes any scheduler id to production FSRS", () => {
+    expect(normalizeToProductionScheduler("precision")).toBe("fsrs");
+    expect(normalizeToProductionScheduler("sm20")).toBe("fsrs");
+    expect(normalizeToProductionScheduler(undefined)).toBe("fsrs");
   });
 
   it("keeps rating semantics tied to ids, not labels", () => {

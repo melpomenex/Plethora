@@ -207,7 +207,7 @@ readable-readability = "0.4"
 html2text = "0.13"
 
 # Spaced Repetition
-fsrs = "5.2"
+fsrs = { path = "../vendor/fsrs-rs-fsrs7" }
 
 # Environment variables
 dotenvy = "0.15"

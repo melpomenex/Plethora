@@ -1,28 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
-import {
-  getArenaOptimizationStatus,
-  optimizeAlgorithmParams,
-  type ArenaOptimizationStatus,
-} from "../../api/algorithm";
-import {
-  getArenaStats,
-  optimizeArenaFsrs,
-  optimizePrecisionKernel,
-  type ArenaStats,
-} from "../../api/review";
+import { optimizeAlgorithmParams } from "../../api/algorithm";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
-import {
-  ARENA_MODEL_LABELS,
-  SELECTABLE_SCHEDULERS,
-  schedulerDescriptionKey,
-  schedulerLabel,
-} from "../../lib/schedulerCatalog";
-import { isPrecisionScheduler } from "../../lib/schedulerIdentity";
+import { schedulerDescriptionKey, schedulerLabel } from "../../lib/schedulerCatalog";
 import { NumericInput } from "../common";
-import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { Sparkle } from "@phosphor-icons/react";
 
@@ -34,23 +17,6 @@ export function LearningSettings() {
   const [newScopeId, setNewScopeId] = useState("");
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizerMessage, setOptimizerMessage] = useState<string | null>(null);
-  const [arenaOptStatus, setArenaOptStatus] = useState<ArenaOptimizationStatus | null>(null);
-  const [arenaStats, setArenaStats] = useState<ArenaStats | null>(null);
-  const [sm20OptRunning, setSm20OptRunning] = useState<"fsrs" | "m4" | null>(null);
-  const [sm20OptMessage, setSm20OptMessage] = useState<string | null>(null);
-
-  const refreshArena = () =>
-    getArenaStats()
-      .then(setArenaStats)
-      .catch(() => setArenaStats(null));
-
-  useEffect(() => {
-    if (!isPrecisionScheduler(settings.learning.algorithm)) return;
-    void getArenaOptimizationStatus()
-      .then(setArenaOptStatus)
-      .catch(() => setArenaOptStatus(null));
-    void refreshArena();
-  }, [settings.learning.algorithm]);
 
   const scopedOverrides = settings.learning.scopedFsrsOverrides ?? [];
 
@@ -69,173 +35,28 @@ export function LearningSettings() {
         </div>
       </div>
 
-      {/* Algorithm Selection */}
+      {/* Algorithm */}
       <div>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.algorithm")}</h3>
         <div className="space-y-4">
-          <div>
-            <label htmlFor="algorithm-select" className="block text-sm font-medium text-foreground mb-2">
+          <div
+            {...tourAnchor("reviewAlgorithmSetting")}
+            className="rounded-lg border border-border bg-muted/30 px-4 py-3"
+          >
+            <div className="text-sm font-medium text-foreground">
               Spaced Repetition Algorithm
-            </label>
-            <select
-              id="algorithm-select"
-              value={settings.learning.algorithm}
-              onChange={(e) =>
-                updateSettings({
-                  learning: { ...settings.learning, algorithm: e.target.value as any },
-                })
-              }
-              {...tourAnchor("reviewAlgorithmSetting")}
-              className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
-            >
-              {SELECTABLE_SCHEDULERS.map((scheduler) => (
-                <option key={scheduler.id} value={scheduler.id}>
-                  {scheduler.id === "fsrs" ? `${scheduler.label} (Recommended)` : scheduler.label}
-                </option>
-              ))}
-            </select>
+            </div>
+            <div className="mt-1 text-base font-semibold text-foreground">
+              {schedulerLabel("fsrs")}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {t(schedulerDescriptionKey(settings.learning.algorithm))}
+              {t(schedulerDescriptionKey("fsrs"))}
             </p>
           </div>
 
-          {isPrecisionScheduler(settings.learning.algorithm) && (
-            <div className="border border-border rounded-lg p-4 space-y-3">
-              <div>
-                <h4 className="font-medium text-foreground">Algorithm Arena</h4>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Plethora Precision runs five scheduling models in parallel — Plethora
-                  Classic, Classic 15, Classic 19, Plethora Precision and FSRS — and
-                  shifts weight toward whichever predicts your recall best. The Classic
-                  baselines learn automatically on every review; Precision and FSRS can
-                  additionally be fitted to your review history below.
-                </p>
-              </div>
-
-              {!settings.learning.precisionPureKernel && <AlgorithmArenaModeControl />}
-
-              <div className="border-t border-border pt-3">
-                <SettingToggle
-                  label={`Pure ${schedulerLabel("precision")} Mode (M4 kernel only)`}
-                  description="Bypasses the Algorithm Arena blend to schedule with the pure Precision M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
-                  checked={settings.learning.precisionPureKernel}
-                  onChange={(checked) =>
-                    updateSettings({
-                      learning: { ...settings.learning, precisionPureKernel: checked },
-                    })
-                  }
-                />
-              </div>
-
-              {arenaStats && Array.isArray(arenaStats.model_names) && arenaStats.model_names.length > 0 && (
-                <div className="space-y-1">
-                  {settings.learning.precisionPureKernel && (
-                    <div className="text-xs font-semibold text-amber-500 mb-1">
-                      Running in Pure M4 Mode (Arena blend weights below are not used for scheduling)
-                    </div>
-                  )}
-                  <div className="grid grid-cols-5 gap-1 text-center text-xs">
-                    {arenaStats.model_names.map((name, i) => (
-                      <div key={name} className="bg-muted/50 rounded-md py-1.5">
-                        <div className="text-muted-foreground">
-                          {name}
-                          {                          (name === ARENA_MODEL_LABELS.m5 && arenaStats.fsrs_optimized) ||
-                          (name === ARENA_MODEL_LABELS.m4 && arenaStats.m4_optimized)
-                            ? " ★"
-                            : ""}
-                        </div>
-                        <div className="font-semibold text-foreground">
-                          {arenaStats.weights[i]?.toFixed(1)}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {arenaStats.r_metric != null
-                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs ${ARENA_MODEL_LABELS.m3} alone · ${arenaStats.total_scored} scored reviews`
-                      : `Weights adapt as reviews accumulate (${arenaStats.total_scored} scored so far; ★ = personalized parameters active).`}
-                  </div>
-                </div>
-              )}
-
-              <div className="text-xs text-muted-foreground">
-                {ARENA_MODEL_LABELS.m2} optimizer: {arenaOptStatus?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
-                {arenaOptStatus?.m3_matrix_cells_populated != null
-                  ? ` · ${ARENA_MODEL_LABELS.m3} matrix cells: ${arenaOptStatus.m3_matrix_cells_populated}/${arenaOptStatus.m3_matrix_total_cells ?? 9261}`
-                  : ""}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={async () => {
-                    try {
-                      setSm20OptRunning("fsrs");
-                      setSm20OptMessage(null);
-                      const result = await optimizeArenaFsrs();
-                      setSm20OptMessage(result.message);
-                      await refreshArena();
-                    } catch (error) {
-                      setSm20OptMessage(error instanceof Error ? error.message : "FSRS optimization failed");
-                    } finally {
-                      setSm20OptRunning(null);
-                    }
-                  }}
-                  disabled={sm20OptRunning !== null}
-                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-                >
-                  {sm20OptRunning === "fsrs" ? "Optimizing FSRS…" : "Optimize FSRS competitor"}
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      setSm20OptRunning("m4");
-                      setSm20OptMessage(null);
-                      const result = await optimizePrecisionKernel();
-                      setSm20OptMessage(result.message);
-                      await refreshArena();
-                    } catch (error) {
-                      setSm20OptMessage(error instanceof Error ? error.message : `${schedulerLabel("precision")} optimization failed`);
-                    } finally {
-                      setSm20OptRunning(null);
-                    }
-                  }}
-                  disabled={sm20OptRunning !== null}
-                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-                >
-                  {sm20OptRunning === "m4" ? `Optimizing ${schedulerLabel("precision")}…` : `Optimize ${schedulerLabel("precision")} parameters`}
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      setIsOptimizing(true);
-                      const status = await getArenaOptimizationStatus();
-                      setArenaOptStatus(status);
-                      await refreshArena();
-                    } catch {
-                      // ignore refresh errors
-                    } finally {
-                      setIsOptimizing(false);
-                    }
-                  }}
-                  disabled={isOptimizing}
-                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-                >
-                  {isOptimizing ? "Refreshing…" : "Refresh"}
-                </button>
-              </div>
-              {sm20OptMessage && (
-                <p className="text-xs text-muted-foreground">{sm20OptMessage}</p>
-              )}
-              {optimizerMessage && (
-                <p className="text-xs text-muted-foreground">{optimizerMessage}</p>
-              )}
-            </div>
-          )}
-
-          {(settings.learning.algorithm === "fsrs" || settings.learning.algorithm === "adaptive") && (
           <div>
             <label htmlFor="fsrs-retention" className="block text-sm font-medium text-foreground mb-2">
-              {settings.learning.algorithm === "adaptive" ? "Forgetting Index" : "Desired Retention"}: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
+              Desired Retention: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
             </label>
             <input
               type="range"
@@ -257,62 +78,56 @@ export function LearningSettings() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              {settings.learning.algorithm === "adaptive"
-                ? "Lower = more frequent reviews (default 90%)"
-                : "Higher retention = more frequent reviews"}
+              Higher retention = more frequent reviews
             </p>
-            {settings.learning.algorithm === "fsrs" && (
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  onClick={async () => {
-                    try {
-                      setIsOptimizing(true);
-                      setOptimizerMessage(null);
-                      const result = await optimizeAlgorithmParams({
-                        min_ease_factor: 1.3,
-                        initial_ease_factor: 2.5,
-                        desired_retention: settings.learning.fsrsParams.desiredRetention,
-                      });
-                      updateSettings({
-                        learning: {
-                          ...settings.learning,
-                          fsrsParams: {
-                            ...settings.learning.fsrsParams,
-                            personalizedWeights: result.fsrs_weights,
-                            lastOptimizationAt: new Date().toISOString(),
-                            optimizedReviewCount: result.history_count,
-                          },
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    setIsOptimizing(true);
+                    setOptimizerMessage(null);
+                    const result = await optimizeAlgorithmParams({
+                      min_ease_factor: 1.3,
+                      initial_ease_factor: 2.5,
+                      desired_retention: settings.learning.fsrsParams.desiredRetention,
+                    });
+                    updateSettings({
+                      learning: {
+                        ...settings.learning,
+                        fsrsParams: {
+                          ...settings.learning.fsrsParams,
+                          personalizedWeights: result.fsrs_weights,
+                          lastOptimizationAt: new Date().toISOString(),
+                          optimizedReviewCount: result.history_count,
                         },
-                      });
-                      const quality = result.history_count >= result.minimum_history_required
-                        ? "Personalized weights applied."
-                        : "Applied provisional weights (limited history).";
-                      setOptimizerMessage(
-                        `${quality} Reviews used: ${result.history_count}/${result.minimum_history_required}.`
-                      );
-                    } catch (error) {
-                      setOptimizerMessage(error instanceof Error ? error.message : "Failed to run optimizer");
-                    } finally {
-                      setIsOptimizing(false);
-                    }
-                  }}
-                  disabled={isOptimizing}
-                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-                >
-                  {isOptimizing ? "Optimizing..." : "Run Personal FSRS Optimizer"}
-                </button>
-                {settings.learning.fsrsParams.personalizedWeights?.length === CANONICAL_FSRS_PARAMETER_LENGTH && (
-                  <span className="text-xs text-green-500">FSRS-6 profile active (21 params)</span>
-                )}
-              </div>
-            )}
+                      },
+                    });
+                    const quality = result.history_count >= result.minimum_history_required
+                      ? "Personalized weights applied."
+                      : "Applied provisional weights (limited history).";
+                    setOptimizerMessage(
+                      `${quality} Reviews used: ${result.history_count}/${result.minimum_history_required}.`
+                    );
+                  } catch (error) {
+                    setOptimizerMessage(error instanceof Error ? error.message : "Failed to run optimizer");
+                  } finally {
+                    setIsOptimizing(false);
+                  }
+                }}
+                disabled={isOptimizing}
+                className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+              >
+                {isOptimizing ? "Optimizing..." : "Run Personal FSRS Optimizer"}
+              </button>
+              {settings.learning.fsrsParams.personalizedWeights?.length === CANONICAL_FSRS_PARAMETER_LENGTH && (
+                <span className="text-xs text-green-500">FSRS-7 profile active (34 params)</span>
+              )}
+            </div>
             {optimizerMessage && (
               <p className="mt-2 text-xs text-muted-foreground">{optimizerMessage}</p>
             )}
           </div>
-          )}
 
-          {settings.learning.algorithm === "fsrs" && (
           <div className="border border-border rounded-lg p-4 space-y-3">
             <div>
               <h4 className="font-medium text-foreground">{t("learningSettings.scopedOverrides")}</h4>
@@ -455,7 +270,6 @@ export function LearningSettings() {
               ))}
             </div>
           </div>
-          )}
         </div>
       </div>
 

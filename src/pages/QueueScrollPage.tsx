@@ -3276,8 +3276,6 @@ export function QueueScrollPage() {
         // Adaptive/Precision natively via `grade`).
         await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
           algorithm: settings.learning.algorithm,
-          precisionPureKernel: settings.learning.precisionPureKernel,
-          grade,
         });
 
         // Track items reviewed

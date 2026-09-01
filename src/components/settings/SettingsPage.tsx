@@ -109,6 +109,9 @@ const HandbookSettings = lazySection("HandbookSettings", () =>
 const HelpSettings = lazySection("HelpSettings", () =>
   import("./HelpSettings").then((m) => ({ default: m.HelpSettings }))
 );
+const ThirdPartyNoticesPanel = lazySection("ThirdPartyNoticesPanel", () =>
+  import("./ThirdPartyNoticesPanel").then((m) => ({ default: m.ThirdPartyNoticesPanel }))
+);
 const NotificationSettings = lazySection("NotificationSettings", () =>
   import("./NotificationSettings").then((m) => ({ default: m.NotificationSettings }))
 );
@@ -1128,6 +1131,12 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
             className="w-full sm:w-24 px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
           />
         </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title={t("settings.about")} description={t("settings.openSourceNoticesDesc")}>
+        <Suspense fallback={null}>
+          <ThirdPartyNoticesPanel />
+        </Suspense>
       </SettingsSection>
     </>
   );

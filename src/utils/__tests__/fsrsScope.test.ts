@@ -111,6 +111,6 @@ describe("resolveFsrsParamsForScope", () => {
       tags: ["bio"],
     });
     expect(resolved.personalizedWeights?.[0]).toBe(0.5);
-    expect(resolved.personalizedWeights).toHaveLength(21);
+    expect(resolved.personalizedWeights).toHaveLength(34);
   });
 });

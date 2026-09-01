@@ -246,14 +246,31 @@ impl Repository {
     fn parse_memory_state(
         stability: Option<f64>,
         difficulty: Option<f64>,
+        stability_fast: Option<f64>,
     ) -> Option<crate::models::MemoryState> {
         match (stability, difficulty) {
             (Some(s), Some(d)) => Some(crate::models::MemoryState {
                 stability: s,
                 difficulty: d,
+                stability_fast,
             }),
             _ => None,
         }
+    }
+
+    fn memory_state_columns(
+        memory_state: &Option<crate::models::MemoryState>,
+    ) -> (Option<f64>, Option<f64>, Option<f64>) {
+        memory_state
+            .as_ref()
+            .map(|s| {
+                (
+                    Some(s.stability),
+                    Some(s.difficulty),
+                    s.stability_fast,
+                )
+            })
+            .unwrap_or((None, None, None))
     }
 
     /// Decode one `learning_items` row into a `LearningItem`. Centralized so the
@@ -276,7 +293,8 @@ impl Repository {
 
         let stability: Option<f64> = row.try_get("memory_state_stability").ok();
         let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-        let memory_state = Self::parse_memory_state(stability, difficulty);
+        let stability_fast: Option<f64> = row.try_get("memory_state_stability_fast").ok();
+        let memory_state = Self::parse_memory_state(stability, difficulty, stability_fast);
 
         let algorithm_type: String = row
             .try_get("algorithm_type")
@@ -392,6 +410,7 @@ impl Repository {
         let memory_state = Self::parse_memory_state(
             row.try_get("memory_state_stability").ok().flatten(),
             row.try_get("memory_state_difficulty").ok().flatten(),
+            None,
         );
         let selection_context = row
             .try_get::<Option<String>, _>("selection_context")
@@ -2296,7 +2315,7 @@ impl Repository {
 
             let stability: Option<f64> = row.try_get("memory_state_stability").ok();
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-            let memory_state = Self::parse_memory_state(stability, difficulty);
+            let memory_state = Self::parse_memory_state(stability, difficulty, None);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
             let selection_context =
                 selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
@@ -2356,7 +2375,7 @@ impl Repository {
 
             let stability: Option<f64> = row.try_get("memory_state_stability").ok();
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-            let memory_state = Self::parse_memory_state(stability, difficulty);
+            let memory_state = Self::parse_memory_state(stability, difficulty, None);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
             let selection_context =
                 selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
@@ -2555,7 +2574,7 @@ impl Repository {
 
             let stability: Option<f64> = row.try_get("memory_state_stability").ok();
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-            let memory_state = Self::parse_memory_state(stability, difficulty);
+            let memory_state = Self::parse_memory_state(stability, difficulty, None);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
             let selection_context =
                 selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
@@ -2616,7 +2635,7 @@ impl Repository {
 
             let stability: Option<f64> = row.try_get("memory_state_stability").ok();
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
-            let memory_state = Self::parse_memory_state(stability, difficulty);
+            let memory_state = Self::parse_memory_state(stability, difficulty, None);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
             let selection_context =
                 selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
@@ -3240,11 +3259,7 @@ impl Repository {
             .map(serde_json::to_string)
             .transpose()?;
 
-        let (stability, difficulty) = item
-            .memory_state
-            .as_ref()
-            .map(|s| (Some(s.stability), Some(s.difficulty)))
-            .unwrap_or((None, None));
+        let (stability, difficulty, stability_fast) = Self::memory_state_columns(&item.memory_state);
 
         let base_revision = learning_item_revision(item.updated_at.as_deref());
         let item_payload = payload::learning_item_payload(item)
@@ -3259,10 +3274,11 @@ impl Repository {
                 state = ?4, review_count = ?5, lapses = ?6,
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
+                memory_state_stability_fast = ?11,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
                 updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17,
                 first_reviewed_at = COALESCE(first_reviewed_at, ?18)
-            WHERE id = ?11
+            WHERE id = ?19
             "#,
         )
         .bind(item.due_date)
@@ -3275,6 +3291,7 @@ impl Repository {
         .bind(item.date_modified)
         .bind(stability)
         .bind(difficulty)
+        .bind(stability_fast)
         .bind(&item.id)
         .bind(&interaction_metadata_json)
         .bind(&item.algorithm_type)
@@ -3958,11 +3975,7 @@ impl Repository {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
-        let (stability, difficulty) = item
-            .memory_state
-            .as_ref()
-            .map(|s| (Some(s.stability), Some(s.difficulty)))
-            .unwrap_or((None, None));
+        let (stability, difficulty, stability_fast) = Self::memory_state_columns(&item.memory_state);
         let reviewed_at_ms = reviewed_at.timestamp_millis();
 
         let mut tx = self.pool.begin().await?;
@@ -4003,10 +4016,11 @@ impl Repository {
                 state = ?4, review_count = ?5, lapses = ?6,
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
+                memory_state_stability_fast = ?11,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
                 updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17,
                 first_reviewed_at = COALESCE(first_reviewed_at, ?18)
-            WHERE id = ?11
+            WHERE id = ?19
             "#,
         )
         .bind(item.due_date)
@@ -4019,6 +4033,7 @@ impl Repository {
         .bind(item.date_modified)
         .bind(stability)
         .bind(difficulty)
+        .bind(stability_fast)
         .bind(&item.id)
         .bind(&interaction_metadata_json)
         .bind(&item.algorithm_type)
@@ -4482,11 +4497,8 @@ impl Repository {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
-        let (stability, memory_difficulty) = item
-            .memory_state
-            .as_ref()
-            .map(|state| (Some(state.stability), Some(state.difficulty)))
-            .unwrap_or((None, None));
+        let (stability, memory_difficulty, stability_fast) =
+            Self::memory_state_columns(&item.memory_state);
         sqlx::query(
             r#"
             UPDATE learning_items SET
@@ -4494,9 +4506,10 @@ impl Repository {
                 state = ?4, review_count = ?5, lapses = ?6,
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
+                memory_state_stability_fast = ?11,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
                 updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17
-            WHERE id = ?11
+            WHERE id = ?18
             "#,
         )
         .bind(item.due_date)
@@ -4509,13 +4522,14 @@ impl Repository {
         .bind(item.date_modified)
         .bind(stability)
         .bind(memory_difficulty)
-        .bind(&item.id)
+        .bind(stability_fast)
         .bind(&interaction_metadata_json)
         .bind(&item.algorithm_type)
         .bind(&item.algorithm_state)
         .bind(&item.updated_at)
         .bind(&tags_json)
         .bind(item.difficulty)
+        .bind(&item.id)
         .execute(&mut *tx)
         .await?;
 

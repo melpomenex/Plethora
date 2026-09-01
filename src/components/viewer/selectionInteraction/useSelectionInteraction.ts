@@ -49,6 +49,7 @@ import {
   attachContentDocumentBridge,
   attachTopDocumentAdapter,
   isSelectionInContent,
+  selectParagraphElement,
   type ContentDocumentEntry,
   type SelectionAdapterHandlers,
 } from "./adapters";
@@ -168,6 +169,8 @@ export function useSelectionInteraction(
     origin: "keyboard",
     at: 0,
   });
+  /** Paragraph element from the most recent double-tap/double-click commit. */
+  const paragraphGestureRef = useRef<HTMLElement | null>(null);
 
   // ── React-visible mirror: updated ONLY on observable changes ─────────────
   const [mirror, setMirror] = useState(() => ({
@@ -335,6 +338,16 @@ export function useSelectionInteraction(
     [],
   );
 
+  const restoreParagraphGestureSelection = useCallback((): void => {
+    const paragraph = paragraphGestureRef.current;
+    if (!paragraph?.isConnected) return;
+    selectParagraphElement(paragraph, paragraph.ownerDocument);
+  }, []);
+
+  const clearParagraphGesture = useCallback(() => {
+    paragraphGestureRef.current = null;
+  }, []);
+
   const commitParagraphGestureRef = useRef<
     (paragraph: HTMLElement, origin: GestureOrigin) => void
   >(() => {});
@@ -354,11 +367,16 @@ export function useSelectionInteraction(
     }
     const ready = buildReadySelectionFromParagraph(paragraph, origin, entry);
     if (!ready) {
+      clearParagraphGesture();
       armSettleTimerRef.current(true);
       return;
     }
+    paragraphGestureRef.current = paragraph;
     apply({ type: "commitReady", selection: ready });
     setPlacement(computePlacement(ready.geometry));
+    // Re-apply after commit: Android/WebKit often collapses the native
+    // selection to a single character right after double-tap.
+    selectParagraphElement(paragraph, doc);
   };
 
   /** Timer body: confirm stability, or defer while a finger is still down. */
@@ -444,6 +462,7 @@ export function useSelectionInteraction(
           lastGestureRef.current.at,
         )
       ) {
+        restoreParagraphGestureSelection();
         return;
       }
       // Anchored to a dead geometry: dismiss rather than misposition.
@@ -451,7 +470,7 @@ export function useSelectionInteraction(
       return;
     }
     setPlacement(computePlacement(captureSelectionGeometry(live.range, live.offset)));
-  }, [apply, computePlacement, isDoubleTapNativeFallout, readLiveSelection]);
+  }, [apply, computePlacement, isDoubleTapNativeFallout, readLiveSelection, restoreParagraphGestureSelection]);
 
   const scheduleRevalidate = useCallback(() => {
     if (rafRef.current !== null) return;
@@ -483,20 +502,22 @@ export function useSelectionInteraction(
       onSelectionChanged: () => {
         const state = machineRef.current;
         const live = readLiveSelection();
-        if (
-          state.phase === "ready" &&
-          state.readySelection &&
-          (state.readySelection.gestureOrigin === "double-tap" ||
-            state.readySelection.gestureOrigin === "double-click") &&
-          live
-        ) {
+        if (state.phase === "ready" && state.readySelection && live) {
+          if (live.fingerprint === state.readySelection.fingerprint) {
+            // Programmatic paragraph restore (or an unchanged native range):
+            // keep READY — a matching selectionchange must not demote.
+            return;
+          }
           if (
+            (state.readySelection.gestureOrigin === "double-tap" ||
+              state.readySelection.gestureOrigin === "double-click") &&
             isDoubleTapNativeFallout(
               state.readySelection.text,
               live.text,
               lastGestureRef.current.at,
             )
           ) {
+            restoreParagraphGestureSelection();
             return;
           }
         }
@@ -619,19 +640,21 @@ export function useSelectionInteraction(
     (reason: ContextInvalidationReason) => {
       clearStableTimer();
       liveContextRef.current = null;
+      clearParagraphGesture();
       setPlacement(null);
       apply({ type: "contextInvalidated", reason });
       optionsRef.current.onInvalidate?.(reason);
     },
-    [apply, clearStableTimer],
+    [apply, clearParagraphGesture, clearStableTimer],
   );
 
   const dismiss = useCallback(
     (dismissOptions?: { suppressCurrentText?: boolean }) => {
+      clearParagraphGesture();
       setPlacement(null);
       apply({ type: "dismiss", suppressCurrentText: dismissOptions?.suppressCurrentText });
     },
-    [apply],
+    [apply, clearParagraphGesture],
   );
 
   const commitReadySelection = useCallback(
@@ -678,6 +701,12 @@ export function useSelectionInteraction(
       }
       const text = base?.text?.trim();
       if (!base || !text) return null;
+      if (
+        base.gestureOrigin === "double-tap" ||
+        base.gestureOrigin === "double-click"
+      ) {
+        restoreParagraphGestureSelection();
+      }
       const snapshot: CapturedSelection = {
         operationId: generateId(),
         text,
@@ -693,7 +722,7 @@ export function useSelectionInteraction(
       apply({ type: "actionInvoked", snapshot });
       return snapshot;
     },
-    [apply, buildReadySelection, readLiveSelection],
+    [apply, buildReadySelection, readLiveSelection, restoreParagraphGestureSelection],
   );
 
   const notifyActionSettled = useCallback(

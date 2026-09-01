@@ -16,6 +16,7 @@ pub mod adaptive;
 pub mod adaptive_data;
 pub mod classic;
 pub mod document_scheduler;
+pub mod fsrs7;
 pub mod engaging_scheduler;
 pub mod incremental_scheduler;
 pub mod neural_queue;

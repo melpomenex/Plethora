@@ -273,6 +273,10 @@ export const de: Dict = {
   "settings.aboutDesc":
     "Plethora ist dein Begleiter für inkrementelles Lesen und verteilte Wiederholung.",
   "settings.github": "GitHub",
+  "settings.openSourceNotices": "Open-Source-Hinweise",
+  "settings.openSourceNoticesDesc": "Drittanbieter-Komponenten in Plethora und ihre Lizenzen.",
+  "settings.noticeLicense": "Lizenz",
+  "settings.noticeCopyright": "Urheberrecht",
   "settings.documentation": "Dokumentation",
   "settings.discord": "Discord",
   "settings.resetToDefault": "Auf Standard zurücksetzen",
@@ -1700,7 +1704,7 @@ export const de: Dict = {
   "learningSettings.easyIntervalDesc":
     'Intervall, wenn "Leicht" bei einer neuen Karte gedrückt wird',
   "learningSettings.fsrsDesc":
-    "Free Spaced Repetition Scheduler – optimale behaltensbasierte Zeitplanung",
+    "FSRS-7 – Dual-Trace-Spaced-Repetition mit gebrochenen Tagesintervallen",
   "learningSettings.graduatedInterval": "Absolviertes Intervall",
   "learningSettings.graduatingDesc":
     "Intervall, bei dem eine Karte vom Lernen in die Wiederholung wechselt",

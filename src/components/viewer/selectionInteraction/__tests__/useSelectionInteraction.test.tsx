@@ -569,8 +569,10 @@ describe("useSelectionInteraction", () => {
 
     expect(result.current.phase).toBe("ready");
     expect(result.current.readySelection?.text).toBe(para.textContent?.trim());
+    expect(window.getSelection()?.toString().trim()).toBe(para.textContent?.trim());
 
     const captured = result.current.captureForAction();
     expect(captured?.text).toBe(para.textContent?.trim());
+    expect(window.getSelection()?.toString().trim()).toBe(para.textContent?.trim());
   });
 });

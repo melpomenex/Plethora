@@ -5,11 +5,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-/// FSRS Memory State (stability and difficulty)
+/// FSRS Memory State (stability, difficulty, and FSRS-7 fast stability)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryState {
     pub stability: f64,
     pub difficulty: f64,
+    /// FSRS-7 fast stability track. `None` on legacy rows until the next review.
+    #[serde(default)]
+    pub stability_fast: Option<f64>,
+}
+
+impl MemoryState {
+    pub fn new(stability: f64, difficulty: f64) -> Self {
+        Self {
+            stability,
+            difficulty,
+            stability_fast: None,
+        }
+    }
 }
 
 /// Rating for a review

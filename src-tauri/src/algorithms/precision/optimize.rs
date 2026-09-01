@@ -270,11 +270,11 @@ pub fn build_fsrs_items(items: &[RevlogItem]) -> Vec<fsrs::FSRSItem> {
             .iter()
             .map(|&(elapsed, grade)| fsrs::FSRSReview {
                 rating: grade_to_fsrs_rating(grade),
-                delta_t: elapsed.round().max(0.0) as u32,
+                delta_t: elapsed.round().max(0.0) as f32,
             })
             .collect();
         for i in 1..reviews.len() {
-            if reviews[i].delta_t > 0 {
+            if reviews[i].delta_t > 0.0 {
                 out.push(fsrs::FSRSItem {
                     reviews: reviews[..=i].to_vec(),
                 });
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(built.len(), 2);
         assert_eq!(built[0].reviews.len(), 3);
         assert_eq!(built[1].reviews.len(), 4);
-        assert_eq!(built[0].reviews[0].delta_t, 0);
+        assert_eq!(built[0].reviews[0].delta_t, 0.0);
         assert_eq!(built[0].reviews[2].rating, 3); // grade 4 → Good
         assert_eq!(built[1].reviews[3].rating, 4); // grade 5 → Easy
     }

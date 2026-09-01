@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { APP_VERSION } from "../utils/constants";
-import { LEGACY_SELECTABLE_SCHEDULERS } from "../lib/schedulerCatalog";
+import { ThirdPartyNoticesPanel } from "../components/settings/ThirdPartyNoticesPanel";
+import { schedulerLabel } from "../lib/schedulerCatalog";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useCollectionStore } from "../stores/collectionStore";
 import { UserProfilePanel } from "../components/settings/UserProfilePanel";
@@ -240,17 +241,9 @@ function GeneralSettings() {
                   {t("settings.algorithmDesc")}
                 </div>
               </div>
-              <select
-                value={settings.learning.algorithm}
-                onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as typeof settings.learning.algorithm } })}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm"
-              >
-                {LEGACY_SELECTABLE_SCHEDULERS.map((scheduler) => (
-                  <option key={scheduler.id} value={scheduler.id}>
-                    {scheduler.id === "fsrs" ? t("settings.fsrs6Recommended") : scheduler.label}
-                  </option>
-                ))}
-              </select>
+              <div className="px-3 py-1.5 text-sm font-medium text-foreground">
+                {schedulerLabel("fsrs")}
+              </div>
             </div>
             <div className="flex items-center justify-between">
               <div>
@@ -357,6 +350,10 @@ function AboutSettings() {
           >
             {t("settings.github")}
           </a>
+        </div>
+
+        <div className="mt-8 text-left">
+          <ThirdPartyNoticesPanel />
         </div>
       </div>
     </div>

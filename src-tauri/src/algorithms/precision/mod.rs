@@ -319,10 +319,11 @@ fn fsrs_m5(
     elapsed_days: f64,
     grade: i32,
 ) -> Option<(f64, M5Memory)> {
-    let engine = fsrs::FSRS::new(Some(params)).ok()?;
+    let engine = fsrs::FSRS::new(params).ok()?;
     let mem = memory.map(|m| fsrs::MemoryState {
         stability: m.stability as f32,
         difficulty: m.difficulty as f32,
+        stability_fast: 0.0,
     });
     let elapsed = elapsed_days.round().max(0.0) as u32;
     let states = engine.next_states(mem, 0.9, elapsed).ok()?;

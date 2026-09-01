@@ -273,6 +273,10 @@ export const es: Dict = {
   "settings.aboutDesc":
     "Plethora es tu compañero de lectura incremental y aprendizaje con repetición espaciada.",
   "settings.github": "GitHub",
+  "settings.openSourceNotices": "Avisos de código abierto",
+  "settings.openSourceNoticesDesc": "Componentes de terceros incluidos en Plethora y sus licencias.",
+  "settings.noticeLicense": "Licencia",
+  "settings.noticeCopyright": "Copyright",
   "settings.documentation": "Documentación",
   "settings.discord": "Discord",
   "settings.resetToDefault": "Restablecer valores",
@@ -1703,7 +1707,7 @@ export const es: Dict = {
   "learningSettings.easyInterval": "Intervalo fácil (días)",
   "learningSettings.easyIntervalDesc": 'Intervalo cuando se pulsa "Fácil" en una tarjeta nueva',
   "learningSettings.fsrsDesc":
-    "Free Spaced Repetition Scheduler — programación óptima basada en retención",
+    "FSRS-7 — repetición espaciada de doble traza con intervalos fraccionarios",
   "learningSettings.graduatedInterval": "Intervalo de graduación",
   "learningSettings.graduatingDesc": "Intervalo en el que una tarjeta pasa de aprendizaje a repaso",
   "learningSettings.higherRetention": "Mayor retención = repasos más frecuentes",

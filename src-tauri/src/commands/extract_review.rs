@@ -1,9 +1,10 @@
 //! Extract review commands
 
+use crate::algorithms::document_scheduler::DocumentScheduler;
 use crate::database::{ItemActivityRepository, Repository};
 use crate::error::Result;
 use crate::models::item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
-use crate::models::{Extract, ItemType, LearningItem, MemoryState};
+use crate::models::{Extract, ItemType, LearningItem, ReviewRating};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -14,13 +15,7 @@ pub struct ExtractReviewResult {
     pub next_review_date: String,
 }
 
-/// Submit a review for an extract
-/// This schedules the next review using a simplified FSRS-like approach for extracts
-///
-/// `time_taken` is the *active* seconds the user spent on the extract, as
-/// measured by the frontend tracker. It is accumulated into the extract's
-/// cumulative total and recorded as one history row, giving extracts the same
-/// time story documents and flashcards already had.
+/// Submit a review for an extract using FSRS-7 scheduling.
 #[tauri::command]
 pub async fn submit_extract_review(
     extract_id: String,
@@ -33,54 +28,39 @@ pub async fn submit_extract_review(
     })?;
 
     let now = Utc::now();
+    let scheduler = DocumentScheduler::default_params();
 
-    if extract.memory_state.is_none() {
-        extract.memory_state = Some(MemoryState {
-            stability: 0.5,  // Initial stability (in days)
-            difficulty: 5.0, // Initial difficulty
-        });
-    }
+    let elapsed_days = extract
+        .last_review_date
+        .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
+        .unwrap_or_else(|| (now - extract.date_created).num_seconds() as f64 / 86400.0)
+        .max(0.0);
 
-    let mut memory = extract
-        .memory_state
-        .expect("memory_state must be set for review");
+    let current_stability = extract.memory_state.as_ref().map(|ms| ms.stability);
+    let current_difficulty = extract.memory_state.as_ref().map(|ms| ms.difficulty);
+    let current_stability_fast = extract.memory_state.as_ref().and_then(|ms| ms.stability_fast);
 
-    // Simplified FSRS logic for extracts (prioritize reading over precise memory retention)
-    // Extracts are usually "read and processed", not memorized verbatim
-    let new_interval_days = match rating {
-        1 => 1.0, // Again: Review tomorrow
-        2 => {
-            // Hard: maintain or slight increase
-            memory.difficulty = (memory.difficulty + 1.0).min(10.0);
-            (memory.stability * 1.2).max(1.0)
-        }
-        3 => {
-            // Good: standard increase
-            memory.stability = (memory.stability * 2.5).max(1.0);
-            memory.stability
-        }
-        4 => {
-            // Easy: large increase (processed well)
-            memory.stability = (memory.stability * 4.0).max(1.0);
-            memory.difficulty = (memory.difficulty - 1.0).max(1.0);
-            memory.stability
-        }
-        _ => memory.stability,
-    };
+    let result = scheduler.schedule_document_with_fast_stability(
+        ReviewRating::from(rating),
+        current_stability,
+        current_difficulty,
+        current_stability_fast,
+        elapsed_days,
+    )?;
 
-    memory.stability = new_interval_days;
-    let memory_stability = memory.stability;
-    let memory_difficulty = memory.difficulty;
-    extract.memory_state = Some(memory);
+    let new_interval_days = result.interval_days as f64;
 
-    // Calculate new date
-    let next_date = now + Duration::days(new_interval_days as i64);
+    extract.memory_state = Some(crate::models::MemoryState {
+        stability: result.stability,
+        difficulty: result.difficulty,
+        stability_fast: result.stability_fast,
+    });
 
     repo.update_extract_scheduling(
         &extract.id,
-        Some(next_date),
-        Some(memory_stability),
-        Some(memory_difficulty),
+        Some(result.next_review),
+        Some(result.stability),
+        Some(result.difficulty),
         Some(extract.review_count + 1),
         Some(extract.reps + 1),
         Some(now),
@@ -127,7 +107,7 @@ pub async fn submit_extract_review(
     }
 
     // Refresh object to return
-    extract.next_review_date = Some(next_date);
+    extract.next_review_date = Some(result.next_review);
     extract.review_count += 1;
     extract.reps += 1;
     extract.last_review_date = Some(now);

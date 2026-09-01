@@ -20,7 +20,6 @@ import { useI18n } from "../lib/i18n";
 import { requestTutorFollowUp, saveConversationalAssessment } from "../utils/conversationalReview";
 import { addEnergyLog } from "../utils/energyTracker";
 import { getReviewAccessibilityConfig } from "../utils/reviewAccessibility";
-import { usesSixGradeScale } from "../lib/schedulerIdentity";
 
 export function Review() {
   const {
@@ -88,8 +87,7 @@ export function Review() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const settings = useSettingsStore((state) => state.settings);
-  // Precision grades natively on a 0-5 scale — surface it instead of 4 buttons.
-  const useNativeGrades = usesSixGradeScale(settings.learning.algorithm);
+  const useNativeGrades = false;
   const { t } = useI18n();
   const [conversationInput, setConversationInput] = useState("");
   const [conversationResult, setConversationResult] = useState<{ question: string; score: number; feedback: string } | null>(null);

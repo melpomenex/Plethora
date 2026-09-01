@@ -20,7 +20,11 @@ import {
 } from '../lib/demoContent';
 import * as pdfjsLib from 'pdfjs-dist';
 import ePub from 'epubjs';
-import { createEmptyCard, fsrs, Rating, State, type Card, type Grade } from 'ts-fsrs';
+import {
+    nextStatesWithElapsedDays,
+    type Fsrs7MemoryState,
+    type Fsrs7ScheduleOptions,
+} from '../algorithms/fsrs7';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useLLMProvidersStore } from '../stores/llmProvidersStore';
 import { resolveFsrsParamsForScope } from '../utils/fsrsScope';
@@ -218,77 +222,87 @@ function toCamelCase(obj: unknown): unknown {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function getFsrsParameters(context?: { activeDeckId?: string | null; tags?: string[] }) {
-    const settings = useSettingsStore.getState().settings;
+function resolveFsrs7Weights(context?: { activeDeckId?: string | null; tags?: string[] }): number[] {
     const fsrsParams = resolveFsrsParamsForScope({
-        settings,
+        settings: useSettingsStore.getState().settings,
         activeDeckId: context?.activeDeckId,
         tags: context?.tags ?? [],
     });
+    return normalizeFsrsParameters(fsrsParams.personalizedWeights) ?? getDefaultFsrsParameters();
+}
 
-    const params: Record<string, unknown> = {
-        request_retention: fsrsParams.desiredRetention ?? 0.9,
-        maximum_interval: fsrsParams.maximumInterval ?? 36500,
-        enable_fuzz: false,
+function resolveFsrs7ScheduleOptions(context?: {
+    activeDeckId?: string | null;
+    tags?: string[];
+}): Fsrs7ScheduleOptions {
+    const fsrsParams = resolveFsrsParamsForScope({
+        settings: useSettingsStore.getState().settings,
+        activeDeckId: context?.activeDeckId,
+        tags: context?.tags ?? [],
+    });
+    return {
+        desiredRetention: fsrsParams.desiredRetention ?? 0.9,
+        maximumInterval: fsrsParams.maximumInterval ?? 36500,
     };
-    const normalizedWeights = normalizeFsrsParameters(fsrsParams.personalizedWeights);
-    if (normalizedWeights) {
-        params.w = normalizedWeights;
-    }
-    return params;
 }
 
-function createFsrsScheduler(context?: { activeDeckId?: string | null; tags?: string[] }) {
-    return fsrs(getFsrsParameters(context));
-}
+type FsrsRatingKey = 'again' | 'hard' | 'good' | 'easy';
 
-function toFsrsGrade(rating: number): Grade {
+function ratingToFsrsKey(rating: number): FsrsRatingKey {
     switch (rating) {
         case 1:
-            return Rating.Again;
+            return 'again';
         case 2:
-            return Rating.Hard;
+            return 'hard';
         case 3:
-            return Rating.Good;
+            return 'good';
         case 4:
-            return Rating.Easy;
+            return 'easy';
         default:
-            return Rating.Good;
+            return 'good';
     }
 }
 
-function normalizeState(state?: string): State {
-    switch ((state || '').toLowerCase()) {
-        case 'learning':
-            return State.Learning;
-        case 'review':
-            return State.Review;
-        case 'relearning':
-            return State.Relearning;
-        default:
-            return State.New;
+function elapsedDaysSince(lastReview: string | undefined, now: Date): number {
+    if (!lastReview) {
+        return 0;
     }
+    return Math.max(0, (now.getTime() - new Date(lastReview).getTime()) / 86_400_000);
 }
 
-function stateToString(state: State): string {
-    switch (state) {
-        case State.Learning:
-            return 'learning';
-        case State.Review:
-            return 'review';
-        case State.Relearning:
-            return 'relearning';
-        default:
-            return 'new';
+function memoryStateFromValues(
+    stability?: number,
+    difficulty?: number,
+    stabilityFast?: number,
+): Fsrs7MemoryState | null {
+    if (!stability || !difficulty) {
+        return null;
     }
+    return {
+        stability,
+        difficulty,
+        stability_fast: stabilityFast ?? stability * 0.8,
+    };
 }
 
-function intervalFromDue(now: Date, due: Date, scheduledDays?: number): number {
-    const delta = (due.getTime() - now.getTime()) / DAY_MS;
-    if (!Number.isFinite(delta)) {
-        return scheduledDays ?? 0;
-    }
-    return Math.max(0, delta);
+function memoryStateFromLearningItem(item: db.LearningItem): Fsrs7MemoryState | null {
+    return memoryStateFromValues(
+        item.memory_state?.stability,
+        item.memory_state?.difficulty,
+        item.memory_state?.stability_fast,
+    );
+}
+
+function memoryStateFromDocument(doc: db.Document): Fsrs7MemoryState | null {
+    return memoryStateFromValues(doc.stability, doc.difficulty);
+}
+
+function memoryStateFromExtract(extract: db.Extract): Fsrs7MemoryState | null {
+    return memoryStateFromValues(
+        extract.memory_state?.stability,
+        extract.memory_state?.difficulty,
+        extract.memory_state?.stability_fast,
+    );
 }
 
 // Classic algorithm state for browser/PWA
@@ -652,48 +666,6 @@ function getPriorityLabel(prioritySlider?: number): string {
     if (priority >= 41) return 'Normal';
     if (priority >= 21) return 'Low';
     return 'Very Low';
-}
-
-function buildCardFromDocument(doc: db.Document, now: Date): Card {
-    const card = createEmptyCard(now);
-    card.due = doc.next_reading_date ? new Date(doc.next_reading_date) : now;
-    card.last_review = doc.date_last_reviewed ? new Date(doc.date_last_reviewed) : undefined;
-    card.stability = doc.stability ?? 0;
-    card.difficulty = doc.difficulty ?? 0;
-    card.scheduled_days = doc.stability ?? 0;
-    card.reps = doc.reps ?? 0;
-    card.lapses = 0;
-    card.learning_steps = 0;
-    card.state = (doc.reps ?? 0) > 0 || doc.date_last_reviewed ? State.Review : State.New;
-    return card;
-}
-
-function buildCardFromExtract(extract: db.Extract, now: Date): Card {
-    const card = createEmptyCard(now);
-    card.due = extract.next_review_date ? new Date(extract.next_review_date) : now;
-    card.last_review = extract.last_review_date ? new Date(extract.last_review_date) : undefined;
-    card.stability = extract.memory_state?.stability ?? 0;
-    card.difficulty = extract.memory_state?.difficulty ?? 0;
-    card.scheduled_days = extract.memory_state?.stability ?? 0;
-    card.reps = extract.reps ?? extract.review_count ?? 0;
-    card.lapses = 0;
-    card.learning_steps = 0;
-    card.state = (extract.reps ?? extract.review_count ?? 0) > 0 ? State.Review : State.New;
-    return card;
-}
-
-function buildCardFromLearningItem(item: db.LearningItem, now: Date): Card {
-    const card = createEmptyCard(now);
-    card.due = item.due_date ? new Date(item.due_date) : now;
-    card.last_review = item.last_review_date ? new Date(item.last_review_date) : undefined;
-    card.stability = item.memory_state?.stability ?? 0;
-    card.difficulty = item.memory_state?.difficulty ?? 0;
-    card.scheduled_days = item.interval ?? 0;
-    card.reps = item.review_count ?? 0;
-    card.lapses = item.lapses ?? 0;
-    card.learning_steps = 0;
-    card.state = normalizeState(item.state);
-    return card;
 }
 
 type BrowserCardVersionEntry = {
@@ -2695,9 +2667,11 @@ const commandHandlers: Record<string, CommandHandler> = {
             return toCamelCase(item);
         }
 
-        const algorithmType = normalizeSchedulerId(
+        const legacyAlgorithmType = normalizeSchedulerId(
             (args.algorithm as string) || item.algorithm_type || 'fsrs',
         );
+        void legacyAlgorithmType;
+        const algorithmType = 'fsrs';
 
         if (isClassicScheduler(algorithmType)) {
             return toCamelCase(await applySm2ReviewBrowser(item, rating, algorithmType));
@@ -2826,30 +2800,43 @@ const commandHandlers: Record<string, CommandHandler> = {
             return toCamelCase(updated);
         }
 
-        // FSRS-6 (default)
+        // FSRS-7 (production default)
         const now = new Date();
-        const scheduler = createFsrsScheduler({
-            tags: item.tags || [],
-        });
-        const grade = toFsrsGrade(rating);
-        const card = buildCardFromLearningItem(item, now);
-        const next = scheduler.next(card, now, grade);
-        const nextCard = next.card;
-        const nextDue = nextCard.due;
-        const intervalDays = intervalFromDue(now, nextDue, nextCard.scheduled_days);
+        const scheduleContext = { tags: item.tags || [] };
+        const weights = resolveFsrs7Weights(scheduleContext);
+        const scheduleOptions = resolveFsrs7ScheduleOptions(scheduleContext);
+        const elapsedDays = elapsedDaysSince(item.last_review_date, now);
+        const preview = nextStatesWithElapsedDays(
+            weights,
+            memoryStateFromLearningItem(item),
+            elapsedDays,
+            scheduleOptions,
+        );
+        const selected = preview[ratingToFsrsKey(rating)];
+        const intervalDays = selected.interval;
+        const nextDue = new Date(now.getTime() + intervalDays * DAY_MS);
+        const failed = rating === 1;
+        const nextState = failed
+            ? 'relearning'
+            : intervalDays >= 1
+                ? 'review'
+                : item.state === 'new'
+                    ? 'learning'
+                    : item.state;
 
         const updatedItem = await db.updateLearningItem(item.id, {
             due_date: nextDue.toISOString(),
             interval: intervalDays,
             last_review_date: now.toISOString(),
-            review_count: nextCard.reps,
-            lapses: nextCard.lapses,
-            state: stateToString(nextCard.state),
+            review_count: (item.review_count || 0) + 1,
+            lapses: failed ? (item.lapses || 0) + 1 : item.lapses || 0,
+            state: nextState,
             memory_state: {
-                stability: nextCard.stability,
-                difficulty: nextCard.difficulty,
+                stability: selected.memory.stability,
+                stability_fast: selected.memory.stability_fast,
+                difficulty: selected.memory.difficulty,
             },
-            difficulty: nextCard.difficulty,
+            difficulty: selected.memory.difficulty,
             algorithm_type: algorithmType,
         });
 
@@ -2863,9 +2850,11 @@ const commandHandlers: Record<string, CommandHandler> = {
             throw new Error(`Learning item ${itemId} not found`);
         }
 
-        const algorithmType = normalizeSchedulerId(
+        const legacyAlgorithmType = normalizeSchedulerId(
             (args.algorithm as string) || item.algorithm_type || 'fsrs',
         );
+        void legacyAlgorithmType;
+        const algorithmType = 'fsrs';
 
         // Adaptive preview
         if (isAdaptiveScheduler(algorithmType)) {
@@ -2910,20 +2899,23 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         const now = new Date();
-        const scheduler = createFsrsScheduler({
-            tags: item.tags || [],
-        });
-        const card = buildCardFromLearningItem(item, now);
-        const preview = scheduler.repeat(card, now);
+        const scheduleContext = { tags: item.tags || [] };
+        const weights = resolveFsrs7Weights(scheduleContext);
+        const scheduleOptions = resolveFsrs7ScheduleOptions(scheduleContext);
+        const elapsedDays = elapsedDaysSince(item.last_review_date, now);
+        const preview = nextStatesWithElapsedDays(
+            weights,
+            memoryStateFromLearningItem(item),
+            elapsedDays,
+            scheduleOptions,
+        );
 
-        const intervals = {
-            again: intervalFromDue(now, preview[Rating.Again].card.due, preview[Rating.Again].card.scheduled_days),
-            hard: intervalFromDue(now, preview[Rating.Hard].card.due, preview[Rating.Hard].card.scheduled_days),
-            good: intervalFromDue(now, preview[Rating.Good].card.due, preview[Rating.Good].card.scheduled_days),
-            easy: intervalFromDue(now, preview[Rating.Easy].card.due, preview[Rating.Easy].card.scheduled_days),
+        return {
+            again: preview.again.interval,
+            hard: preview.hard.interval,
+            good: preview.good.interval,
+            easy: preview.easy.interval,
         };
-
-        return intervals;
     },
 
     // Document/Extract rating commands (FSRS scheduling for browser)
@@ -2935,14 +2927,19 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         const now = new Date();
-        const scheduler = createFsrsScheduler();
-        const grade = toFsrsGrade(request.rating);
-        const card = buildCardFromDocument(doc, now);
-        const next = scheduler.next(card, now, grade);
-        const nextCard = next.card;
-        
-        // Calculate base interval from FSRS
-        let intervalDays = intervalFromDue(now, nextCard.due, nextCard.scheduled_days);
+        const weights = resolveFsrs7Weights();
+        const scheduleOptions = resolveFsrs7ScheduleOptions();
+        const elapsedDays = elapsedDaysSince(doc.date_last_reviewed, now);
+        const preview = nextStatesWithElapsedDays(
+            weights,
+            memoryStateFromDocument(doc),
+            elapsedDays,
+            scheduleOptions,
+        );
+        const selected = preview[ratingToFsrsKey(request.rating)];
+
+        // Calculate base interval from FSRS-7
+        let intervalDays = selected.interval;
         
         // Apply bounds for "Hard" rating (rating = 2)
         if (request.rating === 2) {
@@ -2965,9 +2962,9 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         await db.updateDocument(request.document_id, {
             next_reading_date: nextReviewDateIso,
-            stability: nextCard.stability,
-            difficulty: nextCard.difficulty,
-            reps: nextCard.reps,
+            stability: selected.memory.stability,
+            difficulty: selected.memory.difficulty,
+            reps: (doc.reps ?? 0) + 1,
             total_time_spent: newTimeSpent,
             date_last_reviewed: now.toISOString(),
         });
@@ -2976,8 +2973,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         
         return {
             next_review_date: nextReviewDateIso,
-            stability: nextCard.stability,
-            difficulty: nextCard.difficulty,
+            stability: selected.memory.stability,
+            difficulty: selected.memory.difficulty,
             interval_days: intervalDays,
             scheduling_reason: `${priorityLabel} priority: ${intervalDays.toFixed(1)} days`,
         };
@@ -2994,26 +2991,35 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         const now = new Date();
-        const scheduler = createFsrsScheduler();
-        const grade = toFsrsGrade(request.rating);
-        const card = buildCardFromExtract(extract, now);
-        const next = scheduler.next(card, now, grade);
-        const nextCard = next.card;
-        const nextReviewDateIso = nextCard.due.toISOString();
-        const intervalDays = intervalFromDue(now, nextCard.due, nextCard.scheduled_days);
+        const weights = resolveFsrs7Weights();
+        const scheduleOptions = resolveFsrs7ScheduleOptions();
+        const elapsedDays = elapsedDaysSince(extract.last_review_date, now);
+        const preview = nextStatesWithElapsedDays(
+            weights,
+            memoryStateFromExtract(extract),
+            elapsedDays,
+            scheduleOptions,
+        );
+        const selected = preview[ratingToFsrsKey(request.rating)];
+        const intervalDays = selected.interval;
+        const nextReviewDateIso = new Date(now.getTime() + intervalDays * DAY_MS).toISOString();
 
         await db.updateExtract(request.extract_id, {
             next_review_date: nextReviewDateIso,
-            memory_state: { stability: nextCard.stability, difficulty: nextCard.difficulty },
-            review_count: nextCard.reps,
-            reps: nextCard.reps,
+            memory_state: {
+                stability: selected.memory.stability,
+                stability_fast: selected.memory.stability_fast,
+                difficulty: selected.memory.difficulty,
+            },
+            review_count: (extract.review_count ?? 0) + 1,
+            reps: (extract.reps ?? extract.review_count ?? 0) + 1,
             last_review_date: now.toISOString(),
         });
 
         return {
             next_review_date: nextReviewDateIso,
-            stability: nextCard.stability,
-            difficulty: nextCard.difficulty,
+            stability: selected.memory.stability,
+            difficulty: selected.memory.difficulty,
             interval_days: intervalDays,
             scheduling_reason: `FSRS: Rating ${request.rating} → ${intervalDays.toFixed(2)} days`,
         };

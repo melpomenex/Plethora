@@ -64,6 +64,19 @@ export function normalizeSchedulerId(raw: string): SchedulerId {
   return "fsrs";
 }
 
+/** Production scheduler id — the only user-facing scheduler (FSRS-7). */
+export const PRODUCTION_SCHEDULER_ID = "fsrs" as const satisfies SchedulerId;
+
+/** Maps any persisted or legacy scheduler id to the production scheduler. */
+export function normalizeToProductionScheduler(raw: string | undefined): SchedulerId {
+  if (raw === PRODUCTION_SCHEDULER_ID) return PRODUCTION_SCHEDULER_ID;
+  return PRODUCTION_SCHEDULER_ID;
+}
+
+export function isProductionScheduler(raw: string | undefined): boolean {
+  return normalizeSchedulerId(raw ?? PRODUCTION_SCHEDULER_ID) === PRODUCTION_SCHEDULER_ID;
+}
+
 export function normalizeArenaModelId(raw: string): ArenaModelId {
   if (isArenaModelId(raw)) return raw;
   const mapped = LEGACY_ARENA_MODEL_IDS[raw];

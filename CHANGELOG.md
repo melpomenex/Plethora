@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **FSRS-7 production scheduling** — Flashcard and document scheduling now use FSRS-7 with dual-trace memory state (`stability` + `stability_fast`), fractional elapsed-time intervals, and a 34-parameter model. Legacy schedulers (Plethora Adaptive, Plethora Precision, Plethora Classic) remain in the codebase for research and migration but are hidden from the scheduler picker. Existing cards are migrated by replaying review history. Scheduling core vendored from [open-spaced-repetition/fsrs-rs](https://github.com/open-spaced-repetition/fsrs-rs) (BSD-3-Clause).
+
 ## [2.7.0] - 2026-08-16
 
 ### Added

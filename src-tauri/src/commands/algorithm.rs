@@ -966,25 +966,69 @@ pub async fn optimize_algorithm_params(
     result.minimum_history_required = MIN_HISTORY_REQUIRED;
 
     if total <= 0 {
-        result.fsrs_weights = default_fsrs_weights();
+        result.fsrs_weights = fsrs::DEFAULT_PARAMETERS
+            .iter()
+            .map(|w| *w as f64)
+            .collect();
         result.expected_retention = 0.5;
         result.converged = false;
         return Ok(result);
     }
 
     let observed_retention = retained as f64 / total as f64;
-    let mean_gap_days = avg_days / total as f64;
-    let retention_shift = (observed_retention - 0.9).clamp(-0.2, 0.2);
-    let gap_shift = ((mean_gap_days - 4.0) / 20.0).clamp(-0.2, 0.2);
 
-    let mut weights = default_fsrs_weights();
-    for (index, weight) in weights.iter_mut().enumerate() {
-        let direction = if index % 2 == 0 { -1.0 } else { 1.0 };
-        let adjustment = 1.0 + (retention_shift * 0.12 * direction) + (gap_shift * 0.08);
-        *weight = (*weight * adjustment).max(0.001);
+    use crate::algorithms::precision::optimize::{build_fsrs_items, RevlogItem};
+    let mut revlog_items: Vec<RevlogItem> = Vec::new();
+    let mut current_id: Option<String> = None;
+    for entry in &history {
+        if current_id.as_deref() != Some(entry.item_id.as_str()) {
+            current_id = Some(entry.item_id.clone());
+            revlog_items.push(RevlogItem {
+                reviews: Vec::new(),
+            });
+        }
+        let grade = crate::algorithms::precision::rating_to_grade(
+            match entry.rating {
+                ReviewRating::Again => 1,
+                ReviewRating::Hard => 2,
+                ReviewRating::Good => 3,
+                ReviewRating::Easy => 4,
+            },
+        );
+        if let Some(item) = revlog_items.last_mut() {
+            item.reviews
+                .push((entry.days_since_previous_review as f64, grade));
+        }
     }
+    revlog_items.retain(|i| !i.reviews.is_empty());
+    let train_set = build_fsrs_items(&revlog_items);
 
-    result.fsrs_weights = weights;
+    let fsrs_weights = if train_set.is_empty() {
+        fsrs::DEFAULT_PARAMETERS
+            .iter()
+            .map(|w| *w as f64)
+            .collect()
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            fsrs::compute_parameters(fsrs::ComputeParametersInput {
+                train_set,
+                card_ids: None,
+                progress: None,
+                enable_short_term: true,
+                enable_sched_penalties: false,
+                model_version: fsrs::ComputeParametersVersion::Fsrs7,
+                num_relearning_steps: None,
+            })
+        })
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?
+        .into_iter()
+        .map(|w| w as f64)
+        .collect()
+    };
+
+    result.fsrs_weights = fsrs_weights;
     result.expected_retention = observed_retention;
     result.converged = total >= MIN_HISTORY_REQUIRED;
     Ok(result)

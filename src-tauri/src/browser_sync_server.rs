@@ -2373,6 +2373,7 @@ fn extract_memory_state_from_fsrs(
     Some(crate::models::MemoryState {
         stability,
         difficulty,
+        stability_fast: None,
     })
 }
 

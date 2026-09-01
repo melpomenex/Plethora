@@ -1,11 +1,37 @@
 import { Router } from 'express';
 import { getPool } from '../db/connection.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
-import { Card, createEmptyCard, fsrs, generatorParameters, Rating } from 'ts-fsrs';
+import { nextStatesWithElapsedDays } from '../algorithms/fsrs7/index.js';
+import { DEFAULT_FSRS7_PARAMETERS } from '../algorithms/fsrs7/defaultParameters.js';
 
 export const videoExtractsRouter = Router();
 
-const f = fsrs(generatorParameters());
+const DEFAULT_SCHEDULE_OPTIONS = {
+    desiredRetention: 0.9,
+    maximumInterval: 36500,
+};
+
+function ratingToKey(rating: number): 'again' | 'hard' | 'good' | 'easy' {
+    switch (rating) {
+        case 1:
+            return 'again';
+        case 2:
+            return 'hard';
+        case 3:
+            return 'good';
+        case 4:
+            return 'easy';
+        default:
+            return 'good';
+    }
+}
+
+function elapsedDaysSince(lastReview: Date | string | null | undefined, now: Date): number {
+    if (!lastReview) {
+        return 0;
+    }
+    return Math.max(0, (now.getTime() - new Date(lastReview).getTime()) / 86_400_000);
+}
 
 videoExtractsRouter.get('/document/:documentId', authMiddleware, async (req: AuthRequest, res, next) => {
     try {
@@ -291,44 +317,26 @@ videoExtractsRouter.post('/:id/rate', authMiddleware, async (req: AuthRequest, r
 
         const extract = extractResult.rows[0];
         const now = new Date();
-
-        let card: Card;
         const memoryState = extract.memory_state ? JSON.parse(extract.memory_state) : null;
-
-        if (memoryState && memoryState.stability !== undefined && memoryState.difficulty !== undefined) {
-            const lastReview = extract.last_review_date ? new Date(extract.last_review_date) : new Date(extract.date_created);
-
-            card = {
-                due: extract.next_review_date ? new Date(extract.next_review_date) : now,
+        const elapsedDays = elapsedDaysSince(
+            extract.last_review_date ?? extract.date_created,
+            now,
+        );
+        const currentState = memoryState?.stability && memoryState?.difficulty
+            ? {
                 stability: memoryState.stability,
                 difficulty: memoryState.difficulty,
-                last_review: lastReview,
-                reps: extract.reps,
-                elapsed_days: Math.max(0, (now.getTime() - lastReview.getTime()) / (1000 * 60 * 60 * 24)),
-                scheduled_days: 0,
-                state: extract.review_count > 0 ? 2 : 0, // 0 = New, 2 = Review
-            } as Card;
-        } else {
-            card = createEmptyCard(extract.date_created ? new Date(extract.date_created) : now);
-            card.reps = extract.reps;
-        }
-
-        const grade = rating === 1 ? Rating.Again :
-                       rating === 2 ? Rating.Hard :
-                       rating === 3 ? Rating.Good : Rating.Easy;
-
-        // Use FSRS to calculate the next review date
-        const schedulingCards = f.repeat(card, now);
-
-        // Find the scheduling result for the given rating
-        const preview = schedulingCards as unknown as Record<number, { card: Card } | undefined>;
-        const scheduledCard = preview[grade - 1];
-
-        if (!scheduledCard || !scheduledCard.card) {
-            return res.status(500).json({ error: 'FSRS scheduling failed' });
-        }
-
-        const newCard = scheduledCard.card;
+                stability_fast: memoryState.stability_fast ?? memoryState.stability * 0.8,
+            }
+            : null;
+        const preview = nextStatesWithElapsedDays(
+            DEFAULT_FSRS7_PARAMETERS,
+            currentState,
+            elapsedDays,
+            DEFAULT_SCHEDULE_OPTIONS,
+        );
+        const selected = preview[ratingToKey(rating)];
+        const nextReviewDate = new Date(now.getTime() + selected.interval * 86_400_000);
 
         const result = await pool.query(`
             UPDATE video_extracts
@@ -343,21 +351,22 @@ videoExtractsRouter.post('/:id/rate', authMiddleware, async (req: AuthRequest, r
         `, [
             id,
             JSON.stringify({
-                stability: newCard.stability,
-                difficulty: newCard.difficulty,
+                stability: selected.memory.stability,
+                stability_fast: selected.memory.stability_fast,
+                difficulty: selected.memory.difficulty,
             }),
-            newCard.due.toISOString(),
+            nextReviewDate.toISOString(),
             now.toISOString(),
-            newCard.reps,
+            (extract.reps ?? 0) + 1,
         ]);
 
         res.json({
             success: true,
             next_review_date: result.rows[0].next_review_date,
-            stability: newCard.stability,
-            difficulty: newCard.difficulty,
-            interval_days: newCard.scheduled_days,
-            message: `Next review: ${newCard.due.toLocaleDateString()} (${Math.round(newCard.stability * 10) / 10} stability)`,
+            stability: selected.memory.stability,
+            difficulty: selected.memory.difficulty,
+            interval_days: selected.interval,
+            message: `Next review: ${nextReviewDate.toLocaleDateString()} (${Math.round(selected.memory.stability * 10) / 10} stability)`,
         });
     } catch (error) {
         next(error);

@@ -18,6 +18,12 @@
 //! | `adaptive`, `precision`, …| (identity)     |
 //! | unknown                   | `fsrs`         |
 
+/// Production scheduling always uses FSRS-7 (`fsrs`). Legacy scheduler ids are
+/// normalized here so stale settings cannot reactivate hidden algorithms.
+pub fn normalize_to_production_scheduler(s: &str) -> &'static str {
+    "fsrs"
+}
+
 /// Map a persisted or user-supplied algorithm id to its canonical string form.
 pub fn normalize_algorithm_type(s: &str) -> &'static str {
     match s.to_lowercase().as_str() {

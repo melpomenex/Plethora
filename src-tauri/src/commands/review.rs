@@ -1,5 +1,6 @@
 //! Review commands supporting FSRS, Adaptive, Precision, and Classic algorithms
 
+use crate::algorithms::fsrs7::{self, create_fsrs7_with_weights, from_fsrs_memory_state};
 use crate::algorithms::precision::{
     self, ArenaModelId, PrecisionCollectionState, PrecisionState, ARENA_MODEL_IDS,
 };
@@ -413,8 +414,11 @@ pub async fn apply_review(
 
     let now = Utc::now();
 
-    // Use the caller's algorithm parameter if provided, otherwise fall back to item's stored type
-    let effective_algorithm = algorithm.unwrap_or(&item.algorithm_type);
+    // Production always schedules with FSRS-7. Legacy algorithm ids are normalized
+    // so stale settings, sync payloads, or per-item algorithm_type cannot
+    // reactivate hidden schedulers.
+    let raw_algorithm = algorithm.unwrap_or(&item.algorithm_type);
+    let effective_algorithm = crate::scheduler_identity::normalize_to_production_scheduler(raw_algorithm);
     let algo = AlgorithmType::from_str_lossy(effective_algorithm);
 
     if arena_selection.is_some() && (algo != AlgorithmType::Precision || precision_pure_kernel) {
@@ -560,7 +564,7 @@ pub async fn apply_review(
     Ok(item)
 }
 
-/// FSRS-6 review (original logic extracted into inner function)
+/// FSRS-7 review (original logic extracted into inner function)
 fn apply_fsrs_review_inner(
     item: &mut LearningItem,
     review_rating: ReviewRating,
@@ -568,15 +572,7 @@ fn apply_fsrs_review_inner(
     fsrs_weights: Option<&[f32]>,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    let fsrs = if let Some(weights) = fsrs_weights {
-        if matches!(weights.len(), 17 | 19 | 21) {
-            fsrs::FSRS::new(Some(weights))?
-        } else {
-            fsrs::FSRS::new(Some(&[]))?
-        }
-    } else {
-        fsrs::FSRS::new(Some(&[]))?
-    };
+    let fsrs = create_fsrs7_with_weights(fsrs_weights)?;
 
     let elapsed_days = item
         .last_review_date
@@ -585,20 +581,14 @@ fn apply_fsrs_review_inner(
             duration.num_seconds() as f64 / 86400.0
         })
         .unwrap_or(0.0)
-        .max(0.0) as u32;
+        .max(0.0) as f32;
 
-    let current_memory_state = item.memory_state.clone().and_then(|ms| {
-        if ms.stability <= 0.0 || ms.difficulty <= 0.0 {
-            None
-        } else {
-            Some(fsrs::MemoryState {
-                stability: ms.stability as f32,
-                difficulty: ms.difficulty as f32,
-            })
-        }
-    });
-
-    let next_states = fsrs.next_states(current_memory_state, desired_retention, elapsed_days)?;
+    let next_states = fsrs7::next_states_fractional(
+        &fsrs,
+        item.memory_state.as_ref(),
+        desired_retention,
+        elapsed_days,
+    )?;
 
     let next_state = match review_rating {
         ReviewRating::Again => &next_states.again,
@@ -625,10 +615,7 @@ fn apply_fsrs_review_inner(
     item.last_review_date = Some(now);
     item.date_modified = now;
 
-    item.memory_state = Some(MemoryState {
-        stability: next_state.memory.stability as f64,
-        difficulty: next_state.memory.difficulty as f64,
-    });
+    item.memory_state = Some(from_fsrs_memory_state(&next_state.memory));
     if item.ease_factor <= 0.0 {
         item.ease_factor = 2.5;
     }
@@ -825,6 +812,7 @@ fn apply_classic_15_review(
     item.memory_state = Some(MemoryState {
         stability: new_state.stability,
         difficulty: new_state.difficulty,
+        stability_fast: None,
     });
 
     if review_rating == ReviewRating::Again {
@@ -896,6 +884,7 @@ fn apply_adaptive_review(
     item.memory_state = Some(MemoryState {
         stability: state.stability,
         difficulty: state.difficulty * 10.0,
+        stability_fast: None,
     });
 
     if grade < 3 {
@@ -1314,6 +1303,7 @@ async fn apply_precision_review(
     item.memory_state = Some(MemoryState {
         stability: response.state.stability,
         difficulty: response.state.difficulty,
+        stability_fast: None,
     });
     item.difficulty = (response.state.difficulty * 10.0).round() as i32;
 
@@ -1461,7 +1451,9 @@ pub async fn preview_review_intervals(
     let precision_pure_kernel = precision_pure_kernel
         .or(sm20_pure_m4)
         .unwrap_or(false);
-    let algo = algorithm.as_deref().unwrap_or("fsrs");
+    let algo = crate::scheduler_identity::normalize_to_production_scheduler(
+        algorithm.as_deref().unwrap_or("fsrs"),
+    );
     let normalized = normalize_algorithm_type(algo);
 
     if normalized == "precision" {
@@ -1645,7 +1637,7 @@ pub async fn preview_review_intervals(
         crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
     })?;
 
-    let fsrs = fsrs::FSRS::new(Some(&[]))?;
+    let fsrs = create_fsrs7_with_weights(None)?;
     let now = Utc::now();
 
     // Calculate elapsed days with fractional precision
@@ -1656,21 +1648,11 @@ pub async fn preview_review_intervals(
             duration.num_seconds() as f64 / 86400.0
         })
         .unwrap_or(0.0)
-        .max(0.0) as u32;
+        .max(0.0) as f32;
 
-    let current_memory_state = item.memory_state.clone().and_then(|ms| {
-        if ms.stability <= 0.0 || ms.difficulty <= 0.0 {
-            None
-        } else {
-            Some(fsrs::MemoryState {
-                stability: ms.stability as f32,
-                difficulty: ms.difficulty as f32,
-            })
-        }
-    });
-
-    let next_states = fsrs.next_states(
-        current_memory_state,
+    let next_states = fsrs7::next_states_fractional(
+        &fsrs,
+        item.memory_state.as_ref(),
         DEFAULT_DESIRED_RETENTION,
         elapsed_days,
     )?;
@@ -1822,16 +1804,16 @@ pub async fn optimize_arena_fsrs(repo: State<'_, Repository>) -> Result<FsrsOpti
     let train_items = train_set.len();
 
     let params = tauri::async_runtime::spawn_blocking(move || {
-        let engine = fsrs::FSRS::new(Some(&[]))
-            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
-        engine
-            .compute_parameters(fsrs::ComputeParametersInput {
-                train_set,
-                progress: None,
-                enable_short_term: true,
-                num_relearning_steps: None,
-            })
-            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
+        fsrs::compute_parameters(fsrs::ComputeParametersInput {
+            train_set,
+            card_ids: None,
+            progress: None,
+            enable_short_term: true,
+            enable_sched_penalties: false,
+            model_version: fsrs::ComputeParametersVersion::Fsrs7,
+            num_relearning_steps: None,
+        })
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
     })
     .await
     .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))??;
@@ -2453,6 +2435,7 @@ mod tests {
             memory_state: Some(MemoryState {
                 stability: 0.0,
                 difficulty: 0.0,
+                stability_fast: None,
             }),
             algorithm_type: "fsrs".into(),
             algorithm_state: None,
@@ -2480,6 +2463,7 @@ mod tests {
         item.memory_state = Some(MemoryState {
             stability: 5.0,
             difficulty: 0.4,
+            stability_fast: None,
         });
         let state = parse_precision_state(&item);
         assert!((state.difficulty - 0.4).abs() < 1e-9);
@@ -2489,6 +2473,7 @@ mod tests {
         item.memory_state = Some(MemoryState {
             stability: 3.0,
             difficulty: 1.0,
+            stability_fast: None,
         });
         let state = parse_precision_state(&item);
         assert!(

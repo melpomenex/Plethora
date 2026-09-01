@@ -26,6 +26,7 @@ mod integrations;
 mod ipc_compat;
 mod kindle_clippings;
 mod legacy_data;
+mod migrations;
 mod mcp;
 mod media_control;
 pub mod models;
@@ -1355,6 +1356,8 @@ pub fn run() {
                     .context("Failed to run migrations")?;
 
                 log_startup(&app_handle, "startup: migrations complete");
+
+                migrations::fsrs7_migration::spawn_fsrs7_migration(pool.clone());
 
                 // Close reading sessions the last run left open — a crash, a
                 // force-quit, or an OS shutdown. Each is ended at its last

@@ -12,11 +12,11 @@
 //! The algorithm follows FSRS-6 for core scheduling but adds an "engagement layer"
 //! that optimizes for user enjoyment and discovery.
 
+use crate::algorithms::fsrs7::{self, create_fsrs7, from_fsrs_memory_state};
 use crate::algorithms::DocumentScheduler;
 use crate::error::Result;
-use crate::models::ReviewRating;
+use crate::models::{MemoryState, ReviewRating};
 use chrono::{DateTime, Duration, Utc};
-use fsrs::FSRS;
 use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -122,7 +122,7 @@ pub struct ScoredQueueItem {
 
 /// Engaging FSRS Scheduler
 pub struct EngagingScheduler {
-    fsrs: FSRS,
+    fsrs: fsrs::FSRS,
     preferences: EngagementPreferences,
     /// Topic history to prevent clustering
     topic_history: Vec<String>,
@@ -133,7 +133,7 @@ pub struct EngagingScheduler {
 impl EngagingScheduler {
     /// Create new scheduler with preferences
     pub fn new(preferences: EngagementPreferences) -> Self {
-        let fsrs = FSRS::new(Some(&[])).expect("fsrs::FSRS default parameters must be valid");
+        let fsrs = create_fsrs7().expect("fsrs::FSRS default parameters must be valid");
 
         Self {
             fsrs,
@@ -166,19 +166,21 @@ impl EngagingScheduler {
         elapsed_days: f64,
         review_count: i32,
     ) -> Result<EngagingScheduleResult> {
-        let memory_state = match (current_stability, current_difficulty) {
+        let plethora_memory = match (current_stability, current_difficulty) {
             (Some(stability), Some(difficulty)) if stability > 0.0 && difficulty > 0.0 => {
-                Some(fsrs::MemoryState {
-                    stability: stability as f32,
-                    difficulty: difficulty as f32,
+                Some(MemoryState {
+                    stability,
+                    difficulty,
+                    stability_fast: None,
                 })
             }
             _ => None,
         };
 
-        let elapsed_days = elapsed_days.max(0.0) as u32;
-        let next_states = self.fsrs.next_states(
-            memory_state,
+        let elapsed_days = elapsed_days.max(0.0) as f32;
+        let next_states = fsrs7::next_states_fractional(
+            &self.fsrs,
+            plethora_memory.as_ref(),
             0.9, // target retention
             elapsed_days,
         )?;
@@ -203,27 +205,29 @@ impl EngagingScheduler {
         }
         let next_review = Utc::now() + Duration::days(interval_days);
 
+        let memory = from_fsrs_memory_state(&next_state.memory);
+
         let scheduling_reason = if is_serendipity {
             format!(
-                "Engaging FSRS-6 (Serendipity!) - Rating: {:?}, Base: {:.1} days, Modified: {:.1} days",
+                "Engaging FSRS-7 (Serendipity!) - Rating: {:?}, Base: {:.1} days, Modified: {:.1} days",
                 rating, next_state.interval, interval_days
             )
         } else if engagement_modifier != 1.0 {
             format!(
-                "Engaging FSRS-6 - Rating: {:?}, Base: {:.1} days, With engagement: {:.1} days ({:.0}%)",
+                "Engaging FSRS-7 - Rating: {:?}, Base: {:.1} days, With engagement: {:.1} days ({:.0}%)",
                 rating, next_state.interval, interval_days, engagement_modifier * 100.0
             )
         } else {
             format!(
-                "Engaging FSRS-6 - Rating: {:?}, Stability: {:.2}, Difficulty: {:.2}",
-                rating, next_state.memory.stability, next_state.memory.difficulty
+                "Engaging FSRS-7 - Rating: {:?}, Stability: {:.2}, Difficulty: {:.2}",
+                rating, memory.stability, memory.difficulty
             )
         };
 
         Ok(EngagingScheduleResult {
             next_review,
-            stability: next_state.memory.stability as f64,
-            difficulty: next_state.memory.difficulty as f64,
+            stability: memory.stability,
+            difficulty: memory.difficulty,
             interval_days,
             scheduling_reason,
             engagement_modifier,

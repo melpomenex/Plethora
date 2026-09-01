@@ -564,6 +564,7 @@ export async function deleteDocument(id: string): Promise<void> {
 export interface MemoryState {
     stability: number;
     difficulty: number;
+    stability_fast?: number;
 }
 
 export interface Extract {

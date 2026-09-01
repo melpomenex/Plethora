@@ -30,7 +30,7 @@ Plethora is a powerful learning application that combines two proven techniques:
 
 **Incremental Reading** - Process large amounts of information in small, manageable chunks over time. Instead of reading articles cover-to-cover, you extract key points and gradually build understanding.
 
-**Spaced Repetition** - Review material at scientifically-optimized intervals to maximize retention. Algorithms like FSRS-6 and Plethora Adaptive predict when you're about to forget and schedule reviews just in time.
+**Spaced Repetition** - Review material at scientifically-optimized intervals to maximize retention. FSRS-7 predicts when you're about to forget and schedules reviews just in time.
 
 ### Key Concepts
 
@@ -60,7 +60,7 @@ When you first launch Plethora, you'll see the **Dashboard** with four main sect
    - Try "Modern Dark" or "Material You" for a modern look
 
 2. **Configure Review Settings** - Settings → Learning → Algorithm
-   - **Algorithm**: FSRS-6 (recommended), Plethora Adaptive, or Plethora Classic
+   - **Algorithm**: FSRS-7 (production scheduler)
    - **Desired Retention**: 90% (default) - targets how well you want to remember
    - **Learn Per Day**: 20-50 items recommended for beginners
 
@@ -229,19 +229,20 @@ Once imported, open any document to access:
 
 ## The Learning System
 
-### Understanding FSRS-6
+### Understanding FSRS-7
 
-**FSRS-6** (Free Spaced Repetition Scheduler) is a modern algorithm that:
+**FSRS-7** (Free Spaced Repetition Scheduler, version 7) is Plethora's production flashcard scheduler. It extends earlier FSRS versions with a **dual-trace** memory model:
 
-1. **Tracks Memory State**: Models your memory strength for each card
-2. **Predicts Forgetting**: Estimates when you'll forget each item
-3. **Optimizes Scheduling**: Schedules reviews at optimal times
-4. **Adapts to You**: Learns from your performance patterns
+1. **Dual-trace memory state**: Each card tracks two stability traces — a **slow trace** (`stability`) for long-horizon retention and a **fast trace** (`stability_fast`) for short-horizon recall dynamics. **Retrievability** is computed from a mixture of both traces, not from a single stability value alone.
+2. **Fractional elapsed time**: Same-day and partial-day gaps between reviews are modeled precisely (not rounded to whole days), so intervals after short gaps are more accurate.
+3. **34-parameter model**: Uses the FSRS-7 weight vector; the personal optimizer can fit these to your review history when you have enough data.
+4. **Four-button ratings**: Again / Hard / Good / Easy (ratings 1–4) with preview intervals for each choice.
 
 **Key Metrics:**
-- **Stability**: How long a memory lasts (higher = more stable)
-- **Difficulty**: How hard the item is for you (1-10 scale)
-- **Retrievability**: Current probability of recall (0-100%)
+- **Stability** (slow trace): Long-horizon memory strength (higher = more stable)
+- **Stability (fast)** (fast trace): Short-horizon recall dynamics paired with the slow trace
+- **Difficulty**: How hard the item is for you (1–10 scale)
+- **Retrievability**: Current probability of recall (0–100%), derived from the dual-trace model
 
 ### Understanding Plethora Adaptive
 
@@ -289,9 +290,9 @@ Plethora's **Plethora Precision** option is the **Algorithm Arena** — a faithf
 - **Arena weights**: The live blend percentages per model, shown in Learning settings.
 - **R-Metric**: Relative improvement of the blend over Classic 19 alone, computed over a decaying window of your reviews.
 
-**How Plethora Precision differs from FSRS-6:**
-- FSRS-6 is a single, mature, production scheduler and remains the recommended default.
-- Plethora Precision is an experimental ensemble that pits five algorithms against each other and lets your own data pick the blend. It is more complex and needs more reviews to personalize, but can outperform any single model once it has enough of your history to learn from.
+**How Plethora Precision differs from FSRS-7:**
+- FSRS-7 is the single production scheduler and the only option shown in Learning settings.
+- Plethora Precision is a legacy experimental ensemble that pits five algorithms against each other and lets your own data pick the blend. It remains in the codebase for research but is hidden from the scheduler picker.
 
 #### Choosing a Memory Horizon after an Plethora Precision review
 
@@ -324,16 +325,16 @@ In hands-free audio review, Plethora automatically confirms Arena Pick so playba
 
 ### Document Reading Schedule (Incremental Reading)
 
-The algorithms above (FSRS-6, Plethora Adaptive, Plethora Precision) are **flashcard** schedulers — they train on Q&A, cloze, and basic cards, where the goal is long-term recall. **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **modified FSRS-6** — the *Engaging* scheduler — tuned for a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact. It runs in its own FSRS instance, separate from your flashcard schedulers, so the **stability** and **difficulty** values you see for a document in the Schedule view are real FSRS-6 memory parameters.
+FSRS-7 is the **flashcard** scheduler — it trains on Q&A, cloze, and basic cards, where the goal is long-term recall. (Legacy schedulers such as Plethora Adaptive and Plethora Precision remain in the codebase but are hidden from the UI.) **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **modified FSRS-7** — the *Engaging* scheduler — tuned for a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact. It runs in its own FSRS instance, separate from your flashcard scheduler, so the **stability**, **stability (fast)**, and **difficulty** values you see for a document in the Schedule view are real FSRS-7 memory parameters.
 
 **Two scheduling tracks, not one.** This is the single biggest source of confusion:
 
-- **Flashcards** → FSRS-6 / Plethora Adaptive / Plethora Precision (your choice in Learning settings) → writes to the review history that trains those algorithms.
-- **Documents** → a **modified FSRS-6** (the *Engaging* scheduler, used everywhere you rate a document in the app; a fixed-interval *Incremental* scheduler is used only as a fallback for API/MCP) → tracked separately, and **does not feed the flashcard algorithms at all.**
+- **Flashcards** → FSRS-7 (production scheduler in Learning settings) → writes to the review history that trains the FSRS optimizer.
+- **Documents** → a **modified FSRS-7** (the *Engaging* scheduler, used everywhere you rate a document in the app; a fixed-interval *Incremental* scheduler is used only as a fallback for API/MCP) → tracked separately, and **does not feed the flashcard scheduler at all.**
 
 Rating a document uses the **same four buttons** as a flashcard — Again / Hard / Good / Easy — but the grade goes to a **separate** FSRS instance that does not train your flashcard algorithms. The interval it produces depends on which scheduler handles the rating:
 
-- **Engaging FSRS-6 (the one the app uses).** When you rate a document from the queue or document viewer, Plethora runs FSRS-6 at a 0.9 target-retention target and then applies a bounded *engagement* multiplier (0.25×–2.0×) for novelty, variety, and serendipity. Intervals are FSRS-computed and therefore **variable** — they grow with the document's stability just like a card's, not the fixed values below. On long-form content that you only partly read, a duration-aware cap pulls a Good/Easy interval back to 1–4 days based on how much of the document you actually covered.
+- **Engaging FSRS-7 (the one the app uses).** When you rate a document from the queue or document viewer, Plethora runs FSRS-7 at a 0.9 target-retention target and then applies a bounded *engagement* multiplier (0.25×–2.0×) for novelty, variety, and serendipity. Intervals are FSRS-computed and therefore **variable** — they grow with the document's dual-trace stability just like a card's, not the fixed values below. On long-form content that you only partly read, a duration-aware cap pulls a Good/Easy interval back to 1–4 days based on how much of the document you actually covered.
 - **Incremental Reading Scheduler (the fallback).** The plain API/MCP rating path uses a separate, non-FSRS scheduler with short, **fixed** intervals and a hard 30-day cap:
 
 | Rating | Incremental (fallback) interval | Flashcard interval (varies by algorithm) |
@@ -343,11 +344,11 @@ Rating a document uses the **same four buttons** as a flashcard — Again / Hard
 | **Good** | ~3 days | days–weeks |
 | **Easy** | ~7 days | weeks |
 
-In the fallback scheduler, consecutive Good/Easy ratings add a small bonus and consecutive Again/Hard ratings add a small penalty, and intervals are capped at roughly **30 days** so material stays in rotation. (The Engaging FSRS-6 path you hit from the queue has no flat 30-day ceiling — its only cap is the duration-aware one above.)
+In the fallback scheduler, consecutive Good/Easy ratings add a small bonus and consecutive Again/Hard ratings add a small penalty, and intervals are capped at roughly **30 days** so material stays in rotation. (The Engaging FSRS-7 path you hit from the queue has no flat 30-day ceiling — its only cap is the duration-aware one above.)
 
-**Engagement affects both order and spacing.** The engagement layer does two things: it shapes *which* document comes up next (novelty injection, variety balancing, serendipity), and it scales the FSRS-6 interval within its 0.25×–2.0× band. It layers on top of the FSRS-6 math; it does not replace it.
+**Engagement affects both order and spacing.** The engagement layer does two things: it shapes *which* document comes up next (novelty injection, variety balancing, serendipity), and it scales the FSRS-7 interval within its 0.25×–2.0× band. It layers on top of the FSRS-7 math; it does not replace it.
 
-**Practical takeaway.** Document reviews run through their **own** FSRS-6 instance and are tracked separately — they do **not** train the flashcard schedulers (the FSRS optimizer, Plethora Adaptive, Plethora Precision), which only learn from flashcard reviews. If you want those to personalize, you need flashcards reviewed at day-scale spacing. (This is why the Plethora Precision panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding Plethora Precision](#understanding-plethora-precision) for what does and doesn't count.
+**Practical takeaway.** Document reviews run through their **own** FSRS-7 instance and are tracked separately — they do **not** train the flashcard FSRS optimizer, which only learns from flashcard reviews. If you want personalized FSRS weights, you need flashcards reviewed at day-scale spacing.
 
 ### Rating System
 
@@ -521,7 +522,7 @@ Select multiple cards using the checkboxes, then use the bulk action toolbar:
 **Mixed Review Sessions (Cards + Documents):**
 - Review sessions can include **learning items** and **documents** that are due for reading.
 - When a document appears, you can open it directly from the session card.
-- Rating a document schedules its next reading date via the **Engaging FSRS-6** scheduler (a modified FSRS-6, with short, rotation-friendly intervals) — tracked separately from the flashcard algorithms. See [Document Reading Schedule](#document-reading-schedule-incremental-reading).
+- Rating a document schedules its next reading date via the **Engaging FSRS-7** scheduler (a modified FSRS-7, with short, rotation-friendly intervals) — tracked separately from the flashcard scheduler. See [Document Reading Schedule](#document-reading-schedule-incremental-reading).
 
 **Rating Interface:**
 After revealing answer, four rating buttons appear:
@@ -694,7 +695,7 @@ Higher priority items are shown more frequently in mixed reviews. Priority gover
 Understanding how the queue orders items and why positions change helps you optimize your study flow:
 
 1. **FSRS Scheduling & Dynamic Priority Scoring**:
-   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*). For documents these parameters come from the *Engaging* FSRS-6 scheduler described under [Document Reading Schedule](#document-reading-schedule-incremental-reading) — so yes, FSRS memory values apply to documents as well as to cards. The only difference is that a document's FSRS reviews are tracked separately and do not train the flashcard schedulers.
+   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, stability fast, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*). For documents these parameters come from the *Engaging* FSRS-7 scheduler described under [Document Reading Schedule](#document-reading-schedule-incremental-reading) — so yes, FSRS memory values apply to documents as well as to cards. The only difference is that a document's FSRS reviews are tracked separately and do not train the flashcard scheduler.
    - As you complete reviews, postpone items, or take notes, memory parameters update and items naturally re-rank upon returning to the queue.
 
 2. **Weighted Selection Randomization**:
@@ -977,31 +978,13 @@ Export your data for analysis:
 
 #### Algorithm Selection
 
-Plethora supports four scheduling algorithms. Choose the one that best fits your learning style:
+Plethora schedules flashcard reviews with **FSRS-7**, the production spaced-repetition algorithm. Learning settings show FSRS-7 as the sole scheduler; legacy algorithms (Plethora Adaptive, Plethora Precision, Plethora Classic) remain compiled for research and migration but are hidden from the picker.
 
-**FSRS-6 (Recommended):**
-- Modern, research-backed
-- Adapts to individual memory
-- Predicts forgetting times
-- Better retention with fewer reviews
-
-**Plethora Precision:**
-- Most advanced algorithm, reverse-engineered from the Plethora Precision reference binary via Ghidra
-- Uses the V4 (Plethora Precision proper) interval formula; Classic 19 scheduling is available via the separate Classic scheduler
-- Bayesian smoothing learns optimal intervals from your actual review data
-- Builds knowledge over time via persisted 21×21×21 interval/count matrices
-
-**Plethora Adaptive:**
-- The most advanced scheduler in the family, reimplemented from the original application
-- Uses a 3D SInc (Stability Increase) lookup matrix across difficulty, stability, and retrievability
-- Explicit difficulty tracking with trailing-average updates
-- Exponential forgetting curve model: `R = 0.9^(t/S)`
-- Sophisticated failure handling with lapse-dependent stability reduction
-
-**Plethora Classic (Classic):**
-- The traditional classic algorithm (publicly documented)
-- Simpler, predictable
-- More reviews required
+**FSRS-7 (Production):**
+- Dual-trace memory model (slow + fast stability traces)
+- Fractional elapsed-time scheduling for same-day reviews
+- 34-parameter model with optional personal optimization
+- Four-button ratings with preview intervals
 
 #### Parameters
 
@@ -2201,7 +2184,9 @@ Export your data before major changes (Settings → Backup → Export)
 
 **Review Session**: A period of actively recalling and rating cards
 
-**FSRS**: Free Spaced Repetition Scheduler, modern algorithm optimizing review timing (FSRS-6 is the current version)
+**FSRS**: Free Spaced Repetition Scheduler; FSRS-7 is the current production version with a dual-trace memory model (slow and fast stability traces)
+
+**Stability (fast)**: The fast trace in FSRS-7's dual-trace model; paired with stability for retrievability
 
 **Interval**: Time between reviews (e.g., 7 days)
 
