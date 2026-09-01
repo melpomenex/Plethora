@@ -2,6 +2,7 @@ import type { Response, NextFunction } from 'express';
 import { getPool } from '../db/connection.js';
 import { AppError } from './error.js';
 import type { AuthRequest } from './auth.js';
+import { resolveCapability } from '../capabilities/resolve.js';
 
 export async function requireCloudSync(
   req: AuthRequest,
@@ -15,16 +16,7 @@ export async function requireCloudSync(
     }
 
     const pool = getPool();
-    const userRes = await pool.query('SELECT subscription_tier FROM users WHERE id = $1', [userId]);
-    const tier = userRes.rows[0]?.subscription_tier || 'free';
-
-    const grantRes = await pool.query(
-      'SELECT enabled FROM capability_grants WHERE user_id = $1 AND capability = $2',
-      [userId, 'cloud_sync']
-    );
-    const override = grantRes.rows[0]?.enabled;
-
-    const enabled = override !== undefined ? Boolean(override) : tier === 'pro';
+    const { enabled } = await resolveCapability(pool, userId, 'cloud_sync');
     if (!enabled) {
       throw new AppError(403, 'capability_denied', 'Plethora Pro cloud_sync entitlement required');
     }

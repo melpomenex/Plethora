@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { getPool } from '../../db/connection.js';
 import { optionalAuthMiddleware, type AuthRequest } from '../../middleware/auth.js';
 import { getTranscriptionQuota, TRANSCRIPTION_CAPABILITY } from '../../quota/transcription.js';
+import { resolveCapability } from '../../capabilities/resolve.js';
 
 export const entitlementsRouter = Router();
 
@@ -74,15 +75,6 @@ entitlementsRouter.get('/', optionalAuthMiddleware, async (req: AuthRequest, res
     const tier = userRes.rows[0]?.subscription_tier || 'free';
     const isPro = tier === 'pro';
 
-    // Fetch custom capability grants if overridden in DB
-    const grantsRes = await pool.query('SELECT capability, enabled, reason FROM capability_grants WHERE user_id = $1', [
-      userId,
-    ]);
-    const grantOverrides = new Map<string, { enabled: boolean; reason?: string }>();
-    for (const row of grantsRes.rows) {
-      grantOverrides.set(row.capability, { enabled: row.enabled, reason: row.reason || undefined });
-    }
-
     // Fetch quota states
     const quotaRes = await pool.query(
       'SELECT capability, used, limit_val as "limit", "window", resets_at as "resetsAt" FROM quota_state WHERE user_id = $1',
@@ -114,20 +106,12 @@ entitlementsRouter.get('/', optionalAuthMiddleware, async (req: AuthRequest, res
 
     const capabilities: Record<string, { enabled: boolean; reason?: string; quota?: unknown }> = {};
     for (const cap of ALL_CAPABILITIES) {
-      if (grantOverrides.has(cap)) {
-        const override = grantOverrides.get(cap)!;
-        capabilities[cap] = {
-          enabled: override.enabled,
-          reason: override.reason,
-          quota: quotas.get(cap),
-        };
-      } else {
-        capabilities[cap] = {
-          enabled: isPro,
-          reason: isPro ? undefined : 'plan',
-          quota: quotas.get(cap),
-        };
-      }
+      const resolved = await resolveCapability(pool, userId, cap);
+      capabilities[cap] = {
+        enabled: resolved.enabled,
+        reason: resolved.reason,
+        quota: quotas.get(cap),
+      };
     }
 
     res.json({
