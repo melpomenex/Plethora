@@ -899,8 +899,13 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // stopped-state transitions.
   const cancelAudio = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      const el = audioRef.current;
+      el.onplay = null;
+      el.onpause = null;
+      el.onended = null;
+      el.onerror = null;
+      el.pause();
+      el.currentTime = 0;
       audioRef.current = null;
     }
     // System TTS: cancel any in-flight synthesis.
@@ -1258,12 +1263,14 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       audioRef.current = audio;
 
       audio.onplay = () => {
+        if (!mountedRef.current || playbackIdRef.current !== playId) return;
         setIsPlaying(true);
         setIsPaused(false);
         startWordTracking(audio, chunkText, buffered.wordTimings, list[index]);
       };
 
       audio.onpause = () => {
+        if (!mountedRef.current || playbackIdRef.current !== playId) return;
         if (!audio.ended) {
           setIsPaused(true);
           setIsPlaying(false);
@@ -1272,6 +1279,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       };
 
       audio.onended = () => {
+        if (!mountedRef.current || playbackIdRef.current !== playId) return;
         setIsPlaying(false);
         setIsPaused(false);
         stopWordTracking();
@@ -1281,7 +1289,6 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           if (nextIndex < chunksLenRef.current) {
             playChunkAtIndexRef.current(nextIndex);
           } else {
-            // All done — signal advance so new text triggers auto-continue
             advancingRef.current = true;
             setIsAutoPlaying(false);
             onComplete?.();
@@ -1290,6 +1297,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       };
 
       audio.onerror = () => {
+        if (!mountedRef.current || playbackIdRef.current !== playId) return;
         console.error("Audio playback error");
         setIsPlaying(false);
         setIsPaused(false);
@@ -1354,6 +1362,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const startFrom = useCallback(
     async (anchor: TTSStartAnchor) => {
       saveListeningPosition(true);
+      playbackIdRef.current++;
       stopAudio();
       const pos = resolveStartPosition(anchor);
       await startAtPosition(pos);
@@ -1479,13 +1488,19 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         return;
       }
       if (audioRef.current) {
-        audioRef.current.play();
-        startWordTracking(
-          audioRef.current,
-          playlistRef.current[chunkIndex]?.text ?? "",
-          audioBufferRef.current.get(chunkIndex)?.wordTimings,
-          playlistRef.current[chunkIndex]
-        );
+        try {
+          await audioRef.current.play();
+          setIsPaused(false);
+          setIsPlaying(true);
+          startWordTracking(
+            audioRef.current,
+            playlistRef.current[chunkIndex]?.text ?? "",
+            audioBufferRef.current.get(chunkIndex)?.wordTimings,
+            playlistRef.current[chunkIndex]
+          );
+        } catch {
+          setIsPlaying(false);
+        }
       }
       return;
     }

@@ -164,6 +164,41 @@ describe("ReaderTTSControls session races", () => {
       expect(a.url.startsWith("blob:phi chi psi")).toBe(true);
     }
   });
+
+  it("stale generated-audio onended after retarget does not auto-advance backward", async () => {
+    generateSpeechMock.mockImplementation(async (_settings: unknown, req: { text: string }) => ({
+      audioUrl: `blob:${req.text.slice(0, 12)}`,
+      durationSec: 5,
+    }));
+
+    const ref = { current: null as ReaderTTSHandle | null };
+    render(
+      <ReaderTTSControls
+        ref={ref as React.RefObject<ReaderTTSHandle>}
+        text={TEXT}
+        sections={sectionsFor(TEXT)}
+      />,
+    );
+    const tts = ref.current!;
+    void tts.startFrom(anchorAt(TEXT.indexOf("gamma")));
+    await waitFor(() => expect(played.some((a) => a.played)).toBe(true), { timeout: 2000 });
+    const staleAudio = played[0] as unknown as {
+      onended: (() => void) | null;
+    };
+    const staleOnEnded = staleAudio.onended;
+
+    void tts.startFrom(anchorAt(TEXT.indexOf("phi")));
+    await waitFor(
+      () => expect(played.filter((a) => a.played).some((a) => a.url.startsWith("blob:phi"))).toBe(true),
+      { timeout: 2000 },
+    );
+
+    staleOnEnded?.();
+    await new Promise((r) => setTimeout(r, 50));
+    const playedUrls = played.filter((a) => a.played).map((a) => a.url);
+    expect(playedUrls.some((u) => u.startsWith("blob:phi"))).toBe(true);
+    expect(playedUrls.some((u) => u.startsWith("blob:delta"))).toBe(false);
+  });
 });
 
 describe("ReaderTTSControls TOC synchronization", () => {
