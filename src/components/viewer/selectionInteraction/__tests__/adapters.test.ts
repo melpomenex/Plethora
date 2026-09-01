@@ -124,7 +124,7 @@ describe("selection interaction adapters - paragraph resolution & double-tap", (
     // Second tap
     fireTouchStart(55, 52);
 
-    expect(handlers.onDoubleTap).toHaveBeenCalledWith(p);
+    expect(handlers.onDoubleTap).toHaveBeenCalledWith(p, "double-tap");
     expect(handlers.onSelectionChanged).toHaveBeenCalled();
     expect(window.getSelection()?.toString().trim()).toBe("Tap tap on paragraph");
 
@@ -173,10 +173,26 @@ describe("selection interaction adapters - paragraph resolution & double-tap", (
     // Second tap
     fireTouchStart(42, 41);
 
-    expect(handlers.onDoubleTap).toHaveBeenCalledWith(p);
+    expect(handlers.onDoubleTap).toHaveBeenCalledWith(p, "double-tap");
     expect(handlers.onSelectionChanged).toHaveBeenCalled();
     expect(iframe.contentWindow?.getSelection()?.toString().trim()).toBe("EPUB chapter paragraph text");
 
     detach();
+  });
+
+  it("registers touchstart with passive:false for preventDefault support", () => {
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const handlers: SelectionAdapterHandlers = {
+      onSelectionChanged: vi.fn(),
+      onContentTouchStart: vi.fn(),
+      onContentTouchEnd: vi.fn(),
+      onPointerRelease: vi.fn(),
+      onContentScroll: vi.fn(),
+    };
+    const detach = attachTopDocumentAdapter(handlers);
+    const touchCall = addSpy.mock.calls.find(([type]) => type === "touchstart");
+    expect(touchCall?.[2]).toMatchObject({ capture: true, passive: false });
+    detach();
+    addSpy.mockRestore();
   });
 });

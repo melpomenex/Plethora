@@ -186,7 +186,10 @@ export interface SelectionAdapterHandlers {
    * Double-tap on a paragraph in reader content: flags the next settle's
    * gesture origin as "double-tap" and triggers immediate UI activation.
    */
-  onDoubleTap?: (paragraphElement: HTMLElement) => void;
+  onDoubleTap?: (
+    paragraphElement: HTMLElement,
+    origin?: "double-tap" | "double-click",
+  ) => void;
   /** True when the event target belongs to controller-owned UI. */
   isOwnUi?: (target: EventTarget | null) => boolean;
 }
@@ -234,7 +237,7 @@ export function attachTopDocumentAdapter(
               lastTouchPoint = null;
               handlers.onContentTouchStart(inContent);
               handlers.onSelectionChanged();
-              handlers.onDoubleTap?.(paragraph);
+              handlers.onDoubleTap?.(paragraph, "double-tap");
               return;
             }
           }
@@ -284,14 +287,15 @@ export function attachTopDocumentAdapter(
       const selected = selectParagraphElement(paragraph, document);
       if (selected) {
         handlers.onSelectionChanged();
-        handlers.onDoubleTap?.(paragraph);
+        handlers.onDoubleTap?.(paragraph, "double-click");
       }
     }
     handlers.onDoubleClick?.();
   };
 
   document.addEventListener("selectionchange", handleSelectionChange);
-  document.addEventListener("touchstart", handleTouchStart, { capture: true, passive: true });
+  // passive:false so preventDefault can suppress native double-tap word selection.
+  document.addEventListener("touchstart", handleTouchStart, { capture: true, passive: false });
   document.addEventListener("touchend", handleTouchEnd, { capture: true, passive: true });
   document.addEventListener("touchcancel", handleTouchEnd, { capture: true, passive: true });
   document.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
@@ -354,7 +358,7 @@ export function attachContentDocumentBridge(
               lastBridgeTouchPoint = null;
               handlers.onContentTouchStart(true);
               handlers.onSelectionChanged();
-              handlers.onDoubleTap?.(paragraph);
+              handlers.onDoubleTap?.(paragraph, "double-tap");
               return;
             }
           }
@@ -383,7 +387,7 @@ export function attachContentDocumentBridge(
       const selected = selectParagraphElement(paragraph, doc);
       if (selected) {
         handlers.onSelectionChanged();
-        handlers.onDoubleTap?.(paragraph);
+        handlers.onDoubleTap?.(paragraph, "double-click");
       }
     }
     handlers.onDoubleClick?.();
@@ -401,7 +405,7 @@ export function attachContentDocumentBridge(
   };
 
   doc.addEventListener("selectionchange", handleSelectionChange);
-  doc.addEventListener("touchstart", handleTouchStart, { capture: true, passive: true });
+  doc.addEventListener("touchstart", handleTouchStart, { capture: true, passive: false });
   doc.addEventListener("touchend", handleTouchEnd, { capture: true, passive: true });
   doc.addEventListener("touchcancel", handleTouchEnd, { capture: true, passive: true });
   doc.addEventListener("mouseup", handleMouseUp);

@@ -119,6 +119,9 @@ export interface SelectionInteractionController {
 
 const DEFAULT_BAR_SIZE = { width: 280, height: 48 };
 
+/** Grace window where native word-selection fallout is ignored after double-tap. */
+const DOUBLE_TAP_NATIVE_FALLOUT_MS = 500;
+
 /**
  * Height class of Android's floating selection toolbar (Copy / Select All /
  * Share). Reserved above the selection so the app's bar never lands under
@@ -281,6 +284,83 @@ export function useSelectionInteraction(
     };
   }, []);
 
+  /** Commit-ready capture from a paragraph element (double-tap / double-click). */
+  const buildReadySelectionFromParagraph = useCallback(
+    (
+      paragraph: HTMLElement,
+      origin: GestureOrigin,
+      entry: ContentDocumentEntry | null,
+    ): ReadySelection | null => {
+      const doc = paragraph.ownerDocument;
+      try {
+        const range = doc.createRange();
+        range.selectNodeContents(paragraph);
+        const text = paragraph.textContent?.trim() ?? "";
+        if (!text) return null;
+        const offset = entry?.offset?.() ?? null;
+        const win = doc.defaultView;
+        const selection = win?.getSelection?.() ?? null;
+        const { buildPassage, getReaderContext } = optionsRef.current;
+        return {
+          text,
+          passage: selection
+            ? (buildPassage ?? passageAroundSelection)(selection, text)
+            : text,
+          fingerprint: fingerprintRange(range),
+          selectionContext:
+            (selection && entry?.buildSelectionContext?.(range, selection)) ??
+            liveContextRef.current ??
+            null,
+          geometry: captureSelectionGeometry(range, offset),
+          readerContext: getReaderContext?.() ?? null,
+          intent: resolveSelectionIntent(text),
+          gestureOrigin: origin,
+        };
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  const isDoubleTapNativeFallout = useCallback(
+    (committed: string, liveText: string, gestureAt: number): boolean => {
+      const committedTrim = committed.trim();
+      const liveTrim = liveText.trim();
+      if (!committedTrim || !liveTrim) return false;
+      if (liveTrim.length >= committedTrim.length) return false;
+      if (Date.now() - gestureAt > DOUBLE_TAP_NATIVE_FALLOUT_MS) return false;
+      return committedTrim.includes(liveTrim);
+    },
+    [],
+  );
+
+  const commitParagraphGestureRef = useRef<
+    (paragraph: HTMLElement, origin: GestureOrigin) => void
+  >(() => {});
+  commitParagraphGestureRef.current = (paragraph, origin) => {
+    lastGestureRef.current = { origin, at: Date.now() };
+    touchActiveRef.current = false;
+    deferStartedAtRef.current = 0;
+    clearStableTimer();
+
+    let entry: ContentDocumentEntry | null = null;
+    const doc = paragraph.ownerDocument;
+    for (const e of contentDocsRef.current) {
+      if (e.doc === doc) {
+        entry = e;
+        break;
+      }
+    }
+    const ready = buildReadySelectionFromParagraph(paragraph, origin, entry);
+    if (!ready) {
+      armSettleTimerRef.current(true);
+      return;
+    }
+    apply({ type: "commitReady", selection: ready });
+    setPlacement(computePlacement(ready.geometry));
+  };
+
   /** Timer body: confirm stability, or defer while a finger is still down. */
   const settleTimerFired = useCallback(() => {
     stableTimerRef.current = null;
@@ -350,13 +430,28 @@ export function useSelectionInteraction(
     // Never re-anchor a running/result panel; only the READY bar follows.
     if (state.phase !== "ready" || !state.readySelection) return;
     const live = readLiveSelection();
-    if (!live || live.fingerprint !== state.readySelection.fingerprint) {
+    if (
+      !live ||
+      live.fingerprint !== state.readySelection.fingerprint
+    ) {
+      if (
+        live &&
+        (state.readySelection.gestureOrigin === "double-tap" ||
+          state.readySelection.gestureOrigin === "double-click") &&
+        isDoubleTapNativeFallout(
+          state.readySelection.text,
+          live.text,
+          lastGestureRef.current.at,
+        )
+      ) {
+        return;
+      }
       // Anchored to a dead geometry: dismiss rather than misposition.
       apply({ type: "dismiss" });
       return;
     }
     setPlacement(computePlacement(captureSelectionGeometry(live.range, live.offset)));
-  }, [apply, computePlacement, readLiveSelection]);
+  }, [apply, computePlacement, isDoubleTapNativeFallout, readLiveSelection]);
 
   const scheduleRevalidate = useCallback(() => {
     if (rafRef.current !== null) return;
@@ -386,7 +481,25 @@ export function useSelectionInteraction(
     const gate = createScrollDismissGate();
     const handlers: SelectionAdapterHandlers = {
       onSelectionChanged: () => {
+        const state = machineRef.current;
         const live = readLiveSelection();
+        if (
+          state.phase === "ready" &&
+          state.readySelection &&
+          (state.readySelection.gestureOrigin === "double-tap" ||
+            state.readySelection.gestureOrigin === "double-click") &&
+          live
+        ) {
+          if (
+            isDoubleTapNativeFallout(
+              state.readySelection.text,
+              live.text,
+              lastGestureRef.current.at,
+            )
+          ) {
+            return;
+          }
+        }
         if (!live) {
           apply({ type: "selectionChanged", fingerprint: null, hasText: false });
           return;
@@ -426,15 +539,12 @@ export function useSelectionInteraction(
         if (phase === "settling" || phase === "selecting") armSettleTimer(true);
       },
       onDoubleClick: () => {
-        // Fires after the second pointerup: the most-recent-gesture rule makes
-        // the word selected by this double-click settle as "double-click" (the
-        // only desktop origin that auto-opens the dictionary peek).
         lastGestureRef.current = { origin: "double-click", at: Date.now() };
-        armSettleTimer(true);
+        const phase = machineRef.current.phase;
+        if (phase === "settling" || phase === "selecting") armSettleTimer(true);
       },
-      onDoubleTap: () => {
-        lastGestureRef.current = { origin: "double-tap", at: Date.now() };
-        armSettleTimer(true);
+      onDoubleTap: (paragraph, origin = "double-tap") => {
+        commitParagraphGestureRef.current(paragraph, origin);
       },
       onContentScroll: (target, top, left) => {
         scheduleRevalidate(); // reposition at most once per frame…
@@ -480,7 +590,7 @@ export function useSelectionInteraction(
       touchActiveRef.current = false;
       deferStartedAtRef.current = 0;
     };
-  }, [enabled, apply, armSettleTimer, clearStableTimer, readLiveSelection, scheduleRevalidate]);
+  }, [enabled, apply, armSettleTimer, clearStableTimer, isDoubleTapNativeFallout, readLiveSelection, scheduleRevalidate]);
 
   const registerContentDocument = useCallback((entry: ContentDocumentEntry) => {
     contentDocsRef.current.add(entry);

@@ -523,11 +523,54 @@ describe("useSelectionInteraction", () => {
       touchEnd(para);
     });
 
-    advanceSettle();
-
     expect(result.current.phase).toBe("ready");
     expect(result.current.readySelection?.text).toBe(para.textContent?.trim());
     expect(result.current.readySelection?.gestureOrigin).toBe("double-tap");
     expect(onReady).toHaveBeenCalled();
+  });
+
+  it("native word-selection fallout after double-tap does not demote committed paragraph", () => {
+    const { para } = makeContent("Full paragraph text for sequential actions");
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "markdown", documentId: "d1", enabled: true }),
+    );
+
+    const makeTouch = (clientX = 50, clientY = 50) => ({
+      clientX,
+      clientY,
+      identifier: 1,
+      target: para,
+    });
+
+    const fireTouchStart = (x: number, y: number) => {
+      const event = new Event("touchstart", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", {
+        value: [makeTouch(x, y)],
+      });
+      para.dispatchEvent(event);
+    };
+
+    act(() => {
+      fireTouchStart(50, 50);
+      touchEnd(para);
+      vi.advanceTimersByTime(100);
+      fireTouchStart(52, 51);
+      touchEnd(para);
+    });
+
+    expect(result.current.readySelection?.text).toBe(para.textContent?.trim());
+
+    // Simulate native double-tap word selection collapsing live DOM to one word.
+    act(() => {
+      const text = para.textContent ?? "";
+      const wordStart = text.indexOf("Full");
+      selectText(para, wordStart, wordStart + 4);
+    });
+
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.readySelection?.text).toBe(para.textContent?.trim());
+
+    const captured = result.current.captureForAction();
+    expect(captured?.text).toBe(para.textContent?.trim());
   });
 });
