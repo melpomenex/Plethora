@@ -153,9 +153,13 @@ browser_extension/
 !browser_extension/
 browser_extension/*
 !browser_extension/shared.js
+!browser_extension/youtubeSaveHelpers.js
+!browser_extension/content.js
+!browser_extension/manifest.json
 !browser_extension/tests/
 browser_extension/tests/*
 !browser_extension/tests/shared.test.cjs
+!browser_extension/tests/youtube-save-button.test.cjs
 
 scratch/
 .playwright/

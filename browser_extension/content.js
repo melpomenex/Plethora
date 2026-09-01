@@ -2920,24 +2920,35 @@
       return;
     }
 
-    function createYouTubeSaveButton() {
-      const existingButton = document.getElementById('plethora-youtube-save-btn');
-      if (existingButton) {
-        existingButton.remove();
-      }
+    const ytHelpers = typeof PlethoraYouTubeSaveHelpers !== 'undefined'
+      ? PlethoraYouTubeSaveHelpers
+      : {
+          BUTTON_ID: 'plethora-youtube-save-btn',
+          isWatchPagePath: (p) => p.startsWith('/watch'),
+          getWatchMetadataRoot: (doc) => doc.querySelector('ytd-watch-metadata'),
+          getWatchActionsContainer: (metadata) =>
+            metadata?.querySelector('#actions-inner, #actions, #top-level-buttons') ?? null,
+          getWatchTitleElement: (metadata) =>
+            metadata?.querySelector('#title h1 yt-formatted-string, h1 yt-formatted-string') ?? null,
+          isValidButtonPlacement: (btn, metadata, actions) =>
+            btn?.isConnected && metadata?.contains(btn) && actions?.contains(btn),
+          needsSaveButtonInjection: () => true,
+        };
 
-      // Wait for the video title and actions to load
-      const titleElement = document.querySelector('#title h1 yt-formatted-string, #container h1 yt-formatted-string');
-      const actionsContainer = document.querySelector('#actions, #top-level-buttons, #menu-container');
-      
-      if (!titleElement || !actionsContainer) {
-        // Retry after a short delay
-        setTimeout(createYouTubeSaveButton, 1000);
-        return;
-      }
+    let ensureScheduled = false;
 
+    function cleanupStaleYouTubeSaveButton() {
+      const btn = document.getElementById(ytHelpers.BUTTON_ID);
+      if (!btn) return;
+      const metadata = ytHelpers.getWatchMetadataRoot(document);
+      if (!ytHelpers.isWatchPagePath(window.location.pathname) || !metadata?.contains(btn)) {
+        btn.remove();
+      }
+    }
+
+    function buildYouTubeSaveButton() {
       const saveButton = document.createElement('button');
-      saveButton.id = 'plethora-youtube-save-btn';
+      saveButton.id = ytHelpers.BUTTON_ID;
       saveButton.innerHTML = `
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>
@@ -3192,29 +3203,71 @@
             }, 2000);
         }
       });
-      
-      // Insert the button in the actions container
-      // Try different insertion points depending on YouTube layout
+
+      return saveButton;
+    }
+
+    function insertYouTubeSaveButton(saveButton, actionsContainer) {
       const likeButton = actionsContainer.querySelector('button[aria-label*="like"], button[title*="like"], #like-button');
       const shareButton = actionsContainer.querySelector('button[aria-label*="Share"], button[title*="Share"], #share-button');
-      
+
       if (likeButton && likeButton.parentNode) {
-        // Insert after like button
         likeButton.parentNode.insertBefore(saveButton, likeButton.nextSibling);
       } else if (shareButton && shareButton.parentNode) {
-        // Insert after share button
         shareButton.parentNode.insertBefore(saveButton, shareButton.nextSibling);
       } else {
-        // Fallback: append to actions container
         actionsContainer.appendChild(saveButton);
       }
     }
 
+    function ensureYouTubeSaveButton() {
+      const pathname = window.location.pathname;
+      if (!ytHelpers.isWatchPagePath(pathname)) {
+        cleanupStaleYouTubeSaveButton();
+        return;
+      }
+
+      const metadata = ytHelpers.getWatchMetadataRoot(document);
+      const actionsContainer = ytHelpers.getWatchActionsContainer(metadata);
+      const titleElement = ytHelpers.getWatchTitleElement(metadata);
+
+      if (!metadata || !actionsContainer || !titleElement) {
+        return;
+      }
+
+      const existing = document.getElementById(ytHelpers.BUTTON_ID);
+      if (existing && ytHelpers.isValidButtonPlacement(existing, metadata, actionsContainer)) {
+        return;
+      }
+
+      if (existing) {
+        existing.remove();
+      }
+
+      const saveButton = buildYouTubeSaveButton();
+      insertYouTubeSaveButton(saveButton, actionsContainer);
+    }
+
+    function scheduleEnsureYouTubeSaveButton() {
+      if (ensureScheduled) return;
+      ensureScheduled = true;
+      requestAnimationFrame(() => {
+        ensureScheduled = false;
+        ensureYouTubeSaveButton();
+      });
+    }
+
     // Function to extract YouTube video data
     function getYouTubeVideoData() {
-      const titleElement = document.querySelector('#title h1 yt-formatted-string, #container h1 yt-formatted-string');
-      const channelElement = document.querySelector('#channel-name a, #owner-name a, .ytd-channel-name a');
-      const descriptionElement = document.querySelector('#description, #meta-contents, .ytd-video-secondary-info-renderer');
+      const metadata = ytHelpers.getWatchMetadataRoot(document);
+      const titleElement = ytHelpers.getWatchTitleElement(metadata) ||
+        document.querySelector('#title h1 yt-formatted-string, #container h1 yt-formatted-string');
+      const channelElement = metadata
+        ? metadata.querySelector('#channel-name a, #owner-name a, .ytd-channel-name a')
+        : document.querySelector('#channel-name a, #owner-name a, .ytd-channel-name a');
+      const descriptionElement = metadata
+        ? metadata.querySelector('#description, #meta-contents')
+        : document.querySelector('#description, #meta-contents, .ytd-video-secondary-info-renderer');
       
       return {
         title: titleElement ? titleElement.textContent.trim() : document.title,
@@ -3226,30 +3279,21 @@
     }
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', createYouTubeSaveButton);
+      document.addEventListener('DOMContentLoaded', scheduleEnsureYouTubeSaveButton);
     } else {
-      createYouTubeSaveButton();
+      scheduleEnsureYouTubeSaveButton();
     }
 
-    // Re-create button when navigating between YouTube videos (SPA navigation)
-    let lastUrl = window.location.href;
     const observer = new MutationObserver(() => {
-      if (window.location.href !== lastUrl) {
-        lastUrl = window.location.href;
-        // Delay to allow page content to load
-        setTimeout(createYouTubeSaveButton, 1500);
-      }
+      scheduleEnsureYouTubeSaveButton();
     });
 
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
     });
 
-    // Also listen for YouTube's navigation events
-    window.addEventListener('yt-navigate-finish', () => {
-      setTimeout(createYouTubeSaveButton, 1000);
-    });
+    window.addEventListener('yt-navigate-finish', scheduleEnsureYouTubeSaveButton);
 
     // Add CSS for spinning animation
     if (!document.getElementById('plethora-youtube-styles')) {
