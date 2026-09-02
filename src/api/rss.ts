@@ -21,7 +21,7 @@ function isCommandMissingError(err: unknown): boolean {
   return /command\s+\S+\s+not\s+found/i.test(msg) || /not\s+registered/i.test(msg);
 }
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>

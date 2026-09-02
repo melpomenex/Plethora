@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { importOPML } from "../rss";
+import { importOPML, mapWithConcurrency, Feed } from "../rss";
 
 // Mock generateFeedId to avoid calling generateFeedId dependency
 vi.mock("../rss", async (importOriginal) => {
@@ -96,4 +96,105 @@ describe("OPML Import Parser Tests", () => {
     expect(importOPML("<<<garbage>>>")).toEqual([]);
   });
 });
+
+describe("OPML Concurrency and Import Hydration", () => {
+  it("executes tasks with bounded concurrency and preserves order", async () => {
+    let running = 0;
+    let maxRunning = 0;
+    const items = [10, 20, 30, 40, 50, 60];
+
+    const results = await mapWithConcurrency(items, 3, async (item) => {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      running--;
+      return item * 2;
+    });
+
+    expect(maxRunning).toBeLessThanOrEqual(3);
+    expect(results).toEqual([20, 40, 60, 80, 100, 120]);
+  });
+
+  it("handles individual task errors gracefully during concurrent mapping", async () => {
+    const feeds = [
+      { id: "1", feedUrl: "https://good1.com/rss", title: "Good 1" },
+      { id: "2", feedUrl: "https://bad.com/rss", title: "Bad" },
+      { id: "3", feedUrl: "https://good2.com/rss", title: "Good 2" },
+    ];
+
+    const results = await mapWithConcurrency(feeds, 2, async (feed) => {
+      try {
+        if (feed.id === "2") {
+          throw new Error("Network timeout");
+        }
+        return { success: true, feedId: feed.id };
+      } catch {
+        return { success: false, feedId: feed.id };
+      }
+    });
+
+    expect(results).toEqual([
+      { success: true, feedId: "1" },
+      { success: false, feedId: "2" },
+      { success: true, feedId: "3" },
+    ]);
+  });
+
+  it("registers initial feeds immediately in Phase 1 before article fetching in Phase 2", async () => {
+    const opmlXml = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <body>
+    <outline text="Tech" title="Tech">
+      <outline type="rss" text="Feed Alpha" title="Feed Alpha" xmlUrl="https://alpha.com/rss"/>
+      <outline type="rss" text="Feed Beta" title="Feed Beta" xmlUrl="https://beta.com/rss"/>
+    </outline>
+  </body>
+</opml>`;
+
+    const parsedFeeds = importOPML(opmlXml);
+    expect(parsedFeeds.length).toBe(2);
+
+    // Simulated Phase 1: immediate feed registration
+    const registeredStore: Feed[] = [];
+    const syncFeed = vi.fn(async (feed: Feed) => {
+      registeredStore.push({ ...feed, items: [] });
+    });
+
+    await Promise.all(parsedFeeds.map((feed) => syncFeed(feed)));
+
+    // Feeds are immediately present in the store before any remote articles are fetched
+    expect(syncFeed).toHaveBeenCalledTimes(2);
+    expect(registeredStore.length).toBe(2);
+    expect(registeredStore.map((f) => f.feedUrl)).toEqual([
+      "https://alpha.com/rss",
+      "https://beta.com/rss",
+    ]);
+
+    // Simulated Phase 2: background article fetching
+    const fetchArticles = vi.fn(async (url: string) => {
+      if (url === "https://beta.com/rss") {
+        throw new Error("Temporary network glitch");
+      }
+      return [{ id: "art-1", title: "Article 1" }];
+    });
+
+    const results = await mapWithConcurrency(registeredStore, 2, async (feed) => {
+      try {
+        const articles = await fetchArticles(feed.feedUrl);
+        feed.items = articles as any;
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    // Alpha succeeded, Beta failed to fetch articles but remains registered
+    expect(results).toEqual([true, false]);
+    expect(registeredStore[0].items.length).toBe(1);
+    expect(registeredStore[1].items.length).toBe(0);
+    // Crucially, both feeds remain registered and visible
+    expect(registeredStore.length).toBe(2);
+  });
+});
+
 

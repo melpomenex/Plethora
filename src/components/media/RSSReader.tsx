@@ -57,6 +57,7 @@ import {
   type RssUserPreference,
   cleanupOldRssArticlesAuto,
   getFeedIcon,
+  mapWithConcurrency,
 } from "../../api/rss";
 import { type ScrollFeedScope, ALL_FEEDS_SCOPE, feedsScope } from "../../api/rss-scroll-scope";
 import {
@@ -81,6 +82,7 @@ import { useI18n } from "../../lib/i18n";
 import { isTauri, openExternal } from "../../lib/tauri";
 import { sanitizeHtml } from "../common/RichContentRenderer";
 import { useMobileShell } from "../../hooks/useMobileShell";
+import { useToast } from "../common/Toast";
 import { IntelligenceIndicator } from "./IntelligenceIndicator";
 import { TrainingMenu } from "./TrainingMenu";
 import { KeyboardShortcutProvider } from "./KeyboardShortcutProvider";
@@ -115,6 +117,7 @@ const DEFAULT_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 export function RSSReader() {
   const { t } = useI18n();
+  const toast = useToast();
   const { settings } = useSettingsStore();
   // Only refresh feeds while this tab is the active, foreground tab — background
   // tabs stay mounted (display:none) so without this the 5-min network refresh
@@ -1195,7 +1198,7 @@ export function RSSReader() {
         content = await file.text();
       } catch (readErr) {
         console.error("[RSS] Failed to read OPML file:", readErr);
-        alert(t("rssReader.importOpmlError"));
+        toast.error(t("rssReader.importOpmlError"));
         return;
       }
 
@@ -1207,7 +1210,7 @@ export function RSSReader() {
         count = result.count;
       } catch (parseErr) {
         console.error("[RSS] OPML parse failed:", parseErr);
-        alert(t("rssReader.importOpmlError"));
+        toast.error(t("rssReader.importOpmlError"));
         return;
       }
 
@@ -1215,38 +1218,23 @@ export function RSSReader() {
         // The file was read but no feeds could be parsed out of it — most often
         // a malformed/non-OPML file. Tell the user rather than reporting a
         // misleading "Imported 0 feeds successfully".
-        alert(t("rssReader.importOpmlEmpty"));
+        toast.error(t("rssReader.importOpmlEmpty"));
         return;
       }
 
-      // Sync each feed; never let one feed's failure abort the rest or skip the
-      // final summary. fetch failures fall back to the metadata from the OPML.
+      // Phase 1: Immediate feed subscription & UI hydration.
+      // Register all feeds to storage immediately so they become visible
+      // in the sidebar and dashboard right away without waiting on network fetches.
       if (isTauri()) {
-        let synced = 0;
-        for (const feed of importedFeeds) {
-          try {
-            const updated = await fetchFeed(feed.feedUrl);
-            if (updated) {
-              const merged = {
-                ...updated,
-                category: feed.category ?? updated.category,
-              };
-              await syncFeedToTauri(merged);
-            } else {
-              await syncFeedToTauri(feed);
-            }
-            synced++;
-          } catch (error) {
-            console.warn("Failed to sync feed during OPML import:", feed.feedUrl, error);
+        await Promise.all(
+          importedFeeds.map(async (feed) => {
             try {
               await syncFeedToTauri(feed);
-              synced++;
             } catch (syncErr) {
-              console.warn("Feed could not be synced from OPML metadata:", feed.feedUrl, syncErr);
+              console.warn("Feed could not be registered from OPML metadata:", feed.feedUrl, syncErr);
             }
-          }
-        }
-        count = synced;
+          })
+        );
       } else {
         for (const feed of importedFeeds) {
           try {
@@ -1257,12 +1245,66 @@ export function RSSReader() {
         }
       }
 
+      // Immediately refresh feeds so the user sees the imported subscriptions in the UI
       try {
         await loadFeeds();
       } catch (loadErr) {
         console.warn("[RSS] loadFeeds after OPML import failed:", loadErr);
       }
-      alert(t("rssReader.importOpmlSuccess", { count }));
+
+      // Show immediate in-app toast feedback for the imported subscriptions
+      toast.success(t("rssReader.importOpmlSuccess", { count }));
+
+      // Phase 2: Background Concurrent Article Synchronization
+      // Fetch latest articles for the imported feeds using bounded concurrency (4 parallel workers)
+      // while providing visual feedback in the UI.
+      if (importedFeeds.length > 0) {
+        setIsAutoRefreshing(true);
+        setSyncFeedback("syncing");
+
+        (async () => {
+          let hadFeedErrors = false;
+          try {
+            const syncOneFeed = async (feed: Feed): Promise<boolean> => {
+              try {
+                const updated = await fetchFeed(feed.feedUrl);
+                if (updated) {
+                  const merged = {
+                    ...updated,
+                    category: feed.category ?? updated.category,
+                  };
+                  if (isTauri()) {
+                    await syncFeedToTauri(merged);
+                  } else {
+                    subscribeToFeed(merged);
+                  }
+                }
+                return true;
+              } catch (error) {
+                console.warn("Failed to sync feed during OPML background sync:", feed.feedUrl, error);
+                return false;
+              }
+            };
+
+            const results = await mapWithConcurrency(importedFeeds, 4, syncOneFeed);
+            if (results.some((ok) => !ok)) {
+              hadFeedErrors = true;
+            }
+
+            // Reload feeds to update article lists and unread badges
+            await loadFeeds();
+            setLastAutoRefresh(new Date());
+            setSyncFeedback(hadFeedErrors ? "error" : "success");
+            scheduleSyncFeedbackReset(hadFeedErrors ? 5000 : 3500);
+          } catch (syncErr) {
+            console.error("[RSS] OPML background article sync failed:", syncErr);
+            setSyncFeedback("error");
+            scheduleSyncFeedbackReset(5000);
+          } finally {
+            setIsAutoRefreshing(false);
+          }
+        })();
+      }
     };
     input.click();
   };
