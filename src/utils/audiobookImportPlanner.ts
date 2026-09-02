@@ -17,9 +17,20 @@
  *     evidence (a shared base title with per-file numbering).
  */
 
-import { detectMultiPartAudiobook } from "./audiobookMultipart";
+import {
+  detectMultiPartAudiobook,
+  parseTitleFromName,
+  chapterTitleFromFileName,
+  formatDisplayChapterTitle,
+} from "./audiobookMultipart";
 import { isAudiobookFile } from "./audioFormats";
 import { baseNameOf, naturalCompare, stripExtension } from "./naturalSort";
+
+export {
+  parseTitleFromName,
+  chapterTitleFromFileName,
+  formatDisplayChapterTitle,
+};
 
 export interface PlannerStagedFile {
   path: string;
@@ -68,24 +79,6 @@ function lastSegment(dir: string): string {
 function parentDirectory(dir: string): string {
   const idx = dir.lastIndexOf("/");
   return idx === -1 ? "" : dir.slice(0, idx);
-}
-
-/** Derive a display title/author from a directory or folder name
- * ("Tolkien - The Hobbit" → author "Tolkien", title "The Hobbit"). */
-function parseTitleFromName(name: string): { title: string; author?: string } {
-  const cleaned = name
-    .replace(/\s*\((?:unabridged|abridged|audiobook)\)\s*$/i, "")
-    .replace(/^[\s._-]+|[\s._-]+$/g, "")
-    .replace(/[_]+/g, " ")
-    .trim();
-  if (!cleaned) return { title: "Audiobook" };
-  const parts = cleaned.split(" - ");
-  if (parts.length >= 2) {
-    const author = parts[0].trim();
-    const title = parts.slice(1).join(" - ").trim();
-    if (author && title) return { title, author };
-  }
-  return { title: cleaned };
 }
 
 /** Best-effort common directory prefix of the paths (always "/"-terminated). */
@@ -241,22 +234,4 @@ export function planAudiobookImports(
   audiobooks.sort((a, b) => naturalCompare(a.title, b.title));
 
   return { audiobooks, standalonePaths: collectStandalone(demoted) };
-}
-
-/**
- * Derive a chapter title candidate from a file name: strip the extension and
- * obvious numbering ("004 - The Troll.mp3" → "The Troll", "Title - 03.mp3" →
- * "Title"). Trailing bare numbers are preserved — "Catch 22" is a title, not
- * a track number.
- */
-export function chapterTitleFromFileName(fileName: string): string {
-  const base = stripExtension(baseNameOf(fileName));
-  const stripped = base
-    // Leading track number with optional separator: "01 - Title", "001 Title".
-    .replace(/^\s*\d+\s*(?:[-–—:._]\s*)?/, "")
-    // Trailing part number behind an explicit separator: "Title - 03".
-    .replace(/\s*[-–—:._]\s*\d+$/, "")
-    .replace(/^[\s._-]+|[\s._-]+$/g, "")
-    .trim();
-  return stripped || base.trim();
 }

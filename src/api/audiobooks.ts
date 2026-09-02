@@ -121,6 +121,7 @@ export interface MultipartPartInput {
   path: string;
   fileName?: string;
   relativePath?: string;
+  title?: string;
 }
 
 export interface MultipartImportOptions {

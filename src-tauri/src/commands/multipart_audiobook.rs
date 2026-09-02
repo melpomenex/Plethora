@@ -30,6 +30,8 @@ pub struct MultipartPartInput {
     pub file_name: Option<String>,
     #[serde(default)]
     pub relative_path: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -584,10 +586,16 @@ fn build_sections(edition_id: &str, planned: &[PlannedPart], fingerprint: &str) 
         .map(|(index, part)| {
             let name = display_name(&part.input);
             let title = part
-                .probe
+                .input
                 .title
                 .clone()
                 .filter(|t| !t.trim().is_empty())
+                .or_else(|| {
+                    part.probe
+                        .title
+                        .clone()
+                        .filter(|t| !t.trim().is_empty())
+                })
                 .unwrap_or_else(|| {
                     let derived = chapter_title_from_file_name(&name);
                     if derived.is_empty() {
@@ -675,5 +683,93 @@ mod tests {
         assert_eq!(audio_mime_for("book.m4b"), "audio/mp4");
         assert_eq!(audio_mime_for("track.flac"), "audio/flac");
         assert_eq!(audio_mime_for("weird.xyz"), "audio/mpeg");
+    }
+
+    #[test]
+    fn build_sections_prioritizes_user_title_over_tag_and_filename() {
+        let planned = vec![
+            PlannedPart {
+                input: MultipartPartInput {
+                    path: "/tmp/01.mp3".into(),
+                    file_name: Some("01 - Intro.mp3".into()),
+                    relative_path: None,
+                    title: Some("Custom User Chapter Title".into()),
+                },
+                probe: AudioMetadataProbe {
+                    title: Some("Tag Title".into()),
+                    album: None,
+                    artist: None,
+                    album_artist: None,
+                    track_number: Some(1),
+                    disc_number: Some(1),
+                    duration_sec: Some(10.0),
+                },
+                staged_path: "/tmp/staged_01.mp3".into(),
+                identity: "id1".into(),
+            },
+            PlannedPart {
+                input: MultipartPartInput {
+                    path: "/tmp/02.mp3".into(),
+                    file_name: Some("02 - Chapter Two.mp3".into()),
+                    relative_path: None,
+                    title: None,
+                },
+                probe: AudioMetadataProbe {
+                    title: Some("Tag Chapter Two".into()),
+                    album: None,
+                    artist: None,
+                    album_artist: None,
+                    track_number: Some(2),
+                    disc_number: Some(1),
+                    duration_sec: Some(20.0),
+                },
+                staged_path: "/tmp/staged_02.mp3".into(),
+                identity: "id2".into(),
+            },
+            PlannedPart {
+                input: MultipartPartInput {
+                    path: "/tmp/03.mp3".into(),
+                    file_name: Some("03 - Derived From File.mp3".into()),
+                    relative_path: None,
+                    title: None,
+                },
+                probe: AudioMetadataProbe {
+                    title: None,
+                    album: None,
+                    artist: None,
+                    album_artist: None,
+                    track_number: Some(3),
+                    disc_number: Some(1),
+                    duration_sec: Some(30.0),
+                },
+                staged_path: "/tmp/staged_03.mp3".into(),
+                identity: "id3".into(),
+            },
+            PlannedPart {
+                input: MultipartPartInput {
+                    path: "".into(),
+                    file_name: Some("".into()),
+                    relative_path: None,
+                    title: None,
+                },
+                probe: AudioMetadataProbe {
+                    title: None,
+                    album: None,
+                    artist: None,
+                    album_artist: None,
+                    track_number: None,
+                    disc_number: None,
+                    duration_sec: None,
+                },
+                staged_path: "/tmp/staged_bare.mp3".into(),
+                identity: "id4".into(),
+            },
+        ];
+
+        let sections = build_sections("edition-1", &planned, "fp-1");
+        assert_eq!(sections[0].title, "Custom User Chapter Title");
+        assert_eq!(sections[1].title, "Tag Chapter Two");
+        assert_eq!(sections[2].title, "Derived From File");
+        assert_eq!(sections[3].title, "Chapter 4");
     }
 }

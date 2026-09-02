@@ -8,7 +8,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Bookmark,
   CaretLeft,
   CaretRight,
@@ -26,6 +28,7 @@ import {
   SpeakerHigh,
   Stack,
   TextT,
+  Trash,
   Translate,
   Upload,
   User,
@@ -55,6 +58,8 @@ import {
   MultiPartAudiobook,
   importMultipartAudiobook,
 } from "../../api/audiobooks";
+import { formatDisplayChapterTitle, inferDirectoryTitle } from "../../utils/audiobookMultipart";
+import { planAudiobookImports } from "../../utils/audiobookImportPlanner";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
@@ -79,6 +84,15 @@ interface BatchItem {
   selectedCover?: string;
   transcript?: AudiobookTranscript | null;
   error?: string;
+}
+
+export interface ChapterItem {
+  id: string;
+  path: string;
+  fileName: string;
+  title: string;
+  duration?: number;
+  partNumber: number;
 }
 
 type ImportMode = "single" | "batch";
@@ -116,9 +130,8 @@ export function AudiobookImportDialog({
   const [multiPartBook, setMultiPartBook] = useState<MultiPartAudiobook | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [showAllParts, setShowAllParts] = useState(false);
+  const [chaptersList, setChaptersList] = useState<ChapterItem[]>([]);
 
-
-  
   // Audio preview state
   const audioRef = useRef<HTMLAudioElement>(null);
   const [, setIsPlaying] = useState(false);
@@ -149,6 +162,7 @@ export function AudiobookImportDialog({
       setMultiPartBook(null);
       setSelectedFiles([]);
       setShowAllParts(false);
+      setChaptersList([]);
 
       setError(null);
       setSearchQuery("");
@@ -171,6 +185,123 @@ export function AudiobookImportDialog({
       return () => document.removeEventListener("keydown", handleEscape);
     }
   }, [isOpen, onClose]);
+
+  const probeChapterDurations = async (items: ChapterItem[]) => {
+    if (!isTauri() || onMobile) return;
+    try {
+      const updated = [...items];
+      let totalSec = 0;
+      let hasChanges = false;
+      for (let i = 0; i < updated.length; i++) {
+        try {
+          const probed = await parseAudiobookMetadata(updated[i].path);
+          if (probed.duration && probed.duration > 0) {
+            updated[i] = { ...updated[i], duration: probed.duration };
+            totalSec += probed.duration;
+            hasChanges = true;
+          }
+          if (probed.title && probed.title.trim() && !updated[i].title.startsWith("Chapter ")) {
+            updated[i] = { ...updated[i], title: probed.title.trim() };
+            hasChanges = true;
+          }
+        } catch {
+          // continue on probe error
+        }
+      }
+      if (hasChanges) {
+        setChaptersList([...updated]);
+        if (totalSec > 0) {
+          setMetadata((prev) => ({ ...prev, duration: totalSec }));
+        }
+      }
+    } catch (err) {
+      console.warn("[AudiobookImport] Failed to probe chapter durations", err);
+    }
+  };
+
+  const handleChapterTitleChange = (id: string, newTitle: string) => {
+    setChaptersList((prev) =>
+      prev.map((ch) => (ch.id === id ? { ...ch, title: newTitle } : ch))
+    );
+  };
+
+  const handleMoveChapter = (index: number, direction: "up" | "down") => {
+    setChaptersList((prev) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const [moved] = copy.splice(index, 1);
+      copy.splice(targetIndex, 0, moved);
+      return copy.map((ch, i) => ({ ...ch, partNumber: i + 1 }));
+    });
+  };
+
+  const handleRemoveChapter = (id: string) => {
+    setChaptersList((prev) => {
+      const filtered = prev.filter((ch) => ch.id !== id).map((ch, i) => ({ ...ch, partNumber: i + 1 }));
+      const totalDur = filtered.reduce((acc, ch) => acc + (ch.duration || 0), 0);
+      setMetadata((m) => ({ ...m, duration: totalDur }));
+      return filtered;
+    });
+  };
+
+  const handleModeToggle = async (mode: ImportMode) => {
+    if (mode === importMode) return;
+    if (mode === "batch") {
+      setImportMode("batch");
+      setCurrentStep("metadata");
+      if (chaptersList.length > 0) {
+        const items: BatchItem[] = chaptersList.map((ch, idx) => ({
+          id: `item-${idx}`,
+          filePath: ch.path,
+          fileName: ch.fileName,
+          status: "ready",
+          metadata: {
+            title: ch.title,
+            author: metadata.author,
+            duration: ch.duration,
+          },
+        }));
+        setBatchItems(items);
+        await loadBatchMetadata(items);
+      }
+    } else {
+      setImportMode("single");
+      setCurrentStep("metadata");
+      if (batchItems.length > 0) {
+        const parts = batchItems.map((b, idx) => ({
+          filePath: b.filePath,
+          partNumber: idx + 1,
+          duration: b.metadata?.duration,
+          chapterTitle: b.metadata?.title || formatDisplayChapterTitle(b.fileName, idx),
+        }));
+        const allPaths = batchItems.map((b) => b.filePath);
+        const inferred = inferDirectoryTitle(allPaths);
+        const combinedBook: MultiPartAudiobook = {
+          title: metadata.title || inferred?.title || "Audiobook",
+          author: metadata.author || inferred?.author,
+          parts,
+          totalDuration: parts.reduce((acc, p) => acc + (p.duration || 0), 0),
+        };
+        setMultiPartBook(combinedBook);
+        setSelectedFiles(allPaths);
+        const chList: ChapterItem[] = parts.map((p, idx) => ({
+          id: `chapter-${idx}-${p.filePath}`,
+          path: p.filePath,
+          fileName: batchItems[idx]?.fileName || p.filePath.split(/[/\\]/).pop() || `Part ${idx + 1}`,
+          title: p.chapterTitle || `Chapter ${idx + 1}`,
+          duration: p.duration,
+          partNumber: idx + 1,
+        }));
+        setChaptersList(chList);
+        setMetadata({
+          title: combinedBook.title,
+          author: combinedBook.author,
+          duration: combinedBook.totalDuration,
+        });
+      }
+    }
+  };
 
   // Handle file selection (single or multiple)
   const handleFileSelect = async () => {
@@ -203,37 +334,39 @@ export function AudiobookImportDialog({
 
       if (files.length > 1) {
         const detectedMultiPart = detectMultiPartAudiobook(files);
+        const inferred = inferDirectoryTitle(files);
+        const bookTitle = detectedMultiPart?.title || inferred?.title || "Audiobook";
+        const bookAuthor = detectedMultiPart?.author || inferred?.author;
 
-        if (detectedMultiPart) {
-          setSelectedFiles(files);
-          setMultiPartBook(detectedMultiPart);
+        const initialChapters: ChapterItem[] = files.map((filePath, index) => {
+          const fileName = onMobile && stagedItems[index]
+            ? stagedItems[index].fileName
+            : filePath.split(/[/\\]/).pop() || filePath;
+          const detectedPart = detectedMultiPart?.parts.find((p) => p.filePath === filePath);
+          return {
+            id: `chapter-${index}-${filePath}`,
+            path: filePath,
+            fileName,
+            title: detectedPart?.chapterTitle || formatDisplayChapterTitle(fileName, index),
+            duration: detectedPart?.duration,
+            partNumber: index + 1,
+          };
+        });
 
-          setMetadata({
-            title: detectedMultiPart.title,
-            author: detectedMultiPart.author,
-            duration: 0,
-          });
+        setSelectedFiles(files);
+        setChaptersList(initialChapters);
+        setMultiPartBook(detectedMultiPart || {
+          title: bookTitle,
+          author: bookAuthor,
+          parts: initialChapters.map((c) => ({
+            filePath: c.path,
+            partNumber: c.partNumber,
+            chapterTitle: c.title,
+          })),
+          totalDuration: 0,
+        });
 
-          const [embeddedCover, covers, metaResults] = await Promise.all([
-            extractAudioCoverArt(files[0]),
-            searchAudiobookCover(detectedMultiPart.title, detectedMultiPart.author),
-            searchAudiobookMetadata(detectedMultiPart.title, detectedMultiPart.author),
-          ]);
-
-          const allCovers = embeddedCover ? [embeddedCover, ...covers] : covers;
-          setCoverOptions(allCovers);
-          setSearchResults(metaResults);
-          if (allCovers.length > 0) setSelectedCover(allCovers[0]);
-          if (metaResults.length > 0) {
-            setMetadata(prev => ({ ...prev, ...metaResults[0] }));
-          }
-
-          setImportMode("single");
-          setCurrentStep("metadata");
-          showSuccess("Multi-part book detected", `${files.length} parts found for "${detectedMultiPart.title}"`);
-          return;
-        }
-
+        // Also prepare batch items in case user toggles to separate audiobooks
         const items: BatchItem[] = files.map((filePath, index) => {
           const fileName = onMobile && stagedItems[index]
             ? stagedItems[index].fileName
@@ -245,10 +378,32 @@ export function AudiobookImportDialog({
             status: "pending",
           };
         });
-
         setBatchItems(items);
-        setImportMode("batch");
-        await loadBatchMetadata(items);
+
+        setMetadata({
+          title: bookTitle,
+          author: bookAuthor,
+          duration: 0,
+        });
+
+        const [embeddedCover, covers, metaResults] = await Promise.all([
+          extractAudioCoverArt(files[0]),
+          searchAudiobookCover(bookTitle, bookAuthor),
+          searchAudiobookMetadata(bookTitle, bookAuthor),
+        ]);
+
+        const allCovers = embeddedCover ? [embeddedCover, ...covers] : covers;
+        setCoverOptions(allCovers);
+        setSearchResults(metaResults);
+        if (allCovers.length > 0) setSelectedCover(allCovers[0]);
+        if (metaResults.length > 0) {
+          setMetadata((prev) => ({ ...prev, ...metaResults[0] }));
+        }
+
+        setImportMode("single");
+        setCurrentStep("metadata");
+        void probeChapterDurations(initialChapters);
+        showSuccess("Audiobook tracks ready", `${files.length} parts combined for "${bookTitle}"`);
         return;
       }
 
@@ -259,16 +414,13 @@ export function AudiobookImportDialog({
     }
   };
 
-  // Handle directory selection for batch import. Uses the folder-import plugin
-  // (pickFolderDocuments), which works on desktop AND native mobile: on mobile
-  // it shows the system folder picker (SAF / document picker) and stages chosen
-  // files into app-private storage with readable filesystem paths. In pure
-  // browser/PWA (no Tauri backend) it's unavailable.
+  // Handle directory selection for batch/combined import. Uses the folder-import plugin
+  // (pickFolderDocuments), which works on desktop AND native mobile.
   const handleDirectorySelect = async () => {
     if (!folderImportAvailable) {
       showInfo(
         "Directory import not available",
-        "In the web app, please use 'Single File' mode and select multiple files to import them as a batch."
+        "In the web app, please use 'Single File' mode and select multiple files to import them."
       );
       return;
     }
@@ -277,9 +429,6 @@ export function AudiobookImportDialog({
     setError(null);
 
     try {
-      // pickFolderDocuments returns staged readable paths for every supported
-      // file in the picked folder (recursive). On mobile the files are copied
-      // into app-private storage so the path-based import pipeline can read them.
       let staged: Awaited<ReturnType<typeof pickFolderDocuments>> = [];
       try {
         staged = await pickFolderDocuments(AUDIOBOOK_FORMATS);
@@ -303,54 +452,81 @@ export function AudiobookImportDialog({
 
       const audiobookFiles = staged.map((s) => s.path);
 
-      // Try to detect multi-part audiobook
+      // Semantic planning: inspect folder structure
+      const plan = planAudiobookImports(staged, { rootIsPickedFolder: true });
       const detectedMultiPart = detectMultiPartAudiobook(audiobookFiles);
 
-      if (detectedMultiPart) {
-        setSelectedFiles(audiobookFiles);
-        setMultiPartBook(detectedMultiPart);
-        setImportMode("single");
+      // By default in the Audiobook dialog, a picked directory forms a unified audiobook
+      const targetBookPlan = plan.audiobooks[0];
+      const inferred = inferDirectoryTitle(audiobookFiles);
+      const bookTitle = targetBookPlan?.title || detectedMultiPart?.title || inferred?.title || "Audiobook";
+      const bookAuthor = targetBookPlan?.author || detectedMultiPart?.author || inferred?.author;
 
-        setMetadata({
-          title: detectedMultiPart.title,
-          author: detectedMultiPart.author,
-          duration: detectedMultiPart.totalDuration,
-        });
+      const filesToUse = targetBookPlan
+        ? targetBookPlan.files.map((f) => f.path)
+        : audiobookFiles;
 
-        const [embeddedCover, covers, metaResults] = await Promise.all([
-          extractAudioCoverArt(audiobookFiles[0]),
-          searchAudiobookCover(detectedMultiPart.title, detectedMultiPart.author),
-          searchAudiobookMetadata(detectedMultiPart.title, detectedMultiPart.author),
-        ]);
+      const initialChapters: ChapterItem[] = filesToUse.map((path, idx) => {
+        const stagedItem = staged.find((s) => s.path === path);
+        const fileName = stagedItem?.fileName || path.split(/[/\\]/).pop() || `Part ${idx + 1}`;
+        const detectedPart = detectedMultiPart?.parts.find((p) => p.filePath === path);
+        return {
+          id: `chapter-${idx}-${path}`,
+          path,
+          fileName,
+          title: detectedPart?.chapterTitle || formatDisplayChapterTitle(fileName, idx),
+          duration: detectedPart?.duration,
+          partNumber: idx + 1,
+        };
+      });
 
-        const allCovers = embeddedCover ? [embeddedCover, ...covers] : covers;
-        setCoverOptions(allCovers);
-        setSearchResults(metaResults);
-        if (allCovers.length > 0) setSelectedCover(allCovers[0]);
-        if (metaResults.length > 0) {
-          setMetadata(prev => ({ ...prev, ...metaResults[0] }));
-        }
+      setSelectedFiles(filesToUse);
+      setChaptersList(initialChapters);
+      setMultiPartBook(detectedMultiPart || {
+        title: bookTitle,
+        author: bookAuthor,
+        parts: initialChapters.map((c) => ({
+          filePath: c.path,
+          partNumber: c.partNumber,
+          chapterTitle: c.title,
+        })),
+        totalDuration: 0,
+      });
 
-        setCurrentStep("metadata");
-        showSuccess("Multi-part book detected", `${audiobookFiles.length} parts found for "${detectedMultiPart.title}"`);
-        return;
-      }
-
-      // Not a multi-part book — import as batch
-      setImportMode("batch");
-
+      // Prepare batch items in case user switches mode to separate audiobooks
       const items: BatchItem[] = staged.map((s, index) => ({
         id: `item-${index}`,
         filePath: s.path,
         fileName: s.fileName,
         status: "pending",
       }));
-
       setBatchItems(items);
-      setImportProgress({ current: 0, total: items.length });
 
-      await loadBatchMetadata(items);
+      setMetadata({
+        title: bookTitle,
+        author: bookAuthor,
+        duration: 0,
+      });
 
+      const [embeddedCover, covers, metaResults] = await Promise.all([
+        extractAudioCoverArt(filesToUse[0]),
+        searchAudiobookCover(bookTitle, bookAuthor),
+        searchAudiobookMetadata(bookTitle, bookAuthor),
+      ]);
+
+      const allCovers = embeddedCover ? [embeddedCover, ...covers] : covers;
+      setCoverOptions(allCovers);
+      setSearchResults(metaResults);
+      if (allCovers.length > 0) setSelectedCover(allCovers[0]);
+      if (metaResults.length > 0) {
+        setMetadata((prev) => ({ ...prev, ...metaResults[0] }));
+      }
+
+      setImportMode("single");
+      setCurrentStep("metadata");
+      void probeChapterDurations(initialChapters);
+      showSuccess("Audiobook folder ready", `${filesToUse.length} parts combined for "${bookTitle}"`);
+      return;
     } catch (err) {
       console.error("[AudiobookImport] Directory selection error:", err);
       setError(err instanceof Error ? err.message : "Failed to open directory");
@@ -646,14 +822,21 @@ export function AudiobookImportDialog({
     try {
       let doc: Document;
 
-      if (multiPartBook && selectedFiles.length > 0) {
-        // One logical book: ONE document + one imported Audio Edition + one
-        // ready section per physical file, staged atomically Rust-side. No
-        // legacy localStorage `multiPart` record — the edition playlist owns
-        // playback. (A transcript record is still written WITHOUT multiPart so
-        // an in-dialog transcription stays usable.)
+      if (multiPartBook && (chaptersList.length > 0 || selectedFiles.length > 0)) {
+        const partsToImport = chaptersList.length > 0
+          ? chaptersList.map((ch) => ({
+              path: ch.path,
+              fileName: ch.fileName,
+              title: ch.title,
+            }))
+          : selectedFiles.map((path, idx) => ({
+              path,
+              fileName: path.split(/[/\\]/).pop() || `Part ${idx + 1}`,
+              title: formatDisplayChapterTitle(path, idx),
+            }));
+
         const result = await importMultipartAudiobook({
-          files: selectedFiles.map((path) => ({ path })),
+          files: partsToImport,
           title: metadata.title || multiPartBook.title,
           author: metadata.author || multiPartBook.author,
           fallbackTitle: multiPartBook.title,
@@ -667,15 +850,40 @@ export function AudiobookImportDialog({
           await loadDocuments();
         }
 
-        if (transcript?.fullText) {
-          const audiobookData = {
-            documentId: doc.id,
-            chapters: [] as AudiobookChapter[],
-            transcript,
-            metadata,
+        // Calculate and persist cumulative chapter timeline
+        let cumulativeTime = 0;
+        const effectiveList = chaptersList.length > 0
+          ? chaptersList
+          : partsToImport.map((p, i) => ({
+              id: `chapter-${i}`,
+              path: p.path,
+              fileName: p.fileName,
+              title: p.title,
+              duration: 0,
+              partNumber: i + 1,
+            }));
+
+        const calculatedChapters: AudiobookChapter[] = effectiveList.map((ch, idx) => {
+          const start = cumulativeTime;
+          const dur = ch.duration || 0;
+          cumulativeTime += dur;
+          return {
+            id: idx + 1,
+            title: ch.title || `Chapter ${idx + 1}`,
+            startTime: start,
+            endTime: cumulativeTime,
+            duration: dur,
           };
-          localStorage.setItem(`audiobook-${doc.id}`, JSON.stringify(audiobookData));
-        }
+        });
+
+        const audiobookData = {
+          documentId: doc.id,
+          chapters: calculatedChapters,
+          transcript,
+          metadata,
+        };
+        localStorage.setItem(`audiobook-${doc.id}`, JSON.stringify(audiobookData));
+        setChapters(calculatedChapters);
       } else {
         const imported = await importFromFiles([filePath]);
         if (imported.length === 0) throw new Error("Failed to import audiobook");
@@ -903,12 +1111,42 @@ export function AudiobookImportDialog({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {(batchItems.length > 1 || (multiPartBook && chaptersList.length > 1)) && currentStep !== "select" && (
+              <div className="flex items-center rounded-lg border border-border bg-muted/60 p-1 text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => void handleModeToggle("single")}
+                  className={cn(
+                    "rounded-md px-3 py-1 transition-colors",
+                    importMode === "single"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Combine into single book
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleModeToggle("batch")}
+                  className={cn(
+                    "rounded-md px-3 py-1 transition-colors",
+                    importMode === "batch"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Separate audiobooks
+                </button>
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* Progress Steps - only show for single mode */}
@@ -1361,6 +1599,84 @@ export function AudiobookImportDialog({
                       </div>
                     </div>
                   )}
+
+                  {/* Multi-part Chapter Review */}
+                  {multiPartBook && chaptersList.length > 0 && (
+                    <div className="rounded-xl border border-border bg-card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <List className="h-4 w-4 text-primary" />
+                          <h4 className="text-sm font-semibold text-foreground">
+                            Chapters & Parts ({chaptersList.length})
+                          </h4>
+                        </div>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          Total: {formatDuration(metadata.duration || chaptersList.reduce((acc, c) => acc + (c.duration || 0), 0))}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Review, edit chapter titles, reorder tracks, or exclude unwanted files before importing.
+                      </p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        {chaptersList.map((ch, idx) => (
+                          <div
+                            key={ch.id}
+                            className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 p-2 text-xs transition-colors"
+                          >
+                            <div className="flex flex-col gap-0.5 text-muted-foreground">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveChapter(idx, "up")}
+                                className="hover:text-foreground disabled:opacity-30 p-0.5 rounded"
+                                title="Move up"
+                              >
+                                <ArrowUp className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === chaptersList.length - 1}
+                                onClick={() => handleMoveChapter(idx, "down")}
+                                className="hover:text-foreground disabled:opacity-30 p-0.5 rounded"
+                                title="Move down"
+                              >
+                                <ArrowDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <span className="w-5 font-mono text-muted-foreground text-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="text"
+                                value={ch.title}
+                                onChange={(e) => handleChapterTitleChange(ch.id, e.target.value)}
+                                placeholder={`Chapter ${idx + 1}`}
+                                className="w-full rounded border border-border/80 bg-background px-2 py-1 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <span className="text-[10px] text-muted-foreground truncate block mt-0.5">
+                                {ch.fileName}
+                              </span>
+                            </div>
+                            {ch.duration ? (
+                              <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                                {formatDuration(ch.duration)}
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveChapter(ch.id)}
+                              disabled={chaptersList.length <= 1}
+                              className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 shrink-0 transition-colors"
+                              title="Exclude track"
+                            >
+                              <Trash className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="mt-6 flex justify-end">
@@ -1582,24 +1898,43 @@ export function AudiobookImportDialog({
                       </div>
                       
                       {multiPartBook && (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          <p className="font-medium mb-1">Parts:</p>
-                          <div className="flex flex-wrap gap-1 items-center">
-                            {(showAllParts ? multiPartBook.parts : multiPartBook.parts.slice(0, 12)).map((part) => (
-                              <span key={part.partNumber} className="bg-muted px-1.5 py-0.5 rounded">
-                                Part {part.partNumber}
-                              </span>
-                            ))}
-                            {multiPartBook.parts.length > 12 && (
-                              <button
-                                type="button"
-                                onClick={() => setShowAllParts(!showAllParts)}
-                                className="text-primary font-medium hover:underline px-1.5 py-0.5 transition-colors"
-                              >
-                                {showAllParts ? "Show less" : `+ ${multiPartBook.parts.length - 12} more`}
-                              </button>
-                            )}
-                          </div>
+                        <div className="mt-2 text-xs text-muted-foreground border-t border-border/60 pt-2">
+                          <p className="font-medium mb-1 text-foreground">
+                            Chapters ({chaptersList.length > 0 ? chaptersList.length : multiPartBook.parts.length}):
+                          </p>
+                          {chaptersList.length > 0 ? (
+                            <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                              {chaptersList.map((ch, idx) => (
+                                <div key={ch.id} className="flex items-center justify-between text-xs py-0.5">
+                                  <span className="truncate flex-1 pr-2 font-medium">
+                                    {idx + 1}. {ch.title}
+                                  </span>
+                                  {ch.duration ? (
+                                    <span className="font-mono text-muted-foreground shrink-0">
+                                      {formatDuration(ch.duration)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1 items-center">
+                              {(showAllParts ? multiPartBook.parts : multiPartBook.parts.slice(0, 12)).map((part) => (
+                                <span key={part.partNumber} className="bg-muted px-1.5 py-0.5 rounded">
+                                  Part {part.partNumber}
+                                </span>
+                              ))}
+                              {multiPartBook.parts.length > 12 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllParts(!showAllParts)}
+                                  className="text-primary font-medium hover:underline px-1.5 py-0.5 transition-colors"
+                                >
+                                  {showAllParts ? "Show less" : `+ ${multiPartBook.parts.length - 12} more`}
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                       
