@@ -686,6 +686,222 @@ pub async fn get_workload_day_details(
     }
 }
 
+/// Capture source buckets for the Dashboard capture-activity widget.
+/// Wire values are kebab-case to match the dashboard-capture-activity spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum CaptureSource {
+    #[serde(rename = "browser-extension")]
+    BrowserExtension,
+    #[serde(rename = "share-target")]
+    ShareTarget,
+    #[serde(rename = "rss")]
+    Rss,
+    #[serde(rename = "manual")]
+    Manual,
+}
+
+/// Per-day capture count (zero-filled across the requested window).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CaptureDayCount {
+    pub date: String,
+    pub count: i64,
+}
+
+/// Total captures for one source across the requested window.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CaptureSourceCount {
+    pub source: CaptureSource,
+    pub count: i64,
+}
+
+/// Aggregated capture activity for the Dashboard widget.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CaptureActivity {
+    pub window_days: i32,
+    pub per_day: Vec<CaptureDayCount>,
+    pub by_source: Vec<CaptureSourceCount>,
+    pub needs_attention: i64,
+}
+
+/// Largest lookback window [`get_capture_activity`] accepts; bounds query cost
+/// regardless of the caller-supplied `days`.
+pub const CAPTURE_ACTIVITY_MAX_WINDOW_DAYS: i32 = 90;
+
+/// Classification priority: explicit capture provenance first, then share
+/// provenance, then source markers, else `manual`. Documents that predate
+/// provenance tracking carry none of these markers and land in `manual` —
+/// they are counted, never dropped.
+///
+/// Persistence facts confirmed when this was wired up:
+/// - Browser-extension saves stamp `metadata.source = "browser_extension"`
+///   and `metadata.captureProvenance.source = "browser_extension"`
+///   (browser_sync_server.rs `build_browser_import_metadata` /
+///   `build_extension_selection_context`).
+/// - Share-target captures stamp `metadata.shareProvenance` (values
+///   `share_extension` | `android_share`) via `mapManifestToProvenance` in
+///   src/lib/shareTarget.ts. The field only survives persistence because
+///   `DocumentMetadata` carries the matching serde field added alongside
+///   this feature; older share documents were stripped by the typed
+///   metadata round-trip and classify as `manual`.
+/// - Queued RSS articles never become documents (`toggle_rss_article_queued`
+///   only flips `rss_articles.is_queued`), so the `rss` bucket stays empty
+///   until an RSS→library import path stamps a marker; such captures fall
+///   through to `manual` (design D3 fallback).
+fn classify_capture(metadata_json: Option<&str>) -> CaptureSource {
+    let Some(meta) = metadata_json.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok()) else {
+        return CaptureSource::Manual;
+    };
+    let Some(obj) = meta.as_object() else {
+        return CaptureSource::Manual;
+    };
+
+    if let Some(provenance_source) = obj
+        .get("captureProvenance")
+        .and_then(|v| v.get("source"))
+        .and_then(|v| v.as_str())
+    {
+        match provenance_source {
+            "browser_extension" => return CaptureSource::BrowserExtension,
+            "share_extension" | "android_share" => return CaptureSource::ShareTarget,
+            _ => {}
+        }
+    }
+    if obj.get("shareProvenance").is_some() {
+        return CaptureSource::ShareTarget;
+    }
+    match obj.get("source").and_then(|v| v.as_str()) {
+        Some("browser_extension") => CaptureSource::BrowserExtension,
+        Some("rss") => CaptureSource::Rss,
+        _ => CaptureSource::Manual,
+    }
+}
+
+fn organization_needs_attention(metadata_json: Option<&str>) -> bool {
+    metadata_json
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .and_then(|meta| {
+            meta.get("organization")
+                .and_then(|org| org.get("status"))
+                .and_then(|status| status.as_str())
+                .map(str::to_owned)
+        })
+        .is_some_and(|status| status == "needs-review" || status == "failed")
+}
+
+/// One `(date_added, metadata)` row pulled from the documents table.
+struct CaptureRow {
+    date_added: chrono::DateTime<chrono::Utc>,
+    metadata: Option<String>,
+}
+
+/// Pure aggregation body of [`get_capture_activity`]: day-bucketing with a
+/// zero-filled series (oldest → newest), per-source totals in fixed order,
+/// and the needs-attention count, all over the window-bounded row set.
+/// Separated from the command so it is unit-testable without a database.
+fn aggregate_capture_activity(
+    rows: &[CaptureRow],
+    window_days: i32,
+    today: chrono::NaiveDate,
+) -> CaptureActivity {
+    let window_days = window_days.clamp(1, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
+    let first_day = today - chrono::Duration::days((window_days - 1).max(0) as i64);
+
+    let mut per_day: Vec<CaptureDayCount> = (0..window_days)
+        .map(|offset| CaptureDayCount {
+            date: (first_day + chrono::Duration::days(offset as i64)).to_string(),
+            count: 0,
+        })
+        .collect();
+    let day_index = |date: chrono::NaiveDate| -> Option<usize> {
+        let offset = (date - first_day).num_days();
+        if offset >= 0 && offset < window_days as i64 {
+            Some(offset as usize)
+        } else {
+            None
+        }
+    };
+
+    let mut source_counts = [0i64; 4];
+    let mut needs_attention: i64 = 0;
+    for row in rows {
+        if let Some(index) = day_index(row.date_added.date_naive()) {
+            per_day[index].count += 1;
+        }
+        let source = classify_capture(row.metadata.as_deref());
+        source_counts[match source {
+            CaptureSource::BrowserExtension => 0,
+            CaptureSource::ShareTarget => 1,
+            CaptureSource::Rss => 2,
+            CaptureSource::Manual => 3,
+        }] += 1;
+        if organization_needs_attention(row.metadata.as_deref()) {
+            needs_attention += 1;
+        }
+    }
+
+    CaptureActivity {
+        window_days,
+        per_day,
+        by_source: vec![
+            CaptureSourceCount { source: CaptureSource::BrowserExtension, count: source_counts[0] },
+            CaptureSourceCount { source: CaptureSource::ShareTarget, count: source_counts[1] },
+            CaptureSourceCount { source: CaptureSource::Rss, count: source_counts[2] },
+            CaptureSourceCount { source: CaptureSource::Manual, count: source_counts[3] },
+        ],
+        needs_attention,
+    }
+}
+
+/// Aggregated capture activity for the Dashboard capture-activity widget:
+/// per-day capture counts (zero-filled), per-source totals, and the count of
+/// captures whose Smart Tagging organization ended in `needs-review` or
+/// `failed`. All figures cover the requested lookback window; `days` is
+/// clamped to [1, 90].
+#[tauri::command]
+pub async fn get_capture_activity(
+    days: Option<i32>,
+    repo: State<'_, Repository>,
+) -> Result<CaptureActivity, String> {
+    capture_activity(repo.pool(), days).await
+}
+
+/// Pure query body of [`get_capture_activity`], separated so the aggregation
+/// is unit-testable without a Tauri app handle.
+async fn capture_activity(
+    pool: &sqlx::SqlitePool,
+    days: Option<i32>,
+) -> Result<CaptureActivity, String> {
+    let window_days = days.unwrap_or(30).clamp(1, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
+    let window_start = (Utc::now().date_naive() - chrono::Duration::days((window_days - 1) as i64))
+        .and_hms_opt(0, 0, 0)
+        .expect("invalid time 0:0:0")
+        .and_utc();
+
+    let rows = sqlx::query(
+        "SELECT date_added, metadata FROM documents WHERE is_archived = 0 AND date_added >= ?",
+    )
+    .bind(window_start)
+    .fetch_all(pool)
+    .await
+    .map_err(|e: sqlx::Error| e.to_string())?;
+
+    let capture_rows: Vec<CaptureRow> = rows
+        .iter()
+        .filter_map(|row| {
+            Some(CaptureRow {
+                date_added: row.try_get("date_added").ok()?,
+                metadata: row.try_get("metadata").ok().flatten(),
+            })
+        })
+        .collect();
+
+    Ok(aggregate_capture_activity(
+        &capture_rows,
+        window_days,
+        Utc::now().date_naive(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,5 +955,213 @@ mod tests {
         assert_eq!(physics.unwrap().card_count, 1);
         assert!(quotes.is_some(), "extract categories keep appearing");
         assert_eq!(quotes.unwrap().card_count, 1);
+    }
+
+    #[test]
+    fn classify_capture_legacy_documents_land_in_manual() {
+        assert_eq!(classify_capture(None), CaptureSource::Manual);
+        assert_eq!(classify_capture(Some("")), CaptureSource::Manual);
+        assert_eq!(classify_capture(Some("not json")), CaptureSource::Manual);
+        // Pre-provenance documents: plain web-import metadata without any
+        // capture marker still counts, as manual.
+        assert_eq!(
+            classify_capture(Some(r#"{"siteName":"example.com"}"#)),
+            CaptureSource::Manual
+        );
+    }
+
+    #[test]
+    fn classify_capture_browser_extension_variants() {
+        // Full-page saves stamp both markers; either is sufficient.
+        assert_eq!(
+            classify_capture(Some(
+                r#"{"source":"browser_extension","captureProvenance":{"source":"browser_extension","itemType":"page"}}"#
+            )),
+            CaptureSource::BrowserExtension
+        );
+        assert_eq!(
+            classify_capture(Some(r#"{"source":"browser_extension"}"#)),
+            CaptureSource::BrowserExtension
+        );
+        assert_eq!(
+            classify_capture(Some(r#"{"captureProvenance":{"source":"browser_extension"}}"#)),
+            CaptureSource::BrowserExtension
+        );
+    }
+
+    #[test]
+    fn classify_capture_share_target_variants() {
+        // Structured provenance from the share pipeline.
+        assert_eq!(
+            classify_capture(Some(r#"{"captureProvenance":{"source":"android_share"}}"#)),
+            CaptureSource::ShareTarget
+        );
+        assert_eq!(
+            classify_capture(Some(r#"{"captureProvenance":{"source":"share_extension"}}"#)),
+            CaptureSource::ShareTarget
+        );
+        // Field alone (e.g. provenance stripped, marker merged by a caller).
+        assert_eq!(
+            classify_capture(Some(r#"{"shareProvenance":{"source":"share_extension"}}"#)),
+            CaptureSource::ShareTarget
+        );
+    }
+
+    #[test]
+    fn classify_capture_rss_marker() {
+        assert_eq!(
+            classify_capture(Some(r#"{"source":"rss"}"#)),
+            CaptureSource::Rss
+        );
+    }
+
+    #[test]
+    fn classify_capture_provenance_wins_over_source_marker() {
+        assert_eq!(
+            classify_capture(Some(
+                r#"{"source":"browser_extension","captureProvenance":{"source":"android_share"}}"#
+            )),
+            CaptureSource::ShareTarget
+        );
+    }
+
+    #[test]
+    fn organization_needs_attention_matches_spec_statuses() {
+        assert!(organization_needs_attention(Some(
+            r#"{"organization":{"status":"needs-review"}}"#
+        )));
+        assert!(organization_needs_attention(Some(
+            r#"{"organization":{"status":"failed"}}"#
+        )));
+        assert!(!organization_needs_attention(Some(
+            r#"{"organization":{"status":"completed"}}"#
+        )));
+        assert!(!organization_needs_attention(Some(r#"{}"#)));
+        assert!(!organization_needs_attention(None));
+    }
+
+    fn capture_row(days_ago: i64, metadata: &str) -> CaptureRow {
+        CaptureRow {
+            date_added: chrono::Utc::now() - chrono::Duration::days(days_ago),
+            metadata: Some(metadata.to_string()),
+        }
+    }
+
+    #[test]
+    fn aggregate_zero_fills_and_buckets_by_day() {
+        let rows = vec![
+            capture_row(0, r#"{"source":"browser_extension"}"#),
+            capture_row(0, r#"{"captureProvenance":{"source":"android_share"}}"#),
+            capture_row(2, r#"{"siteName":"legacy.example.com"}"#),
+        ];
+        let today = chrono::Utc::now().date_naive();
+        let activity = aggregate_capture_activity(&rows, 5, today);
+
+        assert_eq!(activity.window_days, 5);
+        assert_eq!(activity.per_day.len(), 5);
+        // Chronological order: first entry is today-4, last is today.
+        assert_eq!(activity.per_day[4].date, today.to_string());
+        assert_eq!(activity.per_day[4].count, 2);
+        assert_eq!(activity.per_day[3].count, 0);
+        assert_eq!(activity.per_day[2].count, 1);
+
+        let by_source = |source: CaptureSource| {
+            activity
+                .by_source
+                .iter()
+                .find(|s| s.source == source)
+                .map(|s| s.count)
+                .unwrap_or(0)
+        };
+        assert_eq!(by_source(CaptureSource::BrowserExtension), 1);
+        assert_eq!(by_source(CaptureSource::ShareTarget), 1);
+        assert_eq!(by_source(CaptureSource::Rss), 0);
+        assert_eq!(by_source(CaptureSource::Manual), 1);
+        assert_eq!(activity.needs_attention, 0);
+    }
+
+    #[test]
+    fn aggregate_counts_needs_attention_and_clamps_window() {
+        let rows = vec![
+            capture_row(0, r#"{"source":"browser_extension","organization":{"status":"needs-review"}}"#),
+            capture_row(0, r#"{"organization":{"status":"failed"}}"#),
+            capture_row(0, r#"{"organization":{"status":"completed"}}"#),
+        ];
+        let today = chrono::Utc::now().date_naive();
+
+        let activity = aggregate_capture_activity(&rows, 200, today);
+        assert_eq!(activity.window_days, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
+        assert_eq!(activity.per_day.len(), CAPTURE_ACTIVITY_MAX_WINDOW_DAYS as usize);
+        assert_eq!(activity.needs_attention, 2);
+
+        // Below the minimum: one day minimum window.
+        let single = aggregate_capture_activity(&rows, 0, today);
+        assert_eq!(single.window_days, 1);
+        assert_eq!(single.per_day.len(), 1);
+        assert_eq!(single.per_day[0].count, 3);
+    }
+
+    #[test]
+    fn aggregate_excludes_rows_outside_window() {
+        let rows = vec![capture_row(10, r#"{"source":"browser_extension"}"#)];
+        let today = chrono::Utc::now().date_naive();
+        let activity = aggregate_capture_activity(&rows, 7, today);
+        assert_eq!(activity.per_day.iter().map(|d| d.count).sum::<i64>(), 0);
+        // The row is outside the per-day series but still counts toward its
+        // source total (it is a capture within the fetched date window).
+        let extension = activity
+            .by_source
+            .iter()
+            .find(|s| s.source == CaptureSource::BrowserExtension)
+            .unwrap();
+        assert_eq!(extension.count, 1);
+    }
+
+    #[tokio::test]
+    async fn get_capture_activity_reads_documents_table() {
+        let repo = setup_repo().await;
+
+        let mut extension_doc = Document::new(
+            "Extension save".to_string(),
+            "/tmp/ext.html".to_string(),
+            FileType::Html,
+        );
+        extension_doc.metadata = Some(crate::models::DocumentMetadata {
+            source: Some("browser_extension".to_string()),
+            capture_provenance: Some(serde_json::json!({
+                "source": "browser_extension",
+                "itemType": "page",
+                "capturedAt": chrono::Utc::now().to_rfc3339(),
+                "schemaVersion": 1
+            })),
+            ..Default::default()
+        });
+        repo.create_document(&extension_doc).await.expect("doc");
+
+        let mut legacy_doc = Document::new(
+            "Legacy import".to_string(),
+            "/tmp/legacy.pdf".to_string(),
+            FileType::Pdf,
+        );
+        legacy_doc.is_archived = true; // archived documents are excluded
+        repo.create_document(&legacy_doc).await.expect("doc");
+
+        let activity = capture_activity(repo.pool(), Some(30))
+            .await
+            .expect("activity");
+
+        let extension = activity
+            .by_source
+            .iter()
+            .find(|s| s.source == CaptureSource::BrowserExtension)
+            .unwrap();
+        assert_eq!(extension.count, 1);
+        let manual = activity
+            .by_source
+            .iter()
+            .find(|s| s.source == CaptureSource::Manual)
+            .unwrap();
+        assert_eq!(manual.count, 0, "archived documents must be excluded");
+        assert_eq!(activity.needs_attention, 0);
     }
 }

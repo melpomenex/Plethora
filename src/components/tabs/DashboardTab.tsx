@@ -20,8 +20,14 @@ import {
   RSSReader,
   DocumentViewer,
   AudiobooksTab,
+  ImportNeedsReviewTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
+import {
+  getCaptureActivity,
+  type CaptureActivity as CaptureActivityData,
+} from "../../api/capture-activity";
+import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
@@ -67,6 +73,11 @@ export function DashboardTab() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Capture-activity widget state is deliberately independent of the main
+  // stats error so a failed capture query cannot blank the Dashboard.
+  const [captureActivity, setCaptureActivity] = useState<CaptureActivityData | null>(null);
+  const [captureActivityLoading, setCaptureActivityLoading] = useState(true);
+  const [captureActivityError, setCaptureActivityError] = useState<string | null>(null);
   const isActiveTab = useIsActiveTab();
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const startupLoadedForCollection = useRef<string | null>(null);
@@ -92,7 +103,16 @@ export function DashboardTab() {
     });
   }, [activeCollectionId, ensureStartup, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-   
+
+  // Capture activity refreshes on every activation (not gated by the one-shot
+  // startup guard): a link saved via the browser extension since the last
+  // dashboard visit must show up without an app restart.
+  useEffect(() => {
+    if (!isActiveTab) return;
+    void loadCaptureActivity();
+  }, [isActiveTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
 
   const loadStats = async () => {
     try {
@@ -106,6 +126,32 @@ export function DashboardTab() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadCaptureActivity = async () => {
+    try {
+      setCaptureActivityError(null);
+      setCaptureActivityLoading(true);
+      const data = await getCaptureActivity(30);
+      setCaptureActivity(data);
+    } catch (error) {
+      console.error("Failed to load capture activity:", error);
+      setCaptureActivityError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setCaptureActivityLoading(false);
+    }
+  };
+
+  const openImportNeedsReview = () => {
+    addTab({
+      title: "Import Needs Review",
+      icon: null,
+      type: "import-needs-review",
+      content: ImportNeedsReviewTab,
+      closable: true,
+    });
   };
 
   const quickActions: QuickAction[] = [
@@ -437,6 +483,17 @@ export function DashboardTab() {
             </div>
           </SummarySection>
         )}
+
+        {/* Capture Activity Section (card renders its own header) */}
+        <div className="mb-6 md:mb-8">
+          <CaptureActivityCard
+            data={captureActivity}
+            isLoading={captureActivityLoading}
+            error={captureActivityError}
+            onRetry={() => void loadCaptureActivity()}
+            onOpenNeedsReview={openImportNeedsReview}
+          />
+        </div>
 
         {/* Stats Section */}
         <SummarySection title={t("dashboard.progress")}>

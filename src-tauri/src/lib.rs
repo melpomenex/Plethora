@@ -1962,6 +1962,7 @@ pub fn run() {
             commands::save_memory_content,
             commands::update_memory_from_chat,
             commands::get_dashboard_stats,
+            commands::get_capture_activity,
             commands::get_memory_stats,
             commands::get_activity_data,
             commands::get_category_stats,

@@ -191,6 +191,14 @@ pub struct DocumentMetadata {
     /// Structured browser source/item provenance.
     #[serde(default)]
     pub capture_provenance: Option<serde_json::Value>,
+    /// Structured share-target provenance written by the TS share pipeline
+    /// (`mapManifestToProvenance` in src/lib/shareTarget.ts). Kept as raw
+    /// JSON with `#[serde(default)]` so TS-written metadata round-trips
+    /// through this typed struct instead of being silently dropped — the
+    /// Dashboard capture-activity classifier reads it to attribute
+    /// `share-target` captures.
+    #[serde(default)]
+    pub share_provenance: Option<serde_json::Value>,
     /// Async Smart Tagging status, fingerprint, and review state.
     #[serde(default)]
     pub organization: Option<serde_json::Value>,
