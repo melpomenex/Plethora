@@ -133,6 +133,10 @@ import {
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
+import {
+  buildSourceReferenceFromSection,
+  serializeSourceReference,
+} from "../../utils/cardSourceAnchor";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { loadAudiobookSectionCatalog } from "../../features/documentQa/audiobookSectionCatalog";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -3593,6 +3597,21 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 ...(baseInput.interaction_metadata ?? {}),
                 languageProvenance: seed.languageProvenance,
               };
+            }
+
+            // Capture-time provenance: persist the section focus the card was
+            // generated from. Extract-linked cards keep extract anchoring (the
+            // backend ignores the reference when extract_id is present), and
+            // image occlusion cards anchor through their asset instead.
+            if (!baseInput.extract_id && card.sourceContext && card.type !== "image-occlusion") {
+              const reference = buildSourceReferenceFromSection(
+                card.sourceContext,
+                [selectedDocumentText, selectedDocument?.content],
+                selectedDocument?.fileType
+              );
+              if (reference) {
+                baseInput.source_reference = serializeSourceReference(reference);
+              }
             }
 
             if (card.type === "qa" && (!baseInput.question || !baseInput.answer)) {

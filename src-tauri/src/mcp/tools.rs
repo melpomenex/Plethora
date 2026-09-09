@@ -100,7 +100,22 @@ impl MCPToolRegistry {
                 "properties": {
                     "text": {"type": "string", "description": "Text with cloze deletions"},
                     "document_id": {"type": "string", "description": "Associated document ID"},
-                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"}
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"},
+                    "source": {
+                        "type": "object",
+                        "description": "Optional source provenance so the card can navigate back to the originating passage",
+                        "properties": {
+                            "document_id": {"type": "string"},
+                            "excerpt": {"type": "string", "description": "The originating quote (required when source is given)"},
+                            "kind": {"type": "string", "description": "pdf | epub | html | markdown | youtube | audio"},
+                            "page_number": {"type": "integer"},
+                            "scroll_percent": {"type": "number"},
+                            "time_seconds": {"type": "number"},
+                            "segment_id": {"type": "string"},
+                            "section_label": {"type": "string", "description": "e.g. 'Chapter 4 · Memory Systems'"}
+                        },
+                        "required": ["document_id", "excerpt"]
+                    }
                 },
                 "required": ["text"]
             }),
@@ -115,7 +130,22 @@ impl MCPToolRegistry {
                     "question": {"type": "string"},
                     "answer": {"type": "string"},
                     "document_id": {"type": "string"},
-                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"}
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"},
+                    "source": {
+                        "type": "object",
+                        "description": "Optional source provenance so the card can navigate back to the originating passage",
+                        "properties": {
+                            "document_id": {"type": "string"},
+                            "excerpt": {"type": "string", "description": "The originating quote (required when source is given)"},
+                            "kind": {"type": "string", "description": "pdf | epub | html | markdown | youtube | audio"},
+                            "page_number": {"type": "integer"},
+                            "scroll_percent": {"type": "number"},
+                            "time_seconds": {"type": "number"},
+                            "segment_id": {"type": "string"},
+                            "section_label": {"type": "string", "description": "e.g. 'Chapter 4 · Memory Systems'"}
+                        },
+                        "required": ["document_id", "excerpt"]
+                    }
                 },
                 "required": ["question", "answer"]
             }),
@@ -254,9 +284,39 @@ impl MCPToolRegistry {
                                 "question": {"type": "string"},
                                 "answer": {"type": "string"},
                                 "type": {"type": "string"},
-                                "tags": {"type": "array", "items": {"type": "string"}}
+                                "tags": {"type": "array", "items": {"type": "string"}},
+                                "source": {
+                                    "type": "object",
+                                    "description": "Optional per-card source provenance (document_id + excerpt required)",
+                                    "properties": {
+                                        "document_id": {"type": "string"},
+                                        "excerpt": {"type": "string"},
+                                        "kind": {"type": "string"},
+                                        "page_number": {"type": "integer"},
+                                        "scroll_percent": {"type": "number"},
+                                        "time_seconds": {"type": "number"},
+                                        "segment_id": {"type": "string"},
+                                        "section_label": {"type": "string"}
+                                    },
+                                    "required": ["document_id", "excerpt"]
+                                }
                             }
                         }
+                    },
+                    "source": {
+                        "type": "object",
+                        "description": "Optional shared source provenance for every card in the batch",
+                        "properties": {
+                            "document_id": {"type": "string"},
+                            "excerpt": {"type": "string"},
+                            "kind": {"type": "string"},
+                            "page_number": {"type": "integer"},
+                            "scroll_percent": {"type": "number"},
+                            "time_seconds": {"type": "number"},
+                            "segment_id": {"type": "string"},
+                            "section_label": {"type": "string"}
+                        },
+                        "required": ["document_id", "excerpt"]
                     }
                 },
                 "required": ["cards"]
@@ -669,6 +729,7 @@ impl MCPToolRegistry {
         let mut item = LearningItem::new(ItemType::Cloze, text.to_string());
         item.document_id = document_id.map(|s| s.to_string());
         item.cloze_text = Some(text.to_string());
+        item.source_reference = source_reference_from_args(&args);
         if let Some(tags) = tags {
             item.tags = tags
                 .iter()
@@ -723,6 +784,7 @@ impl MCPToolRegistry {
         let mut item = LearningItem::new(ItemType::Qa, question.to_string());
         item.document_id = document_id.map(|s| s.to_string());
         item.answer = Some(answer.to_string());
+        item.source_reference = source_reference_from_args(&args);
         if let Some(tags) = tags {
             item.tags = tags
                 .iter()
@@ -1361,6 +1423,12 @@ impl MCPToolRegistry {
                 item.answer = answer.map(|a| a.to_string());
                 item.document_id = document_id.map(|id| id.to_string());
                 item.tags = merge_batch_card_tags(&shared_tags, card);
+                item.source_reference = card
+                    .get("source")
+                    .and_then(|source| {
+                        source_reference_from_args(&json!({ "source": source }))
+                    })
+                    .or_else(|| source_reference_from_args(&args));
                 if let Some(image_asset_ids) = image_asset_ids {
                     item.image_asset_ids = image_asset_ids
                         .iter()
@@ -1896,6 +1964,54 @@ fn merge_batch_card_tags(shared_tags: &[String], card: &serde_json::Value) -> Ve
         }
     }
     merged
+}
+
+/// Build the serialized `CardSourceReference` provenance envelope from an
+/// optional tool-call `source` argument. Shape:
+/// `{ document_id, excerpt, kind?, page_number?, scroll_percent?,
+///    time_seconds?, segment_id?, section_label? }`.
+/// Returns `None` when the argument is absent or lacks a document id and
+/// excerpt — an absent anchor beats a partial one.
+fn source_reference_from_args(args: &serde_json::Value) -> Option<String> {
+    let source = args.get("source")?.as_object()?;
+    let document_id = source.get("document_id")?.as_str()?.trim();
+    if document_id.is_empty() {
+        return None;
+    }
+    let raw_excerpt = source.get("excerpt").and_then(|v| v.as_str()).unwrap_or("");
+    let excerpt: String = raw_excerpt.trim().chars().take(300).collect();
+    if excerpt.is_empty() {
+        return None;
+    }
+
+    let mut locator = serde_json::Map::new();
+    locator.insert(
+        "kind".into(),
+        json!(source.get("kind").and_then(|v| v.as_str()).unwrap_or("html")),
+    );
+    if let Some(page) = source.get("page_number").and_then(|v| v.as_i64()) {
+        locator.insert("pageNumber".into(), json!(page));
+    }
+    if let Some(percent) = source.get("scroll_percent").and_then(|v| v.as_f64()) {
+        locator.insert("scrollPercent".into(), json!(percent));
+    }
+    if let Some(seconds) = source.get("time_seconds").and_then(|v| v.as_f64()) {
+        locator.insert("timeSeconds".into(), json!(seconds));
+    }
+    if let Some(segment) = source.get("segment_id").and_then(|v| v.as_str()) {
+        locator.insert("segmentId".into(), json!(segment));
+    }
+    locator.insert("textQuote".into(), json!(excerpt));
+
+    let envelope = json!({
+        "version": 1,
+        "document_id": document_id,
+        "locator": locator,
+        "excerpt": excerpt,
+        "section_label": source.get("section_label").and_then(|v| v.as_str()),
+        "captured_at": chrono::Utc::now().to_rfc3339(),
+    });
+    Some(envelope.to_string())
 }
 
 /// Format seconds as MM:SS or HH:MM:SS

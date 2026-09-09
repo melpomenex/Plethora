@@ -715,6 +715,7 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
             .try_get::<i64, _>("priority_explicitly_set")
             .unwrap_or(0)
             != 0,
+        source_reference: row.try_get("source_reference").ok().flatten(),
     })
 }
 

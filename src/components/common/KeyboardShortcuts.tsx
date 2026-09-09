@@ -203,6 +203,13 @@ export const DEFAULT_SHORTCUTS: ShortcutAction[] = [
     category: ShortcutCategory.Review,
     defaultCombo: { key: "s" },
   },
+  {
+    id: "review.viewSource",
+    name: "View Source",
+    description: "Open the document passage the current card came from",
+    category: ShortcutCategory.Review,
+    defaultCombo: { key: "v" },
+  },
 
   // Documents
   {

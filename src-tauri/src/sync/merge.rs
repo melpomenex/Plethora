@@ -1508,4 +1508,141 @@ mod tests {
             "review timestamp ordering, not arrival/HLC, sets current schedule"
         );
     }
+
+    fn provenance_test_item(id: &str, source_reference: Option<String>) -> crate::models::LearningItem {
+        let mut item = crate::models::LearningItem::new(
+            crate::models::ItemType::Flashcard,
+            "What does the hippocampus do?".into(),
+        );
+        item.id = id.into();
+        // document_id stays NULL: the learning_items FK points at documents,
+        // and these tests do not seed one — provenance itself is inert JSON.
+        item.document_id = None;
+        item.answer = Some("Stabilizes and transfers memories".into());
+        item.source_reference = source_reference;
+        item
+    }
+
+    #[test]
+    fn learning_item_payload_round_trips_source_reference() {
+        let reference = r#"{"version":1,"document_id":"doc-1","locator":{"kind":"pdf","pageNumber":42,"textQuote":"hippocampus"},"excerpt":"the hippocampus consolidates","captured_at":"2026-09-08T00:00:00Z"}"#.to_string();
+        let item = provenance_test_item("item-src", Some(reference.clone()));
+
+        let payload = super::super::payload::learning_item_payload(&item).expect("payload");
+        let value: serde_json::Value =
+            serde_json::from_slice(&payload).expect("payload json");
+        assert_eq!(
+            value.get("source_reference").and_then(|v| v.as_str()),
+            Some(reference.as_str()),
+            "create/update payloads must carry the provenance"
+        );
+
+        let decoded: crate::models::LearningItem =
+            serde_json::from_slice(&payload).expect("decode");
+        assert_eq!(decoded.source_reference.as_deref(), Some(reference.as_str()));
+    }
+
+    #[test]
+    fn payload_without_source_reference_decodes_to_none() {
+        // A pre-116 client's payload has no such key; serde's `#[serde(default)]`
+        // must decode it cleanly so remote applies never reject it.
+        let item = provenance_test_item("item-legacy", None);
+        let payload = super::super::payload::learning_item_payload(&item).expect("payload");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&payload).expect("payload json");
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("source_reference");
+        let legacy_payload = serde_json::to_vec(&value).expect("re-encode");
+
+        let decoded: crate::models::LearningItem =
+            serde_json::from_slice(&legacy_payload).expect("decode legacy payload");
+        assert_eq!(decoded.source_reference, None);
+    }
+
+    #[tokio::test]
+    async fn remote_create_payload_persists_source_reference() {
+        let pool = merge_test_pool().await;
+        let reference = r#"{"version":1,"document_id":"doc-remote","locator":{"kind":"html","scrollPercent":31.5,"textQuote":"consolidation"},"excerpt":"memory consolidation happens","section_label":"Chapter 4"}"#.to_string();
+        let item = provenance_test_item("item-src-1", Some(reference));
+        let payload = super::super::payload::learning_item_payload(&item).expect("payload");
+        let record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Create,
+            "3000:0",
+            "remote-device",
+            payload,
+            1,
+        );
+
+        let mut tx = pool.begin().await.expect("begin");
+        apply_remote_record(&mut tx, "local-device", &record)
+            .await
+            .expect("apply create");
+        tx.commit().await.expect("commit");
+
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT source_reference FROM learning_items WHERE id = ?1")
+                .bind(&item.id)
+                .fetch_one(&pool)
+                .await
+                .expect("read source_reference");
+        assert!(
+            stored.is_some(),
+            "upsert INSERT must persist the incoming provenance"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_content_update_preserves_local_source_reference() {
+        let pool = merge_test_pool().await;
+
+        // Local card carries provenance (created here, then updated by a
+        // remote pre-116 client that only knows the content fields).
+        let reference = r#"{"version":1,"document_id":"doc-1","locator":{"kind":"pdf","pageNumber":7,"textQuote":"spacing effect"},"excerpt":"the spacing effect","captured_at":"2026-09-08T00:00:00Z"}"#.to_string();
+        let mut item = provenance_test_item("item-src-2", Some(reference));
+        let mut tx = pool.begin().await.expect("begin");
+        super::super::full_state::upsert_learning_item(&mut tx, &item)
+            .await
+            .expect("seed local");
+        tx.commit().await.expect("commit");
+
+        // Build a legacy remote payload: same shape, field stripped.
+        item.answer = Some("Edited remotely by an old client".into());
+        let payload = super::super::payload::learning_item_payload(&item).expect("payload");
+        let mut value: serde_json::Value = serde_json::from_slice(&payload).expect("json");
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("source_reference");
+        let legacy_payload = serde_json::to_vec(&value).expect("re-encode");
+
+        let record = remote_record(
+            EntityType::LearningItem,
+            &item.id,
+            SyncOperation::Update,
+            "4000:0",
+            "remote-device",
+            legacy_payload,
+            2,
+        );
+        let mut tx = pool.begin().await.expect("begin");
+        apply_remote_record(&mut tx, "local-device", &record)
+            .await
+            .expect("apply legacy update");
+        tx.commit().await.expect("commit");
+
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT source_reference FROM learning_items WHERE id = ?1")
+                .bind(&item.id)
+                .fetch_one(&pool)
+                .await
+                .expect("read source_reference");
+        assert!(
+            stored.is_some(),
+            "a content edit from a pre-116 client must not wipe provenance"
+        );
+    }
 }

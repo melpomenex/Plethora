@@ -343,6 +343,7 @@ impl Repository {
                 .try_get::<i64, _>("priority_explicitly_set")
                 .map(|v| v != 0)
                 .unwrap_or(false),
+            source_reference: row.try_get("source_reference").ok().flatten(),
         })
     }
 
@@ -2955,8 +2956,8 @@ impl Repository {
                 last_review_date, review_count, lapses, state,
                 is_suspended, tags, image_asset_ids, interaction_metadata, memory_state_stability, memory_state_difficulty,
                 algorithm_type, algorithm_state, updated_at,
-                priority_slider, priority_score, priority_explicitly_set
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
+                priority_slider, priority_score, priority_explicitly_set, source_reference
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
             "#,
         )
         .bind(&item.id)
@@ -2990,6 +2991,7 @@ impl Repository {
         .bind(item.priority_slider)
         .bind(priority_score)
         .bind(item.priority_explicitly_set)
+        .bind(&item.source_reference)
         .execute(&mut *tx)
         .await?;
 
@@ -3125,6 +3127,7 @@ impl Repository {
             .bind(item.priority_slider)
             .bind(priority_score)
             .bind(item.priority_explicitly_set)
+            .bind(&item.source_reference)
             .execute(&mut *tx)
             .await?;
 

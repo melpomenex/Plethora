@@ -1,5 +1,6 @@
 import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
+import type { CardSourceReference } from "../types/cardSourceReference";
 
 export interface LearningItem {
   id: string;
@@ -30,6 +31,8 @@ export interface LearningItem {
   };
   algorithm_type?: string;
   algorithm_state?: string;
+  /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
+  source_reference?: string | null;
 }
 
 export interface CreateLearningItemInput {
@@ -43,8 +46,12 @@ export interface CreateLearningItemInput {
   tags?: string[];
   image_asset_ids?: string[];
   interaction_metadata?: LearningItemInteractionMetadata;
+  /** Serialized via `serializeCardSourceReference`; ignored when `extract_id` is set. */
+  source_reference?: string;
   allow_duplicate?: boolean;
 }
+
+export type { CardSourceReference };
 
 export interface DuplicateCandidate {
   id: string;
@@ -168,6 +175,7 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     tags: input.tags,
     imageAssetIds: input.image_asset_ids,
     interactionMetadata: input.interaction_metadata,
+    sourceReference: input.source_reference,
     allowDuplicate: input.allow_duplicate,
   });
   return item;

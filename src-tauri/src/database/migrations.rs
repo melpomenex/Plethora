@@ -4028,6 +4028,15 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE fsrs_implementation_version IS NOT NULL;
         "#,
     ),
+    // Migration 116: flashcard source provenance. Nullable JSON envelope
+    // (`CardSourceReference`) for cards created without an extract; cards
+    // linked to extracts keep anchoring through `extracts.selection_context`.
+    Migration::new(
+        "116_add_learning_item_source_reference",
+        r#"
+        ALTER TABLE learning_items ADD COLUMN source_reference TEXT;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4554,6 +4563,52 @@ mod tests {
     #[test]
     fn test_migrations_defined() {
         assert!(!MIGRATIONS.is_empty(), "Should have at least one migration");
+    }
+
+    #[tokio::test]
+    async fn source_reference_migration_adds_nullable_column_without_touching_rows() {
+        let pool = pool_migrated_up_to("116_add_learning_item_source_reference").await;
+
+        // Seed rows the way a pre-116 installation would have them.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified)
+             VALUES ('doc-1', 'Seeded document', '/tmp/seeded.pdf', 'pdf', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed document");
+
+        sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date)
+             VALUES ('item-1', 'flashcard', 'Seeded question?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed learning item");
+
+        run_migrations(&pool).await.expect("migrations apply");
+
+        // The column exists and is nullable (NULL inserted cleanly).
+        sqlx::query("UPDATE learning_items SET source_reference = NULL WHERE id = 'item-1'")
+            .execute(&pool)
+            .await
+            .expect("null source_reference round-trips");
+
+        // Pre-existing rows are not backfilled.
+        let (source_reference,): (Option<String>,) =
+            sqlx::query_as("SELECT source_reference FROM learning_items WHERE id = 'item-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read learning_items.source_reference");
+        assert_eq!(source_reference, None);
+
+        // And the seeded rows survive.
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM learning_items WHERE id = 'item-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("count seeded row");
+        assert_eq!(count, 1);
     }
 
     #[test]

@@ -74,6 +74,10 @@ import {
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
+import {
+  buildSourceReferenceFromSection,
+  referenceToToolSourceArg,
+} from "../../utils/cardSourceAnchor";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { extractDocumentText, getDocument } from "../../api/documents";
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
@@ -1244,7 +1248,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       }
 
       if (toolCalls.length > 0 && activeConversationKeyRef.current === conversationKeyAtStart) {
-        const results = await executeToolCalls(assistantMessage.id, toolCalls);
+        const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext);
         const confirmation = buildConfirmationMessage(results);
         if (confirmation) {
           const confirmationMessage: Message = {
@@ -1887,11 +1891,33 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     return { cleanedContent, toolCalls };
   };
 
-  const executeToolCalls = async (messageId: string, calls: ToolCall[]) => {
+  const executeToolCalls = async (
+    messageId: string,
+    calls: ToolCall[],
+    sectionSourceContext?: SectionSourceReference,
+  ) => {
     const results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }> = [];
     // Track deck names created in this batch so we can tag subsequent cards with matching tags
     const batchDeckNames: string[] = [];
     const createsCards = calls.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name));
+    // Capture-time provenance: when the request focused a `#` section, resolve
+    // its locator once so every created card can navigate back to it. The
+    // section ranges were computed against the canonical document text.
+    const sourceArgs = sectionSourceContext?.documentId
+      ? await (async () => {
+          try {
+            const doc = await getDocument(sectionSourceContext.documentId!);
+            const reference = buildSourceReferenceFromSection(
+              sectionSourceContext,
+              [doc?.content],
+              doc?.fileType,
+            );
+            return reference ? referenceToToolSourceArg(reference) : undefined;
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
     const resolvedDocumentTitle = createsCards
       ? await resolveDocumentTitleForCards()
       : assistantDocumentTitle;
@@ -1913,6 +1939,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         continue;
       }
       let parameters = normalizeToolParameters(call.name, call.parameters, resolvedDocumentTitle);
+
+      // Attach section provenance to card-creation calls unless the call
+      // already carries its own (per-card source beats the shared one).
+      if (sourceArgs && CARD_CREATION_TOOL_NAMES.has(call.name) && !parameters.source) {
+        parameters = { ...parameters, source: sourceArgs };
+      }
 
       // If this is a card/extract call and we created decks earlier in this batch,
       // ensure the card tags include the deck names so tag-based filtering works.

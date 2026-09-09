@@ -18,7 +18,7 @@
 import { createElement } from "react";
 import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { useDocumentStore } from "../stores/documentStore";
-import type { TabsState } from "../stores/tabsStore";
+import { useTabsStore, type TabsState } from "../stores/tabsStore";
 import { DocumentViewer } from "../components/tabs/TabRegistry";
 import type { Document } from "../types/document";
 import type { ExactSearchHitLocation } from "../types/searchHit";
@@ -26,6 +26,16 @@ import type { ExactSearchHitLocation } from "../types/searchHit";
 export interface OpenDocumentAtLocationOptions {
   highlightQuery?: string;
   initialJump?: ExactSearchHitLocation;
+}
+
+/**
+ * Set on jumps that originate from flashcard review: the reader shows a
+ * "back to flashcard" return affordance and the origin review tab is shielded
+ * from resident-cap eviction for the duration of the round trip.
+ */
+export interface ReviewReturnContext {
+  reviewReturn: boolean;
+  originTabId?: string;
 }
 
 /** Fresh id per navigation — repeated jumps to the same document re-trigger. */
@@ -53,7 +63,8 @@ function fileTypeIcon(fileType: Document["fileType"]) {
 function buildTabPayload(
   doc: Document,
   options: OpenDocumentAtLocationOptions,
-  jumpRequestId: string | undefined
+  jumpRequestId: string | undefined,
+  returnContext?: ReviewReturnContext
 ) {
   return {
     title: doc.title,
@@ -67,6 +78,7 @@ function buildTabPayload(
       initialJump: options.initialJump,
       jumpRequestId,
       autoPlay: options.initialJump?.kind === "youtube" || options.initialJump?.kind === "audio",
+      ...(returnContext?.reviewReturn ? { reviewReturn: true, originTabId: returnContext.originTabId } : {}),
     },
   };
 }
@@ -74,17 +86,41 @@ function buildTabPayload(
 /**
  * Open (or reuse) a `document-viewer` tab for `documentId`, optionally jumping
  * to `options.initialJump` with `options.highlightQuery` applied.
+ *
+ * Reuse-and-retarget: when a tab for the same document already exists, it is
+ * re-targeted (fresh `jumpRequestId` re-triggers the jump/highlight via the
+ * tab-data memo) and focused instead of duplicating the document across tabs.
+ * `returnContext` marks jumps that originated from flashcard review so the
+ * reader can offer the way back.
  */
 export function openDocumentAtLocation(
   documentId: string,
   options: OpenDocumentAtLocationOptions,
-  addTab: TabsState["addTab"]
+  addTab: TabsState["addTab"],
+  returnContext?: ReviewReturnContext
 ): void {
   const doc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
   const jumpRequestId = makeJumpRequestId(Boolean(options.initialJump));
 
   if (doc) {
-    addTab(buildTabPayload(doc, options, jumpRequestId));
+    // Prefer re-targeting an existing tab for this document over stacking a
+    // duplicate (e.g. repeated jumps to a book already open behind review).
+    const workspace = useTabsStore.getState().getWorkspaceTabs();
+    const existing = workspace.find(
+      (entry) => entry.tab.type === "document-viewer" && entry.tab.data?.documentId === documentId
+    );
+    if (existing) {
+      useTabsStore
+        .getState()
+        .updateTab(existing.tab.id, {
+          data: buildTabPayload(doc, options, jumpRequestId, returnContext).data,
+        });
+      if (existing.paneId) {
+        useTabsStore.getState().setActiveTab(existing.paneId, existing.tab.id);
+      }
+      return;
+    }
+    addTab(buildTabPayload(doc, options, jumpRequestId, returnContext));
     return;
   }
 
@@ -92,7 +128,7 @@ export function openDocumentAtLocation(
   void useDocumentStore.getState().loadDocuments().then(() => {
     const freshDoc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
     if (freshDoc) {
-      addTab(buildTabPayload(freshDoc, options, jumpRequestId));
+      addTab(buildTabPayload(freshDoc, options, jumpRequestId, returnContext));
     }
   });
 }

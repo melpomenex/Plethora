@@ -139,13 +139,11 @@ pub async fn get_card_source_context(
     item_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Option<CardSourceContext>> {
-    let item = repo
-        .get_all_learning_items()
-        .await?
-        .into_iter()
-        .find(|i| i.id == item_id);
-
-    let Some(item) = item else { return Ok(None) };
+    // Indexed lookup by primary key — this runs per card render from
+    // ReviewCard, so it must not scan the whole table.
+    let Some(item) = repo.get_learning_item_by_id(&item_id).await? else {
+        return Ok(None);
+    };
 
     // Resolve document.
     let document_id = match item.document_id.as_deref() {
@@ -2444,6 +2442,7 @@ mod tests {
             priority_slider: 50,
             priority_score: 0.0,
             priority_explicitly_set: false,
+            source_reference: None,
         };
 
         // D=0.0 must be coerced away from the degenerate edge bucket.

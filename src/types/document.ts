@@ -358,6 +358,8 @@ export interface LearningItem {
   interactionMetadata?: import("./learningItemInteractions").LearningItemInteractionMetadata;
   imageAssetIds?: string[];
   firstReviewedAt?: string;
+  /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
+  sourceReference?: string | null;
 }
 
 export interface Category {

@@ -282,13 +282,15 @@ pub async fn import_collection_archive(
                 answer, cloze_text, cloze_ranges, difficulty, interval,
                 ease_factor, due_date, date_created, date_modified,
                 last_review_date, review_count, lapses, state,
-                is_suspended, tags, memory_state_stability, memory_state_difficulty
+                is_suspended, tags, memory_state_stability, memory_state_difficulty,
+                source_reference
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5,
                 ?6, ?7, ?8, ?9, ?10,
                 ?11, ?12, ?13, ?14,
                 ?15, ?16, ?17, ?18,
-                ?19, ?20, ?21, ?22
+                ?19, ?20, ?21, ?22,
+                ?23
             )
             "#,
         )
@@ -314,6 +316,7 @@ pub async fn import_collection_archive(
         .bind(&tags_json)
         .bind(stability)
         .bind(difficulty)
+        .bind(&item.source_reference)
         .execute(&mut *tx)
         .await?;
     }
@@ -645,13 +648,15 @@ pub async fn import_collection_archive_merge(
                 answer, cloze_text, cloze_ranges, difficulty, interval,
                 ease_factor, due_date, date_created, date_modified,
                 last_review_date, review_count, lapses, state,
-                is_suspended, tags, memory_state_stability, memory_state_difficulty, collection_id
+                is_suspended, tags, memory_state_stability, memory_state_difficulty, collection_id,
+                source_reference
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5,
                 ?6, ?7, ?8, ?9, ?10,
                 ?11, ?12, ?13, ?14,
                 ?15, ?16, ?17, ?18,
-                ?19, ?20, ?21, ?22, ?23
+                ?19, ?20, ?21, ?22, ?23,
+                ?24
             )"#,
         )
         .bind(new_id)
@@ -677,6 +682,7 @@ pub async fn import_collection_archive_merge(
         .bind(stability)
         .bind(difficulty)
         .bind(&new_collection_id)
+        .bind(&item.source_reference)
         .execute(&mut *tx)
         .await?;
     }
@@ -774,6 +780,7 @@ pub async fn import_collection_archive_merge(
 #[cfg(test)]
 mod arena_archive_tests {
     use super::imported_arena_fields;
+    use super::ArchivePayload;
     use serde_json::json;
 
     #[test]
@@ -805,5 +812,52 @@ mod arena_archive_tests {
         assert_eq!(legacy.schedule_model_id, None);
         assert_eq!(legacy.arena_commit_id, None);
         assert_eq!(legacy.arena_snapshot, None);
+    }
+
+    #[test]
+    fn archive_payload_tolerates_old_and_new_provenance_shapes() {
+        // New archive: provenance survives deserialization untouched (the
+        // import INSERTs persist it — see import_collection_archive).
+        let with_reference = serde_json::json!({
+            "documents": [],
+            "extracts": [],
+            "files": [],
+            "learningItems": [{
+                "id": "item-1", "item_type": "flashcard", "question": "q",
+                "collection_id": "00000000-0000-0000-0000-000000000001",
+                "difficulty": 3, "interval": 0.0, "ease_factor": 2.5,
+                "due_date": "2026-01-02T00:00:00Z",
+                "date_created": "2026-01-01T00:00:00Z",
+                "date_modified": "2026-01-01T00:00:00Z",
+                "review_count": 0, "lapses": 0, "state": "new",
+                "is_suspended": false, "tags": [], "image_asset_ids": [],
+                "algorithm_type": "fsrs",
+                "source_reference": "{\"version\":1,\"document_id\":\"doc-1\",\"locator\":{\"kind\":\"html\",\"scrollPercent\":10.0,\"textQuote\":\"x\"},\"excerpt\":\"x\"}"
+            }]
+        });
+        let payload: ArchivePayload =
+            serde_json::from_value(with_reference).expect("new archive payload");
+        assert!(payload.learning_items[0].source_reference.is_some());
+
+        // Old archive: no such field — must still import cleanly.
+        let old_payload = serde_json::json!({
+            "documents": [],
+            "extracts": [],
+            "files": [],
+            "learningItems": [{
+                "id": "item-2", "item_type": "flashcard", "question": "q",
+                "collection_id": "00000000-0000-0000-0000-000000000001",
+                "difficulty": 3, "interval": 0.0, "ease_factor": 2.5,
+                "due_date": "2026-01-02T00:00:00Z",
+                "date_created": "2026-01-01T00:00:00Z",
+                "date_modified": "2026-01-01T00:00:00Z",
+                "review_count": 0, "lapses": 0, "state": "new",
+                "is_suspended": false, "tags": [], "image_asset_ids": [],
+                "algorithm_type": "fsrs"
+            }]
+        });
+        let payload: ArchivePayload =
+            serde_json::from_value(old_payload).expect("legacy archive payload");
+        assert_eq!(payload.learning_items[0].source_reference, None);
     }
 }

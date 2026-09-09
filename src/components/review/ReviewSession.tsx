@@ -43,6 +43,8 @@ import { FSRSInspector, useFSRSInspector } from "./FSRSInspector";
 import { useToast } from "../common/Toast";
 import { bulkDeleteItems, bulkSuspendItems } from "../../api/queue";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
+import { useTabsStore } from "../../stores/tabsStore";
+import { openCardSource } from "../../utils/cardSourceNavigation";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
@@ -599,6 +601,27 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         return;
       }
 
+      // V: view the source passage the current card came from. Disabled while
+      // an arena grade is pending (that chooser owns the keyboard); degraded
+      // outcomes are announced, never silently ignored.
+      if (lowerKey === "v" && currentCard && !pendingArenaReview) {
+        e.preventDefault();
+        void openCardSource(currentCard, useTabsStore.getState().addTab, {
+          reviewReturn: true,
+        }).then((resolution) => {
+          if (resolution.status === "coarse") {
+            if (resolution.reason === "ambiguous") {
+              toast.info(t("review.source.ambiguous"));
+            } else {
+              toast.info(t("review.source.notLocated"));
+            }
+          } else if (resolution.status === "unavailable") {
+            toast.info(t("review.source.unavailable"));
+          }
+        });
+        return;
+      }
+
       if (mod && lowerKey === "i") {
         e.preventDefault();
         setIsInspectorOpen((prev) => !prev);
@@ -814,7 +837,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   }
 
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto md:overflow-hidden flex flex-col p-4 md:p-6 pb-6">
+    <div
+      ref={containerRef}
+      data-review-session-surface="true"
+      tabIndex={-1}
+      className="h-full overflow-y-auto md:overflow-hidden flex flex-col p-4 md:p-6 pb-6">
       {/* Header */}
       <div className="mb-4 md:mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
         <div className="flex items-center gap-3 w-full md:w-auto">

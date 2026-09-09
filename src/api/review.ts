@@ -325,6 +325,8 @@ export interface LearningItem {
     start_offset?: number;
     end_offset?: number;
   };
+  /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
+  source_reference?: string | null;
 }
 
 export type ReviewRating = 1 | 2 | 3 | 4; // Again, Hard, Good, Easy

@@ -101,6 +101,13 @@ pub struct LearningItem {
     /// from "never set" without a nullable column.
     #[serde(default)]
     pub priority_explicitly_set: bool,
+    /// Flashcard source provenance: serialized `CardSourceReference` JSON
+    /// (document id, locator, originating excerpt, fingerprint) for cards
+    /// created without an extract. `None` for extract-backed cards (they
+    /// anchor through `extracts.selection_context`) and for manual/imported
+    /// cards with no originating source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<String>,
 }
 
 fn default_priority_slider() -> i32 {
@@ -160,6 +167,7 @@ impl LearningItem {
             priority_slider: 50,
             priority_score: 0.0,
             priority_explicitly_set: false,
+            source_reference: None,
         }
     }
 

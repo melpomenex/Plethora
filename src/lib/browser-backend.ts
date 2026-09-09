@@ -2169,6 +2169,11 @@ const commandHandlers: Record<string, CommandHandler> = {
             tags: (args.tags ?? args.tag_list) as string[] | undefined,
             image_asset_ids: (args.imageAssetIds ?? args.image_asset_ids) as string[] | undefined,
             interaction_metadata: (args.interactionMetadata ?? args.interaction_metadata) as Record<string, unknown> | undefined,
+            // Extract linkage is the primary provenance; the serialized
+            // reference only anchors extract-less cards (mirrors the Rust path).
+            source_reference: (args.extractId ?? args.extract_id)
+                ? undefined
+                : ((args.sourceReference ?? args.source_reference) as string | undefined),
         });
         const prerequisiteIds = (args.prerequisiteItemIds || args.prerequisite_item_ids) as string[] | undefined;
         if (Array.isArray(prerequisiteIds) && prerequisiteIds.length > 0) {
@@ -2193,6 +2198,9 @@ const commandHandlers: Record<string, CommandHandler> = {
                 tags: (input.tags ?? input.tag_list) as string[] | undefined,
                 image_asset_ids: (input.imageAssetIds ?? input.image_asset_ids) as string[] | undefined,
                 interaction_metadata: (input.interactionMetadata ?? input.interaction_metadata) as Record<string, unknown> | undefined,
+                source_reference: (input.extractId ?? input.extract_id)
+                    ? undefined
+                    : ((input.sourceReference ?? input.source_reference) as string | undefined),
             }),
         );
         // The card writes are one IndexedDB transaction (all or nothing); the

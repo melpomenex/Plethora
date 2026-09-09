@@ -716,6 +716,8 @@ export interface LearningItem {
     memory_state?: MemoryState;
     algorithm_type?: string;
     algorithm_state?: string;
+    /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
+    source_reference?: string;
     sync_version?: number;
     _deleted?: boolean;
 }

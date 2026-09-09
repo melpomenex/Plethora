@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, typ
 import { createPortal } from "react-dom";
 import {
   ArrowClockwise,
+  ArrowCounterClockwise,
   Brain,
   CaretLeft,
   CaretRight,
@@ -418,6 +419,12 @@ interface DocumentViewerProps {
   listenToEdition?: boolean;
   captureReader?: MarketingSceneApplication["reader"];
   captureCardPreview?: MarketingSceneApplication["cardPreview"];
+  /**
+   * This reader tab was opened from flashcard review ("View source"): shows
+   * the "Back to flashcard" return affordance. The review tab stays mounted
+   * behind this one, so its session state is intact on return.
+   */
+  reviewReturn?: boolean;
 }
 
 type ViewerSearchDirection = "next" | "prev";
@@ -491,6 +498,7 @@ export function DocumentViewer({
   listenToEdition,
   captureReader,
   captureCardPreview,
+  reviewReturn,
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
@@ -849,6 +857,26 @@ export function DocumentViewer({
     if (!pane) return;
     setActiveTab(pane.id, queueScrollTab.id);
   }, [findPaneContainingTab, queueScrollTab, setActiveTab]);
+
+  // "Back to flashcard": the review tab is a singleton that stayed mounted
+  // behind this reader, so activating it restores the session verbatim
+  // (queue position, flipped state, progress counters).
+  const flashcardReturnTab = useMemo(
+    () => tabs.find((tab) => tab.type === "review") ?? null,
+    [tabs]
+  );
+  const returnToFlashcard = useCallback(() => {
+    if (!flashcardReturnTab) return;
+    const pane = findPaneContainingTab(flashcardReturnTab.id);
+    if (!pane) return;
+    setActiveTab(pane.id, flashcardReturnTab.id);
+    // Focus back on the review surface so keyboard users resume grading
+    // without a stray tab stop.
+    requestAnimationFrame(() => {
+      const reviewSurface = document.querySelector('[data-review-session-surface="true"]');
+      if (reviewSurface instanceof HTMLElement) reviewSurface.focus();
+    });
+  }, [findPaneContainingTab, flashcardReturnTab, setActiveTab]);
 
   // Listen for fullscreen changes (for PWA/browser environment)
   useEffect(() => {
@@ -2097,6 +2125,9 @@ export function DocumentViewer({
         document_id: options.documentId,
         content: options.text,
         note: options.context,
+        // Capture the positional anchor while the selection is still live so
+        // cards generated from this extract can navigate back to it.
+        selection_context: selectionContext ?? undefined,
       });
 
       handleAutoGeneration(extract.id, extract.content).catch((err) =>
@@ -2116,7 +2147,7 @@ export function DocumentViewer({
       console.error("Failed to create extract:", error);
       throw error;
     }
-  }, [t, toast, loadExtracts]);
+  }, [t, toast, loadExtracts, selectionContext]);
 
   const handleInlineCloze = useCallback(async (options: { documentId: string; text: string; context?: string }) => {
     try {
@@ -2125,6 +2156,7 @@ export function DocumentViewer({
         content: options.text,
         note: options.context,
         tags: ["cloze"],
+        selection_context: selectionContext ?? undefined,
       });
       await generateLearningItemsFromExtract(extract.id);
       toast.success(t("viewer.clozeCreated"));
@@ -2133,7 +2165,7 @@ export function DocumentViewer({
       console.error("Failed to create cloze:", error);
       throw error;
     }
-  }, [toast, loadExtracts]);
+  }, [toast, loadExtracts, selectionContext]);
 
   useInlineExtraction({
     documentId,
@@ -7433,6 +7465,18 @@ export function DocumentViewer({
                 {isPaletteMode ? "Reader" : "Palette"}
               </button>
             </div>
+          )}
+
+          {/* Back to flashcard (reader opened from review) */}
+          {reviewReturn && flashcardReturnTab && (
+            <button
+              onClick={returnToFlashcard}
+              className="flex flex-shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors min-h-[36px]"
+              title={t("review.source.backToCard")}
+            >
+              <ArrowCounterClockwise className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{t("review.source.backToCard")}</span>
+            </button>
           )}
 
           {/* Markdown Width Controls */}

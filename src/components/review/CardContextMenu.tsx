@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowCounterClockwise,
+  ArrowSquareOut,
   CaretRight,
   Clipboard,
   Copy,
@@ -16,7 +17,10 @@ import {
 import { useI18n } from "../../lib/i18n";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileContextMenuSheet";
+import { useToast } from "../common/Toast";
+import { useTabsStore } from "../../stores/tabsStore";
 import type { LearningItem } from "../../api/learning-items";
+import { openCardSource } from "../../utils/cardSourceNavigation";
 
 interface CardContextMenuProps {
   card: LearningItem;
@@ -112,6 +116,20 @@ export function CardContextMenu({
   const plainQuestion = card.question.replace(/<[^>]*>/g, "").trim();
   const plainAnswer = (card.answer ?? "").replace(/<[^>]*>/g, "").trim();
 
+  // The action appears only when the card carries resolvable provenance
+  // (extract linkage or a stored source anchor) — never as a dead entry.
+  const hasSource = Boolean(card.extract_id || card.source_reference);
+  const toast = useToast();
+  const handleViewSource = useCallback(() => {
+    void openCardSource(card, useTabsStore.getState().addTab).then((resolution) => {
+      if (resolution.status === "unavailable") {
+        toast.info(t("review.source.unavailable"));
+      } else if (resolution.status === "coarse" && resolution.reason !== "no-anchor") {
+        toast.info(t("review.source.notLocated"));
+      }
+    });
+  }, [card, toast, t]);
+
   // ---- Mobile: bottom-sheet presentation ----
   // The full-screen scrim makes "tap anywhere to close" robust (the core UX
   // fix). Submenus that are hover-flyouts on desktop ("Move to Deck", "Set
@@ -158,6 +176,12 @@ export function CardContextMenu({
               <Eye className="h-4 w-4 text-muted-foreground" />
               {t("cardContextMenu.preview")}
             </button>
+            {hasSource && (
+              <button className={mobileSheetItemClass} onClick={() => handleAction(handleViewSource)}>
+                <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />
+                {t("review.viewSource")}
+              </button>
+            )}
             <div className="h-px bg-border my-1" />
             {card.is_suspended ? (
               <button className={mobileSheetItemClass} onClick={() => handleAction(() => onUnsuspend(card.id))}>
@@ -294,6 +318,17 @@ export function CardContextMenu({
         <Eye className="h-3.5 w-3.5 text-muted-foreground" />
         {t("cardContextMenu.preview")}
       </button>
+
+      {/* View source (only when provenance resolves) */}
+      {hasSource && (
+        <button
+          onClick={() => handleAction(handleViewSource)}
+          className="w-full px-3 py-1.5 text-left text-sm hover:bg-muted hover:text-foreground flex items-center gap-2"
+        >
+          <ArrowSquareOut className="h-3.5 w-3.5 text-muted-foreground" />
+          {t("review.viewSource")}
+        </button>
+      )}
 
       <div className="my-1 border-t border-border" />
 

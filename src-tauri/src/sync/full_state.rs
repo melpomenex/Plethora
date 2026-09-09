@@ -470,7 +470,7 @@ pub async fn upsert_learning_item(
             is_suspended, tags, image_asset_ids, interaction_metadata,
             memory_state_stability, memory_state_difficulty,
             algorithm_type, algorithm_state, updated_at, first_reviewed_at,
-            priority_slider, priority_score, priority_explicitly_set
+            priority_slider, priority_score, priority_explicitly_set, source_reference
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6,
             ?7, ?8, ?9, ?10, ?11,
@@ -479,7 +479,8 @@ pub async fn upsert_learning_item(
             ?20, ?21, ?22, ?23,
             ?24, ?25,
             ?26, ?27, ?28, ?29,
-            ?30, ?31, ?32
+            ?30, ?31, ?32,
+            ?33
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
@@ -511,7 +512,11 @@ pub async fn upsert_learning_item(
             first_reviewed_at = excluded.first_reviewed_at,
             priority_slider = excluded.priority_slider,
             priority_score = excluded.priority_score,
-            priority_explicitly_set = excluded.priority_explicitly_set
+            priority_explicitly_set = excluded.priority_explicitly_set,
+            -- Provenance is written once at creation and never deliberately
+            -- cleared, so a payload from a client that predates the field
+            -- (decoded as NULL) must not wipe an existing anchor.
+            source_reference = COALESCE(excluded.source_reference, learning_items.source_reference)
         "#,
     )
     .bind(&item.id)
@@ -552,6 +557,7 @@ pub async fn upsert_learning_item(
     .bind(item.priority_slider)
     .bind(item.priority_score)
     .bind(item.priority_explicitly_set)
+    .bind(&item.source_reference)
     .execute(&mut **tx)
     .await?;
 
@@ -835,8 +841,11 @@ pub async fn apply_learning_item_groups(
             UPDATE learning_items SET
                 extract_id = ?1, document_id = ?2, item_type = ?3,
                 question = ?4, answer = ?5, cloze_text = ?6, cloze_ranges = ?7,
-                date_modified = MAX(date_modified, ?8)
-            WHERE id = ?9
+                date_modified = MAX(date_modified, ?8),
+                -- Same never-wipe rule as the upsert: a pre-116 client's
+                -- content edit carries no provenance and must not clear one.
+                source_reference = COALESCE(?9, source_reference)
+            WHERE id = ?10
             "#,
         )
         .bind(extract_id)
@@ -847,6 +856,7 @@ pub async fn apply_learning_item_groups(
         .bind(&item.cloze_text)
         .bind(cloze_ranges)
         .bind(item.date_modified)
+        .bind(&item.source_reference)
         .bind(&item.id)
         .execute(&mut **tx)
         .await?;

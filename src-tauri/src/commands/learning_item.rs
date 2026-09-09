@@ -239,6 +239,11 @@ pub async fn create_learning_item(
     tags: Option<Vec<String>>,
     image_asset_ids: Option<Vec<String>>,
     interaction_metadata: Option<serde_json::Value>,
+    // Serialized `CardSourceReference` JSON — flashcard provenance captured
+    // at creation time (document, locator, excerpt, fingerprint). Ignored
+    // (stored as-is) when the card links to an extract, whose selection
+    // context remains the authoritative anchor.
+    source_reference: Option<String>,
     allow_duplicate: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
@@ -268,6 +273,11 @@ pub async fn create_learning_item(
     item.tags = tags.unwrap_or_default();
     item.image_asset_ids = image_asset_ids.unwrap_or_default();
     item.interaction_metadata = interaction_metadata;
+    // Extract linkage is the primary provenance; only anchor extract-less
+    // cards so the two paths never disagree about where a card came from.
+    if extract_id.is_none() {
+        item.source_reference = source_reference;
+    }
 
     // If an extract lineage was recorded but no document_id was supplied,
     // resolve the document from the extract so the element_tree edge and the
@@ -309,6 +319,8 @@ pub struct CreateLearningItemBatchEntry {
     pub image_asset_ids: Option<Vec<String>>,
     #[serde(rename = "interaction_metadata")]
     pub interaction_metadata: Option<serde_json::Value>,
+    #[serde(rename = "source_reference")]
+    pub source_reference: Option<String>,
 }
 
 /// Create several cards in one transaction (all or none), reporting the whole
@@ -336,6 +348,11 @@ pub async fn create_learning_items_batch(
         item.tags = entry.tags.unwrap_or_default();
         item.image_asset_ids = entry.image_asset_ids.unwrap_or_default();
         item.interaction_metadata = entry.interaction_metadata;
+        // Same rule as the single create: extract linkage wins; the serialized
+        // source reference only anchors extract-less cards.
+        if entry.extract_id.is_none() {
+            item.source_reference = entry.source_reference;
+        }
         if item.extract_id.is_some() && item.document_id.is_none() {
             if let Some(ext_id) = &item.extract_id {
                 if let Ok(Some(extract)) = repo.get_extract(ext_id).await {

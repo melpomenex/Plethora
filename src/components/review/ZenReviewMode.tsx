@@ -40,6 +40,10 @@ import {
 } from "../../lib/rating-grades";
 import { Trash, X } from "@phosphor-icons/react";
 import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
+import { getCardSourceContext } from "../../api/review";
+import { useToast } from "../common/Toast";
+import { useTabsStore } from "../../stores/tabsStore";
+import { openCardSource } from "../../utils/cardSourceNavigation";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -239,7 +243,10 @@ function AlgorithmMetadata({
   );
 }
 
-// Context Peek - shows source context when Alt is held
+// Context Peek - shows source context when Alt is held. Context resolves from
+// the card's real provenance (document title + extract snippet via the same
+// command the review strip uses) and is rendered as TEXT — source excerpts are
+// untrusted content and must never be interpreted as HTML.
 function ContextPeek({ 
   item,
   isVisible,
@@ -249,24 +256,39 @@ function ContextPeek({
   isVisible: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
-  if (!item || !isVisible) return null;
-  
-  const context = (item as any).context || (item as any).extractContext || (item as any).documentContext;
-  const title = (item as any).documentTitle || (item as any).sourceTitle || t("zenReview.source");
-  
-  if (!context) return null;
-  
+  const [peek, setPeek] = useState<{ title: string; snippet: string } | null>(null);
+
+  useEffect(() => {
+    if (!isVisible || !item) return;
+    let cancelled = false;
+    setPeek(null);
+    getCardSourceContext(item.id)
+      .then((context) => {
+        if (!cancelled && context) {
+          const snippet = context.extract_snippet || context.source_url || "";
+          if (snippet) setPeek({ title: context.document_title, snippet });
+        }
+      })
+      .catch(() => {
+        // Best-effort: an unresolvable source simply shows nothing.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, item]);
+
+  if (!item || !isVisible || !peek) return null;
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-8 pointer-events-none">
       <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" />
       <div className="relative max-w-3xl max-h-[70vh] overflow-auto bg-card border border-border/50 rounded-lg p-6 shadow-2xl">
         <div className="text-xs font-mono text-muted-foreground/60 mb-3 uppercase tracking-wider">
-          {title}
+          {peek.title}
         </div>
-        <div 
-          className="prose prose-sm dark:prose-invert text-foreground/80"
-          dangerouslySetInnerHTML={{ __html: context }}
-        />
+        <div className="prose prose-sm dark:prose-invert text-foreground/80 whitespace-pre-wrap">
+          {peek.snippet}
+        </div>
         <div className="mt-4 text-xs text-muted-foreground/40 text-center">
           {t("zenReview.releaseAlt")}
         </div>
@@ -303,6 +325,7 @@ function SessionTimer({ startTime, isVisible }: { startTime: number; isVisible: 
 
 export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: ZenReviewModeProps) {
   const { t } = useI18n();
+  const toast = useToast();
   const {
     currentCard,
     queue,
@@ -448,6 +471,21 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
         return;
       }
 
+      // V: jump to the source passage (same contract as the regular session).
+      if (e.key.toLowerCase() === "v" && currentCard) {
+        e.preventDefault();
+        void openCardSource(currentCard, useTabsStore.getState().addTab, {
+          reviewReturn: true,
+        }).then((resolution) => {
+          if (resolution.status === "coarse" && resolution.reason !== "no-anchor") {
+            toast.info(t("review.source.notLocated"));
+          } else if (resolution.status === "unavailable") {
+            toast.info(t("review.source.unavailable"));
+          }
+        });
+        return;
+      }
+
       if (e.key === "Escape") {
         onExit();
         return;
@@ -488,7 +526,7 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer, useNativeGrades, pendingArenaReview, cancelArenaDecision]);
+  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer, useNativeGrades, pendingArenaReview, cancelArenaDecision, toast, t]);
   
   const handleRating = useCallback(async (rating: ReviewRating, grade?: number) => {
     if (justRated || isSubmitting) return;
