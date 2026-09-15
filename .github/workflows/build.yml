@@ -257,7 +257,10 @@ jobs:
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
           CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.os == 'linux' && '4' || '' }}
+          # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
+          # makes cargo abort with "cannot parse integer from empty string".
+          # 16 is cargo's default release codegen-units (no-op when unset).
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.os == 'linux' && '4' || '16' }}
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
           TAURI_SIGNING_IDENTITY: "-"
