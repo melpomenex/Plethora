@@ -29,6 +29,7 @@ export interface MenuProps {
   label: string;
   align?: "start" | "end";
   className?: string;
+  footer?: ReactNode;
 }
 
 /**
@@ -36,7 +37,7 @@ export interface MenuProps {
  * Keyboard: ArrowUp/Down move focus, Home/End jump, Escape closes and
  * restores focus to the anchor, typeahead prefixes focus matching items.
  */
-export function Menu({ items, anchorRef, open, onClose, label, align = "end", className }: MenuProps) {
+export function Menu({ items, anchorRef, open, onClose, label, align = "end", className, footer }: MenuProps) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -140,6 +141,7 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
       {items.map((item) => (
         <MenuItemRow key={item.key} item={item} onClose={onClose} />
       ))}
+      {footer}
     </div>,
     document.body,
   );

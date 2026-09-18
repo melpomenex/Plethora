@@ -157,7 +157,7 @@ interface NeutralRamp {
  * monotonic with a minimum perceptual gap so tonal elevation is visible on
  * every theme, including near-flat legacy backgrounds.
  */
-function neutralRamp(background: Rgb, variant: ThemeVariant): NeutralRamp {
+function neutralRamp(background: Rgb, surface: Rgb, onSurface: Rgb, variant: ThemeVariant): NeutralRamp {
   const { c, h } = rgbToOklch(background);
   // Neutral family: keep the background's hue but soften chroma so the ramp
   // reads as elevation, not as a color gradient.
@@ -165,9 +165,23 @@ function neutralRamp(background: Rgb, variant: ThemeVariant): NeutralRamp {
   const l = rgbToOklch(background).l;
   const at = (lightness: number) => oklchToRgb({ l: clampL(lightness), c: nc, h });
 
+  const rawSteps = variant === "dark"
+    ? [at(l - 0.03), at(l), at(l + 0.025), at(l + 0.05), at(l + 0.075)]
+    : [at(l + 0.045), at(l + 0.02), at(l - 0.008), at(l - 0.035), at(l - 0.06)];
+  const surfaceL = rgbToOklch(surface).l;
+  const protectedSteps = rawSteps.map((step) => {
+    if (contrastRatio(onSurface, step) >= TEXT_CONTRAST_MIN) return step;
+    const stepL = rgbToOklch(step).l;
+    for (let fraction = 0.1; fraction <= 1; fraction += 0.1) {
+      const candidate = at(stepL + (surfaceL - stepL) * fraction);
+      if (contrastRatio(onSurface, candidate) >= TEXT_CONTRAST_MIN) return candidate;
+    }
+    return step;
+  });
+
   if (variant === "dark") {
     const steps = enforceIntegerMonotonic(
-      [at(l - 0.03), at(l), at(l + 0.025), at(l + 0.05), at(l + 0.075)],
+      protectedSteps,
       1,
     );
     return { lowest: steps[0], low: steps[1], base: steps[2], high: steps[3], highest: steps[4] };
@@ -175,7 +189,7 @@ function neutralRamp(background: Rgb, variant: ThemeVariant): NeutralRamp {
 
   // Light: highest is the most shaded, lowest is the brightest.
   const steps = enforceIntegerMonotonic(
-    [at(l + 0.045), at(l + 0.02), at(l - 0.008), at(l - 0.035), at(l - 0.06)],
+    protectedSteps,
     -1,
   );
   return { lowest: steps[0], low: steps[1], base: steps[2], high: steps[3], highest: steps[4] };
@@ -227,7 +241,8 @@ export function deriveMaterialRoles(colors: ThemeColors, variant: ThemeVariant):
     "inverse-primary": colors.inversePrimary,
   };
 
-  const ramp = neutralRamp(background, variant);
+  const onSurface = parsed(colors.onSurface) ?? parsed(colors.text) ?? tone(surface, variant === "dark" ? 0.92 : 0.2);
+  const ramp = neutralRamp(background, surface, onSurface, variant);
 
   // --- on-surface-variant ---
   if (!explicit["on-surface-variant"]) {
@@ -241,7 +256,10 @@ export function deriveMaterialRoles(colors: ThemeColors, variant: ThemeVariant):
   if (!explicit["secondary-container"] || !explicit["on-secondary-container"]) {
     const pair = containerPair(secondary, variant === "dark" ? 0.32 : 0.88, variant === "dark" ? 0.9 : 0.35);
     roles["secondary-container"] = explicit["secondary-container"] ?? pair.container;
-    roles["on-secondary-container"] = explicit["on-secondary-container"] ?? pair.on;
+    const explicitContainer = parsed(explicit["secondary-container"]);
+    roles["on-secondary-container"] = explicit["on-secondary-container"] ?? toHex(
+      ensureContrast(parsed(pair.on)!, explicitContainer ?? parsed(roles["secondary-container"])!, TEXT_CONTRAST_MIN),
+    );
   }
 
   // --- tertiary family: primary hue-rotated ~60° with reduced chroma ---
@@ -263,7 +281,10 @@ export function deriveMaterialRoles(colors: ThemeColors, variant: ThemeVariant):
   if (!explicit["tertiary-container"] || !explicit["on-tertiary-container"]) {
     const pair = containerPair(tertiaryRgb, variant === "dark" ? 0.33 : 0.88, variant === "dark" ? 0.9 : 0.36);
     roles["tertiary-container"] = explicit["tertiary-container"] ?? pair.container;
-    roles["on-tertiary-container"] = explicit["on-tertiary-container"] ?? pair.on;
+    const explicitContainer = parsed(explicit["tertiary-container"]);
+    roles["on-tertiary-container"] = explicit["on-tertiary-container"] ?? toHex(
+      ensureContrast(parsed(pair.on)!, explicitContainer ?? parsed(roles["tertiary-container"])!, TEXT_CONTRAST_MIN),
+    );
   }
 
   // --- container hierarchy ---

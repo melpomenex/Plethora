@@ -58,7 +58,7 @@ const GRADE_BUTTONS = SIX_GRADES.map((g) => ({
  */
 const BUTTON_CLASS = `
   md-state relative rounded-xl border border-outline-variant
-  text-on-surface transition-[transform,box-shadow]
+   transition-[transform,box-shadow]
   hover:shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed
   flex items-center justify-center gap-1 md:flex-col md:gap-2
   px-1 py-2 md:px-2 md:py-3 md:min-h-[100px]
@@ -71,7 +71,7 @@ const BUTTON_CLASS = `
  *  and stay unobtrusive on the phone where the joystick is the primary path. */
 const GRADE_BUTTON_CLASS = `
   md-state relative rounded-lg border border-outline-variant
-  text-on-surface transition-[transform,box-shadow]
+   transition-[transform,box-shadow]
   hover:shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed
   flex items-center justify-center gap-1 md:flex-col md:gap-0.5
   px-1 py-1.5 md:px-1.5 md:py-2 md:min-h-[52px]
@@ -119,7 +119,8 @@ export function RatingButtons({
                 }
                 className={cn(
                   "bg-surface-container-high",
-                  GRADE_BUTTON_CLASS,
+                   GRADE_BUTTON_CLASS,
+                   "text-on-surface",
                   isSuggested && "ring-4 ring-primary/60",
                 )}
                 aria-label={

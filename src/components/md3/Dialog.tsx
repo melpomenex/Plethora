@@ -31,8 +31,6 @@ export interface DialogProps {
   /** Hide the header close button (Escape/scrim still close). */
   hideCloseButton?: boolean;
   className?: string;
-  /** Skip focus management (when the caller owns it). */
-  disableFocusManagement?: boolean;
 }
 
 export function Dialog({
@@ -46,11 +44,10 @@ export function Dialog({
   alert = false,
   hideCloseButton,
   className,
-  disableFocusManagement,
 }: DialogProps) {
   const titleId = useId();
   const descriptionId = useId();
-  const panelRef = useDialogFocus(open && !disableFocusManagement, onClose);
+  const panelRef = useDialogFocus(open, onClose);
 
   if (!open) return null;
 

@@ -24,11 +24,11 @@ export const buttonVariants = cva(
         destructiveOutlined: "border border-error/60 text-error",
       },
       size: {
-        sm: "min-h-8 px-4 text-xs",
+        sm: "md-hit-slop min-h-8 px-4 text-xs",
         md: "min-h-10 px-6 text-sm",
         lg: "min-h-12 px-8 text-base",
         icon: "min-h-10 min-w-10 p-2",
-        iconSm: "min-h-8 min-w-8 p-1.5",
+        iconSm: "md-hit-slop min-h-8 min-w-8 p-1.5",
       },
     },
     defaultVariants: { variant: "filled", size: "md" },

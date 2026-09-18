@@ -324,8 +324,11 @@
 }
 
 :root[data-animations="off"] .md-player-surface,
+:root[data-animations="off"] .md-progress-indeterminate,
+:root[data-animations="off"] .md-spin,
 :root[data-reduced-motion="true"] .md-player-surface {
   animation-duration: 0.001ms;
+  animation-iteration-count: 1;
 }
 
 @layer base {
@@ -748,19 +751,19 @@
 
   .adaptive-inspector-backdrop {
     position: fixed;
-    z-index: 79;
+     z-index: var(--md-z-overlay);
   }
 
   .adaptive-inspector {
     position: relative;
-    z-index: 80;
+     z-index: var(--md-z-dialog);
     display: flex;
     flex-direction: column;
     width: min(22rem, 32vw);
     min-width: 18rem;
     height: 100%;
-    border-left: 1px solid var(--color-border);
-    background: var(--color-card);
+     border-left: 1px solid var(--color-outline-variant);
+     background: var(--color-surface-container-high);
     transition: transform 180ms ease, opacity 180ms ease, visibility 180ms ease;
   }
 

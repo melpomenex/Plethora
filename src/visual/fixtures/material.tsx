@@ -13,7 +13,7 @@ createRoot(document.getElementById("root")!).render(
     <Checkbox aria-label="Checkbox" defaultChecked />
     <Radio aria-label="Radio" defaultChecked />
     <ResponsiveDialogSheet open onClose={() => {}} title="Adaptive">Content</ResponsiveDialogSheet>
-    <Dialog open disableFocusManagement onClose={() => {}} title="Dialog">Content</Dialog>
+    <Dialog open onClose={() => {}} title="Dialog">Content</Dialog>
     <Toast />
   </PresentationProvider>,
 );

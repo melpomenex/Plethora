@@ -54,6 +54,14 @@ describe("deriveMaterialRoles", () => {
     expect(roles.tertiary).toBeUndefined();
   });
 
+  it("clamps a missing container foreground against an explicit container", () => {
+    const roles = deriveMaterialRoles(
+      { ...superGameBroTheme.colors, secondaryContainer: "#ffffff" },
+      "light",
+    );
+    expect(pairContrast(roles["on-secondary-container"], "#ffffff")).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("dark container hierarchy is monotonically lighter and dark", () => {
     const roles = deriveMaterialRoles(superGameBroTheme.colors, "dark");
     const l = (k: string) => rgbToOklch(parseColor(roles[k])!).l;
@@ -110,6 +118,10 @@ describe("deriveMaterialRoles", () => {
       ] as const;
       for (const key of containerKeys) {
         expect(parseColor(merged[key]), `${theme.id}/${key}`).not.toBeNull();
+        const explicitKey = key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase()) as keyof typeof theme.colors;
+        if (!theme.colors[explicitKey]) {
+          expect(pairContrast(theme.colors.onSurface, merged[key]), `${theme.id} surface contrast ${key}`).toBeGreaterThanOrEqual(4.5);
+        }
       }
 
       // Monotonic container ordering for the variant.

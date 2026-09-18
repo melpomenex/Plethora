@@ -92,7 +92,7 @@ export function SegmentedButton<T extends string | number>({
             className={cn(
               "md-state md-focus-ring inline-flex flex-1 select-none items-center justify-center gap-1.5 border-outline font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
               i > 0 && "border-l",
-              size === "sm" ? "min-h-8 px-3 text-xs" : "min-h-10 px-4 text-sm",
+               size === "sm" ? "md-hit-slop min-h-8 px-3 text-xs" : "min-h-10 px-4 text-sm",
               isSelected
                 ? "bg-secondary-container text-on-secondary-container"
                 : "text-on-surface",

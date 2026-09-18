@@ -11,6 +11,7 @@ import { DEFAULT_COLLECTION_ID } from '../../types/collection';
 import { buildCollectionArchive } from '../../utils/collectionArchive';
 import { invokeCommand, isTauri, openFilePicker } from '../../lib/tauri';
 import { useToast } from '../common/Toast';
+import { Menu, type MenuItemSpec } from "../md3";
 
 export function CollectionSwitcher() {
   const collections = useCollectionStore((s) => s.collections);
@@ -27,7 +28,7 @@ export function CollectionSwitcher() {
   const [newName, setNewName] = useState('');
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -42,18 +43,6 @@ export function CollectionSwitcher() {
       inputRef.current.focus();
     }
   }, [showCreate]);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-        setShowCreate(false);
-        setConfirmDeleteId(null);
-      }
-    }
-    if (isOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [isOpen]);
 
   const handleSwitch = async (id: string) => {
     await switchCollection(id);
@@ -139,8 +128,9 @@ export function CollectionSwitcher() {
   };
 
   return (
-    <div className="flex justify-center py-1 px-1 relative" ref={menuRef}>
+    <div className="flex justify-center py-1 px-1 relative">
       <button
+        ref={anchorRef}
         onClick={() => setIsOpen(!isOpen)}
         className="w-full p-2 rounded transition-colors hover:bg-muted"
         title={active?.name || 'Collections'}
@@ -148,71 +138,33 @@ export function CollectionSwitcher() {
         <span className="text-base">{active?.icon || '📁'}</span>
       </button>
 
-      {isOpen && (
-        <div className="absolute left-full ml-2 top-0 w-56 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-          <div className="max-h-64 overflow-y-auto">
-            {collections.map((c) => {
-              const due = dueCounts[c.id] ?? 0;
-              const isDefault = c.id === DEFAULT_COLLECTION_ID;
-              return (
-                <div key={c.id} className="flex items-center group">
-                  <button
-                    onClick={() => handleSwitch(c.id)}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-muted transition-colors text-left"
-                  >
-                    <span>{c.icon || '📁'}</span>
-                    <span className="text-sm flex-1 truncate">{c.name}</span>
-                    {due > 0 && c.id !== activeCollectionId && (
-                      <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">
-                        {due}
-                      </span>
-                    )}
-                    {c.id === activeCollectionId && <Check className="w-3 h-3 text-primary" />}
-                  </button>
-                  {!isDefault && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
-                      className={`px-2 py-2 transition-colors ${confirmDeleteId === c.id ? 'text-red-500 bg-red-500/10' : 'text-muted-foreground opacity-0 group-hover:opacity-100'} hover:text-red-500`}
-                      title={confirmDeleteId === c.id ? 'Click again to confirm' : 'Delete collection'}
-                    >
-                      <Trash className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {!showCreate ? (
-            <>
-              <div className="border-t border-border">
-                <button
-                  onClick={handleExport}
-                  disabled={exporting || activeCollectionId === DEFAULT_COLLECTION_ID}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted transition-colors text-left disabled:opacity-50"
-                >
-                  <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{exporting ? 'Exporting...' : 'Export Collection'}</span>
-                </button>
-                <button
-                  onClick={handleImport}
-                  disabled={importing}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted transition-colors text-left disabled:opacity-50"
-                >
-                  <Upload className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{importing ? 'Importing...' : 'Import Collection'}</span>
-                </button>
-              </div>
-              <button
-                onClick={() => setShowCreate(true)}
-                className="w-full flex items-center gap-2 px-3 py-2 border-t border-border hover:bg-muted transition-colors text-left"
-              >
-                <Plus className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">New Collection</span>
-              </button>
-            </>
-          ) : (
-            <div className="p-2 border-t border-border" onMouseDown={(e) => e.stopPropagation()}>
+      <Menu
+        anchorRef={anchorRef}
+        open={isOpen}
+        onClose={() => { setIsOpen(false); setShowCreate(false); setConfirmDeleteId(null); }}
+        label="Collections"
+        align="start"
+        items={[
+          ...collections.map((c): MenuItemSpec => ({
+            key: c.id,
+            label: c.name,
+            onSelect: () => handleSwitch(c.id),
+            leading: <span>{c.icon || '📁'}</span>,
+            trailing: c.id === activeCollectionId ? <Check className="h-3 w-3 text-primary" /> : (dueCounts[c.id] ?? 0) > 0 ? <span className="text-xs text-primary">{dueCounts[c.id]}</span> : undefined,
+          })),
+          ...collections.filter((c) => c.id !== DEFAULT_COLLECTION_ID).map((c): MenuItemSpec => ({
+            key: `delete-${c.id}`,
+            label: confirmDeleteId === c.id ? "Click again to confirm" : `Delete ${c.name}`,
+            icon: Trash,
+            destructive: true,
+            onSelect: () => handleDelete(c.id),
+          })),
+          { key: "export", label: exporting ? "Exporting..." : "Export Collection", icon: Download, disabled: exporting || activeCollectionId === DEFAULT_COLLECTION_ID, onSelect: handleExport },
+          { key: "import", label: importing ? "Importing..." : "Import Collection", icon: Upload, disabled: importing, onSelect: handleImport },
+          { key: "new", label: "New Collection", icon: Plus, onSelect: () => { setShowCreate(true); setIsOpen(true); } },
+        ]}
+        footer={showCreate ? (
+          <div className="border-t border-outline-variant p-2" onMouseDown={(e) => e.stopPropagation()}>
               <input
                 ref={inputRef}
                 type="text"
@@ -240,10 +192,9 @@ export function CollectionSwitcher() {
                   Cancel
                 </button>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+          </div>
+        ) : undefined}
+      />
     </div>
   );
 }

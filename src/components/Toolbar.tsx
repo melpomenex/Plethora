@@ -76,6 +76,7 @@ interface ToolbarButtonProps {
    * to the icon and suppress the native `title` so the OS tooltip does not
    * fight the visible label. */
   expanded?: boolean;
+  active?: boolean;
 }
 
 /**
@@ -100,7 +101,7 @@ function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
   return id ? { "data-tour": id } : {};
 }
 
-function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false }: ToolbarButtonProps) {
+function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false, active = false }: ToolbarButtonProps) {
   const Icon = button.icon;
 
   const handleAuxClick = (e: React.MouseEvent) => {
@@ -130,7 +131,9 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
       {...tourAnchorForButton(button.id)}
       className={cn(
         "md-state toolbar-button relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-on-surface-variant focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
-        button.disabled ? "text-on-surface-variant/50" : "hover:text-on-surface",
+        active
+          ? "bg-secondary-container text-on-secondary-container"
+          : button.disabled ? "text-on-surface-variant/50" : "hover:text-on-surface",
         isVertical && "w-full",
       )}
       aria-label={button.label}
@@ -232,6 +235,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // Synchronize active tab navigation: collapse the rail whenever the active tab changes.
   const activeTabHistory = useTabsStore((state) => state.activeTabHistory);
   const activeTabId = activeTabHistory[activeTabHistory.length - 1] ?? null;
+  const activeTabType = useTabsStore((state) => state.tabs.find((tab) => tab.id === activeTabId)?.type);
   const prevActiveTabIdRef = useRef<string | null>(activeTabId);
 
   useEffect(() => {
@@ -867,6 +871,23 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   ];
 
   const groups = Array.from(new Set(buttons.map((b) => b.group))).sort();
+  const activeButtonTypes: Record<string, string[]> = {
+    dashboard: ["dashboard"],
+    "start-review": ["review"],
+    "continue-reading": ["continue-reading"],
+    settings: ["settings"],
+    documents: ["documents"],
+    "knowledge-graph": ["knowledge-network"],
+    "knowledge-sphere": ["knowledge-sphere"],
+    rss: ["rss", "newsletter"],
+    "web-browser": ["web-browser"],
+    "doc-qa": ["doc-qa"],
+    notebooklm: ["notebooklm"],
+    podcast: ["podcast"],
+    audiobooks: ["audiobook", "audiobook-epub-sync"],
+    extracts: ["extracts", "document-extracts", "extract-reader"],
+  };
+  const isActiveButton = (button: ToolbarButton) => activeTabType != null && activeButtonTypes[button.id]?.includes(activeTabType) === true;
 
   const railHandlers = {
     onPointerEnter: handlePointerEnter,
@@ -895,7 +916,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                     {buttons
                       .filter((b) => b.group === group)
                       .map((button) => (
-                        <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} />
+                        <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} active={isActiveButton(button)} />
                       ))}
                     {groupIndex < groups.length - 1 && (
                       <div className="w-6 h-px bg-outline-variant/60 mx-auto my-1" />
@@ -917,7 +938,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                   {buttons
                     .filter((b) => b.group === group)
                     .map((button) => (
-                      <ToolbarButtonItem key={button.id} button={button} expanded={expanded} />
+                      <ToolbarButtonItem key={button.id} button={button} expanded={expanded} active={isActiveButton(button)} />
                     ))}
                   {groupIndex < groups.length - 1 && (
                     <div className="w-px h-6 bg-outline-variant/60 mx-1" />

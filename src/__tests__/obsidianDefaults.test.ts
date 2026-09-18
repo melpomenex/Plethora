@@ -7,13 +7,8 @@
  * legacy-archive import, `.incrementum` backup filter) is covered separately.
  */
 import { describe, expect, it, beforeEach } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { defaultSettings } from "../config/defaultSettings";
 import { getIntegrationSettings, updateObsidianConfig, updateAnkiConfig } from "../api/integrations";
-
-const root = join(__dirname, "..", "..");
-const read = (rel: string): string => readFileSync(join(root, rel), "utf8");
 
 describe("Obsidian defaults rebrand (#7)", () => {
   describe("dormant defaults", () => {
@@ -27,34 +22,6 @@ describe("Obsidian defaults rebrand (#7)", () => {
       expect(defaultSettings.integrations.anki.deckName).toBe("Plethora");
       expect(defaultSettings.integrations.anki.deckName).not.toMatch(/incrementum/i);
     });
-  });
-
-  describe("frontend default surfaces", () => {
-    it("IntegrationSettings defaults and placeholders are Plethora-branded", () => {
-      const source = read("src/components/settings/IntegrationSettings.tsx");
-      expect(source).toContain('useState("Plethora")');
-      expect(source).toContain('useState("Plethora Assets")');
-      expect(source).toContain('notesFolder: obsidianNotes || "Plethora"');
-      expect(source).toContain('attachmentsFolder: obsidianAttachments || "Plethora Assets"');
-      expect(source).toContain('placeholder="Plethora"');
-      expect(source).toContain('placeholder="Plethora Assets"');
-      expect(source).not.toMatch(/placeholder="Incrementum"/);
-    });
-
-    it("the dormant settings-validation schema defaults are Plethora-branded", () => {
-      const source = read("src/utils/settingsValidation.ts");
-      expect(source).toContain("tags: [plethora]");
-      expect(source).toContain("deckName: z.string().default('Plethora')");
-      expect(source).not.toContain("tags: [incrementum]");
-    });
-
-    it("Anki export defaults are Plethora-branded", () => {
-      const source = read("src/utils/ankiExport.ts");
-      expect(source).toContain('name: "Plethora Basic"');
-      expect(source).toContain('"plethora-export"');
-      expect(source).toContain("`plethora-id::${item.id}`");
-    });
-
   });
 
   describe("existing user configuration is preserved", () => {

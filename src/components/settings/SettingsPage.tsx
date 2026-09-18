@@ -993,6 +993,8 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         >
           <Switch
           checked={general.restoreSession}
+          aria-label={t("settings.restoreSession")}
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("general", { restoreSession: checked });
         onChange();
@@ -1049,6 +1051,8 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         >
           <Switch
           checked={general.showFeaturePopups ?? true}
+          aria-label="Feature Popups"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("general", { showFeaturePopups: checked });
         onChange();
@@ -1106,7 +1110,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           description={t("settings.notAvailableYet")}
         >
           <label className="relative inline-flex items-center opacity-50 cursor-not-allowed">
-            <Switch checked={false} onCheckedChange={() => {}} disabled aria-label={t("settings.backupOnExit")} />
+            <Switch checked={false} onCheckedChange={() => {}} disabled aria-label={t("settings.backupOnExit")} touchTarget />
             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
           </label>
         </SettingsRow>
@@ -1209,6 +1213,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         >
           <Switch
           checked={companion?.enabled ?? false}
+          aria-label="Show the companion bird"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", {
         companion: { ...companion, enabled: checked },
@@ -1242,6 +1248,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             >
               <Switch
           checked={companion.contextualComments}
+          aria-label="Reading comments"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", {
         companion: { ...companion, contextualComments: checked },
@@ -1255,6 +1263,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             >
               <Switch
           checked={companion.encouragement}
+          aria-label="Study encouragement"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", {
         companion: { ...companion, encouragement: checked },
@@ -1276,6 +1286,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         >
           <Switch
           checked={settings.interface.startupAnimationEnabled}
+          aria-label={t("settings.interface.startupAnimationLabel")}
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", {
         startupAnimationEnabled: checked,
@@ -1296,6 +1308,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         >
           <Switch
           checked={settings.interface.animationsEnabled}
+          aria-label="Enable animated themes"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", {
         animationsEnabled: checked,
@@ -1580,6 +1594,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow label="Compact Mode" description="Reduce spacing and padding for more content">
           <Switch
           checked={settings.interface.compactMode}
+          aria-label="Compact Mode"
+          touchTarget
           onCheckedChange={(checked) => {
         updateSettingsCategory("interface", { compactMode: checked });
         onChange();
