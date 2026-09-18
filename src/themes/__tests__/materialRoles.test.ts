@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { contrastRatio, parseColor, rgbToOklch } from "../color";
 import { deriveMaterialRoles, generateSchemeFromSeed, REQUIRED_MATERIAL_ROLES } from "../materialRoles";
 import { builtInThemes } from "../builtin";
-import type { Theme } from "../../types/theme";
+import type { Theme, ThemeColors } from "../../types/theme";
 import { superGameBroTheme, milkyMatchaTheme } from "../fallback";
 
 function roleLuminance(hex: string): number {
@@ -92,7 +92,8 @@ describe("deriveMaterialRoles", () => {
   });
 
   it("preserves contrast for saturated custom surfaces", () => {
-    const colors = {
+    const colors: ThemeColors = {
+      ...superGameBroTheme.colors,
       background: "#17131f",
       surface: "#7b165d",
       onSurface: "#ffffff",
