@@ -91,6 +91,30 @@ describe("deriveMaterialRoles", () => {
     }
   });
 
+  it("preserves contrast for saturated custom surfaces", () => {
+    const colors = {
+      background: "#17131f",
+      surface: "#7b165d",
+      onSurface: "#ffffff",
+      primary: "#b58cff",
+      secondary: "#8bd8d0",
+      text: "#ffffff",
+    };
+    const roles = deriveMaterialRoles(colors, "dark");
+    const original = pairContrast(colors.onSurface, colors.surface);
+
+    expect(original).toBeGreaterThanOrEqual(4.5);
+    for (const key of [
+      "surface-container-lowest",
+      "surface-container-low",
+      "surface-container",
+      "surface-container-high",
+      "surface-container-highest",
+    ]) {
+      expect(pairContrast(colors.onSurface, roles[key]), key).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("derived tertiary is hue-separated from primary", () => {
     const roles = deriveMaterialRoles(superGameBroTheme.colors, "dark");
     const primaryHue = rgbToOklch(parseColor(superGameBroTheme.colors.primary)!).h;

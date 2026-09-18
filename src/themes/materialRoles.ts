@@ -168,15 +168,20 @@ function neutralRamp(background: Rgb, surface: Rgb, onSurface: Rgb, variant: The
   const rawSteps = variant === "dark"
     ? [at(l - 0.03), at(l), at(l + 0.025), at(l + 0.05), at(l + 0.075)]
     : [at(l + 0.045), at(l + 0.02), at(l - 0.008), at(l - 0.035), at(l - 0.06)];
-  const surfaceL = rgbToOklch(surface).l;
+  const surfaceOklch = rgbToOklch(surface);
+  const originalContrast = contrastRatio(onSurface, surface);
   const protectedSteps = rawSteps.map((step) => {
-    if (contrastRatio(onSurface, step) >= TEXT_CONTRAST_MIN) return step;
+    if (originalContrast < TEXT_CONTRAST_MIN || contrastRatio(onSurface, step) >= TEXT_CONTRAST_MIN) return step;
     const stepL = rgbToOklch(step).l;
     for (let fraction = 0.1; fraction <= 1; fraction += 0.1) {
-      const candidate = at(stepL + (surfaceL - stepL) * fraction);
+      const candidate = oklchToRgb({
+        l: stepL + (surfaceOklch.l - stepL) * fraction,
+        c: rgbToOklch(step).c + (surfaceOklch.c - rgbToOklch(step).c) * fraction,
+        h: surfaceOklch.h,
+      });
       if (contrastRatio(onSurface, candidate) >= TEXT_CONTRAST_MIN) return candidate;
     }
-    return step;
+    return surface;
   });
 
   if (variant === "dark") {
