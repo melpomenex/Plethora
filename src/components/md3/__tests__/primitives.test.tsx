@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BookOpen, Plus } from "@phosphor-icons/react";
@@ -180,7 +181,7 @@ describe("SegmentedButton", () => {
 });
 
 describe("Menu", () => {
-  function harness(open: boolean, onClose: () => void) {
+  function harness(open: boolean, onClose: () => void, footer?: ReactNode) {
     const anchorRef = { current: document.createElement("button") };
     document.body.appendChild(anchorRef.current);
     render(
@@ -194,6 +195,7 @@ describe("Menu", () => {
           { key: "delete", label: "Delete", onSelect: () => {}, destructive: true },
           { key: "noop", label: "Disabled", onSelect: () => {}, disabled: true },
         ]}
+        footer={footer}
       />,
     );
     return anchorRef;
@@ -218,6 +220,22 @@ describe("Menu", () => {
     anchor.current.focus();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps footer controls out of menu keyboard navigation", () => {
+    const anchor = harness(
+      true,
+      () => {},
+      <button type="button" onClick={() => {}}>
+        Footer action
+      </button>,
+    );
+    const menuItems = screen.getAllByRole("menuitem");
+    menuItems[0].focus();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(menuItems[1]);
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Footer action" }));
+    anchor.current.remove();
   });
 });
 

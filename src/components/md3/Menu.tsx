@@ -66,7 +66,7 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
   useEffect(() => {
     if (!open || !positioned) return;
     const menu = menuRef.current;
-    menu?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    menu?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
 
     const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
@@ -80,7 +80,7 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
       }
       if (!menuRef.current) return;
       const buttons = Array.from(
-        menuRef.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+        menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'),
       );
       if (buttons.length === 0) return;
       const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);

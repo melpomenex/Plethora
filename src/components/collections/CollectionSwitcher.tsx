@@ -131,9 +131,13 @@ export function CollectionSwitcher() {
     <div className="flex justify-center py-1 px-1 relative">
       <button
         ref={anchorRef}
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full p-2 rounded transition-colors hover:bg-muted"
         title={active?.name || 'Collections'}
+        aria-label={`${active?.name || 'Collections'} collections`}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
       >
         <span className="text-base">{active?.icon || '📁'}</span>
       </button>
