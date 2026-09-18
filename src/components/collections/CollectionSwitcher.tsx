@@ -162,7 +162,7 @@ export function CollectionSwitcher() {
           })),
           { key: "export", label: exporting ? "Exporting..." : "Export Collection", icon: Download, disabled: exporting || activeCollectionId === DEFAULT_COLLECTION_ID, onSelect: handleExport },
           { key: "import", label: importing ? "Importing..." : "Import Collection", icon: Upload, disabled: importing, onSelect: handleImport },
-          { key: "new", label: "New Collection", icon: Plus, onSelect: () => { setShowCreate(true); setIsOpen(true); } },
+          { key: "new", label: "New Collection", icon: Plus, keepOpen: true, onSelect: () => { setShowCreate(true); setIsOpen(true); } },
         ]}
         footer={showCreate ? (
           <div className="border-t border-outline-variant p-2" onMouseDown={(e) => e.stopPropagation()}>
