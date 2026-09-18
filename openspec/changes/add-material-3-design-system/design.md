@@ -31,7 +31,7 @@ Derivation rules (tone ramps keyed on variant): containers = OKLCH lightness ste
 
 ### D2: Tokens as Tailwind `@theme` entries + utility classes for state layers
 
-New roles are registered in `@theme` (`--color-surface-container-high` etc.) so Tailwind emits `bg-surface-container-high`-style utilities with zero per-component CSS. State layers are exposed as utility classes (`.md-state`, `.md-state-hover`… using `color-mix(in srgb, var(--md-state-color, currentColor) N%, transparent)` with `@property`-free graceful degradation) that primitives apply; opacities follow M3 (hover 8%, focus 10%, press 10%, selected 16%, dragged 16%). Motion tokens (`--md-duration-*`, `--md-easing-*`) and a z-scale (`--md-z-{nav,overlay,dialog,menu,tooltip,toast,chrome}`) land in `@theme` + `:root`. Typography roles are CSS vars (`--md-typescale-*`) consumed by a small set of utility classes (`.md-title-large` etc.) — chrome only, `--reading-*` untouched.
+New roles are registered in `@theme` (`--color-surface-container-high` etc.) so Tailwind emits `bg-surface-container-high`-style utilities with zero per-component CSS. State layers are exposed as utility classes (`.md-state`, `.md-state-hover`… using `color-mix(in srgb, var(--md-state-color, currentColor) N%, transparent)` with `@property`-free graceful degradation) that primitives apply; opacities follow M3 (hover 8%, focus 10%, press 10%, selected 16%, dragged 16%). Motion tokens (`--md-duration-*`, `--md-easing-*`) and a z-scale (`--md-z-{nav,overlay,dialog,menu,snackbar,tooltip,critical}`) land in `@theme` + `:root`. Typography roles are CSS vars (`--md-typescale-*`) consumed by a small set of utility classes (`.md-title-large` etc.) — chrome only, `--reading-*` untouched.
 *Alternative*: CSS-in-JS or a headless UI kit — rejected (Tailwind v4 var registration already gives utility coverage with no runtime cost).
 
 ### D3: Primitives live in `src/components/md3/`, built on cva + existing behavior cores
@@ -43,7 +43,7 @@ New roles are registered in `@theme` (`--color-surface-container-high` etc.) so 
 
 1. Tokens + derivation (invisible until consumed; E-Ink projection extended to new roles in the same `data-display-mode="eink"` block).
 2. Primitives + tests; `ActionButton`/`Toast`/`Modal` re-pointed at them internally.
-3. Shell: `Toolbar` rail, `TabBar`, `MobileNavigation` bottom nav, `WorkspaceSwitcher` — token restyle only; no behavior edits (rail widths, hover-expand timings, drag regions untouched).
+3. Shell: `Toolbar` rail, `TabBar`, `MobileNavigation` bottom nav, `CollectionSwitcher` — token restyle only; no behavior edits (rail widths, hover-expand timings, drag regions untouched).
 4. Screens in traffic order: Settings (raw inputs → primitives; biggest a11y win), Review rating control + Show Answer (M3 segmented group; `data-review-rating`, `aria-keyshortcuts`, interval labels, 1–4/Ctrl+1–4 keys preserved), Reader chrome + TTS player morph + selection toolbar (attribute contracts pinned by tests), Library header/bulk-bar/rows, import dialogs, palette surfaces.
 5. Cleanup + enforcement: docs, lint rule, dead CSS removal where provably unused.
 

@@ -48,9 +48,9 @@ Defined in `src/index.css` (`@theme` + `:root`) and emitted per theme by
   to 0ms under `prefers-reduced-motion` and `data-reduced-motion="true"`.
   Existing animation settings (`interface.animationsEnabled`) still gate
   ambient effects.
-- **Z scale** — `--md-z-{nav:30, overlay:40, dialog:50, menu:60, snackbar:70,
-  tooltip:80, critical:9998}`. `critical` hosts the anchored reader selection
-  toolbar (above the marketing-capture chrome at 9997).
+- **Z scale** — `--md-z-{nav:30, overlay:40, dialog:1060, menu:1070,
+  snackbar:1080, tooltip:1090, critical:9998}`. `critical` hosts the anchored
+  reader selection toolbar (above the marketing-capture chrome at 9997).
 
 ## Primitives (`src/components/md3/`)
 

@@ -70,7 +70,7 @@ Built with modern technologies—Tauri, React, and Rust—it offers a beautiful,
 
 ### 🎨 User Experience
 
-- 146 built-in themes, 65 bundled fonts, plus custom theme creation/import/export
+- 175 built-in themes, 65 bundled fonts, plus custom theme creation/import/export
 - Command palette (`Ctrl+K` / `Cmd+K`) and full keyboard navigation
 - Document-native Vim reading for EPUB and PDF: press `Escape` to enter normal mode, navigate with `h/j/k/l`, `w/b/e`, `{`/`}`, `gg`/`G`, and counts; use `v` or `V` for cross-page visual selection, then extract (`Enter`), edit (`E`), copy (`y`), highlight (`H`), or create a card (`F`). The Reading Rail shows mode, location, pending keys, and contextual actions; press `?` for in-reader help.
 - Mobile-responsive UI with PWA support

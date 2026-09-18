@@ -22,7 +22,7 @@
 
 ## 3. Shell migration
 
-- [x] 3.1 Restyle desktop `Toolbar` rail + `TabBar` + `WorkspaceSwitcher` onto tokens/state layers/active-pill indicators with zero behavior change — verified by Tabs test suite + rail behavior smoke test
+- [x] 3.1 Restyle desktop `Toolbar` rail + `TabBar` + `CollectionSwitcher` onto tokens/state layers/active-pill indicators with zero behavior change — verified by Tabs test suite + rail behavior smoke test
 - [x] 3.2 Restyle `MobileNavigation` bottom nav + More sheet onto tokens with active pills, badges, safe areas preserved — verified by mobile.css contract tests
 - [x] 3.3 Replace arbitrary z-index values in migrated shell/chrome components with the `--md-z-*` scale, keeping stacking contracts — verified by a layering test (selection toolbar above dialog, toasts above nav)
 
@@ -33,9 +33,9 @@
 - [x] 4.3 Reader chrome: desktop/mobile toolbars, minimap, dictionary card, settings panels onto tokens/tonal elevation — verified by viewer tests + attribute-contract test (`data-extract-button`, `data-chrome-control`)
 - [x] 4.4 TTS player: idle↔playback morph using motion tokens with instant swap under reduced motion/E-Ink, preserving `ReaderTTSHandle` API and all controls — verified by ReaderTTSControls tests + reduced-motion test
 - [x] 4.5 Selection toolbar: primary actions visible + overflow menu on desktop, sheet on touch; all actions preserved — verified by selectionInteraction tests + action-inventory test vs pre-migration list
-- [x] 4.6 Library: `DocumentsView` header/bulk bar/rows, `ContinueReadingPage` hardcoded colors → tokens — verified by documents tests + no-hex lint on migrated files
+- [x] 4.6 Library: `DocumentsView` header/bulk bar/rows onto tokens; unreachable legacy `ContinueReadingPage` was removed — verified by documents tests + no-hex lint on migrated files
 - [x] 4.7 Import surfaces: `ImportDialog` body, `WebArticleImportDialog`, `AudiobookImportDialog`, `DragDropUpload` overlay onto `ResponsiveDialogSheet`+md3 primitives with drop-target state — verified by import dialog tests
-- [x] 4.8 Search/palette: `GlobalSearch`/`CommandCenter` panel + `SearchPage` filter chips onto tokens/md3 chips — verified by search tests
+- [x] 4.8 Search/palette: `GlobalSearch`/`CommandCenter` panel onto tokens/md3 chips; unreachable legacy `SearchPage` was removed — verified by search tests
 
 ## 5. Enforcement, docs, audit
 
