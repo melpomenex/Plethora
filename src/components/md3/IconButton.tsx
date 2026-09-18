@@ -9,7 +9,7 @@ import { cn } from "../../utils/cn";
  * hit-slop on coarse pointers is left to the presentation layer).
  */
 export const iconButtonVariants = cva(
-  "md-state md-focus-ring inline-flex select-none items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
+  "md-hit-slop md-state md-focus-ring inline-flex select-none items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
   {
     variants: {
       variant: {

@@ -8,7 +8,7 @@ import { cn } from "../../utils/cn";
  * `aria-pressed` plus a checkmark/remove affordance — never color alone.
  */
 export const chipVariants = cva(
-  "md-state md-focus-ring inline-flex min-h-8 select-none items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
+  "md-hit-slop md-state md-focus-ring inline-flex min-h-8 select-none items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
   {
     variants: {
       variant: {
@@ -41,6 +41,7 @@ export const Chip = forwardRef<HTMLButtonElement, ChipProps>(function Chip(
 ) {
   const showCheck = variant === "filter" && selected;
   return (
+    <span className="inline-flex items-center">
     <button
       ref={ref}
       type={type}
@@ -51,27 +52,22 @@ export const Chip = forwardRef<HTMLButtonElement, ChipProps>(function Chip(
       {showCheck && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
       {!showCheck && IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}
       <span className="truncate">{label}</span>
+    </button>
       {onRemove && (
-        <span
-          role="button"
-          tabIndex={-1}
+        <button
+          type="button"
+          disabled={props.disabled}
           aria-label={`Remove ${label}`}
-          className="md-state -mr-1 ml-1 flex h-5 w-5 items-center justify-center rounded-full"
+          className="md-hit-slop md-state -mr-1 ml-1 flex h-5 w-5 items-center justify-center rounded-full"
           onClick={(e) => {
             e.stopPropagation();
             onRemove();
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation();
-              e.preventDefault();
-              onRemove();
-            }
-          }}
+
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
+        </button>
       )}
-    </button>
+    </span>
   );
 });

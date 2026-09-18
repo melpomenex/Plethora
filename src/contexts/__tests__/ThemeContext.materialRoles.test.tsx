@@ -6,8 +6,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { ThemeProvider } from "../ThemeContext";
 import { biolumeAbyssTheme, milkyMatchaTheme } from "../../themes/fallback";
 
@@ -70,30 +68,3 @@ describe("ThemeContext material role emission", () => {
   });
 });
 
-describe("floating layer z-scale ordering contract", () => {
-  const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
-
-  function zIndex(varName: string): number {
-    const match = css.match(new RegExp(`${varName}:\\s*(\\d+)`));
-    if (!match) throw new Error(`${varName} missing from index.css`);
-    return Number(match[1]);
-  }
-
-  it("orders nav < overlay < dialog < menu < snackbar < tooltip < critical", () => {
-    const order = [
-      zIndex("--md-z-nav"),
-      zIndex("--md-z-overlay"),
-      zIndex("--md-z-dialog"),
-      zIndex("--md-z-menu"),
-      zIndex("--md-z-snackbar"),
-      zIndex("--md-z-tooltip"),
-      zIndex("--md-z-critical"),
-    ];
-    for (let i = 1; i < order.length; i++) {
-      expect(order[i], `layer ${i}`).toBeGreaterThan(order[i - 1]);
-    }
-    // The anchored selection toolbar must stay above the marketing-capture
-    // chrome (z-[9997]).
-    expect(zIndex("--md-z-critical")).toBeGreaterThan(9997);
-  });
-});

@@ -107,3 +107,5 @@ with `// md3-allow: <reason>` on the line above.
 - Ad-hoc `fixed inset-0` dialogs outside `useModal`/`Dialog`/`ResponsiveDialogSheet`
   (long tail; migrate opportunistically)
 - Raw `peer-checked` toggle markup (use `Switch`)
+
+Shape roles use `--md-shape-*`, mapped to the theme radius scale; extra-large defaults to 1.75rem. Chrome type roles consume `--md-typescale-<role>-size`, `-line-height`, and `-weight`. Size and weight defaults inherit theme font settings; reading typography remains independent.

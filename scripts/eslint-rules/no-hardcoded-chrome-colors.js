@@ -35,6 +35,7 @@ export default {
     },
     schema: [],
     messages: {
+      arbitraryRadius: "Use a shape token instead of an arbitrary radius.",
       hardcodedColor:
         "Hardcoded color in migrated UI: use a semantic token (docs/design-system.md). Suppress with `// md3-allow: <reason>` if feature-specific.",
       legacyButton:
@@ -58,10 +59,14 @@ export default {
     };
 
     function checkString(node) {
+      if (!node) return;
+      if (node.type === "JSXExpressionContainer") node = node.expression;
       if (node.type !== "Literal" && node.type !== "TemplateLiteral") return;
       if (commentsBefore(node)) return;
       const raw = node.type === "Literal" ? String(node.value ?? "") : node.quasis.map((q) => q.value.raw).join("");
-      if (!raw.includes("class") && !raw.includes("#") && !LEGACY_BUTTON_RE.test(raw)) return;
+      if (/rounded(?:-[a-z]+)*-\[(?!var\(--)[^\]]+\]/.test(raw)) {
+        context.report({ node, messageId: "arbitraryRadius" });
+      }
       if (HEX_RE.test(raw)) {
         context.report({ node, messageId: "hardcodedColor" });
       }

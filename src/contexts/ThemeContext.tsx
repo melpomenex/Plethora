@@ -70,7 +70,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
 
   // Apply colors
   Object.entries(theme.colors).forEach(([key, value]) => {
-    root.style.setProperty(`--color-${key}`, value);
+    root.style.setProperty(`--color-${key.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())}`, value);
   });
 
   // Extended Material 3 roles (container hierarchy, tertiary family, inverse
@@ -78,7 +78,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   // derivation only fills the gaps, so theme-author intent always wins.
   const materialRoles = deriveMaterialRoles(theme.colors, theme.variant);
   Object.entries(materialRoles).forEach(([key, value]) => {
-    root.style.setProperty(`--color-${key}`, value);
+    root.style.setProperty(`--color-${key.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())}`, value);
   });
 
   const defaultOpaque = theme.variant === "dark" ? "#121426" : "#ffffff";

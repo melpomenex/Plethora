@@ -314,6 +314,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
   // Resolved "saved position" (level 4) for the start-priority chain.
+  const savedRecordRef = useRef<TTSListeningPosition | null>(null);
   const savedPositionRef = useRef<SpeechPosition | null>(null);
   // When a genuine text change cancels stale audio while paused, resume must
   // restart from the reconciled position instead of "resuming" a cancelled
@@ -877,19 +878,25 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // current speech index (nearest-anchor fallback).
   useEffect(() => {
     savedPositionRef.current = null;
+    savedRecordRef.current = null;
     const docId = documentId;
     if (!docId) return;
     let cancelled = false;
     void getTTSListeningPosition(docId).then((record) => {
       if (cancelled || !record) return;
-      const resolved = resolveListeningPosition(speechIndexRef.current, record);
-      console.log("DEBUG restore:", JSON.stringify({chunks: speechIndexRef.current?.chunks?.length, recordChunk: record.chunkIndex, resolved}));
-      savedPositionRef.current = resolved;
+      savedRecordRef.current = record;
+      savedPositionRef.current = resolveListeningPosition(speechIndexRef.current, record);
     });
     return () => {
       cancelled = true;
     };
   }, [documentId, textFingerprint]);
+
+  useEffect(() => {
+    if (savedRecordRef.current) {
+      savedPositionRef.current = resolveListeningPosition(speechIndex, savedRecordRef.current);
+    }
+  }, [speechIndex]);
 
   useEffect(() => {
     playbackStateRef.current = isPlaying ? "playing" : isPaused ? "paused" : "stopped";
@@ -1729,12 +1736,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           sectionContainers={sectionContainers}
         />
       )}
-      {/* Material floating player surface with an idle ↔ playback morph:
-          compact launch pill when idle, full transport during playback. The
-          key remount replays the container-transform animation, which
-          motion tokens disable under reduced motion / E-Ink (instant swap). */}
       <div
-        key={inPlayback ? "playback" : "idle"}
         className={cn(
           "md-player-surface pointer-events-auto rounded-2xl border border-outline-variant/60 bg-surface-container-high/95 px-3 py-2 text-on-surface shadow-lg",
           !inPlayback && "rounded-full py-1.5",
@@ -1744,17 +1746,6 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         <div className="flex items-center gap-2">
           <SpeakerHigh className="h-4 w-4 text-primary" aria-hidden="true" />
 
-          {inPlayback ? (
-            <>
-              <button
-                onClick={() => void handlePrev()}
-                className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
-                disabled={chunkIndex === 0 || isLoading}
-                title={t("readerTts.previousChunk")}
-                aria-label={t("readerTts.previousChunk")}
-              >
-                <SkipBack className="h-4 w-4" aria-hidden="true" />
-              </button>
               <button
                 onClick={() => void handlePlayPause()}
                 className="md-state rounded-full bg-primary p-2 text-on-primary disabled:opacity-40"
@@ -1776,6 +1767,16 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               >
                 {playPauseContent}
               </button>
+          {inPlayback && <>
+              <button
+                onClick={() => void handlePrev()}
+                className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
+                disabled={chunkIndex === 0 || isLoading}
+                title={t("readerTts.previousChunk")}
+                aria-label={t("readerTts.previousChunk")}
+              >
+                <SkipBack className="h-4 w-4" aria-hidden="true" />
+              </button>
               <button
                 onClick={handleStop}
                 className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
@@ -1794,19 +1795,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               >
                 <SkipForward className="h-4 w-4" aria-hidden="true" />
               </button>
-            </>
-          ) : (
-            <button
-              onClick={() => void handlePlayPause()}
-              className="md-state rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-on-primary disabled:opacity-40"
-              disabled={isLoading}
-              title={t("readerTts.play")}
-              aria-label={t("readerTts.play")}
-            >
-              {playPauseContent}
-              <span className="ml-1.5">{t("readerTts.play")}</span>
-            </button>
-          )}
+          </>}
 
           <div className="flex items-center gap-1">
             {inPlayback && voiceSelect}

@@ -1,3 +1,4 @@
+import { useSettingsStore } from "../stores/settingsStore";
 import {
   createContext,
   useCallback,
@@ -98,6 +99,11 @@ function samePresentation(
 }
 
 export function PresentationProvider({ children }: { children: ReactNode }) {
+  const animationsEnabled = useSettingsStore((s) => s.settings.interface.animationsEnabled);
+  useEffect(() => {
+    document.documentElement.dataset.animations = animationsEnabled ? "on" : "off";
+    return () => { delete document.documentElement.dataset.animations; };
+  }, [animationsEnabled]);
   const [displayMode, setDisplayModeState] = useState<DisplayMode>(() =>
     loadSavedDisplayMode()
   );

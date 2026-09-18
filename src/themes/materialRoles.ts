@@ -313,7 +313,7 @@ export function deriveMaterialRoles(colors: ThemeColors, variant: ThemeVariant):
     roles["inverse-primary"] = toHex(ensureContrast(inversePrimary, inverseSurface, 3));
   }
 
-  roles.scrim = "rgba(0, 0, 0, 0.42)";
+  if (!colors.scrim) roles.scrim = "rgba(0, 0, 0, 0.42)";
   roles["surface-tint"] = toHex(primary);
 
   // Only derived (non-explicit) roles are returned; the caller writes them as

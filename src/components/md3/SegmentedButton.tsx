@@ -11,7 +11,7 @@ export interface SegmentedOption<T extends string | number> {
 
 export interface SegmentedButtonProps<T extends string | number> {
   options: SegmentedOption<T>[];
-  value: T | null;
+  value: T | readonly T[] | null;
   onChange: (value: T) => void;
   /** Multi-select mode: selected segments toggle independently. */
   multi?: boolean;
@@ -39,7 +39,9 @@ export function SegmentedButton<T extends string | number>({
   const baseRef = useRef<HTMLDivElement>(null);
   const groupId = useId();
 
-  const selected = (v: T): boolean => (multi ? Array.isArray(value) && (value as unknown as T[]).includes(v) : value === v);
+  const selected = (v: T): boolean => (Array.isArray(value) ? value.includes(v) : value === v);
+
+  const tabOption = options.find((opt) => !opt.disabled && selected(opt.value)) ?? options.find((opt) => !opt.disabled);
 
   const moveFocus = (from: number, dir: 1 | -1) => {
     const container = baseRef.current;
@@ -49,7 +51,7 @@ export function SegmentedButton<T extends string | number>({
     const next = buttons[(idx + dir + buttons.length) % buttons.length] ?? buttons[from];
     next?.focus();
     if (!multi) {
-      const opt = options[buttons.indexOf(next)];
+      const opt = options[Number(next?.dataset.optionIndex)];
       if (opt) onChange(opt.value);
     }
   };
@@ -82,6 +84,8 @@ export function SegmentedButton<T extends string | number>({
             key={String(opt.value)}
             id={`${groupId}-${opt.value}`}
             type="button"
+            data-option-index={i}
+            tabIndex={multi || (!disabled && opt === tabOption) ? 0 : -1}
             role={multi ? "checkbox" : "radio"}
             aria-checked={isSelected}
             disabled={disabled || opt.disabled}
@@ -93,13 +97,7 @@ export function SegmentedButton<T extends string | number>({
                 ? "bg-secondary-container text-on-secondary-container"
                 : "text-on-surface",
             )}
-            onClick={() => {
-              if (multi) {
-                onChange(opt.value);
-              } else {
-                onChange(opt.value);
-              }
-            }}
+            onClick={() => onChange(opt.value)}
           >
             {isSelected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
             {!isSelected && IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}

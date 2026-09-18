@@ -37,6 +37,8 @@ export interface MenuProps {
  * restores focus to the anchor, typeahead prefixes focus matching items.
  */
 export function Menu({ items, anchorRef, open, onClose, label, align = "end", className }: MenuProps) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
@@ -49,18 +51,28 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
     });
   }, [open, anchorRef, align]);
 
+  useLayoutEffect(() => {
+    if (!open || !position || !menuRef.current || !anchorRef.current) return;
+    const height = menuRef.current.offsetHeight;
+    if (position.top + height <= window.innerHeight - 8) return;
+    const above = anchorRef.current.getBoundingClientRect().top - height - 4;
+    const top = Math.max(8, Math.min(above, window.innerHeight - height - 8));
+    if (top !== position.top) setPosition({ ...position, top });
+  }, [open, position, anchorRef]);
+
+  const positioned = position !== null;
   useEffect(() => {
-    if (!open) return;
+    if (!open || !positioned) return;
     const menu = menuRef.current;
     menu?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
 
     const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !anchorRef.current?.contains(target)) onClose();
+      if (!menuRef.current?.contains(target) && !anchorRef.current?.contains(target)) closeRef.current();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        closeRef.current();
         anchorRef.current?.focus();
         return;
       }
@@ -97,7 +109,7 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
       document.removeEventListener("touchstart", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onClose, anchorRef]);
+  }, [open, positioned, anchorRef]);
 
   if (!open || !position) return null;
 
@@ -116,7 +128,7 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
             ? Math.max(8, window.innerWidth - position.left)
             : undefined,
         maxHeight: "min(24rem, calc(100vh - 2rem))",
-        transform: position.top > window.innerHeight - 16 ? "translateY(-100%)" : undefined,
+
       }}
       className={cn(
         "md-elevated-menu z-[var(--md-z-menu)] flex min-w-48 flex-col overflow-y-auto rounded-lg p-1",

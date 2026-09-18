@@ -3,9 +3,10 @@
  */
 
 import { create } from "zustand";
-import { ReactNode, useCallback, useEffect, useRef } from "react";
+import { ReactNode, useCallback, useEffect } from "react";
 import { CheckCircle, Info, Warning, X, XCircle } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
+import { dialogSurface, useDialogFocus } from "../md3/Dialog";
 import { Button } from "../md3/Button";
 import { cn } from "../../utils/cn";
 
@@ -107,7 +108,7 @@ export const useModalStore = create<ModalStore>((set, get) => ({
  */
 export function Modal() {
   const { modal, hideModal } = useModalStore();
-  const modalRef = useRef<HTMLDivElement>(null);
+
 
   const handleConfirm = () => {
     modal.resolve?.(true);
@@ -125,13 +126,11 @@ export function Modal() {
     }
   };
 
+  const modalRef = useDialogFocus(modal.visible, handleClose);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (!modal.visible) return;
-      if (e.key === "Escape") {
-        handleClose();
-        return;
-      }
       // Enter confirms input-driven modals (prompt, custom bodies like the
       // priority popup). Skipped for Confirm modals so a destructive yes/no
       // still needs a deliberate click, and for elements that own Enter
@@ -149,41 +148,6 @@ export function Modal() {
       return () => document.removeEventListener("keydown", handleKey);
     }
   }, [modal.visible, modal.closable, modal.type]);
-
-  useEffect(() => {
-    if (modal.visible && modalRef.current) {
-      const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-
-      // Don't steal focus if the modal's own content already focused something
-      // on mount (e.g. an input that wants the cursor immediately for typing).
-      if (!modalRef.current.contains(document.activeElement)) {
-        firstElement?.focus();
-      }
-
-      const handleTab = (e: KeyboardEvent) => {
-        if (e.key !== "Tab") return;
-
-        if (e.shiftKey) {
-          if (document.activeElement === firstElement) {
-            e.preventDefault();
-            lastElement?.focus();
-          }
-        } else {
-          if (document.activeElement === lastElement) {
-            e.preventDefault();
-            firstElement?.focus();
-          }
-        }
-      };
-
-      document.addEventListener("keydown", handleTab);
-      return () => document.removeEventListener("keydown", handleTab);
-    }
-  }, [modal.visible]);
 
   if (!modal.visible) return null;
 
@@ -217,7 +181,8 @@ export function Modal() {
       {/* Modal — Material dialog surface contract (md3/Dialog.tsx) */}
       <div
         ref={modalRef}
-        className={`relative ${sizeClasses[modal.size]} w-full mx-4 md:mx-auto bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl max-h-[90vh] md:max-h-[80vh] flex flex-col`}
+        className={cn(dialogSurface, sizeClasses[modal.size], "mx-4 md:mx-auto max-h-[90vh] md:max-h-[80vh]")}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -423,20 +388,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) {
-        onCancel();
-      }
-    };
-
-    if (open) {
-      document.addEventListener("keydown", handleEscape);
-      return () => document.removeEventListener("keydown", handleEscape);
-    }
-  }, [open, onCancel]);
+  const dialogRef = useDialogFocus(open, onCancel);
 
   if (!open) return null;
 
@@ -448,7 +400,8 @@ export function ConfirmDialog({
       />
       <div
         ref={dialogRef}
-        className="relative max-w-md w-full mx-4 bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl"
+        className={cn(dialogSurface, "max-w-md mx-4")}
+        tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
@@ -497,18 +450,7 @@ export function AlertDialog({
   type?: ModalType;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) {
-        onClose();
-      }
-    };
-
-    if (open) {
-      document.addEventListener("keydown", handleEscape);
-      return () => document.removeEventListener("keydown", handleEscape);
-    }
-  }, [open, onClose]);
+  const dialogRef = useDialogFocus(open, onClose);
 
   if (!open) return null;
 
@@ -527,7 +469,9 @@ export function AlertDialog({
         onClick={onClose}
       />
       <div
-        className="relative max-w-md w-full mx-4 bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl"
+        ref={dialogRef}
+        className={cn(dialogSurface, "max-w-md mx-4")}
+        tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
       >

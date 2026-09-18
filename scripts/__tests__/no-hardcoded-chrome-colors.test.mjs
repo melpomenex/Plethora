@@ -63,3 +63,14 @@ test("flags the legacy primary-button recipe", () => {
   );
   assert.ok(messages.some((m) => /md3 Button/.test(m.message)));
 });
+
+for (const expression of ["{'bg-[#123456]'}", "{`bg-[#123456] ${active}`} "]) {
+  test(`flags expression colors ${expression}`, () => {
+    assert.equal(lint(`const x = <div className=${expression} />;`)[0].messageId, "hardcodedColor");
+  });
+}
+test("flags arbitrary radius and permits shape variables", () => {
+  assert.equal(lint('const x = <div className={"rounded-[28px]"} />;')[0].messageId, "arbitraryRadius");
+  assert.equal(lint('const x = <div className="rounded-[var(--md-shape-extra-large)]" />;').length, 0);
+  assert.equal(lint('// md3-allow: custom geometry\nconst x = <div className="rounded-[28px]" />;').length, 0);
+});

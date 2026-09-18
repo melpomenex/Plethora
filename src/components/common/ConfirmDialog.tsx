@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
+import { dialogSurface, useDialogFocus } from "../md3/Dialog";
 import { Button } from "../md3/Button";
 import { cn } from "../../utils/cn";
 
@@ -47,6 +48,8 @@ export function ConfirmDialog({
   const { t } = useI18n();
   const { delete: deleteHaptic } = useHapticFeedback();
 
+  const panelRef = useDialogFocus(isOpen, onClose);
+
   if (!isOpen) return null;
 
   const variantConfig = {
@@ -78,7 +81,9 @@ export function ConfirmDialog({
     <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center p-4">
       <div className="md-dialog-scrim absolute inset-0" aria-hidden="true" />
       <div
-        className="relative bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl max-w-md w-full animate-glass-scale-in"
+        ref={panelRef}
+        tabIndex={-1}
+        className={cn(dialogSurface, "max-w-md animate-glass-scale-in")}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"

@@ -112,6 +112,10 @@
      utilities always exist; ThemeContext.applyThemeToDOM overrides these per
      applied theme (themes/materialRoles.ts derives them for themes that don't
      define the optional keys). */
+  --color-surface: #fffbfe;
+  --color-surface-variant: #e7e0ec;
+  --color-outline: #79747e;
+  --color-outline-variant: #cac4d0;
   --color-on-surface-variant: #49454f;
   --color-secondary-container: #e8e8ec;
   --color-on-secondary-container: #1d1b20;
@@ -137,6 +141,13 @@
    @theme) so every variable is always emitted, independent of utility usage.
    Durations collapse to instant under reduced motion / data-reduced-motion. */
 :root {
+  --md-shape-none: var(--radius-none, 0px);
+  --md-shape-extra-small: var(--radius-sm);
+  --md-shape-small: var(--radius-md);
+  --md-shape-medium: var(--radius-lg);
+  --md-shape-large: var(--radius-xl);
+  --md-shape-extra-large: calc(var(--radius-2xl, 1.25rem) * 1.4);
+  --md-shape-full: var(--radius-full, 9999px);
   --md-duration-short: 150ms;
   --md-duration-medium: 300ms;
   --md-duration-long: 450ms;
@@ -153,10 +164,10 @@
      marketing-capture chrome at z-[9997], hence 9998). */
   --md-z-nav: 30;
   --md-z-overlay: 40;
-  --md-z-dialog: 50;
-  --md-z-menu: 60;
-  --md-z-snackbar: 70;
-  --md-z-tooltip: 80;
+  --md-z-dialog: 1060;
+  --md-z-menu: 1070;
+  --md-z-snackbar: 1080;
+  --md-z-tooltip: 1090;
   --md-z-critical: 9998;
 
   /* Material state-layer opacities (M3 spec values). */
@@ -176,6 +187,7 @@
   }
 }
 
+:root[data-animations="off"],
 :root[data-reduced-motion="true"] {
   --md-duration-short: 0ms;
   --md-duration-medium: 0ms;
@@ -220,21 +232,21 @@
   /* Material typescale for application chrome. Rem-based so browser font
      scaling reflows. Reading typography (--reading-*) is separate and must
      never consume these. */
-  .md-display-large { font-size: 3.5625rem; line-height: 4rem; font-weight: 400; letter-spacing: -0.015em; }
-  .md-display-medium { font-size: 2.8125rem; line-height: 3.25rem; font-weight: 400; }
-  .md-display-small { font-size: 2.25rem; line-height: 2.75rem; font-weight: 400; }
-  .md-headline-large { font-size: 2rem; line-height: 2.5rem; font-weight: 400; }
-  .md-headline-medium { font-size: 1.75rem; line-height: 2.25rem; font-weight: 400; }
-  .md-headline-small { font-size: 1.5rem; line-height: 2rem; font-weight: 400; }
-  .md-title-large { font-size: 1.375rem; line-height: 1.75rem; font-weight: 400; }
-  .md-title-medium { font-size: 1rem; line-height: 1.5rem; font-weight: 500; letter-spacing: 0.009em; }
-  .md-title-small { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.007em; }
-  .md-body-large { font-size: 1rem; line-height: 1.5rem; font-weight: 400; letter-spacing: 0.031em; }
-  .md-body-medium { font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; letter-spacing: 0.017em; }
-  .md-body-small { font-size: 0.75rem; line-height: 1rem; font-weight: 400; letter-spacing: 0.033em; }
-  .md-label-large { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.007em; }
-  .md-label-medium { font-size: 0.75rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.042em; }
-  .md-label-small { font-size: 0.6875rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.045em; }
+  .md-display-large { font-size: var(--md-typescale-display-large-size); line-height: var(--md-typescale-display-large-line-height); font-weight: var(--md-typescale-display-large-weight); letter-spacing: -0.015em; }
+  .md-display-medium { font-size: var(--md-typescale-display-medium-size); line-height: var(--md-typescale-display-medium-line-height); font-weight: var(--md-typescale-display-medium-weight); }
+  .md-display-small { font-size: var(--md-typescale-display-small-size); line-height: var(--md-typescale-display-small-line-height); font-weight: var(--md-typescale-display-small-weight); }
+  .md-headline-large { font-size: var(--md-typescale-headline-large-size); line-height: var(--md-typescale-headline-large-line-height); font-weight: var(--md-typescale-headline-large-weight); }
+  .md-headline-medium { font-size: var(--md-typescale-headline-medium-size); line-height: var(--md-typescale-headline-medium-line-height); font-weight: var(--md-typescale-headline-medium-weight); }
+  .md-headline-small { font-size: var(--md-typescale-headline-small-size); line-height: var(--md-typescale-headline-small-line-height); font-weight: var(--md-typescale-headline-small-weight); }
+  .md-title-large { font-size: var(--md-typescale-title-large-size); line-height: var(--md-typescale-title-large-line-height); font-weight: var(--md-typescale-title-large-weight); }
+  .md-title-medium { font-size: var(--md-typescale-title-medium-size); line-height: var(--md-typescale-title-medium-line-height); font-weight: var(--md-typescale-title-medium-weight); letter-spacing: 0.009em; }
+  .md-title-small { font-size: var(--md-typescale-title-small-size); line-height: var(--md-typescale-title-small-line-height); font-weight: var(--md-typescale-title-small-weight); letter-spacing: 0.007em; }
+  .md-body-large { font-size: var(--md-typescale-body-large-size); line-height: var(--md-typescale-body-large-line-height); font-weight: var(--md-typescale-body-large-weight); letter-spacing: 0.031em; }
+  .md-body-medium { font-size: var(--md-typescale-body-medium-size); line-height: var(--md-typescale-body-medium-line-height); font-weight: var(--md-typescale-body-medium-weight); letter-spacing: 0.017em; }
+  .md-body-small { font-size: var(--md-typescale-body-small-size); line-height: var(--md-typescale-body-small-line-height); font-weight: var(--md-typescale-body-small-weight); letter-spacing: 0.033em; }
+  .md-label-large { font-size: var(--md-typescale-label-large-size); line-height: var(--md-typescale-label-large-line-height); font-weight: var(--md-typescale-label-large-weight); letter-spacing: 0.007em; }
+  .md-label-medium { font-size: var(--md-typescale-label-medium-size); line-height: var(--md-typescale-label-medium-line-height); font-weight: var(--md-typescale-label-medium-weight); letter-spacing: 0.042em; }
+  .md-label-small { font-size: var(--md-typescale-label-small-size); line-height: var(--md-typescale-label-small-line-height); font-weight: var(--md-typescale-label-small-weight); letter-spacing: 0.045em; }
 
   /* Focus ring token for interactive primitives: adapts to the underlying
      surface in every theme. Never relies on color-mix. */
@@ -290,7 +302,7 @@
     }
   }
   .md-player-surface {
-    animation: md-player-morph var(--md-duration-medium) var(--md-easing-decelerated);
+    transition: border-radius var(--md-duration-medium) var(--md-easing-standard), padding var(--md-duration-medium) var(--md-easing-standard);
   }
 }
 
@@ -311,6 +323,7 @@
   animation-iteration-count: 1;
 }
 
+:root[data-animations="off"] .md-player-surface,
 :root[data-reduced-motion="true"] .md-player-surface {
   animation-duration: 0.001ms;
 }
@@ -643,7 +656,7 @@
   }
 
   .adaptive-dialog-centered {
-    border-radius: 1.75rem;
+    border-radius: var(--md-shape-extra-large);
   }
 
   .adaptive-dialog-sheet {
@@ -651,7 +664,7 @@
     width: min(100%, 42rem);
     max-height: calc(var(--app-viewport-height, 100dvh) - max(1rem, env(safe-area-inset-top, 0px)));
     margin-bottom: max(0px, env(safe-area-inset-bottom, 0px));
-    border-radius: 1.75rem 1.75rem 0 0;
+    border-radius: var(--md-shape-extra-large) var(--md-shape-extra-large) 0 0;
   }
 
   .adaptive-dialog-header,
@@ -2946,4 +2959,79 @@
   .companion-host[data-companion-mode="dragging"] .companion-bird {
     filter: drop-shadow(0 4px 10px rgb(124 58 237 / 0.25));
   }
+}
+
+:root {
+  --md-typescale-display-large-size: 3.5625rem;
+  --md-typescale-display-large-line-height: 4rem;
+  --md-typescale-display-large-weight: var(--font-weight-normal, 400);
+  --md-typescale-display-medium-size: 2.8125rem;
+  --md-typescale-display-medium-line-height: 3.25rem;
+  --md-typescale-display-medium-weight: var(--font-weight-normal, 400);
+  --md-typescale-display-small-size: 2.25rem;
+  --md-typescale-display-small-line-height: 2.75rem;
+  --md-typescale-display-small-weight: var(--font-weight-normal, 400);
+  --md-typescale-headline-large-size: var(--font-size-3xl, 2rem);
+  --md-typescale-headline-large-line-height: 2.5rem;
+  --md-typescale-headline-large-weight: var(--font-weight-normal, 400);
+  --md-typescale-headline-medium-size: 1.75rem;
+  --md-typescale-headline-medium-line-height: 2.25rem;
+  --md-typescale-headline-medium-weight: var(--font-weight-normal, 400);
+  --md-typescale-headline-small-size: var(--font-size-2xl, 1.5rem);
+  --md-typescale-headline-small-line-height: 2rem;
+  --md-typescale-headline-small-weight: var(--font-weight-normal, 400);
+  --md-typescale-title-large-size: 1.375rem;
+  --md-typescale-title-large-line-height: 1.75rem;
+  --md-typescale-title-large-weight: var(--font-weight-normal, 400);
+  --md-typescale-title-medium-size: var(--font-size-base, 1rem);
+  --md-typescale-title-medium-line-height: 1.5rem;
+  --md-typescale-title-medium-weight: var(--font-weight-medium, 500);
+  --md-typescale-title-small-size: var(--font-size-sm, 0.875rem);
+  --md-typescale-title-small-line-height: 1.25rem;
+  --md-typescale-title-small-weight: var(--font-weight-medium, 500);
+  --md-typescale-body-large-size: var(--font-size-base, 1rem);
+  --md-typescale-body-large-line-height: 1.5rem;
+  --md-typescale-body-large-weight: var(--font-weight-normal, 400);
+  --md-typescale-body-medium-size: var(--font-size-sm, 0.875rem);
+  --md-typescale-body-medium-line-height: 1.25rem;
+  --md-typescale-body-medium-weight: var(--font-weight-normal, 400);
+  --md-typescale-body-small-size: var(--font-size-xs, 0.75rem);
+  --md-typescale-body-small-line-height: 1rem;
+  --md-typescale-body-small-weight: var(--font-weight-normal, 400);
+  --md-typescale-label-large-size: var(--font-size-sm, 0.875rem);
+  --md-typescale-label-large-line-height: 1.25rem;
+  --md-typescale-label-large-weight: var(--font-weight-medium, 500);
+  --md-typescale-label-medium-size: var(--font-size-xs, 0.75rem);
+  --md-typescale-label-medium-line-height: 1rem;
+  --md-typescale-label-medium-weight: var(--font-weight-medium, 500);
+  --md-typescale-label-small-size: 0.6875rem;
+  --md-typescale-label-small-line-height: 1rem;
+  --md-typescale-label-small-weight: var(--font-weight-medium, 500);
+}
+@media (pointer: coarse) {
+  .md-hit-slop, .md-slider { min-width: 40px; min-height: 40px; }
+}
+
+:root[data-display-mode="eink"] {
+  --color-primary-container: #e5e5e5 !important;
+  --color-on-primary-container: #000000 !important;
+  --color-error: #000000 !important;
+  --color-on-error: #ffffff !important;
+  --color-error-container: #e5e5e5 !important;
+  --color-on-error-container: #000000 !important;
+  --color-success: #000000 !important;
+  --color-warning: #000000 !important;
+  --color-surface: #ffffff !important;
+  --color-on-surface: #000000 !important;
+  --color-surface-variant: #e5e5e5 !important;
+  --color-outline: #000000 !important;
+  --color-outline-variant: #000000 !important;
+  --color-on-primary: #ffffff !important;
+  --color-on-secondary: #000000 !important;
+  --color-scrim: #737373 !important;
+}
+:root[data-display-mode="eink"] .md-dialog-surface,
+:root[data-display-mode="eink"] .adaptive-dialog-panel {
+  border: 1px solid black;
+  background: white;
 }

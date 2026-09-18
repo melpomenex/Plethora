@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { BookOpen, Plus } from "@phosphor-icons/react";
 import { Button } from "../Button";
 import { IconButton } from "../IconButton";
@@ -319,4 +320,53 @@ describe("Divider", () => {
     const { container } = render(<Divider />);
     expect(container.querySelector("hr")).toBeInTheDocument();
   });
+});
+
+describe("selection regressions", () => {
+  it("skips disabled options without selecting them and exposes one tab stop", () => {
+    const onChange = vi.fn();
+    render(<SegmentedButton label="Choices" options={[{value: "a", label: "A"}, {value: "b", label: "B", disabled: true}, {value: "c", label: "C"}]} value="a" onChange={onChange} />);
+    const buttons = screen.getAllByRole("radio");
+    expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+    buttons[0].focus();
+    fireEvent.keyDown(buttons[0], { key: "ArrowRight" });
+    expect(buttons[2]).toHaveFocus();
+    expect(onChange).toHaveBeenCalledWith("c");
+  });
+  it("accepts multiple selected values", () => {
+    render(<SegmentedButton multi label="Choices" options={[{value: "a", label: "A"}, {value: "b", label: "B"}]} value={["a", "b"]} onChange={() => {}} />);
+    expect(screen.getAllByRole("checkbox").every((button) => button.getAttribute("aria-checked") === "true")).toBe(true);
+  });
+  it("provides a separate keyboard removal button", async () => {
+    const onRemove = vi.fn();
+    render(<Chip label="Tag" onRemove={onRemove} />);
+    const remove = screen.getByRole("button", {name: "Remove Tag"});
+    expect(remove.tabIndex).toBe(0);
+    expect(remove.parentElement?.closest("button")).toBeNull();
+    remove.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onRemove).toHaveBeenCalledOnce();
+  });
+});
+
+it("retains dialog focus when the close callback changes", () => {
+  const firstClose = vi.fn();
+  const nextClose = vi.fn();
+  const {rerender} = render(<Dialog open title="Edit" onClose={firstClose}><input aria-label="First" /><input aria-label="Second" /></Dialog>);
+  const second = screen.getByRole("textbox", {name: "Second"});
+  second.focus();
+  rerender(<Dialog open title="Edit" onClose={nextClose}><input aria-label="First" /><input aria-label="Second" /></Dialog>);
+  expect(second).toHaveFocus();
+  fireEvent.keyDown(second, {key: "Escape"});
+  expect(firstClose).not.toHaveBeenCalled();
+  expect(nextClose).toHaveBeenCalledOnce();
+});
+it("fits a menu above an anchor near the viewport bottom", () => {
+  const anchor = document.createElement("button");
+  anchor.getBoundingClientRect = () => ({top: 700, bottom: 730, left: 20, right: 100, width: 80, height: 30, x: 20, y: 700, toJSON() {}});
+  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
+  try {
+    render(<Menu open anchorRef={{current: anchor}} onClose={() => {}} label="Overflow" items={[{key: "a", label: "Action", onSelect() {}}]} />);
+    expect(Number.parseFloat(screen.getByRole("menu").style.top)).toBe(496);
+  } finally { height.mockRestore(); }
 });

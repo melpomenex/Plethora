@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type RefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
+import { registerOverlayDismissal } from "../../lib/overlayStack";
 import { cn } from "../../utils/cn";
 
 const FOCUSABLE =
@@ -14,7 +15,7 @@ const FOCUSABLE =
  */
 export const dialogSurface = cn(
   "md-dialog-surface",
-  "relative flex w-full flex-col rounded-[1.75rem] bg-surface-container-high text-on-surface shadow-2xl",
+  "relative flex w-full flex-col rounded-[var(--md-shape-extra-large)] bg-surface-container-high text-on-surface shadow-2xl",
 );
 
 export interface DialogProps {
@@ -49,47 +50,7 @@ export function Dialog({
 }: DialogProps) {
   const titleId = useId();
   const descriptionId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!open || disableFocusManagement) return;
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    const frame = window.requestAnimationFrame(() => {
-      const target = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-      if (target) {
-        target.focus();
-      } else {
-        panelRef.current?.focus();
-      }
-    });
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !panelRef.current) return;
-      const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", handleKey);
-      previousFocusRef.current?.focus();
-    };
-  }, [open, onClose, disableFocusManagement]);
+  const panelRef = useDialogFocus(open && !disableFocusManagement, onClose);
 
   if (!open) return null;
 
@@ -135,4 +96,59 @@ export function Dialog({
     </div>,
     document.body,
   );
+}
+
+export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const unregister = registerOverlayDismissal(() => closeRef.current(), 100);
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const frame = window.requestAnimationFrame(() => {
+      if (panelRef.current?.contains(document.activeElement)) return;
+      const target = initialFocusRef?.current ?? panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+      if (target) {
+        target.focus();
+      } else {
+        panelRef.current?.focus();
+      }
+    });
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      unregister();
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKey);
+      previousFocusRef.current?.focus();
+    };
+  }, [open]);
+
+  return panelRef;
 }

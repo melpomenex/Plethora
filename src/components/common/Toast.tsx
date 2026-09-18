@@ -48,6 +48,25 @@ interface ToastStore {
 
 const MAX_VISIBLE_TOASTS = 4;
 
+const timers = new Map<string, { handle: ReturnType<typeof setTimeout>; deadline: number; remaining: number }>();
+function pauseToast(id: string) {
+  const timer = timers.get(id);
+  if (!timer) return;
+  clearTimeout(timer.handle);
+  timer.remaining = Math.max(0, timer.deadline - Date.now());
+}
+function resumeToast(id: string) {
+  const timer = timers.get(id);
+  if (!timer) return;
+  timer.deadline = Date.now() + timer.remaining;
+  timer.handle = setTimeout(() => useToastStore.getState().removeToast(id), timer.remaining);
+}
+function clearTimer(id: string) {
+  const timer = timers.get(id);
+  if (timer) clearTimeout(timer.handle);
+  timers.delete(id);
+}
+
 /**
  * Use toast store
  */
@@ -58,37 +77,29 @@ export const useToastStore = create<ToastStore>((set, _get) => ({
     const newToast: ToastData = { ...toast, id, progress: 100 };
 
     set((state) => {
+      if (state.toasts.length >= MAX_VISIBLE_TOASTS) clearTimer(state.toasts[0].id);
       const toasts = state.toasts.length >= MAX_VISIBLE_TOASTS
         ? state.toasts.slice(1)
         : state.toasts;
       return { toasts: [...toasts, newToast] };
     });
 
-    // Animate progress bar
-    // NOTE: progress animation is now driven entirely by CSS transition
-    // on the ToastItem progress bar. We no longer use setInterval to
-    // update progress in the store, which previously caused excessive
-    // Zustand re-renders (React max-update-depth errors) in heavy
-    // components like DocumentViewer.
-
-    // Auto-remove after duration
     const duration = toast.duration ?? 5000;
     if (duration > 0) {
-      setTimeout(() => {
-        set((state) => ({
-          toasts: state.toasts.filter((t) => t.id !== id),
-        }));
-      }, duration);
+      const handle = setTimeout(() => useToastStore.getState().removeToast(id), duration);
+      timers.set(id, { handle, deadline: Date.now() + duration, remaining: duration });
     }
 
     return id;
   },
   removeToast: (id) => {
+    clearTimer(id);
     set((state) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     }));
   },
   clearAll: () => {
+    timers.forEach((_, id) => clearTimer(id));
     set({ toasts: [] });
   },
   updateProgress: (id, progress) => {
@@ -145,8 +156,8 @@ function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: strin
         transition-all duration-[var(--md-duration-short)] ease-out
         ${isExiting ? "opacity-0 translate-x-full" : "opacity-100 translate-x-0 animate-slide-up"}
       `}
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
+      onMouseEnter={() => { pauseToast(toast.id); setIsPaused(true); }}
+      onMouseLeave={() => { resumeToast(toast.id); setIsPaused(false); }}
       role={toast.type === ToastType.Error ? "alert" : "status"}
       aria-live="polite"
     >

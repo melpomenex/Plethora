@@ -1,18 +1,13 @@
 import {
-  useEffect,
   useId,
-  useRef,
   type ReactNode,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
 import { usePresentation } from "../../contexts/PresentationContext";
-import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
+import { dialogSurface, useDialogFocus } from "../md3/Dialog";
 import { cn } from "../../utils/cn";
-
-const FOCUSABLE =
-  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 export function ResponsiveDialogSheet({
   open,
@@ -40,53 +35,10 @@ export function ResponsiveDialogSheet({
   const { mode } = usePresentation();
   const titleId = useId();
   const descriptionId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const panelRef = useDialogFocus(open, onClose, initialFocusRef);
   const useSheet =
     presentation === "sheet" ||
     (presentation === "auto" && (mode === "phone" || mode === "tablet"));
-  useOverlayDismissal(open, onClose, 100);
-
-  useEffect(() => {
-    if (!open) return;
-    previousFocusRef.current = document.activeElement as HTMLElement | null;
-    const frame = window.requestAnimationFrame(() => {
-      const target =
-        initialFocusRef?.current ??
-        panelRef.current?.querySelector<HTMLElement>(FOCUSABLE) ??
-        panelRef.current;
-      target?.focus();
-    });
-
-    const handleTab = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !panelRef.current) return;
-      const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        panelRef.current.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleTab);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", handleTab);
-      previousFocusRef.current?.focus();
-    };
-  }, [open, initialFocusRef]);
-
   if (!open) return null;
 
   return createPortal(
@@ -100,6 +52,7 @@ export function ResponsiveDialogSheet({
       <div
         ref={panelRef}
         className={cn(
+          dialogSurface,
           "adaptive-dialog-panel",
           useSheet ? "adaptive-dialog-sheet" : "adaptive-dialog-centered",
           className,
