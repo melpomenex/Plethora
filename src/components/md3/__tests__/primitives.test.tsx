@@ -138,6 +138,45 @@ describe("SegmentedButton", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Beta/ }));
     expect(onChange).toHaveBeenCalledWith("b");
   });
+
+  it("toggles multi-select values on click and keyboard activation", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <SegmentedButton
+        multi
+        options={options.slice(0, 2)}
+        value={["a"]}
+        onChange={onChange}
+        label="Filters"
+      />,
+    );
+    const beta = screen.getByRole("checkbox", { name: /Beta/ });
+    fireEvent.click(beta);
+    expect(onChange).toHaveBeenLastCalledWith(["a", "b"]);
+
+    rerender(
+      <SegmentedButton
+        multi
+        options={options.slice(0, 2)}
+        value={["a", "b"]}
+        onChange={onChange}
+        label="Filters"
+      />,
+    );
+    const alpha = screen.getByRole("checkbox", { name: /Alpha/ });
+    fireEvent.keyDown(alpha, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(["b"]);
+    rerender(
+      <SegmentedButton
+        multi
+        options={options.slice(0, 2)}
+        value={["b"]}
+        onChange={onChange}
+        label="Filters"
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: /Alpha/ })).toHaveAttribute("aria-checked", "false");
+  });
 });
 
 describe("Menu", () => {

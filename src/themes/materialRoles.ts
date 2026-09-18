@@ -170,7 +170,7 @@ function neutralRamp(background: Rgb, surface: Rgb, onSurface: Rgb, variant: The
     : [at(l + 0.045), at(l + 0.02), at(l - 0.008), at(l - 0.035), at(l - 0.06)];
   const surfaceOklch = rgbToOklch(surface);
   const originalContrast = contrastRatio(onSurface, surface);
-  const protectedSteps = rawSteps.map((step) => {
+  const protectSteps = (steps: Rgb[]) => steps.map((step) => {
     if (originalContrast < TEXT_CONTRAST_MIN || contrastRatio(onSurface, step) >= TEXT_CONTRAST_MIN) return step;
     const stepL = rgbToOklch(step).l;
     for (let fraction = 0.1; fraction <= 1; fraction += 0.1) {
@@ -184,19 +184,21 @@ function neutralRamp(background: Rgb, surface: Rgb, onSurface: Rgb, variant: The
     return surface;
   });
 
+  const monotonicProtected = (dir: 1 | -1) => {
+    let steps = rawSteps;
+    for (let pass = 0; pass < 3; pass += 1) {
+      steps = enforceIntegerMonotonic(protectSteps(steps), dir);
+    }
+    return protectSteps(steps);
+  };
+
   if (variant === "dark") {
-    const steps = enforceIntegerMonotonic(
-      protectedSteps,
-      1,
-    );
+    const steps = monotonicProtected(1);
     return { lowest: steps[0], low: steps[1], base: steps[2], high: steps[3], highest: steps[4] };
   }
 
   // Light: highest is the most shaded, lowest is the brightest.
-  const steps = enforceIntegerMonotonic(
-    protectedSteps,
-    -1,
-  );
+  const steps = monotonicProtected(-1);
   return { lowest: steps[0], low: steps[1], base: steps[2], high: steps[3], highest: steps[4] };
 }
 

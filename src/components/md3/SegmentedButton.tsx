@@ -12,7 +12,7 @@ export interface SegmentedOption<T extends string | number> {
 export interface SegmentedButtonProps<T extends string | number> {
   options: SegmentedOption<T>[];
   value: T | readonly T[] | null;
-  onChange: (value: T) => void;
+  onChange: (value: T | readonly T[]) => void;
   /** Multi-select mode: selected segments toggle independently. */
   multi?: boolean;
   label: string;
@@ -41,6 +41,15 @@ export function SegmentedButton<T extends string | number>({
 
   const selected = (v: T): boolean => (Array.isArray(value) ? value.includes(v) : value === v);
 
+  const select = (next: T) => {
+    if (multi) {
+      const current = Array.isArray(value) ? value : [];
+      onChange(current.includes(next) ? current.filter((item) => item !== next) : [...current, next]);
+      return;
+    }
+    onChange(next);
+  };
+
   const tabOption = options.find((opt) => !opt.disabled && selected(opt.value)) ?? options.find((opt) => !opt.disabled);
 
   const moveFocus = (from: number, dir: 1 | -1) => {
@@ -52,7 +61,7 @@ export function SegmentedButton<T extends string | number>({
     next?.focus();
     if (!multi) {
       const opt = options[Number(next?.dataset.optionIndex)];
-      if (opt) onChange(opt.value);
+      if (opt) select(opt.value);
     }
   };
 
@@ -92,12 +101,18 @@ export function SegmentedButton<T extends string | number>({
             className={cn(
               "md-state md-focus-ring inline-flex flex-1 select-none items-center justify-center gap-1.5 border-outline font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
               i > 0 && "border-l",
-               size === "sm" ? "md-hit-slop min-h-8 px-3 text-xs" : "min-h-10 px-4 text-sm",
+              size === "sm" ? "md-hit-slop min-h-8 px-3 text-xs" : "min-h-10 px-4 text-sm",
               isSelected
                 ? "bg-secondary-container text-on-secondary-container"
                 : "text-on-surface",
             )}
-            onClick={() => onChange(opt.value)}
+            onClick={() => select(opt.value)}
+            onKeyDown={(e) => {
+              if (multi && (e.key === "Enter" || e.key === " ")) {
+                e.preventDefault();
+                select(opt.value);
+              }
+            }}
           >
             {isSelected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
             {!isSelected && IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}
