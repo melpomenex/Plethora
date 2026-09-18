@@ -3,6 +3,13 @@ import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettierConfig from "eslint-config-prettier";
+import noHardcodedChromeColors from "./scripts/eslint-rules/no-hardcoded-chrome-colors.js";
+
+const localRulesPlugin = {
+  rules: {
+    "no-hardcoded-chrome-colors": noHardcodedChromeColors,
+  },
+};
 
 const reactHooksShim = {
   rules: {
@@ -60,11 +67,13 @@ export default [
       "@typescript-eslint": tsPlugin,
       "react-hooks": reactHooksShim,
       "react-refresh": reactRefresh,
+      "plethora": localRulesPlugin,
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
       ...prettierConfig.rules,
       "react-refresh/only-export-components": "off",
+      "plethora/no-hardcoded-chrome-colors": "error",
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": [
         "warn",

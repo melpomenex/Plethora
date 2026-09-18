@@ -882,7 +882,9 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     let cancelled = false;
     void getTTSListeningPosition(docId).then((record) => {
       if (cancelled || !record) return;
-      savedPositionRef.current = resolveListeningPosition(speechIndexRef.current, record);
+      const resolved = resolveListeningPosition(speechIndexRef.current, record);
+      console.log("DEBUG restore:", JSON.stringify({chunks: speechIndexRef.current?.chunks?.length, recordChunk: record.chunkIndex, resolved}));
+      savedPositionRef.current = resolved;
     });
     return () => {
       cancelled = true;
@@ -1661,6 +1663,56 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const currentChunk = chunks[Math.min(chunkIndex, chunks.length - 1)]?.text ?? "";
   const currentBufferStatus = bufferStatus.get(chunkIndex);
   const isLoading = currentBufferStatus === "loading" || currentBufferStatus === "pending";
+  const inPlayback = isPlaying || isPaused;
+
+  const speedSelect = (
+    <select
+      value={playbackRate}
+      onChange={(e) => {
+        const rate = Number(e.target.value);
+        setPlaybackRate(rate);
+        if (audioRef.current) {
+          audioRef.current.playbackRate = rate;
+        }
+      }}
+      className="rounded-full border border-outline-variant bg-surface-container-lowest px-2 py-1 text-xs text-on-surface"
+      title={t("readerTts.playbackSpeed")}
+      aria-label={t("readerTts.playbackSpeed")}
+    >
+      {speedOptions.map((speed) => (
+        <option key={speed} value={speed}>
+          {speed}x
+        </option>
+      ))}
+    </select>
+  );
+
+  const voiceSelect = providerVoices.length ? (
+    <select
+      value={selectedVoiceId}
+      onChange={(e) => handleVoiceChange(e.target.value)}
+      className="max-w-[9.5rem] rounded-full border border-outline-variant bg-surface-container-lowest px-2 py-1 text-xs text-on-surface"
+      title={t("readerTts.voice")}
+      aria-label={t("readerTts.voice")}
+    >
+      {providerVoices.map((voice) => (
+        <option key={voice.id} value={voice.id}>
+          {voice.name}
+        </option>
+      ))}
+    </select>
+  ) : null;
+
+  const playPauseContent =
+    isBuffering && isAutoPlaying ? (
+      <CircleNotch className="h-4 w-4 animate-spin" aria-hidden="true" />
+    ) : isLoading ? (
+      <CircleNotch className="h-4 w-4 animate-spin" aria-hidden="true" />
+    ) : isPlaying && !isPaused ? (
+      <Pause className="h-4 w-4" aria-hidden="true" />
+    ) : (
+      <Play className="h-4 w-4" aria-hidden="true" />
+    );
 
   return (
     <>
@@ -1677,111 +1729,108 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           sectionContainers={sectionContainers}
         />
       )}
+      {/* Material floating player surface with an idle ↔ playback morph:
+          compact launch pill when idle, full transport during playback. The
+          key remount replays the container-transform animation, which
+          motion tokens disable under reduced motion / E-Ink (instant swap). */}
       <div
+        key={inPlayback ? "playback" : "idle"}
         className={cn(
-          "pointer-events-auto rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-lg backdrop-blur",
+          "md-player-surface pointer-events-auto rounded-2xl border border-outline-variant/60 bg-surface-container-high/95 px-3 py-2 text-on-surface shadow-lg",
+          !inPlayback && "rounded-full py-1.5",
           className
         )}
       >
         <div className="flex items-center gap-2">
-          <SpeakerHigh className="h-4 w-4 text-primary" />
-          <button
-            onClick={() => void handlePrev()}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-            disabled={chunkIndex === 0 || isLoading}
-            title={t("readerTts.previousChunk")}
-          >
-            <SkipBack className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => void handlePlayPause()}
-            className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40"
-            disabled={isLoading}
-            title={
-              isPlaying
-                ? isPaused
-                  ? t("readerTts.resume")
-                  : t("readerTts.pause")
-                : t("readerTts.play")
-            }
-          >
-            {isBuffering && isAutoPlaying ? (
-              <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-            ) : isLoading ? (
-              <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-            ) : isPlaying && !isPaused ? (
-              <Pause className="h-3.5 w-3.5" />
-            ) : (
-              <Play className="h-3.5 w-3.5" />
-            )}
-          </button>
-          <button
-            onClick={handleStop}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-            disabled={!isPlaying && !isPaused}
-            title={t("readerTts.stop")}
-          >
-            <Square className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => void handleNext()}
-            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-            disabled={chunkIndex >= chunks.length - 1 || isLoading}
-            title={t("readerTts.nextChunk")}
-          >
-            <SkipForward className="h-3.5 w-3.5" />
-          </button>
+          <SpeakerHigh className="h-4 w-4 text-primary" aria-hidden="true" />
+
+          {inPlayback ? (
+            <>
+              <button
+                onClick={() => void handlePrev()}
+                className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
+                disabled={chunkIndex === 0 || isLoading}
+                title={t("readerTts.previousChunk")}
+                aria-label={t("readerTts.previousChunk")}
+              >
+                <SkipBack className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                onClick={() => void handlePlayPause()}
+                className="md-state rounded-full bg-primary p-2 text-on-primary disabled:opacity-40"
+                disabled={isLoading}
+                title={
+                  isPlaying
+                    ? isPaused
+                      ? t("readerTts.resume")
+                      : t("readerTts.pause")
+                    : t("readerTts.play")
+                }
+                aria-label={
+                  isPlaying
+                    ? isPaused
+                      ? t("readerTts.resume")
+                      : t("readerTts.pause")
+                    : t("readerTts.play")
+                }
+              >
+                {playPauseContent}
+              </button>
+              <button
+                onClick={handleStop}
+                className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
+                disabled={!isPlaying && !isPaused}
+                title={t("readerTts.stop")}
+                aria-label={t("readerTts.stop")}
+              >
+                <Square className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                onClick={() => void handleNext()}
+                className="md-state rounded-full p-1.5 text-on-surface-variant disabled:opacity-40"
+                disabled={chunkIndex >= chunks.length - 1 || isLoading}
+                title={t("readerTts.nextChunk")}
+                aria-label={t("readerTts.nextChunk")}
+              >
+                <SkipForward className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => void handlePlayPause()}
+              className="md-state rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-on-primary disabled:opacity-40"
+              disabled={isLoading}
+              title={t("readerTts.play")}
+              aria-label={t("readerTts.play")}
+            >
+              {playPauseContent}
+              <span className="ml-1.5">{t("readerTts.play")}</span>
+            </button>
+          )}
 
           <div className="flex items-center gap-1">
-            {providerVoices.length ? (
-              <select
-                value={selectedVoiceId}
-                onChange={(e) => handleVoiceChange(e.target.value)}
-                className="max-w-[9.5rem] rounded-md border border-border bg-background px-1.5 py-1 text-xs"
-                title={t("readerTts.voice")}
-              >
-                {providerVoices.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
-                    {voice.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-
-            <select
-              value={playbackRate}
-              onChange={(e) => {
-                const rate = Number(e.target.value);
-                setPlaybackRate(rate);
-                if (audioRef.current) {
-                  audioRef.current.playbackRate = rate;
-                }
-              }}
-              className="rounded-md border border-border bg-background px-1.5 py-1 text-xs"
-              title={t("readerTts.playbackSpeed")}
-            >
-              {speedOptions.map((speed) => (
-                <option key={speed} value={speed}>
-                  {speed}x
-                </option>
-              ))}
-            </select>
+            {inPlayback && voiceSelect}
+            {speedSelect}
           </div>
 
-          <button
-            onClick={() => {
-              onHighlightToggle?.();
-            }}
-            className={cn(
-              "rounded-md border px-2 py-1 text-xs hover:bg-muted",
-              highlightEnabled
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground"
-            )}
-            title={highlightEnabled ? "Disable word highlighting" : "Enable word highlighting"}
-          >
-            <Highlighter className="h-3.5 w-3.5" />
-          </button>
+          {inPlayback && (
+            <button
+              onClick={() => {
+                onHighlightToggle?.();
+              }}
+              className={cn(
+                "md-state rounded-full border p-1.5",
+                highlightEnabled
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-outline-variant text-on-surface-variant"
+              )}
+              title={highlightEnabled ? "Disable word highlighting" : "Enable word highlighting"}
+              aria-label={highlightEnabled ? "Disable word highlighting" : "Enable word highlighting"}
+              aria-pressed={highlightEnabled}
+            >
+              <Highlighter className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
 
           {(followPausedByUser || autoScrollPaused) && (
             <button
@@ -1789,27 +1838,38 @@ ref: React.ForwardedRef<ReaderTTSHandle>
                 followReCenter();
                 onReCenter?.();
               }}
-              className="rounded-md border border-amber-500 bg-amber-500/10 px-2 py-1 text-xs text-amber-600 hover:bg-amber-500/20"
+              className="md-state rounded-full border border-warning/60 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning hover:bg-warning/20"
               title="Re-center to current TTS position"
             >
               Re-center
             </button>
           )}
 
-          <span className="text-[11px] text-foreground/80">
+          <span className="md-label-medium text-on-surface-variant">
             {Math.min(chunkIndex + 1, chunks.length)}/{chunks.length}
           </span>
         </div>
-        <p
-          className="mt-1 max-w-[26rem] truncate text-[11px] text-foreground/80"
-          title={currentChunk}
-        >
-          {isBuffering && isAutoPlaying
-            ? t("readerTts.bufferingNextSegment")
-            : isLoading
-              ? t("readerTts.generatingAudio")
-              : currentChunk}
-        </p>
+        {inPlayback && (
+          <>
+            <div className="mt-1.5 h-0.5 w-full overflow-hidden rounded-full bg-surface-container-highest">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-[var(--md-duration-medium)]"
+                style={{ width: `${chunks.length ? ((chunkIndex + 1) / chunks.length) * 100 : 0}%` }}
+                aria-hidden="true"
+              />
+            </div>
+            <p
+              className="mt-1 max-w-[26rem] truncate text-[11px] text-on-surface-variant"
+              title={currentChunk}
+            >
+              {isBuffering && isAutoPlaying
+                ? t("readerTts.bufferingNextSegment")
+                : isLoading
+                  ? t("readerTts.generatingAudio")
+                  : currentChunk}
+            </p>
+          </>
+        )}
       </div>
     </>
   );

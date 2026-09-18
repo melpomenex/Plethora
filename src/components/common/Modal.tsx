@@ -4,6 +4,10 @@
 
 import { create } from "zustand";
 import { ReactNode, useCallback, useEffect, useRef } from "react";
+import { CheckCircle, Info, Warning, X, XCircle } from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
+import { Button } from "../md3/Button";
+import { cn } from "../../utils/cn";
 
 /**
  * Modal type
@@ -191,65 +195,48 @@ export function Modal() {
     full: "max-w-6xl",
   };
 
-  const typeIcons = {
-    [ModalType.Info]: (
-      <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    [ModalType.Success]: (
-      <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    [ModalType.Warning]: (
-      <svg className="w-6 h-6 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
-    [ModalType.Error]: (
-      <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    [ModalType.Confirm]: (
-      <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+  const typeIcons: Record<ModalType, { IconCmp: Icon; className: string } | null> = {
+    [ModalType.Info]: { IconCmp: Info, className: "text-primary" },
+    [ModalType.Success]: { IconCmp: CheckCircle, className: "text-success" },
+    [ModalType.Warning]: { IconCmp: Warning, className: "text-warning" },
+    [ModalType.Error]: { IconCmp: XCircle, className: "text-error" },
+    [ModalType.Confirm]: { IconCmp: Info, className: "text-primary" },
     [ModalType.Custom]: null,
   };
 
   const isConfirm = modal.type === ModalType.Confirm || modal.type === ModalType.Custom;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="md-dialog-scrim absolute inset-0"
         onClick={handleClose}
       />
 
-      {/* Modal */}
+      {/* Modal — Material dialog surface contract (md3/Dialog.tsx) */}
       <div
         ref={modalRef}
-        className={`relative ${sizeClasses[modal.size]} w-full mx-4 md:mx-auto bg-card rounded-lg shadow-2xl border border-border max-h-[90vh] md:max-h-[80vh] flex flex-col`}
+        className={`relative ${sizeClasses[modal.size]} w-full mx-4 md:mx-auto bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl max-h-[90vh] md:max-h-[80vh] flex flex-col`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
         {/* Header */}
         <div className="flex items-start gap-2 md:gap-3 p-4 md:p-6 flex-shrink-0">
-          {typeIcons[modal.type]}
+          {typeIcons[modal.type] && (() => {
+            const { IconCmp, className: iconClassName } = typeIcons[modal.type]!;
+            return <IconCmp weight="fill" className={`h-6 w-6 shrink-0 ${iconClassName}`} aria-hidden="true" />;
+          })()}
           <div className="flex-1 min-w-0">
             <h2
               id="modal-title"
-              className="text-base md:text-lg font-semibold text-foreground"
+              className="md-title-large text-on-surface"
             >
               {modal.title}
             </h2>
             {modal.message && (
-              <p className="mt-1 md:mt-2 text-xs md:text-sm text-muted-foreground">
+              <p className="md-body-medium mt-1 md:mt-2 text-on-surface-variant">
                 {modal.message}
               </p>
             )}
@@ -257,12 +244,10 @@ export function Modal() {
           {modal.closable && (
             <button
               onClick={handleClose}
-              className="p-2 hover:bg-muted rounded transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center flex-shrink-0"
+              className="md-state -m-1 flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors min-w-[40px] min-h-[40px] flex-shrink-0"
               aria-label="Close"
             >
-              <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="h-5 w-5" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -275,27 +260,19 @@ export function Modal() {
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 md:px-6 py-3 md:py-4 bg-muted/30 border-t border-border rounded-b-lg flex-shrink-0">
+        <div className="flex items-center justify-end gap-2 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
           {isConfirm && (
-            <button
-              onClick={handleCancel}
-              className="px-4 py-2.5 text-sm font-medium text-foreground bg-background border border-border rounded-md hover:bg-muted transition-colors min-h-[44px]"
-            >
+            <Button variant="text" onClick={handleCancel} className="min-h-11">
               {modal.cancelText}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant={modal.variant === "danger" ? "destructive" : "filled"}
             onClick={handleConfirm}
-            className={`px-4 py-2.5 text-sm font-medium rounded-md transition-colors min-h-[44px] ${
-              modal.variant === "danger"
-                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : modal.variant === "warning"
-                ? "bg-yellow-500 text-white hover:bg-yellow-600"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            }`}
+            className={cn("min-h-11", modal.variant === "warning" && "bg-warning text-on-surface-variant")}
           >
             {modal.confirmText}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -464,46 +441,38 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="md-dialog-scrim absolute inset-0"
         onClick={onCancel}
       />
       <div
         ref={dialogRef}
-        className="relative max-w-md w-full mx-4 bg-card rounded-lg shadow-2xl border border-border"
+        className="relative max-w-md w-full mx-4 bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
       >
         <div className="p-6">
-          <h3 id="confirm-title" className="text-lg font-semibold text-foreground">
+          <h3 id="confirm-title" className="md-headline-small text-on-surface">
             {title}
           </h3>
-          <p id="confirm-message" className="mt-2 text-sm text-muted-foreground">
+          <p id="confirm-message" className="md-body-medium mt-2 text-on-surface-variant">
             {message}
           </p>
         </div>
-        <div className="flex items-center justify-end gap-2 px-6 py-4 bg-muted/30 border-t border-border rounded-b-lg">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-foreground bg-background border border-border rounded-md hover:bg-muted transition-colors"
-          >
+        <div className="flex items-center justify-end gap-2 px-6 pb-6">
+          <Button variant="text" onClick={onCancel}>
             {cancelText}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={variant === "danger" ? "destructive" : "filled"}
+            className={cn(variant === "warning" && "bg-warning text-on-surface-variant")}
             onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              variant === "danger"
-                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : variant === "warning"
-                ? "bg-yellow-500 text-white hover:bg-yellow-600"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            }`}
           >
             {confirmText}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -543,42 +512,38 @@ export function AlertDialog({
 
   if (!open) return null;
 
-  const typeIcons = {
-    [ModalType.Info]: "text-blue-500",
-    [ModalType.Success]: "text-green-500",
-    [ModalType.Warning]: "text-yellow-500",
-    [ModalType.Error]: "text-red-500",
+  const typeIcons: Record<string, { IconCmp: Icon; className: string }> = {
+    [ModalType.Info]: { IconCmp: Info, className: "text-primary" },
+    [ModalType.Success]: { IconCmp: CheckCircle, className: "text-success" },
+    [ModalType.Warning]: { IconCmp: Warning, className: "text-warning" },
+    [ModalType.Error]: { IconCmp: XCircle, className: "text-error" },
   };
+  const { IconCmp, className: iconClassName } = typeIcons[type] ?? typeIcons[ModalType.Info];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="md-dialog-scrim absolute inset-0"
         onClick={onClose}
       />
       <div
-        className="relative max-w-md w-full mx-4 bg-card rounded-lg shadow-2xl border border-border"
+        className="relative max-w-md w-full mx-4 bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl"
         role="alertdialog"
         aria-modal="true"
       >
         <div className="flex items-start gap-3 p-6">
-          <div className={`flex-shrink-0 ${typeIcons[type]}`}>
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className={`flex-shrink-0 ${iconClassName}`}>
+            <IconCmp weight="fill" className="h-6 w-6" aria-hidden="true" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+            <h3 className="md-headline-small text-on-surface">{title}</h3>
+            <p className="md-body-medium mt-2 text-on-surface-variant">{message}</p>
           </div>
         </div>
-        <div className="px-6 py-4 bg-muted/30 border-t border-border rounded-b-lg">
-          <button
-            onClick={onClose}
-            className="w-full px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 transition-colors"
-          >
+        <div className="px-6 pb-6">
+          <Button onClick={onClose} className="w-full min-h-11">
             {buttonText}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

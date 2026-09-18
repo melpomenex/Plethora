@@ -354,7 +354,7 @@ function TabBarImpl({
       <div
         ref={containerRef}
         onMouseDown={handleWindowDragRequest}
-        className="flex items-center bg-card border-b border-border"
+        className="flex items-center bg-surface-container-low border-b border-surface-container-highest"
       >
         {/* Left scroll button - compact in narrow mode */}
         <button
@@ -409,7 +409,7 @@ function TabBarImpl({
                 }}
                 className={`
                   relative flex items-center cursor-pointer
-                  border-r border-border border-t-2
+                  border-r border-outline-variant/50 border-t-2
                   transition-colors select-none flex-shrink-0
                   ${isNarrow 
                     ? "gap-0.5 px-1.5 py-1 min-h-[28px] max-w-[80px]" 
@@ -419,8 +419,8 @@ function TabBarImpl({
                   ${isDragOver ? "bg-primary/10" : ""}
                   ${
                     isActive
-                      ? "bg-background border-t-primary text-foreground"
-                      : "bg-muted/50 border-t-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-surface border-t-primary text-on-surface"
+                      : "bg-surface-container/60 border-t-transparent text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
                   }
                   ${tab.closable ? "group" : ""}
                 `}

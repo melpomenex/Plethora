@@ -535,7 +535,7 @@ export function DictionaryPeek({
       aria-label={t("viewer.dictionaryPeek.title", { word: displayWord })}
       dir="ltr"
       data-eink={isEink ? "true" : undefined}
-      className={`fixed z-[9998] flex flex-col overflow-y-auto rounded-2xl p-3 ${surfaceClass} ${
+      className={`fixed z-[var(--md-z-critical)] flex flex-col overflow-y-auto rounded-2xl p-3 ${surfaceClass} ${
         reducedMotion ? "" : "animate-in fade-in-0 zoom-in-95 duration-150"
       }`}
       style={{

@@ -146,8 +146,13 @@ describe("ReaderTTSControls pause/resume correctness (#5)", () => {
   });
 
   function pressPlayPause() {
+    // Play/pause keeps a stable position: the lone idle button, or the
+    // transport's play/pause control once playback is active.
     const buttons = screen.getAllByRole("button");
-    buttons[1].click();
+    const play = buttons.find(
+      (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+    );
+    (play ?? buttons[0]).click();
   }
 
   function chunkCounter(): string {
@@ -293,16 +298,16 @@ describe("ReaderTTSControls pause/resume correctness (#5)", () => {
     );
     // Any activation device dispatches the same click to the single play/pause
     // button; assert the toggle is device-independent.
-    screen.getAllByRole("button")[1].click();
+    pressPlayPause();
     await waitFor(() => expect(harness.speakMock).toHaveBeenCalled());
     await makePlaying();
     await waitFor(() => expect(ref.current!.playbackState()).toBe("playing"));
 
-    screen.getAllByRole("button")[1].click();
+    pressPlayPause();
     await waitFor(() => expect(harness.pauseMock).toHaveBeenCalled());
     expect(ref.current!.playbackState()).toBe("paused");
 
-    screen.getAllByRole("button")[1].click();
+    pressPlayPause();
     await waitFor(() => expect(harness.resumeMock).toHaveBeenCalled());
     await waitFor(() => expect(ref.current!.playbackState()).toBe("playing"));
   });
@@ -428,7 +433,13 @@ describe("ReaderTTSControls cross-feature sequence + audio parity", () => {
   });
 
   function pressPlayPause() {
-    screen.getAllByRole("button")[1].click();
+    // Play/pause keeps a stable position: the lone idle button, or the
+    // transport's play/pause control once playback is active.
+    const buttons = screen.getAllByRole("button");
+    const play = buttons.find(
+      (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+    );
+    (play ?? buttons[0]).click();
   }
 
   function pressStop() {
@@ -524,18 +535,22 @@ describe("ReaderTTSControls cross-feature sequence + audio parity", () => {
     );
     // Wait for the first chunk's audio to buffer (the play button is disabled
     // while the current chunk is loading).
-    await waitFor(() =>
-      expect((screen.getAllByRole("button")[1] as HTMLButtonElement).disabled).toBe(false),
-    );
-    screen.getAllByRole("button")[1].click();
+    await waitFor(() => {
+      const buttons = screen.getAllByRole("button");
+      const play = buttons.find(
+        (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+      );
+      expect((play ?? buttons[0]) as HTMLButtonElement).not.toBeDisabled();
+    });
+    pressPlayPause();
     await waitFor(() => expect(played.some((a) => a.played)).toBe(true), { timeout: 2000 });
     await waitFor(() => expect(ref.current!.playbackState()).toBe("playing"));
     const audioCount = played.length;
 
-    screen.getAllByRole("button")[1].click(); // pause
+    pressPlayPause(); // pause
     await waitFor(() => expect(ref.current!.playbackState()).toBe("paused"));
 
-    screen.getAllByRole("button")[1].click(); // resume
+    pressPlayPause(); // resume
     await waitFor(() => expect(ref.current!.playbackState()).toBe("playing"));
     // Exact resume: same <audio> cursor continues, no new element for a
     // re-anchored start.

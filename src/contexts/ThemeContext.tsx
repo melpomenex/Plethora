@@ -13,6 +13,7 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
 import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme } from "../themes/fallback";
 import { makeOpaque } from "../themes/color";
+import { deriveMaterialRoles } from "../themes/materialRoles";
 import { resolveModeAccent } from "../themes/modeAccent";
 import { loadGoogleFont } from "../utils/fonts";
 import { migratedGetItem } from "../lib/brandMigration";
@@ -69,6 +70,14 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
 
   // Apply colors
   Object.entries(theme.colors).forEach(([key, value]) => {
+    root.style.setProperty(`--color-${key}`, value);
+  });
+
+  // Extended Material 3 roles (container hierarchy, tertiary family, inverse
+  // roles, scrim). Explicit theme keys were set by the loop above; the
+  // derivation only fills the gaps, so theme-author intent always wins.
+  const materialRoles = deriveMaterialRoles(theme.colors, theme.variant);
+  Object.entries(materialRoles).forEach(([key, value]) => {
     root.style.setProperty(`--color-${key}`, value);
   });
 

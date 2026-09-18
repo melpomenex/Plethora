@@ -52,7 +52,6 @@ import {
   TextT,
 } from "@phosphor-icons/react";
 import { CollectionSwitcher } from "./collections/CollectionSwitcher";
-import { actionVariants } from "./common/UI";
 import { cn } from "../utils/cn";
 import { handleWindowDragRequest } from "../lib/windowDrag";
 import { usePlatformCapability } from "../hooks/usePlatformCapability";
@@ -130,9 +129,8 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
       data-toolbar-orientation={orientation}
       {...tourAnchorForButton(button.id)}
       className={cn(
-        actionVariants({ variant: "tertiary", size: "icon" }),
-        "toolbar-button relative",
-        button.disabled ? "text-muted-foreground" : "text-foreground",
+        "md-state toolbar-button relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-on-surface-variant focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40",
+        button.disabled ? "text-on-surface-variant/50" : "hover:text-on-surface",
         isVertical && "w-full",
       )}
       aria-label={button.label}
@@ -888,7 +886,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     >
       <div className={cn("toolbar-surface", isVertical && "h-full")}>
         {isVertical ? (
-          <div className={`h-full bg-card ${position === "left" ? "border-r border-border" : "border-l border-border"} flex flex-col`}>
+          <div className={`h-full bg-surface-container flex flex-col`}>
             <CollectionSwitcher />
             <div className="flex-1 overflow-y-auto py-2 px-1">
               <div className="flex flex-col gap-1">
@@ -900,7 +898,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                         <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} />
                       ))}
                     {groupIndex < groups.length - 1 && (
-                      <div className="w-6 h-px bg-border mx-auto my-1" />
+                      <div className="w-6 h-px bg-outline-variant/60 mx-auto my-1" />
                     )}
                   </div>
                 ))}
@@ -908,7 +906,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-card border-b border-border">
+          <div className="bg-surface-container">
             <div
               onMouseDown={handleWindowDragRequest}
               className="flex items-center px-2 py-1 gap-1"
@@ -922,7 +920,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                       <ToolbarButtonItem key={button.id} button={button} expanded={expanded} />
                     ))}
                   {groupIndex < groups.length - 1 && (
-                    <div className="w-px h-6 bg-border mx-1" />
+                    <div className="w-px h-6 bg-outline-variant/60 mx-1" />
                   )}
                 </div>
               ))}

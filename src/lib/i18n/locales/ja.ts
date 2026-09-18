@@ -5547,6 +5547,7 @@ export const ja: Dict = {
   "ratingButtons.grade3Description": "正解だが、かなり苦労した",
   "ratingButtons.grade4Description": "正解（少し迷った）",
   "ratingButtons.grade5Description": "完全に想起",
+  "ratingButtons.groupLabel": "思い出し方を評価",
   "review.grade0": "ブラックアウト",
   "review.grade1": "不正解",
   "review.grade2": "惜しい",

@@ -1797,8 +1797,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                               const isPreparing = entry.status === 'processing' && store.activePhase === 'preparing';
                               return (
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                                  entry.status === 'processing' ? 'bg-blue-500/20 text-blue-600' :
-                                  entry.status === 'failed' ? 'bg-red-500/20 text-red-600' :
+                                  entry.status === 'processing' ? 'bg-primary/15 text-primary' :
+                                  entry.status === 'failed' ? 'bg-error/15 text-error' :
                                   'bg-amber-500/20 text-amber-600'
                                 }`}>
                                   {isPreparing ? '⏳ Preparing...' :
@@ -1924,8 +1924,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                       onClick={() => { setListCtxDoc(null); onReadAlong?.(audioDoc, epubDoc); }}
                     >
                       {listCtxDoc.doc.fileType === "audio"
-                        ? <Columns className="h-3.5 w-3.5 text-blue-500" />
-                        : <Headphones className="h-3.5 w-3.5 text-blue-500" />}
+                        ? <Columns className="h-3.5 w-3.5 text-primary" />
+                        : <Headphones className="h-3.5 w-3.5 text-primary" />}
                       {listCtxDoc.doc.fileType === "audio"
                         ? `Read Along with ${best.doc.title}`
                         : `Listen Along with ${best.doc.title}`}
@@ -2317,7 +2317,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 )}
 
                 {ytdlpInstallMessage && (
-                  <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-2 text-green-500 text-sm">
+                  <div className="p-3 bg-success/10 border border-success/20 rounded-lg flex items-center gap-2 text-success text-sm">
                     <Check className="w-4 h-4" />
                     <span>{ytdlpInstallMessage}</span>
                   </div>
@@ -2452,7 +2452,7 @@ function PriorityBadge({ doc }: { doc: Document }) {
   const signal = getPrioritySignal(doc);
   const tierStyles =
     tier === "high"
-      ? "bg-red-500/15 text-red-600"
+      ? "bg-error/15 text-error"
       : tier === "medium"
         ? "bg-amber-500/15 text-amber-600"
         : "bg-emerald-500/15 text-emerald-600";
@@ -2534,10 +2534,10 @@ function DueDateBadge({ doc }: { doc: Document }) {
     ? "Due today"
     : `Due in ${diffDays}d`;
   const color = diffDays < 0
-    ? "bg-red-500/10 text-red-600 dark:text-red-400"
+    ? "bg-error/10 text-error"
     : diffDays === 0
     ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-    : "bg-blue-500/10 text-blue-600 dark:text-blue-300";
+    : "bg-primary/10 text-primary";
   return <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${color}`}>{label}</span>;
 }
 
@@ -2632,7 +2632,7 @@ function DocumentProgressIndicator({ doc }: { doc: Document }) {
       <div className="flex items-center gap-3">
         <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-500 transition-all duration-300"
+            className="h-full bg-primary transition-all duration-300"
             style={{ width: `${Math.min(100, Math.max(0, displayProgress))}%` }}
           />
         </div>
@@ -2647,7 +2647,7 @@ function DocumentProgressIndicator({ doc }: { doc: Document }) {
       {/* Additional status indicators */}
       <div className="flex items-center gap-2 mt-2">
         {displayProgress > 0 && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 text-[10px] font-medium">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">
             {t("documentsView.readingStatus")}
           </span>
         )}
@@ -3573,7 +3573,7 @@ function LibraryDashboard({
     { label: "Ready to Review", value: readyToReview, icon: <BookOpen className="w-4 h-4" /> },
   ];
 
-  const statColors = ["text-foreground", "text-blue-500", "text-amber-500", "text-emerald-500", "text-purple-500"];
+  const statColors = ["text-foreground", "text-primary", "text-warning", "text-success", "text-tertiary"];
 
   return (
     <div {...tourAnchor("documentsGrid")} className="space-y-5 pb-4">
@@ -3852,7 +3852,7 @@ function LibraryCard({
         ? `Read Along with ${bestCompanion.doc.title}`
         : `Listen Along with ${bestCompanion.doc.title}`,
       icon: doc.fileType === "audio"
-        ? <Columns className="h-3.5 w-3.5 text-blue-500" />
+        ? <Columns className="h-3.5 w-3.5 text-primary" />
         : <Headphones className="h-3.5 w-3.5 text-blue-500" />,
       action: () => {
         const audioDoc = doc.fileType === "audio" ? doc : bestCompanion.doc;

@@ -5639,6 +5639,7 @@ export const de: Dict = {
   "ratingButtons.grade3Description": "Richtig, mit großer Mühe",
   "ratingButtons.grade4Description": "Richtig, nach Zögern",
   "ratingButtons.grade5Description": "Perfekte Erinnerung",
+  "ratingButtons.groupLabel": "Erinnerung bewerten",
   "review.grade0": "Blackout",
   "review.grade1": "Falsch",
   "review.grade2": "Fast",

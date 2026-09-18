@@ -65,7 +65,7 @@ function Chip({
       type="button"
       data-showcase-action={showcaseAction}
       // 44px targets; the row scrolls horizontally instead of shrinking.
-      className={`flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium text-foreground active:bg-muted ${
+      className={`md-state flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium text-on-surface ${
         reducedMotion ? "" : "transition-colors"
       }`}
       onClick={onClick}
@@ -117,7 +117,7 @@ export function SelectionActionBar({
       role="toolbar"
       aria-label={t("selectionBar.toolbarLabel")}
       dir="ltr"
-      className="fixed z-[9998] flex items-center overflow-x-auto rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-md backdrop-blur-sm scrollbar-none"
+      className="fixed z-[var(--md-z-critical)] flex items-center overflow-x-auto rounded-full border border-outline-variant/50 bg-surface-container-high px-1.5 py-1 shadow-xl scrollbar-none"
       style={{
         top: Math.round(placement.top),
         left: Math.round(placement.left),

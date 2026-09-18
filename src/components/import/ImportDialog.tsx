@@ -211,23 +211,23 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
           {preview && !loading && (
             <>
               {/* URL & Content Info */}
-              <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <div className="mb-4 p-3 bg-surface-container-low rounded-lg">
+                <div className="flex items-center gap-2 text-sm text-on-surface-variant mb-2">
                   <TextT className="w-4 h-4" />
                   <span className="truncate">{url}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500">Type:</span>
+                    <span className="text-on-surface-variant">Type:</span>
                     <span className="ml-2 font-medium">{preview.contentType}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Source:</span>
+                    <span className="text-on-surface-variant">Source:</span>
                     <span className="ml-2 font-medium capitalize">{preview.sourceType}</span>
                   </div>
                   {preview.readingTime && (
                     <div>
-                      <span className="text-gray-500">Reading time:</span>
+                      <span className="text-on-surface-variant">Reading time:</span>
                       <span className="ml-2 font-medium flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {preview.readingTime} min
@@ -236,7 +236,7 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
                   )}
                   {preview.wordCount && (
                     <div>
-                      <span className="text-gray-500">Words:</span>
+                      <span className="text-on-surface-variant">Words:</span>
                       <span className="ml-2 font-medium">{preview.wordCount.toLocaleString()}</span>
                     </div>
                   )}
@@ -245,8 +245,8 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
 
               {/* Preview Excerpt */}
               {preview.excerpt && (
-                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Preview</div>
+                <div className="mb-4 p-3 bg-surface-container-low rounded-lg">
+                  <div className="text-sm text-on-surface-variant mb-1">Preview</div>
                   <p className="text-sm line-clamp-3">{preview.excerpt}...</p>
                 </div>
               )}
@@ -254,26 +254,26 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
               {/* Import Options */}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-on-surface mb-1">
                     Title
                   </label>
                   <input
                     type="text"
                     value={importOptions.title}
                     onChange={(e) => setImportOptions((prev) => ({ ...prev, title: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    className="w-full px-3 py-2 border border-outline rounded-lg bg-surface-container-lowest text-on-surface"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-on-surface mb-1">
                     Tags
                   </label>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {importOptions.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-md text-sm"
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded-md text-sm"
                       >
                         {tag}
                         <button
@@ -297,7 +297,7 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
                         }
                       }}
                       placeholder="Add tag..."
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="flex-1 px-3 py-2 border border-outline rounded-lg bg-surface-container-lowest text-on-surface"
                     />
                     <button
                       onClick={handleAddTag}
@@ -309,7 +309,7 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-on-surface mb-1">
                     Auto-extract options
                   </label>
                   <div className="space-y-2">

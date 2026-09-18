@@ -263,18 +263,12 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-card) 86%, transparent),
-      color-mix(in srgb, var(--color-background) 90%, transparent)
-    );
-  backdrop-filter: blur(18px) saturate(1.15);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  border-top: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
-  box-shadow:
-    0 -10px 30px color-mix(in srgb, black 12%, transparent),
-    0 1px 0 color-mix(in srgb, white 10%, transparent) inset;
+  /* Material navigation bar: tonal surface, no border chrome. */
+  background: color-mix(in srgb, var(--color-surface-container, var(--color-card)) 92%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid color-mix(in srgb, var(--color-surface-container-highest, var(--color-border)) 70%, transparent);
+  box-shadow: 0 -8px 24px color-mix(in srgb, black 10%, transparent);
   display: flex;
   justify-content: space-around;
   gap: 2px;
@@ -284,7 +278,9 @@
   padding-left: calc(6px + var(--shell-safe-left, 0px));
   z-index: 1000;
   user-select: none;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform var(--md-duration-short, 0.2s) var(--md-easing-standard, ease),
+    opacity var(--md-duration-short, 0.2s) var(--md-easing-standard, ease);
   min-height: 56px;
 }
 
@@ -316,55 +312,70 @@
   align-items: center;
   gap: 2px;
   text-decoration: none;
-  color: color-mix(in srgb, var(--color-foreground) 68%, var(--color-muted-foreground));
+  color: var(--color-on-surface-variant, var(--color-muted-foreground));
   background: transparent;
   border: none;
   cursor: pointer;
   overflow: hidden;
   border-radius: 16px;
   padding: 4px 2px 6px;
-  transition: color 0.2s, transform 0.2s;
+  transition: color var(--md-duration-short, 0.2s) var(--md-easing-standard, ease);
   min-height: 48px;
 }
 
 .mobile-nav-item:hover {
-  color: var(--color-foreground);
+  color: var(--color-on-surface, var(--color-foreground));
 }
 
 .mobile-nav-item.active {
-  color: var(--color-foreground);
+  color: var(--color-on-surface, var(--color-foreground));
 }
 
+/* Hover state layer (content-color overlay). The active indication is the
+   icon pill below — selected state is never color alone. */
 .mobile-nav-item-background {
   position: absolute;
-  inset: 4px;
+  inset: 2px;
   border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-primary) 18%, transparent),
-    color-mix(in srgb, var(--color-secondary, var(--color-primary)) 10%, transparent)
-  );
+  background: color-mix(in srgb, currentColor 8%, transparent);
   opacity: 0;
-  transform: translateY(4px) scale(0.96);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--md-duration-short, 0.2s) var(--md-easing-standard, ease);
   pointer-events: none;
 }
 
+.mobile-nav-item:hover .mobile-nav-item-background,
+.mobile-nav-item:focus-visible .mobile-nav-item-background {
+  opacity: 1;
+}
+
+/* Material navigation bar active pill: tonal secondary-container chip behind
+   the icon. */
 .mobile-nav-icon {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 24px;
+  min-height: 32px;
+  padding: 0 12px;
+  margin: 0 -4px;
+  border-radius: 999px;
   z-index: 1;
+  transition:
+    background-color var(--md-duration-short, 0.2s) var(--md-easing-standard, ease),
+    color var(--md-duration-short, 0.2s) var(--md-easing-standard, ease);
+}
+
+.mobile-nav-item.active .mobile-nav-icon {
+  background: var(--color-secondary-container, color-mix(in srgb, var(--color-primary) 15%, transparent));
+  color: var(--color-on-secondary-container, var(--color-foreground));
 }
 
 .mobile-nav-badge {
   position: absolute;
   top: 0;
-  right: -4px;
-  background: #ef4444;
-  color: white;
+  right: 4px;
+  background: var(--color-error, #ef4444);
+  color: var(--color-on-error, white);
   font-size: 10px;
   font-weight: 600;
   min-width: 16px;
@@ -386,47 +397,9 @@
   white-space: nowrap;
 }
 
-.mobile-nav-item::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 2px;
-  width: 20px;
-  height: 3px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, white 12%, var(--color-primary)),
-    var(--color-primary)
-  );
-  box-shadow: 0 0 14px color-mix(in srgb, var(--color-primary) 35%, transparent);
-  opacity: 0;
-  transform: translateX(-50%) scaleX(0.4);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.mobile-nav-item:hover .mobile-nav-item-background,
-.mobile-nav-item.active .mobile-nav-item-background,
-.mobile-nav-item:focus-visible .mobile-nav-item-background {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-.mobile-nav-item:hover::after,
-.mobile-nav-item.active::after,
-.mobile-nav-item:focus-visible::after {
-  opacity: 1;
-  transform: translateX(-50%) scaleX(1);
-}
-
-.mobile-nav-item:hover .mobile-nav-icon,
-.mobile-nav-item.active .mobile-nav-icon,
-.mobile-nav-item:focus-visible .mobile-nav-icon,
-.mobile-nav-item:hover .mobile-nav-label,
-.mobile-nav-item.active .mobile-nav-label,
-.mobile-nav-item:focus-visible .mobile-nav-label {
-  transform: translateY(-1px);
-  transition: transform 0.2s ease;
+.mobile-nav-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .mobile-more-overlay {

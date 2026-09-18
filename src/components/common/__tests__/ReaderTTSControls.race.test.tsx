@@ -267,7 +267,13 @@ describe("ReaderTTSControls TOC synchronization", () => {
     expect(played.filter((a) => a.played)).toHaveLength(0);
 
     // Play consumes the queued anchor.
-    screen.getAllByRole("button")[1].click();
+    (() => {
+      const buttons = screen.getAllByRole("button");
+      const play = buttons.find(
+        (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+      );
+      (play ?? buttons[0]).click();
+    })();
     await waitFor(() => expect(played.some((a) => a.played)).toBe(true), { timeout: 2000 });
     const audible = played.find((a) => a.played)!;
     expect(audible.url.startsWith("blob:upsilon")).toBe(true);
@@ -290,7 +296,13 @@ describe("ReaderTTSControls TOC synchronization", () => {
     const tts = ref.current!;
     tts.queueAnchor(anchorAt(TEXT.indexOf("upsilon")));
     await new Promise((r) => setTimeout(r, 50));
-    screen.getAllByRole("button")[1].click();
+    (() => {
+      const buttons = screen.getAllByRole("button");
+      const play = buttons.find(
+        (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+      );
+      (play ?? buttons[0]).click();
+    })();
     await waitFor(() => expect(played.some((a) => a.played)).toBe(true), { timeout: 2000 });
     expect(tts.playbackState()).toBe("playing");
 
@@ -304,7 +316,13 @@ describe("ReaderTTSControls TOC synchronization", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Resume consumes the queued anchor and plays from the new location.
-    screen.getAllByRole("button")[1].click();
+    (() => {
+      const buttons = screen.getAllByRole("button");
+      const play = buttons.find(
+        (b) => /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+      );
+      (play ?? buttons[0]).click();
+    })();
     await waitFor(() => expect(played.some((a) => a.played)).toBe(true), { timeout: 2000 });
     expect(resumePlayed).toBe(0);
     const audible = played.find((a) => a.played)!;

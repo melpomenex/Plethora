@@ -36,6 +36,7 @@ import {
 import { useToast } from "../common/Toast";
 import { useModal } from "../common/Modal";
 import { NumericInput } from "../common";
+import { Switch } from "../common/Switch";
 import { cn } from "../../utils";
 import { importWithRetry } from "../../utils/importWithRetry";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -990,18 +991,13 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           label={t("settings.restoreSession")}
           description={t("settings.restoreSessionDesc")}
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={general.restoreSession}
-              onChange={(e) => {
-                updateSettingsCategory("general", { restoreSession: e.target.checked });
-                onChange();
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-          </label>
+          <Switch
+          checked={general.restoreSession}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("general", { restoreSession: checked });
+        onChange();
+          }}
+        />
         </SettingsRow>
 
         <SettingsRow
@@ -1051,18 +1047,13 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           label="Feature Popups"
           description="Show onboarding tips and feature discovery popups"
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={general.showFeaturePopups ?? true}
-              onChange={(e) => {
-                updateSettingsCategory("general", { showFeaturePopups: e.target.checked });
-                onChange();
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-          </label>
+          <Switch
+          checked={general.showFeaturePopups ?? true}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("general", { showFeaturePopups: checked });
+        onChange();
+          }}
+        />
         </SettingsRow>
 
         {isDesktop && appUpdaterAvailable && (
@@ -1115,7 +1106,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           description={t("settings.notAvailableYet")}
         >
           <label className="relative inline-flex items-center opacity-50 cursor-not-allowed">
-            <input type="checkbox" className="sr-only peer" disabled checked={false} onChange={() => {}} aria-label={t("settings.backupOnExit")} />
+            <Switch checked={false} onCheckedChange={() => {}} disabled aria-label={t("settings.backupOnExit")} />
             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
           </label>
         </SettingsRow>
@@ -1216,19 +1207,14 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           label="Show the companion bird"
           description="A small, quiet mascot that perches in the corner and sometimes comments on what you're doing. Off by default; never appears in e-ink mode and stays still under reduced motion."
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={companion?.enabled ?? false}
-              onChange={(e) => {
-                updateSettingsCategory("interface", {
-                  companion: { ...companion, enabled: e.target.checked },
-                });
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
-          </label>
+          <Switch
+          checked={companion?.enabled ?? false}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", {
+        companion: { ...companion, enabled: checked },
+        });
+          }}
+        />
         </SettingsRow>
         {companion?.enabled && (
           <>
@@ -1254,37 +1240,27 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
               label="Reading comments"
               description="Occasional contextual notes about documents and highlights."
             >
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={companion.contextualComments}
-                  onChange={(e) => {
-                    updateSettingsCategory("interface", {
-                      companion: { ...companion, contextualComments: e.target.checked },
-                    });
-                  }}
-                />
-                <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
-              </label>
+              <Switch
+          checked={companion.contextualComments}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", {
+        companion: { ...companion, contextualComments: checked },
+        });
+          }}
+        />
             </SettingsRow>
             <SettingsRow
               label="Study encouragement"
               description="Small celebrations and encouragement while reviewing."
             >
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={companion.encouragement}
-                  onChange={(e) => {
-                    updateSettingsCategory("interface", {
-                      companion: { ...companion, encouragement: e.target.checked },
-                    });
-                  }}
-                />
-                <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
-              </label>
+              <Switch
+          checked={companion.encouragement}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", {
+        companion: { ...companion, encouragement: checked },
+        });
+          }}
+        />
             </SettingsRow>
           </>
         )}
@@ -1298,20 +1274,15 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           label={t("settings.interface.startupAnimationLabel")}
           description={t("settings.interface.startupAnimationHelp")}
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={settings.interface.startupAnimationEnabled}
-              onChange={(e) => {
-                updateSettingsCategory("interface", {
-                  startupAnimationEnabled: e.target.checked,
-                });
-                onChange();
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
-          </label>
+          <Switch
+          checked={settings.interface.startupAnimationEnabled}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", {
+        startupAnimationEnabled: checked,
+        });
+        onChange();
+          }}
+        />
         </SettingsRow>
       </SettingsSection>
 
@@ -1323,20 +1294,15 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           label="Enable animated themes"
           description="Show moving background animations for animated themes. Turn off to save battery and reduce CPU/GPU load, especially on laptops and mobile."
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={settings.interface.animationsEnabled}
-              onChange={(e) => {
-                updateSettingsCategory("interface", {
-                  animationsEnabled: e.target.checked,
-                });
-                onChange();
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-          </label>
+          <Switch
+          checked={settings.interface.animationsEnabled}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", {
+        animationsEnabled: checked,
+        });
+        onChange();
+          }}
+        />
         </SettingsRow>
 
         <div className={settings.interface.animationsEnabled ? "" : "opacity-50 pointer-events-none"}>
@@ -1612,18 +1578,13 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow label="Compact Mode" description="Reduce spacing and padding for more content">
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={settings.interface.compactMode}
-              onChange={(e) => {
-                updateSettingsCategory("interface", { compactMode: e.target.checked });
-                onChange();
-              }}
-            />
-            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-          </label>
+          <Switch
+          checked={settings.interface.compactMode}
+          onCheckedChange={(checked) => {
+        updateSettingsCategory("interface", { compactMode: checked });
+        onChange();
+          }}
+        />
         </SettingsRow>
 
         {/* User-configurable expanded sidebar (toolbar rail) width. The

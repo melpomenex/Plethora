@@ -10,31 +10,38 @@ import {
 import { DotsThree, type Icon } from "@phosphor-icons/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../utils/cn";
+import { Button, buttonVariants } from "../md3/Button";
 
-// Core visual contract: 8px-based control spacing, 10px action radius, one
-// primary emphasis per surface, border-led secondary grouping, and a 40px
-// minimum touch target. These primitives are intentionally theme-token based.
+// Core visual contract: 8px-based control spacing, Material shape scale, one
+// primary emphasis per surface, and a 40px minimum touch target. These
+// primitives are intentionally theme-token based.
+//
+// ActionButton/actionVariants are compatibility shims over the Material 3
+// md3/Button — the variant names map 1:1 (primary→filled, secondary→tonal,
+// tertiary→text). New code should import from components/md3 directly.
 
-export const actionVariants = cva(
-  "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
-  {
-    variants: {
-      variant: {
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-        secondary: "border border-border bg-card text-foreground hover:bg-muted",
-        tertiary: "text-muted-foreground hover:bg-muted hover:text-foreground",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-      },
-      size: {
-        default: "min-h-10",
-        compact: "min-h-8 px-2 py-1 text-xs",
-        large: "min-h-11 px-4",
-        icon: "min-h-10 min-w-10 p-2",
-      },
-    },
-    defaultVariants: { variant: "secondary", size: "default" },
+const LEGACY_VARIANT_MAP = {
+  primary: "filled",
+  secondary: "tonal",
+  tertiary: "text",
+  destructive: "destructive",
+} as const;
+
+const LEGACY_SIZE_MAP = {
+  default: "md",
+  compact: "sm",
+  large: "lg",
+  icon: "icon",
+} as const;
+
+/** @deprecated Compatibility alias — use md3 Button (variant: filled/tonal/outlined/text). */
+export const actionVariants = cva("", {
+  variants: {
+    variant: { primary: "", secondary: "", tertiary: "", destructive: "" },
+    size: { default: "", compact: "", large: "", icon: "" },
   },
-);
+  defaultVariants: { variant: "secondary", size: "default" },
+});
 
 export interface ActionButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
@@ -44,9 +51,19 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
   { className, variant, size, type = "button", ...props },
   ref,
 ) {
-  return <button ref={ref} type={type} className={cn(actionVariants({ variant, size }), className)} {...props} />;
+  return (
+    <Button
+      ref={ref}
+      type={type}
+      variant={LEGACY_VARIANT_MAP[variant ?? "secondary"] ?? "tonal"}
+      size={LEGACY_SIZE_MAP[size ?? "default"] ?? "md"}
+      className={className}
+      {...props}
+    />
+  );
 });
 
+export type { VariantProps };
 export interface ActionMenuItem {
   label: string;
   icon?: Icon;

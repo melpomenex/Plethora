@@ -13,6 +13,7 @@ import {
   SUGGESTED_GRADE_BY_RATING,
   type ReviewRating,
 } from "../../lib/rating-grades";
+import { cn } from "../../utils/cn";
 
 interface RatingButtonsProps {
   /** `grade` is set (0-5) when the native six-grade scale is active. */
@@ -32,7 +33,7 @@ interface RatingButtonsProps {
 }
 
 /** Per-grade icon for the tappable grid (presentation detail; the shared
- * grade semantics live in `lib/rating-grades`). */
+ *  grade semantics live in `lib/rating-grades`). */
 const GRADE_ICON: Record<number, typeof ArrowCounterClockwise> = {
   0: Prohibit,
   1: X,
@@ -48,27 +49,34 @@ const GRADE_BUTTONS = SIX_GRADES.map((g) => ({
   icon: GRADE_ICON[g.grade],
 }));
 
+/**
+ * Material rating group base: connected tonal blocks over semantic roles with
+ * M3 state layers. Grade identity is carried by label + icon + shortcut
+ * (never color alone); each button keeps the DOM contracts
+ * (`data-review-rating`, `data-suggested`, `aria-keyshortcuts`) that the
+ * E-Ink projection, keyboard handling, and marketing capture rely on.
+ */
 const BUTTON_CLASS = `
-  text-white rounded-lg transition-all
-  hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+  md-state relative rounded-xl border border-outline-variant
+  text-on-surface transition-[transform,box-shadow]
+  hover:shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed
   flex items-center justify-center gap-1 md:flex-col md:gap-2
   px-1 py-2 md:px-2 md:py-3 md:min-h-[100px]
   touch-manipulation
-  focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
-  focus-visible:scale-[1.02]
+  focus-visible:ring-4 focus-visible:ring-primary/50 focus-visible:outline-none
 `;
 
 /** Compact variant for the 0-5 grade scale: six buttons must fit in one row
  *  on desktop (Review footer, flashcard cards) without crowding the card,
  *  and stay unobtrusive on the phone where the joystick is the primary path. */
 const GRADE_BUTTON_CLASS = `
-  text-white rounded-lg transition-all
-  hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+  md-state relative rounded-lg border border-outline-variant
+  text-on-surface transition-[transform,box-shadow]
+  hover:shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed
   flex items-center justify-center gap-1 md:flex-col md:gap-0.5
   px-1 py-1.5 md:px-1.5 md:py-2 md:min-h-[52px]
   touch-manipulation
-  focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
-  focus-visible:scale-[1.02]
+  focus-visible:ring-4 focus-visible:ring-primary/50 focus-visible:outline-none
 `;
 
 export function RatingButtons({
@@ -109,9 +117,11 @@ export function RatingButtons({
                     ? `${t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })} — ${t("aiRecall.suggestedGrade")}`
                     : t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })
                 }
-                className={`${entry.color} ${GRADE_BUTTON_CLASS} ${
-                  isSuggested ? "ring-4 ring-white/70" : ""
-                }`}
+                className={cn(
+                  "bg-surface-container-high",
+                  GRADE_BUTTON_CLASS,
+                  isSuggested && "ring-4 ring-primary/60",
+                )}
                 aria-label={
                   interval
                     ? t("ratingButtons.rateAsWithInterval", {
@@ -128,7 +138,7 @@ export function RatingButtons({
                 </span>
                 {interval && (
                   <span
-                    className="text-[9px] md:text-[10px] opacity-90 md:mt-0 leading-tight"
+                    className="text-[9px] md:text-[10px] text-on-surface-variant md:mt-0 leading-tight"
                     aria-label={t("ratingButtons.nextReviewIn", { interval })}
                   >
                     {interval}
@@ -145,7 +155,7 @@ export function RatingButtons({
           {GRADE_BUTTONS.map((entry) => (
             <kbd
               key={entry.grade}
-              className="px-1.5 py-0.5 bg-muted rounded text-xs ml-1 first:ml-0"
+              className="px-1.5 py-0.5 bg-surface-container-highest rounded text-xs ml-1 first:ml-0"
             >
               {entry.grade}
             </kbd>
@@ -156,46 +166,58 @@ export function RatingButtons({
     );
   }
 
+  /**
+   * Four-rating FSRS scale as a Material tonal button group. Each rating maps
+   * to a semantic container role (error/tertiary-ish/primary/success tint)
+   * while labels, icons, and 1–4 shortcuts remain the authoritative signal.
+   */
   const ratings: {
     value: ReviewRating;
     label: string;
     icon: typeof ArrowCounterClockwise;
-    color: string;
+    // Semantic tonal treatments; content stays readable in every theme.
+    tone: string;
     description: string;
   }[] = [
     {
       value: 1,
       label: t("review.again"),
       icon: ArrowCounterClockwise,
-      color: "bg-red-500 hover:bg-red-600",
+      tone: "bg-error-container text-on-error-container",
       description: t("ratingButtons.againDescription"),
     },
     {
       value: 2,
       label: t("review.hard"),
       icon: ThumbsDown,
-      color: "bg-orange-500 hover:bg-orange-600",
+      tone: "bg-warning/20 text-on-surface",
       description: t("ratingButtons.hardDescription"),
     },
     {
       value: 3,
       label: t("review.good"),
       icon: ThumbsUp,
-      color: "bg-blue-500 hover:bg-blue-600",
+      tone: "bg-primary-container text-on-primary-container",
       description: t("ratingButtons.goodDescription"),
     },
     {
       value: 4,
       label: t("review.easy"),
       icon: Lightning,
-      color: "bg-green-500 hover:bg-green-600",
+      tone: "bg-success/20 text-on-surface",
       description: t("ratingButtons.easyDescription"),
     },
   ];
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <div className="grid grid-cols-4 gap-1.5 md:gap-3">
+      {/* Connected group: shared radius on the outside, hairline dividers in
+          between (Material segmented button anatomy, scaled up for review). */}
+      <div
+        className="grid grid-cols-4 gap-1.5 md:gap-2"
+        role="group"
+        aria-label={t("ratingButtons.groupLabel")}
+      >
         {ratings.map((rating) => {
           const Icon = rating.icon;
           const interval = previewIntervals
@@ -221,9 +243,7 @@ export function RatingButtons({
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}
               aria-keyshortcuts={String(rating.value)}
-              className={`${rating.color} ${BUTTON_CLASS} md:px-4 ${
-                suggestedRating === rating.value ? "ring-4 ring-white/70" : ""
-              }`}
+              className={cn(rating.tone, BUTTON_CLASS, "md:px-4", suggestedRating === rating.value && "ring-4 ring-primary/60")}
               title={
                 suggestedRating === rating.value
                   ? `${t("ratingButtons.rateAsTitle", { label: rating.label, description: rating.description })} — ${t("aiRecall.suggestedGrade")}`
@@ -243,7 +263,7 @@ export function RatingButtons({
               <span className="font-semibold text-xs md:text-base leading-tight">{rating.label}</span>
               {interval && (
                 <span
-                  className="text-[9px] md:text-xs opacity-90 md:mt-0 leading-tight"
+                  className="text-[9px] md:text-xs opacity-80 md:mt-0 leading-tight"
                   aria-label={t("ratingButtons.nextReviewIn", { interval })}
                 >
                   {interval}
@@ -256,10 +276,10 @@ export function RatingButtons({
 
       {/* Keyboard shortcuts hint - hide on mobile */}
       <div className="mt-3 md:mt-4 text-center text-sm text-muted-foreground hidden md:block">
-        {t("ratingButtons.press")} <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">1</kbd>
-        <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-1">2</kbd>
-        <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-1">3</kbd>
-        <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-1">4</kbd>
+        {t("ratingButtons.press")} <kbd className="px-1.5 py-0.5 bg-surface-container-highest rounded text-xs">1</kbd>
+        <kbd className="px-1.5 py-0.5 bg-surface-container-highest rounded text-xs ml-1">2</kbd>
+        <kbd className="px-1.5 py-0.5 bg-surface-container-highest rounded text-xs ml-1">3</kbd>
+        <kbd className="px-1.5 py-0.5 bg-surface-container-highest rounded text-xs ml-1">4</kbd>
         {" "}{t("ratingButtons.toRate")}
       </div>
     </div>

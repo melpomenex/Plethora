@@ -75,11 +75,7 @@ const PENDING_MIGRATION = [
   "src/components/tabs/AudiobooksTab.tsx",
   "src/components/tabs/ScreenshotTab.tsx",
   "src/components/video/VideoExtracts.tsx",
-  "src/pages/AIWorkflowsPage.tsx",
-  "src/pages/AnalyticsPage.tsx",
-  "src/pages/IntegrationsPage.tsx",
   "src/pages/NotebookLMPage.tsx",
-  "src/pages/SettingsPage.tsx",
 ];
 
 function collectSourceFiles(): string[] {

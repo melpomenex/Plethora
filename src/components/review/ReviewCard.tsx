@@ -827,7 +827,7 @@ export const ReviewCard = React.memo(function ReviewCard({
           <button
             data-showcase-action="reveal-answer"
             onClick={onShowAnswer}
-            className="px-8 py-3 min-h-[52px] bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition-all hover:scale-105 active:scale-95 font-medium text-lg shadow-md focus-visible:ring-4 focus-visible:ring-blue-500/30 focus-visible:outline-none"
+            className="md-state px-8 py-3 min-h-[52px] bg-primary text-on-primary rounded-full transition-all hover:shadow-lg active:scale-[0.98] font-medium text-lg shadow-md focus-visible:ring-4 focus-visible:ring-primary/40 focus-visible:outline-none"
             aria-label="Show answer"
             autoFocus
           >

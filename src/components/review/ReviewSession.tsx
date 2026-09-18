@@ -765,7 +765,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           <button
             onClick={handleImportDeck}
             disabled={isAnkiImporting}
-            className="mb-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="md-state mb-3 inline-flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-full disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Upload className="h-4 w-4" />
             {isAnkiImporting ? t("review.importing") : t("review.importDeck")}
@@ -912,7 +912,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           <button
             onClick={handleImportDeck}
             disabled={isAnkiImporting}
-            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-blue-500 text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="md-state inline-flex items-center gap-1.5 px-2 py-1.5 rounded-full text-xs font-medium bg-primary text-on-primary disabled:opacity-60 disabled:cursor-not-allowed"
             title={t("reviewSession.importDeckTooltip")}
           >
             <Upload className="w-3.5 h-3.5" />

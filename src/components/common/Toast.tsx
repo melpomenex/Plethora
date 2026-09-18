@@ -114,37 +114,23 @@ const ToastIcons = {
   [ToastType.Info]: "i",
 };
 
-const ToastStyles = {
-  [ToastType.Success]: {
-    container: "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400",
-    progress: "bg-green-500",
-    icon: "text-green-500",
-  },
-  [ToastType.Error]: {
-    container: "bg-destructive/10 border-destructive/20 text-destructive",
-    progress: "bg-destructive",
-    icon: "text-destructive",
-  },
-  [ToastType.Warning]: {
-    container: "bg-yellow-500/10 border-yellow-500/20 text-yellow-600 dark:text-yellow-400",
-    progress: "bg-yellow-500",
-    icon: "text-yellow-500",
-  },
-  [ToastType.Info]: {
-    container: "bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400",
-    progress: "bg-blue-500",
-    icon: "text-blue-500",
-  },
+/** Semantic icon tint per type — the snackbar body stays inverse-surface. */
+const ToastIconTint = {
+  [ToastType.Success]: "text-success",
+  [ToastType.Error]: "text-error",
+  [ToastType.Warning]: "text-warning",
+  [ToastType.Info]: "text-on-inverse-surface",
 };
 
 /**
- * Individual toast item with animation and progress bar
+ * Individual snackbar (Material inverse-surface) with CSS-driven progress
+ * bar and pause-on-hover.
  */
 function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: string) => void }) {
   const [isExiting, setIsExiting] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const icon = ToastIcons[toast.type];
-  const styles = ToastStyles[toast.type];
+  const iconTint = ToastIconTint[toast.type];
 
   const handleRemove = useCallback(() => {
     setIsExiting(true);
@@ -154,20 +140,19 @@ function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: strin
   return (
     <div
       className={`
-        relative min-w-[320px] max-w-md p-4 rounded-lg shadow-lg border 
-        backdrop-blur-sm overflow-hidden
-        transition-all duration-200 ease-out
-        ${styles.container}
+        md-snackbar relative flex min-w-[288px] max-w-[568px] items-start gap-3 overflow-hidden
+        rounded-xs bg-inverse-surface py-3.5 pl-4 pr-1.5 text-on-inverse-surface shadow-lg
+        transition-all duration-[var(--md-duration-short)] ease-out
         ${isExiting ? "opacity-0 translate-x-full" : "opacity-100 translate-x-0 animate-slide-up"}
       `}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      role="alert"
+      role={toast.type === ToastType.Error ? "alert" : "status"}
       aria-live="polite"
     >
       {/* Progress bar — CSS animation drives the shrink, no JS state updates */}
       <div
-        className={`absolute bottom-0 left-0 h-0.5 ${styles.progress} toast-progress-bar`}
+        className="toast-progress-bar absolute bottom-0 left-0 h-0.5 bg-on-inverse-surface/40"
         style={{
           animationDuration: `${toast.duration ?? 5000}ms`,
           animationPlayState: isPaused ? "paused" : "running",
@@ -175,41 +160,45 @@ function ToastItem({ toast, onRemove }: { toast: ToastData; onRemove: (id: strin
         aria-hidden="true"
       />
 
-      <div className="flex items-start gap-3">
-        <span className={`w-5 h-5 flex-shrink-0 mt-0.5 inline-flex items-center justify-center font-semibold ${styles.icon}`} aria-hidden="true">
-          {icon}
-        </span>
-        <div className="flex-1 min-w-0 pr-6">
-          <p className="text-sm font-medium text-foreground">{toast.title}</p>
-          {toast.message && (
-            <p className="text-sm opacity-90 mt-0.5 text-foreground/80">{toast.message}</p>
-          )}
-          {toast.action && (
-            <button
-              onClick={() => {
-                toast.action?.onClick();
-                handleRemove();
-              }}
-              className="text-sm underline mt-2 hover:opacity-80 font-medium"
-            >
-              {toast.action.label}
-            </button>
-          )}
-        </div>
-        <button
-          onClick={handleRemove}
-          className="absolute top-2 right-2 p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-md opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 transition-all focus-visible:ring-2 focus-visible:ring-current focus-visible:outline-none"
-          aria-label="Dismiss notification"
-        >
-          <span className="text-base leading-none" aria-hidden="true">×</span>
-        </button>
+      <span
+        className={`mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center text-sm font-semibold ${iconTint}`}
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1 pb-0.5 pr-4">
+        <p className="md-body-medium font-medium">{toast.title}</p>
+        {toast.message && (
+          <p className="md-body-medium mt-0.5 opacity-80">{toast.message}</p>
+        )}
       </div>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => {
+            toast.action?.onClick();
+            handleRemove();
+          }}
+          className="md-state md-label-large my-auto shrink-0 rounded-xs px-3 py-2 font-medium text-inverse-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inverse-primary"
+        >
+          {toast.action.label}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={handleRemove}
+        className="md-state my-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-on-inverse-surface"
+        aria-label="Dismiss notification"
+      >
+        <span className="text-base leading-none" aria-hidden="true">×</span>
+      </button>
     </div>
   );
 }
 
 /**
- * Toast container component
+ * Toast container component (Material snackbar host: bottom-start placement
+ * on wide layouts, full-width bottom placement on phones).
  */
 export function Toast() {
   const toasts = useToastStore((s) => s.toasts);
@@ -218,10 +207,10 @@ export function Toast() {
   if (toasts.length === 0) return null;
 
   return (
-    <div 
-      className="toast-container fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-full p-4 pointer-events-none"
+    <div
+      className="toast-container fixed bottom-4 left-4 right-4 z-[var(--md-z-snackbar)] flex flex-col gap-2 pointer-events-none sm:right-auto sm:w-auto sm:max-w-[min(568px,calc(100vw-2rem))]"
       aria-live="polite"
-      aria-atomic="true"
+      aria-atomic="false"
     >
       {toasts.map((toast) => (
         <div key={toast.id} className="pointer-events-auto">

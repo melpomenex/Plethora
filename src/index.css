@@ -33,8 +33,18 @@
 
   --color-primary: #3b82f6;
   --color-primary-foreground: #ffffff;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #dbeafe;
+  --color-on-primary-container: #1e3a5f;
   --color-secondary: #64748b;
   --color-secondary-foreground: #ffffff;
+  --color-on-secondary: #ffffff;
+  --color-error: #b3261e;
+  --color-on-error: #ffffff;
+  --color-error-container: #f9dedc;
+  --color-on-error-container: #410e0b;
+  --color-on-surface: #1c1b1f;
+  --color-on-background: #1c1b1f;
 
   /* Base Colors */
   --color-background: #ffffff;
@@ -56,6 +66,7 @@
   --color-destructive-foreground: #ffffff;
 
   --color-warning: #f59e0b;
+  --color-success: #15803d;
 
   /* Mode accent — semantic accent for special-mode controls (e.g. the Scroll
      Mode launcher). Static defaults so the Tailwind utilities always exist;
@@ -96,6 +107,212 @@
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
   --radius-glass: 1rem;
+
+  /* Extended Material 3 semantic roles. Static light defaults so the Tailwind
+     utilities always exist; ThemeContext.applyThemeToDOM overrides these per
+     applied theme (themes/materialRoles.ts derives them for themes that don't
+     define the optional keys). */
+  --color-on-surface-variant: #49454f;
+  --color-secondary-container: #e8e8ec;
+  --color-on-secondary-container: #1d1b20;
+  --color-tertiary: #7c4dbe;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #efe0ff;
+  --color-on-tertiary-container: #2a1060;
+  --color-surface-dim: #d9d9de;
+  --color-surface-bright: #fdf8ff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f6f2fa;
+  --color-surface-container: #f0edf4;
+  --color-surface-container-high: #eae7ed;
+  --color-surface-container-highest: #e4e1e8;
+  --color-inverse-surface: #303034;
+  --color-on-inverse-surface: #f2f0f4;
+  --color-inverse-primary: #c6c4ff;
+  --color-scrim: rgba(0, 0, 0, 0.42);
+  --color-surface-tint: #3b82f6;
+}
+
+/* Material motion tokens and the floating-layer z scale. Plain :root (not
+   @theme) so every variable is always emitted, independent of utility usage.
+   Durations collapse to instant under reduced motion / data-reduced-motion. */
+:root {
+  --md-duration-short: 150ms;
+  --md-duration-medium: 300ms;
+  --md-duration-long: 450ms;
+  --md-duration-extra-long: 600ms;
+  --md-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md-easing-decelerated: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-easing-accelerated: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --md-easing-linear: linear;
+
+  /* Floating layer scale (documents/design-system.md). Ordering contract:
+     nav < overlay < dialog < menu < snackbar < tooltip < critical floating
+     chrome (the anchored reader selection toolbar must stay above the
+     marketing-capture chrome at z-[9997], hence 9998). */
+  --md-z-nav: 30;
+  --md-z-overlay: 40;
+  --md-z-dialog: 50;
+  --md-z-menu: 60;
+  --md-z-snackbar: 70;
+  --md-z-tooltip: 80;
+  --md-z-critical: 9998;
+
+  /* Material state-layer opacities (M3 spec values). */
+  --md-state-hover: 0.08;
+  --md-state-focus: 0.1;
+  --md-state-press: 0.1;
+  --md-state-selected: 0.12;
+  --md-state-dragged: 0.16;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --md-duration-short: 0ms;
+    --md-duration-medium: 0ms;
+    --md-duration-long: 0ms;
+    --md-duration-extra-long: 0ms;
+  }
+}
+
+:root[data-reduced-motion="true"] {
+  --md-duration-short: 0ms;
+  --md-duration-medium: 0ms;
+  --md-duration-long: 0ms;
+  --md-duration-extra-long: 0ms;
+}
+
+@layer components {
+  /* Material state layer: an interactive surface that overlays its own
+     content color (currentColor) at M3 opacities for hover/focus/press/
+     selected. Applied by the md3 primitives; safe to add to any control with
+     a border-radius (inherits) — the overlay tints text/icons negligibly
+     because it uses the content color itself. */
+  .md-state {
+    position: relative;
+  }
+  .md-state::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md-duration-short) var(--md-easing-linear);
+  }
+  .md-state:not(:disabled):not([aria-disabled="true"]):hover::after {
+    opacity: var(--md-state-hover);
+  }
+  .md-state:not(:disabled):not([aria-disabled="true"]):focus-visible::after {
+    opacity: var(--md-state-focus);
+  }
+  .md-state:not(:disabled):not([aria-disabled="true"]):active::after {
+    opacity: var(--md-state-press);
+  }
+  .md-state[aria-pressed="true"]::after,
+  .md-state[aria-selected="true"]::after,
+  .md-state[data-selected="true"]::after {
+    opacity: var(--md-state-selected);
+  }
+
+  /* Material typescale for application chrome. Rem-based so browser font
+     scaling reflows. Reading typography (--reading-*) is separate and must
+     never consume these. */
+  .md-display-large { font-size: 3.5625rem; line-height: 4rem; font-weight: 400; letter-spacing: -0.015em; }
+  .md-display-medium { font-size: 2.8125rem; line-height: 3.25rem; font-weight: 400; }
+  .md-display-small { font-size: 2.25rem; line-height: 2.75rem; font-weight: 400; }
+  .md-headline-large { font-size: 2rem; line-height: 2.5rem; font-weight: 400; }
+  .md-headline-medium { font-size: 1.75rem; line-height: 2.25rem; font-weight: 400; }
+  .md-headline-small { font-size: 1.5rem; line-height: 2rem; font-weight: 400; }
+  .md-title-large { font-size: 1.375rem; line-height: 1.75rem; font-weight: 400; }
+  .md-title-medium { font-size: 1rem; line-height: 1.5rem; font-weight: 500; letter-spacing: 0.009em; }
+  .md-title-small { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.007em; }
+  .md-body-large { font-size: 1rem; line-height: 1.5rem; font-weight: 400; letter-spacing: 0.031em; }
+  .md-body-medium { font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; letter-spacing: 0.017em; }
+  .md-body-small { font-size: 0.75rem; line-height: 1rem; font-weight: 400; letter-spacing: 0.033em; }
+  .md-label-large { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.007em; }
+  .md-label-medium { font-size: 0.75rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.042em; }
+  .md-label-small { font-size: 0.6875rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.045em; }
+
+  /* Focus ring token for interactive primitives: adapts to the underlying
+     surface in every theme. Never relies on color-mix. */
+  .md-focus-ring:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  :root[data-theme="dark"] .md-focus-ring:focus-visible {
+    outline-color: var(--color-inverse-primary, var(--color-primary));
+  }
+
+  /* Material floating-layer surfaces. Menus use tonal elevation + a
+     reserved-for-floating-layers shadow (see elevation model). */
+  .md-elevated-menu {
+    color: var(--color-on-surface);
+    background: var(--color-surface-container);
+    border: 1px solid var(--color-surface-container-highest);
+    box-shadow: 0 8px 28px color-mix(in srgb, black 26%, transparent);
+  }
+
+  .md-dialog-scrim {
+    background: var(--color-scrim);
+  }
+
+  /* Indeterminate progress + spinner keyframes (motion-token gated). */
+  @keyframes md-progress-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  @keyframes md-rotate {
+    to { transform: rotate(360deg); }
+  }
+  .md-progress-indeterminate {
+    width: 40%;
+    animation: md-progress-slide 1.5s var(--md-easing-standard) infinite;
+  }
+  .md-spin {
+    animation: md-rotate 1.2s var(--md-easing-linear) infinite;
+  }
+
+  /* Floating player container morph (idle ↔ playback): a Material
+     fade-through container transform. Collapses to an instant swap under
+     reduced motion (duration token → 0ms) and inside E-Ink's global
+     animation flattening. */
+  @keyframes md-player-morph {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .md-player-surface {
+    animation: md-player-morph var(--md-duration-medium) var(--md-easing-decelerated);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-progress-indeterminate,
+  .md-spin {
+    animation-duration: 0.001ms;
+    animation-iteration-count: 1;
+  }
+  .md-player-surface {
+    animation-duration: 0.001ms;
+  }
+}
+
+:root[data-reduced-motion="true"] .md-progress-indeterminate,
+:root[data-reduced-motion="true"] .md-spin {
+  animation-duration: 0.001ms;
+  animation-iteration-count: 1;
+}
+
+:root[data-reduced-motion="true"] .md-player-surface {
+  animation-duration: 0.001ms;
 }
 
 @layer base {
@@ -406,10 +623,12 @@
     padding: 0;
     border: 0;
     border-radius: 0;
-    background: color-mix(in srgb, black 52%, transparent);
-    backdrop-filter: blur(5px);
+    background: var(--color-scrim);
+    backdrop-filter: blur(3px);
   }
 
+  /* Material dialog surface contract (shared with md3/Dialog.tsx):
+     surface-container-high tonal elevation, extra-large radius, no border. */
   .adaptive-dialog-panel {
     position: relative;
     z-index: var(--overlay-sheet-z, 1051);
@@ -418,14 +637,13 @@
     width: min(100%, 38rem);
     max-height: min(88vh, calc(var(--app-viewport-height, 100dvh) - 2rem));
     overflow: hidden;
-    border: 1px solid var(--color-border);
-    color: var(--color-card-foreground);
-    background: var(--color-card);
+    color: var(--color-on-surface);
+    background: var(--color-surface-container-high);
     box-shadow: 0 24px 80px color-mix(in srgb, black 34%, transparent);
   }
 
   .adaptive-dialog-centered {
-    border-radius: 1.25rem;
+    border-radius: 1.75rem;
   }
 
   .adaptive-dialog-sheet {
@@ -433,7 +651,7 @@
     width: min(100%, 42rem);
     max-height: calc(var(--app-viewport-height, 100dvh) - max(1rem, env(safe-area-inset-top, 0px)));
     margin-bottom: max(0px, env(safe-area-inset-bottom, 0px));
-    border-radius: 1.5rem 1.5rem 0 0;
+    border-radius: 1.75rem 1.75rem 0 0;
   }
 
   .adaptive-dialog-header,
@@ -443,21 +661,23 @@
     justify-content: space-between;
     gap: 1rem;
     flex: 0 0 auto;
-    padding: 1rem 1rem 0.875rem;
-    border-bottom: 1px solid var(--color-border);
+    padding: 1.25rem 1.5rem 0.875rem;
+    border-bottom: 1px solid var(--color-surface-container-highest);
   }
 
   .adaptive-dialog-title,
   .adaptive-inspector-header h2 {
     margin: 0;
-    font-size: 1.05rem;
-    font-weight: 720;
+    color: var(--color-on-surface);
+    font-size: 1.375rem;
+    line-height: 1.75rem;
+    font-weight: 400;
   }
 
   .adaptive-dialog-description {
     margin: 0.25rem 0 0;
-    color: var(--color-muted-foreground);
-    font-size: 0.82rem;
+    color: var(--color-on-surface-variant);
+    font-size: 0.875rem;
     line-height: 1.4;
   }
 
@@ -466,14 +686,14 @@
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
-    padding: 1rem;
+    padding: 1rem 1.5rem;
   }
 
   .adaptive-dialog-footer {
     flex: 0 0 auto;
-    padding: 0.875rem 1rem max(0.875rem, env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid var(--color-border);
-    background: var(--color-card);
+    padding: 0.875rem 1.5rem max(0.875rem, env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-surface-container-highest);
+    background: var(--color-surface-container-high);
   }
 
   .adaptive-search-layer {
@@ -961,48 +1181,34 @@
     isolation: isolate;
     overflow: hidden;
     transition:
-      transform 180ms ease-out,
-      color 180ms ease-out,
-      box-shadow 180ms ease-out,
-      background-color 180ms ease-out;
+      color var(--md-duration-short) var(--md-easing-standard),
+      background-color var(--md-duration-short) var(--md-easing-standard);
   }
 
   .toolbar-button:hover:not(:disabled) {
-    color: var(--color-foreground);
+    color: var(--color-on-surface);
   }
 
+  /* Hover/active state layer: content-color overlay at M3 opacity, replacing
+     the previous gradient wash. */
   .toolbar-button-background {
     position: absolute;
-    inset: 0.18rem;
+    inset: 0;
     border-radius: inherit;
-    background: linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--color-primary) 14%, transparent),
-      color-mix(in srgb, var(--color-secondary, var(--color-primary)) 7%, transparent)
-    );
+    background: color-mix(in srgb, currentColor 8%, transparent);
     opacity: 0;
-    transform: scale(0.94);
-    transition:
-      opacity 180ms ease-out,
-      transform 180ms ease-out;
+    transition: opacity var(--md-duration-short) var(--md-easing-standard);
     pointer-events: none;
   }
 
   .toolbar-button-indicator {
     position: absolute;
     border-radius: 999px;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, white 18%, var(--color-primary)),
-      var(--color-primary)
-    );
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, white 16%, transparent),
-      0 0 14px color-mix(in srgb, var(--color-primary) 32%, transparent);
+    background: var(--color-primary);
     opacity: 0;
     transition:
-      opacity 180ms ease-out,
-      transform 180ms ease-out;
+      opacity var(--md-duration-short) var(--md-easing-standard),
+      transform var(--md-duration-short) var(--md-easing-standard);
     pointer-events: none;
   }
 
@@ -1300,20 +1506,11 @@
   }
 
   .toolbar-button:hover:not(:disabled) {
-    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
-  }
-
-  .toolbar-button[data-toolbar-orientation="horizontal"]:hover:not(:disabled) {
-    transform: translateY(-1px);
-  }
-
-  .toolbar-button[data-toolbar-orientation="vertical"]:hover:not(:disabled) {
-    transform: translateX(1px);
+    /* tonal state layer only — no hover lift or shadow (Material rail items) */
   }
 
   .toolbar-button:hover:not(:disabled) .toolbar-button-background {
     opacity: 1;
-    transform: scale(1);
   }
 
   .toolbar-button:hover:not(:disabled) .toolbar-button-indicator {
@@ -1326,14 +1523,6 @@
 
   .toolbar-button[data-toolbar-orientation="vertical"]:hover:not(:disabled) .toolbar-button-indicator {
     transform: translateY(-50%) scaleY(1);
-  }
-
-  .toolbar-button[data-toolbar-orientation="horizontal"]:hover:not(:disabled) .toolbar-button-content {
-    transform: translateY(-0.03rem);
-  }
-
-  .toolbar-button[data-toolbar-orientation="vertical"]:hover:not(:disabled) .toolbar-button-content {
-    transform: translateX(0.04rem);
   }
 
   /* ─────────────────────────────────────────────────────────────────────────
@@ -1360,9 +1549,9 @@
     position: absolute;
     z-index: 40;
     transition:
-      width 200ms ease-out,
-      height 200ms ease-out,
-      box-shadow 200ms ease-out;
+      width var(--md-duration-medium) var(--md-easing-standard),
+      height var(--md-duration-medium) var(--md-easing-standard),
+      box-shadow var(--md-duration-medium) var(--md-easing-standard);
   }
   /* Left rail: fixed to the rail, expands rightward over the content. */
   .toolbar-rail[data-toolbar-position="left"] .toolbar-surface {
@@ -1391,15 +1580,15 @@
 
   .toolbar-rail[data-expanded][data-toolbar-position="left"] .toolbar-surface {
     width: var(--toolbar-expanded-w, 11.5rem);
-    box-shadow: 10px 0 28px rgba(15, 23, 42, 0.16);
+    box-shadow: 10px 0 28px color-mix(in srgb, black 18%, transparent);
   }
   .toolbar-rail[data-expanded][data-toolbar-position="right"] .toolbar-surface {
     width: var(--toolbar-expanded-w, 11.5rem);
-    box-shadow: -10px 0 28px rgba(15, 23, 42, 0.16);
+    box-shadow: -10px 0 28px color-mix(in srgb, black 18%, transparent);
   }
   .toolbar-rail[data-expanded][data-toolbar-position="top"] .toolbar-surface {
     height: var(--toolbar-expanded-h, 3.75rem);
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+    box-shadow: 0 10px 28px color-mix(in srgb, black 18%, transparent);
   }
 
   /* Labels: hidden entirely while collapsed (so they take no layout space and
@@ -2324,6 +2513,29 @@
   --color-secondary-foreground: #000000 !important;
   --color-destructive: #000000 !important;
   --color-destructive-foreground: #ffffff !important;
+
+  /* Extended Material 3 roles → high-contrast monochrome projection.
+     Container ordering mirrors the tonal hierarchy (darkest → lightest) so
+     elevation remains perceptible without color. */
+  --color-on-surface-variant: #222222 !important;
+  --color-secondary-container: #e5e5e5 !important;
+  --color-on-secondary-container: #000000 !important;
+  --color-tertiary: #000000 !important;
+  --color-on-tertiary: #ffffff !important;
+  --color-tertiary-container: #e5e5e5 !important;
+  --color-on-tertiary-container: #000000 !important;
+  --color-surface-dim: #d0d0d0 !important;
+  --color-surface-bright: #ffffff !important;
+  --color-surface-container-lowest: #ffffff !important;
+  --color-surface-container-low: #f4f4f4 !important;
+  --color-surface-container: #eaeaea !important;
+  --color-surface-container-high: #e0e0e0 !important;
+  --color-surface-container-highest: #d5d5d5 !important;
+  --color-inverse-surface: #000000 !important;
+  --color-on-inverse-surface: #ffffff !important;
+  --color-inverse-primary: #ffffff !important;
+  --color-surface-tint: #000000 !important;
+  --color-scrim: rgba(0, 0, 0, 0.55) !important;
 
   /* Glass tokens flattened to solid opaque borders */
   --color-glass-50: #ffffff !important;

@@ -12,6 +12,8 @@ import {
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
+import { Button } from "../md3/Button";
+import { cn } from "../../utils/cn";
 
 export type ConfirmDialogVariant = "danger" | "warning" | "info";
 
@@ -49,22 +51,22 @@ export function ConfirmDialog({
 
   const variantConfig = {
     danger: {
-      iconBg: "bg-red-500/20",
-      iconColor: "text-red-500",
-      confirmBg: "bg-red-500 hover:bg-red-600",
-      borderColor: "border-red-500/30",
+      iconBg: "bg-error-container",
+      iconColor: "text-on-error-container",
+      confirmVariant: "destructive" as const,
+      confirmClassName: "",
     },
     warning: {
-      iconBg: "bg-amber-500/20",
-      iconColor: "text-amber-500",
-      confirmBg: "bg-amber-500 hover:bg-amber-600 text-white",
-      borderColor: "border-amber-500/30",
+      iconBg: "bg-warning/20",
+      iconColor: "text-warning",
+      confirmVariant: "filled" as const,
+      confirmClassName: "bg-warning text-on-surface-variant",
     },
     info: {
-      iconBg: "bg-blue-500/20",
-      iconColor: "text-blue-500",
-      confirmBg: "bg-primary hover:bg-primary/90",
-      borderColor: "border-primary/30",
+      iconBg: "bg-primary-container",
+      iconColor: "text-on-primary-container",
+      confirmVariant: "filled" as const,
+      confirmClassName: "",
     },
   };
 
@@ -73,34 +75,35 @@ export function ConfirmDialog({
   const Icon = variant === "danger" ? Trash : variant === "warning" ? Warning : Check;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center p-4">
+      <div className="md-dialog-scrim absolute inset-0" aria-hidden="true" />
       <div
-        className={`bg-card border ${config.borderColor} rounded-2xl shadow-2xl max-w-md w-full animate-glass-scale-in`}
+        className="relative bg-surface-container-high text-on-surface rounded-[1.75rem] shadow-2xl max-w-md w-full animate-glass-scale-in"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
       >
         {/* Header */}
-        <div className="relative p-6 border-b border-border">
+        <div className="relative p-6 pb-4">
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 hover:bg-muted rounded-full transition-colors"
+            className="md-state absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors"
             aria-label={t("common.close")}
           >
-            <X className="w-5 h-5 text-muted-foreground" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 pr-10">
             <div className={`w-12 h-12 ${config.iconBg} rounded-xl flex items-center justify-center`}>
-              <Icon className={`w-6 h-6 ${config.iconColor}`} />
+              <Icon className={`w-6 h-6 ${config.iconColor}`} aria-hidden="true" />
             </div>
             <div>
-              <h2 id="confirm-title" className="text-xl font-bold text-foreground">
+              <h2 id="confirm-title" className="md-headline-small text-on-surface">
                 {title}
               </h2>
               {itemCount > 1 && (
-                <p className="text-sm text-muted-foreground">
+                <p className="md-body-small text-on-surface-variant">
                   {t("confirm.itemsSelected", { count: itemCount })}
                 </p>
               )}
@@ -109,25 +112,25 @@ export function ConfirmDialog({
         </div>
 
         {/* Content */}
-        <div className="p-6">
-          <p id="confirm-message" className="text-muted-foreground mb-4">
+        <div className="px-6 pb-6">
+          <p id="confirm-message" className="md-body-medium text-on-surface-variant mb-4">
             {message}
           </p>
 
           {/* Details list */}
           {details && details.length > 0 && (
-            <div className="bg-muted/30 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
+            <div className="bg-surface-container-lowest rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
+              <p className="md-label-small text-on-surface-variant uppercase tracking-wide mb-2">
                 {t("confirm.itemsAffectedLabel", { itemName })}:
               </p>
               <ul className="space-y-1">
                 {details.slice(0, 10).map((detail, index) => (
-                  <li key={index} className="text-sm text-foreground truncate">
+                  <li key={index} className="md-body-small text-on-surface truncate">
                     • {detail}
                   </li>
                 ))}
                 {details.length > 10 && (
-                  <li className="text-sm text-muted-foreground">
+                  <li className="md-body-small text-on-surface-variant">
                     {t("confirm.andMore", { count: details.length - 10 })}
                   </li>
                 )}
@@ -137,9 +140,9 @@ export function ConfirmDialog({
 
           {/* Warning message for destructive actions */}
           {variant === "danger" && (
-            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <Warning className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-red-600 dark:text-red-400">
+            <div className="flex items-start gap-2 p-3 bg-error-container border border-error/20 rounded-lg">
+              <Warning className="w-4 h-4 text-on-error-container mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <p className="md-body-small text-on-error-container">
                 {t("confirm.dangerWarning", { target: itemCount > 1 ? t("confirm.allSelectedItems") : t("confirm.thisItem") })}
               </p>
             </div>
@@ -147,24 +150,22 @@ export function ConfirmDialog({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-border flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 min-h-[44px] border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
-          >
+        <div className="px-6 pb-6 flex gap-3">
+          <Button variant="outlined" onClick={onClose} className="flex-1 min-h-11">
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={config.confirmVariant}
+            className={cn("flex-1 min-h-11", config.confirmClassName)}
             onClick={() => {
               if (variant === "danger") deleteHaptic();
               onConfirm();
               onClose();
             }}
-            className={`flex-1 px-4 py-2.5 min-h-[44px] ${config.confirmBg} text-primary-foreground rounded-lg transition-colors flex items-center justify-center gap-2`}
           >
-            {variant === "danger" && <Trash className="w-4 h-4" />}
+            {variant === "danger" && <Trash className="w-4 h-4" aria-hidden="true" />}
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -80,9 +80,13 @@ describe("ReaderTTSControls start resolution", () => {
   });
 
   function pressPlay() {
-    // Button order: previous, play, stop, next.
+    // The idle player renders a single Play button; the playback bar's
+    // transport order is prev, play/pause, stop, next.
     const buttons = screen.getAllByRole("button");
-    buttons[1].click();
+    const play = buttons.find(
+      (b) => b.getAttribute("aria-label")?.toLowerCase().includes("play") ?? false,
+    );
+    (play ?? buttons[0]).click();
   }
 
   it("Play starts at the resolved viewport word, mid-chunk, with sliced leading text", async () => {

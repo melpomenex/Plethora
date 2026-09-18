@@ -4707,6 +4707,7 @@ export const en: Dict = {
   "ratingButtons.nextReviewIn": "Next review in {interval}",
   "ratingButtons.press": "Press",
   "ratingButtons.toRate": "to rate",
+  "ratingButtons.groupLabel": "Rate your recall",
   // ── Intelligence training: context menu, quick-train, walkthrough, manage ──
   "training.trainIntelligence": "Train Intelligence",
   "training.trainIntelligenceTitle": "Train intelligence",

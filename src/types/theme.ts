@@ -41,6 +41,28 @@ export interface ThemeColors {
   /** Optional explicit accent for special-mode controls. When absent, a
    *  deterministic palette-derived accent is computed at theme-apply time. */
   modeAccent?: string;
+
+  // Extended Material 3 roles. All optional: when absent, values are derived
+  // at theme-apply time by themes/materialRoles.ts (container ramps, tertiary
+  // family, inverse roles, …). Providing a key pins it explicitly.
+  onSurfaceVariant?: string;
+  secondaryContainer?: string;
+  onSecondaryContainer?: string;
+  tertiary?: string;
+  onTertiary?: string;
+  tertiaryContainer?: string;
+  onTertiaryContainer?: string;
+  surfaceDim?: string;
+  surfaceBright?: string;
+  surfaceContainerLowest?: string;
+  surfaceContainerLow?: string;
+  surfaceContainer?: string;
+  surfaceContainerHigh?: string;
+  surfaceContainerHighest?: string;
+  inverseSurface?: string;
+  onInverseSurface?: string;
+  inversePrimary?: string;
+  scrim?: string;
 }
 
 export interface ThemeTypography {

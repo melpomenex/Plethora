@@ -5462,6 +5462,7 @@ export const zh: Dict = {
   "ratingButtons.grade3Description": "正确，但非常吃力",
   "ratingButtons.grade4Description": "正确，但有些犹豫",
   "ratingButtons.grade5Description": "完全记住",
+  "ratingButtons.groupLabel": "评价你的回忆",
   "review.grade0": "全忘",
   "review.grade1": "错误",
   "review.grade2": "接近",

@@ -30,13 +30,6 @@ describe("Obsidian defaults rebrand (#7)", () => {
   });
 
   describe("frontend default surfaces", () => {
-    it("IntegrationsPage uses Plethora folder defaults for unconfigured exports", () => {
-      const source = read("src/pages/IntegrationsPage.tsx");
-      expect(source).toContain('notesFolder: "Plethora"');
-      expect(source).toContain('attachmentsFolder: "Plethora Assets"');
-      expect(source).not.toMatch(/notesFolder: "Incrementum"/);
-    });
-
     it("IntegrationSettings defaults and placeholders are Plethora-branded", () => {
       const source = read("src/components/settings/IntegrationSettings.tsx");
       expect(source).toContain('useState("Plethora")');
@@ -62,11 +55,6 @@ describe("Obsidian defaults rebrand (#7)", () => {
       expect(source).toContain("`plethora-id::${item.id}`");
     });
 
-    it("the stale github link in the legacy settings page points at the Plethora repo", () => {
-      expect(read("src/pages/SettingsPage.tsx")).toContain(
-        'href="https://github.com/melpomenex/Plethora"'
-      );
-    });
   });
 
   describe("existing user configuration is preserved", () => {
