@@ -884,7 +884,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     "doc-qa": ["doc-qa"],
     notebooklm: ["notebooklm"],
     podcast: ["podcast"],
-    audiobooks: ["audiobook", "audiobook-epub-sync"],
+    audiobook: ["audiobook", "audiobook-epub-sync"],
     extracts: ["extracts", "document-extracts", "extract-reader"],
   };
   const isActiveButton = (button: ToolbarButton) => activeTabType != null && activeButtonTypes[button.id]?.includes(activeTabType) === true;
