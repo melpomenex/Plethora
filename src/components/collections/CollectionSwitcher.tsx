@@ -157,6 +157,7 @@ export function CollectionSwitcher() {
             label: confirmDeleteId === c.id ? "Click again to confirm" : `Delete ${c.name}`,
             icon: Trash,
             destructive: true,
+            keepOpen: true,
             onSelect: () => handleDelete(c.id),
           })),
           { key: "export", label: exporting ? "Exporting..." : "Export Collection", icon: Download, disabled: exporting || activeCollectionId === DEFAULT_COLLECTION_ID, onSelect: handleExport },

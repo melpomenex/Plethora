@@ -16,6 +16,7 @@ export interface MenuItemSpec {
   onSelect: () => void;
   disabled?: boolean;
   destructive?: boolean;
+  keepOpen?: boolean;
   leading?: ReactNode;
   trailing?: ReactNode;
 }
@@ -161,8 +162,8 @@ function MenuItemRow({ item, onClose }: { item: MenuItemSpec; onClose: () => voi
           : "text-on-surface hover:bg-surface-container-high",
       )}
       onClick={() => {
-        onClose();
         item.onSelect();
+        if (!item.keepOpen) onClose();
       }}
     >
       {item.leading}
