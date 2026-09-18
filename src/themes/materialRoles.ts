@@ -188,8 +188,35 @@ function neutralRamp(background: Rgb, surface: Rgb, onSurface: Rgb, variant: The
     let steps = rawSteps;
     for (let pass = 0; pass < 3; pass += 1) {
       steps = enforceIntegerMonotonic(protectSteps(steps), dir);
+      if (steps.every((step) => originalContrast < TEXT_CONTRAST_MIN || contrastRatio(onSurface, step) >= TEXT_CONTRAST_MIN)) {
+        return steps;
+      }
     }
-    return protectSteps(steps);
+
+    const extremeL = variant === "dark" ? 0.03 : 0.985;
+    const extreme = oklchToRgb({ l: extremeL, c: 0, h: 0 });
+    let safeEndpoint = extreme;
+    if (originalContrast >= TEXT_CONTRAST_MIN) {
+      for (let index = 1; index <= 100; index += 1) {
+        const fraction = index / 100;
+        const candidate = oklchToRgb({
+          l: rgbToOklch(extreme).l + (surfaceOklch.l - rgbToOklch(extreme).l) * fraction,
+          c: 0,
+          h: 0,
+        });
+        if (contrastRatio(onSurface, candidate) < TEXT_CONTRAST_MIN) break;
+        safeEndpoint = candidate;
+      }
+    }
+    const fallback = Array.from({ length: 5 }, (_, index) => {
+      const fraction = (index + 1) / 6;
+      return oklchToRgb({
+        l: rgbToOklch(extreme).l + (rgbToOklch(safeEndpoint).l - rgbToOklch(extreme).l) * fraction,
+        c: 0,
+        h: 0,
+      });
+    });
+    return enforceIntegerMonotonic(fallback, dir);
   };
 
   if (variant === "dark") {

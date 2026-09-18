@@ -3016,8 +3016,17 @@
 }
 
 :root[data-display-mode="eink"] {
+  --color-primary: #000000 !important;
   --color-primary-container: #e5e5e5 !important;
   --color-on-primary-container: #000000 !important;
+  --color-secondary: #000000 !important;
+  --color-on-secondary: #ffffff !important;
+  --color-secondary-container: #e5e5e5 !important;
+  --color-on-secondary-container: #000000 !important;
+  --color-tertiary: #000000 !important;
+  --color-on-tertiary: #ffffff !important;
+  --color-tertiary-container: #e5e5e5 !important;
+  --color-on-tertiary-container: #000000 !important;
   --color-error: #000000 !important;
   --color-on-error: #ffffff !important;
   --color-error-container: #e5e5e5 !important;
@@ -3025,12 +3034,23 @@
   --color-success: #000000 !important;
   --color-warning: #000000 !important;
   --color-surface: #ffffff !important;
+  --color-surface-dim: #b3b3b3 !important;
+  --color-surface-bright: #ffffff !important;
+  --color-surface-container-lowest: #ffffff !important;
+  --color-surface-container-low: #f2f2f2 !important;
+  --color-surface-container: #e5e5e5 !important;
+  --color-surface-container-high: #d1d1d1 !important;
+  --color-surface-container-highest: #b3b3b3 !important;
   --color-on-surface: #000000 !important;
+  --color-on-surface-variant: #000000 !important;
   --color-surface-variant: #e5e5e5 !important;
+  --color-inverse-surface: #000000 !important;
+  --color-on-inverse-surface: #ffffff !important;
+  --color-inverse-primary: #ffffff !important;
+  --color-surface-tint: #000000 !important;
   --color-outline: #000000 !important;
   --color-outline-variant: #000000 !important;
   --color-on-primary: #ffffff !important;
-  --color-on-secondary: #000000 !important;
   --color-scrim: #737373 !important;
 }
 :root[data-display-mode="eink"] .md-dialog-surface,
