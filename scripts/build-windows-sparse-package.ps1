@@ -63,11 +63,28 @@ if (-not $makeAppx) {
   Write-Error "makeappx.exe not found. Install Windows SDK."
 }
 
-& $makeAppx pack /d $SparseDir /p $MsixPath /o
+# MakeAppx requires the source manifest to be named AppxManifest.xml. Keep the
+# checked-in manifest's descriptive filename, but stage it under the required
+# footprint filename so output files under sparse/out are never packed either.
+$StageDir = Join-Path ([System.IO.Path]::GetTempPath()) ("PlethoraSparsePackage-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
+try {
+  Copy-Item $Manifest (Join-Path $StageDir "AppxManifest.xml") -Force
+  Copy-Item $AssetsDir (Join-Path $StageDir "Assets") -Recurse -Force
+  & $makeAppx pack /d $StageDir /p $MsixPath /o
+  if ($LASTEXITCODE -ne 0) {
+    throw "makeappx.exe failed with exit code $LASTEXITCODE"
+  }
+} finally {
+  Remove-Item -LiteralPath $StageDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 $signtool = Find-SdkTool 'signtool.exe'
 if ($signtool) {
   & $signtool sign /fd SHA256 /f $CertPath /p $CertPassword $MsixPath
+  if ($LASTEXITCODE -ne 0) {
+    throw "signtool.exe failed with exit code $LASTEXITCODE"
+  }
 }
 
 Write-Host "Sparse package: $MsixPath"

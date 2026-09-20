@@ -36,7 +36,7 @@ fn try_build_phi_bridge() {
     let lib_path = out_dir.join("plethora_phi_silica.lib");
 
     // Windows App SDK cppwinrt headers via NuGet cache or explicit root.
-    let sdk_root = env::var("WINDOWS_APP_SDK_ROOT").ok().or_else(|| {
+    let sdk_root = env::var("WINDOWS_APP_SDK_ROOT").ok().map(PathBuf::from).or_else(|| {
         let home = env::var("USERPROFILE").or_else(|_| env::var("HOME")).unwrap_or_default();
         let nuget = PathBuf::from(home).join(".nuget/packages/microsoft.windowsappsdk");
         if nuget.is_dir() {

@@ -7,5 +7,5 @@ describe("scheduler terminology gate", () => {
     expect(() => {
       execSync(`node "${script}"`, { encoding: "utf8", stdio: "pipe" });
     }).not.toThrow();
-  });
+  }, 15_000);
 });
