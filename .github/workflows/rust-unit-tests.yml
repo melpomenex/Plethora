@@ -1,0 +1,70 @@
+name: Rust unit tests
+
+# Runs the lib unit tests on a GitHub runner and publishes the outcome to
+# the ci/rust-unit-tests branch (result.json + graphics-summary.txt), so the
+# result is readable with plain `git fetch` — no API token required.
+# Not a merge gate (AGENTS.md: Actions is not used as a gate); it reports.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/**'
+      - '.github/workflows/rust-unit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libpipewire-0.3-dev libgbm-dev
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Run Rust unit tests
+        id: tests
+        working-directory: src-tauri
+        run: cargo test --lib -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+        env:
+          RUST_MIN_STACK: 33554432
+
+      - name: Publish result marker
+        if: always()
+        run: |
+          OUTCOME="${{ steps.tests.outcome }}"
+          SHA="$GITHUB_SHA"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          grep -E 'test graphics::tests|^test result:' "$RUNNER_TEMP/test-output.log" 2>/dev/null | tail -30 > graphics-summary.txt || echo "no test output captured" > graphics-summary.txt
+          cat > result.json <<EOF
+          {
+            "sha": "$SHA",
+            "date": "$DATE",
+            "outcome": "${OUTCOME:-unknown}"
+          }
+          EOF
+          git config user.name "plethora-ci"
+          git config user.email "actions@github.com"
+          git switch --orphan ci/rust-unit-tests
+          git add result.json graphics-summary.txt
+          git commit -m "rust-unit-tests: ${OUTCOME:-unknown} @ ${SHA:0:8}"
+          git push --force origin ci/rust-unit-tests
