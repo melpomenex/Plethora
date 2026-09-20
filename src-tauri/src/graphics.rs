@@ -7,8 +7,11 @@
 //! keeps hardware acceleration for real GPUs, and applies the compatibility
 //! variable set (WEBKIT_DISABLE_DMABUF_RENDERER / COMPOSITING_MODE /
 //! HARDWARE_ACCELERATION) only for software rasterers, GPU-less machines,
-//! and the NVIDIA-under-X11 DMABUF breakage. `PLETHORA_GPU_MODE` overrides
-//! detection when set to `hardware` or `software`.
+//! and the NVIDIA DMABUF breakage (X11 EGL imports and the Wayland
+//! protocol-error client kill — detected via the glxinfo renderer string,
+//! or via `/sys/module/nvidia` when glxinfo is not installed).
+//! `PLETHORA_GPU_MODE` overrides detection when set to `hardware` or
+//! `software`.
 //!
 //! The decision core (`resolve`) is pure and unit-testable on every platform;
 //! only `init()` touches the process environment, and it is Linux-gated.
@@ -53,12 +56,14 @@ pub struct DetectionInputs {
     /// Renderer line parsed from `glxinfo -B`; `None` when glxinfo is
     /// missing, failed, or produced no renderer line.
     pub renderer_string: Option<String>,
-    /// `XDG_SESSION_TYPE` (`"x11"` / `"wayland"` / ...); `None` when unset.
-    pub session_type: Option<String>,
     /// Result of scanning `/sys/class/drm` for a real GPU. `Some(true)` /
     /// `Some(false)` after a completed scan; `None` = scan not attempted
     /// (non-Linux, or `/sys/class/drm` unreadable).
     pub has_real_dri_device: Option<bool>,
+    /// `/sys/module/nvidia` exists — the proprietary NVIDIA kernel module is
+    /// loaded. Used when glxinfo is unavailable (e.g. mesa-utils not
+    /// installed) to apply the same DMABUF disable the renderer string would.
+    pub nvidia_module_loaded: bool,
 }
 
 /// A hardware backend with all disabling variables off.
@@ -90,10 +95,12 @@ fn compatibility_decision(reason: &'static str) -> GraphicsDecision {
 /// 1. `Hardware`/`Software` mode overrides beat every detection signal.
 /// 2. `LIBGL_ALWAYS_SOFTWARE=1` (the user already forced Mesa software GL).
 /// 3. Software rasterizer renderer strings (llvmpipe/softpipe/swrast).
-/// 4. NVIDIA under X11: hardware with only the DMABUF renderer disabled
-///    (WebKitGTK EGL DMABUF import breakage, tauri#9394).
+/// 4. NVIDIA proprietary: hardware with only the DMABUF renderer disabled
+///    (X11 EGL DMABUF import breakage, tauri#9394; on Wayland the DMA-BUF
+///    renderer gets the client killed with a protocol error).
 /// 5. Any other real renderer string from glxinfo.
-/// 6. No renderer string: `/sys/class/drm` DRI-device fallback.
+/// 6. No renderer string: `/sys/module/nvidia` probe, then the
+///    `/sys/class/drm` DRI-device fallback.
 pub fn resolve(mode: GpuMode, inputs: &DetectionInputs) -> GraphicsDecision {
     match mode {
         GpuMode::Hardware => return hardware_decision(false, "override-hardware"),
@@ -116,22 +123,26 @@ pub fn resolve(mode: GpuMode, inputs: &DetectionInputs) -> GraphicsDecision {
         {
             return compatibility_decision("software-renderer");
         }
-        // The NVIDIA proprietary driver mis-imports DMABUFs under X11
-        // (tauri#9394); disabling only the DMABUF renderer keeps the GPU
-        // path while dodging the breakage. Wayland is unaffected.
-        let is_x11 = inputs
-            .session_type
-            .as_deref()
-            .is_some_and(|session| session.eq_ignore_ascii_case("x11"));
-        if renderer.contains("nvidia") && is_x11 {
-            return hardware_decision(true, "nvidia-x11-dmabuf");
+        // The NVIDIA proprietary driver mishandles DMABUFs on both display
+        // servers: under X11 WebKitGTK's EGL imports break (tauri#9394), and
+        // under Wayland the DMA-BUF renderer violates the compositor's
+        // acquire-point rule, killing the client with `Gdk-Message: Error 71
+        // (Protocol error) dispatching to Wayland display`. Disabling only
+        // the DMABUF renderer keeps the GPU path while dodging both.
+        if renderer.contains("nvidia") {
+            return hardware_decision(true, "nvidia-dmabuf");
         }
-        // Mesa Intel/AMD and NVIDIA-under-Wayland are healthy GPU drivers.
+        // Mesa Intel/AMD are healthy GPU drivers.
         return hardware_decision(false, "glxinfo-hardware");
     }
 
     // glxinfo missing or silent (e.g. no mesa-utils installed): probe the
-    // kernel's DRM class directory instead of assuming software.
+    // kernel's module directory and DRM class instead of assuming software.
+    // The proprietary NVIDIA module alone is enough to need the DMABUF
+    // disable even without a renderer string to name the GPU.
+    if inputs.nvidia_module_loaded {
+        return hardware_decision(true, "nvidia-module");
+    }
     match inputs.has_real_dri_device {
         Some(true) => hardware_decision(false, "dri-device-present"),
         Some(false) => compatibility_decision("no-gpu-detected"),
@@ -247,7 +258,7 @@ fn init_linux() -> GraphicsDecision {
     let inputs = DetectionInputs {
         libgl_always_software: std::env::var("LIBGL_ALWAYS_SOFTWARE").ok().as_deref() == Some("1"),
         renderer_string,
-        session_type: std::env::var("XDG_SESSION_TYPE").ok(),
+        nvidia_module_loaded: std::path::Path::new("/sys/module/nvidia").exists(),
         has_real_dri_device: if needs_dri_scan {
             detect_real_dri_device()
         } else {
@@ -267,8 +278,9 @@ fn init_linux() -> GraphicsDecision {
 fn apply_environment(decision: &GraphicsDecision) {
     match decision.backend {
         GraphicsBackend::Hardware => {
-            // NVIDIA-under-X11: drop only the DMABUF renderer (tauri#9394),
-            // keep acceleration and compositing on the GPU.
+            // NVIDIA (X11 or Wayland): drop only the DMABUF renderer
+            // (tauri#9394 and the Wayland Error 71 protocol kill), keep
+            // acceleration and compositing on the GPU.
             if decision.disable_dmabuf {
                 std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
             }
@@ -314,13 +326,13 @@ mod tests {
         DetectionInputs {
             libgl_always_software: false,
             renderer_string: renderer.map(str::to_string),
-            session_type: None,
             has_real_dri_device: None,
+            nvidia_module_loaded: false,
         }
     }
 
-    fn with_session(mut base: DetectionInputs, session: Option<&str>) -> DetectionInputs {
-        base.session_type = session.map(str::to_string);
+    fn with_nvidia_module(mut base: DetectionInputs) -> DetectionInputs {
+        base.nvidia_module_loaded = true;
         base
     }
 
@@ -354,58 +366,49 @@ mod tests {
         }
     }
 
-    #[test]
-    fn resolve_classifies_renderer_strings() {
-        let nvidia_x11 = GraphicsDecision {
+    fn hardware_dmabuf_off(reason: &'static str) -> GraphicsDecision {
+        GraphicsDecision {
             backend: GraphicsBackend::Hardware,
             disable_dmabuf: true,
             disable_compositing: false,
             disable_hardware_acceleration: false,
-            reason: "nvidia-x11-dmabuf",
-        };
-        let cases: &[(Option<&str>, Option<&str>, GraphicsDecision)] = &[
+            reason,
+        }
+    }
+
+    #[test]
+    fn resolve_classifies_renderer_strings() {
+        let nvidia_dmabuf = hardware_dmabuf_off("nvidia-dmabuf");
+        let cases: &[(Option<&str>, GraphicsDecision)] = &[
             // Software rasterizers → compatibility fallback.
             (
                 Some("llvmpipe (LLVM 15.0.7, 256 bits)"),
-                None,
                 compatibility("software-renderer"),
             ),
-            (Some("softpipe"), None, compatibility("software-renderer")),
-            (Some("swrast"), None, compatibility("software-renderer")),
+            (Some("softpipe"), compatibility("software-renderer")),
+            (Some("swrast"), compatibility("software-renderer")),
             // Real Mesa drivers → hardware, nothing disabled.
             (
                 Some("Mesa Intel(R) UHD Graphics 620 (CFL GT2)"),
-                None,
                 hardware("glxinfo-hardware"),
             ),
             (
                 Some("AMD Radeon RX 6800 (RADV NAVI21)"),
-                None,
                 hardware("glxinfo-hardware"),
             ),
-            // NVIDIA + X11: DMABUF renderer only.
-            (Some("NVIDIA GeForce RTX 3060"), Some("x11"), nvidia_x11),
-            // NVIDIA elsewhere: keep everything enabled.
+            // NVIDIA proprietary reports an "NVIDIA ..." renderer on every
+            // display server: DMABUF renderer off, acceleration kept.
+            (Some("NVIDIA GeForce RTX 3060"), nvidia_dmabuf),
             (
-                Some("NVIDIA GeForce RTX 3060"),
-                Some("wayland"),
-                hardware("glxinfo-hardware"),
-            ),
-            // Missing session info is treated like non-X11: the DMABUF-only
-            // mitigation is an X11-specific breakage, so without proof of X11
-            // we prefer keeping the full hardware path.
-            (
-                Some("NVIDIA GeForce RTX 3060"),
-                None,
-                hardware("glxinfo-hardware"),
+                Some("NVIDIA GeForce RTX 2060 SUPER/PCIe/SSE2"),
+                nvidia_dmabuf,
             ),
         ];
-        for (renderer, session, expected) in cases {
-            let base = with_session(inputs(*renderer), *session);
+        for (renderer, expected) in cases {
             assert_eq!(
-                resolve(GpuMode::Auto, &base),
+                resolve(GpuMode::Auto, &inputs(*renderer)),
                 *expected,
-                "renderer={renderer:?} session={session:?}"
+                "renderer={renderer:?}"
             );
         }
     }
@@ -423,6 +426,35 @@ mod tests {
         assert_eq!(
             resolve(GpuMode::Auto, &with_dri(inputs(None), None)),
             compatibility("gpu-detection-unavailable")
+        );
+    }
+
+    #[test]
+    fn resolve_nvidia_module_without_glxinfo_disables_dmabuf() {
+        // The proprietary module loaded beats every no-glxinfo fallback
+        // (mesa-utils missing is common on end-user installs).
+        assert_eq!(
+            resolve(GpuMode::Auto, &with_nvidia_module(with_dri(inputs(None), Some(true)))),
+            hardware_dmabuf_off("nvidia-module")
+        );
+        // Even when the DRI scan could not run at all.
+        assert_eq!(
+            resolve(GpuMode::Auto, &with_nvidia_module(with_dri(inputs(None), None))),
+            hardware_dmabuf_off("nvidia-module")
+        );
+        // A renderer string still wins over the module probe: NVIDIA GL
+        // visible through glxinfo keeps the renderer-based reason, and a
+        // software renderer falls back to compatibility.
+        assert_eq!(
+            resolve(
+                GpuMode::Auto,
+                &with_nvidia_module(inputs(Some("NVIDIA GeForce RTX 3060")))
+            ),
+            hardware_dmabuf_off("nvidia-dmabuf")
+        );
+        assert_eq!(
+            resolve(GpuMode::Auto, &with_nvidia_module(inputs(Some("llvmpipe")))),
+            compatibility("software-renderer")
         );
     }
 

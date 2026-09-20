@@ -38,9 +38,9 @@ fn main() {
 
         // Conditional GPU acceleration (D8), owned by the graphics policy
         // module: healthy GPUs keep hardware acceleration, software
-        // rasterizers get the compatibility variable set, NVIDIA-under-X11
-        // drops only the DMABUF renderer (tauri#9394), and
-        // PLETHORA_GPU_MODE=hardware/software overrides detection.
+        // rasterizers get the compatibility variable set, NVIDIA drops only
+        // the DMABUF renderer (tauri#9394 plus the Wayland Error 71 protocol
+        // kill), and PLETHORA_GPU_MODE=hardware/software overrides detection.
         let decision = plethora_tauri_lib::graphics::init();
         early_log(&format!(
             "[graphics] backend={} reason={} dmabuf={}",

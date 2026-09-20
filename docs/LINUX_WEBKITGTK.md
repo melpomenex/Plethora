@@ -57,13 +57,15 @@ dev` — the dev wrapper no longer disables acceleration on its own.
 2. If `LIBGL_ALWAYS_SOFTWARE=1` is set, compatibility mode is used.
 3. If `glxinfo -B` reports a software rasterizer (`llvmpipe`, `softpipe`,
    `swrast`), compatibility mode is used.
-4. If the renderer is NVIDIA **and** the session is X11, hardware stays on but
-   the DMABUF renderer is disabled (the WebKitGTK/NVIDIA DMABUF white-screen
-   class of bugs).
+4. If the renderer is NVIDIA, hardware stays on but the DMABUF renderer is
+   disabled (the WebKitGTK/NVIDIA DMABUF breakage: X11 white-screen EGL
+   imports, and on Wayland the compositor kills the client with
+   `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display`).
 5. Otherwise — including when `glxinfo` is not installed — hardware
-   acceleration stays enabled. Without `glxinfo`, the policy scans
-   `/sys/class/drm` for a real GPU device and only falls back to software when
-   none is found.
+   acceleration stays enabled. Without `glxinfo`, the policy first checks for
+   the proprietary NVIDIA kernel module (`/sys/module/nvidia`, applying the
+   same DMABUF disable as step 4), then scans `/sys/class/drm` for a real GPU
+   device and only falls back to software when none is found.
 
 ### Overrides
 
@@ -85,7 +87,8 @@ Each startup appends exactly one decision line to the early startup log
 
 Common reasons: `glxinfo-hardware`, `dri-device-present` (no `glxinfo`
 installed but a GPU device node exists), `software-renderer`,
-`nvidia-x11-dmabuf`, `no-gpu-detected`, `gpu-detection-unavailable`, `user-forced-software-gl`,
+`nvidia-dmabuf`, `nvidia-module` (no `glxinfo` installed, NVIDIA kernel
+module present), `no-gpu-detected`, `gpu-detection-unavailable`, `user-forced-software-gl`,
 `override-hardware`, `override-software`.
 
 The sandbox disable (`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, required for
