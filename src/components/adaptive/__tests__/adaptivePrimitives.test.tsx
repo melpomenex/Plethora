@@ -95,7 +95,10 @@ describe("adaptive interface primitives", () => {
     expect(dialog).toHaveClass("adaptive-dialog-sheet");
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    // The dialog's Escape listener lives on document (useDialogFocus); a
+    // keydown fired at window never reaches it, so dispatch from the focused
+    // element like a real keystroke would.
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

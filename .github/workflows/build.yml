@@ -93,6 +93,7 @@ jobs:
           name: plethora-windows
           path: |
             src-tauri/target/**/release/bundle/**
+          retention-days: 7
           if-no-files-found: warn
 
   build:
@@ -222,6 +223,12 @@ jobs:
               core.setFailed(`Tag/version mismatch for ${tag}. Expected ${expected}; ${mismatches.join(", ")}.`);
             }
 
+      - name: Free disk space (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
       - name: Build frontend
         run: npm run build
 
@@ -307,6 +314,7 @@ jobs:
           name: plethora-${{ matrix.id }}
           path: |
             src-tauri/target/**/release/bundle/**
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Add per-architecture summary
@@ -434,6 +442,11 @@ jobs:
               core.setFailed(`Tag/version mismatch for ${tag}. Expected ${expected}; ${mismatches.join(", ")}.`);
             }
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
       - name: Build frontend
         run: npm run build
 
@@ -461,6 +474,7 @@ jobs:
         with:
           name: plethora-appimage
           path: src-tauri/target/release/bundle/appimage/*
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Upload AppImage to release (on tag)
@@ -592,6 +606,7 @@ jobs:
         with:
           name: plethora-arch
           path: arch-pkg/*.pkg.tar.zst
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Upload Pacman to release (on tag)

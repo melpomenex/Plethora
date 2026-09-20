@@ -36,29 +36,37 @@ if (-not (Test-Path $CertPath)) {
   Export-PfxCertificate -Cert $cert -FilePath $CertPath -Password (ConvertTo-SecureString -String $CertPassword -Force -AsPlainText) | Out-Null
 }
 
-$makeAppx = Get-Command makeappx.exe -ErrorAction SilentlyContinue
-if (-not $makeAppx) {
-  $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-  if (Test-Path $sdk) {
-    $ver = Get-ChildItem $sdk | Sort-Object Name -Descending | Select-Object -First 1
-    $makeAppx = Join-Path $ver.FullName "x64\makeappx.exe"
+# Locate a Windows SDK binary (makeappx/signtool) whether or not it is on
+# PATH. The runner images have moved the SDK layout around; search both
+# Program Files roots recursively instead of assuming a versioned dir name.
+function Find-SdkTool {
+  param([string]$Name)
+  $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $roots = @(
+    "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+    "${env:ProgramFiles}\Windows Kits\10\bin"
+  )
+  foreach ($root in $roots) {
+    if (-not (Test-Path $root)) { continue }
+    $hit = Get-ChildItem $root -Recurse -Filter $Name -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match '\\x64\\' } |
+      Sort-Object FullName -Descending |
+      Select-Object -First 1
+    if ($hit) { return $hit.FullName }
   }
+  return $null
 }
-if (-not (Test-Path $makeAppx)) {
+
+$makeAppx = Find-SdkTool 'makeappx.exe'
+if (-not $makeAppx) {
   Write-Error "makeappx.exe not found. Install Windows SDK."
 }
 
 & $makeAppx pack /d $SparseDir /p $MsixPath /o
 
-$signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
-if (-not $signtool) {
-  $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-  if (Test-Path $sdk) {
-    $ver = Get-ChildItem $sdk | Sort-Object Name -Descending | Select-Object -First 1
-    $signtool = Join-Path $ver.FullName "x64\signtool.exe"
-  }
-}
-if (Test-Path $signtool) {
+$signtool = Find-SdkTool 'signtool.exe'
+if ($signtool) {
   & $signtool sign /fd SHA256 /f $CertPath /p $CertPassword $MsixPath
 }
 

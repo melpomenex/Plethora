@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path, { dirname } from "path";
 import { execSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -701,10 +702,52 @@ function buildPortablePocketTTSRuntime(targetTriple, pythonCmd) {
   if (!runOptionalCommand(`${pythonCmd} -m pip --version`, process.env)) {
     runOptionalCommand(`${pythonCmd} -m ensurepip --upgrade`, process.env);
   }
-  execSync(`${pythonCmd} -m pip install --target "${sitePackages}" "pocket-tts"`, {
-    stdio: 'inherit',
-    env: process.env,
-  });
+  if (process.platform === 'linux' && process.arch === 'x64') {
+    // The default PyPI torch wheel for linux/amd64 drags in the full CUDA 13
+    // wheel set (~8 GB) — enough to exhaust a CI runner's disk and absurd to
+    // bundle into a desktop TTS sidecar. Resolve in a throwaway venv pinned
+    // to the CPU-only torch index first (so pocket-tts sees torch already
+    // satisfied), then copy the resolved site-packages into the portable
+    // layout. PyPI torch for linux/aarch64 is already CPU-only, and macOS /
+    // Windows wheels never carry CUDA, so only x86_64 Linux needs this.
+    const venvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-tts-'));
+    try {
+      const venvPython = path.join(venvDir, 'bin', 'python');
+      execSync(`"${pythonCmd}" -m venv "${venvDir}"`, { stdio: 'inherit', env: process.env });
+      execSync(
+        `"${venvPython}" -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu`,
+        { stdio: 'inherit', env: process.env },
+      );
+      execSync(`"${venvPython}" -m pip install --no-cache-dir pocket-tts`, {
+        stdio: 'inherit',
+        env: process.env,
+      });
+      const libDir = path.join(venvDir, 'lib');
+      const pyDir = fs.readdirSync(libDir).find((name) => /^python\d/.test(name));
+      if (!pyDir) {
+        throw new Error(`could not locate venv site-packages under ${libDir}`);
+      }
+      const venvSitePackages = path.join(libDir, pyDir, 'site-packages');
+      fs.cpSync(venvSitePackages, sitePackages, {
+        recursive: true,
+        filter: (source) => {
+          const rel = path.relative(venvSitePackages, source);
+          const top = rel.split(path.sep)[0];
+          if (top === '__pycache__' || /^(pip|setuptools|wheel)(-|_)/.test(top)) {
+            return false;
+          }
+          return true;
+        },
+      });
+    } finally {
+      fs.rmSync(venvDir, { recursive: true, force: true });
+    }
+  } else {
+    execSync(`${pythonCmd} -m pip install --no-cache-dir --target "${sitePackages}" "pocket-tts"`, {
+      stdio: 'inherit',
+      env: process.env,
+    });
+  }
 
   fs.writeFileSync(manifestPath, JSON.stringify({
     layout: 'portable-python-home-v1',

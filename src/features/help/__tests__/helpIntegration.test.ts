@@ -69,7 +69,7 @@ describe("Help System End-to-End Integration", () => {
     const doc = defaultHelpRetrieval.getDocument("scheduler.fsrs");
     expect(doc).toBeDefined();
     expect(doc?.id).toBe("scheduler.fsrs");
-    expect(doc?.title).toBe("FSRS-6 Spaced Repetition");
+    expect(doc?.title).toBe("FSRS-7 Spaced Repetition");
     expect(doc?.sections["Exact Behavioral Rules"]).toBeDefined();
     expect(doc?.actions?.length).toBeGreaterThan(0);
     expect(doc?.settings).toContain("scheduler.fsrs.requestRetention");
