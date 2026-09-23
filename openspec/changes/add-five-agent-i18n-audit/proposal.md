@@ -1,7 +1,7 @@
 # Change: Add Five-Agent Localization Audit for Review and App Coverage
 
 ## Why
-The existing `complete-app-internationalization` change established broad locale coverage, but the current codebase still exposes untranslated or hardcoded English strings in user-facing surfaces. The Review View is an immediate example: [ReviewQueueView.tsx](/home/ubuntu/Code/incrementum-tauri/src/components/review/ReviewQueueView.tsx:955) still renders an English-only next-review tooltip, and [ReviewQueueView.tsx](/home/ubuntu/Code/incrementum-tauri/src/components/review/ReviewQueueView.tsx:1105) hardcodes `Reading → Extract → Cloze → Review`.
+The existing `complete-app-internationalization` change established broad locale coverage, but the current codebase still exposes untranslated or hardcoded English strings in user-facing surfaces. The Review View is an immediate example: [ReviewQueueView.tsx](src/components/review/ReviewQueueView.tsx#L955) still renders an English-only next-review tooltip, and [ReviewQueueView.tsx](src/components/review/ReviewQueueView.tsx#L1105) hardcodes `Reading → Extract → Cloze → Review`.
 
 The current test suite verifies locale key parity, but it does not verify that every user-visible string is actually routed through `t()`/`useI18n()`, nor that each supported locale renders complete flows without fallback leaks. A structured multi-agent audit is needed to close the gap between dictionary completeness and real UI completeness.
 
