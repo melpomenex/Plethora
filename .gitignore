@@ -21,6 +21,9 @@ handoff.md
 
 reasonix.toml
 
+# Website (commercial site managed separately)
+website/
+
 node_modules
 dist
 dist-ssr
