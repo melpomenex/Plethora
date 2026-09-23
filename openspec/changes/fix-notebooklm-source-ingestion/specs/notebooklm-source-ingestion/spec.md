@@ -63,7 +63,7 @@ Document titles and paths containing spaces, quotes, punctuation, or shell metac
 - **THEN** the title is passed as a discrete argument to `--title` without triggering shell evaluation or option injection.
 
 #### Scenario: Path with spaces
-- **WHEN** a document file resides at `/Users/mini/Library/Application Support/com.plethora.app/Incrementum/book.epub`
+- **WHEN** a document file resides at `/Users/username/Library/Application Support/com.plethora.app/Incrementum/book.epub`
 - **THEN** the path is passed directly to the child process without quote truncation or split errors.
 
 ### Requirement: Duplicate Source Guard

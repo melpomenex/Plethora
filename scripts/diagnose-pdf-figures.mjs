@@ -82,20 +82,21 @@ const esbuild = require("esbuild");
 const { chromium } = require("playwright");
 
 // ---------------------------------------------------------------------------
-// Books (the user's actual books where the sliver bug was observed).
+// Books (configurable test books for sliver/figure diagnosis).
 // ---------------------------------------------------------------------------
 
 const DEFAULT_BOOKS = [
   {
-    slug: "applied-evolutionary-psychology",
+    slug: "sample-book-1",
     path:
-      "/Users/mini/Downloads/Applied Evolutionary Psychology (S. Craig Roberts) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      process.env.DIAGNOSE_PDF_1 ||
+      path.join(REPO_ROOT, "tests", "fixtures", "sample1.pdf"),
   },
   {
-    slug: "handbook-evolutionary-psych-vol1",
-    // NOTE: the apostrophe in "Anna's" is U+2019 in the on-disk filename.
+    slug: "sample-book-2",
     path:
-      "/Users/mini/Downloads/The Handbook of Evolutionary Psychology, Vol_ 1_ Foundation -- David M_ Buss (ed_) -- 1, 2nd, 2015 -- John Wiley & Sons, Incorporated -- isbn13 9781118755808 -- f043b013fc767f117bd5e7460d85dc28 -- Anna\u2019s Archive.pdf",
+      process.env.DIAGNOSE_PDF_2 ||
+      path.join(REPO_ROOT, "tests", "fixtures", "sample2.pdf"),
   },
 ];
 
