@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-fast:
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     # Job-level env so the `prebuild` hook (npm run build → prebuild →
     # download-sidecars.js) bundles the pocket-tts/notebooklm sidecars too.
@@ -89,11 +89,12 @@ jobs:
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: plethora-windows
           path: |
             src-tauri/target/**/release/bundle/**
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
   build:
@@ -255,6 +256,11 @@ jobs:
           console.log("Updater signing disabled for non-release build");
           NODE
 
+      - name: Build Windows sparse identity package
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/build-windows-sparse-package.ps1
+
       - name: Build Tauri application
         run: npx tauri build ${{ matrix.tauri_args }}
         env:
@@ -263,7 +269,7 @@ jobs:
           POCKET_TTS_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
-          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
+          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '2' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
           # 16 is cargo's default release codegen-units (no-op when unset).
@@ -310,11 +316,12 @@ jobs:
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: plethora-${{ matrix.id }}
           path: |
             src-tauri/target/**/release/bundle/**
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Add per-architecture summary
@@ -457,6 +464,9 @@ jobs:
         run: |
           scripts/ci-build-appimage.sh
         env:
+          CARGO_BUILD_JOBS: "2"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "4"
+          LIBSQLITE3_SYS_USE_PKG_CONFIG: "1"
           TAURI_BUNDLE_APPIMAGE: "true"
           APPIMAGE_EXTRACT_AND_RUN: "1"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -471,10 +481,11 @@ jobs:
 
       - name: Upload AppImage artifacts
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: plethora-appimage
           path: src-tauri/target/release/bundle/appimage/*
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Upload AppImage to release (on tag)
@@ -557,6 +568,8 @@ jobs:
         run: npx tauri build --no-bundle
         env:
           RUST_MIN_STACK: 33554432
+          CARGO_BUILD_JOBS: "2"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "4"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: "1"
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
@@ -603,10 +616,11 @@ jobs:
 
       - name: Upload Pacman artifacts
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: plethora-arch
           path: arch-pkg/*.pkg.tar.zst
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Upload Pacman to release (on tag)
@@ -719,6 +733,7 @@ jobs:
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
+        continue-on-error: true
         with:
           files: ./coverage/lcov.info
           flags: unittests
