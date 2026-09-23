@@ -626,6 +626,12 @@ jobs:
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
           RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd
+          # The container has the same RAM as a VM runner but the final
+          # plethora-tauri lib (ThinLTO over the whole dep graph) peaks near
+          # the memory ceiling while cargo is still compiling other crates in
+          # parallel; rustc got SIGKILLed (OOM) mid-crate in the v3.0.0 run.
+          # Cap build parallelism so the big crate compiles with headroom.
+          CARGO_BUILD_JOBS: "2"
 
       - name: Create Pacman package
         run: |

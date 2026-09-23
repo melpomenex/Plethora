@@ -81,7 +81,7 @@ fn try_build_phi_bridge() {
             "/Fo",
         ])
         .arg(out_dir.join("PhiSilicaBridge.obj"))
-        .arg(format!("/I{}", include))
+        .arg(format!("/I{}", include.display()))
         .arg(&cpp)
         .status();
 
