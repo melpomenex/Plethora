@@ -71,7 +71,12 @@ New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 try {
   Copy-Item $Manifest (Join-Path $StageDir "AppxManifest.xml") -Force
   Copy-Item $AssetsDir (Join-Path $StageDir "Assets") -Recurse -Force
-  & $makeAppx pack /d $StageDir /p $MsixPath /o
+  # /nv is required for sparse (external-location) packages: the manifest
+  # declares the app executable, which lives in the NSIS install folder
+  # OUTSIDE this identity-only package. MakeAppx's semantic validation would
+  # otherwise reject the pack with 0x80080204 ("file name ... doesn't exist
+  # in the package").
+  & $makeAppx pack /d $StageDir /p $MsixPath /nv /o
   if ($LASTEXITCODE -ne 0) {
     throw "makeappx.exe failed with exit code $LASTEXITCODE"
   }

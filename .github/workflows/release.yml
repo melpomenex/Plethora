@@ -267,6 +267,10 @@ jobs:
 
       - name: Build Windows MSIX package (optional Store path)
         if: matrix.os == 'windows'
+        # Store-only extra artifact — neither the installer nor the updater
+        # chain consumes it, and this leg takes hours to reach this step, so a
+        # Store-pack failure must not fail the release.
+        continue-on-error: true
         shell: pwsh
         run: |
           $stage = Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Directory | Select-Object -First 1
