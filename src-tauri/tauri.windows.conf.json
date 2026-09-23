@@ -6,7 +6,8 @@
       "bin/onnxruntime.dll": "onnxruntime.dll",
       "bin/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
       "bin/onnxruntime.placeholder.dll": "bin/onnxruntime.placeholder.dll",
-      "bin/notebooklm-runtime": "bin/notebooklm-runtime"
+      "bin/notebooklm-runtime": "bin/notebooklm-runtime",
+      "windows/sparse/out/PlethoraIdentity.msix": "PlethoraIdentity.msix"
     }
   }
 }
