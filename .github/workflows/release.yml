@@ -90,6 +90,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          # Evictions/OOM kill legs mid-compile; saving the partial target dir
+          # lets the rerun resume instead of restarting the ~35 min build.
+          cache-on-failure: true
 
       - name: Increase Rust stack size (Unix)
         if: matrix.os != 'windows'
@@ -456,6 +459,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          # Evictions/OOM kill legs mid-compile; saving the partial target dir
+          # lets the rerun resume instead of restarting the ~35 min build.
+          cache-on-failure: true
 
       - name: Increase Rust stack size
         run: echo "RUST_MIN_STACK=33554432" >> $GITHUB_ENV
@@ -628,6 +634,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          # Evictions/OOM kill legs mid-compile; saving the partial target dir
+          # lets the rerun resume instead of restarting the ~35 min build.
+          cache-on-failure: true
 
       - name: Increase Rust stack size
         run: echo "RUST_MIN_STACK=33554432" >> $GITHUB_ENV
