@@ -228,8 +228,11 @@ jobs:
           CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
-          # 16 is cargo's default release codegen-units (no-op when unset).
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.os == 'linux' && '4' || '16' }}
+          # 16 is cargo's default release codegen-units (no-op when unset) and
+          # what every release leg uses now: codegen-units=4 OOM-killed rustc
+          # compiling the final plethora-tauri lib on Linux runners (thin LTO
+          # over the full dep graph at opt-level=z peaks past the runner RAM).
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
           # macOS ad-hoc codesigning (no Developer ID yet). Separate from the
@@ -626,11 +629,12 @@ jobs:
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
           RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd
-          # The container has the same RAM as a VM runner but the final
-          # plethora-tauri lib (ThinLTO over the whole dep graph) peaks near
-          # the memory ceiling while cargo is still compiling other crates in
-          # parallel; rustc got SIGKILLed (OOM) mid-crate in the v3.0.0 run.
-          # Cap build parallelism so the big crate compiles with headroom.
+          # The final plethora-tauri lib (ThinLTO over the whole dep graph)
+          # OOM-killed rustc in the v3.0.0 runs even with CARGO_BUILD_JOBS=2 —
+          # the peak is inside the single rustc process. codegen-units=4 splits
+          # codegen into chunks too large for the container; 16 is what the
+          # non-Linux release legs already use and shrinks the per-CGU peak.
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_BUILD_JOBS: "2"
 
       - name: Create Pacman package
