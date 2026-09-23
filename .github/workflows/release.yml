@@ -216,6 +216,13 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows-sparse-package.ps1
 
+      - name: Log runner memory baseline (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          echo "=== memory ==="; free -m || true
+          echo "=== disk ==="; df -h / || true
+          echo "=== cpu ==="; nproc || true
+
       - name: Build Tauri application
         run: npx tauri build ${{ matrix.tauri_args }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
         env:
@@ -228,11 +235,15 @@ jobs:
           CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
-          # 16 is cargo's default release codegen-units (no-op when unset) and
-          # what every release leg uses now: codegen-units=4 OOM-killed rustc
-          # compiling the final plethora-tauri lib on Linux runners (thin LTO
-          # over the full dep graph at opt-level=z peaks past the runner RAM).
+          # 16 is cargo's default release codegen-units (no-op when unset).
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          # The in-process ThinLTO link of the final lib OOM-killed rustc on
+          # every Linux runner during the v3.0.0 attempts (signal 9 in the
+          # container, runner-agent shutdown signals on the VM legs), even at
+          # codegen-units=16 and CARGO_BUILD_JOBS=2. Drop LTO on Linux legs
+          # only; macOS (7 GB) completed the identical ThinLTO build, so the
+          # non-Linux artifacts keep cross-crate inlining.
+          CARGO_PROFILE_RELEASE_LTO: ${{ matrix.os == 'linux' && 'off' || 'thin' }}
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
           # macOS ad-hoc codesigning (no Developer ID yet). Separate from the
@@ -494,11 +505,12 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           NOTEBOOKLM_BUNDLE_RUNTIME: "1"
           POCKET_TTS_BUNDLE_RUNTIME: "1"
-          # Same OOM profile as the release matrix legs: codegen-units=4 let the
-          # single rustc process for the final lib exceed runner memory, which
-          # killed the runner agent mid-compile ("runner received a shutdown
-          # signal"). 16 is what every other release leg uses.
+          # Same OOM profile as the release matrix legs: the in-process
+          # ThinLTO link of the final lib exceeded runner memory (runner agent
+          # killed mid-compile, "runner received a shutdown signal"). LTO off
+          # + capped parallelism keeps the compile inside runner RAM.
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "off"
           CARGO_BUILD_JOBS: "2"
 
       # ci-build-appimage.sh repacks the AppImage after Tauri builds it
@@ -627,6 +639,14 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Log runner memory baseline
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          echo "=== memory ==="; free -m || true
+          echo "=== disk ==="; df -h / || true
+          echo "=== cpu ==="; nproc || true
+
       - name: Build Tauri application
         run: npx tauri build --no-bundle
         env:
@@ -635,12 +655,14 @@ jobs:
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
           RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd
-          # The final plethora-tauri lib (ThinLTO over the whole dep graph)
-          # OOM-killed rustc in the v3.0.0 runs even with CARGO_BUILD_JOBS=2 —
-          # the peak is inside the single rustc process. codegen-units=4 splits
-          # codegen into chunks too large for the container; 16 is what the
-          # non-Linux release legs already use and shrinks the per-CGU peak.
+          # The final plethora-tauri lib OOM-killed rustc in the v3.0.0 runs
+          # even with CARGO_BUILD_JOBS=2 and codegen-units=16: the peak is the
+          # in-process ThinLTO link of the cdylib (bitcode from ~250 dep rlibs
+          # is loaded at once), not parallelism or CGU chunking. Disable LTO on
+          # this leg — the package stays fully optimized at opt-level=z, only
+          # cross-crate inlining is given up so the compile fits in runner RAM.
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "off"
           CARGO_BUILD_JOBS: "2"
 
       - name: Create Pacman package
