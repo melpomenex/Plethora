@@ -16,6 +16,7 @@ This skill automates the workflow for preparing and triggering a new release of 
 
 - **GitHub CLI (`gh`)** must be installed and authenticated (`gh auth status`).
 - **Node.js** must be installed to run the bump script.
+- **`no-mistakes` Gate**: All changes must pass validation via `no-mistakes axi run --intent "<intent>" --yes` before pushing to remote.
 
 ## Usage
 

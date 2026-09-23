@@ -84,6 +84,19 @@ prerequisite 5).
    every PR to `main` and push to `main`, so the commit you release from has
    already passed the gate on `main`.
 
+7. **The `no-mistakes` gate must pass before pushing.** We use `no-mistakes` as
+   a gate before pushing to remote to validate code changes (automated code
+   review, tests, lint, docs, and validation). Run:
+   ```bash
+   no-mistakes axi run --intent "Release v<version>" --yes
+   ```
+   Or check gate status:
+   ```bash
+   no-mistakes axi status
+   ```
+   Ensure the `no-mistakes` pipeline passes cleanly before pushing to `origin`
+   and publishing the release.
+
 ## Clean the tree before staging
 
 This is the step the release script can't do for you. The script's final
