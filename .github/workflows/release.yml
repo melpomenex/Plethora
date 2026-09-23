@@ -589,28 +589,54 @@ jobs:
   release-arch:
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:base-devel
+    # Compile on the Ubuntu VM (same 16 GB environment the deb legs use) and
+    # only ASSEMBLE the pacman package inside an ephemeral archlinux container.
+    # Compiling inside the container itself OOM-killed rustc at the final
+    # plethora-tauri lib in five consecutive v3.0.0 attempts (signal 9), even
+    # with LTO off, codegen-units=16, serialized jobs and lld — the container's
+    # memory ceiling is below what this crate needs to compile. The resulting
+    # binary is dynamically linked against webkit2gtk-4.1/glibc/zstd, all of
+    # which keep the same sonames on Arch (and Arch's glibc is newer than the
+    # builder's, so ubuntu-built binaries run there).
     steps:
-      - name: Install git for checkout
-        run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed git
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
           submodules: recursive
 
-      - name: Install Arch dependencies
+      - name: Free disk space
         run: |
-          pacman -Syu --noconfirm
-          # cmake is required to build whisper.cpp from source via download-sidecars.js
-          # (triggered by the prebuild hook during `tauri build`). Without it the job
-          # dies with "cmake: command not found". The sidecar binaries are gitignored,
-          # so every Arch release build compiles whisper.cpp itself.
-          pacman -S --noconfirm base-devel cmake webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf npm nodejs rust cargo clang lld sqlite pipewire
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/conda /usr/local/share/boost 2>/dev/null || true
+          sudo apt-get clean
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libgbm-dev
+          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+          sudo apt-get install -y lld
+          # sqlite + zstd for the -lsqlite3/-lzstd link args below
+          sudo apt-get install -y libsqlite3-dev libzstd-dev
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Increase Rust stack size
+        run: echo "RUST_MIN_STACK=33554432" >> $GITHUB_ENV
+
+      - name: Sync node version and setup cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
 
       - name: Install frontend dependencies
         # Retry npm ci to ride out transient npm-registry connectivity failures
@@ -669,13 +695,11 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Log runner memory baseline
-        if: matrix.os == 'linux'
-        shell: bash
-        run: |
-          echo "=== memory ==="; free -m || true
-          echo "=== disk ==="; df -h / || true
-          echo "=== cpu ==="; nproc || true
+      - name: Build sidecar binaries (if missing)
+        run: node scripts/download-sidecars.js
+        env:
+          NOTEBOOKLM_BUNDLE_RUNTIME: "1"
+          POCKET_TTS_BUNDLE_RUNTIME: "1"
 
       - name: Build Tauri application
         run: npx tauri build --no-bundle
@@ -684,19 +708,14 @@ jobs:
           LIBSQLITE3_SYS_USE_PKG_CONFIG: "1"
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
-          # lld is installed by the dependencies step above; linking the final
-          # cdylib with it avoids the GNU ld memory spike that OOM-killed this
-          # job in earlier v3.0.0 attempts.
+          NOTEBOOKLM_BUNDLE_RUNTIME: "1"
+          POCKET_TTS_BUNDLE_RUNTIME: "1"
+          # Same memory-tamed profile as the deb legs: serialized build, lld
+          # for the final cdylib link, no LTO, codegen-units=16.
           RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd -C link-arg=-fuse-ld=lld
-          # The final plethora-tauri lib OOM-killed rustc in the v3.0.0 runs
-          # even with CARGO_BUILD_JOBS=2 and codegen-units=16: the peak is the
-          # in-process ThinLTO link of the cdylib (bitcode from ~250 dep rlibs
-          # is loaded at once), not parallelism or CGU chunking. Disable LTO on
-          # this leg — the package stays fully optimized at opt-level=z, only
-          # cross-crate inlining is given up so the compile fits in runner RAM.
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_BUILD_JOBS: "2"
+          CARGO_BUILD_JOBS: "1"
 
       - name: Create Pacman package
         run: |
@@ -749,11 +768,22 @@ jobs:
           }
           EOF
 
-          # Build the package
-          cd arch-pkg
-          useradd -m builder
-          chown -R builder:builder "$GITHUB_WORKSPACE/arch-pkg"
-          su builder -c "cd $GITHUB_WORKSPACE/arch-pkg && makepkg --noconfirm --nosign"
+          # Assemble the package with makepkg inside an ephemeral archlinux
+          # container. Nothing compiles here (package() only installs the
+          # prebuilt binary), so this container run takes seconds and cannot
+          # hit the memory ceiling that killed the in-container builds.
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/arch-pkg:/pkg" \
+            -w /pkg \
+            archlinux:base-devel \
+            bash -c '
+              set -euo pipefail
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm --needed base-devel
+              useradd -m builder
+              chown -R builder:builder /pkg
+              su builder -c "cd /pkg && makepkg --noconfirm --nosign"
+            '
 
       - name: Upload Pacman to release
         uses: softprops/action-gh-release@v2
