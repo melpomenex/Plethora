@@ -102,7 +102,12 @@ bundle_gstreamer_plugins() {
   # - libgstvorbis.so, libgstopus.so (audio codecs)
   # - libgstisomp4.so (MP4 container)
   # - libgsttypefindfunctions.so (media type detection)
-  # - libgstgl.so (OpenGL rendering, required by WebKitGTK)
+  # - libgstopengl.so (OpenGL rendering, required by WebKitGTK; named
+  #   libgstgl.so before GStreamer 1.24-ish — bundle both names)
+  # - libgstvpx.so, libgstdav1d.so (VP9/AV1 — YouTube's preferred MSE codecs)
+  # - libgstpulseaudio.so / libgstpipewire.so (audio sinks; the pulse plugin
+  #   was named libgstpulse.so before GStreamer 1.24-ish — bundle both names)
+  # - libgstva.so (VA-API hardware decode; skipped silently where absent)
   local PLUGINS=(
     "libgstcoreelements.so"
     "libgstcoretracers.so"
@@ -118,8 +123,14 @@ bundle_gstreamer_plugins() {
     "libgstapp.so"
     "libgstautodetect.so"
     "libgstpulse.so"
+    "libgstpulseaudio.so"
+    "libgstpipewire.so"
     "libgstalsa.so"
     "libgstgl.so"
+    "libgstopengl.so"
+    "libgstvpx.so"
+    "libgstdav1d.so"
+    "libgstva.so"
   )
 
   local copied=0
@@ -128,6 +139,28 @@ bundle_gstreamer_plugins() {
       cp -L "$GST_PLUGINS_DIR/$plugin" "$GST_DEST/" 2>/dev/null || true
       ((copied++)) || true
     fi
+  done
+
+  # Bundle the codec libraries these plugins link against (ffmpeg, libvpx,
+  # dav1d, aom). linuxdeploy never sees the plugin files — they are copied
+  # after it runs — so without this step libgstlibav.so et al. fail to load on
+  # hosts without a soname-matching system ffmpeg/libvpx.
+  local dep_base=""
+  local -A copied_deps=()
+  for plugin in "$GST_DEST"/*.so; do
+    [[ -f "$plugin" ]] || continue
+    while read -r dep; do
+      dep_base="$(basename "$dep")"
+      case "$dep_base" in
+        libavcodec*|libavformat*|libavutil*|libswresample*|libswscale*|libpostproc*|libvpx*|libdav1d*|libaom*)
+          if [[ -z "${copied_deps[$dep_base]:-}" && ! -e "$APPDIR/usr/lib/$dep_base" ]]; then
+            cp -L "$dep" "$APPDIR/usr/lib/$dep_base"
+            copied_deps[$dep_base]=1
+            echo "Bundled codec dependency: $dep_base"
+          fi
+          ;;
+      esac
+    done < <(ldd "$plugin" 2>/dev/null | awk '$3 ~ /^\// {print $3}')
   done
 
   echo "Copied $copied GStreamer plugins to AppDir"
