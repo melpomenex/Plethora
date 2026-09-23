@@ -494,6 +494,12 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           NOTEBOOKLM_BUNDLE_RUNTIME: "1"
           POCKET_TTS_BUNDLE_RUNTIME: "1"
+          # Same OOM profile as the release matrix legs: codegen-units=4 let the
+          # single rustc process for the final lib exceed runner memory, which
+          # killed the runner agent mid-compile ("runner received a shutdown
+          # signal"). 16 is what every other release leg uses.
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_BUILD_JOBS: "2"
 
       # ci-build-appimage.sh repacks the AppImage after Tauri builds it
       # (to inject the notebooklm runtime + GStreamer plugins), so the .sig

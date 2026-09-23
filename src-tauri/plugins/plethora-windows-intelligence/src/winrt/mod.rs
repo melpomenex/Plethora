@@ -1,6 +1,7 @@
 //! WinRT bridge for `Microsoft.Windows.AI.Text.LanguageModel` (Phi Silica).
 
-mod native_bridge;
+// crate-visible: windows/ocr.rs calls native_bridge::recognize_image directly.
+pub(crate) mod native_bridge;
 
 pub use native_bridge::{bridge_available, get_ocr_ready_state, get_ready_state, try_unlock_laf};
 
@@ -117,7 +118,7 @@ pub fn language_model_feature_state(platform_ready: bool) -> FeatureState {
             reason: Some("model_not_ready".into()),
         },
         Some(NOT_SUPPORTED) => FeatureState::unavailable("unsupported_hardware"),
-        Some(other) => FeatureState::unavailable(format!("ready_state_{other}")),
+        Some(other) => FeatureState::unavailable(&format!("ready_state_{other}")),
         None => FeatureState::unavailable(WINRT_BINDINGS_PENDING),
     }
 }
@@ -139,7 +140,7 @@ pub fn ocr_feature_state(platform_ready: bool) -> FeatureState {
             reason: Some("model_not_ready".into()),
         },
         Some(NOT_SUPPORTED) => FeatureState::unavailable("unsupported_hardware"),
-        Some(other) => FeatureState::unavailable(format!("ocr_ready_state_{other}")),
+        Some(other) => FeatureState::unavailable(&format!("ocr_ready_state_{other}")),
         None => FeatureState::unavailable(WINRT_BINDINGS_PENDING),
     }
 }
@@ -212,8 +213,9 @@ pub fn try_unlock_laf_feature() -> Result<bool, Error> {
         ));
     }
     let feature_id = std::env::var(LAF_FEATURE_ID_ENV)
+        .ok()
         .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|_| DEFAULT_LAF_FEATURE_ID.to_string());
+        .unwrap_or_else(|| DEFAULT_LAF_FEATURE_ID.to_string());
     if !native_bridge::bridge_available() {
         return Err(Error::new(
             WINRT_BINDINGS_PENDING,

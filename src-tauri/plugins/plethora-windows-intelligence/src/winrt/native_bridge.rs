@@ -33,11 +33,11 @@ mod ffi {
     }
 
     pub fn bridge_available() -> bool {
-        ffi::plethora_phi_bridge_available() != 0
+        unsafe { plethora_phi_bridge_available() != 0 }
     }
 
     pub fn get_ready_state() -> Option<i32> {
-        let v = ffi::plethora_phi_get_ready_state();
+        let v = unsafe { plethora_phi_get_ready_state() };
         if v < 0 {
             None
         } else {
@@ -46,7 +46,7 @@ mod ffi {
     }
 
     pub fn get_ocr_ready_state() -> Option<i32> {
-        let v = ffi::plethora_ocr_get_ready_state();
+        let v = unsafe { plethora_ocr_get_ready_state() };
         if v < 0 {
             None
         } else {
@@ -61,11 +61,13 @@ mod ffi {
         let feature = std::ffi::CString::new(feature_id).ok()?;
         let token_c = std::ffi::CString::new(token).ok()?;
         let attestation_c = std::ffi::CString::new(attestation).ok()?;
-        let rc = ffi::plethora_phi_try_unlock_laf(
-            feature.as_ptr(),
-            token_c.as_ptr(),
-            attestation_c.as_ptr(),
-        );
+        let rc = unsafe {
+            plethora_phi_try_unlock_laf(
+                feature.as_ptr(),
+                token_c.as_ptr(),
+                attestation_c.as_ptr(),
+            )
+        };
         if rc < 0 {
             None
         } else {
@@ -77,14 +79,16 @@ mod ffi {
         let prompt_c = std::ffi::CString::new(prompt).map_err(|_| "invalid_argument".to_string())?;
         let mut out = vec![0u8; 64 * 1024];
         let mut err = vec![0u8; 512];
-        let rc = ffi::plethora_phi_generate(
-            prompt_c.as_ptr(),
-            max_tokens,
-            out.as_mut_ptr() as *mut c_char,
-            out.len() as c_uint,
-            err.as_mut_ptr() as *mut c_char,
-            err.len() as c_uint,
-        );
+        let rc = unsafe {
+            plethora_phi_generate(
+                prompt_c.as_ptr(),
+                max_tokens,
+                out.as_mut_ptr() as *mut c_char,
+                out.len() as c_uint,
+                err.as_mut_ptr() as *mut c_char,
+                err.len() as c_uint,
+            )
+        };
         if rc == 0 {
             let nul = out.iter().position(|&b| b == 0).unwrap_or(out.len());
             Ok(String::from_utf8_lossy(&out[..nul]).to_string())
@@ -100,14 +104,16 @@ mod ffi {
         }
         let mut out = vec![0u8; 512 * 1024];
         let mut err = vec![0u8; 512];
-        let rc = ffi::plethora_ocr_recognize_image(
-            image_data.as_ptr(),
-            image_data.len() as c_uint,
-            out.as_mut_ptr() as *mut c_char,
-            out.len() as c_uint,
-            err.as_mut_ptr() as *mut c_char,
-            err.len() as c_uint,
-        );
+        let rc = unsafe {
+            plethora_ocr_recognize_image(
+                image_data.as_ptr(),
+                image_data.len() as c_uint,
+                out.as_mut_ptr() as *mut c_char,
+                out.len() as c_uint,
+                err.as_mut_ptr() as *mut c_char,
+                err.len() as c_uint,
+            )
+        };
         if rc == 0 {
             let nul = out.iter().position(|&b| b == 0).unwrap_or(out.len());
             Ok(String::from_utf8_lossy(&out[..nul]).to_string())

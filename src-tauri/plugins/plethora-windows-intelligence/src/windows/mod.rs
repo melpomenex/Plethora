@@ -20,15 +20,19 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn meets_ai_os_requirement() -> bool {
-    use windows::Win32::System::SystemInformation::{RtlGetVersion, OSVERSIONINFOEXW};
+    // windows 0.58 moved RtlGetVersion to the Wdk namespace; it reports via a
+    // bare NTSTATUS (negative = failure), not Result.
+    use windows::Wdk::System::SystemServices::RtlGetVersion;
+    use windows::Win32::System::SystemInformation::OSVERSIONINFOEXW;
     let mut info = OSVERSIONINFOEXW {
         dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOEXW>() as u32,
         ..Default::default()
     };
-    unsafe {
-        if RtlGetVersion(&mut info as *mut _ as *mut _).is_err() {
-            return false;
-        }
+    // OSVERSIONINFOW is the layout prefix of OSVERSIONINFOEXW; dwOSVersionInfoSize
+    // above tells the kernel how much of the struct to fill.
+    let status = unsafe { RtlGetVersion(&mut info as *mut _ as *mut _) };
+    if status.0 < 0 {
+        return false;
     }
     info.dwBuildNumber >= MIN_WIN11_AI_BUILD
 }

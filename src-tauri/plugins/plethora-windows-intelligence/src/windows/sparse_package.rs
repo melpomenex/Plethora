@@ -6,8 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use windows::Win32::System::ApplicationInstallationAndServicing::GetCurrentPackageFullName;
-use windows::core::HRESULT;
+use windows::Win32::Foundation::WIN32_ERROR;
+use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
+use windows::core::PWSTR;
 
 use crate::{Error, PACKAGE_IDENTITY_MISSING};
 
@@ -92,25 +93,22 @@ pub fn try_register_sparse_package() -> Result<Option<String>, Error> {
 pub fn current_package_identity() -> Option<String> {
     let mut len = 0u32;
     unsafe {
-        let _ = GetCurrentPackageFullName(&mut len, None);
-        if len == 0 {
+        // windows 0.58: returns WIN32_ERROR instead of Result; PWSTR::null()
+        // queries the required buffer length. Any failure means "no package
+        // identity" for our purposes (unpackaged installs are supported).
+        if GetCurrentPackageFullName(&mut len, PWSTR::null()) != WIN32_ERROR(0) || len == 0 {
             return None;
         }
         let mut buf = vec![0u16; len as usize];
-        match GetCurrentPackageFullName(&mut len, Some(buf.as_mut_ptr())) {
-            Ok(()) => {
-                let end = len.saturating_sub(1) as usize;
-                let name = String::from_utf16_lossy(&buf[..end]);
-                if name.is_empty() {
-                    None
-                } else {
-                    Some(name)
-                }
-            }
-            Err(e) if e.code() == HRESULT::from(windows::Win32::Foundation::APPMODEL_ERROR_NO_PACKAGE) => {
-                None
-            }
-            Err(_) => None,
+        if GetCurrentPackageFullName(&mut len, PWSTR(buf.as_mut_ptr())) != WIN32_ERROR(0) {
+            return None;
+        }
+        let end = len.saturating_sub(1) as usize;
+        let name = String::from_utf16_lossy(&buf[..end]);
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
         }
     }
 }

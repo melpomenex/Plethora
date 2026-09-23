@@ -18,6 +18,10 @@ base64 = "0.22"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
-    "Win32_System_ApplicationInstallationAndServicing",
+    # GetCurrentPackageFullName moved to Storage::Packaging::Appx in 0.58
+    # (System::ApplicationInstallationAndServicing no longer carries it).
+    "Win32_Storage_Packaging_Appx",
     "Win32_System_SystemInformation",
+    # RtlGetVersion lives under Wdk::System::SystemServices in 0.58.
+    "Wdk_System_SystemServices",
 ] }
