@@ -60,12 +60,26 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
+      - name: Free disk space (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          echo "Disk usage before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/conda /usr/local/share/boost 2>/dev/null || true
+          sudo apt-get clean
+          echo "Disk usage after:"
+          df -h /
+
       - name: Install dependencies (Ubuntu only)
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libgbm-dev
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+          # lld: the default GNU ld spikes memory far harder than lld when
+          # linking the final plethora-tauri cdylib against ~250 rlibs, which
+          # repeatedly got the Linux release legs OOM-killed mid-compile.
+          sudo apt-get install -y lld
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -232,7 +246,7 @@ jobs:
           POCKET_TTS_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
-          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '3' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
+          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '1' || (matrix.id == 'linux-aarch64' && '1' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
           # 16 is cargo's default release codegen-units (no-op when unset).
@@ -244,6 +258,11 @@ jobs:
           # only; macOS (7 GB) completed the identical ThinLTO build, so the
           # non-Linux artifacts keep cross-crate inlining.
           CARGO_PROFILE_RELEASE_LTO: ${{ matrix.os == 'linux' && 'off' || 'thin' }}
+          # Fully serialize Linux builds and route linking through lld: the
+          # final-crate cdylib link against ~250 rlibs is the memory peak that
+          # killed the runner agents; one rustc at a time plus lld keeps it
+          # inside runner RAM.
+          RUSTFLAGS: ${{ matrix.os == 'linux' && '-C link-arg=-fuse-ld=lld' || '' }}
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
           # macOS ad-hoc codesigning (no Developer ID yet). Separate from the
@@ -367,6 +386,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Dump resource state on failure (Linux)
+        if: failure() && matrix.os == 'linux'
+        run: |
+          echo "=== memory ==="; free -m || true
+          echo "=== disk ==="; df -h / || true
+          echo "=== cgroup memory peak ==="; cat /sys/fs/cgroup/memory/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory.peak 2>/dev/null || true
+
       - name: Add per-architecture summary
         if: always()
         shell: bash
@@ -417,6 +443,9 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libgbm-dev
           sudo apt-get install -y gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+          # lld: keeps the final cdylib link from spiking memory (see the
+          # release job's RUSTFLAGS note).
+          sudo apt-get install -y lld
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -508,10 +537,11 @@ jobs:
           # Same OOM profile as the release matrix legs: the in-process
           # ThinLTO link of the final lib exceeded runner memory (runner agent
           # killed mid-compile, "runner received a shutdown signal"). LTO off
-          # + capped parallelism keeps the compile inside runner RAM.
+          # + serialized builds + lld keep the compile inside runner RAM.
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_BUILD_JOBS: "2"
+          CARGO_BUILD_JOBS: "1"
+          RUSTFLAGS: -C link-arg=-fuse-ld=lld
 
       # ci-build-appimage.sh repacks the AppImage after Tauri builds it
       # (to inject the notebooklm runtime + GStreamer plugins), so the .sig
@@ -654,7 +684,10 @@ jobs:
           LIBSQLITE3_SYS_USE_PKG_CONFIG: "1"
           SQLITE3_STATIC: "0"
           ZSTD_SYS_USE_PKG_CONFIG: "1"
-          RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd
+          # lld is installed by the dependencies step above; linking the final
+          # cdylib with it avoids the GNU ld memory spike that OOM-killed this
+          # job in earlier v3.0.0 attempts.
+          RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd -C link-arg=-fuse-ld=lld
           # The final plethora-tauri lib OOM-killed rustc in the v3.0.0 runs
           # even with CARGO_BUILD_JOBS=2 and codegen-units=16: the peak is the
           # in-process ThinLTO link of the cdylib (bitcode from ~250 dep rlibs
