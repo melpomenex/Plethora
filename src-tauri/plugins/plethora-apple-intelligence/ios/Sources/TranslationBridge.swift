@@ -21,8 +21,8 @@ struct AppleTranslateEnvelope: Decodable {
 final class AppleTranslationBridge {
   func translate(_ invoke: Invoke) throws {
     let request = try invoke.parseArgs(AppleTranslateEnvelope.self).request
-    guard #available(iOS 17.4, macOS 15.0, *) else {
-      rejectCoded(invoke, "platform_unsupported", "Apple Translation requires iOS 17.4+ or macOS 15+")
+    guard #available(iOS 26.0, macOS 26.0, *) else {
+      rejectCoded(invoke, "platform_unsupported", "Apple Translation requires iOS 26+ or macOS 26+")
       return
     }
     #if canImport(Translation)

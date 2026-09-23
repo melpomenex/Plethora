@@ -3,6 +3,7 @@
 // B — add-apple-foundation-models-provider (iOS wrapper over shared core)
 
 import Foundation
+import PlethoraAppleFoundationShared
 import Tauri
 
 struct FmGenerateArgs: Decodable {

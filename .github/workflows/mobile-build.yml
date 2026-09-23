@@ -634,7 +634,7 @@ jobs:
           # dSYMs ride along with the ipa staging when present.
           find src-tauri/gen/apple/build src-tauri/target/xcodebuild -type d -name "*.dSYM" 2>/dev/null | while read -r dsym; do
             ditto -c -k --keepParent "$dsym" "artifacts/ios-archive/$(basename "$dsym").zip" || true
-          done
+          done || true
 
       - name: Upload ios-archive artifact
         if: always()

@@ -38,7 +38,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${PLETHORA_ENV_FILE:-.env.production}
     environment:
       - NODE_ENV=production
       - PLETHORA_ENV=production
@@ -70,7 +70,7 @@ services:
       context: ./server
       dockerfile: Dockerfile
     env_file:
-      - .env.production
+      - ${PLETHORA_ENV_FILE:-.env.production}
     environment:
       - NODE_ENV=production
       - PLETHORA_ENV=production
@@ -89,7 +89,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${PLETHORA_ENV_FILE:-.env.production}
     environment:
       - NODE_ENV=production
       - PLETHORA_ENV=production

@@ -1,4 +1,4 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.9
 // Copyright 2026 Plethora
 // SPDX-License-Identifier: Apache-2.0
 
@@ -20,15 +20,19 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(name: "Tauri", path: "../.tauri/tauri-api")
+    .package(name: "Tauri", path: "../.tauri/tauri-api"),
+    .package(name: "PlethoraAppleFoundationShared", path: "../shared")
   ],
   targets: [
     .target(
       name: "plethora-apple-intelligence",
       dependencies: [
-        .byName(name: "Tauri")
+        .byName(name: "Tauri"),
+        .product(
+          name: "PlethoraAppleFoundationShared",
+          package: "PlethoraAppleFoundationShared"
+        )
       ],
-      path: ".",
-      sources: ["Sources", "../shared"])
+      path: "Sources")
   ]
 )

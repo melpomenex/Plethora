@@ -117,7 +117,7 @@ final class AppleVisionBridge: NSObject, VNDocumentCameraViewControllerDelegate 
   }
 
   private func recognize(cgImage: CGImage, invoke: Invoke, pageCount: Int = 1) {
-    let request = VNRecognizeTextRequest { request, error in
+    let request = VNRecognizeTextRequest { (request: VNRequest, error: Error?) in
       if let error {
         rejectCoded(invoke, "ocr_failed", error.localizedDescription)
         return
@@ -147,7 +147,7 @@ final class AppleVisionBridge: NSObject, VNDocumentCameraViewControllerDelegate 
         "handwritingAdvertised": false,
       ])
     }
-    request.recognitionLevel = .accurate
+    request.recognitionLevel = VNRequestTextRecognitionLevel.accurate
     request.usesLanguageCorrection = true
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     DispatchQueue.global(qos: .userInitiated).async {

@@ -20,6 +20,7 @@ export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-dummy}"
 export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-dummy}"
 export PLETHORA_API_HOST="${PLETHORA_API_HOST:-api.example.com}"
 export CORS_ORIGINS="${CORS_ORIGINS:-https://app.example.com}"
+export PLETHORA_ENV_FILE="$ENV_FILE"
 
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 

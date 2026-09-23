@@ -33,6 +33,24 @@ public struct FmGenerateRequest: Codable, Sendable {
   public var temperature: Double?
   public var schemaName: String?
   public var structured: Bool?
+
+  public init(
+    requestId: String? = nil,
+    text: String? = nil,
+    systemInstruction: String? = nil,
+    maxOutputTokens: Int? = nil,
+    temperature: Double? = nil,
+    schemaName: String? = nil,
+    structured: Bool? = nil
+  ) {
+    self.requestId = requestId
+    self.text = text
+    self.systemInstruction = systemInstruction
+    self.maxOutputTokens = maxOutputTokens
+    self.temperature = temperature
+    self.schemaName = schemaName
+    self.structured = structured
+  }
 }
 
 public struct FmGenerateResponse: Codable, Sendable {
@@ -63,7 +81,6 @@ public enum FmBridgeError: Error, Sendable {
   }
 }
 
-@available(iOS 26.0, macOS 26.0, *)
 public actor FmBridgeCore {
   private var cancelled = Set<String>()
   private var tasks: [String: Task<String, Error>] = [:]
@@ -315,7 +332,9 @@ public actor FmBridgeCore {
       || message.localizedCaseInsensitiveContains("content filter") {
       return .coded("safety_blocked", "Apple Intelligence blocked this text on-device")
     }
-    if let genError = error as? LanguageModelSession.GenerationError {
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, macOS 26.0, *),
+       let genError = error as? LanguageModelSession.GenerationError {
       switch genError {
       case .refusal(_, _):
         return .coded("safety_blocked", "Apple Intelligence blocked this text on-device")
@@ -327,6 +346,7 @@ public actor FmBridgeCore {
         return .coded("inference_failed", message)
       }
     }
+    #endif
     return .coded("inference_failed", message)
   }
 }

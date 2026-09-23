@@ -93,7 +93,7 @@ public class AppleIntelligencePlugin: Plugin {
   @objc public func coreaiCountTokens(_ invoke: Invoke) throws { try coreAI.countTokens(invoke) }
   @objc public func coreaiWarmup(_ invoke: Invoke) throws { coreAI.warmup(invoke) }
 
-  @objc public func translateSentence(_ invoke: Invoke) throws { translation.translate(invoke) }
+  @objc public func translateSentence(_ invoke: Invoke) throws { try translation.translate(invoke) }
 
   private func currentSnapshot() -> JSObject {
     let fm = foundation.featureState()
