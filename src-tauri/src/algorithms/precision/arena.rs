@@ -43,10 +43,10 @@ pub const ARENA_DEFAULT_WEIGHTS: [f64; 5] = [6.0, 14.0, 45.0, 25.0, 10.0];
 
 /// Display names for the five competitors.
 pub const ARENA_MODEL_NAMES: [&str; 5] = [
-    "Plethora Classic",
-    "Classic 15",
-    "Classic 19",
-    "Plethora Precision",
+    "SM-2",
+    "SM-15",
+    "SM-19",
+    "SM-20",
     "FSRS",
 ];
 

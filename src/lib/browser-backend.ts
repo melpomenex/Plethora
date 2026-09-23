@@ -416,7 +416,7 @@ async function loadBrowserPrecisionCollection(): Promise<PrecisionCollectionStat
     if (canonical) {
         return parsePrecisionCollectionState(canonical);
     }
-    const legacyKey = `${"s"}m${"20"}_collection_state`;
+    const legacyKey = "sm20_collection_state";
     return parsePrecisionCollectionState(await db.getSyncState(legacyKey));
 }
 
@@ -2675,11 +2675,9 @@ const commandHandlers: Record<string, CommandHandler> = {
             return toCamelCase(item);
         }
 
-        const legacyAlgorithmType = normalizeSchedulerId(
+        const algorithmType = normalizeSchedulerId(
             (args.algorithm as string) || item.algorithm_type || 'fsrs',
         );
-        void legacyAlgorithmType;
-        const algorithmType = 'fsrs';
 
         if (isClassicScheduler(algorithmType)) {
             return toCamelCase(await applySm2ReviewBrowser(item, rating, algorithmType));
@@ -2858,11 +2856,9 @@ const commandHandlers: Record<string, CommandHandler> = {
             throw new Error(`Learning item ${itemId} not found`);
         }
 
-        const legacyAlgorithmType = normalizeSchedulerId(
+        const algorithmType = normalizeSchedulerId(
             (args.algorithm as string) || item.algorithm_type || 'fsrs',
         );
-        void legacyAlgorithmType;
-        const algorithmType = 'fsrs';
 
         // Adaptive preview
         if (isAdaptiveScheduler(algorithmType)) {

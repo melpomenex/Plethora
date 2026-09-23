@@ -412,11 +412,10 @@ pub async fn apply_review(
 
     let now = Utc::now();
 
-    // Production always schedules with FSRS-7. Legacy algorithm ids are normalized
-    // so stale settings, sync payloads, or per-item algorithm_type cannot
-    // reactivate hidden schedulers.
+    // Schedulers (FSRS-7, SM-20 / Precision, SM-18 / Adaptive, SM-2 / Classic)
+    // are resolved from the user's active setting or the item's algorithm_type.
     let raw_algorithm = algorithm.unwrap_or(&item.algorithm_type);
-    let effective_algorithm = crate::scheduler_identity::normalize_to_production_scheduler(raw_algorithm);
+    let effective_algorithm = crate::scheduler_identity::normalize_algorithm_type(raw_algorithm);
     let algo = AlgorithmType::from_str_lossy(effective_algorithm);
 
     if arena_selection.is_some() && (algo != AlgorithmType::Precision || precision_pure_kernel) {
@@ -1449,10 +1448,8 @@ pub async fn preview_review_intervals(
     let precision_pure_kernel = precision_pure_kernel
         .or(sm20_pure_m4)
         .unwrap_or(false);
-    let algo = crate::scheduler_identity::normalize_to_production_scheduler(
-        algorithm.as_deref().unwrap_or("fsrs"),
-    );
-    let normalized = normalize_algorithm_type(algo);
+    let raw_algo = algorithm.as_deref().unwrap_or("fsrs");
+    let normalized = normalize_algorithm_type(raw_algo);
 
     if normalized == "precision" {
         let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
@@ -2122,13 +2119,6 @@ mod tests {
 
     #[test]
     fn test_algorithm_type_roundtrip() {
-        fn legacy_scheduler_suffix(suffix: &str) -> String {
-            let mut id = String::from("s");
-            id.push('m');
-            id.push_str(suffix);
-            id
-        }
-
         for name in &[
             "fsrs", "classic", "classic_5", "classic_8", "classic_15", "adaptive", "precision",
         ] {
@@ -2136,10 +2126,17 @@ mod tests {
             assert_eq!(algo.as_str(), *name);
         }
 
-        for suffix in ["2", "5", "8", "15", "18", "20"] {
-            let legacy = legacy_scheduler_suffix(suffix);
-            let algo = AlgorithmType::from_str_lossy(&legacy);
-            assert_eq!(algo.as_str(), normalize_algorithm_type(&legacy));
+        for (legacy, expected) in [
+            ("sm2", "classic"),
+            ("sm5", "classic_5"),
+            ("sm8", "classic_8"),
+            ("sm15", "classic_15"),
+            ("sm18", "adaptive"),
+            ("sm20", "precision"),
+        ] {
+            let algo = AlgorithmType::from_str_lossy(legacy);
+            assert_eq!(algo.as_str(), normalize_algorithm_type(legacy));
+            assert_eq!(algo.as_str(), expected);
         }
     }
 

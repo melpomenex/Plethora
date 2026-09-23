@@ -18,10 +18,15 @@
 //! | `adaptive`, `precision`, …| (identity)     |
 //! | unknown                   | `fsrs`         |
 
-/// Production scheduling always uses FSRS-7 (`fsrs`). Legacy scheduler ids are
-/// normalized here so stale settings cannot reactivate hidden algorithms.
+/// Maps any legacy or canonical algorithm id to a supported production scheduler
+/// (`fsrs`, `precision`, `adaptive`, `classic`).
 pub fn normalize_to_production_scheduler(s: &str) -> &'static str {
-    "fsrs"
+    match normalize_algorithm_type(s) {
+        "precision" => "precision",
+        "adaptive" => "adaptive",
+        "classic" => "classic",
+        _ => "fsrs",
+    }
 }
 
 /// Map a persisted or user-supplied algorithm id to its canonical string form.

@@ -11,7 +11,7 @@ import { isNativeMobile } from "../lib/tauri";
 import type { SchedulerId } from "../lib/schedulerIdentity";
 import {
   LEGACY_LEARNING_KEYS,
-  normalizeToProductionScheduler,
+  normalizeSchedulerId,
 } from "../lib/schedulerIdentity";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
 import type { StudyAction } from "../types/audioEdition";
@@ -1402,7 +1402,7 @@ export const useSettingsStore = create<SettingsState>()(
             updates.learning && "algorithm" in updates.learning
               ? {
                   ...updates.learning,
-                  algorithm: normalizeToProductionScheduler(
+                  algorithm: normalizeSchedulerId(
                     String(updates.learning.algorithm),
                   ),
                 }
@@ -1422,7 +1422,7 @@ export const useSettingsStore = create<SettingsState>()(
             category === "learning" && updates && "algorithm" in updates
               ? {
                   ...updates,
-                  algorithm: normalizeToProductionScheduler(String(updates.algorithm)),
+                  algorithm: normalizeSchedulerId(String(updates.algorithm)),
                 }
               : updates;
           return {
@@ -1630,7 +1630,7 @@ export const useSettingsStore = create<SettingsState>()(
           learning: {
             ...defaultSettings.learning,
             ...persisted.learning,
-            algorithm: normalizeToProductionScheduler(
+            algorithm: normalizeSchedulerId(
               persisted.learning?.algorithm ?? defaultSettings.learning.algorithm,
             ),
             fsrsParams: {

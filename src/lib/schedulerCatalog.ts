@@ -21,9 +21,9 @@ export type SchedulerLifecycle = "production" | "legacy";
 /** User-visible lifecycle status for each canonical scheduler id. */
 export const SCHEDULER_LIFECYCLE: Record<SchedulerId, SchedulerLifecycle> = {
   fsrs: "production",
-  adaptive: "legacy",
-  precision: "legacy",
-  classic: "legacy",
+  precision: "production",
+  adaptive: "production",
+  classic: "production",
   classic_5: "legacy",
   classic_8: "legacy",
   classic_15: "legacy",
@@ -45,58 +45,63 @@ export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
     descriptionKey: "learningSettings.fsrsDesc",
     thirdParty: true,
   },
-  adaptive: {
-    id: "adaptive",
-    label: "Plethora Adaptive",
-    shortLabel: "Adaptive",
-    descriptionKey: "learningSettings.adaptiveDesc",
-    thirdParty: false,
-  },
   precision: {
     id: "precision",
-    label: "Plethora Precision",
-    shortLabel: "Precision",
+    label: "SM-20",
+    shortLabel: "SM-20",
     descriptionKey: "learningSettings.precisionDesc",
+    thirdParty: false,
+  },
+  adaptive: {
+    id: "adaptive",
+    label: "SM-18",
+    shortLabel: "SM-18",
+    descriptionKey: "learningSettings.adaptiveDesc",
     thirdParty: false,
   },
   classic: {
     id: "classic",
-    label: "Plethora Classic",
-    shortLabel: "Classic",
+    label: "SM-2",
+    shortLabel: "SM-2",
     descriptionKey: "learningSettings.classicDesc",
     thirdParty: false,
   },
   classic_5: {
     id: "classic_5",
-    label: "Plethora Classic 5",
-    shortLabel: "Classic 5",
+    label: "SM-5",
+    shortLabel: "SM-5",
     descriptionKey: "learningSettings.classicDesc",
     thirdParty: false,
   },
   classic_8: {
     id: "classic_8",
-    label: "Plethora Classic 8",
-    shortLabel: "Classic 8",
+    label: "SM-8",
+    shortLabel: "SM-8",
     descriptionKey: "learningSettings.classicDesc",
     thirdParty: false,
   },
   classic_15: {
     id: "classic_15",
-    label: "Plethora Classic 15",
-    shortLabel: "Classic 15",
+    label: "SM-15",
+    shortLabel: "SM-15",
     descriptionKey: "learningSettings.classicDesc",
     thirdParty: false,
   },
 };
 
 /** Schedulers offered in the main learning settings selector, in order. */
-export const SELECTABLE_SCHEDULERS: SchedulerInfo[] = [SCHEDULER_CATALOG.fsrs];
+export const SELECTABLE_SCHEDULERS: SchedulerInfo[] = [
+  SCHEDULER_CATALOG.fsrs,
+  SCHEDULER_CATALOG.precision,
+  SCHEDULER_CATALOG.adaptive,
+  SCHEDULER_CATALOG.classic,
+];
 
 /** Legacy selectors expose the full historical id set. */
 export const LEGACY_SELECTABLE_SCHEDULERS: SchedulerInfo[] = [
   SCHEDULER_CATALOG.fsrs,
-  SCHEDULER_CATALOG.adaptive,
   SCHEDULER_CATALOG.precision,
+  SCHEDULER_CATALOG.adaptive,
   SCHEDULER_CATALOG.classic_15,
   SCHEDULER_CATALOG.classic_8,
   SCHEDULER_CATALOG.classic_5,
@@ -125,14 +130,14 @@ export function schedulerRatingSchema(id: SchedulerId | undefined): RatingSchema
 
 // ── Algorithm Arena model labels ─────────────────────────────────────────────
 // Arena competitor ids are serialized and order-stable (`m1`–`m5`); only their
-// display labels are Plethora product names. Keep in sync with Rust
-// `ArenaModelId::label()` in `src-tauri/src/algorithms/precision/mod.rs`.
+// display labels are algorithm names. Keep in sync with Rust
+// `ArenaModelId::label()` in `src-tauri/src/arena_model_identity.rs`.
 
 export const ARENA_MODEL_LABELS: Record<ArenaModelId, string> = {
-  m1: "Plethora Classic",
-  m2: "Classic 15",
-  m3: "Classic 19",
-  m4: "Plethora Precision",
+  m1: "SM-2",
+  m2: "SM-15",
+  m3: "SM-19",
+  m4: "SM-20",
   m5: "FSRS",
 };
 

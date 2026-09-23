@@ -98,20 +98,41 @@ function listSourceFiles(): string[] {
 
 const LEGACY_SCHEDULER_TOKEN = /\bS[\s_-]?M[\s_-]?\d{1,2}\b/i;
 
+const ALLOWED_SCHEDULER_TOKENS = new Set([
+  "SM-2",
+  "SM-5",
+  "SM-8",
+  "SM-15",
+  "SM-18",
+  "SM-19",
+  "SM-20",
+]);
+
 describe("scheduler naming brand guard", () => {
   const files = listSourceFiles();
   expect(files.length).toBeGreaterThan(100);
 
-  it("string literals contain no legacy S-M-<n> scheduler branding", () => {
+  it("string literals contain only approved SM scheduler names", () => {
     const offenders: string[] = [];
     for (const rel of files) {
       const code = stripComments(fs.readFileSync(path.join(ROOT, rel), "utf8"));
       for (const literal of stringLiterals(code)) {
         const match = literal.match(LEGACY_SCHEDULER_TOKEN);
-        if (match) offenders.push(`${rel}: ${JSON.stringify(literal.slice(0, 60))}`);
+        if (match) {
+          const norm = match[0].toUpperCase().replace(/[\s_]/g, "-");
+          if (!ALLOWED_SCHEDULER_TOKENS.has(norm)) {
+            offenders.push(`${rel}: ${JSON.stringify(literal.slice(0, 60))}`);
+          }
+        }
       }
       const jsxText = code.match(/>\s*[^<>{}]*\bS[\s_-]?M[\s_-]?\d{1,2}\b[^<>{}]*\s*</i);
-      if (jsxText) offenders.push(`${rel}: JSX ${jsxText[0].slice(0, 40)}`);
+      if (jsxText) {
+        const tokenMatch = jsxText[0].match(LEGACY_SCHEDULER_TOKEN);
+        const norm = tokenMatch ? tokenMatch[0].toUpperCase().replace(/[\s_]/g, "-") : "";
+        if (!ALLOWED_SCHEDULER_TOKENS.has(norm)) {
+          offenders.push(`${rel}: JSX ${jsxText[0].slice(0, 40)}`);
+        }
+      }
     }
     expect(offenders).toEqual([]);
   });

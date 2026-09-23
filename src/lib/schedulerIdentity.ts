@@ -64,17 +64,25 @@ export function normalizeSchedulerId(raw: string): SchedulerId {
   return "fsrs";
 }
 
-/** Production scheduler id — the only user-facing scheduler (FSRS-7). */
+/** Production scheduler ids — the user-facing schedulers. */
+export const PRODUCTION_SCHEDULER_IDS: readonly SchedulerId[] = [
+  "fsrs",
+  "precision",
+  "adaptive",
+  "classic",
+];
+
 export const PRODUCTION_SCHEDULER_ID = "fsrs" as const satisfies SchedulerId;
 
-/** Maps any persisted or legacy scheduler id to the production scheduler. */
+/** Maps any persisted or legacy scheduler id to a supported production scheduler. */
 export function normalizeToProductionScheduler(raw: string | undefined): SchedulerId {
-  if (raw === PRODUCTION_SCHEDULER_ID) return PRODUCTION_SCHEDULER_ID;
-  return PRODUCTION_SCHEDULER_ID;
+  const id = normalizeSchedulerId(raw ?? PRODUCTION_SCHEDULER_ID);
+  return isProductionScheduler(id) ? id : PRODUCTION_SCHEDULER_ID;
 }
 
 export function isProductionScheduler(raw: string | undefined): boolean {
-  return normalizeSchedulerId(raw ?? PRODUCTION_SCHEDULER_ID) === PRODUCTION_SCHEDULER_ID;
+  const id = normalizeSchedulerId(raw ?? PRODUCTION_SCHEDULER_ID);
+  return (PRODUCTION_SCHEDULER_IDS as readonly string[]).includes(id);
 }
 
 export function normalizeArenaModelId(raw: string): ArenaModelId {

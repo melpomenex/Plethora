@@ -17,18 +17,17 @@ import { getRatingSchema, SIX_GRADE_RATING_SCHEMA, FOUR_GRADE_RATING_SCHEMA } fr
 import { normalizeSchedulerId } from "../schedulerIdentity";
 
 describe("schedulerCatalog", () => {
-  it("maps canonical ids to Plethora product names", () => {
-    expect(schedulerLabel("classic")).toBe("Plethora Classic");
-    expect(schedulerLabel("adaptive")).toBe("Plethora Adaptive");
-    expect(schedulerLabel("precision")).toBe("Plethora Precision");
+  it("maps canonical ids to restored SM algorithm names", () => {
+    expect(schedulerLabel("classic")).toBe("SM-2");
+    expect(schedulerLabel("adaptive")).toBe("SM-18");
+    expect(schedulerLabel("precision")).toBe("SM-20");
+    expect(schedulerLabel("fsrs")).toBe("FSRS-7");
   });
 
-  const legacyScheduler = (digits: string) => `${"s"}${"m"}${digits}`;
-
   it("normalizes legacy persisted ids for display", () => {
-    expect(schedulerLabel(normalizeSchedulerId(legacyScheduler("2")))).toBe("Plethora Classic");
-    expect(schedulerLabel(normalizeSchedulerId(legacyScheduler("18")))).toBe("Plethora Adaptive");
-    expect(schedulerLabel(normalizeSchedulerId(legacyScheduler("20")))).toBe("Plethora Precision");
+    expect(schedulerLabel(normalizeSchedulerId("sm2"))).toBe("SM-2");
+    expect(schedulerLabel(normalizeSchedulerId("sm18"))).toBe("SM-18");
+    expect(schedulerLabel(normalizeSchedulerId("sm20"))).toBe("SM-20");
   });
 
   it("keeps FSRS under its own third-party name", () => {
@@ -40,8 +39,8 @@ describe("schedulerCatalog", () => {
   it("covers every canonical scheduler id", () => {
     const ids: SchedulerId[] = [
       "fsrs",
-      "adaptive",
       "precision",
+      "adaptive",
       "classic",
       "classic_5",
       "classic_8",
@@ -49,7 +48,6 @@ describe("schedulerCatalog", () => {
     ];
     for (const id of ids) {
       expect(SCHEDULER_CATALOG[id].id).toBe(id);
-      expect(schedulerLabel(id)).not.toMatch(/^SM-\d/);
     }
   });
 
@@ -57,30 +55,43 @@ describe("schedulerCatalog", () => {
     expect(schedulerDescriptionKey("precision")).toBe("learningSettings.precisionDesc");
     expect(schedulerDescriptionKey("adaptive")).toBe("learningSettings.adaptiveDesc");
     expect(schedulerDescriptionKey("classic")).toBe("learningSettings.classicDesc");
-    expect(schedulerShortLabel("precision")).toBe("Precision");
+    expect(schedulerShortLabel("precision")).toBe("SM-20");
+    expect(schedulerShortLabel("adaptive")).toBe("SM-18");
+    expect(schedulerShortLabel("classic")).toBe("SM-2");
   });
 
-  it("offers only FSRS-7 in the main selector", () => {
-    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual(["fsrs"]);
-    expect(schedulerLabel("fsrs")).toBe("FSRS-7");
+  it("offers FSRS-7, SM-20, SM-18, SM-2 in the main selector", () => {
+    expect(SELECTABLE_SCHEDULERS.map((s) => s.id)).toEqual([
+      "fsrs",
+      "precision",
+      "adaptive",
+      "classic",
+    ]);
+    expect(SELECTABLE_SCHEDULERS.map((s) => s.label)).toEqual([
+      "FSRS-7",
+      "SM-20",
+      "SM-18",
+      "SM-2",
+    ]);
   });
 
-  it("marks FSRS as production and legacy schedulers as legacy", () => {
+  it("marks all four user-facing schedulers as production", () => {
     expect(SCHEDULER_LIFECYCLE.fsrs).toBe("production");
-    expect(SCHEDULER_LIFECYCLE.adaptive).toBe("legacy");
-    expect(SCHEDULER_LIFECYCLE.precision).toBe("legacy");
-    expect(SCHEDULER_LIFECYCLE.classic).toBe("legacy");
+    expect(SCHEDULER_LIFECYCLE.precision).toBe("production");
+    expect(SCHEDULER_LIFECYCLE.adaptive).toBe("production");
+    expect(SCHEDULER_LIFECYCLE.classic).toBe("production");
     expect(isProductionScheduler("fsrs")).toBe(true);
-    expect(isProductionScheduler("precision")).toBe(false);
-    expect(PRODUCTION_SCHEDULER_ID).toBe("fsrs");
+    expect(isProductionScheduler("precision")).toBe(true);
+    expect(isProductionScheduler("adaptive")).toBe(true);
+    expect(isProductionScheduler("classic")).toBe(true);
+    expect(isProductionScheduler("classic_5")).toBe(false);
   });
 
-  it("normalizes any scheduler id to production FSRS", () => {
-    expect(normalizeToProductionScheduler("precision")).toBe("fsrs");
-    // Assembled at runtime so the terminology gate does not flag the raw
-    // legacy id in active source.
-    const legacyPrecisionId = ["sm", "20"].join("");
-    expect(normalizeToProductionScheduler(legacyPrecisionId)).toBe("fsrs");
+  it("normalizes legacy aliases to corresponding production schedulers", () => {
+    expect(normalizeToProductionScheduler("precision")).toBe("precision");
+    expect(normalizeToProductionScheduler("sm20")).toBe("precision");
+    expect(normalizeToProductionScheduler("sm18")).toBe("adaptive");
+    expect(normalizeToProductionScheduler("sm2")).toBe("classic");
     expect(normalizeToProductionScheduler(undefined)).toBe("fsrs");
   });
 
@@ -91,18 +102,18 @@ describe("schedulerCatalog", () => {
     expect(getRatingSchema("fsrs")).toBe(FOUR_GRADE_RATING_SCHEMA);
   });
 
-  it("arena labels contain no legacy scheduler branding and stay ordered", () => {
+  it("arena labels match restored historical algorithm names and stay ordered", () => {
     expect(ARENA_MODEL_LABEL_ORDER).toEqual([
-      ARENA_MODEL_LABELS.m1,
-      ARENA_MODEL_LABELS.m2,
-      ARENA_MODEL_LABELS.m3,
-      ARENA_MODEL_LABELS.m4,
-      ARENA_MODEL_LABELS.m5,
+      "SM-2",
+      "SM-15",
+      "SM-19",
+      "SM-20",
+      "FSRS",
     ]);
-    for (const label of Object.values(ARENA_MODEL_LABELS)) {
-      expect(label).not.toMatch(/^SM-\d/);
-    }
-    expect(ARENA_MODEL_LABELS.m4).toBe("Plethora Precision");
+    expect(ARENA_MODEL_LABELS.m1).toBe("SM-2");
+    expect(ARENA_MODEL_LABELS.m2).toBe("SM-15");
+    expect(ARENA_MODEL_LABELS.m3).toBe("SM-19");
+    expect(ARENA_MODEL_LABELS.m4).toBe("SM-20");
     expect(ARENA_MODEL_LABELS.m5).toBe("FSRS");
   });
 

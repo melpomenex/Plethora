@@ -79,10 +79,10 @@ impl ArenaModelId {
     /// `src/lib/schedulerCatalog.ts`.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::M1 => "Plethora Classic",
-            Self::M2 => "Classic 15",
-            Self::M3 => "Classic 19",
-            Self::M4 => "Plethora Precision",
+            Self::M1 => "SM-2",
+            Self::M2 => "SM-15",
+            Self::M3 => "SM-19",
+            Self::M4 => "SM-20",
             Self::M5 => "FSRS",
         }
     }

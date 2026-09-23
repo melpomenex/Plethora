@@ -42,24 +42,9 @@ const EXEMPT_PATH_SUFFIXES = [
 ];
 
 const FORBIDDEN = [
-  /\bsuper[\s_-]?memo\b/i,
-  /\bsm[-_ ]?2\b/i,
-  /\bsm[-_ ]?5\b/i,
-  /\bsm[-_ ]?8\b/i,
-  /\bsm[-_ ]?15\b/i,
-  /\bsm[-_ ]?18\b/i,
-  /\bsm[-_ ]?19\b/i,
-  /\bsm[-_ ]?20\b/i,
-  /\bsm2\b/i,
-  /\bsm5\b/i,
-  /\bsm8\b/i,
-  /\bsm15\b/i,
-  /\bsm18\b/i,
-  /\bsm19\b/i,
-  /\bsm20\b/i,
   /legacy[\s_-]?stability[\s_-]?increase/i,
   /super-memory\.com/i,
-  new RegExp(["super", "memo"].join("") + "\\.guru", "i"),
+  /supermemo\.guru/i,
 ];
 
 function isExempt(relPath) {

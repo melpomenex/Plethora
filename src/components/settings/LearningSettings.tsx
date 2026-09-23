@@ -1,10 +1,28 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
-import { optimizeAlgorithmParams } from "../../api/algorithm";
+import {
+  getArenaOptimizationStatus,
+  optimizeAlgorithmParams,
+  type ArenaOptimizationStatus,
+} from "../../api/algorithm";
+import {
+  getArenaStats,
+  optimizeArenaFsrs,
+  optimizePrecisionKernel,
+  type ArenaStats,
+} from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
-import { schedulerDescriptionKey, schedulerLabel } from "../../lib/schedulerCatalog";
+import {
+  ARENA_MODEL_LABELS,
+  SELECTABLE_SCHEDULERS,
+  schedulerDescriptionKey,
+  schedulerLabel,
+  type SchedulerId,
+} from "../../lib/schedulerCatalog";
+import { isPrecisionScheduler } from "../../lib/schedulerIdentity";
+import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 import { NumericInput } from "../common";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { Sparkle } from "@phosphor-icons/react";
@@ -17,6 +35,23 @@ export function LearningSettings() {
   const [newScopeId, setNewScopeId] = useState("");
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizerMessage, setOptimizerMessage] = useState<string | null>(null);
+  const [arenaOptStatus, setArenaOptStatus] = useState<ArenaOptimizationStatus | null>(null);
+  const [arenaStats, setArenaStats] = useState<ArenaStats | null>(null);
+  const [sm20OptRunning, setSm20OptRunning] = useState<"fsrs" | "m4" | null>(null);
+  const [sm20OptMessage, setSm20OptMessage] = useState<string | null>(null);
+
+  const refreshArena = () =>
+    getArenaStats()
+      .then(setArenaStats)
+      .catch(() => setArenaStats(null));
+
+  useEffect(() => {
+    if (!isPrecisionScheduler(settings.learning.algorithm)) return;
+    void getArenaOptimizationStatus()
+      .then(setArenaOptStatus)
+      .catch(() => setArenaOptStatus(null));
+    void refreshArena();
+  }, [settings.learning.algorithm]);
 
   const scopedOverrides = settings.learning.scopedFsrsOverrides ?? [];
 
@@ -39,237 +74,389 @@ export function LearningSettings() {
       <div>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.algorithm")}</h3>
         <div className="space-y-4">
-          <div
-            {...tourAnchor("reviewAlgorithmSetting")}
-            className="rounded-lg border border-border bg-muted/30 px-4 py-3"
-          >
-            <div className="text-sm font-medium text-foreground">
-              Spaced Repetition Algorithm
-            </div>
-            <div className="mt-1 text-base font-semibold text-foreground">
-              {schedulerLabel("fsrs")}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t(schedulerDescriptionKey("fsrs"))}
-            </p>
-          </div>
-
           <div>
-            <label htmlFor="fsrs-retention" className="block text-sm font-medium text-foreground mb-2">
-              Desired Retention: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
+            <label htmlFor="algorithm-select" className="block text-sm font-medium text-foreground mb-2">
+              Spaced Repetition Algorithm
             </label>
-            <input
-              type="range"
-              id="fsrs-retention"
-              min="70"
-              max="99"
-              value={settings.learning.fsrsParams.desiredRetention * 100}
+            <select
+              id="algorithm-select"
+              value={settings.learning.algorithm}
               onChange={(e) =>
                 updateSettings({
-                  learning: {
-                    ...settings.learning,
-                    fsrsParams: {
-                      ...settings.learning.fsrsParams,
-                      desiredRetention: parseInt(e.target.value) / 100,
-                    },
-                  },
+                  learning: { ...settings.learning, algorithm: e.target.value as any },
                 })
               }
-              className="w-full"
-            />
+              {...tourAnchor("reviewAlgorithmSetting")}
+              className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
+            >
+              {SELECTABLE_SCHEDULERS.map((scheduler) => (
+                <option key={scheduler.id} value={scheduler.id}>
+                  {scheduler.id === "fsrs" ? `${scheduler.label} (Recommended)` : scheduler.label}
+                </option>
+              ))}
+            </select>
             <p className="text-xs text-muted-foreground mt-1">
-              Higher retention = more frequent reviews
+              {t(schedulerDescriptionKey(settings.learning.algorithm))}
             </p>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    setIsOptimizing(true);
-                    setOptimizerMessage(null);
-                    const result = await optimizeAlgorithmParams({
-                      min_ease_factor: 1.3,
-                      initial_ease_factor: 2.5,
-                      desired_retention: settings.learning.fsrsParams.desiredRetention,
-                    });
-                    updateSettings({
-                      learning: {
-                        ...settings.learning,
-                        fsrsParams: {
-                          ...settings.learning.fsrsParams,
-                          personalizedWeights: result.fsrs_weights,
-                          lastOptimizationAt: new Date().toISOString(),
-                          optimizedReviewCount: result.history_count,
-                        },
-                      },
-                    });
-                    const quality = result.history_count >= result.minimum_history_required
-                      ? "Personalized weights applied."
-                      : "Applied provisional weights (limited history).";
-                    setOptimizerMessage(
-                      `${quality} Reviews used: ${result.history_count}/${result.minimum_history_required}.`
-                    );
-                  } catch (error) {
-                    setOptimizerMessage(error instanceof Error ? error.message : "Failed to run optimizer");
-                  } finally {
-                    setIsOptimizing(false);
-                  }
-                }}
-                disabled={isOptimizing}
-                className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-              >
-                {isOptimizing ? "Optimizing..." : "Run Personal FSRS Optimizer"}
-              </button>
-              {settings.learning.fsrsParams.personalizedWeights?.length === CANONICAL_FSRS_PARAMETER_LENGTH && (
-                <span className="text-xs text-green-500">FSRS-7 profile active (34 params)</span>
-              )}
-            </div>
-            {optimizerMessage && (
-              <p className="mt-2 text-xs text-muted-foreground">{optimizerMessage}</p>
-            )}
           </div>
 
-          <div className="border border-border rounded-lg p-4 space-y-3">
-            <div>
-              <h4 className="font-medium text-foreground">{t("learningSettings.scopedOverrides")}</h4>
-              <p className="text-xs text-muted-foreground">
-                Precedence is global → deck → tag. Tag overrides win when both match.
-              </p>
-            </div>
+          {isPrecisionScheduler(settings.learning.algorithm) && (
+            <div className="border border-border rounded-lg p-4 space-y-3">
+              <div>
+                <h4 className="font-medium text-foreground">Algorithm Arena</h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  SM-20 runs five scheduling models in parallel — SM-2,
+                  SM-15, SM-19, SM-20, and FSRS — and
+                  shifts weight toward whichever predicts your recall best. The SM
+                  baselines learn automatically on every review; SM-20 and FSRS can
+                  additionally be fitted to your review history below.
+                </p>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <select
-                value={newScopeType}
-                onChange={(e) => setNewScopeType(e.target.value as "deck" | "tag")}
-                className="px-2 py-2 rounded-md border border-border bg-background text-foreground"
-              >
-                <option value="deck">Deck</option>
-                <option value="tag">Tag</option>
-              </select>
-              {newScopeType === "deck" ? (
-                <select
-                  value={newScopeId}
-                  onChange={(e) => setNewScopeId(e.target.value)}
-                  className="px-2 py-2 rounded-md border border-border bg-background text-foreground md:col-span-2"
-                >
-                  <option value="">Select deck</option>
-                  {decks.map((deck) => (
-                    <option key={deck.id} value={deck.id}>
-                      {deck.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={newScopeId}
-                  onChange={(e) => setNewScopeId(e.target.value)}
-                  placeholder="tag-name"
-                  className="px-2 py-2 rounded-md border border-border bg-background text-foreground md:col-span-2"
+              {!settings.learning.precisionPureKernel && <AlgorithmArenaModeControl />}
+
+              <div className="border-t border-border pt-3">
+                <SettingToggle
+                  label={`Pure ${schedulerLabel("precision")} Mode (M4 kernel only)`}
+                  description="Bypasses the Algorithm Arena blend to schedule with the pure SM-20 M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
+                  checked={settings.learning.precisionPureKernel}
+                  onChange={(checked) =>
+                    updateSettings({
+                      learning: { ...settings.learning, precisionPureKernel: checked },
+                    })
+                  }
                 />
+              </div>
+
+              {arenaStats && Array.isArray(arenaStats.model_names) && arenaStats.model_names.length > 0 && (
+                <div className="space-y-1">
+                  {settings.learning.precisionPureKernel && (
+                    <div className="text-xs font-semibold text-amber-500 mb-1">
+                      Running in Pure M4 Mode (Arena blend weights below are not used for scheduling)
+                    </div>
+                  )}
+                  <div className="grid grid-cols-5 gap-1 text-center text-xs">
+                    {arenaStats.model_names.map((name, i) => (
+                      <div key={name} className="bg-muted/50 rounded-md py-1.5">
+                        <div className="text-muted-foreground">
+                          {name}
+                          {(name === ARENA_MODEL_LABELS.m5 && arenaStats.fsrs_optimized) ||
+                          (name === ARENA_MODEL_LABELS.m4 && arenaStats.m4_optimized)
+                            ? " ★"
+                            : ""}
+                        </div>
+                        <div className="font-semibold text-foreground">
+                          {arenaStats.weights[i]?.toFixed(1)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {arenaStats.r_metric != null
+                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs ${ARENA_MODEL_LABELS.m3} alone · ${arenaStats.total_scored} scored reviews`
+                      : `Weights adapt as reviews accumulate (${arenaStats.total_scored} scored so far; ★ = personalized parameters active).`}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-muted-foreground">
+                {ARENA_MODEL_LABELS.m2} optimizer: {arenaOptStatus?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
+                {arenaOptStatus?.m3_matrix_cells_populated != null
+                  ? ` · ${ARENA_MODEL_LABELS.m3} matrix cells: ${arenaOptStatus.m3_matrix_cells_populated}/${arenaOptStatus.m3_matrix_total_cells ?? 9261}`
+                  : ""}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      setSm20OptRunning("fsrs");
+                      setSm20OptMessage(null);
+                      const result = await optimizeArenaFsrs();
+                      setSm20OptMessage(result.message);
+                      await refreshArena();
+                    } catch (error) {
+                      setSm20OptMessage(error instanceof Error ? error.message : "FSRS optimization failed");
+                    } finally {
+                      setSm20OptRunning(null);
+                    }
+                  }}
+                  disabled={sm20OptRunning !== null}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {sm20OptRunning === "fsrs" ? "Optimizing FSRS…" : "Optimize FSRS competitor"}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setSm20OptRunning("m4");
+                      setSm20OptMessage(null);
+                      const result = await optimizePrecisionKernel();
+                      setSm20OptMessage(result.message);
+                      await refreshArena();
+                    } catch (error) {
+                      setSm20OptMessage(error instanceof Error ? error.message : `${schedulerLabel("precision")} optimization failed`);
+                    } finally {
+                      setSm20OptRunning(null);
+                    }
+                  }}
+                  disabled={sm20OptRunning !== null}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {sm20OptRunning === "m4" ? `Optimizing ${schedulerLabel("precision")}…` : `Optimize ${schedulerLabel("precision")} parameters`}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setIsOptimizing(true);
+                      const status = await getArenaOptimizationStatus();
+                      setArenaOptStatus(status);
+                      await refreshArena();
+                    } catch {
+                      // ignore refresh errors
+                    } finally {
+                      setIsOptimizing(false);
+                    }
+                  }}
+                  disabled={isOptimizing}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {isOptimizing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+              {sm20OptMessage && (
+                <p className="text-xs text-muted-foreground">{sm20OptMessage}</p>
+              )}
+              {optimizerMessage && (
+                <p className="text-xs text-muted-foreground">{optimizerMessage}</p>
               )}
             </div>
+          )}
 
-            <button
-              onClick={() => {
-                const trimmed = newScopeId.trim();
-                if (!trimmed) return;
-                updateSettings({
-                  learning: {
-                    ...settings.learning,
-                    scopedFsrsOverrides: [
-                      ...scopedOverrides,
-                      {
-                        id: `${newScopeType}-${trimmed}-${Date.now()}`,
-                        scopeType: newScopeType,
-                        scopeId: trimmed,
-                        desiredRetention: settings.learning.fsrsParams.desiredRetention,
-                        maximumInterval: settings.learning.fsrsParams.maximumInterval,
-                        enabled: true,
+          {(settings.learning.algorithm === "fsrs" || settings.learning.algorithm === "adaptive") && (
+            <div>
+              <label htmlFor="fsrs-retention" className="block text-sm font-medium text-foreground mb-2">
+                {settings.learning.algorithm === "adaptive" ? "Forgetting Index" : "Desired Retention"}: {Math.round(settings.learning.fsrsParams.desiredRetention * 100)}%
+              </label>
+              <input
+                type="range"
+                id="fsrs-retention"
+                min="70"
+                max="99"
+                value={settings.learning.fsrsParams.desiredRetention * 100}
+                onChange={(e) =>
+                  updateSettings({
+                    learning: {
+                      ...settings.learning,
+                      fsrsParams: {
+                        ...settings.learning.fsrsParams,
+                        desiredRetention: parseInt(e.target.value) / 100,
                       },
-                    ],
-                  },
-                });
-                setNewScopeId("");
-              }}
-              className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm"
-            >
-              Add override
-            </button>
-
-            <div className="space-y-2">
-              {scopedOverrides.length === 0 && (
-                <p className="text-xs text-muted-foreground">{t("learningSettings.noScopedOverrides")}</p>
-              )}
-              {scopedOverrides.map((override) => (
-                <div key={override.id} className="border border-border rounded-md p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-foreground">
-                      {override.scopeType === "deck" ? "Deck" : "Tag"}:{" "}
-                      <span className="font-medium">{override.scopeId}</span>
-                    </div>
-                    <button
-                      onClick={() =>
+                    },
+                  })
+                }
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {settings.learning.algorithm === "adaptive"
+                  ? "Lower = more frequent reviews (default 90%)"
+                  : "Higher retention = more frequent reviews"}
+              </p>
+              {settings.learning.algorithm === "fsrs" && (
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        setIsOptimizing(true);
+                        setOptimizerMessage(null);
+                        const result = await optimizeAlgorithmParams({
+                          min_ease_factor: 1.3,
+                          initial_ease_factor: 2.5,
+                          desired_retention: settings.learning.fsrsParams.desiredRetention,
+                        });
                         updateSettings({
                           learning: {
                             ...settings.learning,
-                            scopedFsrsOverrides: scopedOverrides.filter((entry) => entry.id !== override.id),
+                            fsrsParams: {
+                              ...settings.learning.fsrsParams,
+                              personalizedWeights: result.fsrs_weights,
+                              lastOptimizationAt: new Date().toISOString(),
+                              optimizedReviewCount: result.history_count,
+                            },
                           },
-                        })
+                        });
+                        const quality = result.history_count >= result.minimum_history_required
+                          ? "Personalized weights applied."
+                          : "Applied provisional weights (limited history).";
+                        setOptimizerMessage(
+                          `${quality} Reviews used: ${result.history_count}/${result.minimum_history_required}.`
+                        );
+                      } catch (error) {
+                        setOptimizerMessage(error instanceof Error ? error.message : "Failed to run optimizer");
+                      } finally {
+                        setIsOptimizing(false);
                       }
-                      className="text-xs text-destructive"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs text-muted-foreground">
-                      Retention
-                      <NumericInput
-                        min={0.7}
-                        max={0.99}
-                        step={0.01}
-                        value={override.desiredRetention ?? settings.learning.fsrsParams.desiredRetention}
-                        onChange={(value) =>
-                          updateSettings({
-                            learning: {
-                              ...settings.learning,
-                              scopedFsrsOverrides: scopedOverrides.map((entry) =>
-                                entry.id === override.id
-                                  ? { ...entry, desiredRetention: value }
-                                  : entry
-                              ),
-                            },
-                          })
-                        }
-                        className="mt-1 w-full px-2 py-1 rounded border border-border bg-background text-foreground"
-                      />
-                    </label>
-                    <label className="text-xs text-muted-foreground">
-                      Max interval
-                      <NumericInput
-                        min={1}
-                        max={36500}
-                        value={override.maximumInterval ?? settings.learning.fsrsParams.maximumInterval}
-                        onChange={(value) =>
-                          updateSettings({
-                            learning: {
-                              ...settings.learning,
-                              scopedFsrsOverrides: scopedOverrides.map((entry) =>
-                                entry.id === override.id
-                                  ? { ...entry, maximumInterval: value }
-                                  : entry
-                              ),
-                            },
-                          })
-                        }
-                        className="mt-1 w-full px-2 py-1 rounded border border-border bg-background text-foreground"
-                      />
-                    </label>
-                  </div>
+                    }}
+                    disabled={isOptimizing}
+                    className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                  >
+                    {isOptimizing ? "Optimizing..." : "Run Personal FSRS Optimizer"}
+                  </button>
+                  {settings.learning.fsrsParams.personalizedWeights?.length === CANONICAL_FSRS_PARAMETER_LENGTH && (
+                    <span className="text-xs text-green-500">FSRS-7 profile active (34 params)</span>
+                  )}
                 </div>
-              ))}
+              )}
+              {optimizerMessage && (
+                <p className="mt-2 text-xs text-muted-foreground">{optimizerMessage}</p>
+              )}
             </div>
-          </div>
+          )}
+
+          {settings.learning.algorithm === "fsrs" && (
+            <div className="border border-border rounded-lg p-4 space-y-3">
+              <div>
+                <h4 className="font-medium text-foreground">{t("learningSettings.scopedOverrides")}</h4>
+                <p className="text-xs text-muted-foreground">
+                  Precedence is global → deck → tag. Tag overrides win when both match.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <select
+                  value={newScopeType}
+                  onChange={(e) => setNewScopeType(e.target.value as "deck" | "tag")}
+                  className="px-2 py-2 rounded-md border border-border bg-background text-foreground"
+                >
+                  <option value="deck">Deck</option>
+                  <option value="tag">Tag</option>
+                </select>
+                {newScopeType === "deck" ? (
+                  <select
+                    value={newScopeId}
+                    onChange={(e) => setNewScopeId(e.target.value)}
+                    className="px-2 py-2 rounded-md border border-border bg-background text-foreground md:col-span-2"
+                  >
+                    <option value="">Select deck</option>
+                    {decks.map((deck) => (
+                      <option key={deck.id} value={deck.id}>
+                        {deck.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={newScopeId}
+                    onChange={(e) => setNewScopeId(e.target.value)}
+                    placeholder="tag-name"
+                    className="px-2 py-2 rounded-md border border-border bg-background text-foreground md:col-span-2"
+                  />
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  const trimmed = newScopeId.trim();
+                  if (!trimmed) return;
+                  updateSettings({
+                    learning: {
+                      ...settings.learning,
+                      scopedFsrsOverrides: [
+                        ...scopedOverrides,
+                        {
+                          id: `${newScopeType}-${trimmed}-${Date.now()}`,
+                          scopeType: newScopeType,
+                          scopeId: trimmed,
+                          desiredRetention: settings.learning.fsrsParams.desiredRetention,
+                          maximumInterval: settings.learning.fsrsParams.maximumInterval,
+                          enabled: true,
+                        },
+                      ],
+                    },
+                  });
+                  setNewScopeId("");
+                }}
+                className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm"
+              >
+                Add override
+              </button>
+
+              <div className="space-y-2">
+                {scopedOverrides.length === 0 && (
+                  <p className="text-xs text-muted-foreground">{t("learningSettings.noScopedOverrides")}</p>
+                )}
+                {scopedOverrides.map((override) => (
+                  <div key={override.id} className="border border-border rounded-md p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-foreground">
+                        {override.scopeType === "deck" ? "Deck" : "Tag"}:{" "}
+                        <span className="font-medium">{override.scopeId}</span>
+                      </div>
+                      <button
+                        onClick={() =>
+                          updateSettings({
+                            learning: {
+                              ...settings.learning,
+                              scopedFsrsOverrides: scopedOverrides.filter((entry) => entry.id !== override.id),
+                            },
+                          })
+                        }
+                        className="text-xs text-destructive"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-xs text-muted-foreground">
+                        Retention
+                        <NumericInput
+                          min={0.7}
+                          max={0.99}
+                          step={0.01}
+                          value={override.desiredRetention ?? settings.learning.fsrsParams.desiredRetention}
+                          onChange={(value) =>
+                            updateSettings({
+                              learning: {
+                                ...settings.learning,
+                                scopedFsrsOverrides: scopedOverrides.map((entry) =>
+                                  entry.id === override.id
+                                    ? { ...entry, desiredRetention: value }
+                                    : entry
+                                ),
+                              },
+                            })
+                          }
+                          className="mt-1 w-full px-2 py-1 rounded border border-border bg-background text-foreground"
+                        />
+                      </label>
+                      <label className="text-xs text-muted-foreground">
+                        Max interval
+                        <NumericInput
+                          min={1}
+                          max={36500}
+                          value={override.maximumInterval ?? settings.learning.fsrsParams.maximumInterval}
+                          onChange={(value) =>
+                            updateSettings({
+                              learning: {
+                                ...settings.learning,
+                                scopedFsrsOverrides: scopedOverrides.map((entry) =>
+                                  entry.id === override.id
+                                    ? { ...entry, maximumInterval: value }
+                                    : entry
+                                ),
+                              },
+                            })
+                          }
+                          className="mt-1 w-full px-2 py-1 rounded border border-border bg-background text-foreground"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
