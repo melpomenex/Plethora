@@ -2,25 +2,50 @@
 
 ## [3.0.0] - 2026-09-23
 
-### Added
+# What’s changed since Incrementum?
 
-- **Multi-scheduler system restored (FSRS-7, SM-20, SM-18, SM-2)** — Complete spaced-repetition scheduling system with full support for FSRS-7 (dual-trace memory state, fractional elapsed-time intervals, and 34-parameter model), SuperMemo SM-20, SM-18, and classic SM-2. Users can freely select their preferred scheduler per deck or collection.
-- **Algorithm Arena** — Built-in experimental laboratory to compare scheduling algorithms side-by-side, simulate long-term retention curves, evaluate review workloads, and inspect interval calculations across thousands of simulated repetitions.
-- **Accountless open-source foundation** — Plethora is fully prepared for open-source distribution with an accountless, local-first product architecture. All incremental reading, annotations, scheduling, and local AI capabilities operate completely offline with no cloud account required.
-- **Complete Plethora identity consolidation** — Finished end-to-end migration from Incrementum to Plethora across all system identifiers, SQLite database naming (`plethora.db`), native OS keychain services, minisign updater keys, and cross-platform config namespaces, with seamless one-shot automatic adoption of legacy user data.
-- **PDF Reflow Engine & Reader Context Menu** — Responsive continuous reading view for multi-column documents on any screen size, coupled with right-click selection menus and `/20rules` knowledge formulation commands for atomic card creation adhering to the 20 Rules of Knowledge Formulation.
+Plethora is much more than a rebrand of Incrementum. Since the transition, the app has received major new learning, reading, AI, audio, mobile, synchronization, and interface capabilities.
 
-### Fixed & Improved
+## New and significantly expanded features
 
-- **Cross-platform build pipeline stability** — Resolved build memory limits and compiler configuration across Linux (Debian & Arch Linux OOM prevention), Windows (MakeAppx sparse identity package footprint and WinRT SDK linking), and AppImage packaging.
-- **`no-mistakes` release gate** — Pushes and releases are now protected by the local `no-mistakes` gate, validating build integrity, code review, linting, and automated checks before remote publication.
-- **Performance & memory hygiene** — Resolved high-water mark retention issues and strengthened type safety across backend databases and background workers.
+* **FSRS-7 scheduling** — Plethora now uses FSRS-7 as its production spaced-repetition scheduler.
+* **Material 3 interface** — a major redesign of navigation, dialogs, controls, review UI, settings, document surfaces, TTS controls and mobile navigation while retaining Plethora's themes and E-Ink mode.
+* **Flashcard source navigation** — jump from a flashcard directly back to the exact passage it came from, then return to your review session.
+* **On-device AI** — expanded local AI support across Apple Intelligence/Foundation Models, Android native AI/ML Kit, and Windows System AI/Foundry Local.
+* **On-device speech recognition** — including offline Android audiobook and podcast transcription.
+* **Improved local transcription** — Nemotron support, GPU acceleration, automatic CPU/GPU selection, resumable model downloads and better progress reporting.
+* **Audiobook upgrades** — import multi-file audiobooks as a single book with chapters, improved M4B handling, and synchronized ebook/audiobook word highlighting.
+* **Language Learning Mode** — vocabulary and phrase tracking, sentence learning, practice history, tutoring, SRS integration and video/audio language-learning tools.
+* **Smarter browser capture** — save images, capture image occlusions, import X/Twitter threads, improved YouTube capture, offline queuing and better capture provenance.
+* **Native X/Twitter thread reading** — threads, quoted posts and sources are imported into a dedicated reader instead of being treated as generic webpages.
+* **Improved article and arXiv importing** — better reader-mode extraction, offline images, dark-theme support, fixed figure loading and more reliable resource handling.
+* **Capture Activity dashboard** — see how much you're capturing and whether it came from the browser extension, native sharing, RSS or manual imports.
+* **Smart Tagging and knowledge tools** — expanded semantic tagging, knowledge connections, learning paths, knowledge-health analytics and AI-assisted learning workflows.
+* **Plethora accounts and Pro sync** — encrypted multi-device sync, recovery keys, device management, synchronized image assets and stronger conflict handling.
+* **Privacy controls** — explicit consent for paid/cloud AI operations and stronger local-only/on-device routing.
+* **Expanded iOS support** — native sharing, document/photo scanning, Apple Intelligence integration, subscription support and major startup/reliability work.
+* **Animated themes and improved customization** — GPU-accelerated visual themes, improved theme selection and extensive accessibility/contrast refinements.
 
-## [Unreleased]
+## Major improvements and fixes
 
-### Added
+* Dramatically faster importing of certain large EPUBs.
+* More reliable EPUB rendering and theming, especially on Android.
+* Better text selection and double-tap paragraph actions on mobile.
+* More reliable TTS position saving, pause/resume and word highlighting.
+* Working Android lock-screen/headset media controls with document metadata.
+* Improved YouTube playback and capture.
+* Better cold-start and first-open performance.
+* Major synchronization and authentication reliability improvements.
+* Better handling of article images and arXiv figures.
+* Reduced memory/resource retention in long-running reading and audio sessions.
+* Numerous Linux, macOS, Windows, Android and iOS platform-specific stability fixes.
+* Major build, packaging and release-pipeline improvements.
 
-- **FSRS-7 production scheduling** — Flashcard and document scheduling now use FSRS-7 with dual-trace memory state (`stability` + `stability_fast`), fractional elapsed-time intervals, and a 34-parameter model. Legacy schedulers (Plethora Adaptive, Plethora Precision, Plethora Classic) remain in the codebase for research and migration but are hidden from the scheduler picker. Existing cards are migrated by replaying review history. Scheduling core vendored from [open-spaced-repetition/fsrs-rs](https://github.com/open-spaced-repetition/fsrs-rs) (BSD-3-Clause).
+## Existing Incrementum data is preserved
+
+Plethora includes migration support for Incrementum databases, application data, archives, keychain entries, browser-extension protocols and integrations. Existing `.incrementum` archives remain supported alongside the new Plethora formats.
+
+In short: Plethora retains Incrementum's core incremental-reading foundation, but the reader, review system, AI stack, audio system, mobile experience, synchronization layer and visual interface have all undergone substantial development since the rename.
 
 ## [2.7.0] - 2026-08-16
 
