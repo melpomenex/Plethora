@@ -1,6 +1,6 @@
 [package]
 name = "plethora-tauri"
-version = "2.7.0"
+version = "3.0.0"
 description = "Plethora - Incremental Reading and Spaced Repetition"
 authors = ["Plethora Team"]
 edition = "2021"

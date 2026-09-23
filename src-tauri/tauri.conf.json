@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Plethora",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "identifier": "com.plethora.app",
   "build": {
     "beforeDevCommand": "bash scripts/tauri-before-dev.sh",
@@ -55,45 +55,69 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["pdf"],
+        "ext": [
+          "pdf"
+        ],
         "mimeType": "application/pdf",
         "name": "PDF Document",
         "description": "Portable Document Format",
         "role": "Viewer"
       },
       {
-        "ext": ["epub"],
+        "ext": [
+          "epub"
+        ],
         "mimeType": "application/epub+zip",
         "name": "EPUB Ebook",
         "description": "Electronic Publication",
         "role": "Viewer"
       },
       {
-        "ext": ["md", "markdown"],
+        "ext": [
+          "md",
+          "markdown"
+        ],
         "mimeType": "text/markdown",
         "name": "Markdown Document",
         "role": "Viewer"
       },
       {
-        "ext": ["html", "htm"],
+        "ext": [
+          "html",
+          "htm"
+        ],
         "mimeType": "text/html",
         "name": "HTML Document",
         "role": "Viewer"
       },
       {
-        "ext": ["txt"],
+        "ext": [
+          "txt"
+        ],
         "mimeType": "text/plain",
         "name": "Plain Text",
         "role": "Viewer"
       },
       {
-        "ext": ["apkg"],
+        "ext": [
+          "apkg"
+        ],
         "mimeType": "application/octet-stream",
         "name": "Anki Package",
         "role": "Viewer"
       },
       {
-        "ext": ["mp3", "m4a", "m4b", "wav", "aac", "ogg", "flac", "opus", "wma"],
+        "ext": [
+          "mp3",
+          "m4a",
+          "m4b",
+          "wav",
+          "aac",
+          "ogg",
+          "flac",
+          "opus",
+          "wma"
+        ],
         "mimeType": "audio/*",
         "name": "Audio",
         "role": "Viewer"
@@ -108,7 +132,7 @@
       "icons/icon.png"
     ],
     "publisher": "Plethora",
-    "copyright": "Copyright \u00a9 2025-2026 Plethora",
+    "copyright": "Copyright © 2025-2026 Plethora",
     "category": "Education",
     "shortDescription": "Plethora - Spaced repetition and incremental reading for effective learning",
     "longDescription": "Plethora is a powerful learning application that combines spaced repetition, incremental reading, and AI-powered flashcard generation to help you learn more effectively.",
