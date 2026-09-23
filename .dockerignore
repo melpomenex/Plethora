@@ -1,0 +1,22 @@
+# Keep private hosted-backend sources and operations files out of frontend
+# Docker build contexts, even when they exist in a developer's working tree.
+server/
+api/
+deploy/
+.env*
+compose.production.yml
+docker-compose.yml
+requirements.txt
+scripts/deploy-production.sh
+scripts/publish-cloud-image.sh
+scripts/validate-production-compose.sh
+scripts/check-cloud-perf-budget.mjs
+scripts/cloud-perf-baselines.json
+
+# Generated and local-only content.
+.git/
+node_modules/
+dist/
+src-tauri/target/
+**/target/
+*.log

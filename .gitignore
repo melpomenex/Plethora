@@ -208,3 +208,29 @@ src-tauri/permissions/default.toml
 .env*
 !.env.production.example
 .neon
+
+# Private hosted infrastructure. These files are maintained outside the public
+# application repository and must never be staged from a local working copy.
+/server/
+/api/
+/deploy/
+/.env.production.example
+/compose.production.yml
+/docker-compose.yml
+/requirements.txt
+/.github/workflows/cloud-server.yml
+/scripts/deploy-production.sh
+/scripts/publish-cloud-image.sh
+/scripts/validate-production-compose.sh
+/scripts/check-cloud-perf-budget.mjs
+/scripts/cloud-perf-baselines.json
+/scripts/__tests__/checkCloudPerfBudget.test.mjs
+/docs/deploy/APPLE_SANDBOX_E2E.md
+/docs/deploy/PLETHORA_CLOUD_PRODUCTION.md
+/docs/deploy/PLETHORA_SYNC_ROLLOUT.md
+/docs/PROXY_SETUP.md
+/docs/YOUTUBE_TRANSCRIPTS.md
+/openspec/changes/implement-plethora-cloud-privacy-security-data-export-and-account-deletion/
+/openspec/changes/implement-plethora-pro-cloud-service-and-usage-quota-architecture/
+/openspec/changes/implement-plethora-pro-observability-cost-controls-and-cloud-performance-gates/
+/openspec/changes/productionize-plethora-cloud-deployment/

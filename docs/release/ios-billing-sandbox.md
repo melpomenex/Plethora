@@ -61,7 +61,5 @@ result: pass | fail(+notes)
 
 - §7.2 execution has NOT been performed (no physical device / ASC access
   available when this was implemented). Both verification levels remain open.
-- The trusted-root fingerprint constant in
-  `server/src/billing/jws.ts` must be confirmed against Apple's published
-  root list before production sign-off (overridable via
-  `APP_STORE_TRUSTED_ROOT_SHA256` meanwhile).
+- The private billing service's trusted-root fingerprint must be confirmed
+  against Apple's published root list before production sign-off.

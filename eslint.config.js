@@ -46,7 +46,6 @@ export default [
       // `browser_extension`) because those paths no longer match under the
       // worktree prefix. The real source of truth is the main checkout.
       ".claude/**",
-      "api/youtube/transcript.ts.bak",
       ".eslintcache",
     ],
   },

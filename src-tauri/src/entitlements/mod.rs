@@ -244,9 +244,9 @@ fn api_base_url() -> String {
         .unwrap_or_else(|| "https://api.useplethora.com".to_string())
 }
 
-/// The server's `/v1/entitlements` payload shape (camelCase over the wire —
-/// see server/src/routes/v1/entitlements.ts). Distinct from
-/// [`EntitlementSnapshot`] so the wire contract stays explicit.
+/// The hosted service's `/v1/entitlements` payload shape (camelCase over the
+/// wire). Distinct from [`EntitlementSnapshot`] so the wire contract stays
+/// explicit without coupling the client to the private service source tree.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerEntitlementSnapshot {

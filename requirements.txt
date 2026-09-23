@@ -1,5 +1,0 @@
-yt-dlp==2025.1.26
-playwright
-requests
-flask
-flask-cors
