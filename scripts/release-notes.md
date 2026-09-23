@@ -17,9 +17,8 @@ Plethora is much more than a rebrand of Incrementum. Since the transition, the a
 * **Improved article and arXiv importing** — better reader-mode extraction, offline images, dark-theme support, fixed figure loading and more reliable resource handling.
 * **Capture Activity dashboard** — see how much you're capturing and whether it came from the browser extension, native sharing, RSS or manual imports.
 * **Smart Tagging and knowledge tools** — expanded semantic tagging, knowledge connections, learning paths, knowledge-health analytics and AI-assisted learning workflows.
-* **Plethora accounts and Pro sync** — encrypted multi-device sync, recovery keys, device management, synchronized image assets and stronger conflict handling.
-* **Privacy controls** — explicit consent for paid/cloud AI operations and stronger local-only/on-device routing.
-* **Expanded iOS support** — native sharing, document/photo scanning, Apple Intelligence integration, subscription support and major startup/reliability work.
+* **Privacy controls** — explicit consent for cloud AI operations and stronger local-only/on-device routing.
+* **Expanded iOS support** — native sharing, document/photo scanning, Apple Intelligence integration, and major startup/reliability work.
 * **Animated themes and improved customization** — GPU-accelerated visual themes, improved theme selection and extensive accessibility/contrast refinements.
 
 ## Major improvements and fixes
@@ -31,7 +30,7 @@ Plethora is much more than a rebrand of Incrementum. Since the transition, the a
 * Working Android lock-screen/headset media controls with document metadata.
 * Improved YouTube playback and capture.
 * Better cold-start and first-open performance.
-* Major synchronization and authentication reliability improvements.
+* Major synchronization reliability improvements.
 * Better handling of article images and arXiv figures.
 * Reduced memory/resource retention in long-running reading and audio sessions.
 * Numerous Linux, macOS, Windows, Android and iOS platform-specific stability fixes.
