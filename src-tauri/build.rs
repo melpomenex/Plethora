@@ -156,18 +156,15 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=windows/app.manifest");
 
+    // Windows: hand the custom app manifest to tauri-build instead of
+    // embedding it via a separate tauri-winres invocation. Both would emit a
+    // VERSION resource for the binaries and link.exe fails with
+    // CVT1100 (duplicate resource) / LNK1123.
     #[cfg(target_os = "windows")]
-    {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let manifest = manifest_dir.join("windows/app.manifest");
-        if manifest.is_file() {
-            let mut res = tauri_winres::WindowsResource::new();
-            res.set_manifest_file(&manifest.to_string_lossy());
-            if let Err(err) = res.compile() {
-                panic!("failed to compile Windows application manifest: {err}");
-            }
-        }
-    }
+    let windows_app_manifest =
+        std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("windows/app.manifest")).ok();
+    #[cfg(not(target_os = "windows"))]
+    let windows_app_manifest: Option<String> = None;
 
     // Expose the full Rust target triple to the library crate as a compile-time
     // env var. Used by engine.rs / model_manager.rs to build sidecar binary paths
@@ -362,9 +359,11 @@ fn main() {
     write_app_command_permissions(manifest_dir, &app_commands);
     let command_refs = leaked_command_slice(&app_commands);
 
-    tauri_build::try_build(
-        tauri_build::Attributes::new()
-            .app_manifest(tauri_build::AppManifest::new().commands(command_refs)),
-    )
-    .expect("error while building tauri application");
+    let mut attributes = tauri_build::Attributes::new()
+        .app_manifest(tauri_build::AppManifest::new().commands(command_refs));
+    if let Some(manifest) = windows_app_manifest {
+        attributes = attributes
+            .windows_attributes(tauri_build::WindowsAttributes::new().app_manifest(manifest));
+    }
+    tauri_build::try_build(attributes).expect("error while building tauri application");
 }

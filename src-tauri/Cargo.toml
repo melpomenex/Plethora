@@ -12,7 +12,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-tauri-winres = "0.1"
 
 [dependencies]
 # Pin to 2.11.5 (latest 2.11.x). http://localhost is served via tauri-plugin-localhost

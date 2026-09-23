@@ -2530,20 +2530,6 @@ checksum = "dc2d050bdc5c21e0862a89256ed8029ae6c290a93aecefc73084b3002cdebb01"
 
 [[package]]
 name = "embed-resource"
-version = "2.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d506610004cfc74a6f5ee7e8c632b355de5eca1f03ee5e5e0ec11b77d4eb3d61"
-dependencies = [
- "cc",
- "memchr",
- "rustc_version",
- "toml 0.8.2",
- "vswhom",
- "winreg 0.52.0",
-]
-
-[[package]]
-name = "embed-resource"
 version = "3.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbfdaacccebec3b28e4866b8973543c7647797db5ada1bdab552e48fe665fbbd"
@@ -2553,7 +2539,7 @@ dependencies = [
  "rustc_version",
  "toml 1.1.4+spec-1.1.0",
  "vswhom",
- "winreg 0.55.0",
+ "winreg",
 ]
 
 [[package]]
@@ -6610,7 +6596,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
- "tauri-winres 0.1.1",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -9170,7 +9155,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri-utils",
- "tauri-winres 0.3.6",
+ "tauri-winres",
  "walkdir",
 ]
 
@@ -9573,22 +9558,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-winres"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5993dc129e544393574288923d1ec447c857f3f644187f4fbf7d9a875fbfc4fb"
-dependencies = [
- "embed-resource 2.5.2",
- "toml 0.7.8",
-]
-
-[[package]]
-name = "tauri-winres"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc65d45c68858bfe420dd29e834b5d15dbecf8a07a8a16cf4d532c7b1f69d4b6"
 dependencies = [
  "dunce",
- "embed-resource 3.0.11",
+ "embed-resource",
  "toml 1.1.4+spec-1.1.0",
 ]
 
@@ -9885,18 +9860,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd79e69d3b627db300ff956027cc6c3798cef26d22526befdfcd12feeb6d2257"
-dependencies = [
- "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.3",
- "toml_edit 0.19.15",
-]
-
-[[package]]
-name = "toml"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "185d8ab0dfbb35cf1399a6344d8484209c088f75f8f68230da55d48d95d43e3d"
@@ -9971,8 +9934,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
  "indexmap 2.14.0",
- "serde",
- "serde_spanned 0.6.9",
  "toml_datetime 0.6.3",
  "winnow 0.5.40",
 ]
@@ -11757,16 +11718,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "winreg"
-version = "0.52.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a277a57398d4bfa075df44f501a17cfdf8542d224f0d36095a2adc7aee4ef0a5"
-dependencies = [
- "cfg-if",
- "windows-sys 0.48.0",
 ]
 
 [[package]]
