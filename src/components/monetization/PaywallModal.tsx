@@ -1,6 +1,7 @@
 import React from 'react';
 import { usePaywallStore } from '../../stores/paywallStore';
 import { useBillingStore } from '../../stores/billingStore';
+import { isPlethoraCloudAvailable } from '../../config/product';
 
 export const PaywallModal: React.FC = () => {
   const { isOpen, activeContext, closePaywall, trial, startTrial } = usePaywallStore();
@@ -14,7 +15,7 @@ export const PaywallModal: React.FC = () => {
     pendingApproval,
   } = useBillingStore();
 
-  if (!isOpen || !activeContext) return null;
+  if (!isPlethoraCloudAvailable() || !isOpen || !activeContext) return null;
 
   const proProduct = products.find((p) => p.id.includes('pro')) || products[0];
   const productsFailedToLoad = !loading && !proProduct;

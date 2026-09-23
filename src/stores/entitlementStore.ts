@@ -12,7 +12,7 @@ import {
   FREE_DEFAULT_SNAPSHOT,
 } from '../types/entitlements';
 import { invoke, isTauri } from '../lib/tauri';
-import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
+import { PLETHORA_API_URL, isCloudApiEnabled, isPlethoraCloudAvailable } from '../config/product';
 import { useAccountStore } from './accountStore';
 
 const GRACE_PERIOD_MS = 72 * 60 * 60 * 1000; // 72 hours
@@ -232,7 +232,9 @@ export const useEntitlementStore = create<EntitlementStoreState>()(
           // the same semantics (bearer, 401 → refresh → retry, anonymous).
           // Cloud-disabled builds (VITE_PLETHORA_API_URL=off) keep the local
           // snapshot instead of fetching a nonsense 'off/...' URL.
-          if (!isCloudApiEnabled()) {
+          // When Plethora Cloud is unavailable and user is anonymous, skip server
+          // fetch to prevent cold-boot unauthenticated network calls.
+          if (!isCloudApiEnabled() || (!isPlethoraCloudAvailable() && !useAccountStore.getState().isAuthenticated)) {
             set({ loading: false });
             return get().snapshot;
           }
@@ -292,7 +294,7 @@ export const useEntitlementStore = create<EntitlementStoreState>()(
         }
         // PWA: hydrate from the server (nothing calls refresh at startup
         // otherwise, leaving a stale local snapshot while online).
-        if (isCloudApiEnabled()) {
+        if (isCloudApiEnabled() && (isPlethoraCloudAvailable() || useAccountStore.getState().isAuthenticated)) {
           await get().refresh();
         }
       },

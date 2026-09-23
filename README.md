@@ -10,7 +10,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?logo=tauri)]()
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)]()
 
-[Features](#-features) • [Demo](https://readsync.org) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
+[Features](#-features) • [Product Model](#-product-model) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
 </div>
 
@@ -22,12 +22,20 @@
 
 Built with modern technologies—Tauri, React, and Rust—it offers a beautiful, fast, and cross-platform learning environment that adapts to your needs.
 
+## 🌐 Product Model
+
+**Plethora is free, open source, and local-first. No account is required.**
+
+- **Your data stays on your device**: Your library, reading progress, extracts, notes, and learning history remain stored locally in an embedded SQLite database on your device unless you explicitly configure an external service.
+- **No paywalls or subscriptions**: All reading tools, spaced-repetition algorithms, card creation, local transcription, and analytics are completely free and unmetered.
+- **Future Plethora Cloud**: Plethora Cloud is planned as an optional hosted service providing end-to-end encrypted synchronization between your devices.
+
 ### Core Philosophy
 
 | Principle | Description |
 |-----------|-------------|
 | **Incremental Reading** | Process large documents in small, manageable chunks over time |
-| **Spaced Repetition** | Review content at scientifically-optimized intervals using FSRS-6, SM-18, SM-20, or SM-2 |
+| **Spaced Repetition** | Review content at scientifically-optimized intervals using FSRS-7, SM-18, SM-20, or SM-2 |
 | **Import Flexibility** | Bring content from anywhere—PDFs, EPUBs, audiobooks, videos, websites, podcasts, Anki decks |
 | **Smart Scheduling** | Know exactly when you'll review each card again with preview intervals |
 | **Rich Analytics** | Track your progress, streaks, and performance metrics |
@@ -51,7 +59,7 @@ Built with modern technologies—Tauri, React, and Rust—it offers a beautiful,
 
 ### 🧠 Learning & Review
 
-- Multiple scheduling algorithms: FSRS-6, Plethora Adaptive (3D SInc), Plethora Precision (5-Model Ensemble), and Classic
+- Multiple scheduling algorithms: FSRS-7, Plethora Adaptive (3D SInc), Plethora Precision (5-Model Ensemble), and Classic
 - Card types: Basic, Cloze, Q&A, Multiple Choice, and Image Occlusion (via Flashcard Studio)
 - Review queue with filtering/sorting, keyboard-first rating flow, and session stats
 - Preview intervals (including long-form duration-aware safety caps)
@@ -87,7 +95,7 @@ Built with modern technologies—Tauri, React, and Rust—it offers a beautiful,
 - Text-to-Speech (TTS) for reading documents and review cards aloud
 - Audio/video transcription with local Whisper.cpp or cloud providers (OpenAI, Groq)
 - NotebookLM workspace for research/chat/artifact generation and sync-to-learning flows
-- Browser extension bridge for web capture ([Install Firefox Extension](https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-1.9.0.signed.xpi))
+- Browser extension bridge for seamless web capture to your local reading queue
 - Obsidian integration (export and sync workflows)
 - Backup/restore tools (local and cloud-backed), plus import/export utilities
 
@@ -195,8 +203,8 @@ No additional dependencies required.
 
 ```bash
 # Clone the repository (includes whisper.cpp submodule)
-git clone --recurse-submodules https://github.com/melpomenex/incrementum-tauri.git
-cd incrementum-tauri
+git clone --recurse-submodules https://github.com/melpomenex/Plethora.git
+cd Plethora
 
 # If you already cloned without submodules
 git submodule update --init --recursive
@@ -215,7 +223,7 @@ The production bundle will be in `src-tauri/target/release/bundle/`.
 
 ### Download Pre-built Binaries
 
-Visit the [Releases](https://github.com/melpomenex/incrementum-tauri/releases) page to download pre-built binaries for your platform.
+Visit the [Releases](https://github.com/melpomenex/Plethora/releases) page to download pre-built binaries for your platform.
 
 ---
 
@@ -308,7 +316,7 @@ Analytics → View stats, charts, and streaks
 ### Project Structure
 
 ```
-incrementum-tauri/
+Plethora/
 ├── src/                    # Frontend (React + TypeScript)
 │   ├── components/         # UI components
 │   ├── pages/             # Page components
@@ -374,7 +382,7 @@ Mobile note: desktop sidecar binaries (like `whisper`) are disabled on Android/i
 - **Framework**: Tauri 2.0
 - **Language**: Rust
 - **Database**: SQLite with SQLx
-- **Algorithm**: FSRS-6, SM-18, SM-20, SM-2 (spaced repetition)
+- **Algorithm**: FSRS-7, SM-18, SM-20, SM-2 (spaced repetition)
 - **Runtime**: Tokio (async)
 
 </details>
@@ -463,9 +471,8 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
 ### **Built with ❤️ using Tauri + React + Rust**
 
-[![Website](https://img.shields.io/badge/Website-readsync.org-blue)](https://readsync.org)
 [![Documentation](https://img.shields.io/badge/Docs-latest-brightgreen)](docs/)
-[![Issues](https://img.shields.io/badge/Issues-Get%20Help-orange)](https://github.com/melpomenex/incrementum-tauri/issues)
+[![Issues](https://img.shields.io/badge/Issues-Get%20Help-orange)](https://github.com/melpomenex/Plethora/issues)
 [![Changelog](https://img.shields.io/badge/Changelog-Release%20Notes-purple)](CHANGELOG.md)
 
 **[⬆ Back to Top](#plethora)**

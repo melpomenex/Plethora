@@ -43,7 +43,31 @@ describe('mock firewall: no literal prices in monetization components (§5.2)', 
     expect(violations).toEqual([]);
   });
 
+  it('renders null when Plethora Cloud is unavailable', async () => {
+    const { render } = await import('@testing-library/react');
+    const { default: React } = await import('react');
+    const { PaywallModal } = await import('../PaywallModal');
+    const { usePaywallStore } = await import('../../../stores/paywallStore');
+
+    usePaywallStore.setState({
+      isOpen: true,
+      activeContext: {
+        title: 'Cloud Sync',
+        description: 'Sync across devices.',
+        capabilityId: 'cloud_sync',
+        sourceSurface: 'test',
+      } as never,
+    });
+
+    const { container } = render(React.createElement(PaywallModal));
+    expect(container.firstChild).toBeNull();
+    usePaywallStore.setState({ isOpen: false, activeContext: null });
+  });
+
   it('renders no price when products fail to load (retry state instead)', async () => {
+    const product = await import('../../../config/product');
+    const spy = vi.spyOn(product, 'isPlethoraCloudAvailable').mockReturnValue(true);
+
     const { useBillingStore } = await import('../../../stores/billingStore');
     const { setActiveProviderForTesting } = await import('../../../stores/billingStore');
     const { MockBillingProvider } = await import('../../../lib/billing/types');
@@ -73,5 +97,6 @@ describe('mock firewall: no literal prices in monetization components (§5.2)', 
 
     setActiveProviderForTesting(null);
     usePaywallStore.setState({ isOpen: false, activeContext: null });
+    spy.mockRestore();
   });
 });

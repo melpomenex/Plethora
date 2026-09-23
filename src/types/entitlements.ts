@@ -3,6 +3,29 @@
  *
  * Canonical registry of capabilities, snapshots, and entitlement states.
  * Capabilities (not plans) are the unit of client-side feature enablement.
+ *
+ * ============================================================================
+ * COMMERCIAL BOUNDARY & LOCAL-FIRST PRINCIPLE
+ * ============================================================================
+ * 1. Plethora Core is free, open source, and local-first. No account or subscription
+ *    is required. User reading, review, learning, data, and models belong entirely
+ *    to the user on their device.
+ *
+ * 2. Local functionality is NEVER a paid entitlement. All local capabilities
+ *    (document import, PDF/EPUB reading, highlights, extracts, notes, flashcards,
+ *    image occlusion, FSRS-7 review, local search, local embeddings, local 2D/3D
+ *    knowledge graph, local semantic connections, local knowledge gaps, local
+ *    learning paths, local analytics, local OCR, system/Pocket/Sherpa TTS,
+ *    local Whisper/Nemotron/OS transcription, on-device AI, BYO AI API keys,
+ *    local browser extension bridge, local MCP servers, localhost REST API,
+ *    and local backups) execute locally without requiring an account or subscription.
+ *
+ * 3. The capability IDs registered below represent Plethora-hosted remote cloud
+ *    services for a future paid Plethora Cloud service (e.g. Plethora Cloud
+ *    zero-knowledge multi-device sync, cloud backup storage, hosted cloud OCR,
+ *    remote Web Inbox, hosted API bearer tokens, or hosted server compute).
+ *    Under no circumstances should any local feature be gated behind these IDs.
+ * ============================================================================
  */
 
 export const CAPABILITY_IDS = [

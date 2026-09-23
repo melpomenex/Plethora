@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSyncStore } from "../../stores/syncStore";
 import { useAccountStore } from "../../stores/accountStore";
 import { selectIsPro, useEntitlementStore } from "../../stores/entitlementStore";
+import { isPlethoraCloudAvailable } from "../../config/product";
 import {
   ArrowsClockwise,
   CheckCircle,
@@ -50,9 +51,37 @@ export function SyncSettingsPanel() {
   const storageLimitBytes = 10 * 1024 * 1024 * 1024;
 
   useEffect(() => {
+    if (!isPlethoraCloudAvailable()) return;
     void useSyncStore.getState().init();
     void listIssues();
   }, [listIssues]);
+
+  if (!isPlethoraCloudAvailable()) {
+    return (
+      <div className="bg-card border rounded-lg p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <LockSimple className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-foreground">
+                  Plethora Cloud
+                </h3>
+                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary border border-primary/20">
+                  Coming Soon
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Optional end-to-end encrypted synchronization between your devices is coming in a future release. Plethora works fully offline and does not require an account.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleGenerateKey = async () => {
     if (hasMasterKey) return;

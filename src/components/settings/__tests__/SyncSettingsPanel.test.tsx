@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SyncSettingsPanel } from '../SyncSettingsPanel';
 import { useSyncStore } from '../../../stores/syncStore';
 import { useAccountStore } from '../../../stores/accountStore';
 import { useEntitlementStore } from '../../../stores/entitlementStore';
+import * as productModule from '../../../config/product';
 
 const VALID_KEY = 'a'.repeat(64);
 
@@ -54,7 +55,34 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('SyncSettingsPanel accountless mode (cloud unavailable)', () => {
+  it('renders Coming Soon card and no account/sync controls', () => {
+    seedStores();
+    render(<SyncSettingsPanel />);
+    expect(screen.getByText('Plethora Cloud')).toBeTruthy();
+    expect(screen.getByText('Coming Soon')).toBeTruthy();
+    expect(
+      screen.getByText(/Optional end-to-end encrypted synchronization between your devices is coming in a future release/i)
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Sync Now/i })).toBeNull();
+    expect(screen.queryByLabelText(/Paste recovery key/i)).toBeNull();
+    expect(screen.queryByText(/Sign in to your Plethora account/i)).toBeNull();
+    expect(screen.queryByText(/Plethora Pro is required/i)).toBeNull();
+    expect(useSyncStore.getState().init).not.toHaveBeenCalled();
+    expect(useSyncStore.getState().listIssues).not.toHaveBeenCalled();
+  });
+});
+
 describe('SyncSettingsPanel recovery key setup', () => {
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    spy = vi.spyOn(productModule, 'isPlethoraCloudAvailable').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
   it('shows paste field and import on a fresh device with no master key', () => {
     seedStores({ hasMasterKey: false, recoveryKeyAcknowledged: false });
     render(<SyncSettingsPanel />);

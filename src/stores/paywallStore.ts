@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PaywallTriggerContext, TrialState } from '../types/paywall';
+import { isPlethoraCloudAvailable } from '../config/product';
 
 export interface PaywallStoreState {
   isOpen: boolean;
@@ -24,6 +25,9 @@ export const usePaywallStore = create<PaywallStoreState>((set, get) => ({
   dismissedHintIds: [],
 
   openPaywall: (context) => {
+    if (!isPlethoraCloudAvailable()) {
+      return;
+    }
     set({ isOpen: true, activeContext: context });
   },
 

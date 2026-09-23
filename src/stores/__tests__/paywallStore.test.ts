@@ -7,7 +7,25 @@ describe('PaywallStore & Feature Catalog', () => {
     usePaywallStore.getState().closePaywall();
   });
 
-  it('manages modal open state with contextual capability details', () => {
+  it('openPaywall is an inert no-op when Plethora Cloud is unavailable', () => {
+    const store = usePaywallStore.getState();
+    store.openPaywall({
+      capabilityId: 'library_intelligence',
+      sourceSurface: 'search_bar',
+      title: 'Whole-Library RAG & Deep Citations',
+      description: 'Query all books and PDFs across your entire library simultaneously.',
+      quotaDetails: '500 RAG queries / month included',
+    });
+
+    const state = usePaywallStore.getState();
+    expect(state.isOpen).toBe(false);
+    expect(state.activeContext).toBeNull();
+  });
+
+  it('manages modal open state with contextual capability details when Plethora Cloud is available', async () => {
+    const product = await import('../../config/product');
+    const spy = vi.spyOn(product, 'isPlethoraCloudAvailable').mockReturnValue(true);
+
     const store = usePaywallStore.getState();
     store.openPaywall({
       capabilityId: 'library_intelligence',
@@ -24,6 +42,7 @@ describe('PaywallStore & Feature Catalog', () => {
 
     state.closePaywall();
     expect(usePaywallStore.getState().isOpen).toBe(false);
+    spy.mockRestore();
   });
 
   it('activates 14-day free trial state cleanly', () => {

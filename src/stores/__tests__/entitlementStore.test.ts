@@ -99,6 +99,14 @@ describe('entitlementStore', () => {
     expect(resolved.enabled).toBe(false);
     expect(resolved.reason).toBe('plan');
   });
+
+  it('skips network fetch on anonymous refresh when Plethora Cloud is unavailable', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const snapshot = await useEntitlementStore.getState().refresh();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(snapshot.plan).toBe('free');
+    fetchSpy.mockRestore();
+  });
 });
 
 describe('settings v6 -> v7 migration', () => {

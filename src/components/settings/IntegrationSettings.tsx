@@ -59,6 +59,7 @@ import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
 import { useApiTokensStore } from "../../stores/apiTokensStore";
 import { usePlatformCapability } from "../../hooks/usePlatformCapability";
+import { isPlethoraCloudAvailable } from "../../config/product";
 
 type IntegrationType =
   | "obsidian"
@@ -515,17 +516,19 @@ export function IntegrationSettings() {
           <YoutubeLogo className="w-4 h-4" />
           {t("integrations.youtubeTranscript") || "Transcript Server"}
         </button>
-        <button
-          onClick={() => setActiveTab("api-tokens")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "api-tokens"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Key className="w-4 h-4" />
-          API & Webhooks
-        </button>
+        {isPlethoraCloudAvailable() && (
+          <button
+            onClick={() => setActiveTab("api-tokens")}
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              activeTab === "api-tokens"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:opacity-90"
+            }`}
+          >
+            <Key className="w-4 h-4" />
+            API & Webhooks
+          </button>
+        )}
       </div>
 
       {/* Result notification */}
@@ -1309,8 +1312,8 @@ export function IntegrationSettings() {
         </div>
       )}
 
-      {/* Public API Tokens & Webhooks Settings */}
-      {activeTab === "api-tokens" && <ApiTokensIntegrationPanel />}
+      {/* Public API Tokens & Webhooks Settings (Plethora Cloud) */}
+      {activeTab === "api-tokens" && isPlethoraCloudAvailable() && <ApiTokensIntegrationPanel />}
     </div>
   );
 }

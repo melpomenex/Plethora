@@ -44,7 +44,7 @@ import { isTauri } from "../../lib/tauri";
 import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
 import { useAccountStore, useSettingsStore, useTabsStore } from "../../stores";
-import { PLETHORA_API_URL } from "../../config/product";
+import { PLETHORA_API_URL, isPlethoraCloudAvailable } from "../../config/product";
 import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { DeleteAccountFlow } from "./DeleteAccountFlow";
@@ -226,7 +226,7 @@ interface SettingsTabConfig {
   description: string;
 }
 
-export const SETTINGS_TABS: SettingsTabConfig[] = [
+export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
   {
     id: SettingsTab.Account,
     label: "settings.account",
@@ -412,6 +412,16 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
   },
 ];
 
+/** Returns the list of settings tabs visible to the user given current product availability. */
+export function getVisibleSettingsTabs(): SettingsTabConfig[] {
+  if (isPlethoraCloudAvailable()) {
+    return ALL_SETTINGS_TABS;
+  }
+  return ALL_SETTINGS_TABS.filter((tab) => tab.id !== SettingsTab.Account);
+}
+
+export const SETTINGS_TABS: SettingsTabConfig[] = getVisibleSettingsTabs();
+
 function SettingsMenuItem({
   icon: Icon,
   label,
@@ -491,10 +501,16 @@ export function SettingsPage() {
     ? t("settings.backToDestination", { destination: returnDestination.title })
     : t("settings.backToApp");
 
+  const tabsList = useMemo(() => getVisibleSettingsTabs(), []);
+
   useEffect(() => {
     const initial = localStorage.getItem(initialTabKey) as SettingsTab | null;
     if (initial && Object.values(SettingsTab).includes(initial)) {
-      setActiveTab(initial);
+      if (initial === SettingsTab.Account && !isPlethoraCloudAvailable()) {
+        setActiveTab(SettingsTab.General);
+      } else {
+        setActiveTab(initial);
+      }
       localStorage.removeItem(initialTabKey);
       if (isMobile) {
         setShowMobileMenu(false);
@@ -507,7 +523,7 @@ export function SettingsPage() {
     if (!searchQuery.trim()) return null;
 
     const query = searchQuery.toLowerCase();
-    return SETTINGS_TABS.map((tab) => {
+    return tabsList.map((tab) => {
       let score = 0;
       if (tab.label.toLowerCase().includes(query)) score += 3;
       if (tab.keywords.some((k) => k.toLowerCase().includes(query))) score += 2;
@@ -516,7 +532,7 @@ export function SettingsPage() {
     })
       .filter((tab) => tab.score > 0)
       .sort((a, b) => b.score - a.score);
-  }, [searchQuery]);
+  }, [searchQuery, tabsList]);
 
   // window.confirm() is suppressed in the desktop WebView (wry implements no
   // runJavaScriptConfirmPanel delegate) and returns false, which made this
@@ -586,7 +602,7 @@ export function SettingsPage() {
   };
 
   // Current tab config
-  const currentTabConfig = SETTINGS_TABS.find((t) => t.id === activeTab);
+  const currentTabConfig = tabsList.find((t) => t.id === activeTab) || tabsList[0];
 
   return (
     <div className="flex h-full min-w-0 bg-background" data-responsive-surface="settings">
@@ -673,7 +689,7 @@ export function SettingsPage() {
               </div>
             )
           ) : (
-            SETTINGS_TABS.map((tab) => {
+            tabsList.map((tab) => {
               return (
                 <SettingsMenuItem
                   key={tab.id}
@@ -743,7 +759,7 @@ export function SettingsPage() {
         {/* Content */}
         <SafeScrollContainer className="flex-1 p-4 md:p-6">
           <Suspense fallback={<SectionLoadingFallback />}>
-          {activeTab === SettingsTab.Account && <UserProfilePanel />}
+          {activeTab === SettingsTab.Account && isPlethoraCloudAvailable() && <UserProfilePanel />}
           {activeTab === SettingsTab.General && (
             <GeneralSettings onChange={() => setHasChanges(true)} />
           )}
@@ -1719,40 +1735,43 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
         </p>
       </div>
 
-      {/* Cloud Data Export */}
-      <div className="p-6 bg-card border rounded-lg space-y-3">
-        <h3 className="text-base font-semibold text-foreground">Machine-Readable Data Export</h3>
-        <p className="text-sm text-muted-foreground">
-          Download a full, unencrypted JSON archive of your cloud account data, devices, and metadata.
-        </p>
-        <button
-          onClick={handleExportData}
-          disabled={isExporting}
-          className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-sm font-medium transition-colors"
-        >
-          {isExporting ? 'Exporting…' : 'Export Cloud Data (JSON)'}
-        </button>
-      </div>
+      {/* Cloud Data Export (hidden when Plethora Cloud is unavailable) */}
+      {isPlethoraCloudAvailable() && (
+        <div className="p-6 bg-card border rounded-lg space-y-3">
+          <h3 className="text-base font-semibold text-foreground">Machine-Readable Data Export</h3>
+          <p className="text-sm text-muted-foreground">
+            Download a full, unencrypted JSON archive of your cloud account data, devices, and metadata.
+          </p>
+          <button
+            onClick={handleExportData}
+            disabled={isExporting}
+            className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-sm font-medium transition-colors"
+          >
+            {isExporting ? 'Exporting…' : 'Export Cloud Data (JSON)'}
+          </button>
+        </div>
+      )}
 
-      {/* In-App Account Deletion — dedicated multi-step flow (Change F §1.1);
-          also discoverable from Settings → Account within two taps */}
-      <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg space-y-3">
-        <h3 className="text-base font-semibold text-destructive">Delete Account & Wipe Cloud Storage</h3>
-        <p className="text-sm text-muted-foreground">
-          Permanently delete your user account and all cloud data (sessions, devices, tokens,
-          synced data). Your local on-device library is retained; an Apple subscription is not
-          cancelled by deleting your account. This action cannot be undone.
-        </p>
-        <button
-          onClick={() => setShowDeleteFlow(true)}
-          disabled={!isAuthenticated}
-          className="px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-        >
-          Delete Account & Erase Cloud Data
-        </button>
-      </div>
+      {/* In-App Account Deletion (hidden when Plethora Cloud is unavailable) */}
+      {isPlethoraCloudAvailable() && (
+        <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg space-y-3">
+          <h3 className="text-base font-semibold text-destructive">Delete Account & Wipe Cloud Storage</h3>
+          <p className="text-sm text-muted-foreground">
+            Permanently delete your user account and all cloud data (sessions, devices, tokens,
+            synced data). Your local on-device library is retained; an Apple subscription is not
+            cancelled by deleting your account. This action cannot be undone.
+          </p>
+          <button
+            onClick={() => setShowDeleteFlow(true)}
+            disabled={!isAuthenticated}
+            className="px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+          >
+            Delete Account & Erase Cloud Data
+          </button>
+        </div>
+      )}
 
-      {showDeleteFlow && (
+      {isPlethoraCloudAvailable() && showDeleteFlow && (
         <DeleteAccountFlow open onClose={() => setShowDeleteFlow(false)} />
       )}
     </div>
