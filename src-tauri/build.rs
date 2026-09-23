@@ -162,7 +162,7 @@ fn main() {
         let manifest = manifest_dir.join("windows/app.manifest");
         if manifest.is_file() {
             let mut res = tauri_winres::WindowsResource::new();
-            res.set_manifest_file(manifest.to_string_lossy());
+            res.set_manifest_file(&manifest.to_string_lossy());
             if let Err(err) = res.compile() {
                 panic!("failed to compile Windows application manifest: {err}");
             }
