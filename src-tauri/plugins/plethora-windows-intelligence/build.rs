@@ -13,6 +13,8 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rustc-check-cfg=cfg(phi_silica_bridge)");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         try_build_phi_bridge();
     }
@@ -100,6 +102,11 @@ fn try_build_phi_bridge() {
                 println!("cargo:rustc-link-search=native={}", out_dir.display());
                 println!("cargo:rustc-link-lib=static=plethora_phi_silica");
                 println!("cargo:rustc-link-lib=windowsapp");
+                // Only now is it safe for the Rust side to declare the extern
+                // bridge symbols (native_bridge.rs gates on this cfg); every
+                // skip path below leaves it unset so the stub implementation
+                // compiles instead and the crate links without the bridge.
+                println!("cargo:rustc-cfg=phi_silica_bridge");
             }
         }
         _ => println!("cargo:warning=Plethora Phi Silica bridge compile failed"),

@@ -1,6 +1,12 @@
 //! FFI to the C++/WinRT Phi Silica bridge (when compiled).
+//!
+//! The bridge is compiled by build.rs only when MSVC and the Windows App SDK
+//! headers are available; that build emits `phi_silica_bridge` exactly when
+//! the static lib is linked. Without it (any skip path, or non-MSVC hosts)
+//! the stub below compiles instead and callers see `platform_unsupported` /
+//! `winrt_bindings_pending` at runtime — the crate must LINK in both cases.
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", target_env = "msvc", phi_silica_bridge))]
 mod ffi {
     use std::os::raw::{c_char, c_int, c_uint};
 
@@ -124,7 +130,7 @@ mod ffi {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(all(target_os = "windows", target_env = "msvc", phi_silica_bridge)))]
 mod ffi {
     pub fn bridge_available() -> bool {
         false
