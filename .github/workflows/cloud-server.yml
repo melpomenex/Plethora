@@ -85,7 +85,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: server
+          context: .
           file: server/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image locally for smoke test
-        run: docker build -t plethora-cloud:smoke server/
+        run: docker build -t plethora-cloud:smoke -f server/Dockerfile .
 
       - name: Smoke test — missing config fails fast
         run: |
