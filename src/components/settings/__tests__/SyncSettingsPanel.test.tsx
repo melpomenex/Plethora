@@ -56,14 +56,12 @@ beforeEach(() => {
 });
 
 describe('SyncSettingsPanel accountless mode (cloud unavailable)', () => {
-  it('renders Coming Soon card and no account/sync controls', () => {
+  it('renders null and no account/sync controls', () => {
     seedStores();
-    render(<SyncSettingsPanel />);
-    expect(screen.getByText('Plethora Cloud')).toBeTruthy();
-    expect(screen.getByText('Coming Soon')).toBeTruthy();
-    expect(
-      screen.getByText(/Optional end-to-end encrypted synchronization between your devices is coming in a future release/i)
-    ).toBeTruthy();
+    const { container } = render(<SyncSettingsPanel />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('Plethora Cloud')).toBeNull();
+    expect(screen.queryByText('Coming Soon')).toBeNull();
     expect(screen.queryByRole('button', { name: /Sync Now/i })).toBeNull();
     expect(screen.queryByLabelText(/Paste recovery key/i)).toBeNull();
     expect(screen.queryByText(/Sign in to your Plethora account/i)).toBeNull();

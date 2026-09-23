@@ -41,12 +41,12 @@ The application SHALL NOT expose Pro badges, upgrade prompts, subscription prici
 - **WHEN** the `PaywallModal` component mounts
 - **THEN** it renders `null` when cloud availability is disabled
 
-### Requirement: Cloud Sync Informational Notice
-The cloud sync settings surface SHALL present an informational notice explaining that encrypted synchronization is planned for a future release and that Plethora works fully offline without an account.
+### Requirement: Cloud Sync UI Suppression
+The cloud sync settings surface SHALL be cleanly suppressed when Plethora Cloud public availability is disabled, exposing only independent third-party storage providers.
 
 #### Scenario: Viewing cloud storage settings
 - **WHEN** a user navigates to Cloud Storage settings
-- **THEN** the Plethora Cloud sync section displays a "Coming Soon" status badge with offline-first explanatory text, without exposing dead sign-in buttons or recovery key generation controls
+- **THEN** the Plethora Cloud sync section renders `null`, completely suppressing cloud sync controls, future service notices, dead sign-in buttons, and recovery key generation controls
 
 #### Scenario: Independent third-party cloud providers
 - **WHEN** a user accesses Cloud Storage settings

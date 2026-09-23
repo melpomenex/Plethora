@@ -10,7 +10,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?logo=tauri)]()
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)]()
 
-[Features](#-features) • [Product Model](#-product-model) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
+[Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
 </div>
 
@@ -21,14 +21,6 @@
 **Plethora** is a sophisticated desktop application that combines **incremental reading** with **spaced repetition** to help you efficiently process and retain information from large volumes of content.
 
 Built with modern technologies—Tauri, React, and Rust—it offers a beautiful, fast, and cross-platform learning environment that adapts to your needs.
-
-## 🌐 Product Model
-
-**Plethora is free, open source, and local-first. No account is required.**
-
-- **Your data stays on your device**: Your library, reading progress, extracts, notes, and learning history remain stored locally in an embedded SQLite database on your device unless you explicitly configure an external service.
-- **No paywalls or subscriptions**: All reading tools, spaced-repetition algorithms, card creation, local transcription, and analytics are completely free and unmetered.
-- **Future Plethora Cloud**: Plethora Cloud is planned as an optional hosted service providing end-to-end encrypted synchronization between your devices.
 
 ### Core Philosophy
 

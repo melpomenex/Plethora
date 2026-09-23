@@ -20,11 +20,11 @@
 - [x] 4.2 Guard `PaywallModal.tsx` to immediately render `null` when `!isPlethoraCloudAvailable()`.
 - [x] 4.3 Verify monetization and paywall tests pass with paywall opening prevented in public mode.
 
-## 5. Cloud Sync UI & Informational Coming Soon
+## 5. Cloud Sync UI Suppression
 
-- [x] 5.1 Update `SyncSettingsPanel.tsx` to display non-intrusive "Coming Soon" card with offline reassurance and disable sync actions when cloud is unavailable.
+- [x] 5.1 Update `SyncSettingsPanel.tsx` to return `null` and suppress all cloud sync UI when cloud is unavailable.
 - [x] 5.2 Verify third-party storage providers (Google Drive, OneDrive, Dropbox) remain functional in `CloudStorageSettings.tsx`.
-- [x] 5.3 Update `SyncSettingsPanel.test.tsx` to test the coming soon state when cloud is unavailable and active state when cloud is enabled.
+- [x] 5.3 Update `SyncSettingsPanel.test.tsx` to test that `SyncSettingsPanel` renders `null` when cloud is unavailable and active state when cloud is enabled.
 
 ## 6. Capability & Entitlement Semantics
 
