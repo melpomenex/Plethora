@@ -9,7 +9,7 @@ import PackageDescription
 let package = Package(
   name: "plethora-apple-intelligence",
   platforms: [
-    .macOS(.v10_13),
+    .macOS(.v13),
     .iOS(.v13),
   ],
   products: [
