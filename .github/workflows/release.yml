@@ -81,6 +81,23 @@ jobs:
           # repeatedly got the Linux release legs OOM-killed mid-compile.
           sudo apt-get install -y lld
 
+      - name: Add swap and stop oomd (Linux)
+        run: |
+          # Compiling the final plethora-tauri lib needs more memory than the
+          # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
+          # the runner agent down mid-compile ("runner received a shutdown
+          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
+          # the whole user slice on memory-pressure spikes) turns the hard
+          # failure into a slower-but-successful compile.
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo systemctl stop systemd-oomd 2>/dev/null || true
+          free -m
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -450,6 +467,23 @@ jobs:
           # release job's RUSTFLAGS note).
           sudo apt-get install -y lld
 
+      - name: Add swap and stop oomd (Linux)
+        run: |
+          # Compiling the final plethora-tauri lib needs more memory than the
+          # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
+          # the runner agent down mid-compile ("runner received a shutdown
+          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
+          # the whole user slice on memory-pressure spikes) turns the hard
+          # failure into a slower-but-successful compile.
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo systemctl stop systemd-oomd 2>/dev/null || true
+          free -m
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -624,6 +658,23 @@ jobs:
           sudo apt-get install -y lld
           # sqlite + zstd for the -lsqlite3/-lzstd link args below
           sudo apt-get install -y libsqlite3-dev libzstd-dev
+
+      - name: Add swap and stop oomd (Linux)
+        run: |
+          # Compiling the final plethora-tauri lib needs more memory than the
+          # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
+          # the runner agent down mid-compile ("runner received a shutdown
+          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
+          # the whole user slice on memory-pressure spikes) turns the hard
+          # failure into a slower-but-successful compile.
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo systemctl stop systemd-oomd 2>/dev/null || true
+          free -m
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
