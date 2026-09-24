@@ -281,6 +281,14 @@ jobs:
           CARGO_BUILD_JOBS: "1"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
+          # The tauri CLI already cargo-builds the Rust lib and symlinks it into
+          # jniLibs before Gradle runs. Without this property, Gradle's rustBuild
+          # task then calls back into `tauri android android-studio-script`,
+          # which cargo-builds the entire crate graph a second time (~60m; its
+          # fingerprint differs from the CLI's invocation) and blew the 120m job
+          # ceiling. ORG_GRADLE_PROJECT_* exposes it as a Gradle project
+          # property; BuildTask.kt honors it by skipping the rebuild.
+          ORG_GRADLE_PROJECT_plethoraSkipRustBuild: "true"
         run: |
           set -o pipefail
           mkdir -p artifacts/mobile-logs
@@ -428,7 +436,10 @@ jobs:
   ios-build:
     name: iOS build validation (Tauri)
     runs-on: macos-latest
-    timeout-minutes: 45
+    # The cold simulator build compiles for ~30m, then the final crate/link
+    # runs ~25m silent; 45m killed the job mid-link (run 35976688813). Same
+    # headroom rationale as the Android job's 120m.
+    timeout-minutes: 90
     env:
       SKIP_NOTEBOOKLM_SIDECAR: "1"
     permissions:

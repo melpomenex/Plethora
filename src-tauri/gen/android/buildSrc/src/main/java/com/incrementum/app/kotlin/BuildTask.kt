@@ -16,6 +16,13 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
+        // Set via ORG_GRADLE_PROJECT_plethoraSkipRustBuild in CI: the tauri CLI
+        // has already cargo-built the native lib and symlinked it into jniLibs
+        // before Gradle runs, so rebuilding here just duplicates a ~60m build.
+        if (project.findProperty("plethoraSkipRustBuild") == "true") {
+            project.logger.lifecycle("plethoraSkipRustBuild=true — skipping rust build; tauri CLI already produced the native lib.")
+            return
+        }
         val executable = """npm""";
         try {
             runTauriCli(executable)
