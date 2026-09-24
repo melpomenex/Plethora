@@ -9,6 +9,9 @@ permissions:
 jobs:
   sign:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO_FULL: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
@@ -17,10 +20,8 @@ jobs:
           node-version: lts/*
 
       - name: Download APK from release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v3.0.0 --repo "${{ github.repository }}" \
+          gh release download v3.0.0 --repo "$REPO_FULL" \
             --pattern "plethora-android-arm64-signed.apk" --clobber
 
       - name: Sign APK with updater key
@@ -31,20 +32,16 @@ jobs:
           npx --yes @tauri-apps/cli signer sign plethora-android-arm64-signed.apk
 
       - name: Upload .sig to release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload v3.0.0 plethora-android-arm64-signed.apk.sig \
-            --clobber --repo "${{ github.repository }}"
+            --clobber --repo "$REPO_FULL"
 
       - name: Regenerate latest.json with android entry
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           node --input-type=module -e '
             import fs from "node:fs";
             const tag = "v3.0.0";
-            const [owner, repo] = process.env.GH_REPO.split("/");
+            const [owner, repo] = process.env.REPO_FULL.split("/");
             const base = `https://github.com/${owner}/${repo}/releases/download/${tag}`;
             const res = await fetch(
               `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`,
@@ -66,9 +63,6 @@ jobs:
             manifest.platforms["android-aarch64"] = { signature, url: `${base}/${asset}` };
             fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2) + "\n");
           '
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
 
       - name: Verify APK signature against committed pubkey
         run: |
@@ -78,9 +72,7 @@ jobs:
             --sig plethora-android-arm64-signed.apk.sig
 
       - name: Upload latest.json
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v3.0.0 latest.json --clobber --repo "${{ github.repository }}"
+          gh release upload v3.0.0 latest.json --clobber --repo "$REPO_FULL"
           echo "=== manifest ==="
           cat latest.json
