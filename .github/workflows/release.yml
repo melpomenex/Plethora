@@ -82,6 +82,7 @@ jobs:
           sudo apt-get install -y lld
 
       - name: Add swap and stop oomd (Linux)
+        if: matrix.os == 'linux'
         run: |
           # Compiling the final plethora-tauri lib needs more memory than the
           # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
