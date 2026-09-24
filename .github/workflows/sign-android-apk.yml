@@ -1,0 +1,85 @@
+name: One-off Android updater signing (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Download APK from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v3.0.0 --repo "${{ github.repository }}" \
+            --pattern "plethora-android-arm64-signed.apk" --clobber
+
+      - name: Sign APK with updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx --yes @tauri-apps/cli signer sign plethora-android-arm64-signed.apk
+
+      - name: Upload .sig to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v3.0.0 plethora-android-arm64-signed.apk.sig \
+            --clobber --repo "${{ github.repository }}"
+
+      - name: Regenerate latest.json with android entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const tag = "v3.0.0";
+            const [owner, repo] = process.env.GH_REPO.split("/");
+            const base = `https://github.com/${owner}/${repo}/releases/download/${tag}`;
+            const res = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`,
+              { headers: { Accept: "application/vnd.github+json",
+                           Authorization: `Bearer ${process.env.GH_TOKEN}` } });
+            if (!res.ok) throw new Error(`release lookup failed: ${res.status}`);
+            const release = await res.json();
+            const byName = new Map(release.assets.map(a => [a.name, a]));
+            const asset = "plethora-android-arm64-signed.apk";
+            if (!byName.has(asset)) throw new Error(`${asset} missing from release`);
+            const sigRes = await fetch(byName.get(`${asset}.sig`).browser_download_url);
+            const signature = (await sigRes.text()).trim();
+            if (!signature) throw new Error("empty signature");
+
+            // Reuse the existing manifest as the base so desktop entries stay
+            // byte-identical; only add the android-aarch64 entry.
+            const manRes = await fetch(byName.get("latest.json").browser_download_url);
+            const manifest = await manRes.json();
+            manifest.platforms["android-aarch64"] = { signature, url: `${base}/${asset}` };
+            fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+        env:
+          GH_REPO: ${{ github.repository }}
+
+      - name: Verify APK signature against committed pubkey
+        run: |
+          node scripts/verify-update-artifact.mjs \
+            --pubkey-config src-tauri/tauri.conf.json \
+            --artifact plethora-android-arm64-signed.apk \
+            --sig plethora-android-arm64-signed.apk.sig
+
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v3.0.0 latest.json --clobber --repo "${{ github.repository }}"
+          echo "=== manifest ==="
+          cat latest.json
