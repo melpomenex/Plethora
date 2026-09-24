@@ -67,6 +67,7 @@ jobs:
             fs.writeFileSync("latest.json", JSON.stringify(manifest, null, 2) + "\n");
           '
         env:
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
 
       - name: Verify APK signature against committed pubkey
