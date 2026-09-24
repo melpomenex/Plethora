@@ -1,0 +1,8 @@
+test graphics::tests::parse_glxinfo_renderer_finds_renderer_line ... ok
+test graphics::tests::parse_glxinfo_renderer_handles_missing_or_empty ... ok
+test graphics::tests::parse_gpu_mode_variants ... ok
+test graphics::tests::resolve_classifies_renderer_strings ... ok
+test graphics::tests::resolve_falls_back_to_dri_scan_without_glxinfo ... ok
+test graphics::tests::resolve_honors_libgl_force_and_mode_overrides ... ok
+test graphics::tests::resolve_nvidia_module_without_glxinfo_disables_dmabuf ... ok
+test result: FAILED. 1341 passed; 1 failed; 5 ignored; 0 measured; 0 filtered out; finished in 85.35s
