@@ -117,46 +117,47 @@ final class AppleVisionBridge: NSObject, VNDocumentCameraViewControllerDelegate 
   }
 
   private func recognize(cgImage: CGImage, invoke: Invoke, pageCount: Int = 1) {
-    let request = VNRecognizeTextRequest { (request: VNRequest, error: Error?) in
-      if let error {
-        rejectCoded(invoke, "ocr_failed", error.localizedDescription)
-        return
-      }
-      let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
-      var lines: [String] = []
-      var blocks: [JSObject] = []
-      for (i, obs) in observations.enumerated() {
-        guard let top = obs.topCandidates(1).first else { continue }
-        lines.append(top.string)
-        let box = obs.boundingBox
-        blocks.append([
-          "id": "block-\(i)",
-          "text": top.string,
-          "confidence": Double(top.confidence),
-          "x": box.origin.x,
-          "y": box.origin.y,
-          "width": box.size.width,
-          "height": box.size.height,
-        ])
-      }
-      invoke.resolve([
-        "text": lines.joined(separator: "\n"),
-        "html": lines.map { "<p>\($0)</p>" }.joined(),
-        "blocks": blocks,
-        "pageCount": pageCount,
-        "handwritingAdvertised": false,
-      ])
-    }
-    request.recognitionLevel = VNRequestTextRecognitionLevel.accurate
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-    DispatchQueue.global(qos: .userInitiated).async {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       do {
         try handler.perform([request])
+        self?.processObservations(request.results, invoke: invoke, pageCount: pageCount)
       } catch {
         rejectCoded(invoke, "ocr_failed", error.localizedDescription)
       }
     }
+  }
+
+  private func processObservations(_ results: [Any]?, invoke: Invoke, pageCount: Int) {
+    let observations = (results as? [VNRecognizedTextObservation]) ?? []
+    var lines: [String] = []
+    var blocks: [JSObject] = []
+    for (i, obs) in observations.enumerated() {
+      guard let top = obs.topCandidates(1).first else { continue }
+      lines.append(top.string)
+      let box = obs.boundingBox
+      let block: JSObject = [
+        "id": "block-\(i)",
+        "text": top.string,
+        "confidence": Double(top.confidence),
+        "x": Double(box.origin.x),
+        "y": Double(box.origin.y),
+        "width": Double(box.size.width),
+        "height": Double(box.size.height),
+      ]
+      blocks.append(block)
+    }
+    let response: JSObject = [
+      "text": lines.joined(separator: "\n"),
+      "html": lines.map { "<p>\($0)</p>" }.joined(),
+      "blocks": blocks,
+      "pageCount": pageCount,
+      "handwritingAdvertised": false,
+    ]
+    invoke.resolve(response)
   }
 
   private static func topViewController() -> UIViewController? {

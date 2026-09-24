@@ -21,6 +21,7 @@ struct FmCancelArgs: Decodable {
 }
 
 final class AppleFoundationModelsBridge {
+  weak var plugin: Plugin?
   private let core = FmBridgeCore()
 
   func featureState() -> FeatureStatePayload {
@@ -63,8 +64,8 @@ final class AppleFoundationModelsBridge {
     Task {
       do {
         let request = Self.toRequest(args)
-        let response = try await core.generateStream(request) { partial in
-          invoke.emit("apple-fm://text", [
+        let response = try await core.generateStream(request) { [weak self] partial in
+          self?.plugin?.trigger("apple-fm://text", data: [
             "requestId": request.requestId ?? "",
             "text": partial,
           ])
@@ -73,13 +74,13 @@ final class AppleFoundationModelsBridge {
           "requestId": response.requestId,
           "text": response.text,
         ])
-        invoke.emit("apple-fm://complete", [
+        self.plugin?.trigger("apple-fm://complete", data: [
           "requestId": response.requestId,
           "text": response.text,
         ])
       } catch {
         let mapped = await core.mapError(error)
-        invoke.emit("apple-fm://error", [
+        self.plugin?.trigger("apple-fm://error", data: [
           "requestId": args.requestId ?? "",
           "code": mapped.code,
           "message": mapped.message,

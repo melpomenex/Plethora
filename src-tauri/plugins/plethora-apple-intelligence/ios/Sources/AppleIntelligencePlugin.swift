@@ -44,6 +44,11 @@ public class AppleIntelligencePlugin: Plugin {
   let coreAI = AppleCoreAIBridge()
   let translation = AppleTranslationBridge()
 
+  override public init() {
+    super.init()
+    foundation.plugin = self
+  }
+
   @objc public func capabilities(_ invoke: Invoke) throws {
     let _ = try? invoke.parseArgs(EmptyArgs.self)
     let snap = currentSnapshot()
