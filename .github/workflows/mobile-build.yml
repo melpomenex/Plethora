@@ -268,6 +268,28 @@ jobs:
             echo "AR_aarch64_linux_android=$AR_LLVM"
           } >> "$GITHUB_ENV"
 
+      - name: Ensure Android debug keystore exists
+        # build.gradle.kts falls back to ~/.android/debug.keystore for the
+        # release signing config when neither keystore.properties nor
+        # PLETHORA_KEYSTORE* are present (this repo has no Android signing
+        # secrets). On a dev machine that file exists; on the runner it
+        # doesn't, and validateSigningUniversalRelease fails ("Keystore file
+        # ... not found for signing config 'release'"). Recreate the standard
+        # Android debug keystore; the artifact is re-signed by the
+        # "Sign Android APK (release)" step afterwards anyway.
+        run: |
+          set -euo pipefail
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Build Android APK (arm64)
         env:
           # Bound memory: the heavy Rust release build (LTO, codegen-units=1)
