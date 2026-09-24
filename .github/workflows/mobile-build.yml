@@ -28,10 +28,8 @@ jobs:
   android-build:
     name: Android build (Tauri)
     runs-on: ubuntu-latest
-    # The cold build is Rust (~26m) + Gradle APK assembly (Kotlin compile, R8
-    # minify, dex, package, sign) which together exceed 45m. The Rust half is
-    # cached on subsequent runs, but a cold run needs the headroom.
-    timeout-minutes: 120
+    # Maximum execution time allowed by GitHub Actions platform (6 hours / 360 minutes).
+    timeout-minutes: 360
     env:
       SKIP_NOTEBOOKLM_SIDECAR: "1"
     permissions:
@@ -436,10 +434,8 @@ jobs:
   ios-build:
     name: iOS build validation (Tauri)
     runs-on: macos-latest
-    # The cold simulator build compiles for ~30m, then the final crate/link
-    # runs ~25m silent; 45m killed the job mid-link (run 35976688813). Same
-    # headroom rationale as the Android job's 120m.
-    timeout-minutes: 90
+    # Maximum execution time allowed by GitHub Actions platform (6 hours / 360 minutes).
+    timeout-minutes: 360
     env:
       SKIP_NOTEBOOKLM_SIDECAR: "1"
     permissions:
