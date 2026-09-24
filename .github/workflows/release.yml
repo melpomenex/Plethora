@@ -843,7 +843,11 @@ jobs:
               pacman -S --noconfirm --needed base-devel
               useradd -m builder
               chown -R builder:builder /pkg
-              su builder -c "cd /pkg && makepkg --noconfirm --nosign"
+              # --nodeps only skips checking that the runtime deps are
+              # installed in this throwaway container (they are end-user deps:
+              # webkit2gtk, gtk3, ...); makepkg still records them in the
+              # package metadata for pacman -S.
+              su builder -c "cd /pkg && makepkg --noconfirm --nosign --nodeps"
             '
 
       - name: Upload Pacman to release
