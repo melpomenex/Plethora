@@ -165,6 +165,7 @@ import {
   type SelectionActionId,
 } from "./selectionInteraction/selectionActionRegistry";
 import { attachHtmlSelectionBridge } from "./selectionInteraction/htmlSelectionBridge";
+import { recordSelectionActionInvocation } from "./selectionInteraction/selectionActionUsage";
 import { placeAnchoredBar, type BarPlacement } from "./selectionInteraction/geometry";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
@@ -2551,6 +2552,7 @@ export function DocumentViewer({
     const effectiveContext = selectionContext ?? contextOverride;
 
     const runAiAction = (action: SelectionAiAction) => {
+      recordSelectionActionInvocation(action);
       // V2: route through the controller — the run consumes the
       // immutable snapshot, so a collapsing native selection cannot
       // cancel it. Legacy: capture now, while the selection is live.
@@ -2568,6 +2570,7 @@ export function DocumentViewer({
     };
 
     const createExtractFromMenu = (color?: string) => {
+      recordSelectionActionInvocation(color ? "highlight" : "extract");
       const controller = selectionControllerRef.current;
       const snapshot = selectionV2 ? controller.captureForAction() : null;
       if (snapshot) {
@@ -2616,6 +2619,7 @@ export function DocumentViewer({
         label: t(selectionActionLabelKey(action, "menu")),
         icon: <action.icon className="w-4 h-4" />,
         onClick: () => {
+          recordSelectionActionInvocation("extractDialog");
           setSelectedText(selectedText);
           lastSelectionRef.current = selectedText;
           setIsExtractDialogOpen(true);
@@ -2638,6 +2642,7 @@ export function DocumentViewer({
         shortcut: "Ctrl+C",
         icon: <action.icon className="w-4 h-4" />,
         onClick: () => {
+          recordSelectionActionInvocation("copy");
           navigator.clipboard.writeText(selectedText);
         },
       }),
@@ -2648,6 +2653,7 @@ export function DocumentViewer({
         onClick: () => {
           const word = selectedText.trim().split(/\s+/)[0] || "";
           if (!word) return;
+          recordSelectionActionInvocation("dictionary");
           setIsDictionaryLoading(true);
           lookupDictionary(word)
             .then((result) => setDictionaryResult(result))
@@ -2662,6 +2668,7 @@ export function DocumentViewer({
         label: t(selectionActionLabelKey(action, "menu")),
         icon: <action.icon className="w-4 h-4" />,
         onClick: () => {
+          recordSelectionActionInvocation("flashcard");
           setFlashcardStudioSeed({
             key: `ctx-${currentDocument?.id}-${Date.now()}`,
             documentId: currentDocument?.id,
@@ -2676,11 +2683,13 @@ export function DocumentViewer({
         id: action.id,
         label: t(selectionActionLabelKey(action, "menu")),
         icon: <action.icon className="w-4 h-4" />,
-        onClick: () =>
+        onClick: () => {
+          recordSelectionActionInvocation("learnThis");
           setLearnThisRequest({
             text: selectedText,
             passage: buildSelectionPassage(selectedText),
-          }),
+          });
+        },
       }),
     };
     const buildAiMenuItem = (action: SelectionActionDescriptor): ContextMenuItem => ({

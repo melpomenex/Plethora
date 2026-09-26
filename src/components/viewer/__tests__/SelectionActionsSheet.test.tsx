@@ -144,6 +144,24 @@ describe("SelectionActionsSheet", () => {
     expect(screen.getByText("selectionSheet.explain")).toBeTruthy();
   });
 
+  it("records a content-free usage signal when a row is invoked (D8)", async () => {
+    const { useSelectionActionUsageStore } = await import(
+      "../selectionInteraction/selectionActionUsage"
+    );
+    useSelectionActionUsageStore.getState().resetUsage();
+
+    renderSheet();
+    fireEvent.click(screen.getByText("selectionSheet.explain"));
+    await waitFor(() => expect(screen.getByText("An explanation.")).toBeTruthy());
+    expect(useSelectionActionUsageStore.getState().counts.explain).toBe(1);
+
+    // The recorded state is action ids only — never the selected text.
+    expect(JSON.stringify(useSelectionActionUsageStore.getState().counts)).not.toContain(
+      "The heart pumps blood"
+    );
+    useSelectionActionUsageStore.getState().resetUsage();
+  });
+
   it("hides the AI rows when no AI path is available", () => {
     availability.available = false;
     availability.path = "none";

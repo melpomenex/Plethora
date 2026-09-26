@@ -68,6 +68,7 @@ import {
   type SelectionActionDescriptor,
   type SelectionAiAction,
 } from "./selectionInteraction/selectionActionRegistry";
+import { recordSelectionActionInvocation } from "./selectionInteraction/selectionActionUsage";
 
 /** Document context for the "Learn this" proposal (task 2.3). */
 export interface LearnThisContext {
@@ -574,6 +575,12 @@ export function SelectionActionsSheet({
   const renderSheetAction = (action: SelectionActionDescriptor) => {
     const label = t(selectionActionLabelKey(action, "sheet"));
     const Icon = action.icon;
+    // Content-free usage signal for every sheet row (design D8): which
+    // action was chosen, never the selected text.
+    const track = (run: () => void) => () => {
+      recordSelectionActionInvocation(action.id);
+      run();
+    };
     switch (action.id) {
       case "extract":
         return (
@@ -581,7 +588,7 @@ export function SelectionActionsSheet({
             key={action.id}
             className={mobileSheetItemClass}
             disabled={extractSaveState === "saving"}
-            onClick={async () => {
+            onClick={track(async () => {
               if (extractSaveState === "saving") return;
               setExtractSaveState("saving");
               try {
@@ -597,7 +604,7 @@ export function SelectionActionsSheet({
                 console.error("Failed to create extract:", err);
                 setExtractSaveState("error");
               }
-            }}
+            })}
           >
             <Lightbulb className="w-5 h-5" aria-hidden="true" />
             {label}
@@ -608,10 +615,10 @@ export function SelectionActionsSheet({
           <button
             key={action.id}
             className={mobileSheetItemClass}
-            onClick={() => {
+            onClick={track(() => {
               void copySelectionTextToClipboard(text);
               onClose();
-            }}
+            })}
           >
             <Copy className="w-5 h-5" aria-hidden="true" />
             {label}
@@ -619,7 +626,7 @@ export function SelectionActionsSheet({
         );
       case "ask":
         return (
-          <button key={action.id} className={mobileSheetItemClass} onClick={() => setMode("asking")}>
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(() => setMode("asking"))}>
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />
             </span>
@@ -628,7 +635,7 @@ export function SelectionActionsSheet({
         );
       case "learnThis":
         return (
-          <button key={action.id} className={mobileSheetItemClass} onClick={() => setShowLearnThis(true)}>
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(() => setShowLearnThis(true))}>
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />
             </span>
@@ -637,7 +644,7 @@ export function SelectionActionsSheet({
         );
       case "askLibrary":
         return (
-          <button key={action.id} className={mobileSheetItemClass} onClick={() => setMode("library")}>
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(() => setMode("library"))}>
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />
             </span>
@@ -646,7 +653,7 @@ export function SelectionActionsSheet({
         );
       case "socraticTutor":
         return (
-          <button key={action.id} className={mobileSheetItemClass} onClick={() => setShowTutor(true)}>
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(() => setShowTutor(true))}>
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />
             </span>
@@ -655,7 +662,7 @@ export function SelectionActionsSheet({
         );
       case "prerequisites":
         return (
-          <button key={action.id} className={mobileSheetItemClass} onClick={startPrerequisites}>
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(startPrerequisites)}>
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />
             </span>
@@ -667,7 +674,7 @@ export function SelectionActionsSheet({
           <button
             key={action.id}
             className={mobileSheetItemClass}
-            onClick={() => start(action.id as SelectionAiAction)}
+            onClick={track(() => start(action.id as SelectionAiAction))}
           >
             <span aria-hidden="true">
               <Icon className="w-5 h-5" />

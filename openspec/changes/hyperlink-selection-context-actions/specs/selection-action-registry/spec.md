@@ -48,3 +48,37 @@ The registry migration SHALL be behavior-preserving for surfaces that already ha
 
 - **WHEN** the user selects text in an EPUB after the registry migration
 - **THEN** the available actions (including summarize, extract, flashcard creation, highlighting, and copy) match the pre-migration set for the same document and selection
+
+### Requirement: The anchored bar reorders to keep the user's most-used actions easiest to reach
+
+The compact anchored bar SHALL order its actions by the user's recorded invocation counts — most-used first — once a minimum total number of invocations has accumulated. Below that threshold, and for ties, the canonical registry order SHALL apply, and availability gating SHALL NOT be weakened by popularity. Usage counts SHALL record only which action was chosen (no selected text, no document content) and SHALL remain local to the device.
+
+#### Scenario: A frequent extractor sees Extract first
+
+- **GIVEN** the user has invoked selection actions enough times to cross the adaptation threshold, with extract being the most-invoked action
+- **WHEN** the anchored bar appears for a new selection
+- **THEN** the Extract action is the first chip, ahead of the canonical front-runners
+
+#### Scenario: Sparse usage keeps the canonical order
+
+- **GIVEN** fewer than the minimum total invocations have been recorded
+- **WHEN** the anchored bar appears
+- **THEN** the chips are in the canonical registry order
+
+#### Scenario: Equally-used actions never jitter
+
+- **GIVEN** two actions with equal invocation counts
+- **WHEN** the bar is ordered
+- **THEN** the tie resolves to the canonical registry order
+
+#### Scenario: Popularity does not bypass availability
+
+- **GIVEN** an action with the highest invocation count that is not available on the current surface
+- **WHEN** the bar is ordered
+- **THEN** that action is not shown at all
+
+#### Scenario: Usage counts stay local and content-free
+
+- **WHEN** an action is invoked from the bar, the action sheet, or the context menu
+- **THEN** only the action identifier is counted
+- **AND** the counts are persisted on the device without ever including selected text or document content

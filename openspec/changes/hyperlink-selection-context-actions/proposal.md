@@ -12,6 +12,7 @@ Plethora's product principle is "anything readable in Plethora should also be st
 
 ## What Changes
 
+- **Usage-ranked bar ordering:** the anchored bar reorders its actions most-used-first after a cold-start threshold, from local content-free invocation counts recorded at every dispatch surface (bar, sheet, context menu) — a user who extracts constantly sees Extract as the first chip.
 - **Selection action registry (new shared infrastructure):** consolidate the selection action set (summarize, explain, ask, extract, flashcard, highlight, copy, dictionary, TTS read-from-here, learn-this) into one centralized, type-safe registry module. The anchored bar, mobile action sheet, and desktop context menu all derive their items and dispatch from the registry instead of three parallel inline enumerations. Adding an action becomes one registry entry plus one handler route.
 - **HTML selection context parity:** the HTML reader iframe registration gains a `buildSelectionContext` (producing `TextSelectionContext { surface: "html" }` with offsets) so selection capture is synchronous and race-free, matching the EPUB bridge contract.
 - **Desktop provenance fix:** the HTML iframe context-menu path captures and forwards the real selection context instead of `null`, so desktop right-click extracts/highlights keep their anchors, same as EPUB.

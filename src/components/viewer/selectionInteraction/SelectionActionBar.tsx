@@ -25,6 +25,11 @@ import {
   type SelectionActionId,
   type SelectionBarAction,
 } from "./selectionActionRegistry";
+import {
+  rankBarActionsByUsage,
+  recordSelectionActionInvocation,
+  useSelectionActionUsageStore,
+} from "./selectionActionUsage";
 
 export type { SelectionBarAction };
 
@@ -103,6 +108,9 @@ export function SelectionActionBar({
   const { t } = useI18n();
   const { reducedMotion } = usePresentation();
   const barRef = useRef<HTMLDivElement>(null);
+  // Most-used actions float to the front once enough local usage exists
+  // (D8) — the bar scrolls horizontally, so position is reach.
+  const usageCounts = useSelectionActionUsageStore((s) => s.counts);
 
   // Back-button dismissal (overlayStack) + Escape with focus return.
   useOverlayDismissal(Boolean(placement), () => {
@@ -121,12 +129,15 @@ export function SelectionActionBar({
 
   if (!placement) return null;
 
-  const actions = getSelectionActions("bar", {
-    aiAvailable,
-    canExtract,
-    canReadAloud,
-    learnThisHandlerAvailable: Boolean(showLearnThis && onLearnThis),
-  });
+  const actions = rankBarActionsByUsage(
+    getSelectionActions("bar", {
+      aiAvailable,
+      canExtract,
+      canReadAloud,
+      learnThisHandlerAvailable: Boolean(showLearnThis && onLearnThis),
+    }),
+    usageCounts,
+  );
 
   return createPortal(
     <div
@@ -146,6 +157,15 @@ export function SelectionActionBar({
       {actions.map((action) => {
         const style = BAR_CHIP_STYLE[action.id] ?? { weight: "bold" as const };
         const Icon = action.icon;
+        const activate = () => {
+          // Content-free usage signal: which action was chosen (D8).
+          recordSelectionActionInvocation(action.id);
+          if (action.id === "learnThis") {
+            onLearnThis?.();
+          } else {
+            onAction(action.id as SelectionBarAction);
+          }
+        };
         return (
           <Chip
             key={action.id}
@@ -153,9 +173,7 @@ export function SelectionActionBar({
             label={t(selectionActionLabelKey(action, "bar"))}
             icon={<Icon className="h-4 w-4" weight={style.weight} />}
             showcaseAction={style.showcase}
-            onClick={() =>
-              action.id === "learnThis" ? onLearnThis?.() : onAction(action.id as SelectionBarAction)
-            }
+            onClick={activate}
           />
         );
       })}

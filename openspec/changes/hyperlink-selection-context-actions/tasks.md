@@ -41,3 +41,10 @@
 - [x] 7.2 Run `npm run bench:check`; if selection-path costs intentionally changed, update `scripts/perf-baselines.json` in the same change with justification
 - [ ] 7.3 Manual platform pass on Linux desktop and Android: save a hyperlink from the browser/share sheet → open in reader → select multi-paragraph text → menu on right-click and touch → Summarize, Extract, Flashcard, Highlight, Copy → view source from the flashcard returns to the passage → EPUB selection still behaves identically → confirm no network request on menu open and canonical articles remain script-free (devtools network panel)
 - [x] 7.4 Run `openspec validate hyperlink-selection-context-actions --strict` and fix any reported issues
+
+## 8. Usage-ranked bar ordering (design D8)
+
+- [x] 8.1 Create `selectionInteraction/selectionActionUsage.ts`: persisted content-free invocation counts (`plethora-selection-action-usage`), `recordSelectionActionInvocation`, and `rankBarActionsByUsage` with the `BAR_ADAPTATION_MIN_INVOCATIONS` cold-start threshold and canonical tie-break; verified by unit tests covering threshold, tie-break, availability-precedence, and content-free persistence
+- [x] 8.2 Rank the anchored bar's chips by usage (after availability filtering) and record chip activations in `SelectionActionBar` — covers every host that renders the bar; verified by the adaptive-ordering surfaceIntegration test (canonical → record extract ×9 → extract renders first, click increments count)
+- [x] 8.3 Record invocations from the action sheet rows (`renderSheetAction` track wrapper) and the desktop context-menu dispatch points in DocumentViewer (extract/highlight/extractDialog/copy/dictionary/flashcard/learnThis/AI actions); verified by the sheet recording test plus tsc
+- [x] 8.4 Update the registry spec delta, design (D8), and proposal; `openspec validate --strict` passes

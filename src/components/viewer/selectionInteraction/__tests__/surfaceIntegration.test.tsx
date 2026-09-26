@@ -541,6 +541,53 @@ describe("SelectionActionBar (task 3.1)", () => {
     }
   });
 
+  it("reorders chips most-used-first once usage crosses the threshold (D8)", async () => {
+    const { useSelectionActionUsageStore } = await import("../selectionActionUsage");
+    const resetUsage = () => useSelectionActionUsageStore.getState().resetUsage();
+    resetUsage();
+
+    const onAction = vi.fn();
+    const chipLabels = () =>
+      [...screen.getByRole("toolbar").querySelectorAll("button")].map((b) => b.textContent);
+
+    const { rerender } = render(
+      <SelectionActionBar
+        placement={{ top: 100, left: 20, maxWidth: 280, placement: "above" }}
+        onAction={onAction}
+        onOverflow={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    // Canonical order before any signal (labels are i18n keys in this suite).
+    expect(chipLabels().slice(0, 3)).toEqual([
+      "selectionSheet.summarize",
+      "selectionSheet.explain",
+      "selectionBar.ask",
+    ]);
+
+    // Heavy extractor: extract climbs to the front only after the threshold.
+    for (let i = 0; i < 9; i += 1) {
+      useSelectionActionUsageStore.getState().recordInvocation("extract");
+    }
+    rerender(
+      <SelectionActionBar
+        placement={{ top: 100, left: 20, maxWidth: 280, placement: "above" }}
+        onAction={onAction}
+        onOverflow={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(chipLabels()[0]).toBe("selectionSheet.createExtract");
+
+    // Chip activation records the invocation (content-free signal).
+    const before = useSelectionActionUsageStore.getState().counts.extract ?? 0;
+    screen.getByRole("toolbar").querySelectorAll("button")[0]!.click();
+    expect(onAction).toHaveBeenCalledWith("extract");
+    expect(useSelectionActionUsageStore.getState().counts.extract).toBe(before + 1);
+
+    resetUsage();
+  });
+
   describe("Extract snapshot capture on collapsed selection (Task 1.1)", () => {
     beforeEach(() => {
       vi.useFakeTimers();

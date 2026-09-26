@@ -71,6 +71,12 @@ Attach a click interceptor to the iframe document alongside the existing selecti
 
 All new wiring lives in the parent app or the same-origin, script-free iframe. Canonical articles keep `sandbox="allow-same-origin"`; no change to the DOMPurify contract in `sanitizer.ts` or to `prepareHtmlDocument`'s script/style stripping. Link interception filters schemes; nothing in the selection path evaluates captured strings. The menu presentation path performs no I/O (spec: "Opening the selection menu performs no network access").
 
+### D8: Usage-ranked bar ordering — local, content-free counts with a cold-start threshold
+
+The anchored bar scrolls horizontally, so chip position is reach. `selectionActionUsage.ts` keeps per-action invocation counts in a small persisted store (`plethora-selection-action-usage`, localStorage — deliberately NOT part of cross-device sync), recorded at every dispatch surface: the bar's own chips, the sheet's rows, and the desktop context-menu handlers. The bar ranks its availability-filtered actions most-used-first only after `BAR_ADAPTATION_MIN_INVOCATIONS` (8) total invocations; below the threshold, and for all ties, the canonical registry order stands (stable sort), so the bar never jump-reorders during early use or between equals. Popularity never weakens availability gating — ranking is applied after filtering. Counts record action ids only, never selected text (privacy per PRD §26).
+
+*Alternative rejected:* recording only bar invocations — a user who extracts via the ⋯ sheet or desktop menu would see no adaptation on mobile. *Alternative rejected:* syncing counts across devices — one device's usage shouldn't surprise another's muscle memory, and it avoids new sync surface.
+
 ## Risks / Trade-offs
 
 - [Registry extraction regresses EPUB/PDF/markdown menus] → behavior-preserving first step + parity tests per surface; spec scenario "EPUB selection menu keeps its full action set" is the guard.
