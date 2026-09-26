@@ -54,6 +54,7 @@ import { summarizePassage } from "../../../../lib/ai/passageAI";
 import { SelectionActionsSheet } from "../../SelectionActionsSheet";
 import { useSelectionInteraction } from "../useSelectionInteraction";
 import { SelectionActionBar } from "../SelectionActionBar";
+import { attachHtmlSelectionBridge } from "../htmlSelectionBridge";
 import { buildTextSelectionContext } from "../../../../utils/textHighlights";
 import type { CapturedSelection } from "../machine";
 import type { TextSelectionContext } from "../../../../types/selection";
@@ -291,6 +292,56 @@ describe("HTML article iframe surface (hyperlink-selection-context-actions 2.2)"
       snapshot = result.current.captureForAction();
     });
     expect((snapshot!.selectionContext as TextSelectionContext)?.anchor?.textQuote.exact).toBe("web articl");
+  });
+
+  it("re-attaches on iframe load so late-loaded srcDoc content still drives the bar (task 2.4)", () => {
+    // Production sequence for a share-sheet article: the iframe element
+    // mounts (bridge attaches against the pre-navigation document), the
+    // srcDoc article content loads afterwards and fires "load", and only
+    // THEN does the user long-press select. A real browser replaces the
+    // iframe Document on that navigation — the bridge must re-register or
+    // touch selections never reach the machine (only the native system pill
+    // shows, never Plethora's action bar).
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "html", documentId: "d1", enabled: true }),
+    );
+    let detachBridge: (() => void) | null = null;
+    act(() => {
+      detachBridge = attachHtmlSelectionBridge({
+        frame: iframe,
+        controller: result.current,
+        documentId: "d1",
+      });
+    });
+
+    // The article content "loads" after the bridge was attached.
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML =
+      `<article class="inc-article"><div class="inc-body">` +
+      `<p>shared article paragraph with selectable text</p>` +
+      `</div></article>`;
+    act(() => {
+      iframe.dispatchEvent(new Event("load"));
+    });
+
+    const para = doc.querySelector("p")!;
+    touchStart(doc.body);
+    selectRange(para.firstChild!, 0, para.firstChild!, 15, iframe.contentWindow!);
+    touchEnd(doc.body);
+    settle();
+    expect(result.current.phase).toBe("ready");
+    const ctx = result.current.readySelection?.selectionContext as TextSelectionContext;
+    expect(ctx?.surface).toBe("html");
+    expect(ctx?.selectedText).toBe("shared article");
+    expect(ctx?.anchor?.textQuote.exact).toBe("shared article");
+    expect(result.current.placement).not.toBeNull();
+
+    // Detach tears the load listener down with the bridge.
+    act(() => {
+      detachBridge?.();
+    });
   });
 });
 

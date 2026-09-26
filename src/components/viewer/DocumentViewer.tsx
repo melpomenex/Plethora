@@ -164,6 +164,7 @@ import {
   type SelectionActionDescriptor,
   type SelectionActionId,
 } from "./selectionInteraction/selectionActionRegistry";
+import { attachHtmlSelectionBridge } from "./selectionInteraction/htmlSelectionBridge";
 import { placeAnchoredBar, type BarPlacement } from "./selectionInteraction/geometry";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
@@ -1543,43 +1544,18 @@ export function DocumentViewer({
 
   // V2: register the HTML document's iframe (html docType renders inside an
   // iframe like EPUB) so selection activity there drives the machine too.
-  // The context builder captures the TextSelectionContext (with its durable
-  // quote anchor) synchronously at settle, matching the EPUB bridge contract
-  // instead of relying on the legacy listener racing the settle phase.
+  // attachHtmlSelectionBridge is load-aware: a srcDoc navigation replaces
+  // the iframe's Document after mount, and the bridge must re-attach to the
+  // live document or touch selections never reach the machine (only the
+  // native system pill would show — EPUB re-registers per spine item for the
+  // same reason). See selectionInteraction/htmlSelectionBridge.ts.
   useEffect(() => {
     if (!selectionV2 || docType !== "html" || !iframeElement) return;
-    const frame = iframeElement;
-    const win = frame.contentWindow;
-    const doc = frame.contentDocument;
-    if (!win || !doc) return;
-    const detach = selectionControllerRef.current.registerContentDocument({
-      doc,
-      win,
-      offset: () => {
-        try {
-          const rect = frame.getBoundingClientRect();
-          return { x: rect.left, y: rect.top };
-        } catch {
-          return null;
-        }
-      },
-      buildSelectionContext: (range: Range) => {
-        const body = doc.body;
-        if (!body) return null;
-        try {
-          return buildTextSelectionContext({
-            root: body,
-            range,
-            documentId,
-            surface: "html",
-          });
-        } catch {
-          // Cross-document range issues fall back to the legacy listener path.
-          return null;
-        }
-      },
+    return attachHtmlSelectionBridge({
+      frame: iframeElement,
+      controller: selectionControllerRef.current,
+      documentId,
     });
-    return detach;
   }, [selectionV2, docType, iframeElement, documentId]);
 
   // V2: view-mode switches (pdf ↔ reflow ↔ ocr-html) invalidate selection

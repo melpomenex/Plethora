@@ -9,6 +9,7 @@
 
 - [x] 2.1 Extend `buildTextSelectionContext` (`src/utils/textHighlights.ts`) to capture a `WebSelectionAnchor` (exact/prefix/suffix bounded to ~64 chars, optional container selector) without extra DOM passes; verify unit tests cover multi-paragraph ranges, inline links inside the range, Unicode, and RTL text
 - [x] 2.2 Pass `buildSelectionContext` in the HTML iframe V2 registration (`DocumentViewer.tsx:1537-1560`); verify a test asserting the controller's `CapturedSelection.selectionContext` is a `TextSelectionContext{surface:"html"}` captured synchronously at settle (no reliance on the legacy `updateSelection` path)
+- [x] 2.4 Make the HTML iframe bridge load-aware (`selectionInteraction/htmlSelectionBridge.ts`): a srcDoc navigation replaces the iframe Document after mount, killing the once-attached bridge listeners — on touch devices the machine never saw the selection and only Android's native pill (Copy/Share/Select All) appeared instead of Plethora's action bar. Re-attach on every iframe load; verified by the task-2.4 surfaceIntegration test (bridge attached before content exists → late load → touch select → ready with anchored context)
 - [x] 2.3 Fix `attachHtmlIframeContextMenuListener` (`DocumentViewer.tsx:6536-6563`) to capture and forward the real selection context instead of `null`; verify a test asserting a desktop right-click extract on an html article persists offsets + anchor, and a highlight created via that menu repaints after document reopen
 
 ## 3. Menu lifecycle and keyboard access
