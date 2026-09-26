@@ -28,7 +28,7 @@ import {
   parseCardSourceReference,
   type CardSourceReference,
 } from "../types/cardSourceReference";
-import type { PdfSelectionContext, SelectionContext } from "../types/selection";
+import type { PdfSelectionContext, SelectionContext, WebSelectionAnchor } from "../types/selection";
 import { normalizeSearchText, resolveCitationLocation } from "./resolveCitationLocation";
 import { openDocumentAtLocation } from "./openDocumentAtLocation";
 import type { TabsState } from "../stores/tabsStore";
@@ -104,13 +104,16 @@ export function locatorFromSelectionContext(
   if (context.type === "epub" && typeof context.cfiRange === "string" && context.cfiRange) {
     return { kind: "epub", cfi: context.cfiRange, cfiRange: context.cfiRange };
   }
-  if (context.type === "text" && typeof context.startOffset === "number") {
+  if (context.type === "text" && (typeof context.startOffset === "number" || context.anchor)) {
+    const anchor = context.anchor;
     return {
       kind: context.surface === "markdown" ? "markdown" : "html",
       textQuote:
-        typeof context.selectedText === "string" && context.selectedText.trim()
+        anchor?.textQuote.exact?.trim() ||
+        (typeof context.selectedText === "string" && context.selectedText.trim()
           ? quoteFor(context.selectedText)
-          : undefined,
+          : undefined),
+      ...(anchor?.selector ? { selector: anchor.selector } : {}),
     };
   }
   // Hands-free audio captures persist an `AudioCaptureProvenance` payload in
@@ -155,6 +158,39 @@ function countQuoteMatches(
     index = normalizedRegion.indexOf(normalizedQuote, index + normalizedQuote.length);
   }
   return count;
+}
+
+/**
+ * Resolve a durable anchor against the document text, requiring the capture-
+ * time prefix/suffix context to confirm the occurrence. Repeated passages
+ * that the surrounding context cannot disambiguate are ambiguous (0 = no
+ * confirmed match, 1 = unique, >1 = ambiguous).
+ */
+function countAnchorConfirmedMatches(content: string, anchor: WebSelectionAnchor): number {
+  const exact = normalizeSearchText(anchor.textQuote.exact);
+  if (!exact) return 0;
+  const prefix = normalizeSearchText(anchor.textQuote.prefix);
+  const suffix = normalizeSearchText(anchor.textQuote.suffix);
+  const normalized = normalizeSearchText(content);
+  // Boundary whitespace is folded away by normalization on both sides; pad
+  // the context windows so adjacency stays whitespace-tolerant.
+  const pad = 8;
+  let confirmed = 0;
+  let index = normalized.indexOf(exact);
+  while (index !== -1) {
+    const before = prefix
+      ? normalized.slice(Math.max(0, index - prefix.length - pad), index).trimEnd()
+      : "";
+    const after = suffix
+      ? normalized.slice(index + exact.length, index + exact.length + suffix.length + pad).trimStart()
+      : "";
+    if ((!prefix || before.endsWith(prefix)) && (!suffix || after.startsWith(suffix))) {
+      confirmed += 1;
+      if (confirmed > 1) return confirmed;
+    }
+    index = normalized.indexOf(exact, index + exact.length);
+  }
+  return confirmed;
 }
 
 /** The document from the store, loading the list once if it is not cached. */
@@ -276,6 +312,38 @@ async function resolveFromExtract(
     // structural locators (PDF page / EPUB CFI / timestamps) go as-is — the
     // viewer performs its own verified text matching for the highlight.
     if (location.kind === "html" || location.kind === "markdown") {
+      // A durable anchor carries capture-time context: prefer an occurrence
+      // confirmed by its prefix/suffix before falling back to the plain
+      // quote count (legacy offsets-only extracts have no anchor).
+      const anchor = (extract.selection_context as SelectionContext | null | undefined)?.type === "text"
+        ? (extract.selection_context as { anchor?: WebSelectionAnchor }).anchor
+        : undefined;
+      if (anchor) {
+        const confirmed = countAnchorConfirmedMatches(document.content ?? "", anchor);
+        if (confirmed === 1) {
+          return {
+            status: "ready",
+            confidence: "exact",
+            documentId: document.id,
+            location,
+            highlightQuery: location.textQuote ?? quoteFor(excerpt),
+            excerpt,
+            sectionLabel: label,
+          };
+        }
+        if (confirmed > 1) {
+          return {
+            status: "coarse",
+            reason: "ambiguous",
+            documentId: document.id,
+            location,
+            excerpt,
+            sectionLabel: label,
+          };
+        }
+        // No context-confirmed occurrence: fall through to the plain quote
+        // count, which still resolves single bare occurrences.
+      }
       const quote = location.textQuote ?? excerpt;
       const matches = countQuoteMatches(document.content ?? "", quote, undefined);
       if (matches > 1) {

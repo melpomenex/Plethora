@@ -54,5 +54,40 @@ describe('classifyHtmlReader', () => {
     ).toBe('ocr-html');
     expect(classifyHtmlReader({ fileType: 'html', html: '<p>Raw</p>' }).kind).toBe('raw-html');
   });
+
+  it('classifies preserved capture failures ahead of every other kind (FR-15)', () => {
+    expect(
+      classifyHtmlReader({
+        fileType: 'html',
+        html: '<p>This link was saved, but its content could not be captured.</p>',
+        metadata: {
+          source: 'https://example.com/a',
+          captureFailed: { reason: 'network', at: '2026-09-26T00:00:00Z' },
+        },
+      }).kind
+    ).toBe('capture-failed');
+
+    // Even canonical-looking content stays a capture-failure source: the
+    // marker is authoritative until a retry upgrades the record.
+    expect(
+      classifyHtmlReader({
+        fileType: 'html',
+        html: canonical,
+        metadata: {
+          webArticle: { extractor: 'defuddle' } as never,
+          captureFailed: { reason: 'extraction', at: '2026-09-26T00:00:00Z' },
+        },
+      }).kind
+    ).toBe('capture-failed');
+
+    // Without the marker, the same placeholder content classifies raw.
+    expect(
+      classifyHtmlReader({
+        fileType: 'html',
+        html: '<p>This link was saved, but its content could not be captured.</p>',
+        metadata: { source: 'https://example.com/a' },
+      }).kind
+    ).toBe('raw-html');
+  });
 });
 

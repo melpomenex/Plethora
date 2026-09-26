@@ -107,10 +107,14 @@ function isDirectFileUrl(url: string): boolean {
 
 /** Persist a pipeline (or raw-fallback) article outcome as an Incrementum
  *  document: create → snapshot → single web-article UPDATE (content +
- *  metadata + canonical source_url + cover) → tags/category/priority. */
+ *  metadata + canonical source_url + cover) → tags/category/priority.
+ *  When `upgradeDocumentId` is given (retry of a preserved capture-failure
+ *  source), the existing record is updated in place instead of creating a
+ *  duplicate. */
 async function persistWebArticleOutcome(
   outcome: ArticleImportOutcome,
-  options: NewDocumentPersistencePolicy = {}
+  options: NewDocumentPersistencePolicy = {},
+  upgrade?: { documentId: string }
 ): Promise<Document> {
   const { article, diagnostics } = outcome;
   const hostname = hostnameOf(outcome.canonicalUrl);
@@ -168,12 +172,14 @@ async function persistWebArticleOutcome(
   }
 
   const collectionId = useCollectionStore.getState().activeCollectionId;
-  const doc = await documentsApi.createDocument(
-    article.title || `Web Content - ${hostname}`,
-    outcome.canonicalUrl,
-    "html",
-    collectionId
-  );
+  const doc = upgrade
+    ? await documentsApi.getDocument(upgrade.documentId)
+    : await documentsApi.createDocument(
+        article.title || `Web Content - ${hostname}`,
+        outcome.canonicalUrl,
+        "html",
+        collectionId
+      );
 
   // Raw-source snapshot (retention setting; skip silently off-platform).
   const keepRaw = useSettingsStore.getState().settings.documents.webImportKeepRawSource;
@@ -234,11 +240,15 @@ async function persistWebArticleOutcome(
     return finalDoc;
   } catch (error) {
     // A provisionally created shell must not survive as a misleading HTML
-    // document when canonical content/provenance persistence fails.
-    try {
-      await documentsApi.deleteDocument(doc.id);
-    } catch (cleanupError) {
-      console.warn("[documentStore] failed to clean up provisional web article", cleanupError);
+    // document when canonical content/provenance persistence fails. An
+    // upgrade target (preserved capture-failure source) is kept: losing it
+    // would discard the user's saved URL (FR-15).
+    if (!upgrade) {
+      try {
+        await documentsApi.deleteDocument(doc.id);
+      } catch (cleanupError) {
+        console.warn("[documentStore] failed to clean up provisional web article", cleanupError);
+      }
     }
     throw error;
   }
@@ -325,7 +335,10 @@ async function importCanonicalArticle(
 
   const promise = (async (): Promise<Document> => {
     const preExisting = await surfaceExisting(dedupeKey);
-    if (preExisting) {
+    // A preserved capture-failure source is not a successful import — it is
+    // the upgrade target for a retry, never a short-circuit return.
+    const preUpgrade = preExisting?.metadata?.captureFailed ? preExisting : null;
+    if (preExisting && !preUpgrade) {
       set({ importProgress: { current: 1, total: 1, fileName: preExisting.title } });
       return preExisting;
     }
@@ -351,14 +364,21 @@ async function importCanonicalArticle(
     });
 
     const postExisting = await surfaceExisting(outcome.canonicalUrl);
-    if (postExisting) return postExisting;
+    const upgrade = preUpgrade
+      ? { documentId: preUpgrade.id }
+      : postExisting?.metadata?.captureFailed
+        ? { documentId: postExisting.id }
+        : undefined;
+    if (postExisting && !upgrade) return postExisting;
 
     const policy = options.resolvePolicy
       ? await options.resolvePolicy()
       : (options.policy ?? {});
-    const doc = await persistWebArticleOutcome(outcome, policy);
+    const doc = await persistWebArticleOutcome(outcome, policy, upgrade);
     set((state) => ({
-      documents: [...state.documents, doc],
+      documents: upgrade
+        ? state.documents.map((d) => (d.id === doc.id ? doc : d))
+        : [...state.documents, doc],
       importProgress: { current: 1, total: 1, fileName: doc.title },
     }));
     return doc;
@@ -384,6 +404,60 @@ async function importCanonicalArticle(
   }
 }
 
+
+/**
+ * Preserve a failed capture as a minimal source so the saved URL is never
+ * silently lost (FR-15): create → mark `metadata.captureFailed` → placeholder
+ * content. Dedupes against any existing record with the same source URL, so
+ * a later successful import upgrades this record in place rather than
+ * duplicating it.
+ */
+async function persistWebArticleFailureInternal(
+  url: string,
+  reason: string
+): Promise<Document | null> {
+  const normalized = normalizeArticleUrl(url);
+  if (!normalized.valid) return null; // malformed URLs cannot become sources
+
+  try {
+    const existingId = await documentsApi.findDocumentIdBySourceUrl(normalized.normalized);
+    if (existingId) {
+      // Already in the library (possibly an earlier failure) — never duplicate.
+      return await documentsApi.getDocument(existingId);
+    }
+  } catch (e) {
+    console.warn("[documentStore] capture-failure dedupe lookup failed (non-fatal)", e);
+  }
+
+  let hostname = "web";
+  try {
+    hostname = new URL(normalized.normalized).hostname;
+  } catch {
+    // keep the fallback title suffix
+  }
+  const collectionId = useCollectionStore.getState().activeCollectionId;
+  const doc = await documentsApi.createDocument(
+    normalized.normalized,
+    normalized.normalized,
+    "html",
+    collectionId
+  );
+  const metadata: DocumentMetadata = {
+    source: normalized.normalized,
+    captureFailed: { reason, at: new Date().toISOString() },
+  };
+  const updated = await documentsApi.updateWebArticle(
+    doc.id,
+    "<p>This link was saved, but its content could not be captured.</p>",
+    metadata,
+    normalized.normalized
+  );
+  return await documentsApi.updateDocument(updated.id, {
+    ...updated,
+    tags: ["web-import", ...(hostname && hostname !== "web" ? [hostname] : [])],
+    category: "Web Import",
+  } as Document);
+}
 
 /**
  * Apply the user's default-category setting to a freshly imported document
@@ -551,6 +625,12 @@ interface DocumentState {
     url: string,
     options?: { signal?: AbortSignal; extraTags?: string[] }
   ) => Promise<Document>;
+  /**
+   * Preserve a failed capture as a minimal library source (FR-15): the URL
+   * stays visible with a retry affordance instead of being discarded.
+   * Returns null for malformed URLs or when persistence itself fails.
+   */
+  persistWebArticleFailure: (url: string, reason: string) => Promise<Document | null>;
   /** Open and parse an X/Twitter post or thread directly into reader. */
   openTwitterThread: (url: string) => Promise<Document>;
   /** Permanently import an X/Twitter post or thread to database. */
@@ -1392,6 +1472,25 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         importProgress: { current: 0, total: 0 }
       });
       throw error;
+    }
+  },
+
+  persistWebArticleFailure: async (url, reason) => {
+    try {
+      const doc = await persistWebArticleFailureInternal(url, reason);
+      if (doc) {
+        set((state) => ({
+          documents: state.documents.some((d) => d.id === doc.id)
+            ? state.documents.map((d) => (d.id === doc.id ? doc : d))
+            : [...state.documents, doc],
+        }));
+      }
+      return doc;
+    } catch (e) {
+      // Preservation is best-effort; the toast from the caller still surfaces
+      // the failure to the user even if the record could not be kept.
+      console.warn('[DocumentStore] failed to preserve capture-failure source', e);
+      return null;
     }
   },
 

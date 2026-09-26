@@ -3,6 +3,7 @@ import type { DocumentMetadata } from '../../../types/document';
 export type HtmlReaderKind =
   | 'canonical-article'
   | 'canonical-raw-fallback'
+  | 'capture-failed'
   | 'legacy-arxiv'
   | 'browser-capture'
   | 'ocr-html'
@@ -37,6 +38,12 @@ export function classifyHtmlReader(
 ): HtmlReaderClassification {
   if (input.surface === 'ocr-html') {
     return { kind: 'ocr-html', diagnostics: [], hasCanonicalStructure: false };
+  }
+
+  // A preserved-but-failed capture renders its own recovery notice; nothing
+  // else about the (placeholder) content is meaningful.
+  if (input.metadata?.captureFailed) {
+    return { kind: 'capture-failed', diagnostics: [], hasCanonicalStructure: false };
   }
 
   const diagnostics: string[] = [];

@@ -39,9 +39,11 @@ vi.mock("../openDocumentAtLocation", () => ({
 
 import {
   resolveCardSource,
+  openCardSource,
   locatorFromSelectionContext,
   type CardSourceProbe,
 } from "../cardSourceNavigation";
+import { buildTextSelectionContext } from "../textHighlights";
 
 function htmlDoc(overrides: Record<string, unknown> = {}) {
   return {
@@ -115,6 +117,147 @@ describe("locatorFromSelectionContext", () => {
       confidence: "high",
     });
     expect(locator).toEqual({ kind: "audio", timeSeconds: 87 });
+  });
+
+  it("emits the durable anchor's quote and container selector for web selections", () => {
+    const locator = locatorFromSelectionContext({
+      type: "text",
+      surface: "html",
+      documentId: "doc-1",
+      startOffset: 22,
+      endOffset: 60,
+      selectedText: "hippocampus helps stabilize and transfer",
+      anchor: {
+        textQuote: {
+          exact: "hippocampus helps stabilize and transfer",
+          prefix: "Chapter 4 begins here. The ",
+          suffix: " newly encoded memories",
+        },
+        selector: "article > div > p:nth-of-type(2)",
+        sectionHeading: "Memory Systems",
+      },
+    });
+    expect(locator).toMatchObject({
+      kind: "html",
+      textQuote: "hippocampus helps stabilize and transfer",
+      selector: "article > div > p:nth-of-type(2)",
+    });
+  });
+});
+
+describe("durable web anchors (hyperlink-selection-context-actions 4.1)", () => {
+  const anchor = (overrides: Partial<{ exact: string; prefix: string; suffix: string }> = {}) => ({
+    textQuote: {
+      exact: overrides.exact ?? "stabilize and transfer newly encoded memories",
+      prefix: overrides.prefix ?? "The hippocampus helps ",
+      suffix: overrides.suffix ?? " during sleep",
+    },
+  });
+
+  it("resolves exactly via anchor context even after the content was regenerated", async () => {
+    // Simulated re-import: prefix text changed length, so old offsets drift,
+    // but the anchored quote is still uniquely present.
+    documentsStore = [
+      htmlDoc({
+        content:
+          "A longer regenerated introduction paragraph. The hippocampus helps stabilize and transfer newly encoded memories during sleep. Later chapters repeat other facts.",
+      }),
+    ];
+    getExtractMock.mockResolvedValue({
+      id: "ext-1",
+      document_id: "doc-1",
+      content: "stabilize and transfer newly encoded memories",
+      selection_context: {
+        type: "text",
+        surface: "html",
+        documentId: "doc-1",
+        startOffset: 45,
+        endOffset: 89,
+        selectedText: "stabilize and transfer newly encoded memories",
+        anchor: anchor(),
+      },
+    });
+
+    const resolution = await resolveCardSource(probe({ extract_id: "ext-1" }));
+    expect(resolution.status).toBe("ready");
+    if (resolution.status === "ready") {
+      expect(resolution.confidence).toBe("exact");
+      expect(resolution.highlightQuery).toContain("stabilize and transfer");
+    }
+  });
+
+  it("disambiguates repeated passages using the anchor's capture-time context", async () => {
+    documentsStore = [
+      htmlDoc({
+        content:
+          "The cortex helps stabilize and transfer repeated filler. The hippocampus helps stabilize and transfer newly encoded memories during sleep.",
+      }),
+    ];
+    getExtractMock.mockResolvedValue({
+      id: "ext-1",
+      document_id: "doc-1",
+      content: "stabilize and transfer",
+      selection_context: {
+        type: "text",
+        surface: "html",
+        documentId: "doc-1",
+        startOffset: 70,
+        endOffset: 93,
+        selectedText: "stabilize and transfer",
+        anchor: anchor({ exact: "stabilize and transfer", suffix: " newly encoded memories" }),
+      },
+    });
+
+    const resolution = await resolveCardSource(probe({ extract_id: "ext-1" }));
+    expect(resolution.status).toBe("ready");
+    if (resolution.status === "ready") {
+      expect(resolution.confidence).toBe("exact");
+    }
+  });
+
+  it("degrades to coarse without erroring when the anchored passage is gone", async () => {
+    documentsStore = [htmlDoc({ content: "completely different content after re-import" })];
+    getExtractMock.mockResolvedValue({
+      id: "ext-1",
+      document_id: "doc-1",
+      content: "stabilize and transfer newly encoded memories",
+      selection_context: {
+        type: "text",
+        surface: "html",
+        documentId: "doc-1",
+        startOffset: 45,
+        endOffset: 89,
+        selectedText: "stabilize and transfer newly encoded memories",
+        anchor: anchor(),
+      },
+    });
+
+    const resolution = await resolveCardSource(probe({ extract_id: "ext-1" }));
+    expect(resolution.status).toBe("coarse");
+    if (resolution.status !== "coarse") throw new Error("expected coarse resolution");
+    expect(["stale", "no-anchor"]).toContain(resolution.reason);
+    // The document still opens — coarse resolutions keep a locator or open at
+    // the stored reading position; never an "unavailable" dead end.
+    expect(resolution.documentId).toBe("doc-1");
+  });
+
+  it("keeps resolving legacy offsets-only contexts through the plain quote fallback", async () => {
+    getExtractMock.mockResolvedValue({
+      id: "ext-1",
+      document_id: "doc-1",
+      content: "stabilize and transfer newly encoded memories",
+      selection_context: {
+        type: "text",
+        surface: "html",
+        documentId: "doc-1",
+        startOffset: 45,
+        endOffset: 89,
+        selectedText: "stabilize and transfer newly encoded memories",
+      },
+    });
+
+    const resolution = await resolveCardSource(probe({ extract_id: "ext-1" }));
+    expect(resolution.status).toBe("ready");
   });
 });
 
@@ -329,5 +472,60 @@ describe("cardSourceReference envelope", () => {
       )
     ).toBeNull();
     expect(parseCardSourceReference(null)).toBeNull();
+  });
+});
+
+describe("integration: web selection → extract → flashcard → view source (task 4.3)", () => {
+  it("walks the chain from a real DOM selection to a passage jump", async () => {
+    // 1. A selection on the rendered article (real DOM, anchored context).
+    const body = document.createElement("div");
+    body.innerHTML =
+      "<p>Chapter 4 begins here. The hippocampus helps stabilize and transfer newly encoded memories during sleep. Later chapters repeat other facts.</p>";
+    document.body.appendChild(body);
+    const textNode = body.querySelector("p")!.firstChild!;
+    const text = textNode.textContent!;
+    const exact = "The hippocampus helps stabilize and transfer newly encoded memories";
+    const range = document.createRange();
+    range.setStart(textNode, text.indexOf(exact));
+    range.setEnd(textNode, text.indexOf(exact) + exact.length);
+    const context = buildTextSelectionContext({
+      root: body,
+      range,
+      documentId: "doc-1",
+      surface: "html",
+    });
+    document.body.removeChild(body);
+    expect(context?.type).toBe("text");
+    expect(context?.anchor?.textQuote.exact).toBe(exact);
+
+    // 2. An extract persisted with that anchored selection context backs the
+    //    flashcard (extract_id linkage — the flashcard's source relationship).
+    documentsStore = [htmlDoc()];
+    getExtractMock.mockResolvedValue({
+      id: "ext-1",
+      document_id: "doc-1",
+      content: exact,
+      selection_context: context,
+    });
+
+    // 3. "View Source" resolves and opens the saved article at the passage.
+    const addTab = vi.fn();
+    const resolution = await openCardSource(probe({ extract_id: "ext-1" }), addTab);
+    expect(resolution.status).toBe("ready");
+    if (resolution.status === "ready") {
+      expect(resolution.confidence).toBe("exact");
+    }
+    expect(openDocumentAtLocationMock).toHaveBeenCalledWith(
+      "doc-1",
+      expect.objectContaining({
+        initialJump: expect.objectContaining({
+          kind: "html",
+          textQuote: expect.stringContaining("hippocampus"),
+        }),
+        highlightQuery: expect.stringContaining("hippocampus"),
+      }),
+      addTab,
+      undefined,
+    );
   });
 });

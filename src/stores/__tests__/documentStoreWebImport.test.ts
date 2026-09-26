@@ -718,3 +718,126 @@ describe("documentStore.reimportCanonicalArticle (explicit repair action)", () =
     expect(importArticleMock).not.toHaveBeenCalled();
   });
 });
+
+describe("capture-failure preservation (hyperlink-selection-context-actions 6.1/6.3)", () => {
+  const failedDoc = (): Document => ({
+    ...baseDoc("d-failed"),
+    title: "https://example.com/a",
+    metadata: {
+      source: "https://example.com/a",
+      captureFailed: { reason: "network", at: "2026-09-26T00:00:00Z" },
+    },
+  });
+
+  it("persists a failed share as a minimal capture-failed source (FR-15)", async () => {
+    createDocumentMock.mockImplementation(async () => baseDoc("d-failed"));
+    updateWebArticleMock.mockImplementation(async () => failedDoc());
+    updateDocumentMock.mockImplementation(async () => failedDoc());
+
+    const doc = await useDocumentStore
+      .getState()
+      .persistWebArticleFailure("https://example.com/a", "network");
+
+    expect(doc?.id).toBe("d-failed");
+    // The URL is the identity: title, source_url, and metadata.source.
+    expect(createDocumentMock).toHaveBeenCalledWith(
+      "https://example.com/a",
+      "https://example.com/a",
+      "html",
+      null
+    );
+    expect(updateWebArticleMock).toHaveBeenCalledWith(
+      "d-failed",
+      expect.any(String),
+      expect.objectContaining({
+        source: "https://example.com/a",
+        captureFailed: expect.objectContaining({ reason: "network" }),
+      }),
+      "https://example.com/a"
+    );
+    expect(useDocumentStore.getState().documents.some((d) => d.id === "d-failed")).toBe(true);
+  });
+
+  it("returns null for malformed URLs that cannot become sources", async () => {
+    const doc = await useDocumentStore
+      .getState()
+      .persistWebArticleFailure("not a url", "network");
+    expect(doc).toBeNull();
+    expect(createDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it("best-effort: a persistence failure resolves to null without throwing", async () => {
+    createDocumentMock.mockRejectedValue(new Error("db locked"));
+    const doc = await useDocumentStore
+      .getState()
+      .persistWebArticleFailure("https://example.com/a", "network");
+    expect(doc).toBeNull();
+  });
+
+  it("dedupes against an existing record with the same source URL", async () => {
+    findDocumentIdBySourceUrlMock.mockResolvedValue("d-failed");
+    getDocumentMock.mockResolvedValue(failedDoc());
+
+    const doc = await useDocumentStore
+      .getState()
+      .persistWebArticleFailure("https://example.com/a", "network");
+
+    expect(doc?.id).toBe("d-failed");
+    expect(createDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it("retry upgrades the capture-failed source in place instead of short-circuiting", async () => {
+    findDocumentIdBySourceUrlMock.mockResolvedValue("d-failed");
+    getDocumentMock.mockResolvedValue(failedDoc());
+    importArticleMock.mockResolvedValue(pipelineOutcome());
+    updateWebArticleMock.mockImplementation(
+      async () => ({ ...baseDoc("d-failed"), title: "A Serious Article" })
+    );
+    updateDocumentMock.mockImplementation(
+      async () => ({ ...baseDoc("d-failed"), title: "A Serious Article" })
+    );
+    useDocumentStore.setState({ documents: [failedDoc()] });
+
+    const doc = await useDocumentStore.getState().importFromUrl("https://example.com/a");
+
+    expect(importArticleMock).toHaveBeenCalled(); // pipeline re-ran — no short-circuit
+    expect(createDocumentMock).not.toHaveBeenCalled(); // same record upgraded
+    expect(updateWebArticleMock).toHaveBeenCalledWith(
+      "d-failed",
+      expect.stringContaining("inc-article"),
+      expect.anything(),
+      "https://example.com/a",
+      "https://cdn.example.com/hero.jpg"
+    );
+    expect(doc.id).toBe("d-failed");
+    expect(useDocumentStore.getState().documents).toHaveLength(1); // replaced, not appended
+  });
+
+  it("a failed upgrade never deletes the preserved capture-failure record", async () => {
+    findDocumentIdBySourceUrlMock.mockResolvedValue("d-failed");
+    getDocumentMock.mockResolvedValue(failedDoc());
+    importArticleMock.mockResolvedValue(pipelineOutcome());
+    updateWebArticleMock.mockRejectedValue(new Error("db locked"));
+    useDocumentStore.setState({ documents: [failedDoc()] });
+
+    await expect(
+      useDocumentStore.getState().importFromUrl("https://example.com/a")
+    ).rejects.toThrow("db locked");
+    expect(deleteDocumentMock).not.toHaveBeenCalled();
+    expect(useDocumentStore.getState().documents).toHaveLength(1);
+  });
+
+  it("successful existing records still short-circuit (dialog/dedupe path unchanged)", async () => {
+    findDocumentIdBySourceUrlMock.mockResolvedValue("d-ok");
+    getDocumentMock.mockResolvedValue({
+      ...baseDoc("d-ok"),
+      metadata: { source: "https://example.com/a" },
+    });
+
+    const doc = await useDocumentStore.getState().importFromUrl("https://example.com/a");
+
+    expect(doc.id).toBe("d-ok");
+    expect(importArticleMock).not.toHaveBeenCalled();
+    expect(createDocumentMock).not.toHaveBeenCalled();
+  });
+});

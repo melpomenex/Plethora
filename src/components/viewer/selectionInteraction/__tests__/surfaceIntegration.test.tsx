@@ -54,6 +54,9 @@ import { summarizePassage } from "../../../../lib/ai/passageAI";
 import { SelectionActionsSheet } from "../../SelectionActionsSheet";
 import { useSelectionInteraction } from "../useSelectionInteraction";
 import { SelectionActionBar } from "../SelectionActionBar";
+import { buildTextSelectionContext } from "../../../../utils/textHighlights";
+import type { CapturedSelection } from "../machine";
+import type { TextSelectionContext } from "../../../../types/selection";
 
 const STABLE_MS = 500;
 
@@ -224,6 +227,70 @@ describe("EPUB iframe surface (task 4.5)", () => {
       result.current.invalidate("epub-theme-changed");
     });
     expect(result.current.phase).toBe("idle");
+  });
+});
+
+describe("HTML article iframe surface (hyperlink-selection-context-actions 2.2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+  });
+  afterEach(() => {
+    cleanup();
+    window.getSelection()?.removeAllRanges();
+    vi.useRealTimers();
+  });
+
+  function makeHtmlIframe() {
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML =
+      `<article class="inc-article"><div class="inc-body">` +
+      `<p>web article body text for selection</p>` +
+      `<p>second paragraph with more text</p>` +
+      `</div></article>`;
+    return { iframe, doc };
+  }
+
+  it("settles with a synchronous TextSelectionContext (surface html) incl. quote anchor", () => {
+    const { iframe, doc } = makeHtmlIframe();
+    const { result } = renderHook(() =>
+      useSelectionInteraction({ surface: "html", documentId: "d1", enabled: true }),
+    );
+    act(() => {
+      result.current.registerContentDocument({
+        doc,
+        win: iframe.contentWindow,
+        offset: () => ({ x: 0, y: 0 }),
+        buildSelectionContext: (range: Range) =>
+          buildTextSelectionContext({ root: doc.body, range, documentId: "d1", surface: "html" }),
+      });
+    });
+
+    const para = doc.querySelector("p")!;
+    touchStart(doc.body);
+    selectRange(para.firstChild!, 0, para.firstChild!, 10, iframe.contentWindow!);
+    touchEnd(doc.body);
+    settle();
+    expect(result.current.phase).toBe("ready");
+
+    // The context is captured by the bridge at settle — the EPUB contract.
+    const ctx = result.current.readySelection?.selectionContext as TextSelectionContext;
+    expect(ctx?.type).toBe("text");
+    expect(ctx?.surface).toBe("html");
+    expect(ctx?.selectedText).toBe("web articl");
+    expect(ctx?.anchor?.textQuote.exact).toBe("web articl");
+    expect(ctx?.anchor?.textQuote.suffix).toContain("e body text for selection");
+    // Placement flows from the same surface-agnostic geometry math (3.2).
+    expect(result.current.placement).not.toBeNull();
+
+    // Action snapshots carry the same context — no legacy-path dependency.
+    let snapshot: CapturedSelection | null = null;
+    act(() => {
+      snapshot = result.current.captureForAction();
+    });
+    expect((snapshot!.selectionContext as TextSelectionContext)?.anchor?.textQuote.exact).toBe("web articl");
   });
 });
 

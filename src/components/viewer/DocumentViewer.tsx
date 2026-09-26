@@ -8,22 +8,16 @@ import {
   CaretRight,
   CheckCircle,
   CircleNotch,
-  Copy,
   CornersIn,
   CornersOut,
   EyeSlash,
   FileCode,
   Flag,
   Gear,
-  GraduationCap,
   Headphones,
   Highlighter,
   Lightbulb,
   List,
-  ListBullets,
-  Question,
-  TextAa,
-  TextAlignLeft,
   MagnifyingGlass,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
@@ -35,12 +29,16 @@ import {
   Translate,
   WarningCircle,
   X,
+  ArrowSquareOut,
+  BookmarkSimple,
+  Copy,
+  Globe,
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
 import { useSmartTaggingQueueStore } from "../../stores/smartTaggingQueueStore";
 import { useShallow } from "zustand/react/shallow";
-import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
+import { convertFileSrc, isNativeMobile, isTauri, openExternal } from "../../lib/tauri";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { shouldUseNativePdfRangeSource } from "./pdfFeatureFlags";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -159,13 +157,22 @@ import { createScrollDismissGate, isSuppressedSelection } from "./touchSelection
 import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
 import type { CapturedSelection, SelectionSurface } from "./selectionInteraction/machine";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
+import {
+  getSelectionActions,
+  isAiSelectionAction,
+  selectionActionLabelKey,
+  type SelectionActionDescriptor,
+  type SelectionActionId,
+} from "./selectionInteraction/selectionActionRegistry";
 import { placeAnchoredBar, type BarPlacement } from "./selectionInteraction/geometry";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { StoredHighlight } from "./HighlightLayer";
 import { normalizePdfHighlightColor } from "../../utils/highlightColors";
-import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
+import { applyAnchoredTextHighlights, buildIframeTextSelectionContext, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
+import { findQuoteRange, wrapRangeTextWithMark } from "../../utils/selectionAnchors";
+import { anchorFromEventTarget, buildArticleLinkMenuItems, classifyArticleLink } from "../../utils/articleLinks";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { LanguageReaderDomBridge } from "../language/LanguageReaderDomBridge";
 import type { PdfCanonicalPage } from "../../types/pdfCanonical";
@@ -1536,6 +1543,9 @@ export function DocumentViewer({
 
   // V2: register the HTML document's iframe (html docType renders inside an
   // iframe like EPUB) so selection activity there drives the machine too.
+  // The context builder captures the TextSelectionContext (with its durable
+  // quote anchor) synchronously at settle, matching the EPUB bridge contract
+  // instead of relying on the legacy listener racing the settle phase.
   useEffect(() => {
     if (!selectionV2 || docType !== "html" || !iframeElement) return;
     const frame = iframeElement;
@@ -1553,9 +1563,24 @@ export function DocumentViewer({
           return null;
         }
       },
+      buildSelectionContext: (range: Range) => {
+        const body = doc.body;
+        if (!body) return null;
+        try {
+          return buildTextSelectionContext({
+            root: body,
+            range,
+            documentId,
+            surface: "html",
+          });
+        } catch {
+          // Cross-document range issues fall back to the legacy listener path.
+          return null;
+        }
+      },
     });
     return detach;
-  }, [selectionV2, docType, iframeElement]);
+  }, [selectionV2, docType, iframeElement, documentId]);
 
   // V2: view-mode switches (pdf ↔ reflow ↔ ocr-html) invalidate selection
   // geometry (task 5.3).
@@ -2542,201 +2567,173 @@ export function DocumentViewer({
     return selectedText;
   }, [epubIframeWindow]);
 
-  // Build context menu items for text selection in non-PDF viewers
+  // Build context menu items for text selection in non-PDF viewers.
+  // The item set/order/gating derives from the shared selection-action
+  // registry (change: hyperlink-selection-context-actions, design D1);
+  // MENU_ITEM_BUILDERS is this host's one handler route per action id.
   const buildContextMenuItems = useCallback((selectedText: string, contextOverride?: SelectionContext | null): ContextMenuItem[] => {
     const effectiveContext = selectionContext ?? contextOverride;
-    const items: ContextMenuItem[] = [];
 
-    items.push({
-      id: "extract",
-      label: t("viewer.createExtract"),
-      icon: <Lightbulb className="w-4 h-4" />,
-      onClick: () => {
-        const controller = selectionControllerRef.current;
-        const snapshot = selectionV2 ? controller.captureForAction() : null;
-        if (snapshot) {
-          void createInstantExtract({
-            documentId: snapshot.documentId || documentId,
-            text: snapshot.text,
-            pageNumber: computeExtractPageNumber({
-              selectionContext: snapshot.selectionContext ?? effectiveContext,
-              viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
-              scrollPercent: lastScrollStateRef.current?.scrollPercent,
-              totalPages: currentDocument?.totalPages ?? 0,
-              isEpubDoc: docType === "epub",
-            }),
-            selectionContext: snapshot.selectionContext ?? effectiveContext ?? undefined,
-          });
-          controller.dismiss({ suppressCurrentText: true });
-          dismissSelectionAfterExtract();
-          return;
-        }
-        createInstantExtract({
-          documentId,
-          text: selectedText,
+    const runAiAction = (action: SelectionAiAction) => {
+      // V2: route through the controller — the run consumes the
+      // immutable snapshot, so a collapsing native selection cannot
+      // cancel it. Legacy: capture now, while the selection is live.
+      const controller = selectionControllerRef.current;
+      const snapshot = selectionV2 ? controller.captureForAction() : null;
+      if (snapshot) {
+        setAiSheetRequest({ action, text: snapshot.text, passage: snapshot.passage });
+        return;
+      }
+      setAiSheetRequest({
+        action,
+        text: selectedText,
+        passage: buildSelectionPassage(selectedText),
+      });
+    };
+
+    const createExtractFromMenu = (color?: string) => {
+      const controller = selectionControllerRef.current;
+      const snapshot = selectionV2 ? controller.captureForAction() : null;
+      if (snapshot) {
+        void createInstantExtract({
+          documentId: snapshot.documentId || documentId,
+          text: snapshot.text,
+          color,
           pageNumber: computeExtractPageNumber({
-            selectionContext: effectiveContext,
+            selectionContext: snapshot.selectionContext ?? effectiveContext,
             viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
             scrollPercent: lastScrollStateRef.current?.scrollPercent,
             totalPages: currentDocument?.totalPages ?? 0,
             isEpubDoc: docType === "epub",
           }),
-          selectionContext: effectiveContext ?? undefined,
+          selectionContext: snapshot.selectionContext ?? effectiveContext ?? undefined,
         });
+        controller.dismiss({ suppressCurrentText: true });
         dismissSelectionAfterExtract();
-      },
-    });
-
-    items.push({
-      id: "extract-dialog",
-      label: t("viewer.addNote"),
-      icon: <TextT className="w-4 h-4" />,
-      onClick: () => {
-        setSelectedText(selectedText);
-        lastSelectionRef.current = selectedText;
-        setIsExtractDialogOpen(true);
-      },
-    });
-
-    items.push({
-      id: "highlight",
-      label: t("viewer.highlight"),
-      icon: <Highlighter className="w-4 h-4" />,
-      type: ContextMenuItemType.Submenu,
-      children: (["yellow", "green", "blue", "pink", "purple"] as const).map((color) => ({
-        id: `highlight-${color}`,
-        label: t(`viewer.${color}Highlight`),
-        onClick: () => {
-          const controller = selectionControllerRef.current;
-          const snapshot = selectionV2 ? controller.captureForAction() : null;
-          if (snapshot) {
-            void createInstantExtract({
-              documentId: snapshot.documentId || documentId,
-              text: snapshot.text,
-              color,
-              pageNumber: computeExtractPageNumber({
-                selectionContext: snapshot.selectionContext ?? effectiveContext,
-                viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
-                scrollPercent: lastScrollStateRef.current?.scrollPercent,
-                totalPages: currentDocument?.totalPages ?? 0,
-                isEpubDoc: docType === "epub",
-              }),
-              selectionContext: snapshot.selectionContext ?? effectiveContext ?? undefined,
-            });
-            controller.dismiss({ suppressCurrentText: true });
-            dismissSelectionAfterExtract();
-            return;
-          }
-          createInstantExtract({
-            documentId,
-            text: selectedText,
-            color,
-            pageNumber: computeExtractPageNumber({
-              selectionContext: effectiveContext,
-              viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
-              scrollPercent: lastScrollStateRef.current?.scrollPercent,
-              totalPages: currentDocument?.totalPages ?? 0,
-              isEpubDoc: docType === "epub",
-            }),
-            selectionContext: effectiveContext ?? undefined,
-          });
-          dismissSelectionAfterExtract();
-        },
-      })),
-    });
-
-    items.push({ id: "sep1", label: "", type: ContextMenuItemType.Separator });
-
-    items.push({
-      id: "copy",
-      label: t("viewer.copy"),
-      shortcut: "Ctrl+C",
-      icon: <Copy className="w-4 h-4" />,
-      onClick: () => {
-        navigator.clipboard.writeText(selectedText);
-      },
-    });
-
-    items.push({
-      id: "dictionary",
-      label: t("viewer.lookupDictionaryThesaurus"),
-      icon: <Translate className="w-4 h-4" />,
-      onClick: () => {
-        const word = selectedText.trim().split(/\s+/)[0] || "";
-        if (!word) return;
-        setIsDictionaryLoading(true);
-        lookupDictionary(word)
-          .then((result) => setDictionaryResult(result))
-          .catch((error) => {
-            toast.error(t("viewer.lookupFailed"), error instanceof Error ? error.message : t("viewer.failedToLookupWord"));
-          })
-          .finally(() => setIsDictionaryLoading(false));
-      },
-    });
-
-    items.push({ id: "sep2", label: "", type: ContextMenuItemType.Separator });
-
-    items.push({
-      id: "flashcard",
-      label: t("extractScrollItem.createFlashcard"),
-      icon: <Sparkle className="w-4 h-4" />,
-      onClick: () => {
-        setFlashcardStudioSeed({
-          key: `ctx-${currentDocument?.id}-${Date.now()}`,
-          documentId: currentDocument?.id,
-          excerpt: selectedText,
-          draftCardType: "qa",
-          resetDraftCards: true,
-          autoEditDraft: true,
-        });
-      },
-    });
-
-    // AI actions on the selection. Hidden entirely when no path can serve them.
-    if (aiAvailability.available) {
-      items.push({ id: "sep-ai", label: "", type: ContextMenuItemType.Separator });
-      const aiItems: Array<{ action: SelectionAiAction; label: string; icon: React.ReactNode }> = [
-        { action: "explain", label: t("selectionSheet.explain"), icon: <Lightbulb className="w-4 h-4" /> },
-        { action: "summarize", label: t("selectionSheet.summarize"), icon: <TextAlignLeft className="w-4 h-4" /> },
-        { action: "simplify", label: t("selectionSheet.simplify"), icon: <TextAa className="w-4 h-4" /> },
-        { action: "keyTerms", label: t("selectionSheet.keyTerms"), icon: <ListBullets className="w-4 h-4" /> },
-        { action: "ask", label: t("selectionSheet.ask"), icon: <Question className="w-4 h-4" /> },
-      ];
-      for (const item of aiItems) {
-        items.push({
-          id: `ai-${item.action}`,
-          label: item.label,
-          icon: item.icon,
-          onClick: () => {
-            // V2: route through the controller — the run consumes the
-            // immutable snapshot, so a collapsing native selection cannot
-            // cancel it. Legacy: capture now, while the selection is live.
-            const controller = selectionControllerRef.current;
-            const snapshot = selectionV2 ? controller.captureForAction() : null;
-            if (snapshot) {
-              setAiSheetRequest({ action: item.action, text: snapshot.text, passage: snapshot.passage });
-              return;
-            }
-            setAiSheetRequest({
-              action: item.action,
-              text: selectedText,
-              passage: buildSelectionPassage(selectedText),
-            });
-          },
-        });
+        return;
       }
-      // "Learn this" structured proposal (Phase 1, behind its feature flag).
-      if (aiLearnThisEnabled) {
-        items.push({
-          id: "ai-learn-this",
-          label: t("aiLearning.learnThis"),
-          icon: <GraduationCap className="w-4 h-4" />,
-          onClick: () =>
-            setLearnThisRequest({
-              text: selectedText,
-              passage: buildSelectionPassage(selectedText),
-            }),
-        });
+      createInstantExtract({
+        documentId,
+        text: selectedText,
+        color,
+        pageNumber: computeExtractPageNumber({
+          selectionContext: effectiveContext,
+          viewerPageNumber: lastScrollStateRef.current?.pageNumber || 1,
+          scrollPercent: lastScrollStateRef.current?.scrollPercent,
+          totalPages: currentDocument?.totalPages ?? 0,
+          isEpubDoc: docType === "epub",
+        }),
+        selectionContext: effectiveContext ?? undefined,
+      });
+      dismissSelectionAfterExtract();
+    };
+
+    const MENU_ITEM_BUILDERS: Partial<Record<SelectionActionId, (action: SelectionActionDescriptor) => ContextMenuItem>> = {
+      extract: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => createExtractFromMenu(),
+      }),
+      extractDialog: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => {
+          setSelectedText(selectedText);
+          lastSelectionRef.current = selectedText;
+          setIsExtractDialogOpen(true);
+        },
+      }),
+      highlight: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        type: ContextMenuItemType.Submenu,
+        children: (["yellow", "green", "blue", "pink", "purple"] as const).map((color) => ({
+          id: `highlight-${color}`,
+          label: t(`viewer.${color}Highlight`),
+          onClick: () => createExtractFromMenu(color),
+        })),
+      }),
+      copy: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        shortcut: "Ctrl+C",
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => {
+          navigator.clipboard.writeText(selectedText);
+        },
+      }),
+      dictionary: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => {
+          const word = selectedText.trim().split(/\s+/)[0] || "";
+          if (!word) return;
+          setIsDictionaryLoading(true);
+          lookupDictionary(word)
+            .then((result) => setDictionaryResult(result))
+            .catch((error) => {
+              toast.error(t("viewer.lookupFailed"), error instanceof Error ? error.message : t("viewer.failedToLookupWord"));
+            })
+            .finally(() => setIsDictionaryLoading(false));
+        },
+      }),
+      flashcard: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => {
+          setFlashcardStudioSeed({
+            key: `ctx-${currentDocument?.id}-${Date.now()}`,
+            documentId: currentDocument?.id,
+            excerpt: selectedText,
+            draftCardType: "qa",
+            resetDraftCards: true,
+            autoEditDraft: true,
+          });
+        },
+      }),
+      learnThis: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () =>
+          setLearnThisRequest({
+            text: selectedText,
+            passage: buildSelectionPassage(selectedText),
+          }),
+      }),
+    };
+    const buildAiMenuItem = (action: SelectionActionDescriptor): ContextMenuItem => ({
+      id: `ai-${action.id}`,
+      label: t(selectionActionLabelKey(action, "menu")),
+      icon: <action.icon className="w-4 h-4" />,
+      onClick: () => runAiAction(action.id as SelectionAiAction),
+    });
+
+    const menuActions = getSelectionActions("menu", {
+      aiAvailable: aiAvailability.available,
+      learnThisEnabled: aiLearnThisEnabled,
+    });
+
+    const items: ContextMenuItem[] = [];
+    let lastGroup = -1;
+    for (const action of menuActions) {
+      if (lastGroup !== -1 && action.menuGroup !== lastGroup) {
+        items.push({ id: `sep-${action.menuGroup}`, label: "", type: ContextMenuItemType.Separator });
+      }
+      lastGroup = action.menuGroup ?? 0;
+      const build = MENU_ITEM_BUILDERS[action.id];
+      if (build) {
+        items.push(build(action));
+      } else if (isAiSelectionAction(action)) {
+        items.push(buildAiMenuItem(action));
+      } else if (import.meta.env.DEV) {
+        // Registry/menu drift must surface in development, never silently.
+        console.warn(`[DocumentViewer] No context-menu builder for selection action "${action.id}"`);
       }
     }
 
@@ -5875,6 +5872,70 @@ export function DocumentViewer({
   );
   const isHtmlViewer = docType === "html" || isOcrHtml;
 
+  // ── In-article hyperlink routing (hyperlink-selection-context-actions 5.1/5.2)
+  // Links inside a saved article must not navigate the reader iframe away
+  // from the article: same-document fragments navigate natively, safe
+  // external links route through Plethora, unsafe schemes never activate.
+  const [articleLinkMenu, setArticleLinkMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    url: string;
+    mailto: boolean;
+  } | null>(null);
+
+  const openArticleLinkInBrowserTab = useCallback((url: string) => {
+    // Dynamic import: TabRegistry (transitively) imports this module through
+    // DocumentViewerWrapper, so a static import would create a load-time cycle.
+    void import("../tabs/TabRegistry")
+      .then(({ WebBrowserTab }) => {
+        let host = url;
+        try {
+          host = new URL(url).hostname;
+        } catch { /* keep the raw url as the title */ }
+        useTabsStore.getState().addTab({
+          title: host,
+          icon: "🌐",
+          type: "web-browser",
+          content: WebBrowserTab,
+          closable: true,
+          data: { initialUrl: url },
+        });
+      })
+      .catch(() => {
+        void openExternal(url);
+      });
+  }, []);
+
+  const saveArticleLinkToLibrary = useCallback(
+    async (url: string) => {
+      try {
+        const imported = await useDocumentStore.getState().importFromUrl(url);
+        toast.success(t("articleLink.saved"), imported.title);
+      } catch (err) {
+        toast.error(t("articleLink.saveFailed"), err instanceof Error ? err.message : undefined);
+      }
+    },
+    [t, toast],
+  );
+
+  const handleArticleLinkActivated = useCallback(
+    (target: { url: string; mailto: boolean }) => {
+      if (target.mailto) {
+        void openExternal(target.url);
+        return;
+      }
+      // The mobile shell has no in-app browser surface; there the Plethora-
+      // native destination for a followed link is the reading environment.
+      if (isMobileTouch) {
+        void saveArticleLinkToLibrary(target.url);
+        return;
+      }
+      openArticleLinkInBrowserTab(target.url);
+    },
+    [isMobileTouch, openArticleLinkInBrowserTab, saveArticleLinkToLibrary],
+  );
+
   useLayoutEffect(() => {
     if (docType === "html") {
       // Prevent a newly navigated srcdoc from painting with its source site's
@@ -5958,10 +6019,23 @@ export function DocumentViewer({
           } catch { /* ignore */ }
         };
 
+        // In-article hyperlink routing: fragments navigate natively; safe
+        // links are routed through Plethora; unsafe schemes never activate.
+        const handleIframeLinkClick = (e: Event) => {
+          const anchor = anchorFromEventTarget(e.target);
+          if (!anchor) return;
+          const classification = classifyArticleLink(anchor.getAttribute("href"), doc.baseURI);
+          if (!classification || classification === "fragment") return;
+          e.preventDefault();
+          if (classification === "unsafe") return;
+          handleArticleLinkActivated(classification);
+        };
+
         doc.addEventListener("selectionchange", publishSelection);
         doc.addEventListener("mouseup", publishSelection);
         doc.addEventListener("keyup", publishSelection);
         doc.addEventListener("mousedown", handleIframeMouseDown);
+        doc.addEventListener("click", handleIframeLinkClick);
 
         teardown = () => {
           try {
@@ -5969,6 +6043,7 @@ export function DocumentViewer({
             doc.removeEventListener("mouseup", publishSelection);
             doc.removeEventListener("keyup", publishSelection);
             doc.removeEventListener("mousedown", handleIframeMouseDown);
+            doc.removeEventListener("click", handleIframeLinkClick);
           } catch { /* ignore */ }
         };
       } catch (err) {
@@ -5995,6 +6070,7 @@ export function DocumentViewer({
     htmlForDisplay,
     persistedDocumentHighlights.htmlHighlights,
     updateSelection,
+    handleArticleLinkActivated,
   ]);
 
   // Handle post extraction messages from within thread iframe
@@ -6466,10 +6542,31 @@ export function DocumentViewer({
       return;
     }
 
-    // No existing search marks — search DOM for the text quote and highlight it
+    // No existing search marks — resolve the quote through the uniqueness-
+    // gated anchor finder first: it spans element boundaries, so multi-
+    // paragraph selections (durable anchors) land on their passage too.
     if (normalizedQuote) {
       const body = doc.body;
       if (body) {
+        const resolvedRange = findQuoteRange(body, {
+          textQuote: { exact: initialJump.textQuote?.trim() ?? "", prefix: "", suffix: "" },
+        });
+        if (resolvedRange) {
+          const firstMark = wrapRangeTextWithMark(resolvedRange, (owner) => {
+            const mark = owner.createElement("mark");
+            mark.setAttribute("data-search-highlight", "true");
+            mark.style.background = "rgba(245, 158, 11, 0.35)";
+            mark.style.borderRadius = "2px";
+            mark.style.padding = "0 1px";
+            return mark;
+          });
+          if (firstMark) {
+            firstMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+            return;
+          }
+        }
+
+        // Single-node fast path: search DOM for the text quote and mark it.
         const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
         let matchNode: Text | null = null;
         let matchOffset = -1;
@@ -6539,28 +6636,50 @@ export function DocumentViewer({
       const doc = iframe?.contentDocument;
       if (!iframe || !doc) return;
       doc.addEventListener("contextmenu", (e: Event) => {
+        const win = iframe.contentWindow;
+        const anchor = anchorFromEventTarget(e.target);
+        const selection = win?.getSelection();
+        const text = selection?.toString().trim();
+        if (!text) {
+          // No selection: a link target opens the link action menu (Open /
+          // Save to Plethora / Open externally / Copy link) instead of doing
+          // nothing. Applies to desktop right-click and mobile long-press.
+          if (!anchor) return;
+          const classification = classifyArticleLink(anchor.getAttribute("href"), doc.baseURI);
+          if (!classification || classification === "fragment" || classification === "unsafe") return;
+          e.preventDefault();
+          const mouseEvent = e as unknown as MouseEvent;
+          const iframeRect = iframe.getBoundingClientRect();
+          setArticleLinkMenu({
+            visible: true,
+            x: iframeRect.left + mouseEvent.clientX,
+            y: iframeRect.top + mouseEvent.clientY,
+            url: classification.url,
+            mailto: classification.mailto,
+          });
+          return;
+        }
         // Android's synthesized long-press contextmenu must not open the menu
         // sheet mid-gesture while the selection controller owns touch UX.
         if (selectionV2Ref.current && isMobileTouch) return;
-        const win = iframe.contentWindow;
-        const selection = win?.getSelection();
-        const text = selection?.toString().trim();
-        if (!text) return;
         e.preventDefault();
         const mouseEvent = e as unknown as MouseEvent;
         const iframeRect = iframe.getBoundingClientRect();
         setSelectedText(text);
         lastSelectionRef.current = text;
+        // Desktop right-click must carry the same anchor data as EPUB: build
+        // the real TextSelectionContext here instead of dropping provenance.
+        const context = buildIframeTextSelectionContext({ win, doc, documentId, surface: "html" });
         setContextMenuState({
           visible: true,
           x: iframeRect.left + mouseEvent.clientX,
           y: iframeRect.top + mouseEvent.clientY,
           selectedText: text,
-          selectionContext: null,
+          selectionContext: context,
         });
       });
     } catch { /* cross-origin guard */ }
-  }, []);
+  }, [documentId, isMobileTouch]);
 
   // Forward pointer movement from the HTML iframe to the top window, so
   // surfaces gating overlays on parent-window mousemove (Scroll Mode's
@@ -8218,6 +8337,48 @@ export function DocumentViewer({
               </div>
             </div>
 
+            {htmlReaderClassification.kind === "capture-failed" ? (
+              /* FR-15 recovery notice: the URL was preserved even though the
+                 capture failed — retry re-runs the pipeline in place, open
+                 original escapes to the platform browser. */
+              <div className="reading-surface flex h-full items-center justify-center p-8">
+                <div className="max-w-md text-center">
+                  <WarningCircle className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground">
+                    {t("captureFailed.title")}
+                  </p>
+                  {currentDocument.filePath?.startsWith("http") && (
+                    <p className="mt-2 break-all text-xs text-muted-foreground">
+                      {currentDocument.filePath}
+                    </p>
+                  )}
+                  <div className="mt-5 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReimportFromSource}
+                      disabled={isReimporting || !reimportFromSourceEligible}
+                      className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isReimporting ? (
+                        <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowClockwise className="h-3.5 w-3.5" />
+                      )}
+                      {isReimporting ? t("viewer.reimporting") : t("common.retry")}
+                    </button>
+                    {currentDocument.filePath?.startsWith("http") && (
+                      <button
+                        type="button"
+                        onClick={() => void openExternal(currentDocument.filePath!)}
+                        className="rounded bg-muted px-3 py-1.5 text-xs hover:bg-muted/80 transition-colors"
+                      >
+                        {t("webImport.openOriginal")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
             <iframe
               key={`${currentDocument.id}:${htmlFrameRevision}`}
               title={currentDocument.title}
@@ -8284,6 +8445,7 @@ export function DocumentViewer({
                 }
               }}
             />
+            )}
           </div>
         ) : docType === "youtube" ? (
           <div className="h-full min-h-0 overflow-hidden">
@@ -8879,6 +9041,36 @@ export function DocumentViewer({
           visible={contextMenuState.visible}
           position={{ x: contextMenuState.x, y: contextMenuState.y }}
           onClose={() => setContextMenuState(null)}
+        />
+      )}
+
+      {/* In-article hyperlink action menu (right-click / long-press on a link
+          with no text selection — hyperlink-selection-context-actions 5.2) */}
+      {articleLinkMenu?.visible && (
+        <ContextMenu
+          menuId="article-link-context-menu"
+          visible
+          position={{ x: articleLinkMenu.x, y: articleLinkMenu.y }}
+          onClose={() => setArticleLinkMenu(null)}
+          items={buildArticleLinkMenuItems({
+            url: articleLinkMenu.url,
+            mailto: articleLinkMenu.mailto,
+            t,
+            icons: {
+              open: <Globe className="w-4 h-4" />,
+              save: <BookmarkSimple className="w-4 h-4" />,
+              external: <ArrowSquareOut className="w-4 h-4" />,
+              copy: <Copy className="w-4 h-4" />,
+            },
+            actions: {
+              onOpen: (target) => handleArticleLinkActivated(target),
+              onSave: (url) => void saveArticleLinkToLibrary(url),
+              onOpenExternal: (url) => void openExternal(url),
+              onCopyLink: (url) => {
+                navigator.clipboard.writeText(url).catch(() => undefined);
+              },
+            },
+          })}
         />
       )}
 

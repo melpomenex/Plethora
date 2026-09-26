@@ -77,6 +77,26 @@ export interface EpubSelectionContext {
 
 export type TextSelectionSurface = "html" | "markdown" | "extract" | "x-thread";
 
+/**
+ * Durable, re-locatable anchor for text-surface selections (html/markdown).
+ * Character offsets alone are invalidated whenever the rendered content is
+ * regenerated (re-import, image-settings changes); the text quote plus
+ * surrounding context survives those, and the container selector scopes
+ * quote resolution. Persisted additively on `TextSelectionContext`.
+ */
+export interface WebSelectionAnchor {
+  /** Exact selected text plus bounded surrounding context for relocation. */
+  textQuote: {
+    exact: string;
+    prefix: string;
+    suffix: string;
+  };
+  /** Stable container path within the reader root (hint only, may be absent). */
+  selector?: string;
+  /** Nearest preceding section heading text, when one exists. */
+  sectionHeading?: string;
+}
+
 /** X thread post provenance attached to selections/extracts from the native
  *  thread viewer (surface "x-thread"): stable anchors back to the post. */
 export interface XThreadPostProvenance {
@@ -97,6 +117,8 @@ export interface TextSelectionContext {
   selectedText: string;
   /** X thread post provenance (surface "x-thread"). */
   xThread?: XThreadPostProvenance;
+  /** Durable quote anchor (html/markdown); offsets stay the fast path. */
+  anchor?: WebSelectionAnchor;
 }
 
 export type SelectionContext = PdfSelectionContext | EpubSelectionContext | TextSelectionContext;

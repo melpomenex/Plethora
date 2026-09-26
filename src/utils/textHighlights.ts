@@ -1,5 +1,6 @@
 import { normalizeHighlightColor } from "./highlightColors";
-import type { TextSelectionContext } from "../types/selection";
+import { captureSelectionAnchor, findQuoteRange } from "./selectionAnchors";
+import type { TextSelectionContext, WebSelectionAnchor } from "../types/selection";
 
 export interface AnchoredTextHighlight {
   id: string;
@@ -7,6 +8,8 @@ export interface AnchoredTextHighlight {
   endOffset: number;
   color?: string | null;
   title?: string;
+  /** Durable quote anchor; repaints fall back to it when offsets drift. */
+  anchor?: TextSelectionContext["anchor"];
 }
 
 interface TextNodeEntry {
@@ -30,17 +33,28 @@ export function buildTextSelectionContext(params: {
   const probe = document.createRange();
   probe.selectNodeContents(root);
   probe.setEnd(range.startContainer, range.startOffset);
-  const startOffset = probe.toString().length;
+  const textBefore = probe.toString();
+  const startOffset = textBefore.length;
 
   const probeEnd = document.createRange();
   probeEnd.selectNodeContents(root);
   probeEnd.setEnd(range.endContainer, range.endOffset);
-  const endOffset = probeEnd.toString().length;
+  const textThrough = probeEnd.toString();
+  const endOffset = textThrough.length;
 
   const selectedText = range.toString().trim();
   if (!selectedText || endOffset <= startOffset) {
     return null;
   }
+
+  const probeAfter = document.createRange();
+  probeAfter.selectNodeContents(root);
+  probeAfter.setStart(range.endContainer, range.endOffset);
+  const textAfter = probeAfter.toString();
+
+  // Durable quote anchor captured from the same probes that produced the
+  // offsets — survives content regeneration that invalidates them.
+  const anchor = captureSelectionAnchor({ root, range, textBefore, textAfter });
 
   return {
     type: "text",
@@ -50,7 +64,36 @@ export function buildTextSelectionContext(params: {
     startOffset,
     endOffset,
     selectedText,
+    ...(anchor ? { anchor } : {}),
   };
+}
+
+/**
+ * Build a TextSelectionContext from the live selection inside a reader
+ * iframe (html document / OCR-HTML view). Returns null when no usable
+ * selection exists — callers keep their no-context fallback.
+ */
+export function buildIframeTextSelectionContext(params: {
+  win: Window | null | undefined;
+  doc: Document;
+  documentId: string;
+  surface: TextSelectionContext["surface"];
+}): TextSelectionContext | null {
+  const selection = params.win?.getSelection?.() ?? null;
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const text = selection.toString().trim();
+  if (!text || !params.doc.body) return null;
+  try {
+    return buildTextSelectionContext({
+      root: params.doc.body,
+      range: selection.getRangeAt(0),
+      documentId: params.documentId,
+      surface: params.surface,
+    });
+  } catch {
+    // Cross-document range issues: offsets unavailable, caller falls back.
+    return null;
+  }
 }
 
 function collectTextNodes(root: HTMLElement): TextNodeEntry[] {
@@ -127,6 +170,44 @@ function removeAllHighlightMarks(root: HTMLElement) {
     parent.replaceChild(textNode, mark);
     parent.normalize(); // merge adjacent text nodes
   }
+}
+
+const foldSpace = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/**
+ * Verify each anchored highlight's offsets still reproduce its captured text
+ * and repair the ones that do not via quote resolution. Runs on a text-node
+ * snapshot before any painting mutates the DOM.
+ */
+function resolveAnchoredHighlightOffsets(
+  root: HTMLElement,
+  highlights: Array<AnchoredTextHighlight & { anchor: WebSelectionAnchor }>,
+): AnchoredTextHighlight[] {
+  const entries = collectTextNodes(root);
+  const flat = entries.map((e) => e.node.textContent ?? "").join("");
+  const resolved: AnchoredTextHighlight[] = [];
+
+  for (const highlight of highlights) {
+    const expected = foldSpace(highlight.anchor.textQuote.exact);
+    const current =
+      highlight.endOffset <= flat.length && highlight.endOffset > highlight.startOffset
+        ? foldSpace(flat.slice(highlight.startOffset, highlight.endOffset))
+        : "";
+    if (current === expected) {
+      resolved.push(highlight);
+      continue;
+    }
+    const range = findQuoteRange(root, highlight.anchor);
+    if (!range) continue; // unresolved: skip rather than guess a location
+    const startEntry = entries.find((e) => e.node === range.startContainer);
+    const endEntry = entries.find((e) => e.node === range.endContainer);
+    if (!startEntry || !endEntry) continue;
+    const start = startEntry.start + range.startOffset;
+    const end = endEntry.start + range.endOffset;
+    if (end <= start) continue;
+    resolved.push({ ...highlight, startOffset: start, endOffset: end });
+  }
+  return resolved;
 }
 
 export function applyAnchoredTextHighlights(params: {
@@ -207,8 +288,23 @@ export function applyAnchoredTextHighlights(params: {
 
   if (toAdd.length === 0) return;
 
+  // Anchor pre-pass (task 4.2): offsets that no longer reproduce the captured
+  // text (re-import, regenerated markup) fall back to uniqueness-gated quote
+  // resolution; anchors that cannot be resolved are skipped — never painted
+  // at a stale position. Highlights without an anchor keep their offsets.
+  const anchored = toAdd.filter(
+    (h): h is AnchoredTextHighlight & { anchor: WebSelectionAnchor } => Boolean(h.anchor),
+  );
+  const resolvedAnchored = anchored.length
+    ? resolveAnchoredHighlightOffsets(root, anchored)
+    : [];
+  const resolved = [
+    ...toAdd.filter((h) => !h.anchor),
+    ...resolvedAnchored,
+  ];
+
   const textNodes = collectTextNodes(root);
-  const sorted = [...toAdd].sort((a, b) => {
+  const sorted = [...resolved].sort((a, b) => {
     if (a.startOffset !== b.startOffset) return b.startOffset - a.startOffset;
     return b.endOffset - a.endOffset;
   });

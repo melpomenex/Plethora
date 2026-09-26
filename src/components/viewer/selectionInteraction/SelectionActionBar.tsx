@@ -13,16 +13,27 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Copy, DotsThree, Lightbulb, Question, TextAlignLeft,
-  GraduationCap, SpeakerHigh,
-} from "@phosphor-icons/react";
+import { DotsThree } from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
 import { useOverlayDismissal } from "../../../hooks/useOverlayDismissal";
 import { SELECTION_INTERACTION_UI_ATTR } from "./adapters";
 import type { BarPlacement } from "./geometry";
+import {
+  getSelectionActions,
+  selectionActionLabelKey,
+  type SelectionActionId,
+  type SelectionBarAction,
+} from "./selectionActionRegistry";
 
-export type SelectionBarAction = "summarize" | "explain" | "ask" | "readFromHere" | "extract" | "copy";
+export type { SelectionBarAction };
+
+/** Per-chip presentation details that are bar styling, not action identity. */
+const BAR_CHIP_STYLE: Partial<Record<SelectionActionId, { weight: "bold" | "fill"; showcase?: string }>> = {
+  explain: { weight: "bold", showcase: "explain-selection" },
+  learnThis: { weight: "bold", showcase: "remember-selection" },
+  extract: { weight: "fill" },
+};
 
 export interface SelectionActionBarProps {
   placement: BarPlacement | null;
@@ -110,6 +121,13 @@ export function SelectionActionBar({
 
   if (!placement) return null;
 
+  const actions = getSelectionActions("bar", {
+    aiAvailable,
+    canExtract,
+    canReadAloud,
+    learnThisHandlerAvailable: Boolean(showLearnThis && onLearnThis),
+  });
+
   return createPortal(
     <div
       {...{ [SELECTION_INTERACTION_UI_ATTR]: "true" }}
@@ -125,60 +143,22 @@ export function SelectionActionBar({
         visibility: placement.maxWidth > 0 ? undefined : "hidden",
       }}
     >
-      {aiAvailable && (
-        <>
+      {actions.map((action) => {
+        const style = BAR_CHIP_STYLE[action.id] ?? { weight: "bold" as const };
+        const Icon = action.icon;
+        return (
           <Chip
+            key={action.id}
             reducedMotion={reducedMotion}
-            label={t("selectionSheet.summarize")}
-            icon={<TextAlignLeft className="h-4 w-4" weight="bold" />}
-            onClick={() => onAction("summarize")}
+            label={t(selectionActionLabelKey(action, "bar"))}
+            icon={<Icon className="h-4 w-4" weight={style.weight} />}
+            showcaseAction={style.showcase}
+            onClick={() =>
+              action.id === "learnThis" ? onLearnThis?.() : onAction(action.id as SelectionBarAction)
+            }
           />
-          <Chip
-            reducedMotion={reducedMotion}
-            label={t("selectionSheet.explain")}
-            icon={<Lightbulb className="h-4 w-4" weight="bold" />}
-            onClick={() => onAction("explain")}
-            showcaseAction="explain-selection"
-          />
-          {showLearnThis && onLearnThis && (
-            <Chip
-              reducedMotion={reducedMotion}
-              label={t("aiLearning.learnThis")}
-              icon={<GraduationCap className="h-4 w-4" weight="bold" />}
-              onClick={onLearnThis}
-              showcaseAction="remember-selection"
-            />
-          )}
-          <Chip
-            reducedMotion={reducedMotion}
-            label={t("selectionBar.ask")}
-            icon={<Question className="h-4 w-4" weight="bold" />}
-            onClick={() => onAction("ask")}
-          />
-        </>
-      )}
-      {canReadAloud && (
-        <Chip
-          reducedMotion={reducedMotion}
-          label={t("selectionBar.readFromHere")}
-          icon={<SpeakerHigh className="h-4 w-4" weight="bold" />}
-          onClick={() => onAction("readFromHere")}
-        />
-      )}
-      {canExtract && (
-        <Chip
-          reducedMotion={reducedMotion}
-          label={t("selectionSheet.createExtract")}
-          icon={<Lightbulb className="h-4 w-4" weight="fill" />}
-          onClick={() => onAction("extract")}
-        />
-      )}
-      <Chip
-        reducedMotion={reducedMotion}
-        label={t("selectionSheet.copy")}
-        icon={<Copy className="h-4 w-4" weight="bold" />}
-        onClick={() => onAction("copy")}
-      />
+        );
+      })}
       <Chip
         reducedMotion={reducedMotion}
         label={t("selectionBar.more")}

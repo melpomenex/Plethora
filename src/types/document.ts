@@ -152,6 +152,17 @@ export interface DocumentMetadata {
   originalUrl?: string;
   /** Article-pipeline provenance (see WebArticleProvenance). */
   webArticle?: WebArticleProvenance;
+  /**
+   * Set when an unattended capture (share sheet / share target) failed and
+   * only the URL was preserved: the source stays in the library with a
+   * retry affordance instead of being discarded (FR-15).
+   */
+  captureFailed?: {
+    /** Machine-readable failure reason (ArticleImportError code or similar). */
+    reason: string;
+    /** ISO timestamp of the failed capture attempt. */
+    at: string;
+  };
   fetchedAt?: string;
   siteName?: string;
   image?: string;

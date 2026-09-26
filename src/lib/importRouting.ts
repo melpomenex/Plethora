@@ -42,7 +42,7 @@ export async function processSharedBatch(
   }
 
   const { t, toast, getDocumentStore, getTabsStore, openExternal } = deps;
-  const { importFromUrl, openTwitterThread, importFromFiles, loadDocuments } =
+  const { importFromUrl, openTwitterThread, importFromFiles, loadDocuments, persistWebArticleFailure } =
     getDocumentStore();
   const addTab = getTabsStore().addTab;
 
@@ -76,8 +76,12 @@ export async function processSharedBatch(
       } catch (e) {
         failedCount += 1;
         console.error("[ImportRouting] Failed to import URL:", item.url, e);
-        if (e instanceof ArticleImportError) {
+        // FR-15: a failed capture must not lose the saved URL — preserve it
+        // as a minimal library source (marked capture-failed) so the user
+        // can retry from the reader. Malformed URLs cannot become sources.
+        if (e instanceof ArticleImportError && e.code !== "invalid_url") {
           typedUrlFailures += 1;
+          void persistWebArticleFailure(item.url, e.code);
           const reason = t(`shareImport.error.${e.code}`);
           toast.error(t("mainLayout.importFailed"), reason, {
             duration: 12000,

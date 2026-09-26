@@ -39,3 +39,37 @@ describe('isReimportFromSourceEligible', () => {
     expect(isReimportFromSourceEligible(null, 'canonical-article')).toBe(false);
   });
 });
+
+describe('capture-failed retry eligibility (FR-15)', () => {
+  it('capture-failed sources with an http source URL are retry-eligible', () => {
+    expect(
+      isReimportFromSourceEligible(
+        {
+          fileType: 'html',
+          filePath: 'https://example.com/a',
+          metadata: { source: 'https://example.com/a' },
+        },
+        'capture-failed'
+      )
+    ).toBe(true);
+    // Metadata-only callers (no filePath) stay compatible.
+    expect(
+      isReimportFromSourceEligible(
+        { fileType: 'html', metadata: { source: 'https://example.com/a' } },
+        'capture-failed'
+      )
+    ).toBe(true);
+  });
+
+  it('capture-failed sources without any http URL are not eligible', () => {
+    expect(
+      isReimportFromSourceEligible(
+        { fileType: 'html', metadata: { captureFailed: { reason: 'x', at: 'now' } } },
+        'capture-failed'
+      )
+    ).toBe(false);
+    expect(
+      isReimportFromSourceEligible({ fileType: 'pdf', metadata: {} }, 'capture-failed')
+    ).toBe(false);
+  });
+});

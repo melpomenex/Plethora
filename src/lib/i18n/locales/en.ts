@@ -11,6 +11,12 @@ export const en: Dict = {
   "platform.unavailable.storeBuild": "Not available in this build of Plethora",
 
   // Web Article Import dialog pipeline states (overhaul-web-article-import)
+  "articleLink.open": "Open",
+  "articleLink.saveToPlethora": "Save to Plethora",
+  "articleLink.openExternal": "Open externally",
+  "articleLink.copyLink": "Copy link",
+  "articleLink.saved": "Saved to library",
+  "articleLink.saveFailed": "Couldn't save this link",
   "webImport.stageFetching": "Fetching page…",
   "webImport.stageExtracting": "Extracting article (Defuddle + Readability)…",
   "webImport.stageRenderedFallback": "Rendering the page to retry extraction…",
@@ -4498,6 +4504,7 @@ export const en: Dict = {
   "webImport.corsProxyUsed": "CORS Proxy Used",
   "webImport.corsProxyDesc":
     "This page was fetched through a CORS proxy. Some resources like images may not load properly.",
+  "captureFailed.title": "We couldn't create a clean reading version of this page.",
   "webImport.addTag": "Add tag...",
   "webImport.quickTags": "Quick Tags",
   "webImport.importedSuccessfully": "Imported Successfully",

@@ -10,6 +10,12 @@ export const zh: Dict = {
   "platform.unavailable.storeBuild": "此版本的 Plethora 中不可用",
 
   // Web Article Import dialog pipeline states (overhaul-web-article-import)
+  "articleLink.open": "打开",
+  "articleLink.saveToPlethora": "保存到 Plethora",
+  "articleLink.openExternal": "外部打开",
+  "articleLink.copyLink": "复制链接",
+  "articleLink.saved": "已保存到媒体库",
+  "articleLink.saveFailed": "无法保存此链接",
   "webImport.stageFetching": "正在获取页面…",
   "webImport.stageExtracting": "正在提取文章（Defuddle + Readability）…",
   "webImport.stageRenderedFallback": "正在渲染页面以重试提取…",
@@ -3765,6 +3771,7 @@ export const zh: Dict = {
   "webImport.importFailedTitle": "导入失败",
   "webImport.corsProxyUsed": "已使用 CORS 代理",
   "webImport.corsProxyDesc": "此页面是通过 CORS 代理获取的。一些资源如图片可能无法正常加载。",
+  "captureFailed.title": "无法创建此页面的干净阅读版本。",
   "webImport.addTag": "添加标签...",
   "webImport.quickTags": "快速标签",
   "webImport.importedSuccessfully": "导入成功",

@@ -12,22 +12,15 @@
  * queue articles alike.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import {
   ArrowLeft,
   ArrowsClockwise,
-  ChalkboardTeacher,
   Copy,
   DownloadSimple,
-  GraduationCap,
   Lightbulb,
-  ListBullets,
-  Question,
   Sparkle,
-  TextAa,
-  TextAlignLeft,
-  TreeStructure,
 } from "@phosphor-icons/react";
 import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileContextMenuSheet";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
@@ -67,7 +60,14 @@ import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageT
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
 import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 
-export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
+export type { SelectionAiAction } from "./selectionInteraction/selectionActionRegistry";
+import {
+  getSelectionActions,
+  isAiSelectionAction,
+  selectionActionLabelKey,
+  type SelectionActionDescriptor,
+  type SelectionAiAction,
+} from "./selectionInteraction/selectionActionRegistry";
 
 /** Document context for the "Learn this" proposal (task 2.3). */
 export interface LearnThisContext {
@@ -556,20 +556,127 @@ export function SelectionActionsSheet({
   const preview =
     text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS).trimEnd()}…` : text;
 
-  const aiRows: Array<{ action: SelectionAiAction; label: string; icon: ReactNode }> = [
-    { action: "explain", label: t("selectionSheet.explain"), icon: <Lightbulb className="w-5 h-5" /> },
-    {
-      action: "summarize",
-      label: t("selectionSheet.summarize"),
-      icon: <TextAlignLeft className="w-5 h-5" />,
-    },
-    { action: "simplify", label: t("selectionSheet.simplify"), icon: <TextAa className="w-5 h-5" /> },
-    {
-      action: "keyTerms",
-      label: t("selectionSheet.keyTerms"),
-      icon: <ListBullets className="w-5 h-5" />,
-    },
-  ];
+  // The sheet's items derive from the shared selection-action registry
+  // (change: hyperlink-selection-context-actions, design D1). Each action
+  // renders through its one route below; availability flags come from the
+  // host (onCreateExtract presence) and the feature settings.
+  const sheetActions = getSelectionActions("sheet", {
+    aiAvailable: ai.available,
+    canExtract: Boolean(onCreateExtract),
+    learnThisEnabled: aiLearnThisEnabled,
+    libraryRagEnabled: aiLibraryRagEnabled,
+    socraticTutorEnabled: aiSocraticTutorEnabled,
+    prerequisitesEnabled: aiPrerequisitesEnabled,
+  });
+  const coreActions = sheetActions.filter((a) => !isAiSelectionAction(a));
+  const aiSectionActions = sheetActions.filter(isAiSelectionAction);
+
+  const renderSheetAction = (action: SelectionActionDescriptor) => {
+    const label = t(selectionActionLabelKey(action, "sheet"));
+    const Icon = action.icon;
+    switch (action.id) {
+      case "extract":
+        return (
+          <button
+            key={action.id}
+            className={mobileSheetItemClass}
+            disabled={extractSaveState === "saving"}
+            onClick={async () => {
+              if (extractSaveState === "saving") return;
+              setExtractSaveState("saving");
+              try {
+                const res = await onCreateExtract?.(text);
+                if (res !== null) {
+                  setExtractSaveState("saved");
+                  if (operationId) onSettled?.(operationId, "success");
+                  onClose();
+                } else {
+                  setExtractSaveState("error");
+                }
+              } catch (err) {
+                console.error("Failed to create extract:", err);
+                setExtractSaveState("error");
+              }
+            }}
+          >
+            <Lightbulb className="w-5 h-5" aria-hidden="true" />
+            {label}
+          </button>
+        );
+      case "copy":
+        return (
+          <button
+            key={action.id}
+            className={mobileSheetItemClass}
+            onClick={() => {
+              void copySelectionTextToClipboard(text);
+              onClose();
+            }}
+          >
+            <Copy className="w-5 h-5" aria-hidden="true" />
+            {label}
+          </button>
+        );
+      case "ask":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={() => setMode("asking")}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label}
+          </button>
+        );
+      case "learnThis":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={() => setShowLearnThis(true)}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label}
+          </button>
+        );
+      case "askLibrary":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={() => setMode("library")}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label}
+          </button>
+        );
+      case "socraticTutor":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={() => setShowTutor(true)}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label}
+          </button>
+        );
+      case "prerequisites":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={startPrerequisites}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label || "Find prerequisites"}
+          </button>
+        );
+      default:
+        return (
+          <button
+            key={action.id}
+            className={mobileSheetItemClass}
+            onClick={() => start(action.id as SelectionAiAction)}
+          >
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label}
+          </button>
+        );
+    }
+  };
 
   return (
     <MobileContextMenuSheet open={open} onClose={onClose} variant="content">
@@ -580,87 +687,14 @@ export function SelectionActionsSheet({
               {preview}
             </p>
 
-            {onCreateExtract && (
-              <button
-                className={mobileSheetItemClass}
-                disabled={extractSaveState === "saving"}
-                onClick={async () => {
-                  if (extractSaveState === "saving") return;
-                  setExtractSaveState("saving");
-                  try {
-                    const res = await onCreateExtract(text);
-                    if (res !== null) {
-                      setExtractSaveState("saved");
-                      if (operationId) onSettled?.(operationId, "success");
-                      onClose();
-                    } else {
-                      setExtractSaveState("error");
-                    }
-                  } catch (err) {
-                    console.error("Failed to create extract:", err);
-                    setExtractSaveState("error");
-                  }
-                }}
-              >
-                <Lightbulb className="w-5 h-5" aria-hidden="true" />
-                {t("selectionSheet.createExtract")}
-              </button>
-            )}
+            {coreActions.map(renderSheetAction)}
 
-            <button
-              className={mobileSheetItemClass}
-              onClick={() => {
-                void copySelectionTextToClipboard(text);
-                onClose();
-              }}
-            >
-              <Copy className="w-5 h-5" aria-hidden="true" />
-              {t("selectionSheet.copy")}
-            </button>
-
-            {ai.available && (
+            {aiSectionActions.length > 0 && (
               <>
                 <div className="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t("selectionSheet.aiSection")}
                 </div>
-                {aiRows.map((row) => (
-                  <button
-                    key={row.action}
-                    className={mobileSheetItemClass}
-                    onClick={() => start(row.action)}
-                  >
-                    <span aria-hidden="true">{row.icon}</span>
-                    {row.label}
-                  </button>
-                ))}
-                <button className={mobileSheetItemClass} onClick={() => setMode("asking")}>
-                  <Question className="w-5 h-5" aria-hidden="true" />
-                  {t("selectionSheet.ask")}
-                </button>
-                {aiLearnThisEnabled && (
-                  <button className={mobileSheetItemClass} onClick={() => setShowLearnThis(true)}>
-                    <GraduationCap className="w-5 h-5" aria-hidden="true" />
-                    {t("aiLearning.learnThis")}
-                  </button>
-                )}
-                {aiLibraryRagEnabled && (
-                  <button className={mobileSheetItemClass} onClick={() => setMode("library")}>
-                    <Sparkle className="w-5 h-5" aria-hidden="true" />
-                    {t("aiLibrary.askLibrary")}
-                  </button>
-                )}
-                {aiSocraticTutorEnabled && (
-                  <button className={mobileSheetItemClass} onClick={() => setShowTutor(true)}>
-                    <ChalkboardTeacher className="w-5 h-5" aria-hidden="true" />
-                    {t("aiTutor.title")}
-                  </button>
-                )}
-                {aiPrerequisitesEnabled && (
-                  <button className={mobileSheetItemClass} onClick={startPrerequisites}>
-                    <TreeStructure className="w-5 h-5" aria-hidden="true" />
-                    {t("aiLearning.prerequisites") || "Find prerequisites"}
-                  </button>
-                )}
+                {aiSectionActions.map(renderSheetAction)}
               </>
             )}
 
