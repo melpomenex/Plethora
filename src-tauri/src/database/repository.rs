@@ -1954,6 +1954,40 @@ impl Repository {
         Ok(updated)
     }
 
+    /// Flip a document's archived flag without touching any other column.
+    ///
+    /// `update_document` deserializes `updates` into a whole `Document`, so a
+    /// caller that only wants to archive must round-trip every field — a
+    /// partial payload fails to deserialize and a stale full payload silently
+    /// clobbers concurrent writes. Same rationale as
+    /// `update_document_dismiss` / `update_document_priority`.
+    pub async fn update_document_archive(&self, id: &str, is_archived: bool) -> Result<Document> {
+        let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            r#"
+            UPDATE documents SET
+                is_archived = ?1,
+                date_modified = ?2
+            WHERE id = ?3
+            "#,
+        )
+        .bind(is_archived)
+        .bind(now)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            tx.rollback().await?;
+            return Err(PlethoraError::NotFound(format!("Document {}", id)));
+        }
+        let updated = Self::journal_document_fields(&mut tx, id, &["flags"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
+    }
+
     pub async fn update_document_progress(
         &self,
         id: &str,
@@ -9830,6 +9864,13 @@ mod tests {
             .await
             .expect("dismiss");
 
+        // Archiving flips only the archived flag — the sibling lifecycle flags
+        // set above must survive, which is the whole reason archiving gets its
+        // own narrow method instead of routing through `update_document`.
+        repo.update_document_archive(&doc.id, true)
+            .await
+            .expect("archive");
+
         // Update priority (requires rating, slider, score). An explicit slider
         // of 0 must both persist and flip priority_explicitly_set so the Alt+P
         // popup seeds 0 rather than the neutral midpoint.
@@ -9846,6 +9887,8 @@ mod tests {
         assert_eq!(read.category.as_deref(), Some("history"));
         assert_eq!(read.tags, vec!["a".to_string(), "b".to_string()]);
         assert!(read.is_dismissed);
+        assert!(read.is_archived);
+        assert!(!read.is_favorite);
         assert_eq!(read.priority_rating, 4);
         assert_eq!(read.priority_slider, 0);
         assert!(read.priority_explicitly_set);

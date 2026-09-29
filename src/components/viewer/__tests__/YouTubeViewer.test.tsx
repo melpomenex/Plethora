@@ -29,8 +29,15 @@ vi.mock("../../common/Toast", () => ({
   }),
 }));
 
+const storeMocks = vi.hoisted(() => ({
+  updateDocument: vi.fn(),
+}));
+
+// Selector-shaped, matching the real zustand hook: the viewer reads
+// `updateDocument` off the store and calls it after persisting an archive.
 vi.mock("../../../stores", () => ({
-  useDocumentStore: () => ({ currentDocument: null }),
+  useDocumentStore: (selector: (state: unknown) => unknown) =>
+    selector({ currentDocument: null, updateDocument: storeMocks.updateDocument }),
 }));
 
 vi.mock("../../../api/position", () => ({
@@ -39,7 +46,12 @@ vi.mock("../../../api/position", () => ({
   timePosition: vi.fn(),
 }));
 
+const documentMocks = vi.hoisted(() => ({
+  archiveDocument: vi.fn(async () => ({ id: "doc-1", isArchived: true })),
+}));
+
 vi.mock("../../../api/documents", () => ({
+  archiveDocument: documentMocks.archiveDocument,
   getDocumentAuto: vi.fn(async () => null),
   updateDocument: vi.fn(async () => {}),
   updateDocumentProgressAuto: vi.fn(async () => {}),
@@ -89,6 +101,12 @@ vi.mock("react-youtube", () => ({
           onClick={() => props.onError?.({ data: 153 })}
         >
           Simulate Error 153
+        </button>
+        <button
+          data-testid="simulate-ended"
+          onClick={() => props.onStateChange?.({ data: 0, target: { getDuration: async () => 0 } })}
+        >
+          Simulate Ended
         </button>
       </div>
     );
@@ -217,6 +235,38 @@ describe("YouTubeViewer inline playback and lifecycle", () => {
         "data-host",
         "https://www.youtube.com"
       );
+    });
+  });
+
+  // The regression: archiving a video you just finished in the review queue
+  // called `update_document` with `{ isArchived: true }`. That command
+  // deserializes `updates` into a whole `Document`, so it failed argument
+  // validation with "missing field `id`" and the video stayed in the queue.
+  it("archives through the narrow command when the end-of-video prompt is accepted", async () => {
+    const onArchive = vi.fn();
+    render(
+      <YouTubeViewer
+        videoId="dQw4w9WgXcQ"
+        documentId="doc-yt-archive"
+        title="Video To Archive"
+        onArchive={onArchive}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("react-youtube-player")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("simulate-ended"));
+
+    const archiveButton = await screen.findByText("viewer.archiveVideo");
+    fireEvent.click(archiveButton);
+
+    await waitFor(() => {
+      expect(documentMocks.archiveDocument).toHaveBeenCalledWith("doc-yt-archive", true);
+    });
+    await waitFor(() => {
+      expect(onArchive).toHaveBeenCalled();
     });
   });
 });

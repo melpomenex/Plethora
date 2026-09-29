@@ -31,7 +31,7 @@ import { TranscriptSearchState, TranscriptSync, TranscriptSegment } from "../med
 import { invokeCommand as invoke, isTauri, isNativeMobile, getPlatform } from "../../lib/tauri";
 import { getYouTubeWatchURL, formatDuration } from "../../api/youtube";
 import { fetchYouTubeTranscript } from "../../utils/youtubeTranscriptBrowser";
-import { getDocumentAuto, updateDocument, updateDocumentProgressAuto } from "../../api/documents";
+import { archiveDocument, getDocumentAuto, updateDocument, updateDocumentProgressAuto } from "../../api/documents";
 import { generateYouTubeShareUrl, copyShareLink, parseStateFromUrl } from "../../lib/shareLink";
 import { cn } from "../../utils";
 import { saveDocumentPosition, timePosition, getDocumentPosition } from "../../api/position";
@@ -625,7 +625,12 @@ export function YouTubeViewer({
         const data = await response.json();
         if (!data?.title) return;
         setResolvedTitle(data.title);
-        await updateDocument(documentId, { title: data.title } as any);
+        // `update_document` deserializes `updates` as a whole Document, so the
+        // resolved title must ride on a full payload — a bare `{ title }`
+        // partial is rejected before the command runs.
+        const current = await getDocumentAuto(documentId);
+        if (!current) return;
+        await updateDocument(documentId, { ...current, title: data.title });
       } catch (error) {
         console.warn("Failed to resolve YouTube title:", error);
       }
@@ -990,7 +995,7 @@ export function YouTubeViewer({
     if (!documentId || isArchiving) return;
     setIsArchiving(true);
     try {
-      await updateDocument(documentId, { isArchived: true } as any);
+      await archiveDocument(documentId, true);
       updateDocumentInStore(documentId, { isArchived: true });
       toast.success(t("viewer.archived"), t("viewer.archivedDesc"));
       setShowArchivePrompt(false);

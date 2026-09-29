@@ -1309,6 +1309,22 @@ pub async fn dismiss_document(
     Ok(updated)
 }
 
+/// Archive / unarchive a document.
+///
+/// `update_document` deserializes `updates` into a whole `Document`, so a
+/// partial payload like `{ isArchived: true }` fails before the command ever
+/// runs (`invalid args 'updates' ... missing field 'id'`). Archiving is a
+/// single flag, so it gets its own narrow command like dismiss/priority do.
+#[tauri::command]
+pub async fn archive_document(
+    id: String,
+    archived: bool,
+    repo: State<'_, Repository>,
+) -> Result<Document> {
+    let updated = repo.update_document_archive(&id, archived).await?;
+    Ok(updated)
+}
+
 /// Read a document file and return its RAW BYTES as a binary IPC response
 /// (`ArrayBuffer` on the JS side).
 ///

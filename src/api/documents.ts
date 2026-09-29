@@ -197,6 +197,24 @@ export async function dismissDocument(
   return mapDocument(result) as Document;
 }
 
+/**
+ * Archive / unarchive a document.
+ *
+ * Deliberately not `updateDocument`: the `update_document` command
+ * deserializes `updates` into a whole `Document`, so a single-flag payload
+ * like `{ isArchived: true }` is rejected with
+ * `invalid args 'updates' ... missing field 'id'` before the command runs.
+ */
+export async function archiveDocument(
+  id: string,
+  archived: boolean
+): Promise<Document> {
+  const result = isWebMode()
+    ? await browserInvoke<Document>("archive_document", { id, archived })
+    : await invokeCommand<Document>("archive_document", { id, archived });
+  return mapDocument(result) as Document;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   if (isWebMode()) {
     await browserInvoke("delete_document", { id });

@@ -1736,6 +1736,7 @@ pub fn run() {
             commands::bulk_move_documents_to_collection,
             commands::bulk_set_document_priority,
             commands::dismiss_document,
+            commands::archive_document,
             commands::collections::get_collections,
             commands::collections::create_collection,
             commands::collections::get_collection,

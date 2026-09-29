@@ -1759,6 +1759,16 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(doc);
     },
 
+    archive_document: async (args) => {
+        const id = args.id as string;
+        const archived = args.archived as boolean;
+        const doc = await db.updateDocument(id, {
+            is_archived: Boolean(archived),
+            date_modified: new Date().toISOString(),
+        });
+        return toCamelCase(doc);
+    },
+
     delete_document: async (args) => {
         const id = args.id as string;
         await db.deleteDocument(id);

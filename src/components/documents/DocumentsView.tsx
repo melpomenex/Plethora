@@ -750,7 +750,10 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       // Extract timestamp from URL if present (e.g., ?t=933)
       const timestamp = extractYouTubeTimestamp(youtubeUrl.trim());
       if (timestamp !== null && timestamp > 0) {
-        await updateDocumentApi(document.id, { currentPage: timestamp } as any);
+        // `update_document` deserializes `updates` as a whole Document, so the
+        // start time rides on a full payload — a bare `{ currentPage }`
+        // partial is rejected before the command runs.
+        await updateDocumentApi(document.id, { ...document, currentPage: timestamp });
       }
 
       await loadDocuments();

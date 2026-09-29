@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { convertDocumentPdfToHtml, convertPdfToHtml, pickFolderDocuments } from "../documents";
+import {
+  archiveDocument,
+  convertDocumentPdfToHtml,
+  convertPdfToHtml,
+  pickFolderDocuments,
+} from "../documents";
 
 const mocks = vi.hoisted(() => ({
   invokeCommand: vi.fn(),
@@ -117,6 +122,57 @@ describe("folder import API", () => {
     const result = await pickFolderDocuments();
 
     expect(result).toEqual([]);
+    expect(mocks.invokeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe("archiveDocument", () => {
+  beforeEach(() => {
+    mocks.invokeCommand.mockReset();
+    mocks.browserInvoke.mockReset();
+    mocks.isTauri = true;
+  });
+
+  // The regression: archiving a watched video in the review queue called
+  // `update_document` with `{ isArchived: true }`. That command deserializes
+  // `updates` into a whole `Document`, so the payload was rejected before the
+  // command ran: "invalid args `updates` ... missing field `id`".
+  it("uses the narrow archive_document command instead of update_document", async () => {
+    mocks.invokeCommand.mockResolvedValue({ id: "doc-1", isArchived: true });
+
+    await archiveDocument("doc-1", true);
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith("archive_document", {
+      id: "doc-1",
+      archived: true,
+    });
+    expect(mocks.invokeCommand).not.toHaveBeenCalledWith(
+      "update_document",
+      expect.anything()
+    );
+  });
+
+  it("passes the unarchive flag straight through", async () => {
+    mocks.invokeCommand.mockResolvedValue({ id: "doc-1", isArchived: false });
+
+    await archiveDocument("doc-1", false);
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith("archive_document", {
+      id: "doc-1",
+      archived: false,
+    });
+  });
+
+  it("routes through the browser backend in web mode", async () => {
+    mocks.isTauri = false;
+    mocks.browserInvoke.mockResolvedValue({ id: "doc-1", isArchived: true });
+
+    await archiveDocument("doc-1", true);
+
+    expect(mocks.browserInvoke).toHaveBeenCalledWith("archive_document", {
+      id: "doc-1",
+      archived: true,
+    });
     expect(mocks.invokeCommand).not.toHaveBeenCalled();
   });
 });
