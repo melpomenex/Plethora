@@ -197,7 +197,10 @@
 - [x] Complete Obsidian Integration settings tab
 - [x] Complete Keybindings settings tab
 - [x] Complete RSS Feeds settings tab
-- [x] Complete SponsorBlock settings tab
+- [x] Complete SponsorBlock settings tab — actually delivered by
+      `fix-reported-source-player-and-mobile-bugs` as a section of Settings →
+      Integrations rather than a standalone tab; the skip loop and the segment
+      fetch were ungated until then.
 - [x] Complete Smart Queues settings tab
 - [x] Complete Sync settings tab
 

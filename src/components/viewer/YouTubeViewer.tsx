@@ -37,6 +37,7 @@ import { cn } from "../../utils";
 import { saveDocumentPosition, timePosition, getDocumentPosition } from "../../api/position";
 import { useI18n } from "../../lib/i18n";
 import YouTube, { YouTubeProps, YouTubePlayer } from "react-youtube";
+import { useSponsorBlock } from "../../hooks/useSponsorBlock";
 import { 
   fetchSponsorBlockSegments, 
   SponsorBlockSegment, 
@@ -531,16 +532,39 @@ export function YouTubeViewer({
       window.removeEventListener('touchend', handleMouseUp);
     };
   }, [isResizingVideoFeatures]);
+  const sponsorBlock = useSponsorBlock();
+
+  // Ask only for the categories the user enabled: requesting a category we are
+  // about to discard still tells the service the user is watching this video.
+  const sponsorBlockCategoriesKey = sponsorBlock.enabledCategories.join(",");
+
   useEffect(() => {
     if (!normalizedVideoId) return;
-    
+    // `enabled` gates the request, not just the skip: with it off the video id
+    // must not leave the device at all.
+    if (!sponsorBlock.canFetch) {
+      setSegments([]);
+      return;
+    }
+
+    let cancelled = false;
     const loadSegments = async () => {
-      const fetchedSegments = await fetchSponsorBlockSegments(normalizedVideoId);
-      setSegments(fetchedSegments);
+      const fetchedSegments = await fetchSponsorBlockSegments(
+        normalizedVideoId,
+        sponsorBlock.enabledCategories,
+        sponsorBlock.cacheDurationHours
+      );
+      if (!cancelled) setSegments(sponsorBlock.filterSegments(fetchedSegments));
     };
-    
+
     loadSegments();
-  }, [normalizedVideoId]);
+    return () => {
+      cancelled = true;
+    };
+    // `sponsorBlock.enabledCategories` is a fresh array every render, so the
+    // effect keys off its joined form instead — the same set produces the same
+    // string, and the fetch only re-runs when the selection actually changes.
+  }, [normalizedVideoId, sponsorBlock.canFetch, sponsorBlockCategoriesKey, sponsorBlock.cacheDurationHours]);
 
   const loadTranscript = useCallback(async () => {
     if (!normalizedVideoId) return;
@@ -808,7 +832,7 @@ export function YouTubeViewer({
           !initialSeekAppliedRef.current &&
           !userInteractedRef.current;
 
-        if (!pendingInitialSeek && segments.length > 0) {
+        if (!pendingInitialSeek && sponsorBlock.canSkip && segments.length > 0) {
           for (const segment of segments) {
             const [start, end] = segment.segment;
 
@@ -822,13 +846,15 @@ export function YouTubeViewer({
                 setCurrentTime(end);
 
                 // Show floating glassmorphic notification
-                setSkipNotification({
-                  category: segment.category,
-                  savedSeconds: Math.round(end - start),
-                  originalStart: start,
-                  originalEnd: end,
-                  undoable: true,
-                });
+                if (sponsorBlock.showNotifications) {
+                  setSkipNotification({
+                    category: segment.category,
+                    savedSeconds: Math.round(end - start),
+                    originalStart: start,
+                    originalEnd: end,
+                    undoable: true,
+                  });
+                }
 
                 if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
                 skipNotificationTimeoutRef.current = setTimeout(() => {
@@ -863,6 +889,8 @@ export function YouTubeViewer({
     toast,
     activeExtractStartTime,
     activeExtractEndTime,
+    sponsorBlock.canSkip,
+    sponsorBlock.showNotifications,
   ]);
 
   // Lightweight time-only poll. The 1s interval above deliberately runs the

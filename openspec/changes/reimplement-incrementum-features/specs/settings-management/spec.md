@@ -293,6 +293,13 @@ The application MUST provide RSS feed management settings.
 ### Requirement: SponsorBlock Settings
 The application MUST provide SponsorBlock integration settings.
 
+> **Satisfied by `fix-reported-source-player-and-mobile-bugs`**, which added
+> `sponsorBlock` to the live settings store (persist v14) and an Integrations
+> section. The settings tab this requirement imagined does not exist and is
+> not planned: SponsorBlock is one integration among several, so it is a section
+> of Settings → Integrations rather than a tab of its own. The scenarios below
+> remain accurate; the "settings tab" wording is what changed.
+
 #### Scenario: Enable SponsorBlock
 **Given** the user is on the SponsorBlock settings tab
 **When** they enable SponsorBlock

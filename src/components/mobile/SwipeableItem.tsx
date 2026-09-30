@@ -9,7 +9,7 @@
  * - Configurable actions with icons and colors
  */
 
-import { ReactNode, useRef, useEffect, memo } from "react";
+import { ReactNode, memo } from "react";
 import { useSwipeGestures } from "../../hooks/useSwipeGestures";
 import { cn } from "../../utils";
 
@@ -67,15 +67,6 @@ export const SwipeableItem = memo(function SwipeableItem({
     }
   );
 
-  const itemRef = useRef<HTMLDivElement>(null);
-
-  // Sync refs
-  useEffect(() => {
-    if (elementRef.current !== itemRef.current) {
-      (elementRef as React.RefObject<HTMLDivElement>).current = itemRef.current;
-    }
-  }, [elementRef]);
-
   // Calculate which action is being revealed
   const revealingAction =
     state.direction === "left" && leftAction
@@ -123,7 +114,7 @@ export const SwipeableItem = memo(function SwipeableItem({
 
   return (
     <div
-      ref={itemRef}
+      ref={elementRef}
       className={cn(
         "swipeable-item",
         "relative",

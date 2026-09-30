@@ -43,7 +43,7 @@ import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 import { getCardSourceContext } from "../../api/review";
 import { useToast } from "../common/Toast";
 import { useTabsStore } from "../../stores/tabsStore";
-import { openCardSource } from "../../utils/cardSourceNavigation";
+import { hasReachableCardSource, openCardSource, sourceOutcomeKey } from "../../utils/cardSourceNavigation";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -472,16 +472,13 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
       }
 
       // V: jump to the source passage (same contract as the regular session).
-      if (e.key.toLowerCase() === "v" && currentCard) {
+      if (e.key.toLowerCase() === "v" && currentCard && hasReachableCardSource(currentCard)) {
         e.preventDefault();
         void openCardSource(currentCard, useTabsStore.getState().addTab, {
           reviewReturn: true,
         }).then((resolution) => {
-          if (resolution.status === "coarse" && resolution.reason !== "no-anchor") {
-            toast.info(t("review.source.notLocated"));
-          } else if (resolution.status === "unavailable") {
-            toast.info(t("review.source.unavailable"));
-          }
+          const key = sourceOutcomeKey(resolution);
+          if (key) toast.info(t(key));
         });
         return;
       }
@@ -700,7 +697,10 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
       {/* Progress indicator - ultra subtle dots */}
       <div 
         className={cn(
-          "fixed top-16 right-4 flex gap-1 transition-all duration-300",
+          // Bounded: right-anchored and ~156px wide, this grew leftward off a
+          // narrow viewport with nothing to stop it. Wrapping keeps the markers
+          // countable instead of silently clipping them.
+          "fixed top-16 right-4 z-50 flex max-w-[45vw] flex-wrap justify-end gap-1 transition-all duration-300",
           areControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
         )}
       >

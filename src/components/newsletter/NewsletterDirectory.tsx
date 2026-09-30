@@ -539,7 +539,7 @@ export function NewsletterDirectory({ onSubscribe, onClose }: NewsletterDirector
                     Editor&apos;s Picks
                   </h3>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
                   {filteredCurated.slice(0, 6).map((newsletter) => {
                     const sub = isSubscribed(newsletter.feedUrl);
                     return (

@@ -507,7 +507,7 @@ export function NewsletterDirectoryEnhanced({ onSubscribe, onClose }: Newsletter
               </div>
 
               {/* Category Filter */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide mt-3">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none mt-3">
                 <button
                   onClick={() => setSelectedCategory("all")}
                   className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${

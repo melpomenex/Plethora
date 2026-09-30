@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.version).toBe(13);
+    expect(stored.version).toBe(14);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -418,5 +418,94 @@ describe("settingsStore language learning opt-in migration (v10 → v11)", () =>
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
     expect(stored.state.settings.languageLearning.enabled).toBe(true);
     expect(useSettingsStore.getState().settings.languageLearning.enabled).toBe(true);
+  });
+});
+
+describe("settingsStore sponsorBlock settings (v14)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: JSON.parse(JSON.stringify(defaultSettings)) });
+  });
+
+  it("defaults to enabled, matching the ungated behaviour that shipped", () => {
+    const sb = useSettingsStore.getState().settings.sponsorBlock;
+    expect(sb.enabled).toBe(true);
+    expect(sb.autoSkip).toBe(true);
+    expect(sb.notifications).toBe(true);
+    expect(sb.cacheDuration).toBe(48);
+  });
+
+  it("defaults only the categories the service is actually asked for", () => {
+    const { categories } = useSettingsStore.getState().settings.sponsorBlock;
+    expect(Object.keys(categories).sort()).toEqual(
+      ["intro", "interaction", "music_offtopic", "outro", "preview", "selfpromo", "sponsor"].sort()
+    );
+  });
+
+  it("migrates a v13 blob by adding the whole category", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: { settings: { general: { language: "en" } } },
+      version: 13,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const sb = useSettingsStore.getState().settings.sponsorBlock;
+    expect(sb.enabled).toBe(true);
+    expect(sb.categories.sponsor).toBe(true);
+    expect(sb.categories.selfpromo).toBe(false);
+    // The pre-existing slice survives the migration.
+    expect(useSettingsStore.getState().settings.general.language).toBe("en");
+  });
+
+  it("backfills individual missing fields on a partial blob", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: { settings: { sponsorBlock: { enabled: false } } },
+      version: 13,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const sb = useSettingsStore.getState().settings.sponsorBlock;
+    expect(sb.enabled).toBe(false);          // the user's own choice, kept
+    expect(sb.autoSkip).toBe(true);          // backfilled
+    expect(sb.notifications).toBe(true);     // backfilled
+    expect(sb.cacheDuration).toBe(48);       // backfilled
+    expect(sb.categories.sponsor).toBe(true); // backfilled
+  });
+
+  it("keeps the other six categories intact when one is toggled", () => {
+    const { updateSettingsCategory } = useSettingsStore.getState();
+    const before = { ...useSettingsStore.getState().settings.sponsorBlock.categories };
+
+    updateSettingsCategory("sponsorBlock", {
+      ...useSettingsStore.getState().settings.sponsorBlock,
+      categories: { ...before, selfpromo: true },
+    });
+
+    const after = useSettingsStore.getState().settings.sponsorBlock.categories;
+    expect(after.selfpromo).toBe(true);
+    for (const key of Object.keys(before)) {
+      if (key === "selfpromo") continue;
+      expect(after[key as keyof typeof after]).toBe(before[key as keyof typeof before]);
+    }
+  });
+
+  it("persists a category change across a rehydrate", async () => {
+    const { updateSettingsCategory } = useSettingsStore.getState();
+    updateSettingsCategory("sponsorBlock", {
+      ...useSettingsStore.getState().settings.sponsorBlock,
+      autoSkip: false,
+      categories: {
+        ...useSettingsStore.getState().settings.sponsorBlock.categories,
+        music_offtopic: true,
+      },
+    });
+
+    await useSettingsStore.persist.rehydrate();
+
+    const sb = useSettingsStore.getState().settings.sponsorBlock;
+    expect(sb.autoSkip).toBe(false);
+    expect(sb.categories.music_offtopic).toBe(true);
   });
 });

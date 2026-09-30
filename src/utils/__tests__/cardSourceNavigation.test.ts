@@ -444,6 +444,120 @@ describe("resolveCardSource", () => {
   });
 });
 
+describe("whole-document cards (a bare document_id)", () => {
+  beforeEach(() => {
+    getExtractMock.mockResolvedValue(null);
+    getAiProvenanceMock.mockResolvedValue([]);
+  });
+
+  it("resolves a document-only card to a coarse resolution with no location", async () => {
+    const resolution = await resolveCardSource(
+      probe({ document_id: "doc-1", extract_id: null, source_reference: null })
+    );
+
+    expect(resolution).toMatchObject({
+      status: "coarse",
+      reason: "document-only",
+      documentId: "doc-1",
+    });
+    // No locator, so openCardSource falls through to open-at-stored-position.
+    expect(resolution.status === "coarse" && resolution.location).toBeUndefined();
+  });
+
+  it("opens the document rather than dead-ending", async () => {
+    await openCardSource(
+      probe({ document_id: "doc-1", extract_id: null, source_reference: null }),
+      vi.fn()
+    );
+
+    expect(openDocumentAtLocationMock).toHaveBeenCalledTimes(1);
+    const [documentId, options] = openDocumentAtLocationMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(documentId).toBe("doc-1");
+    // No initialJump and no highlight — nothing was recorded to highlight.
+    expect(options.initialJump).toBeUndefined();
+    expect(options.highlightQuery).toBeUndefined();
+  });
+
+  it("passes the review-return context through when opened from a session", async () => {
+    await openCardSource(
+      probe({ document_id: "doc-1" }),
+      vi.fn(),
+      { reviewReturn: true, originTabId: "tab-review" }
+    );
+
+    expect(openDocumentAtLocationMock.mock.calls[0][3]).toEqual({
+      reviewReturn: true,
+      originTabId: "tab-review",
+    });
+  });
+
+  it("still reports document-missing when the referenced document is gone", async () => {
+    const resolution = await resolveCardSource(probe({ document_id: "doc-deleted" }));
+
+    expect(resolution).toMatchObject({
+      status: "unavailable",
+      reason: "document-missing",
+    });
+    expect(openDocumentAtLocationMock).not.toHaveBeenCalled();
+  });
+
+  it("reports no-source for a card with no document at all", async () => {
+    const resolution = await resolveCardSource(
+      probe({ document_id: null, extract_id: null, source_reference: null })
+    );
+
+    expect(resolution).toMatchObject({ status: "unavailable", reason: "no-source" });
+  });
+
+  it("prefers a stored envelope over the bare document reference", async () => {
+    documentsStore = [htmlDoc(), pdfDoc()];
+
+    const resolution = await resolveCardSource(
+      probe({
+        document_id: "doc-1",
+        source_reference: JSON.stringify({
+          version: 1,
+          document_id: "doc-pdf",
+          locator: { kind: "pdf", pageNumber: 2 },
+          excerpt: "the spacing effect improves recall",
+        }),
+      })
+    );
+
+    // The envelope points at a different document and must win over the bare
+    // document_id, which would otherwise have opened doc-1.
+    expect(resolution).toMatchObject({
+      status: "ready",
+      documentId: "doc-pdf",
+      location: { kind: "pdf", pageNumber: 2 },
+    });
+  });
+
+  it("reports document-missing when the envelope's own document is gone", async () => {
+    const resolution = await resolveCardSource(
+      probe({
+        document_id: "doc-1",
+        source_reference: JSON.stringify({
+          version: 1,
+          document_id: "doc-vanished",
+          locator: { kind: "pdf", pageNumber: 2 },
+          excerpt: "gone",
+        }),
+      })
+    );
+
+    // The envelope still takes precedence — it must not silently fall back to
+    // the bare document_id and open the wrong document.
+    expect(resolution).toMatchObject({
+      status: "unavailable",
+      reason: "document-missing",
+    });
+  });
+});
+
 describe("cardSourceReference envelope", () => {
   it("round-trips through serialize and parse, clamping the excerpt", async () => {
     const { serializeCardSourceReference } = await import("../../types/cardSourceReference");

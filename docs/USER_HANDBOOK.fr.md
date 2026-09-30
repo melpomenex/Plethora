@@ -1637,15 +1637,26 @@ La plupart des plateformes de newsletter publient des flux RSS :
 3. Définir le début/la fin et le texte de transcription facultatif
 4. Enregistrez pour créer un clip réutilisable
 
-**Intégration SponsorBlock :**
-- Sauter automatiquement les segments sponsorisés
-- Filtrage par catégorie
-- Contribuer à SponsorBlock
+**Intégration SponsorBlock :**
+- Passe les segments sponsorisés des vidéos YouTube, des vidéos locales et des
+  livres audio, grâce aux données contribuées par la communauté sur
+  sponsor.ajay.app
+- Activé par défaut ; un segment passé affiche une notification nommant sa
+  catégorie, avec une **Annulation** qui revient au début du segment
 
-**Suivi des progrès :**
-- Reprendre de la dernière position
-- Marquer les sections regardées
-- Regarder l'historique
+**Configurer SponsorBlock :** [Paramètres] → [Intégrations] → **SponsorBlock**
+- **Activer SponsorBlock** — désactivé, aucune donnée de segment n'est demandée
+  et la lecture n'avance jamais d'elle-même
+- **Passer automatiquement** — désactivé, les segments sont toujours chargés et
+  affichés, mais la lecture n'avance pas
+- **Afficher les notifications de passage**
+- **Mode privé** — ne pas envoyer de données de visionnage au service
+- **Catégories à passer** — seules les catégories cochées provoquent un passage
+- **Réutiliser les données pendant (heures)** — durée de réutilisation d'une
+  liste de segments pour la même vidéo ; 0 pour la retélécharger à chaque fois
+
+Ces réglages s'appliquent à la lecture. Les découpes téléchargées utilisent
+toujours l'ensemble complet des catégories par défaut de SponsorBlock.
 
 ### Transcription vidéo locale (application de bureau)
 

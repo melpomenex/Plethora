@@ -1670,9 +1670,24 @@ Most newsletter platforms publish RSS feeds:
 4. Save to create a reusable clip
 
 **SponsorBlock Integration:**
-- Auto-skip sponsored segments
-- Category filtering
-- Contribute to SponsorBlock
+- Auto-skips sponsored segments in YouTube videos, local videos and audiobooks,
+  using community-submitted data from sponsor.ajay.app
+- On by default; a skipped segment shows a notification naming its category,
+  with an **Undo** that returns to the start of the segment
+
+**Configuring SponsorBlock:** [Settings] → [Integrations] → **SponsorBlock**
+- **Enable SponsorBlock** — when off, no segment data is requested at all and
+  playback is never moved on its own
+- **Skip automatically** — when off, segments are still loaded and shown, but
+  playback is not moved
+- **Show skip notifications**
+- **Privacy mode** — do not send view data to the service
+- **Categories to skip** — only the ticked categories cause a skip
+- **Reuse segment data for (hours)** — how long a fetched segment list is reused
+  for the same video; set it to 0 to refetch on every play
+
+These settings apply to playback. Downloaded pre-cuts always use SponsorBlock's
+full default category set.
 
 **Progress Tracking:**
 - Resume from last position

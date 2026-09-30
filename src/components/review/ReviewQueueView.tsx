@@ -1269,11 +1269,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         <ScheduleView
           onStartReview={onStartReview}
           onOpenDocument={(docId, title) => onOpenDocument?.({ id: docId, documentId: docId, documentTitle: title, itemType: "document" } as QueueItem)}
+          onExit={() => setQueueMode("reading")}
         />
       ) : (
       <>
       <div className="min-h-0 flex-1 flex overflow-hidden">
-        <div ref={queueScrollRef} className="min-h-0 flex-1 overflow-auto overscroll-contain p-4 space-y-4">
+        <div ref={queueScrollRef} className="min-h-0 flex-1 min-w-0 overflow-auto overscroll-contain p-4 space-y-4">
           {error && (
             <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg">
               {error}

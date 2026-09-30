@@ -6,7 +6,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
-import { openCardSource, type CardSourceResolution } from "../../utils/cardSourceNavigation";
+import { openCardSource, sourceOutcomeKey, type CardSourceResolution } from "../../utils/cardSourceNavigation";
 
 interface CardSourceContextProps {
   itemId: string;
@@ -198,20 +198,16 @@ export function presentResolution(
   }
 ): void {
   const { setUnavailable, toast, t } = ui;
-  switch (resolution.status) {
-    case "ready":
-      setUnavailable(null);
-      break;
-    case "coarse":
-      if (resolution.reason === "ambiguous") {
-        toast.info(t("review.source.ambiguous"));
-      } else {
-        toast.info(t("review.source.notLocated"));
-      }
-      setUnavailable(null);
-      break;
-    case "unavailable":
-      setUnavailable(t("review.source.unavailable"));
-      break;
+  const key = sourceOutcomeKey(resolution);
+
+  // `unavailable` is the only outcome with no navigation behind it, so it gets
+  // the persistent panel beside the retained excerpt. Every other message is a
+  // transient notice: the document did open.
+  if (key && resolution.status === "unavailable") {
+    setUnavailable(t(key));
+    return;
   }
+
+  setUnavailable(null);
+  if (key) toast.info(t(key));
 }

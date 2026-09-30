@@ -339,25 +339,6 @@ export interface RSSSettings {
   keepEntries: number;
 }
 
-// SponsorBlock Settings
-export interface SponsorBlockSettings {
-  enabled: boolean;
-  autoSkip: boolean;
-  notifications: boolean;
-  privacyMode: boolean;
-  categories: {
-    sponsor: boolean;
-    intro: boolean;
-    outro: boolean;
-    selfPromo: boolean;
-    interaction: boolean;
-    musicOfftopic: boolean;
-    preview: boolean;
-    filler: boolean;
-  };
-  cacheDuration: number;
-}
-
 // Smart Queue Settings
 export interface SmartQueueSettings {
   autoRefresh: boolean;
@@ -398,6 +379,10 @@ export interface PlethoraSettings {
   overrides: Record<string, boolean>;
 }
 
+// NOTE: SponsorBlock settings are NOT declared here. This whole `Settings`
+// type is a parallel, legacy shape that the live store
+// (`src/stores/settingsStore.ts`) does not use. SponsorBlock lives in the live
+// store, where the players actually read it.
 // Complete Settings Object
 export interface Settings {
   general: GeneralSettings;
@@ -416,7 +401,6 @@ export interface Settings {
   obsidianIntegration: ObsidianIntegrationSettings;
   rss: RSSSettings;
   rssSummary: RSSSummarySettings;
-  sponsorBlock: SponsorBlockSettings;
   smartQueue: SmartQueueSettings;
   keybindings: KeybindingSettings;
   audioReviewMode: AudioReviewModeSettings;

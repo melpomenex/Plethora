@@ -174,6 +174,26 @@ vi.mock("../../../stores/settingsStore", () => ({
       }),
     },
   ),
+  // AudiobookViewer reaches useSponsorBlock, which reads this as its fallback
+  // when a persisted blob predates the v14 settings migration.
+  defaultSettings: {
+    sponsorBlock: {
+      enabled: true,
+      autoSkip: true,
+      notifications: true,
+      privacyMode: false,
+      cacheDuration: 48,
+      categories: {
+        sponsor: true,
+        intro: true,
+        outro: true,
+        selfpromo: false,
+        interaction: false,
+        music_offtopic: false,
+        preview: false,
+      },
+    },
+  },
 }));
 
 vi.mock("../../../hooks/useMobileShell", () => ({

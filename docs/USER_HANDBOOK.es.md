@@ -1658,9 +1658,24 @@ La mayoría de las plataformas de boletines publican canales RSS:
 4. Guarde para crear un clip reutilizable.
 
 **Integración de SponsorBlock:**
-- Saltar automáticamente segmentos patrocinados
-- Filtrado de categorías
-- Contribuir a SponsorBlock
+- Omite segmentos patrocinados en vídeos de YouTube, vídeos locales y
+  audiolibros, con datos aportados por la comunidad desde sponsor.ajay.app
+- Activa por defecto; un segmento omitido muestra un aviso con su categoría y
+  un **Deshacer** que vuelve al inicio del segmento
+
+**Configurar SponsorBlock:** [Ajustes] → [Integraciones] → **SponsorBlock**
+- **Activar SponsorBlock** — si está desactivado no se solicitan datos de
+  segmentos y la reproducción nunca avanza por sí sola
+- **Omitir automáticamente** — si está desactivado los segmentos se cargan y se
+  muestran, pero la reproducción no avanza
+- **Mostrar avisos de omisión**
+- **Modo privado** — no enviar datos de visualización al servicio
+- **Categorías que se omitirán** — solo las marcadas provocan una omisión
+- **Reutilizar datos de segmentos durante (horas)** — cuánto se reutiliza una
+  lista de segmentos para el mismo vídeo; usa 0 para descargarla cada vez
+
+Estos ajustes se aplican a la reproducción. Los recortes predescargados usan
+siempre el conjunto completo de categorías por defecto de SponsorBlock.
 
 **Seguimiento del progreso:**
 - Reanudar desde la última posición

@@ -1,6 +1,7 @@
 import {
   CaretDown,
   CaretUp,
+  ArrowLeft,
   Funnel,
   GridFour,
   Lightning,
@@ -27,11 +28,22 @@ interface ScheduleWorkspaceHeaderProps {
   onClearDate: () => void;
   insights: ScheduleInsights;
   isMobile?: boolean;
+  /**
+   * Return the surrounding queue to its default view. Omitted when the host
+   * has no such route (Schedule rendered outside the queue).
+   */
+  onExit?: () => void;
 }
 
 /**
- * Workspace header: title + localized workload status, active-date chip,
- * Agenda/Data grid selection, Spread state, and overview-collapse control.
+ * Workspace header: back control, title + localized workload status, active-date
+ * chip, Agenda/Data grid selection, Spread state, and overview-collapse control.
+ *
+ * The back control is deliberately a labelled arrow at the leading edge rather
+ * than another inline X: the X inside the date chip clears the date scope and
+ * must not read as "leave Schedule". The date chip only exists while a date is
+ * active, so the two are never confusable in the one case where a user is most
+ * likely to reach for the wrong one.
  */
 export function ScheduleWorkspaceHeader({
   viewMode,
@@ -45,6 +57,7 @@ export function ScheduleWorkspaceHeader({
   onClearDate,
   insights,
   isMobile = false,
+  onExit,
 }: ScheduleWorkspaceHeaderProps) {
   const { t } = useI18n();
 
@@ -60,6 +73,19 @@ export function ScheduleWorkspaceHeader({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 border-b border-border bg-background">
+      {onExit && (
+        <button
+          type="button"
+          onClick={onExit}
+          aria-label={t("schedule.backToQueue")}
+          title={t("schedule.backToQueue")}
+          className="-ml-1.5 flex flex-shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 min-h-[44px] md:min-h-0"
+        >
+          <ArrowLeft className="w-4 h-4 md:w-3 md:h-3" aria-hidden="true" />
+          <span className="hidden md:inline">{t("schedule.backToQueue")}</span>
+        </button>
+      )}
+
       {/* Left: title + status + active date */}
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <h1 className="text-sm font-bold text-foreground whitespace-nowrap">

@@ -592,14 +592,14 @@ export function MobileQueueView({
           <button
             onClick={() => setActiveTab("reading")}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
+              "flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
               activeTab === "reading"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground"
             )}
           >
             <BookOpen className="w-4 h-4" />
-            <span className="hidden xs:inline">{t("mobileQueue.reading")}</span>
+            <span className="min-w-0 truncate">{t("mobileQueue.reading")}</span>
             {dueCount > 0 && (
               <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
                 {dueCount}
@@ -609,26 +609,26 @@ export function MobileQueueView({
           <button
             onClick={() => setActiveTab("schedule")}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
+              "flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
               activeTab === "schedule"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground"
             )}
           >
             <CalendarBlank className="w-4 h-4" />
-            <span className="hidden xs:inline">{t("schedule.title")}</span>
+            <span className="min-w-0 truncate">{t("schedule.title")}</span>
           </button>
           <button
             onClick={() => setActiveTab("review")}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
+              "flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all",
               activeTab === "review"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground"
             )}
           >
             <Brain className="w-4 h-4" />
-            <span className="hidden xs:inline">{t("mobileQueue.review")}</span>
+            <span className="min-w-0 truncate">{t("mobileQueue.review")}</span>
           </button>
         </div>
       </div>
@@ -637,13 +637,14 @@ export function MobileQueueView({
         <MobileScheduleView
           onStartReview={onStartReview}
           onOpenDocument={(docId, title) => onOpenDocument?.({ id: docId, documentId: docId, documentTitle: title, itemType: "document" } as QueueItem)}
+          onExit={() => setActiveTab("reading")}
         />
       ) : (
       <>
       {/* Quick Filters (Reading only) */}
       {activeTab === "reading" && (
         <div className="px-4 py-2 border-b border-border bg-card/50">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide" data-horizontal-scroll>
+          <div className="flex gap-2 overflow-x-auto scrollbar-none" data-horizontal-scroll>
             <button
               onClick={() => setQuickFilter("today")}
               className={cn(

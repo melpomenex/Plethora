@@ -22,9 +22,18 @@ vi.mock("../../../api/learning-items", () => ({
   getLearningItem: (...args: unknown[]) => getLearningItemMock(...args),
 }));
 
-vi.mock("../../../utils/cardSourceNavigation", () => ({
-  openCardSource: (...args: unknown[]) => openCardSourceMock(...args),
-}));
+// Only navigation is stubbed; `sourceOutcomeKey` stays real so this test
+// exercises the actual outcome→message mapping rather than a second copy.
+vi.mock("../../../utils/cardSourceNavigation", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../../utils/cardSourceNavigation")>(
+      "../../../utils/cardSourceNavigation"
+    );
+  return {
+    ...actual,
+    openCardSource: (...args: unknown[]) => openCardSourceMock(...args),
+  };
+});
 
 vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: (selector: (state: unknown) => unknown) =>

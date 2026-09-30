@@ -2,6 +2,8 @@
 //! Documentation: https://wiki.sponsor.ajay.app/w/API_Docs
 
 use crate::utils::ffmpeg::ffmpeg_command;
+use once_cell::sync::Lazy;
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,6 +43,18 @@ enum SponsorBlockApiResponse {
     Times(Vec<SponsorBlockTimesObject>),
 }
 
+/// Shared HTTP client.
+///
+/// Building a `reqwest::Client` per call re-creates the whole connection pool
+/// every time; this module is called once per download, and the pool is
+/// exactly what makes the second call cheaper than the first.
+static HTTP: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("failed to build SponsorBlock HTTP client")
+});
+
 /// Fetch SponsorBlock segments for a YouTube video ID
 pub async fn fetch_sponsorblock_segments(
     video_id: &str,
@@ -51,12 +65,7 @@ pub async fn fetch_sponsorblock_segments(
         video_id, categories
     );
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build client: {}", e))?;
-
-    let response = client
+    let response = HTTP
         .get(&url)
         .send()
         .await

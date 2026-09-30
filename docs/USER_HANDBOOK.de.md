@@ -1658,9 +1658,26 @@ Die meisten Newsletter-Plattformen veröffentlichen RSS-Feeds:
 4. Speichern Sie, um einen wiederverwendbaren Clip zu erstellen
 
 **SponsorBlock-Integration:**
-- Gesponserte Segmente automatisch überspringen
-- Kategoriefilterung
-- Tragen Sie zu SponsorBlock bei
+- Überspringt gesponserte Segmente in YouTube-Videos, lokalen Videos und
+  Hörbüchern anhand community-eingereichter Daten von sponsor.ajay.app
+- Standardmäßig aktiv; ein übersprungener Abschnitt zeigt eine Benachrichtigung
+  mit seiner Kategorie und einem **Rückgängig**, das an den Abschnittsanfang
+  zurückkehrt
+
+**SponsorBlock einrichten:** [Einstellungen] → [Integrationen] → **SponsorBlock**
+- **SponsorBlock aktivieren** — ausgeschaltet werden keinerlei Abschnittsdaten
+  angefordert und die Wiedergabe nie automatisch weitergesprungen
+- **Automatisch überspringen** — ausgeschaltet werden Abschnitte weiterhin
+  geladen und angezeigt, aber die Wiedergabe springt nicht weiter
+- **Überspring-Benachrichtigungen anzeigen**
+- **Datenschutzmodus** — keine Wiedergabedaten an den Dienst senden
+- **Zu überspringende Kategorien** — nur die markierten Kategorien lösen einen
+  Sprung aus
+- **Abschnittsdaten wiederverwenden (Stunden)** — wie lange eine abgerufene
+  Abschnittsliste für dasselbe Video wiederverwendet wird; 0 lädt jedes Mal neu
+
+Diese Einstellungen gelten für die Wiedergabe. Heruntergeladene Vorkürzungen
+verwenden immer die vollständige Standardkategorienliste von SponsorBlock.
 
 **Fortschrittsverfolgung:**
 - Von der letzten Position fortfahren

@@ -14,6 +14,7 @@ import {
   Key,
   Plug,
   Queue,
+  Scissors,
   Sparkle,
   Trash,
 
@@ -23,6 +24,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { SponsorBlockSettingsPanel } from "./SponsorBlockSettings";
 import { NumericInput } from "../common";
 import { YouTubePlaylistManager } from "../media/YouTubePlaylistManager";
 import { NotebookLMWorkspace } from "./NotebookLMWorkspace";
@@ -69,6 +71,7 @@ type IntegrationType =
   | "youtube"
   | "youtube-cookies"
   | "youtube-transcript"
+  | "sponsorblock"
   | "api-tokens";
 
 
@@ -516,6 +519,17 @@ export function IntegrationSettings() {
           <YoutubeLogo className="w-4 h-4" />
           {t("integrations.youtubeTranscript") || "Transcript Server"}
         </button>
+        <button
+          onClick={() => setActiveTab("sponsorblock")}
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+            activeTab === "sponsorblock"
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:opacity-90"
+          }`}
+        >
+          <Scissors className="w-4 h-4" />
+          {t("integrations.sponsorBlock")}
+        </button>
         {isPlethoraCloudAvailable() && (
           <button
             onClick={() => setActiveTab("api-tokens")}
@@ -550,6 +564,15 @@ export function IntegrationSettings() {
       )}
 
       {/* Obsidian Settings */}
+      {activeTab === "sponsorblock" && (
+        <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-foreground mb-3">
+            {t("integrations.sponsorBlock")}
+          </h3>
+          <SponsorBlockSettingsPanel />
+        </div>
+      )}
+
       {activeTab === "obsidian" && (
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-lg p-6">

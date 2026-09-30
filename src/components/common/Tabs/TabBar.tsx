@@ -373,7 +373,7 @@ function TabBarImpl({
         <div
           ref={scrollContainerRef}
           onWheel={handleTabWheel}
-          className="flex-1 flex items-center overflow-x-auto scrollbar-hide"
+          className="flex-1 flex items-center overflow-x-auto scrollbar-none"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           {tabs.map((tab, index) => {

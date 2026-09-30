@@ -44,12 +44,13 @@ import { useToast } from "../common/Toast";
 import { bulkDeleteItems, bulkSuspendItems } from "../../api/queue";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
 import { useTabsStore } from "../../stores/tabsStore";
-import { openCardSource } from "../../utils/cardSourceNavigation";
+import { hasReachableCardSource, openCardSource, sourceOutcomeKey } from "../../utils/cardSourceNavigation";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
 import { useI18n } from "../../lib/i18n";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { setActiveReviewSession } from "../../lib/feedback";
 import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 import { formatArenaInterval } from "./arenaFormatters";
@@ -77,6 +78,11 @@ function ensureAnkiStudyDecks(deckNames: string[]): string[] {
 }
 
 export function ReviewSession({ onExit }: ReviewSessionProps) {
+  // The queue list is anchored to a control that can sit anywhere in the
+  // header row; at phone widths a 320px right-anchored panel lands at a
+  // negative x and disappears, so it becomes a viewport sheet instead.
+  const isMobileShell = useMobileShell();
+
   const {
     currentCard,
     queue,
@@ -543,7 +549,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       // "Show Answer" button unmounts on flip), the event target falls back to
       // <body>/<html>. Allow those through so rating keys (1-4) keep working;
       // only bail when focus is genuinely inside another app surface.
-      const target = e.target as Node | null;
+      //
+      // The `instanceof Node` guard matters: a keydown dispatched at the window
+      // (which several tests do) has a non-Node target, and `contains()` throws
+      // on one.
+      const target = e.target instanceof Node ? e.target : null;
       if (
         target &&
         target !== document.body &&
@@ -602,22 +612,21 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       }
 
       // V: view the source passage the current card came from. Disabled while
-      // an arena grade is pending (that chooser owns the keyboard); degraded
-      // outcomes are announced, never silently ignored.
-      if (lowerKey === "v" && currentCard && !pendingArenaReview) {
+      // an arena grade is pending (that chooser owns the keyboard) and on cards
+      // with no source to open; degraded outcomes are announced, never silently
+      // ignored.
+      if (
+        lowerKey === "v" &&
+        currentCard &&
+        !pendingArenaReview &&
+        hasReachableCardSource(currentCard)
+      ) {
         e.preventDefault();
         void openCardSource(currentCard, useTabsStore.getState().addTab, {
           reviewReturn: true,
         }).then((resolution) => {
-          if (resolution.status === "coarse") {
-            if (resolution.reason === "ambiguous") {
-              toast.info(t("review.source.ambiguous"));
-            } else {
-              toast.info(t("review.source.notLocated"));
-            }
-          } else if (resolution.status === "unavailable") {
-            toast.info(t("review.source.unavailable"));
-          }
+          const key = sourceOutcomeKey(resolution);
+          if (key) toast.info(t(key));
         });
         return;
       }
@@ -933,14 +942,44 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
             />
 
             {isQueueListOpen && (
-              <div
-                ref={queueListRef}
-                className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-lg shadow-lg z-50"
-              >
-                <div className="px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
-                  {t("review.queue")}
-                </div>
-                <div className="max-h-80 overflow-auto">
+              <>
+                {isMobileShell && (
+                  <div
+                    className="fixed inset-0 z-40 bg-black/40"
+                    onClick={() => setIsQueueListOpen(false)}
+                    aria-hidden="true"
+                  />
+                )}
+                <div
+                  ref={queueListRef}
+                  className={
+                    isMobileShell
+                      ? // Viewport-anchored sheet, matching FSRSInspector's
+                        // phone presentation: the list is scrollable, so a
+                        // full-height sheet reads better than a floating card.
+                        "fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] bg-card border-t border-border rounded-t-xl shadow-lg flex flex-col pb-[env(safe-area-inset-bottom,0px)]"
+                      : // Desktop keeps the anchored dropdown, clamped so it
+                        // can never exceed the pane it opens in.
+                        "absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-lg z-50"
+                  }
+                >
+                  <div className="flex items-center justify-between px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground border-b border-border shrink-0">
+                    <span>{t("review.queue")}</span>
+                    {isMobileShell && (
+                      <button
+                        onClick={() => setIsQueueListOpen(false)}
+                        className="p-1 -mr-1 rounded hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        aria-label={t("common.close")}
+                      >
+                        <X className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    className={
+                      isMobileShell ? "flex-1 min-h-0 overflow-auto" : "max-h-80 overflow-auto"
+                    }
+                  >
                   {queue.map((item, index) => (
                     <button
                       key={item.id}
@@ -966,8 +1005,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                       </div>
                     </button>
                   ))}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}

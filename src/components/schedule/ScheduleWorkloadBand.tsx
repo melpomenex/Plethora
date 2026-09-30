@@ -189,7 +189,7 @@ export function ScheduleWorkloadBand({
         {/* 14-day forecast rail */}
         <div
           ref={scrollRef}
-          className="flex gap-1.5 overflow-x-auto pb-1 snap-x snap-proximity scrollbar-hide"
+          className="flex gap-1.5 overflow-x-auto pb-1 snap-x snap-proximity scrollbar-none"
           role="radiogroup"
           aria-label={t("schedule.forecastRail")}
         >

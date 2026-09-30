@@ -25,6 +25,8 @@ interface ScheduleViewProps {
   isMobile?: boolean;
   onStartReview?: (itemId?: string) => void;
   onOpenDocument?: (documentId: string, title: string) => void;
+  /** Return the surrounding queue to its default view. */
+  onExit?: () => void;
 }
 
 function queueItemToScheduleDay(item: {
@@ -79,7 +81,12 @@ function readViewMode(raw: string | null, isMobile: boolean): ScheduleViewMode {
   return isMobile ? "agenda" : "grid";
 }
 
-export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }: ScheduleViewProps) {
+export function ScheduleView({
+  isMobile = false,
+  onStartReview,
+  onOpenDocument,
+  onExit,
+}: ScheduleViewProps) {
   const { t } = useI18n();
   const toast = useToast();
 
@@ -407,7 +414,9 @@ export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }
       : t("schedule.spreadNoEligible");
 
   return (
-    <div className={cn("flex flex-col h-full bg-background", isMobile && "pb-safe")}>
+    // `pb-safe` was never defined in the stylesheet. pb-20 is the same bottom
+    // clearance ReviewQueueView uses to clear the phone shell's fixed nav.
+    <div className={cn("flex flex-col h-full bg-background", isMobile && "pb-20")}>
       <ScheduleWorkspaceHeader
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -420,6 +429,7 @@ export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }
         onClearDate={() => setSelectedDate(null)}
         insights={viewModel.insights}
         isMobile={isMobile}
+        onExit={onExit}
       />
 
       {isLoading ? (

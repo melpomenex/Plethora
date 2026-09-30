@@ -48,6 +48,7 @@ import {
   extractVideoID,
   getCategoryDisplayName,
 } from "../../api/sponsorblock";
+import { useSponsorBlock } from "../../hooks/useSponsorBlock";
 import type {
   AudiobookMetadata,
   AudiobookChapter,
@@ -548,6 +549,8 @@ export function AudiobookViewer({
     return () => { cancelled = true; };
   }, [document.id, document.coverImageUrl, document.filePath, remoteAudioUrl]);
 
+  const sponsorBlock = useSponsorBlock();
+
   useEffect(() => {
     let cancelled = false;
     const loadSponsorBlockData = async () => {
@@ -569,10 +572,18 @@ export function AudiobookViewer({
       if (targetUrl) {
         const videoIdResult = extractVideoID(targetUrl);
         if (videoIdResult && videoIdResult.platform === "youtube") {
+          if (!sponsorBlock.canFetch) {
+            if (!cancelled) setSponsorBlockSegments([]);
+            return;
+          }
           try {
-            const fetched = await fetchSponsorBlockSegments(videoIdResult.videoID);
+            const fetched = await fetchSponsorBlockSegments(
+              videoIdResult.videoID,
+              sponsorBlock.enabledCategories,
+              sponsorBlock.cacheDurationHours
+            );
             if (!cancelled) {
-              setSponsorBlockSegments(fetched);
+              setSponsorBlockSegments(sponsorBlock.filterSegments(fetched));
             }
           } catch (error) {
             console.warn("[SponsorBlock] Failed to fetch live segments:", error);
@@ -1398,8 +1409,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
       lastTimeRef.current = time;
 
-      // SponsorBlock cut metadata (pre-cut) check
-      if (sponsorBlockCuts && sponsorBlockCuts.length > 0) {
+      // SponsorBlock cut metadata (pre-cut) check. Gated on canSkip like the
+      // live-segment check below: with SponsorBlock off, playback never moves on
+      // its own, whether the cuts were baked in at download time or fetched live.
+      if (sponsorBlock.canSkip && sponsorBlockCuts && sponsorBlockCuts.length > 0) {
         for (const cut of sponsorBlockCuts) {
           if (time >= cut.cutStart && time <= cut.cutStart + 1.5) {
             if (!notifiedCutsRef.current.has(cut.uuid)) {
@@ -1421,7 +1434,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
 
       // SponsorBlock live segment check (streaming / uncut)
-      if (sponsorBlockSegments && sponsorBlockSegments.length > 0) {
+      if (sponsorBlock.canSkip && sponsorBlockSegments && sponsorBlockSegments.length > 0) {
         for (const segment of sponsorBlockSegments) {
           const [start, end] = segment.segment;
           if (time >= start && time < end) {
@@ -1518,7 +1531,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
         setBuffered(audio.buffered.end(audio.buffered.length - 1));
       }
     }
-  }, [activeSegmentId, currentPartIndex, documentTranscriptSegments, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
+  }, [activeSegmentId, currentPartIndex, documentTranscriptSegments, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, sponsorBlock.canSkip, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
   
   const [isWaitingForSeek, setIsWaitingForSeek] = useState(false);
   const seekRetryCountRef = useRef(0);

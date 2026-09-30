@@ -8,7 +8,14 @@
  *   3. the `ai_provenance` capture record (Learn-This path),
  *   4. a bounded quote match of the stored excerpt,
  *   5. the coarse page/start fallback,
- *   6. "unavailable".
+ *   6. the card's bare `document_id` — a document with no recorded passage,
+ *      which still opens rather than dead-ending,
+ *   7. "unavailable".
+ *
+ * Only the last rung is a dead end, and it now means exactly what it says: the
+ * card has no document reference at all. A card whose document was deleted
+ * resolves to `document-missing`; a card with nothing recorded resolves to
+ * `no-source`.
  *
  * Resolution is LAZY: invoked when the user activates the source action,
  * never during card rendering. Everything here is a local read — no network,
@@ -55,7 +62,7 @@ export type CardSourceResolution =
     }
   | {
       status: "coarse";
-      reason: "ambiguous" | "stale" | "no-anchor";
+      reason: "ambiguous" | "stale" | "no-anchor" | "document-only";
       documentId: string;
       location?: ExactSearchHitLocation;
       highlightQuery?: string;
@@ -70,6 +77,52 @@ export type CardSourceResolution =
     };
 
 const HIGHLIGHT_QUOTE_CHARS = 120;
+
+/**
+ * Whether a card has a source this resolver can act on.
+ *
+ * This mirrors the ladder's own entry conditions: rungs 1, 2 and 4 key off
+ * `extract_id`, `source_reference` and `document_id` respectively, so a card
+ * carrying any one of them can reach a document. Every surface that offers
+ * "View source" must ask this rather than re-deriving the rule — that drift is
+ * how a card ended up with a button in the strip and nothing in the menu.
+ */
+export function hasReachableCardSource(
+  card: Pick<CardSourceProbe, "extract_id" | "document_id" | "source_reference">
+): boolean {
+  return Boolean(card.extract_id || card.document_id || card.source_reference);
+}
+
+/** i18n keys for a degraded navigation outcome. */
+export type SourceOutcomeKey =
+  | "review.source.unavailable"
+  | "review.source.noSource"
+  | "review.source.notLocated"
+  | "review.source.ambiguous";
+
+/**
+ * The message a resolution warrants, or `null` when it warrants none.
+ *
+ * `document-only` and `no-anchor` are silent on purpose: in both cases the
+ * document opened and no passage was expected, so there is nothing to report.
+ * `document-missing` is the only outcome that may claim the document is gone.
+ */
+export function sourceOutcomeKey(
+  resolution: CardSourceResolution
+): SourceOutcomeKey | null {
+  switch (resolution.status) {
+    case "ready":
+      return null;
+    case "coarse":
+      if (resolution.reason === "ambiguous") return "review.source.ambiguous";
+      if (resolution.reason === "stale") return "review.source.notLocated";
+      return null;
+    case "unavailable":
+      return resolution.reason === "no-source"
+        ? "review.source.noSource"
+        : "review.source.unavailable";
+  }
+}
 
 function isPdfSelectionContext(value: unknown): value is PdfSelectionContext {
   return Boolean(
@@ -498,6 +551,30 @@ export async function resolveCardSource(item: CardSourceProbe): Promise<CardSour
         excerpt,
       };
     }
+  }
+
+  // 4. A bare document reference is still a reachable source. Cards generated
+  // from a whole document carry no extract linkage, no envelope and no
+  // provenance record, so without this rung they dead-ended with no navigation
+  // at all even though their document is right there. Resolving to `coarse`
+  // with no `location` lets `openCardSource` fall through to its
+  // open-at-stored-reading-position branch.
+  //
+  // `document-only` is distinct from `no-anchor`: here no passage was ever
+  // recorded, so opening the document is the correct and complete answer and
+  // the user is told nothing. `no-anchor` means a passage WAS expected and
+  // could not be located.
+  if (item.document_id) {
+    const document = await findDocument(item.document_id);
+    if (!document) {
+      return { status: "unavailable", reason: "document-missing" };
+    }
+    return {
+      status: "coarse",
+      reason: "document-only",
+      documentId: document.id,
+      excerpt: "",
+    };
   }
 
   return { status: "unavailable", reason: "no-source" };

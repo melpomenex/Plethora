@@ -57,10 +57,51 @@ vi.mock("../../../api/documents", () => ({
   updateDocumentProgressAuto: vi.fn(async () => {}),
 }));
 
+const sponsorBlockMocks = vi.hoisted(() => ({
+  fetchSponsorBlockSegments: vi.fn(
+    async (
+      _videoID: string,
+      _categories?: string[],
+      _cacheDurationHours?: number
+    ) => [] as unknown[]
+  ),
+}));
+
 vi.mock("../../../api/sponsorblock", () => ({
-  fetchSponsorBlockSegments: vi.fn(async () => []),
+  fetchSponsorBlockSegments: sponsorBlockMocks.fetchSponsorBlockSegments,
   getCategoryDisplayName: vi.fn((c: string) => c),
 }));
+
+const settingsMocks = vi.hoisted(() => ({
+  sponsorBlock: {
+    enabled: true,
+    autoSkip: true,
+    notifications: true,
+    privacyMode: false,
+    cacheDuration: 48,
+    categories: {
+      sponsor: true,
+      intro: true,
+      outro: true,
+      selfpromo: false,
+      interaction: false,
+      music_offtopic: false,
+      preview: false,
+    },
+  },
+}));
+
+vi.mock("../../../stores/settingsStore", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../stores/settingsStore")>();
+  return {
+    ...actual,
+    useSettingsStore: (selector?: (state: unknown) => unknown) => {
+      const state = { settings: { sponsorBlock: settingsMocks.sponsorBlock } };
+      return selector ? selector(state) : state;
+    },
+  };
+});
 
 vi.mock("../../../utils/youtubeTranscriptBrowser", () => ({
   fetchYouTubeTranscript: vi.fn(async () => []),
@@ -121,6 +162,22 @@ describe("YouTubeViewer inline playback and lifecycle", () => {
     mockYouTubeInstances.length = 0;
     tauriMocks.isTauri.mockReturnValue(true);
     tauriMocks.getPlatform.mockReturnValue("linux");
+    settingsMocks.sponsorBlock = {
+      enabled: true,
+      autoSkip: true,
+      notifications: true,
+      privacyMode: false,
+      cacheDuration: 48,
+      categories: {
+        sponsor: true,
+        intro: true,
+        outro: true,
+        selfpromo: false,
+        interaction: false,
+        music_offtopic: false,
+        preview: false,
+      },
+    };
   });
 
   it("mounts with inline player active by default for valid videoId", async () => {
@@ -267,6 +324,50 @@ describe("YouTubeViewer inline playback and lifecycle", () => {
     });
     await waitFor(() => {
       expect(onArchive).toHaveBeenCalled();
+    });
+  });
+
+  it("requests segment data for the enabled categories only", async () => {
+    render(<YouTubeViewer videoId="dQw4w9WgXcQ" documentId="doc-yt-sb" title="t" />);
+    await waitFor(() => {
+      expect(sponsorBlockMocks.fetchSponsorBlockSegments).toHaveBeenCalled();
+    });
+
+    const [, categories, cacheHours] =
+      sponsorBlockMocks.fetchSponsorBlockSegments.mock.calls[0];
+    // selfpromo/interaction/music_offtopic/preview are off, so they are not
+    // requested — asking for a category we would discard still tells the
+    // service the user is watching this video.
+    expect(categories.sort()).toEqual(["intro", "outro", "sponsor"]);
+    expect(cacheHours).toBe(48);
+  });
+
+  it("issues no segment request at all when SponsorBlock is disabled", async () => {
+    settingsMocks.sponsorBlock = { ...settingsMocks.sponsorBlock, enabled: false };
+
+    render(<YouTubeViewer videoId="dQw4w9WgXcQ" documentId="doc-yt-sb-off" title="t" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("react-youtube-player")).toBeInTheDocument();
+    });
+
+    // The gate is at the fetch site, not just the skip loop, so with SponsorBlock
+    // off the video id never leaves the device.
+    expect(sponsorBlockMocks.fetchSponsorBlockSegments).not.toHaveBeenCalled();
+  });
+
+  it("stops requesting once SponsorBlock is turned off", async () => {
+    const { rerender } = render(
+      <YouTubeViewer videoId="dQw4w9WgXcQ" documentId="doc-yt-sb-off2" title="t" />
+    );
+    await waitFor(() => {
+      expect(sponsorBlockMocks.fetchSponsorBlockSegments).toHaveBeenCalledTimes(1);
+    });
+
+    settingsMocks.sponsorBlock = { ...settingsMocks.sponsorBlock, enabled: false };
+    rerender(<YouTubeViewer videoId="dQw4w9WgXcQ" documentId="doc-yt-sb-off2" title="t" />);
+
+    await waitFor(() => {
+      expect(sponsorBlockMocks.fetchSponsorBlockSegments).toHaveBeenCalledTimes(1);
     });
   });
 });

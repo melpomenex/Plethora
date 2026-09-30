@@ -207,3 +207,56 @@ describe("ScheduleView — mutation reconciliation (7.3)", () => {
     expect(await screen.findByText("No items scheduled")).toBeInTheDocument();
   });
 });
+
+describe("ScheduleView — leaving the workspace (3.2–3.5)", () => {
+  it("offers no back control when the host provides no exit route", async () => {
+    mockScheduleData([makeRustItem({ id: "a", due_date: localDateKey(0) })]);
+    render(<ScheduleView />);
+    await screen.findByText("Schedule");
+    expect(screen.queryByRole("button", { name: /back to queue/i })).toBeNull();
+  });
+
+  it("renders a labelled back control when an exit route is provided", async () => {
+    mockScheduleData([makeRustItem({ id: "a", due_date: localDateKey(0) })]);
+    render(<ScheduleView onExit={() => {}} />);
+    // Reachable by role+name, so keyboard and screen-reader users get it.
+    const back = await screen.findByRole("button", { name: /back to queue/i });
+    expect(back).toBeInTheDocument();
+    expect(back.tagName).toBe("BUTTON");
+    expect(back).toHaveAttribute("type", "button");
+  });
+
+  it("invokes the exit route when the back control is activated", async () => {
+    mockScheduleData([makeRustItem({ id: "a", due_date: localDateKey(0) })]);
+    const onExit = vi.fn();
+    render(<ScheduleView onExit={onExit} />);
+    fireEvent.click(await screen.findByRole("button", { name: /back to queue/i }));
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the back control distinct from the date-scope clear", async () => {
+    mockScheduleData([
+      makeRustItem({ id: "a", due_date: localDateKey(0) }),
+      makeRustItem({ id: "b", due_date: localDateKey(1) }),
+    ]);
+    const onExit = vi.fn();
+    render(<ScheduleView onExit={onExit} />);
+
+    // Select tomorrow so the date chip (and its X) is present alongside the
+    // back control — the state where the two are most confusable.
+    fireEvent.click(await screen.findByLabelText(/^Tomorrow/));
+    const clearDate = await screen.findByLabelText("Clear selected date");
+    const back = screen.getByRole("button", { name: /back to queue/i });
+
+    expect(back).not.toBe(clearDate);
+
+    // Clearing the date scope must not leave the workspace.
+    fireEvent.click(clearDate);
+    expect(onExit).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Clear selected date")).not.toBeInTheDocument();
+
+    // Only the back control leaves it.
+    fireEvent.click(back);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+});

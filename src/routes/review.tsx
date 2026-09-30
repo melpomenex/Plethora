@@ -5,7 +5,7 @@ import { ReviewCard } from "../components/review/ReviewCard";
 import { RatingButtons } from "../components/review/RatingButtons";
 import { ReviewProgress } from "../components/review/ReviewProgress";
 import { ReviewComplete } from "../components/review/ReviewComplete";
-import { ArrowCounterClockwise, ArrowSquareOut, WarningCircle } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, WarningCircle } from "@phosphor-icons/react";
 import { ReviewRating } from "../api/review";
 import {
   evaluateTypedAnswer,
@@ -395,12 +395,6 @@ export function Review() {
     );
   }
 
-  const sourceAnchor = ((currentCard as any)?.source_anchor ?? null) as
-    | { document_id?: string; extract_id?: string; page_number?: number }
-    | null;
-   
-  const canJumpToSource = Boolean(sourceAnchor?.document_id || (currentCard as any)?.document_id || (currentCard as any)?.extract_id);
-
   return (
     <div
       role={a11yConfig.rootRole}
@@ -423,23 +417,6 @@ export function Review() {
           >
             <ArrowCounterClockwise className="w-4 h-4" />
             {t("review.undo")}
-          </button>
-          <button
-            onClick={() => {
-              const detail = {
-   
-                documentId: sourceAnchor?.document_id ?? (currentCard as any)?.document_id,
-   
-                extractId: sourceAnchor?.extract_id ?? (currentCard as any)?.extract_id,
-                pageNumber: sourceAnchor?.page_number,
-              };
-              window.dispatchEvent(new CustomEvent("plethora:source-jump", { detail }));
-            }}
-            disabled={!canJumpToSource}
-            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ArrowSquareOut className="w-4 h-4" />
-            {t("review.sourceJump")}
           </button>
         </div>
         <div className="mt-3 inline-flex rounded-md border border-border overflow-hidden">

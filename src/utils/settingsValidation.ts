@@ -193,7 +193,6 @@ const TTSProviderSettingsSchema = z.object({
   cloneModelId: z.string().default(''),
   language: z.string().default('Auto'),
   pocketSpeed: z.number().min(0.5).max(2).default(1),
-  pocketAvailable: z.boolean().default(false),
 });
 
 export const TTSSettingsSchema = z.object({
@@ -308,25 +307,6 @@ export const RSSSettingsSchema = z.object({
   keepEntries: z.number().min(1).max(10000).default(500),
 });
 
-// SponsorBlock Settings Schema
-export const SponsorBlockSettingsSchema = z.object({
-  enabled: z.boolean().default(false),
-  autoSkip: z.boolean().default(true),
-  notifications: z.boolean().default(true),
-  privacyMode: z.boolean().default(false),
-  categories: z.object({
-    sponsor: z.boolean().default(true),
-    intro: z.boolean().default(true),
-    outro: z.boolean().default(true),
-    selfPromo: z.boolean().default(false),
-    interaction: z.boolean().default(false),
-    musicOfftopic: z.boolean().default(false),
-    preview: z.boolean().default(false),
-    filler: z.boolean().default(false),
-  }),
-  cacheDuration: z.number().min(1).max(168).default(48),
-});
-
 // Smart Queue Settings Schema
 export const SmartQueueSettingsSchema = z.object({
   autoRefresh: z.boolean().default(true),
@@ -378,7 +358,6 @@ export const SettingsSchema = z.object({
   mcpServers: MCPServerSettingsSchema,
   obsidianIntegration: ObsidianIntegrationSettingsSchema,
   rss: RSSSettingsSchema,
-  sponsorBlock: SponsorBlockSettingsSchema,
   smartQueue: SmartQueueSettingsSchema,
   keybindings: KeybindingSettingsSchema,
   audioReviewMode: AudioReviewModeSettingsSchema,

@@ -248,24 +248,6 @@ tags: [plethora]
     autoOpen: false,
   },
 
-  sponsorBlock: {
-    enabled: false,
-    autoSkip: true,
-    notifications: true,
-    privacyMode: false,
-    categories: {
-      sponsor: true,
-      intro: true,
-      outro: true,
-      selfPromo: false,
-      interaction: false,
-      musicOfftopic: false,
-      preview: false,
-      filler: false,
-    },
-    cacheDuration: 48,
-  },
-
   smartQueue: {
     autoRefresh: true,
     refreshInterval: 5,

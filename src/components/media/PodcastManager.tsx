@@ -2209,7 +2209,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
           />
           {/* Panel */}
           <div
-            ref={transcriptSwipe.elementRef as React.RefObject<HTMLDivElement>}
+            ref={transcriptSwipe.elementRef}
             className={cn(
               "relative w-full max-w-[500px] bg-card border-l border-border flex flex-col shadow-lg",
               isMobile && "safe-top safe-bottom pb-0",
@@ -2375,7 +2375,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             onClick={() => setChattingTranscript(null)}
           />
           <div
-            ref={chatSwipe.elementRef as React.RefObject<HTMLDivElement>}
+            ref={chatSwipe.elementRef}
             className={cn(
               "relative bg-card border-l border-border flex flex-col shadow-lg",
               isMobile ? "w-full" : "flex-none",

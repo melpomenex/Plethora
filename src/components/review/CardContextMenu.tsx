@@ -20,7 +20,7 @@ import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileCo
 import { useToast } from "../common/Toast";
 import { useTabsStore } from "../../stores/tabsStore";
 import type { LearningItem } from "../../api/learning-items";
-import { openCardSource } from "../../utils/cardSourceNavigation";
+import { hasReachableCardSource, openCardSource, sourceOutcomeKey } from "../../utils/cardSourceNavigation";
 
 interface CardContextMenuProps {
   card: LearningItem;
@@ -116,17 +116,14 @@ export function CardContextMenu({
   const plainQuestion = card.question.replace(/<[^>]*>/g, "").trim();
   const plainAnswer = (card.answer ?? "").replace(/<[^>]*>/g, "").trim();
 
-  // The action appears only when the card carries resolvable provenance
-  // (extract linkage or a stored source anchor) — never as a dead entry.
-  const hasSource = Boolean(card.extract_id || card.source_reference);
+  // The action appears only when the resolver can act on the card — the same
+  // predicate the strip and the V shortcut use, so the three cannot drift.
+  const hasSource = hasReachableCardSource(card);
   const toast = useToast();
   const handleViewSource = useCallback(() => {
     void openCardSource(card, useTabsStore.getState().addTab).then((resolution) => {
-      if (resolution.status === "unavailable") {
-        toast.info(t("review.source.unavailable"));
-      } else if (resolution.status === "coarse" && resolution.reason !== "no-anchor") {
-        toast.info(t("review.source.notLocated"));
-      }
+      const key = sourceOutcomeKey(resolution);
+      if (key) toast.info(t(key));
     });
   }, [card, toast, t]);
 

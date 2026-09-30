@@ -75,52 +75,140 @@ export function extractVideoID(url: string): VideoIDResult | null {
 }
 
 /**
- * Fetch SponsorBlock segments for a video
+ * Segment cache.
+ *
+ * The three players (YouTube, local video, audiobook) all mount independently
+ * and can ask for the same video at the same time, so the cache also collapses
+ * concurrent requests into one in-flight promise per video id.
+ *
+ * Failures and empty results are cached for the session too: a video with no
+ * segments, or a service that is briefly unreachable, should not be re-asked on
+ * every mount.
+ */
+interface CacheEntry {
+  segments: SponsorBlockSegment[];
+  expiresAt: number;
+}
+
+const SPONSORBLOCK_TIMEOUT_MS = 8000;
+const CACHE_MAX_ENTRIES = 200;
+/** How long a failed or empty result is held, so a blip is not retried on every mount. */
+const EMPTY_RESULT_TTL_MS = 30 * 60 * 1000;
+
+const segmentCache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Promise<SponsorBlockSegment[]>>();
+
+/** Drop the oldest entries once the cache exceeds its bound. */
+function evictOverflow(): void {
+  while (segmentCache.size > CACHE_MAX_ENTRIES) {
+    const oldest = segmentCache.keys().next();
+    if (oldest.done) break;
+    segmentCache.delete(oldest.value);
+  }
+}
+
+function pruneExpired(now: number): void {
+  for (const [key, entry] of segmentCache) {
+    if (entry.expiresAt <= now) segmentCache.delete(key);
+  }
+}
+
+/** Test seam: forget every cached and in-flight entry. */
+export function clearSponsorBlockSegmentCache(): void {
+  segmentCache.clear();
+  inFlight.clear();
+}
+
+/**
+ * Fetch SponsorBlock segments for a video.
+ *
+ * Bounded by a timeout and cached per video id for `cacheDurationHours`. A
+ * timeout or a network failure yields an empty list rather than an error: a
+ * sponsor skip is an enhancement, and the player must never surface it as a
+ * media failure.
  */
 export async function fetchSponsorBlockSegments(
   videoID: string,
-  categories: SponsorBlockCategory[] = ["sponsor", "intro", "outro", "selfpromo", "interaction"]
+  categories: SponsorBlockCategory[] = ["sponsor", "intro", "outro", "selfpromo", "interaction"],
+  cacheDurationHours = 48
 ): Promise<SponsorBlockSegment[]> {
-  try {
-    const categoriesParam = categories.join(",");
-    const response = await fetch(
-      `${SPONSORBLOCK_API}/skipSegments/${videoID}?categories=${encodeURIComponent(
-        categoriesParam
-      )}&actionTypes=skip,mute`
-    );
+  if (!videoID) return [];
 
-    if (!response.ok) {
-      return [];
-    }
+  const now = Date.now();
+  pruneExpired(now);
+  const cached = segmentCache.get(videoID);
+  if (cached && cached.expiresAt > now) return cached.segments;
 
-    const data: SponsorBlockResponse[] = await response.json();
+  // Collapse concurrent callers onto one request.
+  const pending = inFlight.get(videoID);
+  if (pending) return pending;
 
-    if (!Array.isArray(data) || data.length === 0) {
-      return [];
-    }
+  const request = (async (): Promise<SponsorBlockSegment[]> => {
+    try {
+      const categoriesParam = categories.join(",");
+      const response = await fetch(
+        `${SPONSORBLOCK_API}/skipSegments/${videoID}?categories=${encodeURIComponent(
+          categoriesParam
+        )}&actionTypes=skip,mute`,
+        { signal: AbortSignal.timeout(SPONSORBLOCK_TIMEOUT_MS) }
+      );
 
-    // Transform response into our format
-    const segments: SponsorBlockSegment[] = [];
-    const responseData = data[0];
-
-    if (responseData && responseData.sponsorTimes) {
-      for (let i = 0; i < responseData.sponsorTimes.length; i++) {
-        segments.push({
-          category: responseData.category[i] || "sponsor",
-          actionType: (responseData.actionType[i] as "skip" | "mute" | "full") || "skip",
-          segment: responseData.sponsorTimes[i],
-          UUID: responseData.UUID?.[i] || "",
-          locked: 0,
-          votes: 0,
-        });
+      if (!response.ok) {
+        throw new Error(`SponsorBlock returned HTTP ${response.status}`);
       }
-    }
 
-    return segments;
-  } catch (error) {
-    console.error("Failed to fetch SponsorBlock segments:", error);
-    return [];
+      const data: SponsorBlockResponse[] = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) return [];
+
+      // Transform response into our format
+      const segments: SponsorBlockSegment[] = [];
+      const responseData = data[0];
+
+      if (responseData && responseData.sponsorTimes) {
+        for (let i = 0; i < responseData.sponsorTimes.length; i++) {
+          segments.push({
+            category: responseData.category[i] || "sponsor",
+            actionType: (responseData.actionType[i] as "skip" | "mute" | "full") || "skip",
+            segment: responseData.sponsorTimes[i],
+            UUID: responseData.UUID?.[i] || "",
+            locked: 0,
+            votes: 0,
+          });
+        }
+      }
+      return segments;
+    } catch (error) {
+      // A timeout, an offline device and a 500 are all "no segments this time".
+      console.warn("SponsorBlock segments unavailable:", error);
+      return [];
+    } finally {
+      inFlight.delete(videoID);
+    }
+  })();
+
+  inFlight.set(videoID, request);
+  const segments = await request;
+
+  // A zero cache duration means "no reuse": nothing is stored, so a repeat play
+  // refetches. Otherwise a success is held for the configured window while a
+  // failure or an empty result is held only briefly — a transient network blip
+  // should not pin a video as "no segments" for the full cache duration, but it
+  // also should not be re-asked on every mount.
+  if (cacheDurationHours > 0) {
+    const isUsable = segments.length > 0;
+    const ttlMs = isUsable ? cacheDurationHours * 3_600_000 : EMPTY_RESULT_TTL_MS;
+    segmentCache.set(videoID, { segments, expiresAt: Date.now() + ttlMs });
+    evictOverflow();
   }
+
+  return segments;
+}
+
+/** Whether a video id currently has a usable cached entry. */
+export function hasCachedSponsorBlockSegments(videoID: string): boolean {
+  const entry = segmentCache.get(videoID);
+  return Boolean(entry && entry.expiresAt > Date.now());
 }
 
 /**
@@ -210,7 +298,7 @@ export async function submitSegment(
   userAgent: string = "Plethora/1.0"
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${SPONSORBLOCK_API}/api/skipSegments`, {
+    const response = await fetch(`${SPONSORBLOCK_API}/skipSegments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -241,7 +329,7 @@ export async function voteOnSegment(
   vote: number // 0 = downvote, 1 = upvote
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${SPONSORBLOCK_API}/api/voteOnSponsorTime`, {
+    const response = await fetch(`${SPONSORBLOCK_API}/voteOnSponsorTime`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

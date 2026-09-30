@@ -318,13 +318,6 @@ export interface LearningItem {
   algorithm_type?: string;
   algorithm_state?: string;
   interaction_metadata?: LearningItemInteractionMetadata;
-  source_anchor?: {
-    document_id?: string;
-    extract_id?: string;
-    page_number?: number;
-    start_offset?: number;
-    end_offset?: number;
-  };
   /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
   source_reference?: string | null;
 }

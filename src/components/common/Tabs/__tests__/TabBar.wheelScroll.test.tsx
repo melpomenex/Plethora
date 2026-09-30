@@ -51,7 +51,7 @@ function renderStrip(overrides: { onTabClick?: (id: string) => void } = {}) {
       onTabClose={noop}
     />
   );
-  const strip = utils.container.querySelector(".scrollbar-hide") as HTMLElement;
+  const strip = utils.container.querySelector(".scrollbar-none") as HTMLElement;
   return { ...utils, strip };
 }
 
@@ -181,7 +181,7 @@ describe("TabBar wheel scrolling", () => {
     const { container } = render(
       <TabBar tabs={tabs} activeTabId="a" onTabClick={noop} onTabClose={noop} />
     );
-    const strip = container.querySelector(".scrollbar-hide") as HTMLElement;
+    const strip = container.querySelector(".scrollbar-none") as HTMLElement;
     stubLayout(strip, 100, 200, 0);
 
     const evt = new WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });

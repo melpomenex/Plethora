@@ -986,8 +986,80 @@ export interface Settings {
   embedding: EmbeddingSettings;
   handsFreeStudy: HandsFreeStudySettings;
   languageLearning: LanguageLearningSettings;
+  sponsorBlock: SponsorBlockSettings;
   plethora?: PlethoraSettings;
 }
+
+/**
+ * SponsorBlock (sponsor.ajay.app) segment skipping.
+ *
+ * Lives at the top level rather than under `youtube` because the same segment
+ * skipping runs in the local-video and audiobook players too. `enabled` gates
+ * the network request as well as the seek, so turning it off means the user's
+ * video ids are not sent anywhere at all.
+ *
+ * These settings govern PLAYBACK skipping only. Download pre-cutting is a
+ * separate Rust path with its own fixed category set (src-tauri/src/
+ * sponsorblock.rs) and does not read this.
+ */
+export interface SponsorBlockCategories {
+  sponsor: boolean;
+  intro: boolean;
+  outro: boolean;
+  selfpromo: boolean;
+  interaction: boolean;
+  music_offtopic: boolean;
+  preview: boolean;
+}
+
+export interface SponsorBlockSettings {
+  enabled: boolean;
+  /** Seek past segments. When false the segments are still fetched and shown. */
+  autoSkip: boolean;
+  /** Show the skip overlay naming the skipped category. */
+  notifications: boolean;
+  /** Do not submit view data to the service. */
+  privacyMode: boolean;
+  /**
+   * Keyed by the API's own category names so filtering a fetched segment is a
+   * direct lookup. The keys are deliberately the wire names: a camelCase alias
+   * would need a translation table, and a translation table is exactly how the
+   * players and the settings drifted apart before.
+   */
+  categories: SponsorBlockCategories;
+  /** Hours to reuse a fetched segment list. 0 disables reuse. */
+  cacheDuration: number;
+}
+
+export const defaultSponsorBlockSettings: SponsorBlockSettings = {
+  // True preserves today's behaviour, where the skip loop and the segment fetch
+  // both ran ungated. Users who believed this was off see no change on upgrade.
+  enabled: true,
+  autoSkip: true,
+  notifications: true,
+  privacyMode: false,
+  categories: {
+    sponsor: true,
+    intro: true,
+    outro: true,
+    selfpromo: false,
+    interaction: false,
+    music_offtopic: false,
+    preview: false,
+  },
+  cacheDuration: 48,
+};
+
+/** Category keys in the order the settings panel lists them. */
+export const SPONSORBLOCK_CATEGORY_KEYS = [
+  "sponsor",
+  "intro",
+  "outro",
+  "selfpromo",
+  "interaction",
+  "music_offtopic",
+  "preview",
+] as const satisfies readonly (keyof SponsorBlockCategories)[];
 
 /**
  * Default Settings
@@ -1369,6 +1441,7 @@ export const defaultSettings: Settings = {
     suggestionsEnabled: true,
     showUnavailableProviders: true,
   },
+  sponsorBlock: defaultSponsorBlockSettings,
   plethora: {
     overrides: {},
   },
@@ -1454,7 +1527,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 13,
+      version: 14,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1583,6 +1656,29 @@ export const useSettingsStore = create<SettingsState>()(
               audio.openrouter = {
                 defaultModel: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
               };
+            }
+          }
+        }
+        // v13 -> v14 (fix-reported-source-player-and-mobile-bugs): SponsorBlock
+        // gains real settings. The shape existed only in a parallel Settings
+        // type the runtime never loaded, so the skip loop and the segment fetch
+        // both ran ungated and could not be turned off. Defaults match the
+        // ungated behaviour that shipped, so nothing changes until the user
+        // chooses otherwise.
+        if (version < 14) {
+          if (!root?.sponsorBlock) {
+            root.sponsorBlock = { ...defaultSponsorBlockSettings };
+          } else {
+            // Backfill per-field so a partial blob cannot leave the category
+            // filter undefined — the players filter on it before every skip.
+            const sb = root.sponsorBlock as Partial<SponsorBlockSettings>;
+            if (typeof sb.enabled !== "boolean") sb.enabled = true;
+            if (typeof sb.autoSkip !== "boolean") sb.autoSkip = true;
+            if (typeof sb.notifications !== "boolean") sb.notifications = true;
+            if (typeof sb.privacyMode !== "boolean") sb.privacyMode = false;
+            if (typeof sb.cacheDuration !== "number") sb.cacheDuration = 48;
+            if (!sb.categories || typeof sb.categories !== "object") {
+              sb.categories = { ...defaultSponsorBlockSettings.categories };
             }
           }
         }
