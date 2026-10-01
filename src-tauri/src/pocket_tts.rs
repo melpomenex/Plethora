@@ -1212,27 +1212,44 @@ pub fn python_missing_error() -> String {
     POCKET_TTS_PYTHON_REQUIREMENT.to_string()
 }
 
-/// First interpreter that answers `--version`, probed under the install
-/// environment (augmented `PATH`, no loader interposition).
+/// The probe that decides whether an interpreter is usable.
+///
+/// `-c` cannot even reach `main` without a working standard library, whereas
+/// `--version` prints its banner and exits 0 even when `PYTHONHOME` names a
+/// directory with no `encodings` module — which is exactly what the AppImage
+/// `AppRun` sets. `venv` is the module the install needs next, so it is the
+/// honest gate rather than a proxy for one.
+const PYTHON_PROBE: &[&str] = &["-c", "import venv"];
+
+/// Does this interpreter start and import `venv` under `env_vars`?
+///
+/// Split out from [`detect_pocket_tts_python`] so the probe itself can be
+/// tested against stubs instead of the machine's real Python.
+async fn probe_pocket_tts_python(candidate: &[String], env_vars: &[(String, String)]) -> bool {
+    let mut cmd = tokio::process::Command::new(&candidate[0]);
+    if candidate.len() > 1 {
+        cmd.args(&candidate[1..]);
+    }
+    for (key, value) in env_vars {
+        if key == "LD_PRELOAD" || key == "LD_LIBRARY_PATH" {
+            cmd.env_remove(key);
+        } else {
+            cmd.env(key, value);
+        }
+    }
+    crate::utils::python_env::sanitize_python_env(cmd.as_std_mut());
+    cmd.args(PYTHON_PROBE);
+    matches!(cmd.output().await, Ok(output) if output.status.success())
+}
+
+/// First interpreter that can import `venv`, probed under the install
+/// environment (augmented `PATH`, no loader interposition, no `PYTHONHOME`
+/// inherited from the AppImage launcher).
 pub async fn detect_pocket_tts_python() -> Result<Vec<String>> {
     let env_vars = augmented_pocket_tts_env();
     for candidate in pocket_tts_python_candidates() {
-        let mut cmd = tokio::process::Command::new(&candidate[0]);
-        if candidate.len() > 1 {
-            cmd.args(&candidate[1..]);
-        }
-        for (key, value) in &env_vars {
-            if key == "LD_PRELOAD" || key == "LD_LIBRARY_PATH" {
-                cmd.env_remove(key);
-            } else {
-                cmd.env(key, value);
-            }
-        }
-        cmd.arg("--version");
-        if let Ok(output) = cmd.output().await {
-            if output.status.success() {
-                return Ok(candidate);
-            }
+        if probe_pocket_tts_python(&candidate, &env_vars).await {
+            return Ok(candidate);
         }
     }
     Err(anyhow!("{}", python_missing_error()))
@@ -1445,15 +1462,21 @@ where
     F: FnMut(&str) + Send + 'static,
 {
     let mut cmd = tokio::process::Command::new(program);
-    if install_env {
-        for key in ["LD_PRELOAD", "LD_LIBRARY_PATH"] {
-            cmd.env_remove(key);
-        }
-    } else {
+    if !install_env {
         cmd.env_clear();
     }
     for (key, value) in env_vars {
         cmd.env(key, value);
+    }
+    if install_env {
+        for key in ["LD_PRELOAD", "LD_LIBRARY_PATH"] {
+            cmd.env_remove(key);
+        }
+        // The AppImage launcher exports `PYTHONHOME`/`PYTHONPATH` for a Python
+        // it does not bundle. Inheriting them makes `python3 -m venv` abort
+        // with "No module named 'encodings'". Removed after `env_vars` is
+        // applied so the removal wins.
+        crate::utils::python_env::sanitize_python_env(cmd.as_std_mut());
     }
     cmd.args(args)
         .stdin(Stdio::null())
@@ -1968,12 +1991,14 @@ async fn run_generation(
     }
     cmd.args(args);
 
-    let output = output_tolerant(&mut cmd).await.map_err(|e| {
-        format!(
-            "Could not start Pocket TTS at {}: {e}",
-            executable.display()
-        )
-    })?;
+    let output = output_tolerant_with_text(&mut cmd, text)
+        .await
+        .map_err(|e| {
+            format!(
+                "Could not start Pocket TTS at {}: {e}",
+                executable.display()
+            )
+        })?;
 
     if !output.status.success() {
         return Err(format!(
@@ -2545,6 +2570,79 @@ mod tests {
         assert!(message.contains("Python 3.10"), "{message}");
     }
 
+    /// Write an executable `/bin/sh` stub and return it as a candidate argv.
+    #[cfg(unix)]
+    fn stub_interpreter(dir: &Path, label: &str, body: &str) -> Vec<String> {
+        let stub = dir.join(label);
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(&stub, body).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&stub).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&stub, perms).unwrap();
+        }
+        vec![stub.to_string_lossy().to_string()]
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_probe_imports_venv_rather_than_asking_for_the_version() {
+        let dir = temp_dir("probe-import");
+        let stub = stub_interpreter(
+            dir.path(),
+            "imports-only",
+            "#!/bin/sh\ncase \"$1\" in -c) exit 0;; --version) exit 9;; *) exit 9;; esac\n",
+        );
+
+        assert!(probe_pocket_tts_python(&stub, &[]).await);
+    }
+
+    /// The AppImage failure mode: `--version` answers, everything else dies in
+    /// a broken `PYTHONHOME`. Such an interpreter must not be selected, or the
+    /// install fails at `python -m venv` instead of falling through to the next
+    /// candidate.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_interpreter_that_prints_its_version_but_cannot_start_is_rejected() {
+        let dir = temp_dir("probe-broken-stdlib");
+        let stub = stub_interpreter(
+            dir.path(),
+            "version-only",
+            "#!/bin/sh\ncase \"$1\" in --version) echo 'Python 3.14.7'; exit 0;; esac\necho 'Fatal Python error: Failed to import encodings module' >&2\nexit 1\n",
+        );
+
+        assert!(!probe_pocket_tts_python(&stub, &[]).await);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_probe_strips_a_pythonhome_leaked_by_the_appimage_launcher() {
+        let dir = temp_dir("probe-pythonhome");
+        // The stub stands in for a real interpreter: it fails outright when it
+        // is handed a PYTHONHOME, which is how CPython behaves.
+        let stub = stub_interpreter(
+            dir.path(),
+            "env-sensitive",
+            "#!/bin/sh\n[ -n \"${PYTHONHOME:-}\" ] && exit 1\n[ -n \"${PYTHONPATH:-}\" ] && exit 1\nexit 0\n",
+        );
+        let leaked = vec![
+            (
+                "PYTHONHOME".to_string(),
+                "/tmp/.mount_PlethoraXXXX/usr/".to_string(),
+            ),
+            (
+                "PYTHONPATH".to_string(),
+                "/tmp/.mount_PlethoraXXXX/usr/share/pyshared/:".to_string(),
+            ),
+        ];
+
+        assert!(
+            probe_pocket_tts_python(&stub, &leaked).await,
+            "the AppImage launcher must not reach the interpreter"
+        );
+    }
+
     // ── 2.3 install environment ────────────────────────────────────────────
 
     #[test]
@@ -2580,6 +2678,44 @@ mod tests {
         });
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, vec!["HOME", "PATH"]);
+    }
+
+    /// `python3 -m venv` is the step that used to die with "No module named
+    /// 'encodings'" under the AppImage, so the sanitising belongs on the
+    /// install path specifically — synthesis already starts from a cleared env.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_install_command_does_not_hand_a_pythonhome_to_its_child() {
+        let dir = temp_dir("install-pythonhome");
+        let python = stub_interpreter(
+            dir.path(),
+            "python3",
+            "#!/bin/sh\n[ -n \"${PYTHONHOME:-}\" ] && { echo 'Fatal Python error: Failed to import encodings module' >&2; exit 1; }\nexit 0\n",
+        );
+        let leaked = vec![
+            (
+                "PYTHONHOME".to_string(),
+                "/tmp/.mount_PlethoraXXXX/usr/".to_string(),
+            ),
+            (
+                "PYTHONPATH".to_string(),
+                "/tmp/.mount_PlethoraXXXX/usr/share/pyshared/:".to_string(),
+            ),
+        ];
+        let args = vec!["-m".to_string(), "venv".to_string()];
+
+        let outcome = run_streamed_command(
+            Path::new(&python[0]),
+            &args,
+            true,
+            &leaked,
+            &CancellationToken::new(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.success(), "{}", outcome.output);
     }
 
     // ── 2.4 install argument vectors ───────────────────────────────────────

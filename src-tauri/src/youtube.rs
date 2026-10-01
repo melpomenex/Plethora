@@ -225,25 +225,10 @@ pub fn get_ytdlp_binary_path() -> Result<PathBuf, String> {
 fn ytdlp_command() -> Result<Command, String> {
     let path = get_ytdlp_binary_path()?;
     let mut cmd = Command::new(path);
-    sanitize_python_env(&mut cmd);
+    // System `yt-dlp` is often a Python entrypoint script, and the AppImage
+    // launcher leaks variables that make it fail to import the standard library.
+    crate::utils::python_env::sanitize_python_env(&mut cmd);
     Ok(cmd)
-}
-
-/// Clear Python-related environment variables that AppImage can leak into
-/// subprocesses. System `yt-dlp` is often a Python entrypoint script, and these
-/// variables can make it fail to import the standard library.
-fn sanitize_python_env(cmd: &mut Command) {
-    for key in [
-        "PYTHONHOME",
-        "PYTHONPATH",
-        "PYTHONUSERBASE",
-        "PYTHONNOUSERSITE",
-        "PYTHONEXECUTABLE",
-        "__PYVENV_LAUNCHER__",
-        "VIRTUAL_ENV",
-    ] {
-        cmd.env_remove(key);
-    }
 }
 
 /// Auto-setup yt-dlp by downloading it
@@ -316,7 +301,7 @@ pub async fn setup_ytdlp() -> Result<String, String> {
 /// Get yt-dlp version from a specific path
 fn get_ytdlp_version_from_path(path: &PathBuf) -> Result<String, String> {
     let mut cmd = Command::new(path);
-    sanitize_python_env(&mut cmd);
+    crate::utils::python_env::sanitize_python_env(&mut cmd);
     let output = cmd
         .arg("--version")
         .output()
