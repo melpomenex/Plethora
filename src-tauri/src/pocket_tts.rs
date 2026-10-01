@@ -1286,14 +1286,24 @@ pub fn pip_install_args(venv_python: &Path) -> Vec<String> {
 /// faster on a torch-sized dependency set. A drop-in substitution behind
 /// [`run_install_step`], not a second code path: the verify step afterwards is
 /// the shared gate.
+///
+/// `--no-progress` is *not* pip's `--progress-bar off` spelled differently: `uv`
+/// has no `--progress-bar` and rejects the whole command with `unexpected
+/// argument` before touching the network. `--index-url` is kept because `uv`
+/// still accepts it as a deprecated alias for `--default-index`, so one spelling
+/// covers both old and current `uv`.
+///
+/// No byte progress is lost by asking for it: with a piped stderr `uv` reports
+/// no per-artifact sizes either way (its bar is drawn for a terminal), so this
+/// path shows an indeterminate bar where the pip path shows real bytes. Asking
+/// explicitly beats inheriting whatever a future `uv` decides to draw.
 pub fn uv_install_args(venv_python: &Path) -> Vec<String> {
     vec![
         "pip".to_string(),
         "install".to_string(),
         "--python".to_string(),
         venv_python.to_string_lossy().to_string(),
-        "--progress-bar".to_string(),
-        "off".to_string(),
+        "--no-progress".to_string(),
         "--index-url".to_string(),
         PYPI_INDEX_URL.to_string(),
         "--extra-index-url".to_string(),
@@ -2740,6 +2750,29 @@ mod tests {
         assert!(joined.contains(PYPI_INDEX_URL), "{joined}");
         assert!(args.contains(&python.to_string_lossy().to_string()), "{joined}");
         assert_eq!(args.last().unwrap(), POCKET_TTS_PACKAGE);
+    }
+
+    /// `uv` has no `--progress-bar`: passing pip's spelling aborts the install
+    /// before a byte is downloaded, with `unexpected argument '--progress-bar'`.
+    #[test]
+    fn each_front_end_gets_its_own_progress_flag() {
+        let python = Path::new("/data/venv/bin/python3");
+
+        let uv = uv_install_args(python);
+        assert!(uv.contains(&"--no-progress".to_string()), "{uv:?}");
+        assert!(!uv.contains(&"--progress-bar".to_string()), "{uv:?}");
+        assert!(
+            !uv.iter().any(|a| a == "off"),
+            "uv takes a bare --no-progress, no value: {uv:?}"
+        );
+
+        let pip = pip_install_args(python);
+        let progress = pip
+            .iter()
+            .position(|a| a == "--progress-bar")
+            .expect("pip silences its bar");
+        assert_eq!(pip[progress + 1], "off");
+        assert!(!pip.contains(&"--no-progress".to_string()), "{pip:?}");
     }
 
     #[test]
