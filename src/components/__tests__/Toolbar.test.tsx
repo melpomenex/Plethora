@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Toolbar } from "../Toolbar";
 import { useTabsStore, createTabPane } from "../../stores";
+import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 
 function resetTabsStore() {
   useTabsStore.setState({
@@ -258,5 +259,26 @@ describe("Toolbar", () => {
       "data-toolbar-position",
       "right",
     );
+  });
+
+  it("displays an active synthesis badge on the Audiobooks button when activeJobs.length > 0", () => {
+    useAudioEditionGenerationStore.setState({ activeJobs: [] });
+    const { rerender } = render(<Toolbar position="top" />);
+
+    expect(screen.queryByTestId("audiobook-synthesis-badge")).not.toBeInTheDocument();
+
+    act(() => {
+      useAudioEditionGenerationStore.setState({ activeJobs: ["ed-1"] });
+    });
+    rerender(<Toolbar position="top" />);
+
+    expect(screen.getByTestId("audiobook-synthesis-badge")).toBeInTheDocument();
+
+    act(() => {
+      useAudioEditionGenerationStore.setState({ activeJobs: [] });
+    });
+    rerender(<Toolbar position="top" />);
+
+    expect(screen.queryByTestId("audiobook-synthesis-badge")).not.toBeInTheDocument();
   });
 });

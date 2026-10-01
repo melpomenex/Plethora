@@ -136,6 +136,48 @@ Third paragraph summarizing the observations and transitioning to conclusions.
       expect(sections[0].content).toBe("Text of chapter 1");
       expect(sections[1].title).toBe("Chapter 2");
     });
+
+    it("falls back to rawContent title matching when contentMap hrefs don't match", () => {
+      const toc = [
+        { label: "Prologue", href: "text/prologue.xhtml" },
+        { label: "Chapter One", href: "text/ch01.xhtml" },
+      ];
+      // contentMap is missing the exact href keys
+      const rawContent = `Prologue\nIn the ancient days before the stars aligned.\n\nChapter One\nThe world had awakened.`;
+
+      const sections = extractEpubSemanticSections(toc, undefined, {}, rawContent);
+      expect(sections.length).toBe(2);
+      expect(sections[0].title).toBe("Prologue");
+      expect(sections[0].content).toContain("In the ancient days");
+      expect(sections[1].title).toBe("Chapter One");
+      expect(sections[1].content).toContain("The world had awakened");
+    });
+
+    it("falls back to article chunking when TOC items yield no content", () => {
+      const toc = [{ label: "Ghost Chapter", href: "ghost.xhtml" }];
+      const rawContent = "# True Section 1\nSome meaningful text.\n\n# True Section 2\nMore meaningful text.";
+
+      const sections = extractEpubSemanticSections(toc, undefined, {}, rawContent);
+      expect(sections.length).toBe(2);
+      expect(sections[0].title).toBe("True Section 1");
+      expect(sections[1].title).toBe("True Section 2");
+    });
+
+    it("filters out empty or whitespace-only sections", () => {
+      const toc = [
+        { label: "Empty Intro", href: "empty.xhtml" },
+        { label: "Real Chapter", href: "real.xhtml" },
+      ];
+      const contentMap = {
+        "empty.xhtml": "   \n\t   ",
+        "real.xhtml": "<p>Real content</p>",
+      };
+
+      const sections = extractEpubSemanticSections(toc, undefined, contentMap);
+      expect(sections.length).toBe(1);
+      expect(sections[0].title).toBe("Real Chapter");
+      expect(sections[0].characterCount).toBeGreaterThan(0);
+    });
   });
 
   describe("extractPdfSemanticSections", () => {
@@ -178,6 +220,32 @@ Third paragraph summarizing the observations and transitioning to conclusions.
       expect(sections.length).toBe(2);
       expect(sections[0].title).toBe("Pages 1–5");
       expect(sections[1].title).toBe("Pages 6–6");
+    });
+
+    it("falls back to semantic article chunking when outline has no pageContents and title matching fails", () => {
+      const outline = [{ title: "Non-existent Heading", pageNumber: 1 }];
+      const fullContent = "# Heading A\nContent of A.\n\n# Heading B\nContent of B.";
+
+      const sections = extractPdfSemanticSections(outline, undefined, fullContent);
+      expect(sections.length).toBe(2);
+      expect(sections[0].title).toBe("Heading A");
+      expect(sections[1].title).toBe("Heading B");
+    });
+
+    it("filters out empty sections from PDF outline", () => {
+      const outline = [
+        { title: "Blank Chapter", pageNumber: 1 },
+        { title: "Actual Chapter", pageNumber: 2 },
+      ];
+      const pageContents = [
+        { pageNumber: 1, text: "   \n  " },
+        { pageNumber: 2, text: "Actual text here" },
+      ];
+
+      const sections = extractPdfSemanticSections(outline, pageContents);
+      expect(sections.length).toBe(1);
+      expect(sections[0].title).toBe("Actual Chapter");
+      expect(sections[0].content).toBe("Actual text here");
     });
   });
 });

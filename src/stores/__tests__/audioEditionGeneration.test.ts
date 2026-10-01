@@ -10,6 +10,7 @@ import {
 } from "../../utils/audioEditionAnchors";
 import { estimateAudioEditionCost, formatAudioDuration } from "../../utils/audioEditionEstimation";
 import { createAudioEdition, getAudioEdition, getAudioEditionSections } from "../../api/audioEditions";
+import { registerScenarioSynthAdapter } from "../../api/tts/registry";
 
 const mockEditions = new Map<string, any>();
 const mockSections = new Map<string, any[]>();
@@ -190,50 +191,252 @@ describe("Audio Edition Generation & Anchors", () => {
     });
   });
 
+  async function waitForJobCompletion(editionId: string, timeoutMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const job = useAudioEditionGenerationStore.getState().getJob(editionId);
+      if (job && job.status !== "generating" && !useAudioEditionGenerationStore.getState().activeJobs.includes(editionId)) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
   describe("Generation Queue Store", () => {
-    it("initializes and tracks jobs", async () => {
-      const edition = await createAudioEdition(
+  beforeEach(() => {
+    registerScenarioSynthAdapter({
+      id: "scenario-synth" as any,
+      label: "Synthetic Test Provider",
+      description: "Test provider for vitest",
+      requiresApiKey: false,
+      auth: { mode: "none" } as any,
+      synthesize: vi.fn(async () => ({
+        audioUrl: "blob:test-audio",
+        durationSec: 12,
+        audioData: new ArrayBuffer(100),
+      })),
+      voices: [{ id: "test-voice", name: "Test Voice" }],
+      defaultVoice: "test-voice",
+      defaultModel: "test-model",
+      models: [{ id: "test-model", name: "Test Model" }],
+    });
+  });
+
+  it("initializes and tracks jobs", async () => {
+    const edition = await createAudioEdition(
+      {
+        id: "ed-test-1",
+        sourceDocumentId: "doc-1",
+        sourceRevisionHash: "hash-1",
+        provider: "pocket",
+        model: "default",
+        voice: "voice-1",
+        totalDurationSec: 0,
+        status: "draft",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      [
         {
-          id: "ed-test-1",
-          sourceDocumentId: "doc-1",
-          sourceRevisionHash: "hash-1",
-          provider: "pocket",
-          model: "default",
-          voice: "voice-1",
-          totalDurationSec: 0,
-          status: "draft",
+          id: "sec-1",
+          editionId: "ed-test-1",
+          sectionIndex: 0,
+          title: "Chapter 1",
+          characterCount: 100,
+          audioMimeType: "audio/mp3",
+          durationSec: 0,
+          generationStatus: "queued",
+          retryCount: 0,
+          cacheKey: "k1",
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
-        [
-          {
-            id: "sec-1",
-            editionId: "ed-test-1",
-            sectionIndex: 0,
-            title: "Chapter 1",
-            characterCount: 100,
-            audioMimeType: "audio/mp3",
-            durationSec: 0,
-            generationStatus: "queued",
-            retryCount: 0,
-            cacheKey: "k1",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          },
-        ]
-      );
+      ]
+    );
 
-      const fetchedEdition = await getAudioEdition("ed-test-1");
-      expect(fetchedEdition).toBeDefined();
+    const fetchedEdition = await getAudioEdition("ed-test-1");
+    expect(fetchedEdition).toBeDefined();
 
-      const fetchedSections = await getAudioEditionSections("ed-test-1");
-      expect(fetchedSections.length).toBe(1);
+    const fetchedSections = await getAudioEditionSections("ed-test-1");
+    expect(fetchedSections.length).toBe(1);
 
-      await useAudioEditionGenerationStore.getState().startJob("ed-test-1", { "sec-1": "Sample text for chapter one" });
+    await useAudioEditionGenerationStore.getState().startJob("ed-test-1", { "sec-1": "Sample text for chapter one" });
 
-      const job = useAudioEditionGenerationStore.getState().getJob("ed-test-1");
-      expect(job).toBeDefined();
-      expect(job?.editionId).toBe("ed-test-1");
-    });
+    const job = useAudioEditionGenerationStore.getState().getJob("ed-test-1");
+    expect(job).toBeDefined();
+    expect(job?.editionId).toBe("ed-test-1");
   });
+
+  it("fails section when section content is empty and does not fall back to synthesizing title", async () => {
+    await createAudioEdition(
+      {
+        id: "ed-empty-test",
+        sourceDocumentId: "doc-empty",
+        sourceRevisionHash: "hash-empty",
+        provider: "scenario-synth",
+        model: "test-model",
+        voice: "test-voice",
+        totalDurationSec: 0,
+        status: "draft",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      [
+        {
+          id: "sec-empty-1",
+          editionId: "ed-empty-test",
+          sectionIndex: 0,
+          title: "Empty Chapter",
+          characterCount: 0,
+          audioMimeType: "audio/mp3",
+          durationSec: 0,
+          generationStatus: "queued",
+          retryCount: 0,
+          cacheKey: "k-empty",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]
+    );
+
+    // Provide empty whitespace string in sectionTextMap
+    await useAudioEditionGenerationStore.getState().startJob("ed-empty-test", {
+      "sec-empty-1": "   \n  ",
+    });
+
+    await waitForJobCompletion("ed-empty-test");
+
+    const job = useAudioEditionGenerationStore.getState().getJob("ed-empty-test");
+    expect(job).toBeDefined();
+    expect(job?.status).toBe("error");
+    expect(job?.failedSections).toBe(1);
+    expect(job?.completedSections).toBe(0);
+
+    const sections = await getAudioEditionSections("ed-empty-test");
+    expect(sections[0].generationStatus).toBe("failed");
+    expect(sections[0].failureReason).toBe("Section content is empty");
+
+    const edition = await getAudioEdition("ed-empty-test");
+    expect(edition?.status).toBe("failed");
+  });
+
+  it("completes successfully and marks ready when all sections succeed", async () => {
+    await createAudioEdition(
+      {
+        id: "ed-success-test",
+        sourceDocumentId: "doc-success",
+        sourceRevisionHash: "hash-success",
+        provider: "scenario-synth",
+        model: "test-model",
+        voice: "test-voice",
+        totalDurationSec: 0,
+        status: "draft",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      [
+        {
+          id: "sec-success-1",
+          editionId: "ed-success-test",
+          sectionIndex: 0,
+          title: "Success Chapter",
+          characterCount: 50,
+          audioMimeType: "audio/mp3",
+          durationSec: 0,
+          generationStatus: "queued",
+          retryCount: 0,
+          cacheKey: "k-success",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]
+    );
+
+    await useAudioEditionGenerationStore.getState().startJob("ed-success-test", {
+      "sec-success-1": "Valid body text that generates audio.",
+    });
+
+    await waitForJobCompletion("ed-success-test");
+
+    const job = useAudioEditionGenerationStore.getState().getJob("ed-success-test");
+    expect(job?.status).toBe("completed");
+    expect(job?.completedSections).toBe(1);
+    expect(job?.failedSections).toBe(0);
+    expect(job?.progressPercent).toBe(100);
+
+    const sections = await getAudioEditionSections("ed-success-test");
+    expect(sections[0].generationStatus).toBe("ready");
+    expect(sections[0].durationSec).toBe(12);
+
+    const edition = await getAudioEdition("ed-success-test");
+    expect(edition?.status).toBe("ready");
+  });
+
+  it("reports failed sections and sets partial status when some sections fail", async () => {
+    await createAudioEdition(
+      {
+        id: "ed-partial-test",
+        sourceDocumentId: "doc-partial",
+        sourceRevisionHash: "hash-partial",
+        provider: "scenario-synth",
+        model: "test-model",
+        voice: "test-voice",
+        totalDurationSec: 0,
+        status: "draft",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      [
+        {
+          id: "sec-part-1",
+          editionId: "ed-partial-test",
+          sectionIndex: 0,
+          title: "Good Chapter",
+          characterCount: 50,
+          audioMimeType: "audio/mp3",
+          durationSec: 0,
+          generationStatus: "queued",
+          retryCount: 0,
+          cacheKey: "k-p1",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        {
+          id: "sec-part-2",
+          editionId: "ed-partial-test",
+          sectionIndex: 1,
+          title: "Bad Chapter",
+          characterCount: 0,
+          audioMimeType: "audio/mp3",
+          durationSec: 0,
+          generationStatus: "queued",
+          retryCount: 0,
+          cacheKey: "k-p2",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]
+    );
+
+    await useAudioEditionGenerationStore.getState().startJob("ed-partial-test", {
+      "sec-part-1": "Valid body content here.",
+      "sec-part-2": "", // empty!
+    });
+
+    await waitForJobCompletion("ed-partial-test");
+
+    const job = useAudioEditionGenerationStore.getState().getJob("ed-partial-test");
+    expect(job?.status).toBe("error");
+    expect(job?.completedSections).toBe(1);
+    expect(job?.failedSections).toBe(1);
+
+    const sections = await getAudioEditionSections("ed-partial-test");
+    expect(sections[0].generationStatus).toBe("ready");
+    expect(sections[1].generationStatus).toBe("failed");
+    expect(sections[1].failureReason).toBe("Section content is empty");
+
+    const edition = await getAudioEdition("ed-partial-test");
+    expect(edition?.status).toBe("generating"); // partially ready, remaining failed
+  });
+});
 });

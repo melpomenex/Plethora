@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
+import { useAudioEditionGenerationStore } from "../stores/audioEditionGenerationStore";
 import { captureAndSaveScreenshot } from "../utils/screenshotCaptureFlow";
 import { useI18n } from "../lib/i18n";
 import { TOUR_ANCHORS } from "./onboarding/tour/anchors";
@@ -103,6 +104,9 @@ function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
 
 function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false, active = false }: ToolbarButtonProps) {
   const Icon = button.icon;
+  const isAudiobookGenerating =
+    button.id === "audiobook" &&
+    useAudioEditionGenerationStore((state) => state.activeJobs.length > 0);
 
   const handleAuxClick = (e: React.MouseEvent) => {
     // Middle-click (button 1)
@@ -140,8 +144,18 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
     >
       <span className="toolbar-button-background" aria-hidden="true" />
       <span className="toolbar-button-indicator" aria-hidden="true" />
-      <span className="toolbar-button-content">
+      <span className="toolbar-button-content relative">
         <Icon className={isVertical ? "w-5 h-5" : "w-5 h-5"} />
+        {isAudiobookGenerating && (
+          <span
+            data-testid="audiobook-synthesis-badge"
+            className="absolute -top-1 -right-1 flex h-2.5 w-2.5"
+            title="Audio edition synthesis in progress"
+          >
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+          </span>
+        )}
       </span>
       <span className="toolbar-button-label" aria-hidden="true">
         {button.label}

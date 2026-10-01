@@ -1656,7 +1656,8 @@ export function extractArticleSemanticSections(
 export function extractEpubSemanticSections(
   toc: Array<{ label?: string; title?: string; href?: string; subitems?: any[] }>,
   spine?: Array<{ href: string; title?: string; text?: string }>,
-  contentMap?: Record<string, string>
+  contentMap?: Record<string, string>,
+  rawContent?: string
 ): AudioEditionSemanticSection[] {
   const flatToc: Array<{ title: string; href?: string; level: number }> = [];
 
@@ -1672,12 +1673,25 @@ export function extractEpubSemanticSections(
 
   flatten(toc);
 
+  const sourceText = rawContent || (contentMap ? Object.values(contentMap).join("\n\n") : "");
+  let sections: AudioEditionSemanticSection[] = [];
+
   if (flatToc.length > 0) {
-    return flatToc.map((item, idx) => {
+    sections = flatToc.map((item, idx) => {
       const cleanHref = item.href ? item.href.split("#")[0] : "";
-      const text = contentMap && cleanHref && contentMap[cleanHref]
+      let text = contentMap && cleanHref && contentMap[cleanHref]
         ? stripHtmlTags(contentMap[cleanHref])
         : "";
+
+      // If contentMap didn't have cleanHref, try finding chapter in sourceText
+      if (!text && sourceText) {
+        const titleIdx = sourceText.indexOf(item.title);
+        if (titleIdx !== -1) {
+          const nextItem = idx + 1 < flatToc.length ? flatToc[idx + 1] : undefined;
+          const nextIdx = nextItem ? sourceText.indexOf(nextItem.title, titleIdx + item.title.length) : -1;
+          text = nextIdx !== -1 ? sourceText.slice(titleIdx, nextIdx).trim() : sourceText.slice(titleIdx).trim();
+        }
+      }
 
       return {
         id: `sec-${idx}`,
@@ -1689,12 +1703,20 @@ export function extractEpubSemanticSections(
         level: item.level,
       };
     });
-  }
+  } else if (spine && spine.length > 0) {
+    sections = spine.map((item, idx) => {
+      let text = item.text ? stripHtmlTags(item.text) : "";
+      if (!text && sourceText) {
+        const title = item.title || `Section ${idx + 1}`;
+        const titleIdx = sourceText.indexOf(title);
+        if (titleIdx !== -1) {
+          const nextItem = idx + 1 < spine.length ? spine[idx + 1] : undefined;
+          const nextTitle = nextItem?.title;
+          const nextIdx = nextTitle ? sourceText.indexOf(nextTitle, titleIdx + title.length) : -1;
+          text = nextIdx !== -1 ? sourceText.slice(titleIdx, nextIdx).trim() : sourceText.slice(titleIdx).trim();
+        }
+      }
 
-  // Fallback to spine items
-  if (spine && spine.length > 0) {
-    return spine.map((item, idx) => {
-      const text = item.text ? stripHtmlTags(item.text) : "";
       return {
         id: `sec-${idx}`,
         sectionIndex: idx,
@@ -1705,6 +1727,20 @@ export function extractEpubSemanticSections(
         level: 1,
       };
     });
+  }
+
+  // Filter out empty sections
+  const validSections = sections
+    .filter((s) => s.content && s.content.trim().length > 0)
+    .map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
+
+  if (validSections.length > 0) {
+    return validSections;
+  }
+
+  // If TOC/spine mapping yielded no valid sections with content, fall back to article chunking on sourceText
+  if (sourceText && sourceText.trim().length > 0) {
+    return extractArticleSemanticSections(sourceText);
   }
 
   return [];
@@ -1734,7 +1770,7 @@ export function extractPdfSemanticSections(
   flatten(outline);
 
   if (flatOutline.length > 0) {
-    return flatOutline.map((item, idx) => {
+    const rawSections = flatOutline.map((item, idx) => {
       const nextPage = idx + 1 < flatOutline.length ? flatOutline[idx + 1].pageNumber : undefined;
       let sectionText = "";
 
@@ -1750,7 +1786,7 @@ export function extractPdfSemanticSections(
           const nextIdx = nextItem ? fullContent.indexOf(nextItem.title, titleIdx + item.title.length) : -1;
           sectionText = nextIdx !== -1 ? fullContent.slice(titleIdx, nextIdx).trim() : fullContent.slice(titleIdx).trim();
         } else {
-          sectionText = item.title;
+          sectionText = "";
         }
       }
 
@@ -1765,6 +1801,14 @@ export function extractPdfSemanticSections(
         level: item.level,
       };
     });
+
+    const valid = rawSections
+      .filter((s) => s.content && s.content.trim().length > 0)
+      .map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
+
+    if (valid.length > 0) {
+      return valid;
+    }
   }
 
   // Fallback: If pageContents exists, group pages into chapters (e.g. 5 pages per section)
@@ -1778,22 +1822,26 @@ export function extractPdfSemanticSections(
       const text = chunk.map((p) => p.text).join("\n\n");
       const secIdx = Math.floor(i / pageSize);
 
-      sections.push({
-        id: `sec-${secIdx}`,
-        sectionIndex: secIdx,
-        title: `Pages ${startPage}–${endPage}`,
-        sourceStartAnchor: `page:${startPage}`,
-        sourceEndAnchor: `page:${endPage}`,
-        characterCount: text.length,
-        content: text,
-        level: 1,
-      });
+      if (text.trim().length > 0) {
+        sections.push({
+          id: `sec-${secIdx}`,
+          sectionIndex: secIdx,
+          title: `Pages ${startPage}–${endPage}`,
+          sourceStartAnchor: `page:${startPage}`,
+          sourceEndAnchor: `page:${endPage}`,
+          characterCount: text.length,
+          content: text,
+          level: 1,
+        });
+      }
     }
-    return sections;
+    if (sections.length > 0) {
+      return sections.map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
+    }
   }
 
   // Fallback to fullContent heuristic
-  if (fullContent) {
+  if (fullContent && fullContent.trim().length > 0) {
     return extractArticleSemanticSections(fullContent);
   }
 

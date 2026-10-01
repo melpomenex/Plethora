@@ -33,10 +33,12 @@ import {
   TextT,
   Trash,
   WarningCircle,
+  Waveform,
   X,
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { useSmartTaggingQueueStore } from "../../stores/smartTaggingQueueStore";
 import { useShallow } from "zustand/react/shallow";
 import { useCollectionStore } from "../../stores/collectionStore";
@@ -1792,6 +1794,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                               {doc.fileType}
                             </span>
                             <DueDateBadge doc={doc} />
+                            <DocumentAudioEditionIndicator docId={doc.id} />
                             {(doc.fileType === 'audio' || doc.fileType === 'video') && (() => {
                               const store = useTranscriptionQueueStore.getState();
                               const entry = store.getEntryForDocument(doc.id);
@@ -2544,6 +2547,27 @@ function DueDateBadge({ doc }: { doc: Document }) {
   return <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${color}`}>{label}</span>;
 }
 
+export function DocumentAudioEditionIndicator({ docId }: { docId: string }) {
+  const job = useAudioEditionGenerationStore((state) => {
+    return Object.values(state.jobs).find(
+      (j) => j.documentId === docId && (j.status === "generating" || state.activeJobs.includes(j.editionId))
+    );
+  });
+
+  if (!job) return null;
+
+  return (
+    <span
+      data-testid={`audio-generating-badge-${docId}`}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse"
+      title={`Generating audio edition (${job.progressPercent}%)`}
+    >
+      <Waveform className="w-3 h-3 text-amber-500" />
+      <span>Audio {job.progressPercent}%</span>
+    </span>
+  );
+}
+
 function ProgressBar({ doc }: { doc: Document }) {
   const { extracts, cards, total, extractRatio, cardRatio } = getProgressSegments(doc);
   return (
@@ -3262,6 +3286,7 @@ function CompactDocumentRow({
             <span>{doc.learningItemCount} {t("documentsView.cardsShort")}</span>
             <span>{formatRelativeTime(getLastTouched(doc))}</span>
             <DueDateBadge doc={doc} />
+            <DocumentAudioEditionIndicator docId={doc.id} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <CompactTagEditor
@@ -3314,6 +3339,7 @@ function CompactDocumentRow({
             <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <span className="truncate">{doc.tags.slice(0, 3).join(" · ") || t("documentsView.noTags")}</span>
               <DueDateBadge doc={doc} />
+              <DocumentAudioEditionIndicator docId={doc.id} />
             </div>
           </div>
         </div>
@@ -3978,10 +4004,11 @@ function LibraryCard({
         {/* Info */}
         <div className="p-3 flex flex-col gap-1.5">
           <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-tight">{doc.title}</h3>
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatRelativeTime(getLastTouched(doc))}</span>
             {doc.extractCount > 0 && <span>{doc.extractCount} extracts</span>}
             {doc.learningItemCount > 0 && <span>{doc.learningItemCount} cards</span>}
+            <DocumentAudioEditionIndicator docId={doc.id} />
           </div>
           {(doc.extractCount > 0 || doc.learningItemCount > 0) && <ProgressBar doc={doc} />}
           {doc.tags.length > 0 && (

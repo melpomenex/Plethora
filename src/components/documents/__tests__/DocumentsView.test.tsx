@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DocumentsView } from "../DocumentsView";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGenerationStore";
 import type { Document } from "../../../types/document";
 
 const modalMock = vi.hoisted(() => ({
@@ -444,5 +445,32 @@ describe("compact mobile document row layout contract", () => {
     );
     expect(scienceChip.length).toBeGreaterThan(0);
     expect(screen.queryByText("+0")).toBeNull();
+  });
+
+  it("displays active audio edition synthesis indicator when a document has an active generation job", () => {
+    useAudioEditionGenerationStore.setState({
+      jobs: {
+        "ed-doc-1": {
+          editionId: "ed-doc-1",
+          documentId: "doc-1",
+          status: "generating",
+          totalSections: 10,
+          completedSections: 4,
+          failedSections: 0,
+          currentSectionId: "sec-4",
+          progressPercent: 40,
+        },
+      },
+      activeJobs: ["ed-doc-1"],
+    });
+
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const badges = screen.getAllByTestId("audio-generating-badge-doc-1");
+    expect(badges.length).toBeGreaterThan(0);
+    expect(badges[0].textContent).toContain("Audio 40%");
+
+    // doc-2 does not have an active job
+    expect(screen.queryByTestId("audio-generating-badge-doc-2")).toBeNull();
   });
 });

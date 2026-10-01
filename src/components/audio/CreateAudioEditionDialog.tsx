@@ -13,12 +13,17 @@ import {
   WarningCircle,
   CheckCircle,
   Lightning,
+  CircleNotch,
 } from "@phosphor-icons/react";
 import type { Document } from "../../types/document";
 import type { QualityPreset, AudioEdition } from "../../types/audioEdition";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useTabsStore } from "../../stores/tabsStore";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { createAudioEdition, auditionVoicePreview } from "../../api/audioEditions";
+import { getDocument } from "../../api/documents";
+import { useToastStore, ToastType } from "../common/Toast";
+import { AudiobooksTab } from "../tabs/TabRegistry";
 import {
   extractArticleSemanticSections,
   extractEpubSemanticSections,
@@ -68,6 +73,49 @@ export function CreateAudioEditionDialog({
   const [isCreating, setIsCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Hydrated document state (library listings provide lightweight summaries with content: null)
+  const [hydratedDoc, setHydratedDoc] = useState<Document>(doc);
+  const [isLoadingDoc, setIsLoadingDoc] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !doc?.id) return;
+    if (doc.content && doc.content.trim().length > 0) {
+      setHydratedDoc(doc);
+      setIsLoadingDoc(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingDoc(true);
+    setLoadError(null);
+
+    getDocument(doc.id)
+      .then((fullDoc) => {
+        if (cancelled) return;
+        if (fullDoc && fullDoc.content && fullDoc.content.trim().length > 0) {
+          setHydratedDoc(fullDoc);
+        } else {
+          setHydratedDoc(fullDoc || doc);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("Failed to hydrate document for audio edition:", err);
+        setHydratedDoc(doc);
+        setLoadError(err?.message || "Failed to load document content.");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingDoc(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, doc]);
+
   // Sync provider/model/voice when preset changes
   // Revoke the audition preview URL on dismiss (task 5.7).
   useEffect(() => {
@@ -95,43 +143,40 @@ export function CreateAudioEditionDialog({
 
   // Derive document sections & sample text
   const { sections, sampleText, totalChars } = useMemo(() => {
-    const rawContent = doc.content || "";
+    const rawContent = hydratedDoc.content || "";
     let extracted: AudioEditionSemanticSection[] = [];
 
-    if (doc.fileType === "epub") {
-      const toc = (doc.metadata as any)?.toc || [];
-      extracted = extractEpubSemanticSections(toc, undefined, { [doc.filePath || ""]: rawContent });
-    } else if (doc.fileType === "pdf") {
-      const outline = (doc.metadata as any)?.outline || [];
+    if (hydratedDoc.fileType === "epub") {
+      const toc = (hydratedDoc.metadata as any)?.toc || [];
+      extracted = extractEpubSemanticSections(toc, undefined, { [hydratedDoc.filePath || ""]: rawContent });
+    } else if (hydratedDoc.fileType === "pdf") {
+      const outline = (hydratedDoc.metadata as any)?.outline || [];
       extracted = extractPdfSemanticSections(outline, undefined, rawContent);
     } else {
       extracted = extractArticleSemanticSections(rawContent);
     }
 
-    if (extracted.length === 0) {
-      const plain = stripHtmlTags(rawContent);
-      extracted = [
-        {
-          id: "sec-0",
-          sectionIndex: 0,
-          title: doc.title || "Full Document",
-          sourceStartAnchor: "0",
-          characterCount: plain.length,
-          content: plain,
-          level: 1,
-        },
-      ];
+    // If structural section extraction produced nothing or only empty sections,
+    // fallback to article/paragraph chunking on rawContent
+    if (
+      (extracted.length === 0 || extracted.every((s) => !s.content || s.content.trim().length === 0)) &&
+      rawContent.trim().length > 0
+    ) {
+      extracted = extractArticleSemanticSections(rawContent);
     }
 
-    const sample = extracted[0]?.content?.slice(0, 300) || doc.title || "Voice audition sample.";
-    const count = extracted.reduce((acc, s) => acc + s.characterCount, 0) || rawContent.length;
+    // Filter out completely empty sections so we don't synthesize blank text
+    extracted = extracted.filter((s) => s.content && s.content.trim().length > 0);
+
+    const sample = extracted[0]?.content?.slice(0, 300) || "";
+    const count = extracted.reduce((acc, s) => acc + s.characterCount, 0) || stripHtmlTags(rawContent).trim().length;
 
     return {
       sections: extracted,
       sampleText: sample,
       totalChars: count,
     };
-  }, [doc]);
+  }, [hydratedDoc]);
 
   // Pre-flight estimation
   const estimation = useMemo(() => {
@@ -196,6 +241,12 @@ export function CreateAudioEditionDialog({
     setErrorMsg(null);
 
     try {
+      if (totalChars === 0 || sections.length === 0) {
+        setErrorMsg("Cannot create audio edition: document contains no readable text.");
+        setIsCreating(false);
+        return;
+      }
+
       const activeAdapter = getAdapter(provider);
       // Paid/cloud gate (ai-billing-safety #14): never start a billable
       // audio-edition synthesis without explicit consent. The pre-flight
@@ -242,7 +293,7 @@ export function CreateAudioEditionDialog({
       const newEdition: AudioEdition = {
         id: editionId,
         sourceDocumentId: doc.id,
-        sourceRevisionHash: doc.contentHash || `rev-${Date.now()}`,
+        sourceRevisionHash: hydratedDoc.contentHash || doc.contentHash || `rev-${Date.now()}`,
         provider,
         model,
         voice,
@@ -263,11 +314,30 @@ export function CreateAudioEditionDialog({
       // Build section text map
       const sectionTextMap: Record<string, string> = {};
       audioSections.forEach((s, idx) => {
-        sectionTextMap[s.id] = sections[idx]?.content || s.title;
+        sectionTextMap[s.id] = sections[idx]?.content || "";
       });
 
       // Start progressive synthesis job
       void useAudioEditionGenerationStore.getState().startJob(editionId, sectionTextMap);
+
+      // Dispatch toast notification with quick jump to Audiobooks shelf
+      useToastStore.getState().addToast({
+        type: ToastType.Info,
+        title: "Generating Audio Edition",
+        message: `Started generating audio edition for "${doc.title || "Document"}".`,
+        action: {
+          label: "View Audiobooks",
+          onClick: () => {
+            useTabsStore.getState().addTab({
+              title: "Audiobooks",
+              icon: "🎧",
+              type: "audiobook",
+              content: AudiobooksTab,
+              closable: true,
+            });
+          },
+        },
+      });
 
       onCreated?.(editionId);
       onClose();
@@ -315,6 +385,29 @@ export function CreateAudioEditionDialog({
 
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+          {/* Document Hydration Loading Indicator */}
+          {isLoadingDoc && (
+            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs">
+              <CircleNotch size={16} className="animate-spin shrink-0" />
+              <span>Reading document content and extracting sections...</span>
+            </div>
+          )}
+
+          {/* Empty Content Alert Banner */}
+          {!isLoadingDoc && totalChars === 0 && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
+              <WarningCircle size={16} className="shrink-0" />
+              <span>This document has no readable text content to generate an audio edition.</span>
+            </div>
+          )}
+
+          {loadError && (
+            <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-center gap-2">
+              <WarningCircle size={16} className="shrink-0" />
+              <span>{loadError}</span>
+            </div>
+          )}
+
           {/* Quality Tier Selector */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
@@ -403,7 +496,8 @@ export function CreateAudioEditionDialog({
             <button
               type="button"
               onClick={handleAudition}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shadow-sm"
+              disabled={isAuditioning || isLoadingDoc || totalChars === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shadow-sm disabled:opacity-40"
             >
               {isAuditioning ? (
                 <>
@@ -554,7 +648,7 @@ export function CreateAudioEditionDialog({
           <button
             type="button"
             onClick={handleCreate}
-            disabled={isCreating}
+            disabled={isCreating || isLoadingDoc || totalChars === 0}
             className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
           >
             {isCreating ? (

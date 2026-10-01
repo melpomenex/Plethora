@@ -54,6 +54,7 @@ interface AudioEditionGenerationState {
 // In-memory control flags for stopping running workers
 const pausedJobIds = new Set<string>();
 const cancelledJobIds = new Set<string>();
+const jobSectionTextMaps = new Map<string, Record<string, string>>();
 
 // ---------------------------------------------------------------------------
 // Bounded section-audio LRU (eliminate-long-running-memory-growth task 5.2)
@@ -193,6 +194,10 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
       startJob: async (editionId: string, sectionTextMap = {}) => {
         pausedJobIds.delete(editionId);
         cancelledJobIds.delete(editionId);
+        if (sectionTextMap && Object.keys(sectionTextMap).length > 0) {
+          const existing = jobSectionTextMaps.get(editionId) || {};
+          jobSectionTextMaps.set(editionId, { ...existing, ...sectionTextMap });
+        }
 
         const edition = await getAudioEdition(editionId);
         if (!edition) return;
@@ -243,7 +248,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
           const settings = useSettingsStore.getState().settings;
           const providerId = edition.provider || "pocket";
           const adapter = getAdapter(providerId);
-          const resolvedKey = resolveProviderKey(adapter, settings);
+          const resolvedKey = adapter?.auth ? resolveProviderKey(adapter, settings) : { key: "" };
 
           let parsedSettings: AudioEditionSettings = {};
           if (typeof edition.generationSettings === "string") {
@@ -262,6 +267,11 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
           const mergedPronunciationDictionary: Record<string, string> = {
             ...(settings.tts?.pronunciationDictionary ?? {}),
             ...(parsedSettings.pronunciationDictionary ?? {}),
+          };
+
+          const activeTextMap = {
+            ...(jobSectionTextMaps.get(editionId) || {}),
+            ...sectionTextMap,
           };
 
           for (const section of sections) {
@@ -290,13 +300,17 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
 
             await updateAudioEditionSectionStatus(section.id, "generating");
 
-            const rawText = sectionTextMap[section.id] || section.title;
-            const textToSynthesize = applyPronunciationDictionary(
-              rawText,
-              mergedPronunciationDictionary
-            );
-
             try {
+              const rawText = (activeTextMap[section.id] || "").trim();
+              if (!rawText) {
+                throw new Error("Section content is empty");
+              }
+
+              const textToSynthesize = applyPronunciationDictionary(
+                rawText,
+                mergedPronunciationDictionary
+              );
+
               let durationSec = 10;
               let audioFilePath = "";
 
@@ -387,6 +401,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                     [editionId]: {
                       ...currentJob,
                       failedSections: currentJob.failedSections + 1,
+                      error: err?.message || "Synthesis failed",
                     },
                   },
                 };
@@ -394,10 +409,14 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
             }
           }
 
+          if (pausedJobIds.has(editionId) || cancelledJobIds.has(editionId)) {
+            return;
+          }
+
           // Finalize job status
           const updatedSections = await getAudioEditionSections(editionId);
           const totalDuration = updatedSections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
-          const allSuccess = updatedSections.every((s) => s.generationStatus === "ready");
+          const allSuccess = updatedSections.length > 0 && updatedSections.every((s) => s.generationStatus === "ready");
           const anySuccess = updatedSections.some((s) => s.generationStatus === "ready");
 
           const finalStatus = allSuccess ? "ready" : anySuccess ? "generating" : "failed";
@@ -457,6 +476,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
           /* edition already gone — nothing to revoke */
         }
         await updateAudioEditionStatus(editionId, "draft");
+        jobSectionTextMaps.delete(editionId);
 
         set((state) => {
           const jobs = { ...state.jobs };

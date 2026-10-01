@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Headphones,
   MagnifyingGlass,
@@ -12,6 +12,9 @@ import {
   Star,
   Trash,
   Play,
+  Pause,
+  ArrowClockwise,
+  X,
   SpeakerHigh,
   Waveform
 } from "@phosphor-icons/react";
@@ -38,13 +41,12 @@ export function AudiobooksTab() {
   const [sortBy, setSortBy] = useState<"dateAdded" | "title" | "author" | "duration" | "progress">("dateAdded");
   const isActiveTab = useIsActiveTab();
 
-  // Document Audio Editions (task 4.3): editions of non-audio documents with
+  // Document Audio Editions (task 4.3 & 5.3): editions of non-audio documents with
   // generation badges + playback controls, plus live generation progress.
   const [editions, setEditions] = useState<AudioEdition[]>([]);
   const generationJobs = useAudioEditionGenerationStore((s) => s.jobs);
 
-  useEffect(() => {
-    if (!isActiveTab) return;
+  const reloadEditions = useCallback(() => {
     let cancelled = false;
     void listAudioEditions()
       .then((list) => {
@@ -56,7 +58,31 @@ export function AudiobooksTab() {
     return () => {
       cancelled = true;
     };
-  }, [isActiveTab]);
+  }, []);
+
+  useEffect(() => {
+    if (!isActiveTab) return;
+    const cancelInitial = reloadEditions();
+
+    // Subscribe to store updates: reload editions when jobs start, advance, or finish
+    const unsub = useAudioEditionGenerationStore.subscribe((state, prevState) => {
+      const activeChanged = state.activeJobs !== prevState.activeJobs;
+      const jobCountChanged = Object.keys(state.jobs).length !== Object.keys(prevState.jobs).length;
+      const anyJobStatusChanged = Object.values(state.jobs).some(
+        (job) =>
+          job.status !== prevState.jobs[job.editionId]?.status ||
+          job.completedSections !== prevState.jobs[job.editionId]?.completedSections
+      );
+      if (activeChanged || jobCountChanged || anyJobStatusChanged) {
+        reloadEditions();
+      }
+    });
+
+    return () => {
+      cancelInitial();
+      unsub();
+    };
+  }, [isActiveTab, reloadEditions]);
 
   // Local storage keys for status overrides & listening stats
   const [dnfList, setDnfList] = useState<string[]>([]);
@@ -385,50 +411,158 @@ export function AudiobooksTab() {
               const sections = edition.sections ?? [];
               const readyCount = sections.filter((s) => s.generationStatus === "ready").length;
               const totalDuration = sections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
-              const badge =
-                edition.status === "ready" || (readyCount > 0 && edition.status !== "generating")
-                  ? { label: `${readyCount}/${sections.length} ready`, cls: "bg-green-500/10 text-green-600" }
-                  : edition.status === "generating" || job?.status === "generating"
-                    ? { label: `Generating ${job?.progressPercent ?? Math.round((readyCount / Math.max(1, sections.length)) * 100)}%`, cls: "bg-blue-500/10 text-blue-600" }
-                    : edition.status === "failed"
-                      ? { label: "Failed", cls: "bg-red-500/10 text-red-600" }
-                      : { label: edition.status, cls: "bg-muted text-muted-foreground" };
+
+              const isGenerating = job ? job.status === "generating" : edition.status === "generating";
+              const isPaused = job?.status === "paused";
+              const isFailed = job ? job.status === "error" : edition.status === "failed";
+              const isCompleted =
+                (job ? job.status === "completed" : edition.status === "ready") ||
+                (readyCount > 0 && readyCount === sections.length && !isGenerating && !isPaused && !isFailed);
+
+              const progressPercent =
+                job?.progressPercent ??
+                (sections.length > 0 ? Math.round((readyCount / sections.length) * 100) : 0);
+
+              let badge: { label: string; cls: string };
+              if (isGenerating) {
+                badge = {
+                  label: `Generating ${progressPercent}%`,
+                  cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20",
+                };
+              } else if (isPaused) {
+                badge = {
+                  label: `Paused (${progressPercent}%)`,
+                  cls: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20",
+                };
+              } else if (isCompleted) {
+                badge = {
+                  label: `${readyCount}/${sections.length} ready`,
+                  cls: "bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20",
+                };
+              } else if (isFailed) {
+                badge = {
+                  label: "Failed",
+                  cls: "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20",
+                };
+              } else if (readyCount > 0) {
+                badge = {
+                  label: `${readyCount}/${sections.length} ready`,
+                  cls: "bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20",
+                };
+              } else {
+                badge = {
+                  label: edition.status || "Draft",
+                  cls: "bg-muted text-muted-foreground",
+                };
+              }
               const canPlay = readyCount > 0;
 
               return (
                 <div
                   key={edition.id}
-                  className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors"
+                  data-testid={`edition-card-${edition.id}`}
+                  className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors"
                 >
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-                    <BookOpen className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{doc?.title ?? "Document"}</span>
-                      <span className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded shrink-0", badge.cls)}>
-                        {badge.label}
-                      </span>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                      <BookOpen className="w-5 h-5" />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                      {edition.provider}/{edition.model} · {formatDuration(totalDuration)}
-                      {job?.status === "generating" ? ` · ${job.completedSections}/${job.totalSections} sections` : ""}
-                    </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{doc?.title ?? "Document"}</span>
+                        <span
+                          data-testid={`edition-status-badge-${edition.id}`}
+                          className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded shrink-0", badge.cls)}
+                        >
+                          {badge.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {edition.provider}/{edition.model} · {formatDuration(totalDuration)}
+                        {job ? ` · ${job.completedSections}/${job.totalSections} sections` : ""}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isGenerating && (
+                        <button
+                          onClick={() => useAudioEditionGenerationStore.getState().pauseJob(edition.id)}
+                          title="Pause generation"
+                          aria-label="Pause generation"
+                          className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Pause className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isPaused && (
+                        <button
+                          onClick={() => void useAudioEditionGenerationStore.getState().resumeJob(edition.id)}
+                          title="Resume generation"
+                          aria-label="Resume generation"
+                          className="p-2 rounded-lg hover:bg-muted text-primary transition-colors"
+                        >
+                          <Play className="w-4 h-4 fill-current" />
+                        </button>
+                      )}
+                      {(isGenerating || isPaused) && (
+                        <button
+                          onClick={() => void useAudioEditionGenerationStore.getState().cancelJob(edition.id)}
+                          title="Cancel generation"
+                          aria-label="Cancel generation"
+                          className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      {isFailed && (
+                        <button
+                          onClick={() => void useAudioEditionGenerationStore.getState().retryFailedSections(edition.id)}
+                          title="Retry failed sections"
+                          aria-label="Retry failed sections"
+                          className="p-2 rounded-lg hover:bg-muted text-amber-600 transition-colors"
+                        >
+                          <ArrowClockwise className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleListenToEdition(doc, edition)}
+                        disabled={!canPlay}
+                        title={canPlay ? "Listen to Audio Edition" : "No sections generated yet"}
+                        aria-label={`Listen to audio edition of ${doc?.title ?? "document"}`}
+                        className={cn(
+                          "p-2.5 rounded-full transition-all shrink-0 ml-1",
+                          canPlay
+                            ? "bg-primary text-primary-foreground hover:scale-105"
+                            : "bg-muted text-muted-foreground/40 cursor-not-allowed"
+                        )}
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleListenToEdition(doc, edition)}
-                    disabled={!canPlay}
-                    title={canPlay ? "Listen to Audio Edition" : "No sections generated yet"}
-                    aria-label={`Listen to audio edition of ${doc?.title ?? "document"}`}
-                    className={cn(
-                      "p-2.5 rounded-full transition-all shrink-0",
-                      canPlay
-                        ? "bg-primary text-primary-foreground hover:scale-105"
-                        : "bg-muted text-muted-foreground/40 cursor-not-allowed"
-                    )}
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                  </button>
+
+                  {/* Progress bar and section status */}
+                  {(isGenerating || isPaused || (job && job.status === "error" && job.completedSections < job.totalSections)) && (
+                    <div className="pt-1 border-t border-border/50">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+                        <span>
+                          {job?.currentSectionId
+                            ? `Section ${(job.completedSections ?? 0) + 1} of ${job.totalSections ?? sections.length}`
+                            : `${job?.completedSections ?? readyCount} of ${job?.totalSections ?? sections.length} sections`}
+                        </span>
+                        <span className="font-mono">{progressPercent}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted/60 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full transition-all duration-300 rounded-full",
+                            isPaused ? "bg-amber-500" : isFailed ? "bg-red-500" : "bg-primary"
+                          )}
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
