@@ -131,7 +131,6 @@ export interface TTSProviderSettings {
   cloneModelId: string;
   language: FalLanguage;
   pocketSpeed: number;
-  pocketAvailable: boolean;
 }
 
 export type TTSProviderSettingsMap = Record<TTSProvider, TTSProviderSettings>;
@@ -172,7 +171,6 @@ export interface TTSSettings {
   groqResponseFormat: "wav" | "mp3";
   language: FalLanguage;
   pocketSpeed: number;
-  pocketAvailable: boolean;
 }
 
 export const DEFAULT_TTS_PRESETS: TTSPreset[] = [
@@ -230,7 +228,6 @@ function defaultProviderSettings(
     cloneModelId: "",
     language: "Auto",
     pocketSpeed: 1,
-    pocketAvailable: false,
     ...overrides,
   };
 }
@@ -328,7 +325,6 @@ function legacyMirrors(
   | "groqResponseFormat"
   | "language"
   | "pocketSpeed"
-  | "pocketAvailable"
 > {
   const selected = providers[provider as TTSProvider] || providers.fal;
   return {
@@ -341,7 +337,6 @@ function legacyMirrors(
     groqResponseFormat: providers.groq.responseFormat === "wav" ? "wav" : "mp3",
     language: providers.fal.language,
     pocketSpeed: providers.pocket.pocketSpeed,
-    pocketAvailable: providers.pocket.pocketAvailable,
   };
 }
 
@@ -490,8 +485,6 @@ function normalizeProviderSettings(
     cloneModelId: asNonEmptyString(item.cloneModelId, defaults.cloneModelId),
     language,
     pocketSpeed: clampNumber(item.pocketSpeed, defaults.pocketSpeed, 0.5, 2),
-    pocketAvailable:
-      typeof item.pocketAvailable === "boolean" ? item.pocketAvailable : defaults.pocketAvailable,
   };
 }
 
@@ -531,7 +524,6 @@ export function migrateTTSSettings(input: unknown): Record<string, unknown> {
     providers.pocket = {
       ...providers.pocket,
       pocketSpeed: clampNumber(input.pocketSpeed, providers.pocket.pocketSpeed, 0.5, 2),
-      pocketAvailable: Boolean(input.pocketAvailable),
     };
     base = {
       ...input,
@@ -572,7 +564,6 @@ export function getProviderSettings(
     normalized.responseFormat = settings.groqResponseFormat || normalized.responseFormat;
   } else if (provider === "pocket") {
     normalized.pocketSpeed = settings.pocketSpeed ?? normalized.pocketSpeed;
-    normalized.pocketAvailable = settings.pocketAvailable ?? normalized.pocketAvailable;
   }
   return normalized;
 }

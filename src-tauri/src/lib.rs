@@ -1395,7 +1395,7 @@ pub fn run() {
                 app.manage(cloud_auth_provider.clone());
                 app.manage(auth_store.clone());
                 app.manage(ai_key_store.clone());
-                app.manage(pocket_tts::PocketTTSState::default());
+                app.manage(pocket_tts::PocketTTSInstallState::default());
                 app.manage(tts::SherpaTtsState::default());
                 app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
@@ -2113,6 +2113,9 @@ pub fn run() {
             notebooklm::notebooklm_cli_status,
             pocket_tts::pocket_tts_status,
             pocket_tts::pocket_tts_generate,
+            pocket_tts::pocket_tts_install,
+            pocket_tts::pocket_tts_cancel_install,
+            pocket_tts::pocket_tts_uninstall,
             pocket_tts::pocket_tts_stop,
             pocket_tts::pocket_tts_cleanup,
             // Browser sync server commands (HTTP for extension)

@@ -81,14 +81,13 @@ describe("ttsSettings", () => {
       groqModelId: "playai-tts-arabic",
       groqResponseFormat: "wav",
       pocketSpeed: 1.5,
-      pocketAvailable: true,
       defaultVoiceId: "groq-builtin-fiora",
       defaultPresetId: "balanced-default",
     });
     expect(settings.schemaVersion).toBeGreaterThanOrEqual(3);
     expect(settings.providers.fal).toMatchObject({ apiKey: "fal-key", modelId: "fal-model", cloneModelId: "clone-model", requestMode: "proxy", proxyUrl: "https://proxy.example" });
     expect(settings.providers.groq).toMatchObject({ modelId: "playai-tts-arabic", responseFormat: "wav" });
-    expect(settings.providers.pocket).toMatchObject({ pocketSpeed: 1.5, pocketAvailable: true });
+    expect(settings.providers.pocket).toMatchObject({ pocketSpeed: 1.5 });
     expect(settings.provider).toBe("groq");
     expect(settings.defaultVoiceId).toBe("groq-builtin-fiora");
   });

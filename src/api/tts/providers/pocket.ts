@@ -18,7 +18,8 @@ export const pocketAdapter: TTSProviderAdapter = {
   },
   async listModels(): Promise<TTSModelInfo[]> {
     const status = await checkPocketTTSAvailable();
-    return [{ id: "pocket-tts", name: "Pocket TTS", vendor: "Kyutai", supportedVoices: null, supportedParameters: ["speed"], contextLength: 0, description: status.available ? "Available offline" : status.error }];
+    const description = status.state === "installed" ? "Available offline" : status.error ?? undefined;
+    return [{ id: "pocket-tts", name: "Pocket TTS", vendor: "Kyutai", supportedVoices: null, supportedParameters: ["speed"], contextLength: 0, description }];
   },
   async listVoices(ctx, modelId): Promise<TTSVoiceInfo[]> {
     return ctx.tts.voiceProfiles.filter((profile) => profile.provider === "pocket" && profile.voice).map((profile) => ({ id: profile.voice!, name: profile.name, provider: "pocket", modelId, vendor: "Pocket TTS" }));

@@ -62,8 +62,8 @@ import {
   Check,
   CircleNotch,
   Coins,
-  Copy,
   Download,
+  Copy,
   FloppyDisk,
   MagnifyingGlass,
   Microphone,
@@ -72,11 +72,8 @@ import {
   SpeakerHigh,
   Trash,
   WarningCircle,
-  WifiHigh,
-  WifiSlash,
 } from "@phosphor-icons/react";
 import { cloneVoice, generateSpeech, TTSServiceError } from "../../api/tts";
-import { checkPocketTTSAvailable } from "../../api/pocketTts";
 import { getAdapter, listAdapters } from "../../api/tts/registry";
 import { resolveProviderKey, describeBorrowedSource } from "../../api/tts/auth";
 import type { TTSModelInfo, TTSVoiceInfo, TTSProviderId } from "../../api/tts/types";
@@ -125,8 +122,10 @@ import { useI18n } from "../../lib/i18n";
 import VoiceBrowser from "./VoiceBrowser";
 import ModelBrowser from "./ModelBrowser";
 import { HuggingFaceModelManager } from "./HuggingFaceModelManager";
+import { PocketTtsStatusPanel } from "./PocketTtsStatusPanel";
 
 const MAX_SAMPLE_FILE_SIZE_MB = 12;
+
 const MAX_SAMPLE_DURATION_SECONDS = 45;
 const ACCEPTED_AUDIO_TYPES = [
   "audio/mpeg",
@@ -809,67 +808,6 @@ export function TTSSettings() {
     });
   };
 
-  // Pocket TTS status
-  const [pocketStatus, setPocketStatus] = useState<{
-    available: boolean;
-    downloading: boolean;
-    downloadProgress: number;
-    error?: string;
-  }>({ available: false, downloading: false, downloadProgress: 0 });
-
-  useEffect(() => {
-    if (!isTauri()) {
-      setPocketStatus({ available: false, downloading: false, downloadProgress: 0 });
-      return;
-    }
-
-    checkPocketTTSAvailable().then((status) => {
-      setPocketStatus({
-        available: status.available,
-        downloading: status.downloading,
-        downloadProgress: status.download_progress ?? 0,
-        error: status.error,
-      });
-    });
-  }, []);
-
-  const handleDownloadPocketTTS = async () => {
-    if (!isTauri()) return;
-
-    setPocketStatus((prev) => ({
-      ...prev,
-      downloading: true,
-      downloadProgress: 0,
-      error: undefined,
-    }));
-
-    try {
-      // Pocket TTS downloads models automatically on first use
-      // We trigger a short synthesis to force model download
-      const { generatePocketSpeech } = await import("../../api/pocketTts");
-
-      setPocketStatus((prev) => ({ ...prev, downloadProgress: 50 }));
-
-      await generatePocketSpeech({
-        text: "Download complete.",
-        voice: "alba",
-      });
-
-      setPocketStatus({
-        available: true,
-        downloading: false,
-        downloadProgress: 100,
-        error: undefined,
-      });
-    } catch (error) {
-      setPocketStatus((prev) => ({
-        ...prev,
-        downloading: false,
-        error: error instanceof Error ? error.message : t("settings.ttsFailedInitPocketTts"),
-      }));
-    }
-  };
-
   const isPocketProvider = tts.provider === "pocket";
   const isAndroidProvider = tts.provider === "android";
   // Pocket TTS bundles a desktop sidecar (no Android/iOS binary), so only offer
@@ -1120,63 +1058,7 @@ export function TTSSettings() {
         </div>
 
         {/* Pocket TTS Status Panel */}
-        {isPocketProvider && (
-          <div className="rounded-lg border border-border bg-muted/20 p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {pocketStatus.available ? (
-                  <WifiSlash className="h-4 w-4 text-green-600" />
-                ) : (
-                  <WifiHigh className="h-4 w-4 text-muted-foreground" />
-                )}
-                <span className="font-medium text-foreground">
-                  {pocketStatus.available
-                    ? t("settings.ttsPocketReady")
-                    : pocketStatus.downloading
-                      ? t("settings.ttsDownloadingModel")
-                      : t("settings.ttsPocketNotInstalled")}
-                </span>
-              </div>
-              {!pocketStatus.available && !pocketStatus.downloading && (
-                <button
-                  onClick={handleDownloadPocketTTS}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-                >
-                  <Download className="h-4 w-4" />
-                  {t("settings.ttsDownload")}
-                </button>
-              )}
-            </div>
-            {pocketStatus.downloading && (
-              <div className="mt-3">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary transition-all"
-                    style={{ width: `${pocketStatus.downloadProgress}%` }}
-                  />
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("settings.ttsDownloaded", {
-                    percent: pocketStatus.downloadProgress.toFixed(0),
-                  })}
-                </p>
-              </div>
-            )}
-            {pocketStatus.error && (
-              <div className="mt-2">
-                <p className="text-xs text-destructive">{pocketStatus.error}</p>
-                {pocketStatus.error.includes("not installed") && (
-                  <code className="mt-1 block rounded bg-muted px-2 py-1 text-xs font-mono text-foreground">
-                    uv tool install pocket-tts
-                  </code>
-                )}
-              </div>
-            )}
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("settings.ttsPocketOfflineNote")}
-            </p>
-          </div>
-        )}
+        {isPocketProvider && <PocketTtsStatusPanel />}
 
         {!ttsConfigValidation.valid && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
