@@ -541,36 +541,6 @@ function renderPocketTTSLauncherScript(targetTriple) {
   return (
     '#!/bin/sh\n' +
     'set -eu\n' +
-    '# Check for --text-file and transform into --text by reading the file\n' +
-    'TEXT_FILE=""\n' +
-    'skip=false\n' +
-    'argc=$#\n' +
-    'i=0\n' +
-    'while [ $i -lt $argc ]; do\n' +
-    '  arg="$1"\n' +
-    '  shift\n' +
-    '  i=$((i + 1))\n' +
-    '  if $skip; then\n' +
-    '    skip=false\n' +
-    '    TEXT_FILE="$arg"\n' +
-    '    continue\n' +
-    '  fi\n' +
-    '  case "$arg" in\n' +
-    '    --text-file)\n' +
-    '      skip=true\n' +
-    '      ;;\n' +
-    '    --text-file=*)\n' +
-    '      TEXT_FILE="${arg#--text-file=}"\n' +
-    '      ;;\n' +
-    '    *)\n' +
-    '      set -- "$@" "$arg"\n' +
-    '      ;;\n' +
-    '  esac\n' +
-    'done\n' +
-    'if [ -n "$TEXT_FILE" ] && [ -f "$TEXT_FILE" ]; then\n' +
-    '  set -- "$@" "--text" "$(cat "$TEXT_FILE")"\n' +
-    '  rm -f "$TEXT_FILE"\n' +
-    'fi\n' +
     'SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\n' +
     `RUNTIME_BASE="$SCRIPT_DIR/pocket-tts-runtime/${targetTriple}"\n` +
     'RUNTIME_PY="$RUNTIME_BASE/python/bin/python3"\n' +

@@ -1410,6 +1410,31 @@ async fn output_tolerant(
     spawn_tolerant(cmd).await?.wait_with_output().await
 }
 
+/// [`output_tolerant`] with `text` on the child's stdin, for the CLI's
+/// `--text -` form.
+///
+/// The write is not optional: a child blocked on a full stdin pipe deadlocks
+/// against our `wait_with_output`, and a child that reads to EOF before doing
+/// anything else needs the handle dropped. Both happen here — the text is
+/// written to completion, then `stdin` is dropped, which closes the pipe.
+async fn output_tolerant_with_text(
+    cmd: &mut tokio::process::Command,
+    text: &str,
+) -> std::io::Result<std::process::Output> {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = spawn_tolerant(cmd).await?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin.write_all(text.as_bytes()).await?;
+        // Explicit close: `wait_with_output` does not drop our handle, and a
+        // process that reads stdin to EOF would otherwise wait forever.
+        stdin.shutdown().await?;
+    }
+    child.wait_with_output().await
+}
+
 fn trimmed_output(stdout: &[u8], stderr: &[u8]) -> String {
     let stderr_text = String::from_utf8_lossy(stderr);
     let stdout_text = String::from_utf8_lossy(stdout);
@@ -1827,26 +1852,17 @@ pub async fn verify_provisioned_runtime(executable: &Path) -> std::result::Resul
 /// with no progress bar and no phase label.
 pub async fn preload_weights(paths: &InstallPaths) -> std::result::Result<(), InstallError> {
     let output_path = paths.install_dir.join("pocket-tts-preload.wav");
-    let text_path = paths.install_dir.join("pocket-tts-preload.txt");
-    let _guard = TempFileGuard(text_path.clone());
-    std::fs::write(&text_path, PRELOAD_TEXT)
-        .map_err(|e| InstallError::Failed(format!("Could not stage the preload text: {e}")))?;
 
     let mut cmd = tokio::process::Command::new(&paths.executable);
     cmd.env_clear();
     for (key, value) in synthesis_env() {
         cmd.env(key, value);
     }
-    cmd.args([
-        "generate",
-        "--text-file",
-        &text_path.to_string_lossy(),
-        "--voice",
-        PocketVoice::Alba.as_str(),
-        "--output-path",
+    cmd.args(build_generation_args(
+        PocketVoice::Alba,
         &output_path.to_string_lossy(),
-    ]);
-    let result = output_tolerant(&mut cmd).await;
+    ));
+    let result = output_tolerant_with_text(&mut cmd, PRELOAD_TEXT).await;
     let _ = std::fs::remove_file(&output_path);
 
     match result {
@@ -1865,28 +1881,22 @@ pub async fn preload_weights(paths: &InstallPaths) -> std::result::Result<(), In
 // Synthesis
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Removes a file on every exit path, including a failed spawn.
+/// `pocket-tts generate` with the text on **stdin**.
 ///
-/// The `--text-file` mechanism this guards is not incidental: it is how long
-/// text gets past `ARG_MAX`, especially inside an AppImage, where the limit is
-/// tighter and the failure mode is a spawn that never starts.
-struct TempFileGuard(PathBuf);
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-fn build_generation_args(
-    text_file_str: &str,
-    voice: PocketVoice,
-    output_str: &str,
-) -> Vec<String> {
+/// `--text -` is upstream's own stdin sentinel (`text = sys.stdin.read()` when
+/// the option equals `-`), so this needs no flag of our own inventing. The
+/// alternative, `--text <whole text>`, does not scale: a single argv entry is
+/// capped at 128 KiB (`MAX_ARG_STRLEN`), which a long chapter reaches, and the
+/// failure is an `execve` that never starts.
+///
+/// There is no `--text-file` option. Passing one aborts with `No such option:
+/// --text-file` before a model is even loaded, which is what a stale
+/// AppImage does on its first synthesis.
+fn build_generation_args(voice: PocketVoice, output_str: &str) -> Vec<String> {
     vec![
         "generate".to_string(),
-        "--text-file".to_string(),
-        text_file_str.to_string(),
+        "--text".to_string(),
+        "-".to_string(),
         "--voice".to_string(),
         voice.as_str().to_string(),
         "--output-path".to_string(),
@@ -1919,25 +1929,15 @@ pub async fn generate_pocket_speech(
         .ok_or_else(|| anyhow!("Invalid output path"))?
         .to_string();
 
-    // For long text, write to a temp file and pass --text-file instead of
-    // --text to stay under the OS argument-length limit (ARG_MAX) — the
-    // wrapper translates it back to --text. The guard makes the cleanup
-    // unconditional: a failed spawn used to leak the file forever, because
-    // removal only happened inside the Terminated arm.
-    let text_file = cache_dir.join(format!("pocket-tts-input-{}.txt", uuid::Uuid::new_v4()));
-    std::fs::write(&text_file, &text)?;
-    let _text_guard = TempFileGuard(text_file.clone());
-    let text_file_str = text_file
-        .to_str()
-        .ok_or_else(|| anyhow!("Invalid text file path"))?
-        .to_string();
-
-    let args = build_generation_args(&text_file_str, voice_id, &output_str);
+    // The text goes to the child on stdin, not in argv: a single argument is
+    // capped at 128 KiB, and a chapter of a book reaches that. See
+    // [`build_generation_args`].
+    let args = build_generation_args(voice_id, &output_str);
     let mut first_failure: Option<anyhow::Error> = None;
 
     for candidate in synthesis_candidates(app_handle) {
         let executable = candidate.path.to_string_lossy().to_string();
-        match run_generation(&candidate.path, &args, &output_path).await {
+        match run_generation(&candidate.path, &args, &output_path, &text).await {
             Ok(()) => return read_audio_result(&output_path),
             Err(message) => {
                 if first_failure.is_none() {
@@ -1990,6 +1990,7 @@ async fn run_generation(
     executable: &Path,
     args: &[String],
     output_path: &Path,
+    text: &str,
 ) -> std::result::Result<(), String> {
     // The env_clear is documented at `augmented_pocket_tts_env`: an AppImage's
     // LD_LIBRARY_PATH/LD_PRELOAD reach the sidecar's grandchildren and cause
@@ -3194,7 +3195,12 @@ mod tests {
     async fn a_failed_spawn_names_the_path_and_the_recovery_step() {
         let dir = temp_dir("spawn-fail");
         let missing = dir.path().join("pocket-tts");
-        let error = run_generation(&missing, &["generate".to_string()], &dir.path().join("o.wav"))
+        let error = run_generation(
+            &missing,
+            &["generate".to_string()],
+            &dir.path().join("o.wav"),
+            "hello",
+        )
             .await
             .unwrap_err();
         let full = format!("{error} {RECOVERY_HINT}");
@@ -3216,7 +3222,12 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&stub, perms).unwrap();
         }
-        let error = run_generation(&stub, &["generate".to_string()], &dir.path().join("o.wav"))
+        let error = run_generation(
+            &stub,
+            &["generate".to_string()],
+            &dir.path().join("o.wav"),
+            "hello",
+        )
             .await
             .unwrap_err();
         let full = format!("{error} {RECOVERY_HINT}");
@@ -3225,23 +3236,51 @@ mod tests {
         assert!(full.contains("uv tool install pocket-tts"), "{full}");
     }
 
+    /// Upstream `pocket-tts generate` has no `--text-file` option; rejecting
+    /// that spelling is what made synthesis fail on every real install.
     #[test]
-    fn the_temp_file_guard_removes_its_file() {
-        let dir = temp_dir("temp-guard");
-        let path = dir.path().join("input.txt");
-        std::fs::write(&path, b"hello").unwrap();
-        {
-            let _guard = TempFileGuard(path.clone());
-            assert!(path.exists());
-        }
-        assert!(!path.exists());
+    fn the_generation_args_spell_the_upstream_text_option() {
+        let args = build_generation_args(PocketVoice::Javert, "/tmp/out.wav");
+        assert!(!args.contains(&"--text-file".to_string()), "{args:?}");
+        let text = args.iter().position(|a| a == "--text").expect("--text");
+        assert_eq!(args[text + 1], "-", "stdin sentinel, not inline text");
+        assert_eq!(
+            args.iter().position(|a| a == "--output-path"),
+            Some(args.len() - 2),
+            "{args:?}"
+        );
+        assert_eq!(args[args.len() - 1], "/tmp/out.wav");
     }
 
-    #[test]
-    fn the_generation_args_use_text_file_not_text() {
-        let args = build_generation_args("/tmp/in.txt", PocketVoice::Javert, "/tmp/out.wav");
-        assert!(args.contains(&"--text-file".to_string()));
-        assert!(!args.contains(&"--text".to_string()));
-        assert_eq!(args[args.len() - 1], "/tmp/out.wav");
+    /// The whole point of `--text -`: the text arrives on stdin, so length is
+    /// bounded by the pipe rather than by `MAX_ARG_STRLEN`. The stub stands in
+    /// for the CLI, which reads stdin to EOF before it starts work.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_text_reaches_the_cli_on_stdin() {
+        let dir = temp_dir("stdin-text");
+        let stub = dir.path().join("pocket-tts");
+        let recorded = dir.path().join("stdin.txt");
+        let body = "#!/bin/sh\ncat > RECORDED\nfor arg in \"$@\"; do case \"$arg\" in *.wav) printf RIFF > \"$arg\";; esac; done\n"
+            .replace("RECORDED", &recorded.display().to_string());
+        std::fs::write(&stub, body.as_bytes()).unwrap();
+
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&stub).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&stub, perms).unwrap();
+        }
+        let audio = dir.path().join("out.wav");
+        let args = build_generation_args(PocketVoice::Alba, &audio.to_string_lossy());
+        let text = "Chapter one. ".repeat(20_000);
+
+        run_generation(&stub, &args, &audio, &text).await.unwrap();
+
+        assert_eq!(std::fs::read_to_string(&recorded).unwrap(), text);
+        assert!(
+            !dir.path().join("pocket-tts-input").exists(),
+            "no text file may be staged on disk any more"
+        );
     }
 }
