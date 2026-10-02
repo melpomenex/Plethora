@@ -8,10 +8,17 @@ import type { AudioEdition } from "../../../types/audioEdition";
 const mockListAudioEditions = vi.fn<() => Promise<AudioEdition[]>>();
 const mockDeleteAudioEdition = vi.fn<(id: string) => Promise<void>>();
 const mockModalConfirm = vi.fn().mockResolvedValue(true);
+const mockBulkSuspendItems = vi.fn().mockResolvedValue({ succeeded: ["doc-text-1"], failed: [], errors: [] });
+const mockBulkUnsuspendItems = vi.fn().mockResolvedValue({ succeeded: ["doc-text-1"], failed: [], errors: [] });
 
 vi.mock("../../../api/audioEditions", () => ({
   listAudioEditions: () => mockListAudioEditions(),
   deleteAudioEdition: (id: string) => mockDeleteAudioEdition(id),
+}));
+
+vi.mock("../../../api/queue", () => ({
+  bulkSuspendItems: (ids: string[]) => mockBulkSuspendItems(ids),
+  bulkUnsuspendItems: (ids: string[]) => mockBulkUnsuspendItems(ids),
 }));
 
 vi.mock("../../../components/common/Modal", async (importOriginal) => {
@@ -403,5 +410,110 @@ describe("AudiobooksTab - Audio Edition Generation Shelf & Controls", () => {
       );
       expect(mockDeleteAudioEdition).toHaveBeenCalledWith("ed-logic-1");
     });
+  });
+
+  it("handles 'Listen to Audio Edition' without initialJump to enable resume", async () => {
+    const addTabSpy = vi.spyOn(useTabsStore.getState(), "addTab");
+
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const listenItem = screen.getByText("Listen to Audio Edition");
+    fireEvent.click(listenItem);
+
+    expect(addTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Philosophy of Logic",
+        data: expect.objectContaining({
+          documentId: "doc-text-1",
+          listenToEdition: true,
+          autoPlay: true,
+        }),
+      }),
+      undefined
+    );
+
+    const callArgs = addTabSpy.mock.calls[addTabSpy.mock.calls.length - 1][0];
+    expect(callArgs.data.initialJump).toBeUndefined();
+  });
+
+  it("handles 'Add to Queue' from context menu", async () => {
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const addToQueueItem = screen.getByText("Add to Queue");
+    fireEvent.click(addToQueueItem);
+
+    await waitFor(() => {
+      expect(mockBulkUnsuspendItems).toHaveBeenCalledWith(["doc-text-1"]);
+    });
+  });
+
+  it("handles 'Remove from Queue' from context menu", async () => {
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const removeFromQueueItem = screen.getByText("Remove from Queue");
+    fireEvent.click(removeFromQueueItem);
+
+    await waitFor(() => {
+      expect(mockBulkSuspendItems).toHaveBeenCalledWith(["doc-text-1"]);
+    });
+  });
+
+  it("displays real listening progress and remaining time on ready edition cards", async () => {
+    const readyEdition: AudioEdition = {
+      ...testEdition,
+      status: "ready",
+      sections: testEdition.sections.map((s) => ({ ...s, generationStatus: "ready" as const })),
+    };
+    mockListAudioEditions.mockResolvedValueOnce([readyEdition]);
+
+    // Save position to localStorage
+    const savedPos = {
+      editionId: "ed-logic-1",
+      documentId: "doc-text-1",
+      partIndex: 0,
+      timeInPart: 60,
+      globalTimeSec: 60,
+      totalDurationSec: 120,
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem("plethora:ae-pos:edition:ed-logic-1", JSON.stringify(savedPos));
+
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    // Subtitle has 50% listened
+    expect(screen.getByText(/50% listened/)).toBeInTheDocument();
+    // Listening progress bar shows 50%
+    const progressContainer = screen.getByTestId("edition-listening-progress-ed-logic-1");
+    expect(progressContainer).toBeInTheDocument();
+    expect(progressContainer).toHaveTextContent("50%");
+    expect(progressContainer).toHaveTextContent("1:00 left");
+    expect(progressContainer).toHaveTextContent("Part 1 of 3");
+
+    localStorage.removeItem("plethora:ae-pos:edition:ed-logic-1");
   });
 });

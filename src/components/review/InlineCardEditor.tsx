@@ -26,7 +26,7 @@ interface InlineCardEditorProps {
   onSaved?: () => void;
   onEditInStudio?: (card: LearningItem) => void;
   /** Which surface opened the editor; recorded in the version-history reason. */
-  surface?: "deck-manager" | "review";
+  surface?: "deck-manager" | "review" | "queue";
 }
 
 /** Both marker syntaxes the cloze renderer accepts: {{c1::...}} and [[c1::...]]. */
@@ -55,7 +55,11 @@ export function InlineCardEditor({
   // Desktop serializes interaction_metadata; the browser backend camel-cases
   // it. Either spelling marks a complex interaction type.
   const interactionMetadata = (card as any).interaction_metadata ?? (card as any).interactionMetadata;
-  const isComplexType = Boolean(interactionMetadata?.interactionType);
+  const isComplexType = Boolean(
+    interactionMetadata?.interactionType ||
+    interactionMetadata?.imageOcclusionAssetId ||
+    (!["basic", "cloze"].includes(((card.item_type ?? (card as any).itemType) ?? "").toLowerCase()) && (card.item_type ?? (card as any).itemType))
+  );
 
   // Item type casing varies by source (Rust serializes lowercase snake_case,
   // the browser backend camel-cases); match either, like ReviewCard does.
@@ -92,7 +96,11 @@ export function InlineCardEditor({
         // Send the raw string ("" clears the answer); the backend leaves
         // omitted values untouched, and undefined would mean "don't touch".
         effectiveAnswer,
-        surface === "review" ? "Edited during review" : "Edited via Deck Manager",
+        surface === "review"
+          ? "Edited during review"
+          : surface === "queue"
+            ? "Edited in Queue"
+            : "Edited via Deck Manager",
         isCloze ? clozeText : undefined,
       );
 
@@ -146,7 +154,7 @@ export function InlineCardEditor({
       .join(",") !== card.tags.join(",");
 
   return (
-    <div className="border-t border-border bg-muted/30 p-4 space-y-3">
+    <div data-testid="inline-card-editor" className="border-t border-border bg-muted/30 p-4 space-y-3">
       {isComplexType ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -164,6 +172,7 @@ export function InlineCardEditor({
             />
           </div>
           <button
+            data-testid="inline-card-editor-studio-btn"
             onClick={() => onEditInStudio?.(card)}
             className="flex items-center gap-1.5 text-sm text-primary hover:underline"
           >

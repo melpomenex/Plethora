@@ -18,6 +18,7 @@ import {
   Translate,
   WarningCircle,
   Waves,
+  X,
 } from "@phosphor-icons/react";
 import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
 import { getStoredAssistantProvider, persistAssistantProvider, type AssistantProviderId } from "../utils/assistantProvider";
@@ -29,6 +30,7 @@ import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
 import { DocumentViewer } from "../components/viewer/DocumentViewerWrapper";
 import { AudiobookViewer } from "../components/viewer/AudiobookViewer";
 import { FlashcardScrollItem } from "../components/review/FlashcardScrollItem";
+import { InlineCardEditor } from "../components/review/InlineCardEditor";
 import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
 import { getDueItems, type LearningItem } from "../api/learning-items";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
@@ -236,6 +238,8 @@ interface ScrollItem {
    * can `consume` the right element and trigger a refill when depleted.
    */
   neuralElementId?: number;
+  hasAudioEdition?: boolean;
+  audioEditionId?: string;
 }
 
 /**
@@ -287,6 +291,8 @@ function toDocumentScrollItems(
         category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
         estimatedTime: item.estimatedTime ?? 10,
         engagementScore: baseScore + serendipityBonus,
+        hasAudioEdition: item.hasAudioEdition,
+        audioEditionId: item.audioEditionId,
       };
     })
     .filter((item): item is ScrollItem => item !== null);
@@ -640,6 +646,28 @@ export function QueueScrollPage() {
   const [activeExtractForQA, setActiveExtractForQA] = useState<string | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
   const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string } | null>(null);
+  const [editingLearningItem, setEditingLearningItem] = useState<LearningItem | null>(null);
+
+  const handleEditInStudio = (card: LearningItem) => {
+    const interactionMetadata =
+      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+    const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
+    setEditingLearningItem(null);
+    if (occlusionAssetId) {
+      window.dispatchEvent(
+        new CustomEvent("plethora:create-image-occlusion", {
+          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+        })
+      );
+      return;
+    }
+    setFlashcardStudioSeed({
+      key: `queue-edit-${card.id}-${Date.now()}`,
+      documentId: card.document_id ?? null,
+      excerpt: card.question || card.cloze_text || "",
+      resetDraftCards: true,
+    });
+  };
 
   const lastScrollTime = useRef(0);
   const scrollCooldown = 500; // ms between scroll actions
@@ -1298,6 +1326,8 @@ export function QueueScrollPage() {
               category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
               estimatedTime: item.estimatedTime ?? 10,
               engagementScore: item.priority ?? 5,
+              hasAudioEdition: item.hasAudioEdition,
+              audioEditionId: item.audioEditionId,
             } as ScrollItem;
           })
           .filter((item): item is ScrollItem => item !== null);
@@ -2990,7 +3020,7 @@ export function QueueScrollPage() {
       ) {
         return;
       }
-      if (target?.closest(".assistant-panel")) {
+      if (typeof target?.closest === "function" && target.closest(".assistant-panel")) {
         return;
       }
 
@@ -3082,14 +3112,26 @@ export function QueueScrollPage() {
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         scrollContentVertically("up");
-      } else if (e.key === "F11") {
+      }
+
+      // Cmd+E / Ctrl+E to edit card when on a flashcard
+      if ((e.metaKey || e.ctrlKey) && (e.key === "e" || e.key === "E")) {
+        if (currentItem?.type === "flashcard" && currentItem.learningItem) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          setEditingLearningItem(currentItem.learningItem);
+          return;
+        }
+      }
+
+      if (e.key === "F11") {
         e.preventDefault();
         e.stopImmediatePropagation();
         toggleFullscreen();
       } else if (e.key === "Escape") {
         // Don't close the tab if an overlay (modal/popup/dialog) is open —
         // let the overlay's own handler consume the Escape instead.
-        const overlayOpen = !!(flashcardStudioSeed || activeExtractForCloze || activeExtractForQA || isExtractDialogOpen || showSettings || showRssSettings);
+        const overlayOpen = !!(editingLearningItem || flashcardStudioSeed || activeExtractForCloze || activeExtractForQA || isExtractDialogOpen || showSettings || showRssSettings);
         if (overlayOpen) {
           // Don't stop propagation — let the modal/popup handle Escape at bubble phase
           return;
@@ -3111,7 +3153,7 @@ export function QueueScrollPage() {
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll, settings.learning.algorithm]);
+  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll, settings.learning.algorithm, editingLearningItem]);
 
   // Bridge for TikTok-style vertical paging originating inside the EPUB iframe.
   // Touches inside epub.js's iframe are isolated from the parent document, so the
@@ -4052,11 +4094,14 @@ export function QueueScrollPage() {
             )
           ) : renderedItem?.type === "document" ? (() => {
             const doc = documents.find(d => d.id === renderedItem.documentId);
+            const isAudioEdition = Boolean(renderedItem.hasAudioEdition);
             return (
               <DocumentViewer
                 key={renderedItem.documentId}
                 documentId={renderedItem.documentId!}
                 openedFrom="queue"
+                listenToEdition={isAudioEdition}
+                autoPlay={isAudioEdition}
                 embedded={true}
                 hideRatingOrbs={true}
                 onSelectionChange={setSelection}
@@ -4099,6 +4144,7 @@ export function QueueScrollPage() {
               learningItem={renderedItem.learningItem}
               onRate={handleRating}
               onRevealChange={handleFlashcardReveal}
+              onEdit={() => setEditingLearningItem(renderedItem.learningItem!)}
               onCreateFlashcard={(excerpt, extractId, documentId) => setFlashcardStudioSeed({
                 key: `scroll-${extractId || renderedItem.learningItem!.id}-${Date.now()}`,
                 excerpt,
@@ -4467,6 +4513,61 @@ export function QueueScrollPage() {
         onClose={() => setFlashcardStudioSeed(null)}
         seed={flashcardStudioSeed}
       />
+
+      {/* Inline card editor modal */}
+      {editingLearningItem && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("reviewSession.editCardTitle")}
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+        >
+          <button
+            type="button"
+            aria-label={t("common.close")}
+            className="absolute inset-0 cursor-default"
+            onClick={() => setEditingLearningItem(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">
+                {t("reviewSession.editCardTitle")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditingLearningItem(null)}
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[75dvh] overflow-y-auto">
+              <InlineCardEditor
+                card={editingLearningItem}
+                surface="queue"
+                onClose={() => setEditingLearningItem(null)}
+                onSave={(updated) => {
+                  setEditingLearningItem(updated);
+                  setScrollItems((prev) =>
+                    prev.map((item) =>
+                      item.type === "flashcard" && item.learningItem?.id === updated.id
+                        ? {
+                            ...item,
+                            learningItem: updated,
+                            documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
+                          }
+                        : item
+                    )
+                  );
+                }}
+                onSaved={() => setEditingLearningItem(null)}
+                onEditInStudio={handleEditInStudio}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Summary panel for the current document / RSS item (Optimal Queue). */}
       {renderedItem && (renderedItem.type === "document" || renderedItem.type === "rss") && (

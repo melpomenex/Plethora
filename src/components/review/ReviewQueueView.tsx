@@ -11,11 +11,13 @@ import {
   EyeSlash,
   Funnel,
   Graph,
+  Headphones,
   Info,
   Keyboard,
   Lightning,
   ListBullets,
   Pause,
+  Pencil,
   Play,
   Rss,
   Sparkle,
@@ -33,6 +35,9 @@ import { useTASStore } from "../../stores/tasStore";
 import { RssTab } from "../tabs/TabRegistry";
 import type { QueueItem } from "../../types/queue";
 import { ItemDetailsPopover, type ItemDetailsTarget } from "../common/ItemDetailsPopover";
+import { InlineCardEditor } from "./InlineCardEditor";
+import { getLearningItem, type LearningItem } from "../../api/learning-items";
+import { formatDuration } from "../../api/audiobooks";
 import {
   PriorityPreset,
   applyFilters,
@@ -242,6 +247,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const [actionItem, setActionItem] = useState<QueueItem | null>(null);
   const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const [editingLearningItem, setEditingLearningItem] = useState<LearningItem | null>(null);
 
   const captureQueueScrollAnchor = useCallback(() => {
     const container = queueScrollRef.current;
@@ -678,6 +684,53 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       onStartReview?.(item.learningItemId ?? item.id);
     } else {
       onOpenDocument?.(item);
+    }
+  };
+
+  const handleOpenEditFlashcard = async (item: QueueItem) => {
+    try {
+      if (item.learningItem) {
+        setEditingLearningItem(item.learningItem);
+        return;
+      }
+      const itemId = item.learningItemId ?? item.id;
+      const loaded = await getLearningItem(itemId);
+      if (loaded) {
+        setEditingLearningItem(loaded);
+      }
+    } catch (err) {
+      console.error("Failed to load learning item for editing:", err);
+      toast.error(t("review.deckManager.saveError"));
+    }
+  };
+
+  const handleSaveEditedCard = (updated: LearningItem) => {
+    setEditingLearningItem(updated);
+    useQueueStore.setState((state) => ({
+      items: state.items.map((it) =>
+        it.id === updated.id || it.learningItemId === updated.id
+          ? {
+              ...it,
+              tags: updated.tags,
+              documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
+              ...(it.learningItem ? { learningItem: updated } : {}),
+            }
+          : it
+      ),
+    }));
+  };
+
+  const handleEditInStudio = (card: LearningItem) => {
+    const interactionMetadata =
+      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+    const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
+    setEditingLearningItem(null);
+    if (occlusionAssetId) {
+      window.dispatchEvent(
+        new CustomEvent("plethora:create-image-occlusion", {
+          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+        })
+      );
     }
   };
 
@@ -1571,6 +1624,22 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                   RSS
                                 </span>
                               )}
+                              {item.hasAudioEdition && (
+                                <span
+                                  data-testid={`queue-item-audio-badge-${item.id}`}
+                                  className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center gap-1 shrink-0"
+                                  title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                                >
+                                  <Headphones className="w-3 h-3 inline mr-0.5" />
+                                  <span>Audio Edition</span>
+                                  {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
+                                    <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
+                                  )}
+                                  {item.audioDurationSec != null && item.audioDurationSec > 0 && (
+                                    <span className="text-[10px] opacity-80">({formatDuration(item.audioDurationSec)})</span>
+                                  )}
+                                </span>
+                              )}
                               <TASQueueBadge
                                 item={item}
                                 onForceShow={(id) => useTASStore.getState().forceShowItem(id)}
@@ -1600,9 +1669,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                   event.stopPropagation();
                                   handleCtxStudyNow(item);
                                 }}
-                                className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary flex items-center gap-1.5"
                               >
-                                {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType)))}
+                                {item.hasAudioEdition && <Headphones className="w-3.5 h-3.5" />}
+                                {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType, item.hasAudioEdition)))}
                               </button>
                               <button
                                 type="button"
@@ -1788,6 +1858,22 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 </span>
                               );
                             })()}
+                            {item.hasAudioEdition && (
+                              <span
+                                data-testid={`queue-item-audio-badge-${item.id}`}
+                                className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center gap-1 shrink-0"
+                                title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                              >
+                                <Headphones className="w-3 h-3 inline mr-0.5" />
+                                <span>Audio Edition</span>
+                                {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
+                                  <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
+                                )}
+                                {item.audioDurationSec != null && item.audioDurationSec > 0 && (
+                                  <span className="text-[10px] opacity-80">({formatDuration(item.audioDurationSec)})</span>
+                                )}
+                              </span>
+                            )}
                             <TASQueueBadge
                               item={item}
                               onForceShow={(id) => useTASStore.getState().forceShowItem(id)}
@@ -1817,9 +1903,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 event.stopPropagation();
                                 handleCtxStudyNow(item);
                               }}
-                              className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary flex items-center gap-1.5"
                             >
-                              {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType)))}
+                              {item.hasAudioEdition && <Headphones className="w-3.5 h-3.5" />}
+                              {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType, item.hasAudioEdition)))}
                             </button>
                             <button
                               type="button"
@@ -2065,6 +2152,19 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
             {ctxItem.itemType === "learning-item" && (
               <>
+                <button
+                  role="menuitem"
+                  className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/80 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => {
+                    const target = ctxItem;
+                    setCtxPos(null);
+                    setCtxItem(null);
+                    void handleOpenEditFlashcard(target);
+                  }}
+                >
+                  <Pencil className="w-4 h-4 text-purple-400" />
+                  {t("queue.editFlashcard")}
+                </button>
                 <div className="h-px bg-border my-1" />
 
                 {/* Suspend */}
@@ -2172,7 +2272,50 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         onPostpone={handleActionPostpone}
         onRemove={handleActionRemove}
         onSelect={handleActionSelect}
+        onEditCard={handleOpenEditFlashcard}
       />
+
+      {/* Inline card editor modal */}
+      {editingLearningItem && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("reviewSession.editCardTitle")}
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+        >
+          <button
+            type="button"
+            aria-label={t("common.close")}
+            className="absolute inset-0 cursor-default"
+            onClick={() => setEditingLearningItem(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">
+                {t("reviewSession.editCardTitle")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditingLearningItem(null)}
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[75dvh] overflow-y-auto">
+              <InlineCardEditor
+                card={editingLearningItem}
+                surface="queue"
+                onClose={() => setEditingLearningItem(null)}
+                onSave={handleSaveEditedCard}
+                onSaved={() => setEditingLearningItem(null)}
+                onEditInStudio={handleEditInStudio}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <SessionCustomizeModal
         isOpen={isCustomizeModalOpen}

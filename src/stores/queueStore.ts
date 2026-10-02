@@ -32,6 +32,39 @@ import {
   type PostponeInput,
   type PostponeStats,
 } from "../lib/postpone";
+import { listAudioEditions } from "../api/audioEditions";
+import type { AudioEdition } from "../types/audioEdition";
+import { getAudioEditionPositionSync, getAudioEditionProgress } from "../utils/audioEditionPosition";
+
+async function enrichQueueItemsWithAudio(items: QueueItem[]): Promise<QueueItem[]> {
+  try {
+    const editions = await listAudioEditions().catch(() => []);
+    if (!editions || editions.length === 0) return items;
+    const editionMap = new Map<string, AudioEdition>();
+    for (const ed of editions) {
+      if ((ed.sections ?? []).some((s) => s.generationStatus === "ready")) {
+        editionMap.set(ed.sourceDocumentId, ed);
+      }
+    }
+    if (editionMap.size === 0) return items;
+    return items.map((item) => {
+      const ed = editionMap.get(item.documentId);
+      if (!ed) return item;
+      const readySections = (ed.sections ?? []).filter((s) => s.generationStatus === "ready");
+      const totalDuration = readySections.reduce((acc, s) => acc + (s.durationSec || 0), 0);
+      const pos = getAudioEditionPositionSync(ed.id, ed.sourceDocumentId);
+      return {
+        ...item,
+        hasAudioEdition: true,
+        audioEditionId: ed.id,
+        audioDurationSec: totalDuration,
+        audioProgressPercent: getAudioEditionProgress(pos),
+      };
+    });
+  } catch {
+    return items;
+  }
+}
 
 export type QueueFilterMode = "due-today" | "all-items" | "new-only" | "due-all";
 
@@ -309,6 +342,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             items = await getQueue(collectionId);
             break;
         }
+        items = await enrichQueueItemsWithAudio(items);
         const now = new Date();
         set({
           items,
@@ -358,7 +392,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     return dedupeLoad(`loadDueDocumentsOnly:${collectionId ?? "default"}`, async () => {
       set({ isLoading: true, error: null });
       try {
-        const items = await getDueDocumentsOnly(collectionId);
+        let items = await getDueDocumentsOnly(collectionId);
+        items = await enrichQueueItemsWithAudio(items);
         set({
           items,
           isLoading: false,
@@ -382,7 +417,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     return dedupeLoad(`loadDueQueueItems:${collectionId ?? "default"}`, async () => {
       set({ isLoading: true, error: null });
       try {
-        const items = await getDueQueueItems(undefined, collectionId);
+        let items = await getDueQueueItems(undefined, collectionId);
+        items = await enrichQueueItemsWithAudio(items);
         set({
           items,
           isLoading: false,

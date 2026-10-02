@@ -197,4 +197,44 @@ describe("FlashcardScrollItem", () => {
 
     expect(screen.queryByRole("button", { name: /show answer/i })).not.toBeInTheDocument();
   });
+
+  it("renders edit button when onEdit is provided and triggers callback on click", () => {
+    const onEdit = vi.fn();
+    render(
+      <FlashcardScrollItem
+        learningItem={baseLearningItem}
+        onRate={() => undefined}
+        onEdit={onEdit}
+      />
+    );
+
+    const editBtn = screen.getByTestId("review-card-edit");
+    expect(editBtn).toBeInTheDocument();
+    fireEvent.click(editBtn);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render edit button when onEdit is not provided", () => {
+    render(<FlashcardScrollItem learningItem={baseLearningItem} onRate={() => undefined} />);
+    expect(screen.queryByTestId("review-card-edit")).not.toBeInTheDocument();
+  });
+
+  it("triggers onEdit on Cmd+E or Ctrl+E when focus is inside the card", () => {
+    const onEdit = vi.fn();
+    const { container } = render(
+      <FlashcardScrollItem
+        learningItem={baseLearningItem}
+        onRate={() => undefined}
+        onEdit={onEdit}
+      />
+    );
+    const card = container.firstChild as HTMLElement;
+
+    fireEvent.keyDown(card, { key: "e", metaKey: true });
+    expect(onEdit).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(card, { key: "E", ctrlKey: true });
+    expect(onEdit).toHaveBeenCalledTimes(2);
+  });
 });
+

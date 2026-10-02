@@ -103,6 +103,11 @@ import { ensureTranscriptEdition } from "../../utils/transcriptEdition";
 import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
 import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
 import type { AudioEdition, AudioEditionAnchor } from "../../types/audioEdition";
+import {
+  getAudioEditionPosition,
+  saveAudioEditionPosition,
+  writeAudioEditionPositionSync,
+} from "../../utils/audioEditionPosition";
 import { createLongFormSessionId } from "../../utils/longFormPlaybackSession";
 import { createLearningItem } from "../../api/learning-items";
 import { LanguageVideoHost } from "../language/LanguageVideoHost";
@@ -962,6 +967,10 @@ export function AudiobookViewer({
   // -----------------------------------------------------------------------
 
   const [audioEdition, setAudioEdition] = useState<AudioEdition | null>(null);
+  const audioEditionRef = useRef<AudioEdition | null>(null);
+  useEffect(() => {
+    audioEditionRef.current = audioEdition;
+  }, [audioEdition]);
   const [sectionAnchors, setSectionAnchors] = useState<AudioEditionAnchor[]>([]);
   const [showInbox, setShowInbox] = useState(false);
   const [showListenLater, setShowListenLater] = useState(false);
@@ -975,6 +984,20 @@ function isDirectPlaybackUrl(path?: string | null): boolean {
   if (!path) return false;
   return /^(blob:|https?:|data:)/i.test(path);
 }
+
+  // Resolve a staged filesystem path into a playable URL (media server on
+  // desktop, local-media resolver on native mobile). Shared by the working-set
+  // effect and imperative jumps like goToPart.
+  const resolveSectionPlaybackUrl = useCallback(
+    async (filePath: string): Promise<string> => {
+      if (isDirectPlaybackUrl(filePath)) return filePath;
+      if (isNativeMobile()) {
+        return (await resolveLocalMediaSource(filePath, "audio")).src;
+      }
+      return invokeCommand<string>("get_media_stream_url", { filePath });
+    },
+    [],
+  );
 
 const editionSectionIdsRef = useRef<string[]>([]);
   /** Section RECORDS for the edition playlist (working-set resolution, 5.6). */
@@ -1034,6 +1057,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
         if (cancelled || !edition) return;
 
         setAudioEdition(edition);
+        audioEditionRef.current = edition;
 
         const sections = (edition.sections ?? [])
           .slice()
@@ -1088,6 +1112,60 @@ const editionSectionIdsRef = useRef<string[]>([]);
             return chapter;
           });
           setChapters(editionChapters);
+
+          // Restore saved audio edition position if no explicit initial seek time is provided
+          if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) {
+            const savedPos = await getAudioEditionPosition(edition.id, document.id);
+            if (
+              savedPos &&
+              savedPos.partIndex >= 0 &&
+              savedPos.partIndex < readySections.length &&
+              Number.isFinite(savedPos.timeInPart) &&
+              savedPos.timeInPart >= 0
+            ) {
+              const targetPart = savedPos.partIndex;
+              const targetTime = savedPos.timeInPart;
+              if (targetPart !== currentPartIndexRef.current) {
+                setCurrentPartIndex(targetPart);
+                currentPartIndexRef.current = targetPart;
+              }
+              currentTimeRef.current = targetTime;
+              setCurrentTime(targetTime);
+              pendingSeekTimeRef.current = targetTime;
+              currentGlobalTimeRef.current = savedPos.globalTimeSec;
+
+              const immediate = sources[targetPart] || getSectionAudioUrl(readySections[targetPart].id);
+              if (immediate) {
+                if (audioRef.current) {
+                  audioRef.current.src = immediate;
+                  if (audioRef.current.readyState >= 1) {
+                    audioRef.current.currentTime = targetTime;
+                  }
+                }
+              } else if (readySections[targetPart]?.audioFilePath) {
+                try {
+                  const url = await resolveSectionPlaybackUrl(readySections[targetPart].audioFilePath!);
+                  if (url) {
+                    resolvedSectionUrlsRef.current[readySections[targetPart].id] = url;
+                    setResolvedSectionUrls((prev) => ({ ...prev, [readySections[targetPart].id]: url }));
+                    setPartSources((prev) => {
+                      const next = [...prev];
+                      next[targetPart] = url;
+                      return next;
+                    });
+                    if (audioRef.current) {
+                      audioRef.current.src = url;
+                      if (audioRef.current.readyState >= 1) {
+                        audioRef.current.currentTime = targetTime;
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.warn("[AudiobookViewer] Failed to resolve section source on resume:", err);
+                }
+              }
+            }
+          }
         }
       } catch (err) {
         console.warn("[AudiobookViewer] Failed to load audio edition:", err);
@@ -1300,13 +1378,29 @@ const editionSectionIdsRef = useRef<string[]>([]);
         promises.push(updateEpisodePosition(episodeId, timeInPart));
       }
 
+      // 3. Save to audio edition position
+      const currentEdition = audioEditionRef.current ?? audioEdition;
+      if (currentEdition?.id && docId) {
+        promises.push(
+          saveAudioEditionPosition({
+            editionId: currentEdition.id,
+            documentId: docId,
+            partIndex: currentPartIndexRef.current,
+            timeInPart,
+            globalTimeSec: globalSeconds,
+            totalDurationSec: totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0,
+            updatedAt: Date.now(),
+          })
+        );
+      }
+
       try {
         await Promise.all(promises);
       } catch (error) {
         console.warn("[AudiobookViewer] Failed to persist position:", error);
       }
     },
-    [currentPartIndex, episodeId, getTotalDurationSeconds, toGlobalSeconds]
+    [audioEdition, currentPartIndex, episodeId, getTotalDurationSeconds, toGlobalSeconds]
   );
 
   const loadSavedPosition = useCallback(async () => {
@@ -1727,8 +1821,23 @@ const editionSectionIdsRef = useRef<string[]>([]);
     if (multiPartInfo && currentPartIndex < multiPartInfo.partFiles.length - 1) {
       const nextPartIndex = currentPartIndex + 1;
       setCurrentPartIndex(nextPartIndex);
+      currentPartIndexRef.current = nextPartIndex;
       currentTimeRef.current = 0;
       currentGlobalTimeRef.current = toGlobalSeconds(nextPartIndex, 0);
+
+      const currentEdition = audioEditionRef.current ?? audioEdition;
+      if (currentEdition?.id && document.id) {
+        void saveAudioEditionPosition({
+          editionId: currentEdition.id,
+          documentId: document.id,
+          partIndex: nextPartIndex,
+          timeInPart: 0,
+          globalTimeSec: toGlobalSeconds(nextPartIndex, 0),
+          totalDurationSec: totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0,
+          updatedAt: Date.now(),
+        });
+      }
+
       // Load next part - audio element will auto-play if it was playing.
       // Working-set resolution (5.6): re-resolve from the section record —
       // the prefetched entry is normally live, but a revoked LRU victim
@@ -1781,24 +1890,26 @@ const editionSectionIdsRef = useRef<string[]>([]);
       onEpisodeEnded?.();
     }
 
+    const currentEdition = audioEditionRef.current ?? audioEdition;
+    if (currentEdition?.id && document.id) {
+      const totalDur = totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0;
+      const lastPart = (multiPartInfo?.partFiles.length ?? 1) - 1;
+      const finalPartDur = multiPartInfo?.partDurations[lastPart] ?? totalDur;
+      void saveAudioEditionPosition({
+        editionId: currentEdition.id,
+        documentId: document.id,
+        partIndex: Math.max(0, lastPart),
+        timeInPart: finalPartDur,
+        globalTimeSec: totalDur,
+        totalDurationSec: totalDur,
+        updatedAt: Date.now(),
+      });
+    }
+
     setIsPlaying(false);
     showInfo(t("viewer.audiobookFinished"), t("viewer.reachedTheEnd"));
   };
   
-  // Resolve a staged filesystem path into a playable URL (media server on
-  // desktop, local-media resolver on native mobile). Shared by the working-set
-  // effect and imperative jumps like goToPart.
-  const resolveSectionPlaybackUrl = useCallback(
-    async (filePath: string): Promise<string> => {
-      if (isDirectPlaybackUrl(filePath)) return filePath;
-      if (isNativeMobile()) {
-        return (await resolveLocalMediaSource(filePath, "audio")).src;
-      }
-      return invokeCommand<string>("get_media_stream_url", { filePath });
-    },
-    [],
-  );
-
   // Go to specific part (for multi-part books). Far sections outside the
   // resolved working set are resolved on demand — assigning an empty src
   // would fire a media error and latch the fallback machinery.
@@ -1806,8 +1917,22 @@ const editionSectionIdsRef = useRef<string[]>([]);
     if (!multiPartInfo || partIndex < 0 || partIndex >= multiPartInfo.partFiles.length) return;
 
     setCurrentPartIndex(partIndex);
+    currentPartIndexRef.current = partIndex;
     currentTimeRef.current = 0;
     currentGlobalTimeRef.current = toGlobalSeconds(partIndex, 0);
+
+    const currentEdition = audioEditionRef.current ?? audioEdition;
+    if (currentEdition?.id) {
+      void saveAudioEditionPosition({
+        editionId: currentEdition.id,
+        documentId: document.id,
+        partIndex,
+        timeInPart: 0,
+        globalTimeSec: toGlobalSeconds(partIndex, 0),
+        totalDurationSec: totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0,
+        updatedAt: Date.now(),
+      });
+    }
     const immediate = resolveSectionSourceAt(partIndex) || partSources[partIndex];
     if (immediate) {
       if (audioRef.current) {
@@ -1854,6 +1979,21 @@ const editionSectionIdsRef = useRef<string[]>([]);
     setIsPlaying(false);
     if (audioRef.current) {
       void persistPosition(audioRef.current.currentTime);
+      const currentEdition = audioEditionRef.current ?? audioEdition;
+      const docId = documentIdRef.current;
+      if (currentEdition?.id && docId) {
+        const timeInPart = audioRef.current.currentTime;
+        const globalSeconds = toGlobalSeconds(currentPartIndexRef.current, timeInPart);
+        writeAudioEditionPositionSync({
+          editionId: currentEdition.id,
+          documentId: docId,
+          partIndex: currentPartIndexRef.current,
+          timeInPart,
+          globalTimeSec: globalSeconds,
+          totalDurationSec: totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0,
+          updatedAt: Date.now(),
+        });
+      }
     }
   };
 
@@ -2167,12 +2307,36 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [documentTranscriptSegments.length, initialTranscriptSegmentId, showTranscript, transcript?.segments?.length]);
 
   useEffect(() => {
+    const handleBeforeUnload = () => {
+      const currentEdition = audioEditionRef.current;
+      const docId = documentIdRef.current;
+      if (currentEdition?.id && docId) {
+        const timeInPart = currentTimeRef.current;
+        const globalSeconds = toGlobalSeconds(currentPartIndexRef.current, timeInPart);
+        writeAudioEditionPositionSync({
+          editionId: currentEdition.id,
+          documentId: docId,
+          partIndex: currentPartIndexRef.current,
+          timeInPart,
+          globalTimeSec: globalSeconds,
+          totalDurationSec: totalDurationSecondsRef.current ?? currentEdition.totalDurationSec ?? 0,
+          updatedAt: Date.now(),
+        });
+      }
+    };
+
+    window.addEventListener("pagehide", handleBeforeUnload);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
+      window.removeEventListener("pagehide", handleBeforeUnload);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       if (audioRef.current) {
         void persistPosition(currentTimeRef.current);
       }
+      handleBeforeUnload();
     };
-  }, [persistPosition]);
+  }, [persistPosition, toGlobalSeconds]);
 
   // Auto-save every 5s while playing
   useEffect(() => {

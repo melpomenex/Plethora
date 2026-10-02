@@ -107,6 +107,28 @@ describe("InlineCardEditor", () => {
     );
   });
 
+  it("records the queue surface in the version reason", async () => {
+    render(
+      <InlineCardEditor
+        card={baseCard}
+        surface="queue"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("inline-card-editor-save"));
+
+    await waitFor(() => expect(updateLearningItemContentWithVersion).toHaveBeenCalled());
+    expect(updateLearningItemContentWithVersion).toHaveBeenCalledWith(
+      "card-1",
+      expect.any(String),
+      expect.anything(),
+      "Edited in Queue",
+      undefined,
+    );
+  });
+
   it("edits cloze text and mirrors it into the question field", async () => {
     const clozeCard: LearningItem = {
       ...baseCard,

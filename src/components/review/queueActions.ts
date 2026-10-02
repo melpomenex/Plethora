@@ -2,17 +2,23 @@ import type { QueueItem } from "../../types/queue";
 import { emitFeedback, type FeedbackEmitOptions } from "../../lib/feedback";
 import type { FeedbackEventPayloads } from "../../lib/feedback/events";
 
-export type QueueItemActionKind = "study-now" | "open-document" | "open-extract";
+export type QueueItemActionKind = "study-now" | "open-document" | "open-extract" | "listen-edition";
 export type QueueItemSheetAction =
   | "study-now"
   | "open-document"
   | "open-extract"
+  | "listen-edition"
+  | "edit-card"
   | "postpone"
   | "suspend"
   | "dismiss"
   | "select";
 
-export function getQueuePrimaryAction(itemType: string): QueueItemActionKind {
+export function getQueuePrimaryAction(
+  itemType: string,
+  hasAudioEdition?: boolean
+): QueueItemActionKind {
+  if (hasAudioEdition) return "listen-edition";
   if (itemType === "learning-item") return "study-now";
   if (itemType === "extract") return "open-extract";
   return "open-document";
@@ -24,6 +30,8 @@ export function getQueuePrimaryAction(itemType: string): QueueItemActionKind {
  */
 export function getQueuePrimaryActionLabelKey(action: QueueItemActionKind): string {
   switch (action) {
+    case "listen-edition":
+      return "queue.listenEdition";
     case "study-now":
       return "queue.studyNow";
     case "open-extract":
@@ -41,10 +49,13 @@ export function getQueueSecondaryActions(itemType: string): string[] {
 
 export function getQueueItemSheetActions(item: QueueItem): QueueItemSheetAction[] {
   if (item.itemType === "learning-item") {
-    return ["study-now", "postpone", "suspend", "select"];
+    return ["study-now", "edit-card", "postpone", "suspend", "select"];
   }
 
   if (item.itemType === "document") {
+    if (item.hasAudioEdition) {
+      return ["listen-edition", "open-document", "postpone", "dismiss", "select"];
+    }
     return ["open-document", "postpone", "dismiss", "select"];
   }
 

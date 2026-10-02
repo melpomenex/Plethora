@@ -3,6 +3,7 @@ import {
   Calendar,
   CircleNotch,
   DotsThreeVertical,
+  Pencil,
   Play,
   Trash,
 } from "@phosphor-icons/react";
@@ -14,9 +15,10 @@ interface QueueContextMenuProps {
   item: QueueItem;
   onDelete: (id: string) => Promise<void>;
   onStartReview: (item: QueueItem) => void;
+  onEditCard?: (item: QueueItem) => void;
 }
 
-export function QueueContextMenu({ item, onDelete, onStartReview }: QueueContextMenuProps) {
+export function QueueContextMenu({ item, onDelete, onStartReview, onEditCard }: QueueContextMenuProps) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [showPostponeConfirm, setShowPostponeConfirm] = useState(false);
@@ -87,6 +89,19 @@ export function QueueContextMenu({ item, onDelete, onStartReview }: QueueContext
                 <Play className="w-4 h-4" />
                 {t("delete.startReview")}
               </button>
+
+              {item.itemType === "learning-item" && onEditCard && (
+                <button
+                  onClick={() => {
+                    onEditCard(item);
+                    setIsOpen(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2"
+                >
+                  <Pencil className="w-4 h-4 text-purple-400" />
+                  {t("queue.editFlashcard")}
+                </button>
+              )}
 
               {canPostpone && (
                 <button

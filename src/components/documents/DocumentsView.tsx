@@ -39,6 +39,13 @@ import {
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
+import { formatDuration } from "../../api/audiobooks";
+import {
+  getAudioEditionPosition,
+  getAudioEditionPositionSync,
+  getAudioEditionProgress,
+  type AudioEditionPosition,
+} from "../../utils/audioEditionPosition";
 import { useSmartTaggingQueueStore } from "../../stores/smartTaggingQueueStore";
 import { useShallow } from "zustand/react/shallow";
 import { useCollectionStore } from "../../stores/collectionStore";
@@ -2554,18 +2561,49 @@ export function DocumentAudioEditionIndicator({ docId }: { docId: string }) {
     );
   });
 
-  if (!job) return null;
-
-  return (
-    <span
-      data-testid={`audio-generating-badge-${docId}`}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse"
-      title={`Generating audio edition (${job.progressPercent}%)`}
-    >
-      <Waveform className="w-3 h-3 text-amber-500" />
-      <span>Audio {job.progressPercent}%</span>
-    </span>
+  const [listenPos, setListenPos] = useState<AudioEditionPosition | null>(() =>
+    getAudioEditionPositionSync(undefined, docId)
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAudioEditionPosition(undefined, docId).then((pos) => {
+      if (!cancelled && pos) setListenPos(pos);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [docId]);
+
+  if (job) {
+    return (
+      <span
+        data-testid={`audio-generating-badge-${docId}`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse"
+        title={`Generating audio edition (${job.progressPercent}%)`}
+      >
+        <Waveform className="w-3 h-3 text-amber-500" />
+        <span>Audio {job.progressPercent}%</span>
+      </span>
+    );
+  }
+
+  if (listenPos && (listenPos.globalTimeSec > 0 || listenPos.partIndex > 0)) {
+    const progress = getAudioEditionProgress(listenPos);
+    const remainingSec = Math.max(0, listenPos.totalDurationSec - listenPos.globalTimeSec);
+    return (
+      <span
+        data-testid={`audio-listening-badge-${docId}`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20"
+        title={`Audio Edition: ${progress}% listened (${formatDuration(remainingSec)} left)`}
+      >
+        <Headphones className="w-3 h-3" />
+        <span>Audio {progress}%{remainingSec > 0 ? ` · ${formatDuration(remainingSec)} left` : " · Done"}</span>
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function ProgressBar({ doc }: { doc: Document }) {

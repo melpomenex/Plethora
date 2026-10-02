@@ -7,7 +7,7 @@ import { QueueScrollPage } from "../../pages/QueueScrollPage";
 import { usePaneId } from "../common/Tabs";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import type { SessionItemTypes } from "../../utils/reviewUx";
-import { Brain, Stack, TextT } from "@phosphor-icons/react";
+import { Brain, Headphones, Stack, TextT } from "@phosphor-icons/react";
 
 export function QueueTab() {
   const addTab = useTabsStore((state) => state.addTab);
@@ -51,13 +51,18 @@ export function QueueTab() {
     }
     addTab({
       title: item.documentTitle,
-      icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+      icon: item.hasAudioEdition ? (
+        <Headphones className="w-4 h-4 text-primary" />
+      ) : (
+        <TextT className="w-4 h-4 text-muted-foreground" />
+      ),
       type: "document-viewer",
       content: DocumentViewer,
       closable: true,
       data: {
         documentId: item.documentId,
         openedFrom: "queue",
+        ...(item.hasAudioEdition ? { listenToEdition: true, autoPlay: true } : {}),
         ...(item.extractId ? { focusedExtractId: item.extractId } : {}),
       },
     }, paneId);

@@ -4,7 +4,9 @@ import {
   CalendarHeart,
   CheckSquare,
   EyeSlash,
+  Headphones,
   Pause,
+  Pencil,
   Play,
   SpinnerGap,
 } from "@phosphor-icons/react";
@@ -22,6 +24,7 @@ interface QueueItemActionSheetProps {
   onClose: () => void;
   onOpenDocument?: (item: QueueItem) => void;
   onStartReview?: (itemId: string) => void;
+  onEditCard?: (item: QueueItem) => void;
   onPostpone?: (item: QueueItem) => Promise<void>;
   onRemove?: (item: QueueItem) => Promise<void>;
   onSelect?: (item: QueueItem) => void;
@@ -37,6 +40,7 @@ export function QueueItemActionSheet({
   onClose,
   onOpenDocument,
   onStartReview,
+  onEditCard,
   onPostpone,
   onRemove,
   onSelect,
@@ -63,6 +67,14 @@ export function QueueItemActionSheet({
         case "study-now":
           closeAndRestoreFocus();
           onStartReview?.(item.learningItemId ?? item.id);
+          break;
+        case "listen-edition":
+          closeAndRestoreFocus();
+          onOpenDocument?.(item);
+          break;
+        case "edit-card":
+          closeAndRestoreFocus();
+          onEditCard?.(item);
           break;
         case "open-document":
           closeAndRestoreFocus();
@@ -97,6 +109,8 @@ export function QueueItemActionSheet({
     destructive?: boolean;
   }> = {
     "study-now": { label: t("queue.studyNow"), icon: <Play className="w-5 h-5 text-emerald-500" /> },
+    "listen-edition": { label: t("queue.listenEdition"), icon: <Headphones className="w-5 h-5 text-primary" /> },
+    "edit-card": { label: t("queue.editFlashcard"), icon: <Pencil className="w-5 h-5 text-blue-500" /> },
     "open-document": { label: t("queue.openDocument"), icon: <BookOpen className="w-5 h-5 text-blue-500" /> },
     "open-extract": { label: t("queue.openExtract"), icon: <BookOpen className="w-5 h-5 text-violet-500" /> },
     postpone: { label: t("queue.postpone"), icon: <CalendarHeart className="w-5 h-5 text-amber-500" /> },

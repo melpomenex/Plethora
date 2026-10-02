@@ -39,6 +39,23 @@ const mockStore = vi.hoisted(() => {
         estimatedTime: 2,
         tags: ["Science"],
         progress: 40,
+        learningItem: {
+          id: "card-2",
+          item_type: "Basic" as const,
+          question: "Review Item Question",
+          answer: "Review Item Answer",
+          difficulty: 3,
+          interval: 1,
+          ease_factor: 2.5,
+          due_date: new Date().toISOString(),
+          date_created: new Date().toISOString(),
+          date_modified: new Date().toISOString(),
+          review_count: 1,
+          lapses: 0,
+          state: "Review" as const,
+          is_suspended: false,
+          tags: ["Science"],
+        },
       },
     ] as QueueItem[],
     isLoading: false,
@@ -89,7 +106,13 @@ vi.mock("../../../stores/queueStore", () => ({
   useQueueStore: Object.assign(
     (selector?: (s: typeof mockStore) => unknown) =>
       selector ? selector(mockStore) : mockStore,
-    { getState: () => mockStore }
+    {
+      getState: () => mockStore,
+      setState: (fn: any) => {
+        const next = typeof fn === "function" ? fn(mockStore) : fn;
+        Object.assign(mockStore, next);
+      },
+    }
   ),
 }));
 
@@ -221,6 +244,58 @@ describe("ReviewQueueView", () => {
     useSettingsStore.setState({
       settings: JSON.parse(JSON.stringify(defaultSettings)) as typeof defaultSettings,
     });
+  });
+
+  it("renders audio badge and routes primary action to listen for audio edition item", () => {
+    const originalItems = [...mockStore.items];
+    mockStore.items = [
+      ...originalItems,
+      {
+        id: "item-audio",
+        documentId: "doc-audio",
+        documentTitle: "Audiobook Edition Item",
+        itemType: "document",
+        priority: 8,
+        estimatedTime: 12,
+        tags: ["Audio"],
+        progress: 30,
+        hasAudioEdition: true,
+        audioEditionId: "ed-1",
+        audioDurationSec: 3600,
+        audioProgressPercent: 30,
+      } as QueueItem,
+    ];
+
+    try {
+      const onOpenDocument = vi.fn();
+      render(<ReviewQueueView onOpenDocument={onOpenDocument} />);
+
+      expect(screen.getByTestId("queue-item-audio-badge-item-audio")).toBeInTheDocument();
+      expect(screen.getByText("Audio Edition")).toBeInTheDocument();
+
+      const listenButton = screen.getByRole("button", { name: /listen/i });
+      expect(listenButton).toBeInTheDocument();
+      fireEvent.click(listenButton);
+      expect(onOpenDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "item-audio", hasAudioEdition: true })
+      );
+    } finally {
+      mockStore.items = originalItems;
+    }
+  });
+
+  it("opens InlineCardEditor from right-click context menu on a learning item", () => {
+    render(<ReviewQueueView />);
+
+    const itemRow = screen.getAllByText("Review Item")[0];
+    fireEvent.contextMenu(itemRow);
+
+    const editOption = screen.getByRole("menuitem", { name: /edit flashcard/i });
+    expect(editOption).toBeInTheDocument();
+    fireEvent.click(editOption);
+
+    expect(screen.getByRole("dialog", { name: /edit card/i })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Review Item Question")).toBeInTheDocument();
   });
 });
 

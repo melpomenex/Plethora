@@ -3,6 +3,7 @@ import {
   ChatCircle,
   CheckCircle,
   Eye,
+  Pencil,
   Scissors,
   Sparkle,
   Star,
@@ -25,6 +26,7 @@ import {
 interface FlashcardScrollItemProps {
     learningItem: LearningItem;
     onRate: (rating: number, grade?: number) => void;
+    onEdit?: () => void;
     onCreateFlashcard?: (excerpt: string, extractId?: string, documentId?: string) => void;
     onCreateCloze?: (selectedText: string, range: [number, number]) => void;
     onCreateQA?: () => void;
@@ -41,6 +43,7 @@ interface FlashcardScrollItemProps {
 export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({ 
     learningItem, 
     onRate, 
+    onEdit,
     onCreateFlashcard,
     onCreateCloze,
     onCreateQA,
@@ -74,15 +77,23 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
         }
     };
 
-    // Keyboard shortcuts: Space to reveal, 1-4 to rate, C for Cloze, Q for QA
+    // Keyboard shortcuts: Space to reveal, 1-4 to rate, C for Cloze, Q for QA, Cmd+E to edit
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Don't trigger if typing in input
-            if ((e.target as HTMLElement).tagName === "INPUT" ||
-                (e.target as HTMLElement).tagName === "TEXTAREA") {
+            if (e.target instanceof HTMLElement && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) {
                 return;
             }
-            if (!containerRef.current?.contains(e.target as Node)) return;
+            if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) return;
+
+            // Cmd+E / Ctrl+E to edit card
+            if ((e.metaKey || e.ctrlKey) && (e.key === "e" || e.key === "E")) {
+                if (onEdit) {
+                    e.preventDefault();
+                    onEdit();
+                    return;
+                }
+            }
 
             // Space or Enter to reveal answer
             if ((e.key === " " || e.key === "Enter") && !isAnswerRevealed) {
@@ -351,6 +362,21 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                     </span>
                 )}
             </div>
+
+            {/* Top Right Controls */}
+            {onEdit && (
+                <div className="absolute top-6 right-6 flex items-center gap-2">
+                    <button
+                        onClick={onEdit}
+                        data-testid="review-card-edit"
+                        className="p-2 rounded-lg bg-card/80 border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shadow-sm"
+                        title="Edit Flashcard (Cmd+E / Ctrl+E)"
+                        aria-label="Edit Flashcard"
+                    >
+                        <Pencil className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
 
             {/* Flashcard Container */}
             <div className="w-full max-w-3xl">

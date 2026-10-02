@@ -11,7 +11,12 @@ import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({
   getDocument: vi.fn(),
+  updateDocument: vi.fn().mockResolvedValue({}),
   updateDocumentContent: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../../api/queue", () => ({
+  bulkUnsuspendItems: vi.fn().mockResolvedValue({ succeeded: ["doc-1"], failed: [], errors: [] }),
 }));
 
 vi.mock("../../../utils/pdfTextExtractor", () => ({
@@ -270,5 +275,82 @@ describe("CreateAudioEditionDialog", () => {
     await waitFor(() => {
       expect(screen.getByText(/1 Chapters/i)).toBeInTheDocument();
     });
+  });
+
+  it("enqueues document when Add to Queue toggle is enabled (default)", async () => {
+    const queueApi = await import("../../../api/queue");
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      ...dummyDocSummary,
+      content: "Chapter 1\nThis is a substantial text content that should generate an audio edition.",
+    });
+    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockImplementation(async () => {});
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyDocSummary}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    const fastButton = screen.getByRole("button", { name: /Fast/i });
+    fireEvent.click(fastButton);
+
+    const toggle = screen.getByTestId("add-to-queue-toggle") as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
+    expect(createButton).not.toBeDisabled();
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(queueApi.bulkUnsuspendItems).toHaveBeenCalledWith(["doc-1"]);
+      expect(documentsApi.updateDocument).toHaveBeenCalledWith("doc-1", expect.objectContaining({
+        isArchived: false,
+        isDismissed: false,
+      }));
+    });
+  });
+
+  it("does not enqueue document when Add to Queue toggle is unchecked", async () => {
+    const queueApi = await import("../../../api/queue");
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      ...dummyDocSummary,
+      content: "Chapter 1\nThis is a substantial text content that should generate an audio edition.",
+    });
+    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockImplementation(async () => {});
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyDocSummary}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    const fastButton = screen.getByRole("button", { name: /Fast/i });
+    fireEvent.click(fastButton);
+
+    const toggle = screen.getByTestId("add-to-queue-toggle");
+    fireEvent.click(toggle);
+
+    const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
+    expect(createButton).not.toBeDisabled();
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(audioEditionsApi.createAudioEdition).toHaveBeenCalled();
+    });
+
+    expect(queueApi.bulkUnsuspendItems).not.toHaveBeenCalled();
+    expect(documentsApi.updateDocument).not.toHaveBeenCalled();
   });
 });

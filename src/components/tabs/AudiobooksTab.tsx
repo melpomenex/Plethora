@@ -37,6 +37,13 @@ import { useIsActiveTab, usePaneId } from "../common/Tabs";
 import { useContextMenu, ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { useModal } from "../common/Modal";
 import { useToast } from "../common/Toast";
+import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
+import {
+  getAudioEditionPosition,
+  getAudioEditionPositionSync,
+  getAudioEditionProgress,
+  type AudioEditionPosition,
+} from "../../utils/audioEditionPosition";
 
 export function AudiobooksTab() {
   const { documents, loadDocuments, deleteDocument } = useDocumentStore();
@@ -94,6 +101,30 @@ export function AudiobooksTab() {
       unsub();
     };
   }, [isActiveTab, reloadEditions]);
+
+  // Audio Edition saved listening positions
+  const [positions, setPositions] = useState<Record<string, AudioEditionPosition>>({});
+
+  useEffect(() => {
+    if (!isActiveTab || !editions.length) return;
+    let cancelled = false;
+    void Promise.all(
+      editions.map(async (e) => {
+        const pos = await getAudioEditionPosition(e.id, e.sourceDocumentId);
+        return [e.id, pos] as const;
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      const map: Record<string, AudioEditionPosition> = {};
+      for (const [id, pos] of results) {
+        if (pos) map[id] = pos;
+      }
+      setPositions(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveTab, editions]);
 
   // Local storage keys for status overrides & listening stats
   const [dnfList, setDnfList] = useState<string[]>([]);
@@ -240,7 +271,7 @@ export function AudiobooksTab() {
   const handleListenToEdition = (
     doc: Document | undefined,
     edition: AudioEdition,
-    fromSeconds = 0
+    fromSeconds?: number
   ) => {
     if (!doc) return;
     addTab({
@@ -253,7 +284,9 @@ export function AudiobooksTab() {
         documentId: doc.id,
         listenToEdition: true,
         autoPlay: true,
-        initialJump: { kind: "audio", timeSeconds: fromSeconds },
+        ...(typeof fromSeconds === "number"
+          ? { initialJump: { kind: "audio", timeSeconds: fromSeconds } }
+          : {}),
       },
     }, paneId);
   };
@@ -367,6 +400,37 @@ export function AudiobooksTab() {
           disabled: !doc,
           onClick: () => {
             handleOpenSourceDocument(doc);
+          },
+        },
+        {
+          id: "add-to-queue",
+          label: "Add to Queue",
+          icon: <Plus className="w-4 h-4" />,
+          disabled: !doc,
+          onClick: async () => {
+            if (!doc) return;
+            try {
+              await bulkUnsuspendItems([doc.id]);
+              await useDocumentStore.getState().updateDocument(doc.id, { isArchived: false, isDismissed: false });
+              toast.success("Added to Queue");
+            } catch (err: any) {
+              toast.error("Failed to add to queue", err?.message);
+            }
+          },
+        },
+        {
+          id: "remove-from-queue",
+          label: "Remove from Queue",
+          icon: <Archive className="w-4 h-4" />,
+          disabled: !doc,
+          onClick: async () => {
+            if (!doc) return;
+            try {
+              await bulkSuspendItems([doc.id]);
+              toast.success("Removed from Queue");
+            } catch (err: any) {
+              toast.error("Failed to remove from queue", err?.message);
+            }
           },
         },
         { id: "sep-gen", type: ContextMenuItemType.Separator, label: "" },
@@ -703,6 +767,12 @@ export function AudiobooksTab() {
               }
               const canPlay = readyCount > 0;
 
+              const pos = positions[edition.id] ?? getAudioEditionPositionSync(edition.id, edition.sourceDocumentId);
+              const listenProgress = getAudioEditionProgress(pos);
+              const effectiveTotal = pos?.totalDurationSec || totalDuration;
+              const remainingSec = Math.max(0, effectiveTotal - (pos?.globalTimeSec || 0));
+              const hasListenProgress = Boolean(pos && (pos.globalTimeSec > 0 || pos.partIndex > 0));
+
               return (
                 <div
                   key={edition.id}
@@ -726,6 +796,7 @@ export function AudiobooksTab() {
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
                         {edition.provider}/{edition.model} · {formatDuration(totalDuration)}
+                        {hasListenProgress ? ` · ${listenProgress}% listened` : ""}
                         {job ? ` · ${job.completedSections}/${job.totalSections} sections` : ""}
                       </p>
                     </div>
@@ -798,7 +869,7 @@ export function AudiobooksTab() {
                   </div>
 
                   {/* Progress bar and section status */}
-                  {(isGenerating || isPaused || (job && job.status === "error" && job.completedSections < job.totalSections)) && (
+                  {(isGenerating || isPaused || (job && job.status === "error" && job.completedSections < job.totalSections)) ? (
                     <div className="pt-1 border-t border-border/50">
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
                         <span>
@@ -818,7 +889,27 @@ export function AudiobooksTab() {
                         />
                       </div>
                     </div>
-                  )}
+                  ) : hasListenProgress ? (
+                    <div className="pt-1 border-t border-border/50" data-testid={`edition-listening-progress-${edition.id}`}>
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+                        <span>
+                          {listenProgress >= 100
+                            ? "Completed"
+                            : `Part ${(pos?.partIndex ?? 0) + 1} of ${sections.length} · ${formatDuration(remainingSec)} left`}
+                        </span>
+                        <span className="font-mono">{listenProgress}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted/60 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full transition-all duration-300 rounded-full",
+                            listenProgress >= 100 ? "bg-green-500" : "bg-primary"
+                          )}
+                          style={{ width: `${listenProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

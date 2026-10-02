@@ -16,6 +16,7 @@ export interface QueueItem {
   documentFileType?: DocumentFileType;
   extractId?: string;
   learningItemId?: string;
+  learningItem?: import("../api/learning-items").LearningItem;
   /**
    * Full card content. ABSENT in slim queue LISTINGS (the default for
    * `get_queue`/`get_queued_items` since optimize-performance-hotspots) —
@@ -59,6 +60,12 @@ export interface QueueItem {
   interferenceDelayUntil?: string;
   /** Human-readable reason for blocking/delay */
   blockReason?: string;
+
+  // Audio Edition metadata (populated when item has an available audio edition)
+  hasAudioEdition?: boolean;
+  audioEditionId?: string;
+  audioDurationSec?: number;
+  audioProgressPercent?: number;
 }
 
 export interface ReviewSession {

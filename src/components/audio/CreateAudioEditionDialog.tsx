@@ -21,7 +21,8 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { createAudioEdition, auditionVoicePreview } from "../../api/audioEditions";
-import { getDocument, updateDocumentContent } from "../../api/documents";
+import { getDocument, updateDocument, updateDocumentContent } from "../../api/documents";
+import { bulkUnsuspendItems } from "../../api/queue";
 import { useToastStore, ToastType } from "../common/Toast";
 import { AudiobooksTab } from "../tabs/TabRegistry";
 import {
@@ -76,6 +77,7 @@ export function CreateAudioEditionDialog({
 
   // Submission state
   const [isCreating, setIsCreating] = useState(false);
+  const [addToQueue, setAddToQueue] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Hydrated document state (library listings provide lightweight summaries with content: null)
@@ -368,6 +370,18 @@ export function CreateAudioEditionDialog({
         sectionTextMap[s.id] = sections[idx]?.content || "";
       });
 
+      if (addToQueue) {
+        try {
+          await bulkUnsuspendItems([doc.id]);
+          const fullDoc = await getDocument(doc.id);
+          if (fullDoc) {
+            await updateDocument(doc.id, { ...fullDoc, isArchived: false, isDismissed: false });
+          }
+        } catch (enqueueErr) {
+          console.warn("[CreateAudioEditionDialog] Failed to enqueue document:", enqueueErr);
+        }
+      }
+
       // Start progressive synthesis job
       void useAudioEditionGenerationStore.getState().startJob(editionId, sectionTextMap);
 
@@ -646,6 +660,26 @@ export function CreateAudioEditionDialog({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Add to Queue Toggle */}
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-muted/40 border border-border/80">
+            <div className="space-y-0.5">
+              <span className="text-xs font-medium">Add to Queue</span>
+              <p className="text-[11px] text-muted-foreground">
+                Place this document into your study Queue for audio-first review once ready.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="add-to-queue-toggle"
+                checked={addToQueue}
+                onChange={(e) => setAddToQueue(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+            </label>
           </div>
 
           {/* Pre-Flight Summary Card */}

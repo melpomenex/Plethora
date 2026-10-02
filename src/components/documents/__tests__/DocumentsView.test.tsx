@@ -473,4 +473,33 @@ describe("compact mobile document row layout contract", () => {
     // doc-2 does not have an active job
     expect(screen.queryByTestId("audio-generating-badge-doc-2")).toBeNull();
   });
+
+  it("displays listening progress badge when a document has saved audio edition listening progress", () => {
+    useAudioEditionGenerationStore.setState({
+      jobs: {},
+      activeJobs: [],
+    });
+
+    localStorage.setItem(
+      "plethora:ae-pos:doc:doc-1",
+      JSON.stringify({
+        editionId: "ed-1",
+        documentId: "doc-1",
+        partIndex: 1,
+        timeInPart: 30,
+        globalTimeSec: 90,
+        totalDurationSec: 180,
+        updatedAt: Date.now(),
+      })
+    );
+
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const badges = screen.getAllByTestId("audio-listening-badge-doc-1");
+    expect(badges.length).toBeGreaterThan(0);
+    expect(badges[0].textContent).toContain("Audio 50%");
+    expect(badges[0].textContent).toContain("1:30 left");
+
+    localStorage.removeItem("plethora:ae-pos:doc:doc-1");
+  });
 });

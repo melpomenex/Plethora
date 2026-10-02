@@ -7,10 +7,13 @@ import {
   Download,
   DotsThree,
   Funnel,
+  Headphones,
   MagnifyingGlass,
   MinusSquare,
+  Pencil,
   Play,
   Square,
+  X,
 } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useQueueStore } from "../stores";
@@ -33,7 +36,10 @@ import { TranscriptionQueueActions, TranscriptionQueueIndicator, isTranscribable
 import { useI18n } from "../lib/i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 import { orderQueueItems, type PriorityPreset } from "../utils/reviewUx";
-import { emitQueueActionFeedback } from "../components/review/queueActions";
+import { emitQueueActionFeedback, getQueuePrimaryAction, getQueuePrimaryActionLabelKey } from "../components/review/queueActions";
+import { InlineCardEditor } from "../components/review/InlineCardEditor";
+import { getLearningItem, type LearningItem } from "../api/learning-items";
+import { formatDuration } from "../api/audiobooks";
 
 /**
  * The sort button cycles priority → overdue → title rather than toggling two
@@ -123,6 +129,7 @@ export function Queue() {
   const [priorityUpdatingIds, setPriorityUpdatingIds] = useState<Set<string>>(new Set());
   const [actionItem, setActionItem] = useState<QueueItem | null>(null);
   const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const [editingLearningItem, setEditingLearningItem] = useState<LearningItem | null>(null);
   const collections = useCollectionStore((state) => state.collections);
   const confirmDialog = useConfirmDialog();
   const queueStrategyPreset = useSettingsStore(
@@ -335,8 +342,56 @@ export function Queue() {
   const handleStartReview = (item: QueueItem) => {
     if (item.itemType === "learning-item") {
       navigate("/review");
+    } else if (item.hasAudioEdition) {
+      navigate(`/documents/${item.documentId}?listen=true`);
     } else {
       navigate(`/documents/${item.documentId}`);
+    }
+  };
+
+  const handleOpenEditFlashcard = async (item: QueueItem) => {
+    try {
+      if (item.learningItem) {
+        setEditingLearningItem(item.learningItem);
+        return;
+      }
+      const itemId = item.learningItemId ?? item.id;
+      const loaded = await getLearningItem(itemId);
+      if (loaded) {
+        setEditingLearningItem(loaded);
+      }
+    } catch (err) {
+      console.error("Failed to load learning item for editing:", err);
+    }
+  };
+
+  const handleSaveEditedCard = (updated: LearningItem) => {
+    setEditingLearningItem(updated);
+    useQueueStore.setState((state) => ({
+      items: state.items.map((it) =>
+        it.id === updated.id || it.learningItemId === updated.id
+          ? {
+              ...it,
+              tags: updated.tags,
+              documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
+              ...(it.learningItem ? { learningItem: updated } : {}),
+            }
+          : it
+      ),
+    }));
+  };
+
+  const handleEditInStudio = (card: LearningItem) => {
+    const interactionMetadata =
+      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+    const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
+    setEditingLearningItem(null);
+    if (occlusionAssetId) {
+      window.dispatchEvent(
+        new CustomEvent("plethora:create-image-occlusion", {
+          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+        })
+      );
     }
   };
 
@@ -783,6 +838,23 @@ export function Queue() {
                             documentId={item.documentId}
                             fileType={item.documentFileType}
                           />
+                          {/* Audio Edition indicator */}
+                          {item.hasAudioEdition && (
+                            <span
+                              data-testid={`queue-item-audio-badge-${item.id}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded shrink-0 font-medium"
+                              title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                            >
+                              <Headphones className="w-3 h-3" />
+                              <span>Audio Edition</span>
+                              {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
+                                <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
+                              )}
+                              {item.audioDurationSec != null && item.audioDurationSec > 0 && (
+                                <span className="text-[10px] opacity-80">({formatDuration(item.audioDurationSec)})</span>
+                              )}
+                            </span>
+                          )}
                         </div>
 
                         {/* Progress bar */}
@@ -911,10 +983,14 @@ export function Queue() {
                         <button
                           onClick={() => handleStartReview(item)}
                           className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity flex items-center gap-1.5 text-sm"
-                          title={t("common.start")}
+                          title={t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType, item.hasAudioEdition)))}
                         >
-                          <Play className="w-3.5 h-3.5" />
-                          {t("common.start")}
+                          {item.hasAudioEdition ? (
+                            <Headphones className="w-3.5 h-3.5" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                          {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType, item.hasAudioEdition)))}
                         </button>
 
                         <button
@@ -933,6 +1009,7 @@ export function Queue() {
                           item={item}
                           onDelete={handleDeleteItem}
                           onStartReview={handleStartReview}
+                          onEditCard={handleOpenEditFlashcard}
                         />
                       </div>
                     </div>
@@ -973,7 +1050,50 @@ export function Queue() {
         onPostpone={handleActionPostpone}
         onRemove={handleActionRemove}
         onSelect={(item) => setSelected(item.id, true)}
+        onEditCard={handleOpenEditFlashcard}
       />
+
+      {/* Inline card editor modal */}
+      {editingLearningItem && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("reviewSession.editCardTitle")}
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+        >
+          <button
+            type="button"
+            aria-label={t("common.close")}
+            className="absolute inset-0 cursor-default"
+            onClick={() => setEditingLearningItem(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">
+                {t("reviewSession.editCardTitle")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditingLearningItem(null)}
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[75dvh] overflow-y-auto">
+              <InlineCardEditor
+                card={editingLearningItem}
+                surface="queue"
+                onClose={() => setEditingLearningItem(null)}
+                onSave={handleSaveEditedCard}
+                onSaved={() => setEditingLearningItem(null)}
+                onEditInStudio={handleEditInStudio}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bulk Delete / Forget confirmation. The hook only holds state — without
           this the confirm() calls would set state nothing renders. */}
