@@ -81,6 +81,11 @@ impl DaqeModelCacheRepository {
 
     /// Write (or overwrite) a judgement. `INSERT OR REPLACE` because the key is
     /// the cache identity and a re-evaluation of the same content supersedes.
+    // `clippy::redundant_closure` here suggests `DecisionModelTier::as_str`,
+    // which does not typecheck: `Option::map` passes the value by move while
+    // `as_str` takes `&self`, so the path form needs a `Copy` receiver that this
+    // enum deliberately does not have.
+    #[allow(clippy::redundant_closure)]
     pub async fn put(
         &self,
         content_hash: &str,

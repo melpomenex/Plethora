@@ -134,6 +134,9 @@ const UserProfilePanel = lazySection("UserProfilePanel", () =>
 const LanguageLearningSettings = lazySection("LanguageLearningSettings", () =>
   import("./LanguageLearningSettings").then((m) => ({ default: m.LanguageLearningSettings }))
 );
+const SmartQueuesSettings = lazySection("SmartQueuesSettings", () =>
+  import("./SmartQueuesSettings").then((m) => ({ default: m.SmartQueuesSettings }))
+);
 
 /**
  * Second-stage prefetch: the section chunks are a SECOND lazy layer beneath
@@ -149,6 +152,7 @@ const SETTINGS_SECTION_LOADERS: Array<() => Promise<unknown>> = [
   () => import("./AIProviderSettings"),
   () => import("./ImportExportSettings"),
   () => import("./LearningSettings"),
+  () => import("./SmartQueuesSettings"),
   () => import("./DocumentsSettings"),
   () => import("./RSSSettings"),
   () => import("./CloudStorageSettings"),
@@ -198,6 +202,7 @@ export enum SettingsTab {
   LanguageLearning = "language-learning",
   Appearance = "appearance",
   Learning = "learning",
+  SmartQueue = "smart-queue",
   Documents = "documents",
   RSS = "rss",
 
@@ -280,6 +285,24 @@ export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
       "scheduler",
     ],
     description: "Learning algorithm and review settings",
+  },
+  {
+    id: SettingsTab.SmartQueue,
+    label: "settings.smartQueues",
+    icon: Brain,
+    keywords: [
+      "queue",
+      "smart queue",
+      "daqe",
+      "adaptive",
+      "ranking",
+      "knobs",
+      "priority",
+      "interleaving",
+      "dwell",
+      "auto-refresh",
+    ],
+    description: "Adaptive queue ranking (DAQE), tuning knobs, and queue auto-refresh",
   },
   {
     id: SettingsTab.Documents,
@@ -768,6 +791,7 @@ export function SettingsPage() {
             <AppearanceSettings onChange={() => setHasChanges(true)} />
           )}
            {activeTab === SettingsTab.Learning && <LearningSettings />}
+          {activeTab === SettingsTab.SmartQueue && <SmartQueuesSettings />}
           {activeTab === SettingsTab.Documents && <DocumentsSettings />}
           {activeTab === SettingsTab.RSS && <RSSSettings />}
           {activeTab === SettingsTab.Shortcuts && (

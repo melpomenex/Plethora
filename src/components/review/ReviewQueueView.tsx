@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowCounterClockwise,
+  Brain,
   CalendarHeart,
   CaretDown,
   CaretUp,
@@ -20,6 +21,7 @@ import {
   Pencil,
   Play,
   Rss,
+  Sliders,
   Sparkle,
   Target,
   Trash,
@@ -38,6 +40,8 @@ import { ItemDetailsPopover, type ItemDetailsTarget } from "../common/ItemDetail
 import { InlineCardEditor } from "./InlineCardEditor";
 import { getLearningItem, type LearningItem } from "../../api/learning-items";
 import { formatDuration } from "../../api/audiobooks";
+import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
+import { DAQE_PRESETS, type QueueStrategyPresetId } from "../../lib/daqe/presets";
 import {
   PriorityPreset,
   applyFilters,
@@ -93,13 +97,32 @@ interface ReviewQueueViewProps {
   }) => void;
 }
 
-const PRESET_DESC_KEYS: Record<PriorityPreset, string> = {
+const PRESET_DESC_KEYS: Record<QueueStrategyPresetId, string> = {
   "maximize-retention": "queuePreset.maximizeRetentionDesc",
   "minimize-time": "queuePreset.minimizeTimeDesc",
   "aggressive-catchup": "queuePreset.aggressiveCatchUpDesc",
   exploratory: "queuePreset.exploratoryDesc",
   "project-focused": "queuePreset.projectFocusedDesc",
+  "deep-work-sprint": "daqePreset.deepWorkSprintDesc",
+  "tired-mobile-commute": "daqePreset.tiredMobileCommuteDesc",
+  "ruthless-triage": "daqePreset.ruthlessTriageDesc",
+  "balanced-discovery": "daqePreset.balancedDiscoveryDesc",
 };
+
+function toPriorityPreset(preset: QueueStrategyPresetId): PriorityPreset {
+  switch (preset) {
+    case "deep-work-sprint":
+      return "project-focused";
+    case "tired-mobile-commute":
+      return "minimize-time";
+    case "ruthless-triage":
+      return "aggressive-catchup";
+    case "balanced-discovery":
+      return "maximize-retention";
+    default:
+      return preset;
+  }
+}
 
 type ScrollAnchor = { id: string; offset: number; scrollTop: number };
 let persistentQueueScrollAnchor: ScrollAnchor | null = null;
@@ -176,13 +199,28 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const setCustomSubset = useQueueStore((state) => state.setCustomSubset);
   const priorityPopup = usePriorityPopup();
   const [queueMode, setQueueMode] = useState<QueueMode>("reading");
-  const [preset, setPreset] = useState<PriorityPreset>(
-    useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as PriorityPreset
+  const [preset, setPreset] = useState<QueueStrategyPresetId>(
+    (useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as QueueStrategyPresetId) || "maximize-retention"
   );
+  const daqeSettings = useSettingsStore((s) => s.settings.daqe);
+  const [showDaqeKnobs, setShowDaqeKnobs] = useState(false);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
-  const handleSetPreset = (value: PriorityPreset) => {
+  const handleSetPreset = (value: QueueStrategyPresetId) => {
     setPreset(value);
     updateSettingsCategory("smartQueue", { queueStrategyPreset: value });
+    const daqePreset = DAQE_PRESETS.find((p) => p.id === value);
+    if (daqePreset) {
+      updateSettingsCategory("daqe", {
+        knobs: { ...daqePreset.knobs },
+        activePreset: value,
+        rankingEnabled: true,
+      });
+    } else {
+      updateSettingsCategory("daqe", {
+        activePreset: value,
+      });
+    }
+    loadDueQueueItems();
   };
   const [queueSortMode, setQueueSortMode] = useState<"priority" | "overdue-desc">("priority");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -534,11 +572,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       // a type is an absolute exclusion. (This is what the comment above the
       // old `|| queueFilterMode === "due-all"` claimed it already did.)
       itemTypes: queueMode === "review" ? undefined : effectiveItemTypes,
-      priorityPreset: preset,
+      priorityPreset: toPriorityPreset(preset),
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    const ordered = orderQueueItems(filtered, preset);
+    const ordered = orderQueueItems(filtered, toPriorityPreset(preset));
     if (queueSortMode === "overdue-desc") {
       return [...ordered].sort((a, b) => {
         const now = Date.now();
@@ -1297,18 +1335,40 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           </div>
           <select
             value={preset}
-            onChange={(event) => handleSetPreset(event.target.value as PriorityPreset)}
+            onChange={(event) => handleSetPreset(event.target.value as QueueStrategyPresetId)}
             className="px-3 py-2 bg-background border border-border rounded-md text-sm"
           >
-            <option value="maximize-retention">{t("queuePreset.maximizeRetention")}</option>
-            <option value="minimize-time">{t("queuePreset.minimizeTime")}</option>
-            <option value="aggressive-catchup">{t("queuePreset.aggressiveCatchUp")}</option>
-            <option value="exploratory">{t("queuePreset.exploratoryLearning")}</option>
-            <option value="project-focused">{t("queuePreset.projectFocused")}</option>
+            <optgroup label="Adaptive Ranking (DAQE)">
+              <option value="deep-work-sprint">{t("daqePreset.deepWorkSprint")}</option>
+              <option value="tired-mobile-commute">{t("daqePreset.tiredMobileCommute")}</option>
+              <option value="ruthless-triage">{t("daqePreset.ruthlessTriage")}</option>
+              <option value="balanced-discovery">{t("daqePreset.balancedDiscovery")}</option>
+            </optgroup>
+            <optgroup label="Strategy Presets">
+              <option value="maximize-retention">{t("queuePreset.maximizeRetention")}</option>
+              <option value="minimize-time">{t("queuePreset.minimizeTime")}</option>
+              <option value="aggressive-catchup">{t("queuePreset.aggressiveCatchUp")}</option>
+              <option value="exploratory">{t("queuePreset.exploratoryLearning")}</option>
+              <option value="project-focused">{t("queuePreset.projectFocused")}</option>
+            </optgroup>
           </select>
-          <p className="text-xs text-muted-foreground max-w-[200px]">
+          <p className="text-xs text-muted-foreground max-w-[200px] truncate" title={t(PRESET_DESC_KEYS[preset])}>
             {t(PRESET_DESC_KEYS[preset])}
           </p>
+          <button
+            type="button"
+            onClick={() => setShowDaqeKnobs((prev) => !prev)}
+            aria-pressed={showDaqeKnobs}
+            className={`px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-1.5 ${
+              showDaqeKnobs
+                ? "bg-primary text-primary-foreground font-medium"
+                : "bg-muted text-foreground hover:bg-muted/80"
+            }`}
+            title={t("daqeKnob.title")}
+          >
+            <Sliders className="w-4 h-4" />
+            <span>{t("daqeKnob.title")}</span>
+          </button>
           <button
             onClick={() => setInspectorOpen((prev) => !prev)}
             className="px-3 py-2 bg-muted text-foreground rounded-md text-sm hover:bg-muted/80"
@@ -1317,6 +1377,42 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           </button>
         </div>
       </div>
+
+      {showDaqeKnobs && (
+        <div className="mx-4 mt-2 mb-2 p-4 bg-card border border-border rounded-xl shadow-sm">
+          <div className="flex items-center justify-between mb-3 border-b border-border/50 pb-2">
+            <div className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-primary" />
+              <h3 className="text-sm font-semibold text-foreground">
+                {t("daqeKnob.title")}
+              </h3>
+            </div>
+            <button
+              onClick={() => setShowDaqeKnobs(false)}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
+            >
+              Close
+            </button>
+          </div>
+          <DaqeKnobPanel
+            knobs={daqeSettings.knobs}
+            activePreset={daqeSettings.activePreset}
+            onKnobChange={(nextKnobs) => {
+              updateSettingsCategory("daqe", {
+                knobs: nextKnobs,
+                activePreset: null,
+                rankingEnabled: true,
+              });
+            }}
+            onPresetSelect={(presetId) => {
+              handleSetPreset(presetId);
+            }}
+            onScheduleRerank={() => {
+              loadDueQueueItems();
+            }}
+          />
+        </div>
+      )}
 
       {queueMode === "schedule" ? (
         <ScheduleView
@@ -1655,7 +1751,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                   )}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, preset) })}
+                                  {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, toPriorityPreset(preset)) })}
                                 </div>
                                 <TimeConfidenceBar min={estimateRange.min} max={estimateRange.max} />
                               </div>
@@ -1889,7 +1985,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 )}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, preset) })}
+                                {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, toPriorityPreset(preset)) })}
                               </div>
                               <TimeConfidenceBar min={estimateRange.min} max={estimateRange.max} />
                             </div>
@@ -2035,7 +2131,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                   <div className="text-xs text-muted-foreground">{t("queue.schedulingRationale")}</div>
                   <div className="text-xs text-muted-foreground">
                     {t("queue.prioritySummary", {
-                      value: getPriorityScore(selectedItem, preset),
+                      value: getPriorityScore(selectedItem, toPriorityPreset(preset)),
                       status: getStatusLabel(getQueueStatus(selectedItem)),
                     })}
                   </div>
