@@ -7,6 +7,7 @@
  */
 
 import { invokeCommand, isTauri } from "../lib/tauri";
+import type { DwellExitAction } from "../hooks/useActiveTimeTracker";
 
 /** Item types the statistics surfaces support. Matches `ItemDetailsTarget`. */
 export type StatsItemType = "document" | "extract" | "learning-item" | "rss";
@@ -175,21 +176,43 @@ export async function getItemStatsDetail(
  *
  * Fire-and-forget by design: a failed flush must not interrupt reading. The
  * seconds are lost, never duplicated.
+ *
+ * `dwell` carries the DAQE contract: the discarded idle time and the interaction
+ * evidence. Every field is optional and an absent field is stored as untracked
+ * rather than as a zero — see `models/item_stats.rs`'s `Metric<T>`.
  */
+/** The DAQE dwell fields, as they cross the command boundary. */
+export interface DwellDetails {
+  /** Discarded time. Never counted as dwell. */
+  idleMs?: number;
+  scrollDepthRatio?: number;
+  interactionDensity?: number;
+  exitAction?: DwellExitAction;
+}
+
 export async function recordActiveTime(
   itemType: "document" | "extract",
   itemId: string,
   surface: ActivitySurface,
   activeSeconds: number,
   sessionId?: string | null,
+  dwell?: DwellDetails,
 ): Promise<void> {
-  if (!isTauri() || activeSeconds <= 0) return;
+  // A flush carrying only discarded idle time is still worth sending: it is the
+  // evidence behind a friction penalty, and `activeSeconds === 0` with a non-zero
+  // idle total means the user was away and that must not be silently dropped.
+  const hasIdle = (dwell?.idleMs ?? 0) > 0;
+  if (!isTauri() || (activeSeconds <= 0 && !hasIdle)) return;
   await invokeCommand("record_active_time", {
     itemType,
     itemId,
     surface,
     activeSeconds,
     sessionId: sessionId ?? null,
+    idleTimeMs: dwell?.idleMs ?? 0,
+    scrollDepthRatio: dwell?.scrollDepthRatio ?? null,
+    interactionDensity: dwell?.interactionDensity ?? null,
+    exitAction: dwell?.exitAction ?? null,
   });
 }
 

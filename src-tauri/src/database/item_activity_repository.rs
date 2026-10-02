@@ -109,6 +109,92 @@ impl ItemActivityRepository {
     /// the flush lands inside [`ACTIVITY_COALESCE_WINDOW_SECONDS`] of that
     /// row's end; otherwise opens a new one. Either way the row ends at the
     /// last observed engagement, never at "now minus an unobserved gap".
+    /// Attach DAQE's dwell evidence to an interaction.
+    ///
+    /// Separate from `accumulate_item_time` because the evidence describes the
+    /// *interaction* — how far the user got, how they left — while the accrual
+    /// describes the time. A flush can carry evidence with no accrual (the user
+    /// was away), which is exactly the case this method exists to preserve.
+    ///
+    /// The row is coalesced on the same window as an accrual, so a session does
+    /// not accumulate one activity row per flush. Absent fields are written as
+    /// NULL, never as zero: "never measured" and "measured as nothing" are
+    /// different facts, and the friction signal depends on the difference.
+    pub async fn record_dwell_evidence(
+        &self,
+        item_type: ActivityItemType,
+        item_id: &str,
+        surface: ActivitySurface,
+        active_seconds: i64,
+        dwell: &crate::commands::item_stats::DwellEvidence,
+    ) -> Result<()> {
+        let now = Utc::now();
+        let started_at = now - chrono::Duration::seconds(active_seconds.max(0));
+        let ended_at = now.to_rfc3339();
+        let started_at = started_at.to_rfc3339();
+
+        // Reuse an open row inside the coalesce window rather than adding one, so
+        // a 10-minute session does not become 20 activity rows.
+        let existing: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM item_activity_log
+             WHERE item_id = ? AND item_type = ? AND ended_at IS NULL
+               AND started_at > ?
+             ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(item_id)
+        .bind(item_type.as_str())
+        .bind(
+            (now - chrono::Duration::seconds(ACTIVITY_COALESCE_WINDOW_SECONDS)).to_rfc3339(),
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match existing {
+            Some((id,)) => {
+                sqlx::query(
+                    "UPDATE item_activity_log
+                     SET idle_time_ms = COALESCE(idle_time_ms, 0) + ?,
+                         scroll_depth_ratio = COALESCE(?, scroll_depth_ratio),
+                         interaction_density = COALESCE(?, interaction_density),
+                         exit_action = COALESCE(?, exit_action),
+                         ended_at = ?
+                     WHERE id = ?",
+                )
+                .bind(dwell.idle_time_ms)
+                .bind(dwell.scroll_depth_ratio)
+                .bind(dwell.interaction_density)
+                .bind(dwell.exit_action.map(|a| a.as_wire()))
+                .bind(&ended_at)
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+            }
+            None => {
+                sqlx::query(
+                    "INSERT INTO item_activity_log
+                        (id, item_type, item_id, surface, started_at, ended_at,
+                         active_seconds, idle_time_ms, scroll_depth_ratio,
+                         interaction_density, exit_action)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(Uuid::new_v4().to_string())
+                .bind(item_type.as_str())
+                .bind(item_id)
+                .bind(surface.as_str())
+                .bind(&started_at)
+                .bind(&ended_at)
+                .bind(active_seconds.max(0))
+                .bind(dwell.idle_time_ms)
+                .bind(dwell.scroll_depth_ratio)
+                .bind(dwell.interaction_density)
+                .bind(dwell.exit_action.map(|a| a.as_wire()))
+                .execute(&self.pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn record_heartbeat_activity(
         &self,
         item_type: ActivityItemType,

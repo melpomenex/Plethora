@@ -46,27 +46,45 @@ pub async fn record_active_time(
     surface: String,
     active_seconds: i64,
     session_id: Option<String>,
+    idle_time_ms: Option<i64>,
+    scroll_depth_ratio: Option<f64>,
+    interaction_density: Option<f64>,
+    exit_action: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    if active_seconds <= 0 {
+    // A flush carrying only discarded idle time is still worth recording: it is
+    // the evidence behind a friction penalty, so dropping it would make "the user
+    // was away" indistinguishable from "the user never opened it".
+    let idle_ms = idle_time_ms.unwrap_or(0).max(0);
+    if active_seconds <= 0 && idle_ms == 0 {
         return Ok(());
     }
 
     let item_type = parse_item_type(&item_type)?;
     let surface = parse_surface(&surface)?;
+    let dwell = DwellEvidence {
+        idle_time_ms: idle_ms,
+        scroll_depth_ratio: scroll_depth_ratio.filter(|r| r.is_finite() && (0.0..=1.0).contains(r)),
+        interaction_density: interaction_density.filter(|d| d.is_finite() && *d >= 0.0),
+        // An unrecognised exit action is dropped rather than stored: the friction
+        // signal reads these as facts, and a typo is not a fact.
+        exit_action: exit_action.and_then(|value| DwellExitAction::from_wire(&value)),
+    };
     let activity = ItemActivityRepository::new(repo.pool().clone());
 
-    activity
-        .accumulate_item_time(item_type, &item_id, active_seconds)
-        .await?;
+    if active_seconds > 0 {
+        activity
+            .accumulate_item_time(item_type, &item_id, active_seconds)
+            .await?;
+    }
 
     let session_absorbed = match session_id.as_deref() {
-        Some(id) => {
+        Some(id) if active_seconds > 0 => {
             activity
                 .heartbeat_reading_session(id, active_seconds)
                 .await?
         }
-        None => false,
+        _ => false,
     };
 
     if !session_absorbed {
@@ -75,7 +93,76 @@ pub async fn record_active_time(
             .await?;
     }
 
+    // The dwell evidence is written whether or not an activity row was needed: it
+    // describes the interaction, not the accrual.
+    if dwell.has_evidence() {
+        activity
+            .record_dwell_evidence(item_type, &item_id, surface, active_seconds, &dwell)
+            .await?;
+    }
+
     Ok(())
+}
+
+/// The DAQE dwell fields a flush may carry.
+///
+/// `idle_time_ms` is always present (a flush that happens at all has an idle
+/// total, possibly zero); the rest are optional and an absent one is written as
+/// NULL so a read reports `Metric<T>::Untracked` rather than `0`.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DwellEvidence {
+    pub idle_time_ms: i64,
+    pub scroll_depth_ratio: Option<f64>,
+    pub interaction_density: Option<f64>,
+    pub exit_action: Option<DwellExitAction>,
+}
+
+impl DwellEvidence {
+    fn has_evidence(&self) -> bool {
+        self.idle_time_ms > 0
+            || self.scroll_depth_ratio.is_some()
+            || self.interaction_density.is_some()
+            || self.exit_action.is_some()
+    }
+}
+
+/// How a dwell session ended. A closed union; `from_wire` returning `None` is how
+/// an unrecognised value is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DwellExitAction {
+    ExtractCreated,
+    NextItem,
+    Postpone,
+    Dismiss,
+    RePrioritize,
+    SessionEnd,
+}
+
+impl DwellExitAction {
+    pub fn as_wire(&self) -> &'static str {
+        match self {
+            DwellExitAction::ExtractCreated => "extract-created",
+            DwellExitAction::NextItem => "next-item",
+            DwellExitAction::Postpone => "postpone",
+            DwellExitAction::Dismiss => "dismiss",
+            DwellExitAction::RePrioritize => "re-prioritize",
+            DwellExitAction::SessionEnd => "session-end",
+        }
+    }
+
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "extract-created" => Some(DwellExitAction::ExtractCreated),
+            "next-item" => Some(DwellExitAction::NextItem),
+            "postpone" => Some(DwellExitAction::Postpone),
+            "dismiss" => Some(DwellExitAction::Dismiss),
+            "re-prioritize" => Some(DwellExitAction::RePrioritize),
+            "session-end" => Some(DwellExitAction::SessionEnd),
+            _ => None,
+        }
+    }
 }
 
 fn parse_stats_item_type(value: &str) -> Result<StatsItemType> {

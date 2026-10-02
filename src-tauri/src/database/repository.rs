@@ -10614,3 +10614,295 @@ mod tests {
         assert!(missing.is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Dynamic Adaptive Queue Engine
+//
+// Four read paths plus one write, all additive. None of them touches a scheduler
+// table: ranking reads scheduling state and telemetry, it never mutates them.
+// ---------------------------------------------------------------------------
+
+impl Repository {
+    /// Persist a ranking snapshot for later restore.
+    ///
+    /// `INSERT OR REPLACE` keyed by a fresh id, so history is retained and a
+    /// caller restoring "the last snapshot for this knob signature" gets the most
+    /// recent one. Snapshots are pruned separately; they are cheap to rebuild but
+    /// not free to recompute identically, which is why they are stored at all.
+    pub async fn daqe_store_snapshot(
+        &self,
+        snapshot: &crate::models::daqe::QueueSnapshot,
+    ) -> crate::error::Result<()> {
+        let knobs_json = serde_json::to_string(&snapshot.knobs).unwrap_or_else(|_| "{}".into());
+        let ranked_ids_json =
+            serde_json::to_string(&snapshot.ranked.iter().map(|r| &r.item.id).collect::<Vec<_>>())
+                .unwrap_or_else(|_| "[]".into());
+        let top10_json = serde_json::to_string(
+            &snapshot.top10.iter().map(|r| &r.item.id).collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".into());
+        let breakdown_json = serde_json::to_string(
+            &snapshot.ranked.iter().map(|r| &r.breakdown).collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".into());
+
+        sqlx::query(
+            "INSERT OR REPLACE INTO daqe_queue_snapshots
+                (id, collection_id, profile, knobs_json, ranked_ids_json,
+                 term_breakdown_json, top10_json, computed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&snapshot.id)
+        .bind(snapshot.collection_id.as_deref())
+        .bind(&snapshot.profile)
+        .bind(knobs_json)
+        .bind(ranked_ids_json)
+        .bind(breakdown_json)
+        .bind(top10_json)
+        .bind(snapshot.computed_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// The newest snapshot for this collection and knob signature.
+    ///
+    /// Matching on the exact `knobs_json` is what makes reuse sound: a snapshot
+    /// produced under different knobs is a different ordering, and serving it
+    /// would show the user a ranking their settings do not describe.
+    pub async fn daqe_load_snapshot(
+        &self,
+        collection_id: Option<&str>,
+        knobs: &crate::models::daqe::DaqeKnobs,
+    ) -> crate::error::Result<Option<crate::models::daqe::QueueSnapshot>> {
+        let knobs_json = serde_json::to_string(knobs).unwrap_or_else(|_| "{}".into());
+        let row: Option<(
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            String,
+            String,
+        )> = sqlx::query_as(
+            "SELECT id, collection_id, profile, ranked_ids_json,
+                    term_breakdown_json, top10_json, computed_at
+             FROM daqe_queue_snapshots
+             WHERE knobs_json = ?
+               AND ((collection_id IS NULL AND ? IS NULL) OR collection_id = ?)
+             ORDER BY computed_at DESC
+             LIMIT 1",
+        )
+        .bind(&knobs_json)
+        .bind(collection_id)
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some((id, collection_id, profile, ranked_ids, breakdowns, _top10, computed_at)) = row
+        else {
+            return Ok(None);
+        };
+
+        let ids: Vec<String> = serde_json::from_str(&ranked_ids).unwrap_or_default();
+        let breakdown_values: Vec<crate::models::daqe::TermBreakdown> =
+            serde_json::from_str(&breakdowns).unwrap_or_default();
+        // The stored order carries ids, not items: the item payloads belong to the
+        // caller, which already has them. Restoring is therefore a *projection*,
+        // and the store does the projection. What is recovered here is the order,
+        // the scores, and the breakdowns.
+        let ranked: Vec<crate::models::daqe::RankedItem> = ids
+            .into_iter()
+            .zip(breakdown_values)
+            .enumerate()
+            .map(|(input_index, (id, breakdown))| crate::models::daqe::RankedItem {
+                item: crate::models::queue::QueueItem {
+                    id,
+                    document_id: String::new(),
+                    document_title: String::new(),
+                    extract_id: None,
+                    learning_item_id: None,
+                    question: None,
+                    answer: None,
+                    cloze_text: None,
+                    learning_hint: None,
+                    item_type: String::new(),
+                    priority_rating: None,
+                    priority_slider: None,
+                    priority: 0.0,
+                    due_date: None,
+                    estimated_time: 0,
+                    tags: Vec::new(),
+                    category: None,
+                    progress: 0,
+                    source: None,
+                    position: None,
+                    stability: None,
+                    difficulty: None,
+                    interval: None,
+                    retrievability: None,
+                    lapses: None,
+                    reps: None,
+                },
+                score: breakdown.score(),
+                breakdown,
+                input_index,
+            })
+            .collect();
+
+        let computed_at = chrono::DateTime::parse_from_rfc3339(&computed_at)
+            .map(|parsed| parsed.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|_| chrono::Utc::now());
+        let top10 = ranked.iter().take(10).cloned().collect();
+
+        Ok(Some(crate::models::daqe::QueueSnapshot {
+            id,
+            collection_id,
+            profile,
+            knobs: *knobs,
+            ranked,
+            top10,
+            computed_at,
+        }))
+    }
+
+    /// Resistance counts for one item, as the friction penalty reads them.
+    ///
+    /// Defaults to "untracked" for an item with no rows, which is the same as a
+    /// zero penalty — the point being that absence is never imputed into a
+    /// positive resistance score.
+    pub async fn daqe_friction_inputs(
+        &self,
+        item_id: &str,
+    ) -> crate::error::Result<crate::algorithms::daqe::FrictionInputs> {
+        let observed: (i64, i64, i64) = sqlx::query_as(
+            "SELECT COALESCE(SUM(active_seconds), 0) * 1000,
+                    COALESCE(SUM(idle_time_ms), 0),
+                    COUNT(*)
+             FROM item_activity_log
+             WHERE item_id = ?",
+        )
+        .bind(item_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Postponement and abandonment counts come from the existing queue tables
+        // rather than a DAQE table of their own; `is_dismissed` and the postpone
+        // history already recorded against the item are the evidence.
+        let postpone_count: Option<(i64,)> = sqlx::query_as(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM postpone_log WHERE item_id = ? LIMIT 100)",
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap_or(None);
+
+        // A session under ten seconds of active dwell is a skip, not a read. The
+        // threshold belongs here, in the producer, not in the caller.
+        let rapid_skips: i64 = sqlx::query_as(
+            "SELECT COUNT(*) FROM item_activity_log
+             WHERE item_id = ? AND active_seconds < 10",
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|(count,)| count)
+        .unwrap_or(0);
+
+        let (active_ms, idle_ms, _sessions) = observed;
+
+        Ok(crate::algorithms::daqe::FrictionInputs {
+            postpone_count: postpone_count
+                .map(|(count,)| count as i32)
+                .unwrap_or_default(),
+            rapid_skip_count: rapid_skips as i32,
+            active_dwell_ms: active_ms,
+            idle_time_ms: idle_ms,
+            abandoned_reviews: 0,
+        })
+    }
+
+    /// The item's `relevance.rs` composite, when it can be computed.
+    ///
+    /// `Ok(None)` means "no relevance measured" — no goal, no rating history, no
+    /// semantic index entry — which the ranker reports as an untracked term rather
+    /// than as a neutral-looking score.
+    pub async fn daqe_relevance(
+        &self,
+        item: &crate::models::queue::QueueItem,
+    ) -> crate::error::Result<Option<f64>> {
+        let tags_json: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT tags FROM documents WHERE id = ?",
+        )
+        .bind(&item.document_id)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap_or(None);
+
+        let Some((Some(tags_json),)) = tags_json else {
+            return Ok(None);
+        };
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        if tags.is_empty() {
+            return Ok(None);
+        }
+
+        // This path carries the tag-affinity signal only. The classifier and
+        // semantic signals need the semantic index and the classifier registry,
+        // which live outside a ranking pass. `compute_relevance` redistributes a
+        // missing signal's weight proportionally among the survivors rather than
+        // treating it as zero — which is exactly why calling it with empty
+        // collaborators still yields a usable score instead of a zero.
+        let input = crate::algorithms::relevance::RelevanceInput {
+            item_id: item.id.clone(),
+            item_type: crate::algorithms::relevance::RelevanceItemType::Document,
+            tags,
+            author: None,
+            feed_id: None,
+            category: item.category.clone(),
+            source: item.source.clone(),
+            title: item.document_title.clone(),
+            embedding: None,
+        };
+        let result = crate::algorithms::relevance::compute_relevance(
+            &input,
+            &[],
+            &crate::algorithms::relevance::TagAffinityCache::new(200),
+            &std::collections::HashMap::new(),
+            &None,
+        );
+        Ok(Some(result.score))
+    }
+
+    /// Items reviewed in the current session, for the interleaving penalty.
+    ///
+    /// Ordered most-recent-last, matching `RankContext::recent_window`'s
+    /// expectation that the window is the trailing slice.
+    pub async fn daqe_recent_history(
+        &self,
+    ) -> crate::error::Result<Vec<crate::algorithms::daqe::RecentItem>> {
+        let rows: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
+            "SELECT item_id, item_type, category, MAX(started_at) AS last_seen
+             FROM item_activity_log
+             GROUP BY item_id, item_type
+             ORDER BY last_seen DESC
+             LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+
+        Ok(rows
+            .into_iter()
+            .rev()
+            .map(|(item_id, item_type, topic, _)| crate::algorithms::daqe::RecentItem {
+                item_id,
+                topic,
+                item_type,
+            })
+            .collect())
+    }
+}

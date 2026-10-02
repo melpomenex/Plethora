@@ -1,8 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_IDLE_TIMEOUT_MS,
   FLUSH_INTERVAL_MS,
-  IDLE_THRESHOLD_MS,
   useActiveTimeTracker,
 } from "../useActiveTimeTracker";
 
@@ -77,10 +77,11 @@ describe("useActiveTimeTracker", () => {
     advance(3 * 60 * 60 * 1000);
     const total = totalObserved(onFlush, result.current.getPendingSeconds());
 
-    // Accrual stops one tick before the threshold is reached, so the tail is
-    // the threshold minus that tick — bounded, and nowhere near three hours.
-    expect(total).toBe(240 + IDLE_THRESHOLD_MS / 1000 - 1);
-    expect(total).toBeLessThan(240 + IDLE_THRESHOLD_MS / 1000);
+    // DAQE clamps the idle block out of the active total, so what survives is the
+    // engaged four minutes plus at most one flush interval of tail — nowhere near
+    // three hours, and strictly less than the threshold.
+    expect(total).toBe(240 + FLUSH_INTERVAL_MS / 1000);
+    expect(total).toBeLessThan(240 + DEFAULT_IDLE_TIMEOUT_MS / 1000);
   });
 
   it("accrues nothing while the window is blurred", () => {
@@ -150,7 +151,10 @@ describe("useActiveTimeTracker", () => {
     advance(FLUSH_INTERVAL_MS);
 
     expect(onFlush).toHaveBeenCalledTimes(1);
-    expect(onFlush).toHaveBeenCalledWith(FLUSH_INTERVAL_MS / 1000);
+    expect(onFlush).toHaveBeenCalledWith(
+      FLUSH_INTERVAL_MS / 1000,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
   });
 
   it("never flushes zero", () => {
@@ -171,7 +175,10 @@ describe("useActiveTimeTracker", () => {
     act(() => {
       window.dispatchEvent(new Event("blur"));
     });
-    expect(onFlush).toHaveBeenLastCalledWith(3);
+    expect(onFlush).toHaveBeenLastCalledWith(
+      3,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
 
     engage();
     advance(4_000);
@@ -179,7 +186,10 @@ describe("useActiveTimeTracker", () => {
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    expect(onFlush).toHaveBeenLastCalledWith(4);
+    expect(onFlush).toHaveBeenLastCalledWith(
+      4,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
 
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     engage();
@@ -187,7 +197,10 @@ describe("useActiveTimeTracker", () => {
     act(() => {
       window.dispatchEvent(new Event("beforeunload"));
     });
-    expect(onFlush).toHaveBeenLastCalledWith(2);
+    expect(onFlush).toHaveBeenLastCalledWith(
+      2,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
   });
 
   it("flushes against the previous item when the item changes", () => {
@@ -203,7 +216,10 @@ describe("useActiveTimeTracker", () => {
     });
 
     expect(onFlush).toHaveBeenCalledTimes(1);
-    expect(onFlush).toHaveBeenCalledWith(7);
+    expect(onFlush).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
   });
 
   it("flushes the tail on unmount", () => {
@@ -217,7 +233,10 @@ describe("useActiveTimeTracker", () => {
       unmount();
     });
 
-    expect(onFlush).toHaveBeenCalledWith(9);
+    expect(onFlush).toHaveBeenCalledWith(
+      9,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
   });
 
   it("banks accrued time when the item leaves the foreground", () => {
@@ -232,7 +251,10 @@ describe("useActiveTimeTracker", () => {
       rerender({ isActive: false });
     });
 
-    expect(onFlush).toHaveBeenCalledWith(6);
+    expect(onFlush).toHaveBeenCalledWith(
+      6,
+      expect.objectContaining({ idleMs: expect.any(Number) }),
+    );
   });
 
   it("does not double-count seconds already flushed", () => {

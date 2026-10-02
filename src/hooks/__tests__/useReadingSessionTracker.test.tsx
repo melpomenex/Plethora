@@ -132,11 +132,12 @@ describe("useReadingSessionTracker", () => {
     await waitFor(() =>
       expect(backend.recordActiveTime).toHaveBeenCalledWith(
         "document",
-        "doc-1",
-        "reader",
-        30,
-        "sess-1",
-      ),
+      "doc-1",
+      "reader",
+      30,
+      "sess-1",
+      expect.anything(),
+    ),
     );
 
     act(() => {

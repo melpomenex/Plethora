@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 pub mod adaptive;
 pub mod adaptive_data;
 pub mod classic;
+pub mod daqe;
 pub mod document_scheduler;
 pub mod fsrs7;
 pub mod engaging_scheduler;

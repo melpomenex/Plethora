@@ -1,4 +1,9 @@
-## ADDED Requirements
+## Purpose
+
+Defines which queue strategy preset is selected, that it survives navigation and
+restarts, and that the user can see what the selected strategy optimizes for.
+
+## Requirements
 
 ### Requirement: Persist selected queue strategy preset
 The system SHALL persist the user's selected queue strategy preset (`maximize-retention`, `minimize-time`, `aggressive-catchup`, `exploratory`, `project-focused`) in the settings store. The persisted value SHALL survive page navigation and app restarts.

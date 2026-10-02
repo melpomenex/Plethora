@@ -1878,6 +1878,8 @@ pub fn run() {
             commands::get_queued_items,
             commands::get_due_queue_items,
             commands::get_due_documents_only,
+            commands::rank_queue,
+            commands::get_last_queue_snapshot,
             commands::get_queue_with_playlist_intersperse,
             commands::get_queue_stats,
             commands::postpone_item,

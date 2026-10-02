@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FLUSH_INTERVAL_MS, IDLE_THRESHOLD_MS } from "../useActiveTimeTracker";
+import { DEFAULT_IDLE_TIMEOUT_MS, FLUSH_INTERVAL_MS } from "../useActiveTimeTracker";
 import { useQueueTimeTracker, type QueueTimedTarget } from "../useQueueTimeTracker";
 
 const recordActiveTime = vi.hoisted(() => vi.fn(async () => {}));
@@ -45,8 +45,12 @@ describe("useQueueTimeTracker", () => {
     advance(60 * 60 * 1000);
 
     const seconds = result.current.consumeActiveSeconds();
-    expect(seconds).toBe(120 + IDLE_THRESHOLD_MS / 1000 - 1);
-    expect(seconds).toBeLessThan(180);
+    // The engaged two minutes, plus at most one flush interval of tail. The
+    // remainder of the idle block is retroactively clamped to idle, so it is
+    // never handed over as time spent on the item — which is the point, and is
+    // why the loss is bounded by the flush cadence rather than by the timeout.
+    expect(seconds).toBe(120 + FLUSH_INTERVAL_MS / 1000);
+    expect(seconds).toBeLessThan(120 + DEFAULT_IDLE_TIMEOUT_MS / 1000);
   });
 
   it("does not also send rated seconds as unrated time", () => {
@@ -80,7 +84,14 @@ describe("useQueueTimeTracker", () => {
     });
 
     expect(recordActiveTime).toHaveBeenCalledTimes(1);
-    expect(recordActiveTime).toHaveBeenCalledWith("document", "doc-1", "queue", 12);
+    // The Queue's skipped-item path sends four arguments — no session, and the
+    // dwell evidence rides with the reader's own tracker.
+    expect(recordActiveTime).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "queue",
+      12,
+    );
   });
 
   it("sends nothing for item types with no cumulative time column", () => {

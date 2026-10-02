@@ -24,6 +24,10 @@ import {
   getFoundryLocalProvider,
   FOUNDRY_LOCAL_PROVIDER_ID,
 } from "./foundryLocalProvider";
+import {
+  LocalDecisionEngineProvider,
+  LOCAL_DECISION_ENGINE_PROVIDER_ID,
+} from "./localModelProvider";
 import { isWindowsDesktop } from "../windows/capabilities";
 
 export * from "./types";
@@ -55,6 +59,30 @@ export {
   getFoundryLocalProvider,
   FOUNDRY_LOCAL_PROVIDER_ID,
 } from "./foundryLocalProvider";
+export {
+  LocalDecisionEngineProvider,
+  LOCAL_DECISION_ENGINE_PROVIDER_ID,
+} from "./localModelProvider";
+
+/**
+ * The user-installed decision engine, when one is configured.
+ *
+ * Offered *after* the built-in on-device providers rather than before: a decision
+ * engine is an explicitly chosen extra, so it should win only when the built-in
+ * options cannot serve the task. Registered here, in the existing registry, so
+ * `resolveTaskRoute` finds it with no routing change at all.
+ */
+export function getLocalDecisionEngineProvider(
+  config: { baseUrl: string; model: string; timeoutMs?: number } | null | undefined
+): AIProvider | null {
+  if (!config?.baseUrl || !config.model) return null;
+  return new LocalDecisionEngineProvider(config);
+}
+
+/** True when the given provider id is the user's decision engine. */
+export function isLocalDecisionEngine(id: string): boolean {
+  return id === LOCAL_DECISION_ENGINE_PROVIDER_ID;
+}
 
 function buildOnDeviceProviders(): AIProvider[] {
   const nano = getOnDeviceProvider();
@@ -73,7 +101,16 @@ function buildOnDeviceProviders(): AIProvider[] {
     ];
   }
 
-  return [nano, appleFm, appleCore];
+  const decisionEngine = getLocalDecisionEngineProvider(
+    useSettingsStore.getState().settings.daqe?.decisionEngine
+  );
+
+  return [
+    nano,
+    appleFm,
+    appleCore,
+    ...(decisionEngine ? [decisionEngine] : []),
+  ];
 }
 
 function pinPreferredOnDevice(providers: AIProvider[]): AIProvider[] {

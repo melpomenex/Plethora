@@ -3,6 +3,7 @@
 pub mod audio_edition;
 pub mod category;
 pub mod collection;
+pub mod daqe;
 pub mod document;
 pub mod extract;
 pub mod hf;

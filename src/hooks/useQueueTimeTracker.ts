@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { recordActiveTime } from "../api/item-stats";
-import { useActiveTimeTracker } from "./useActiveTimeTracker";
+import { useActiveTimeTracker, type DwellFlush } from "./useActiveTimeTracker";
+import { useDaqeIdleTimeout } from "../lib/daqe/useDaqeIdleTimeout";
 
 /**
  * Active-time measurement for the Queue.
@@ -47,7 +48,12 @@ export function useQueueTimeTracker(
   const observedSecondsRef = useRef(0);
   const trackedTargetRef = useRef<QueueTimedTarget | null>(null);
 
-  const handleFlush = useCallback((activeSeconds: number) => {
+  const idleTimeoutMs = useDaqeIdleTimeout();
+
+  // Discarded idle is deliberately not added here: this tracker measures time
+  // *spent on an item*, and time the user was away was spent on nothing. The
+  // Queue's per-item dwell evidence comes from the item's own reader tracker.
+  const handleFlush = useCallback((activeSeconds: number, _details: DwellFlush) => {
     observedSecondsRef.current += activeSeconds;
   }, []);
 
@@ -56,6 +62,7 @@ export function useQueueTimeTracker(
     onFlush: handleFlush,
     itemKey: itemKey ?? undefined,
     enabled,
+    idleTimeoutMs,
   });
 
   const { flush, notifyEngagement } = tracker;

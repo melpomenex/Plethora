@@ -4,6 +4,7 @@ pub mod ai_provenance_repository;
 pub mod audio_edition_repository;
 pub mod concept_repository;
 pub mod connection;
+pub mod daqe_model_cache_repository;
 pub mod element_tree_repository;
 pub mod item_activity_repository;
 pub mod item_stats_repository;

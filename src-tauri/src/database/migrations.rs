@@ -4037,6 +4037,62 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE learning_items ADD COLUMN source_reference TEXT;
         "#,
     ),
+    // Migration 117: Dynamic Adaptive Queue Engine storage.
+    //
+    // Three additive surfaces, no backfill, no rewrite of any pre-existing
+    // table's rows:
+    //   * daqe_model_cache     — decision-model judgements keyed by a hash of the
+    //                             item's CONTENT plus the rubric version. Content
+    //                             changes produce a new hash, so staleness is
+    //                             implicit rather than a sweep job.
+    //   * daqe_queue_snapshots — the published result of a background re-rank,
+    //                             including the per-term breakdown, so the queue
+    //                             can render the previous order while a new one
+    //                             computes.
+    //   * item_activity_log    — DAQE's dwell contract. `active_seconds` already
+    //                             exists and is the verified active dwell; the new
+    //                             columns carry the discarded idle time and the
+    //                             interaction evidence the friction penalty reads.
+    //
+    // Everything is nullable so an item type that never gets measured reports
+    // "untracked" (Metric<T>::Untracked) instead of a fabricated 0.
+    Migration::new(
+        "117_daqe_queue_engine",
+        r#"
+        CREATE TABLE IF NOT EXISTS daqe_model_cache (
+            content_hash TEXT PRIMARY KEY,
+            rubric_version INTEGER NOT NULL,
+            score REAL,
+            tier TEXT,
+            -- INTEGER, not REAL: `evaluateNoul` is a binary gate. A REAL column
+            -- invites a fractional value that no consumer would know how to read.
+            gate INTEGER,
+            computed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_daqe_model_cache_computed_at
+            ON daqe_model_cache(computed_at DESC);
+
+        CREATE TABLE IF NOT EXISTS daqe_queue_snapshots (
+            id TEXT PRIMARY KEY,
+            collection_id TEXT,
+            profile TEXT,
+            knobs_json TEXT NOT NULL,
+            ranked_ids_json TEXT NOT NULL,
+            term_breakdown_json TEXT,
+            top10_json TEXT NOT NULL,
+            computed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_daqe_queue_snapshots_lookup
+            ON daqe_queue_snapshots(profile, collection_id, computed_at DESC);
+
+        ALTER TABLE item_activity_log ADD COLUMN idle_time_ms INTEGER;
+        ALTER TABLE item_activity_log ADD COLUMN scroll_depth_ratio REAL;
+        ALTER TABLE item_activity_log ADD COLUMN interaction_density REAL;
+        ALTER TABLE item_activity_log ADD COLUMN exit_action TEXT;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4644,5 +4700,118 @@ mod tests {
                 window[1].name
             );
         }
+    }
+
+    #[tokio::test]
+    async fn daqe_migration_adds_tables_and_nullable_dwell_columns_without_touching_rows() {
+        let pool = pool_migrated_up_to("117_daqe_queue_engine").await;
+
+        // Seed a pre-117 activity row the way an existing installation would.
+        sqlx::query(
+            "INSERT INTO item_activity_log (id, item_type, item_id, surface, started_at, active_seconds)
+             VALUES ('act-1', 'document', 'doc-1', 'reader', '2026-01-01T00:00:00Z', 90)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed activity row");
+
+        run_migrations(&pool).await.expect("migrations apply");
+
+        for table in ["daqe_model_cache", "daqe_queue_snapshots"] {
+            let (count,): (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("table lookup");
+            assert_eq!(count, 1, "table {table} should exist");
+        }
+
+        // The new dwell columns are nullable and default to NULL: a pre-117 row
+        // reads as "never measured", never as a fabricated 0.
+        let (idle, scroll, density, exit): (
+            Option<i64>,
+            Option<f64>,
+            Option<f64>,
+            Option<String>,
+        ) = sqlx::query_as(
+            "SELECT idle_time_ms, scroll_depth_ratio, interaction_density, exit_action
+             FROM item_activity_log WHERE id = 'act-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("seeded row survives");
+        assert_eq!(idle, None, "idle_time_ms is untracked, not zero");
+        assert_eq!(scroll, None, "scroll_depth_ratio is untracked, not zero");
+        assert_eq!(density, None, "interaction_density is untracked, not zero");
+        assert_eq!(exit, None, "exit_action is untracked");
+
+        // The pre-existing active dwell is untouched by the migration.
+        let (active,): (i64,) =
+            sqlx::query_as("SELECT active_seconds FROM item_activity_log WHERE id = 'act-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("active_seconds preserved");
+        assert_eq!(active, 90);
+
+        // The cache accepts a row keyed by content hash.
+        sqlx::query(
+            "INSERT INTO daqe_model_cache (content_hash, rubric_version, score, tier, gate, computed_at)
+             VALUES ('hash-1', 1, 0.75, 'medium-analysis', 1.0, '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert cache row");
+
+        let (hash, version): (String, i64) =
+            sqlx::query_as("SELECT content_hash, rubric_version FROM daqe_model_cache")
+                .fetch_one(&pool)
+                .await
+                .expect("read cache row");
+        assert_eq!(hash, "hash-1");
+        assert_eq!(version, 1);
+
+        // A snapshot accepts a full DAQE payload.
+        sqlx::query(
+            "INSERT INTO daqe_queue_snapshots
+             (id, collection_id, profile, knobs_json, ranked_ids_json, top10_json, computed_at)
+             VALUES ('snap-1', NULL, 'default', '{}', '[\"a\"]', '[\"a\"]', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert snapshot row");
+
+        let (ranked, top10): (String, String) = sqlx::query_as(
+            "SELECT ranked_ids_json, top10_json FROM daqe_queue_snapshots WHERE id = 'snap-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read snapshot row");
+        assert_eq!(ranked, "[\"a\"]");
+        assert_eq!(top10, "[\"a\"]");
+    }
+
+    #[tokio::test]
+    async fn daqe_model_cache_rejects_a_duplicate_content_hash() {
+        let pool = pool_migrated_up_to("117_daqe_queue_engine").await;
+        run_migrations(&pool).await.expect("migrations apply");
+
+        let insert = |pool: &Pool<Sqlite>| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(
+                    "INSERT INTO daqe_model_cache (content_hash, rubric_version, score, computed_at)
+                     VALUES ('same-hash', 1, 0.5, '2026-01-01T00:00:00Z')",
+                )
+                .execute(&pool)
+                .await
+            }
+        };
+
+        insert(&pool).await.expect("first insert");
+        assert!(
+            insert(&pool).await.is_err(),
+            "content_hash is the cache identity, so a duplicate must be rejected"
+        );
     }
 }

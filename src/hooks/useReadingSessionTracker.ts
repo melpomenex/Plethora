@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { endReadingSession, getDocumentProgress, startReadingSession } from "../api/position";
 import { recordActiveTime } from "../api/item-stats";
-import { useActiveTimeTracker, type ActiveTimeTracker } from "./useActiveTimeTracker";
+import { useSettingsStore } from "../stores/settingsStore";
+import { useDaqeIdleTimeout } from "../lib/daqe/useDaqeIdleTimeout";
+import {
+  useActiveTimeTracker,
+  type ActiveTimeTracker,
+  type DwellFlush,
+} from "./useActiveTimeTracker";
 
 /**
  * Records time spent reading a document in the Reader.
@@ -40,7 +46,7 @@ export function useReadingSessionTracker({
   const sessionIdRef = useRef<string | null>(null);
 
   const handleFlush = useCallback(
-    (activeSeconds: number) => {
+    (activeSeconds: number, details: DwellFlush) => {
       if (!documentId) return;
       // Fire-and-forget: a failed flush must not interrupt reading. The
       // session id may still be in flight, in which case the accrual lands as
@@ -51,16 +57,25 @@ export function useReadingSessionTracker({
         "reader",
         activeSeconds,
         sessionIdRef.current,
+        {
+          idleMs: details.idleMs,
+          scrollDepthRatio: details.scrollDepthRatio,
+          interactionDensity: details.interactionDensity,
+          exitAction: details.exitAction,
+        },
       ).catch(() => {});
     },
     [documentId],
   );
+
+  const idleTimeoutMs = useDaqeIdleTimeout();
 
   const tracker = useActiveTimeTracker({
     isActive,
     onFlush: handleFlush,
     itemKey: documentId ?? undefined,
     enabled: enabled && Boolean(documentId),
+    idleTimeoutMs,
   });
 
   const flush = tracker.flush;

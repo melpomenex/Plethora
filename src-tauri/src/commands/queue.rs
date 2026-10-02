@@ -188,17 +188,11 @@ async fn get_queue_items_from_repo(
         let is_due = item.due_date <= now;
         let days_until_due = (item.due_date - now).num_days();
 
-        let priority = if is_due {
-            10.0 - (item.interval / 10.0)
-        } else if days_until_due <= 1 {
-            8.0
-        } else if days_until_due <= 3 {
-            6.0
-        } else if days_until_due <= 7 {
-            4.0
-        } else {
-            2.0
-        };
+        let priority = neutral_queue_priority(
+            item.interval,
+            item.review_count,
+            f64::from(item.difficulty),
+        );
 
         let estimated_time = match item.item_type {
             crate::models::ItemType::Cloze => 2,
@@ -265,9 +259,11 @@ async fn get_queue_items_from_repo(
         // Blend inherited priority with review state. New extracts still get
         // a small boost over reviewed ones, but higher-priority documents
         // surface their extracts earlier (incremental reading priority chain).
-        const PRIORITY_SPAN: f64 = 2.0;
-        let base_weight = if extract.review_count == 0 { 9.0 } else { 7.0 };
-        let priority = base_weight + (extract.priority_score / 100.0) * PRIORITY_SPAN;
+        // The user's own slider is the whole signal here: an extract carries no
+        // FSRS memory state at this point, so there is nothing to derive urgency
+        // from beyond what the user has said about it.
+        let priority = neutral_queue_priority(0.0, extract.review_count, 0.0)
+            + (extract.priority_score / 100.0) * EXTRACT_PRIORITY_SPAN;
 
         let _content_preview = preview_text(&extract.content, 100);
 
@@ -312,7 +308,10 @@ async fn get_queue_items_from_repo(
             .cloned()
             .unwrap_or_else(|| "Unknown Video".to_string());
 
-        let priority = if extract.review_count == 0 { 8.5 } else { 6.5 };
+        // A clip's cost scales with its length, so its seed accounts for duration
+        // rather than repeating the flat card constant.
+        let clip_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil().clamp(1.0, 10.0);
+        let priority = neutral_queue_priority(clip_minutes, extract.review_count, 0.0);
 
         let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
         let estimated_time = duration_minutes.clamp(1, 10);
@@ -582,6 +581,37 @@ pub async fn get_queued_items(
     Ok(queued_items)
 }
 
+/// The neutral priority for a queue item whose scheduling state carries no signal.
+///
+/// DAQE's `R_srs` term derives urgency from stability, interval and retrievability
+/// (see `algorithms::daqe::terms::srs_urgency`). This is the seed the legacy
+/// `QueueItem.priority` field starts from, so a pool that has never been ranked
+/// still carries a meaningful urgency number rather than a per-type constant.
+///
+/// New items read slightly higher than reviewed ones — the intent of the literals
+/// this replaces — expressed once here instead of five times with three different
+/// magnitudes.
+pub(crate) fn neutral_queue_priority(
+    interval_days: f64,
+    review_count: i32,
+    difficulty: f64,
+) -> f64 {
+    let base = if review_count == 0 {
+        NEW_ITEM_BASE_PRIORITY
+    } else {
+        REVIEWED_ITEM_BASE_PRIORITY
+    };
+    (base - (interval_days.max(0.0) / 10.0) + difficulty * 0.1).clamp(0.0, 10.0)
+}
+
+/// The seed priority for an item with no reviews yet.
+pub(crate) const NEW_ITEM_BASE_PRIORITY: f64 = 9.0;
+/// The seed priority for an item that has been reviewed.
+pub(crate) const REVIEWED_ITEM_BASE_PRIORITY: f64 = 7.0;
+
+/// How far a user's 0-100 slider moves an extract's seed priority.
+pub(crate) const EXTRACT_PRIORITY_SPAN: f64 = 2.0;
+
 fn end_of_utc_day(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive()
         .and_hms_nano_opt(23, 59, 59, 999_999_999)
@@ -641,7 +671,11 @@ async fn get_due_queue_items_from_repo_at(
     let doc_titles = repo.get_document_titles(&doc_ids).await?;
 
     for item in learning_items {
-        let priority = 10.0 - (item.interval / 10.0);
+        let priority = neutral_queue_priority(
+            item.interval,
+            item.review_count,
+            f64::from(item.difficulty),
+        );
         let estimated_time = match item.item_type {
             crate::models::ItemType::Cloze => 2,
             crate::models::ItemType::Qa => 3,
@@ -700,9 +734,11 @@ async fn get_due_queue_items_from_repo_at(
             .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
-        const PRIORITY_SPAN: f64 = 2.0;
-        let base_weight = if extract.review_count == 0 { 9.0 } else { 7.0 };
-        let priority = base_weight + (extract.priority_score / 100.0) * PRIORITY_SPAN;
+        // The user's own slider is the whole signal here: an extract carries no
+        // FSRS memory state at this point, so there is nothing to derive urgency
+        // from beyond what the user has said about it.
+        let priority = neutral_queue_priority(0.0, extract.review_count, 0.0)
+            + (extract.priority_score / 100.0) * EXTRACT_PRIORITY_SPAN;
 
         queue_items.push(QueueItem {
             id: extract.id.clone(),
@@ -743,7 +779,10 @@ async fn get_due_queue_items_from_repo_at(
             .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Video".to_string());
-        let priority = if extract.review_count == 0 { 8.5 } else { 6.5 };
+        // A clip's cost scales with its length, so its seed accounts for duration
+        // rather than repeating the flat card constant.
+        let clip_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil().clamp(1.0, 10.0);
+        let priority = neutral_queue_priority(clip_minutes, extract.review_count, 0.0);
         let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
         let estimated_time = duration_minutes.clamp(1, 10);
         let transcript_preview = extract
@@ -844,6 +883,23 @@ async fn get_due_queue_items_from_repo(
     randomness: Option<f32>,
 ) -> Result<Vec<QueueItem>> {
     get_due_queue_items_from_repo_at(repo, collection_id, randomness, Utc::now()).await
+}
+
+/// The due-candidate pool the adaptive ranker scores.
+///
+/// Reuses [`get_due_queue_items_from_repo`] rather than re-deriving the four due
+/// sources, so DAQE ranks exactly the set the queue would otherwise show. A second
+/// implementation of "what is due" would be a second thing to keep in sync, and
+/// the two would disagree the first time a source was added.
+///
+/// `randomness` is `None` here: weighted-random selection is a *selection*
+/// concern for `get_next_queue_item`, and the ranker needs the whole pool to
+/// compute a stable order over.
+pub(crate) async fn due_candidate_pool(
+    repo: &Repository,
+    collection_id: Option<&str>,
+) -> Result<Vec<QueueItem>> {
+    get_due_queue_items_from_repo(repo, collection_id, None).await
 }
 
 /// Get queue items scheduled through the end of today
@@ -1388,5 +1444,64 @@ mod collection_scope_tests {
         assert!(collection_allows(None, ""));
         assert!(collection_allows(None, OTHER));
         assert!(collection_allows(None, DEFAULT_COLLECTION_ID));
+    }
+}
+
+#[cfg(test)]
+mod neutral_priority_tests {
+    use super::{neutral_queue_priority, EXTRACT_PRIORITY_SPAN, NEW_ITEM_BASE_PRIORITY,
+                REVIEWED_ITEM_BASE_PRIORITY};
+
+    #[test]
+    fn a_new_item_outranks_a_reviewed_one_at_the_same_interval() {
+        let fresh = neutral_queue_priority(3.0, 0, 5.0);
+        let seen = neutral_queue_priority(3.0, 4, 5.0);
+        assert!(
+            fresh > seen,
+            "the new-item advantage the per-type literals encoded is now expressed once"
+        );
+        // base - interval/10 + difficulty/10
+        assert!((fresh - (NEW_ITEM_BASE_PRIORITY - 0.3 + 0.5)).abs() < 1e-12);
+        assert!((seen - (REVIEWED_ITEM_BASE_PRIORITY - 0.3 + 0.5)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_longer_interval_lowers_priority() {
+        let short = neutral_queue_priority(1.0, 0, 5.0);
+        let long = neutral_queue_priority(21.0, 0, 5.0);
+        assert!(short > long);
+    }
+
+    #[test]
+    fn priority_stays_inside_the_zero_to_ten_band() {
+        for interval in [0.0, 1.0, 10.0, 100.0, 10_000.0] {
+            for reviews in [0, 1, 50] {
+                for difficulty in [0.0, 5.0, 10.0] {
+                    let value = neutral_queue_priority(interval, reviews, difficulty);
+                    assert!(
+                        (0.0..=10.0).contains(&value),
+                        "interval={interval} reviews={reviews} difficulty={difficulty} -> {value}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_negative_interval_cannot_raise_priority() {
+        assert_eq!(
+            neutral_queue_priority(-5.0, 0, 0.0),
+            neutral_queue_priority(0.0, 0, 0.0),
+            "a negative interval is clamped to zero, not rewarded"
+        );
+    }
+
+    #[test]
+    fn the_extract_span_is_the_documented_two_points() {
+        assert_eq!(EXTRACT_PRIORITY_SPAN, 2.0);
+        // A slider at 0 and at 100 differ by exactly the span.
+        let low = neutral_queue_priority(0.0, 0, 0.0);
+        let high = low + (100.0 / 100.0) * EXTRACT_PRIORITY_SPAN;
+        assert!((high - low - EXTRACT_PRIORITY_SPAN).abs() < 1e-12);
     }
 }

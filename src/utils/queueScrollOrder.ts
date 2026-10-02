@@ -295,3 +295,154 @@ export function orderScrollItemsByCombinedCriterion<T extends PrioritizableScrol
 
   return result;
 }
+
+/**
+ * A candidate whose rank came from the DAQE composite ranker.
+ *
+ * `priority` is the composite score, which is a *relative* ordering with no
+ * absolute zero — two pools of different difficulty produce different score
+ * distributions. The proportion bonus below is therefore expressed as a share of
+ * the observed score spread rather than as a flat point value, which is what
+ * makes the bias mean the same thing at every scale.
+ */
+export interface RankedScrollItem extends PrioritizableScrollItem {
+  /** The composite `S(i)`. Overrides `engagementScore` as the ordering key. */
+  priority?: number;
+  /** The topics this item's interleave penalty was measured against, if any. */
+  topics?: string[];
+}
+
+/** The observed score spread, used to scale the proportion bonus. */
+export interface RankedSortScale {
+  min: number;
+  max: number;
+}
+
+/**
+ * The score spread of a ranked pool.
+ *
+ * A degenerate pool (one item, or every item scoring identically) yields a range
+ * of 0. Callers must treat that as "no spread" and order on the composite alone
+ * rather than dividing by it.
+ */
+export function measureRankedScale(items: ReadonlyArray<{ priority?: number }>): RankedSortScale {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const item of items) {
+    const value = item.priority ?? 0;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 0 };
+  return { min, max };
+}
+
+/**
+ * The interleave penalty, as a share of the pool's score spread.
+ *
+ * DAQE's `interleavingDiversity` is a 0-1 knob applied inside the composite, so by
+ * the time an item reaches here its penalty is already in the score. This is the
+ * *second*, coarser pass, and it does something the composite cannot: it
+ * penalises an item against what has **already been placed** in this session.
+ * Per-item scores cannot see the run forming around them — five similar items
+ * each score individually fine — so without a sequential pass a whole topic can
+ * still arrive as one undifferentiated block.
+ *
+ * Expressed as a fraction of the observed spread rather than as flat points,
+ * because the composite has no absolute scale: a fixed point bonus would erase the
+ * ordering on a narrow pool and vanish on a wide one.
+ */
+export function interleaveShare(config: {
+  /** The DAQE `interleavingDiversity` knob, 0-1. */
+  diversity: number;
+  /** Weight of the stable per-id jitter, carried over unchanged. */
+  jitterWeight: number;
+}): { penaltyShare: number; jitterWeight: number } {
+  const diversity = Math.min(1, Math.max(0, config.diversity));
+  return {
+    // Capped at 0.5. Above half the spread the penalty could reorder items the
+    // ranker deliberately ordered, which is the ranker's job, not this pass's.
+    penaltyShare: 0.5 * diversity,
+    jitterWeight: config.jitterWeight,
+  };
+}
+
+/**
+ * Order DAQE-ranked scroll items: composite score (primary), less a
+ * topic-repetition penalty against the items already placed, plus stable per-id
+ * jitter.
+ *
+ * Sequential, like the legacy combined sort it parallels, because the penalty
+ * depends on the running placed set. O(n·k) over the session length rather than
+ * the legacy sort's O(n²) over the whole pool — a session is a few hundred items,
+ * not the whole queue.
+ *
+ * Guarantees: a higher composite score still wins unless the repetition penalty
+ * is decisive; the order is stable for an unchanged pool; and a single-item or
+ * single-topic pool is ordered by score alone, because nothing can repeat.
+ */
+export function orderRankedScrollItems<T extends RankedScrollItem>(
+  items: T[],
+  options: { diversity: number; jitterWeight?: number } = { diversity: 0.2 },
+): T[] {
+  if (items.length <= 1) return [...items];
+
+  const { penaltyShare, jitterWeight } = interleaveShare({
+    diversity: options.diversity,
+    jitterWeight: options.jitterWeight ?? DEFAULT_COMBINED_SORT_CONFIG.jitterWeight,
+  });
+  const scale = measureRankedScale(items);
+  const spread = scale.max - scale.min;
+
+  // No measurable spread: every item scored the same, so there is no ordering to
+  // preserve and the penalty would be pure noise. Fall back to the stable jitter
+  // for a deterministic but arbitrary order.
+  if (spread <= 0) {
+    return [...items]
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => stableJitter(a.item.id) - stableJitter(b.item.id) || a.index - b.index)
+      .map((entry) => entry.item);
+  }
+
+  const normalize = (value: number | undefined) => ((value ?? scale.min) - scale.min) / spread;
+  const jitter = items.map((item) => jitterWeight * stableJitter(item.id));
+
+  // The running set of placed topics, as a count per topic so "how much of what I
+  // have seen is this?" is a division rather than a set scan.
+  const placedTopicCounts = new Map<string, number>();
+  let placed = 0;
+
+  const remaining = new Set(items.map((_, i) => i));
+  const result: T[] = [];
+
+  while (remaining.size > 0) {
+    let bestIndex = -1;
+    let bestScore = -Infinity;
+
+    for (const index of remaining) {
+      const item = items[index];
+      const overlap = (item.topics ?? []).reduce(
+        (sum, topic) => sum + (placedTopicCounts.get(topic) ?? 0),
+        0,
+      );
+      // Overlap as a share of everything placed so far: 0 for the first item,
+      // rising toward 1 as the session becomes one long run of that topic.
+      const repetition = placed > 0 ? overlap / placed : 0;
+      const score = normalize(item.priority ?? item.engagementScore) + jitter[index] - penaltyShare * repetition;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    remaining.delete(bestIndex);
+    for (const topic of items[bestIndex].topics ?? []) {
+      placedTopicCounts.set(topic, (placedTopicCounts.get(topic) ?? 0) + 1);
+    }
+    placed += 1;
+    result.push(items[bestIndex]);
+  }
+
+  return result;
+}

@@ -15,6 +15,15 @@ import {
 } from "../lib/schedulerIdentity";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
 import type { StudyAction } from "../types/audioEdition";
+import {
+  coerceDaqeKnobs,
+  defaultDaqeKnobs,
+  type DaqeKnobs,
+} from "../lib/daqe/knobs";
+import {
+  coerceStoredPresetId,
+  type QueueStrategyPresetId,
+} from "../lib/daqe/presets";
 
 export type { ActiveRecallMode };
 
@@ -548,6 +557,38 @@ interface AudioTranscriptionSettings {
 /**
  * Smart Queue Settings
  */
+/**
+ * Dynamic Adaptive Queue Engine settings.
+ *
+ * `rankingEnabled` defaults to **false** so an existing installation keeps the
+ * exact ordering it had before DAQE until the user opens the knob panel and opts
+ * in. The ranker is off-by-default rather than on-by-default because it replaces
+ * a literal-per-item-type sort, and a silent re-order of someone's queue on
+ * upgrade is not a change to make on their behalf.
+ */
+interface DaqeSettings {
+  /** The six ranking knobs. See `lib/daqe/knobs` for ranges and validation. */
+  knobs: DaqeKnobs;
+  /**
+   * The preset the knobs exactly match, or `null`. Derived, never written by a
+   * preset click alone — adjusting a knob clears it.
+   */
+  activePreset: QueueStrategyPresetId | null;
+  /** Which decision-model provider to use, or `null` for the deterministic fallback. */
+  decisionModelProviderId: string | null;
+  /**
+   * The opt-in that makes a *remote* decision model contactable at all.
+   *
+   * Defaults false, and it is checked before the outbound payload is built, so
+   * with it off the remote code path is unreachable rather than merely skipped.
+   */
+  allowRemoteDecisionModel: boolean;
+  /** Master switch for adaptive ranking. */
+  rankingEnabled: boolean;
+  /** A user-installed local decision engine, when one is configured. */
+  decisionEngine?: { baseUrl: string; model: string; timeoutMs?: number } | null;
+}
+
 interface SmartQueueSettings {
   autoRefresh: boolean;
   refreshInterval: number;
@@ -974,6 +1015,7 @@ export interface Settings {
   search: SearchSettings;
   audioTranscription: AudioTranscriptionSettings;
   smartQueue: SmartQueueSettings;
+  daqe: DaqeSettings;
   tts: TTSSettings;
   scrollQueue: ScrollQueueSettings;
   rssQueue: RSSQueueSettings;
@@ -1327,6 +1369,17 @@ export const defaultSettings: Settings = {
     deepgram: {
       apiKey: "",
     },
+  },
+  daqe: {
+    // Defaults come from the schema, not restated here, so the Rust and TS
+    // defaults cannot drift from the documented table.
+    knobs: defaultDaqeKnobs(),
+    activePreset: null,
+    decisionModelProviderId: null,
+    allowRemoteDecisionModel: false,
+    // Off until the user opts in: see DaqeSettings.rankingEnabled.
+    rankingEnabled: false,
+    decisionEngine: null,
   },
   smartQueue: {
     autoRefresh: false,
@@ -1802,6 +1855,17 @@ export const useSettingsStore = create<SettingsState>()(
             },
           },
           smartQueue: { ...defaultSettings.smartQueue, ...persisted.smartQueue },
+          daqe: {
+            ...defaultSettings.daqe,
+            ...persisted.daqe,
+            // A persisted knob set can predate a knob, come from an older build,
+            // or have been hand-edited; coerce repairs it rather than letting an
+            // out-of-range value reach the ranker.
+            knobs: coerceDaqeKnobs(persisted.daqe?.knobs),
+            // A stored preset id that no longer exists reads as "no preset"
+            // instead of throwing on startup.
+            activePreset: coerceStoredPresetId(persisted.daqe?.activePreset),
+          },
           tts: (() => {
             const sanitized = sanitizeTTSSettings(persisted.tts);
             // Field diagnostic (rides the Android consoleLogcatBridge): TTS
