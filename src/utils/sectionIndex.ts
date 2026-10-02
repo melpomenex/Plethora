@@ -1506,6 +1506,109 @@ export function stripHtmlTags(html: string): string {
 }
 
 /**
+ * Splits a section that exceeds `maxChars` into smaller subsections along
+ * paragraph or sentence boundaries so that individual audio chunks never
+ * exceed TTS provider synthesis payload limits.
+ */
+export function splitOversizedSection(
+  section: AudioEditionSemanticSection,
+  maxChars = 3500
+): AudioEditionSemanticSection[] {
+  if (!section.content || section.content.length <= maxChars) {
+    return [section];
+  }
+
+  const raw = section.content;
+  const paragraphs = raw.split(/\n\n+/);
+  const chunks: string[] = [];
+  let currentChunk = "";
+
+  const pushChunk = (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed) chunks.push(trimmed);
+  };
+
+  for (const para of paragraphs) {
+    if (para.length > maxChars) {
+      if (currentChunk) {
+        pushChunk(currentChunk);
+        currentChunk = "";
+      }
+      const sentences = para.split(/(?<=[.?!])\s+/);
+      let sentenceChunk = "";
+      for (const sent of sentences) {
+        if (sent.length > maxChars) {
+          if (sentenceChunk) {
+            pushChunk(sentenceChunk);
+            sentenceChunk = "";
+          }
+          let remaining = sent;
+          while (remaining.length > maxChars) {
+            let splitIndex = remaining.lastIndexOf(" ", maxChars);
+            if (splitIndex <= 0) splitIndex = maxChars;
+            pushChunk(remaining.slice(0, splitIndex));
+            remaining = remaining.slice(splitIndex).trim();
+          }
+          if (remaining) {
+            sentenceChunk = remaining;
+          }
+        } else if (sentenceChunk.length + sent.length + 1 > maxChars) {
+          pushChunk(sentenceChunk);
+          sentenceChunk = sent;
+        } else {
+          sentenceChunk = sentenceChunk ? `${sentenceChunk} ${sent}` : sent;
+        }
+      }
+      if (sentenceChunk) {
+        pushChunk(sentenceChunk);
+      }
+    } else if (currentChunk.length + para.length + 2 > maxChars) {
+      pushChunk(currentChunk);
+      currentChunk = para;
+    } else {
+      currentChunk = currentChunk ? `${currentChunk}\n\n${para}` : para;
+    }
+  }
+  if (currentChunk) {
+    pushChunk(currentChunk);
+  }
+
+  if (chunks.length <= 1) {
+    return [section];
+  }
+
+  return chunks.map((chunk, i) => ({
+    id: `${section.id}-part${i + 1}`,
+    sectionIndex: section.sectionIndex,
+    title: `${section.title} (Part ${i + 1})`,
+    sourceStartAnchor: section.sourceStartAnchor,
+    sourceEndAnchor: section.sourceEndAnchor,
+    characterCount: chunk.length,
+    content: chunk,
+    level: section.level,
+  }));
+}
+
+export function splitOversizedSections(
+  sections: AudioEditionSemanticSection[],
+  maxChars = 3500
+): AudioEditionSemanticSection[] {
+  const result: AudioEditionSemanticSection[] = [];
+  for (const s of sections) {
+    if (s.characterCount > maxChars) {
+      result.push(...splitOversizedSection(s, maxChars));
+    } else {
+      result.push(s);
+    }
+  }
+  return result.map((s, idx) => ({
+    ...s,
+    sectionIndex: idx,
+    id: `sec-${idx}`,
+  }));
+}
+
+/**
  * Extract semantic sections from an HTML or Markdown article for Audio Edition synthesis
  */
 export function extractArticleSemanticSections(
@@ -1618,9 +1721,9 @@ export function extractArticleSemanticSections(
   // Fallback: If no headings found, or only 1 giant section, use heuristic paragraph grouping
   if (sections.length === 0 || (sections.length === 1 && sections[0].content.length > targetChars * 2)) {
     const plainText = isHtml ? stripHtmlTags(content) : content;
-    const heuristicNodes = buildHeuristicParagraphSections(plainText, { targetChars });
+    const heuristicNodes = buildHeuristicParagraphSections(plainText, { targetChars, maxSegments: 10000 });
     if (heuristicNodes.length > 0) {
-      return heuristicNodes.map((node, idx) => ({
+      const res = heuristicNodes.map((node, idx) => ({
         id: `sec-${idx}`,
         sectionIndex: idx,
         title: node.title,
@@ -1630,10 +1733,11 @@ export function extractArticleSemanticSections(
         content: node.content,
         level: 1,
       }));
+      return splitOversizedSections(res);
     }
 
     // Ultimate fallback: single section
-    return [
+    return splitOversizedSections([
       {
         id: "sec-0",
         sectionIndex: 0,
@@ -1644,10 +1748,10 @@ export function extractArticleSemanticSections(
         content: plainText,
         level: 1,
       },
-    ];
+    ]);
   }
 
-  return sections;
+  return splitOversizedSections(sections);
 }
 
 /**
@@ -1735,7 +1839,7 @@ export function extractEpubSemanticSections(
     .map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
 
   if (validSections.length > 0) {
-    return validSections;
+    return splitOversizedSections(validSections);
   }
 
   // If TOC/spine mapping yielded no valid sections with content, fall back to article chunking on sourceText
@@ -1769,9 +1873,28 @@ export function extractPdfSemanticSections(
 
   flatten(outline);
 
-  if (flatOutline.length > 0) {
-    const rawSections = flatOutline.map((item, idx) => {
-      const nextPage = idx + 1 < flatOutline.length ? flatOutline[idx + 1].pageNumber : undefined;
+  // Consolidate consecutive items on the same page to preserve hierarchical context
+  const consolidatedOutline: Array<{ title: string; pageNumber: number; level: number }> = [];
+  for (const item of flatOutline) {
+    const prev = consolidatedOutline[consolidatedOutline.length - 1];
+    if (prev && prev.pageNumber === item.pageNumber) {
+      if (prev.title !== item.title) {
+        const prevLower = prev.title.toLowerCase();
+        const itemLower = item.title.toLowerCase();
+        if (!itemLower.includes(prevLower) && !prevLower.includes(itemLower)) {
+          prev.title = `${prev.title} - ${item.title}`;
+        }
+      }
+      prev.level = Math.min(prev.level, item.level);
+    } else {
+      consolidatedOutline.push({ ...item });
+    }
+  }
+
+  if (consolidatedOutline.length > 0) {
+    const rawSections = consolidatedOutline.map((item, idx) => {
+      const nextItem = consolidatedOutline.slice(idx + 1).find((next) => next.pageNumber > item.pageNumber);
+      const nextPage = nextItem ? nextItem.pageNumber : undefined;
       let sectionText = "";
 
       if (pageContents && pageContents.length > 0) {
@@ -1782,8 +1905,8 @@ export function extractPdfSemanticSections(
       } else if (fullContent) {
         const titleIdx = fullContent.indexOf(item.title);
         if (titleIdx !== -1) {
-          const nextItem = idx + 1 < flatOutline.length ? flatOutline[idx + 1] : undefined;
-          const nextIdx = nextItem ? fullContent.indexOf(nextItem.title, titleIdx + item.title.length) : -1;
+          const nextWithTitle = consolidatedOutline.slice(idx + 1).find((next) => fullContent.indexOf(next.title, titleIdx + item.title.length) !== -1);
+          const nextIdx = nextWithTitle ? fullContent.indexOf(nextWithTitle.title, titleIdx + item.title.length) : -1;
           sectionText = nextIdx !== -1 ? fullContent.slice(titleIdx, nextIdx).trim() : fullContent.slice(titleIdx).trim();
         } else {
           sectionText = "";
@@ -1807,7 +1930,7 @@ export function extractPdfSemanticSections(
       .map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
 
     if (valid.length > 0) {
-      return valid;
+      return splitOversizedSections(valid);
     }
   }
 
@@ -1836,7 +1959,7 @@ export function extractPdfSemanticSections(
       }
     }
     if (sections.length > 0) {
-      return sections.map((s, idx) => ({ ...s, sectionIndex: idx, id: `sec-${idx}` }));
+      return splitOversizedSections(sections);
     }
   }
 

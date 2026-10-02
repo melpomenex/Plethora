@@ -72,7 +72,6 @@ const PENDING_MIGRATION = [
   "src/components/settings/UserProfilePanel.tsx",
   "src/components/settings/VoiceBrowser.tsx",
   "src/components/sync/OfflineSyncIndicator.tsx",
-  "src/components/tabs/AudiobooksTab.tsx",
   "src/components/tabs/ScreenshotTab.tsx",
   "src/components/video/VideoExtracts.tsx",
   "src/pages/NotebookLMPage.tsx",

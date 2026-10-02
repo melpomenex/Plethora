@@ -3,6 +3,8 @@ import {
   extractArticleSemanticSections,
   extractEpubSemanticSections,
   extractPdfSemanticSections,
+  splitOversizedSection,
+  splitOversizedSections,
   stripHtmlTags,
 } from "../sectionIndex";
 
@@ -246,6 +248,97 @@ Third paragraph summarizing the observations and transitioning to conclusions.
       expect(sections.length).toBe(1);
       expect(sections[0].title).toBe("Actual Chapter");
       expect(sections[0].content).toBe("Actual text here");
+    });
+
+    it("consolidates consecutive outline items starting on the same page", () => {
+      const outline = [
+        { title: "Chapter 1: The World", pageNumber: 10, items: [] },
+        { title: "1.1 Overview", pageNumber: 10, items: [] },
+        { title: "Chapter 2: The Next World", pageNumber: 15, items: [] },
+      ];
+      const pageContents = [
+        { pageNumber: 10, text: "Text of page 10" },
+        { pageNumber: 11, text: "Text of page 11" },
+        { pageNumber: 15, text: "Text of page 15" },
+      ];
+
+      const sections = extractPdfSemanticSections(outline, pageContents);
+      expect(sections.length).toBe(2);
+      expect(sections[0].title).toBe("Chapter 1: The World - 1.1 Overview");
+      expect(sections[0].sourceStartAnchor).toBe("page:10");
+      expect(sections[0].sourceEndAnchor).toBe("page:14");
+      expect(sections[0].content).toContain("Text of page 10");
+      expect(sections[0].content).toContain("Text of page 11");
+      expect(sections[1].title).toBe("Chapter 2: The Next World");
+    });
+
+    it("sub-chunks oversized PDF sections into bounded parts <= 3500 chars", () => {
+      const longParagraph = "A".repeat(2000) + ".";
+      const veryLongContent = `${longParagraph}\n\n${longParagraph}\n\n${longParagraph}`; // ~6000 chars
+
+      const outline = [{ title: "Huge Chapter", pageNumber: 1 }];
+      const pageContents = [{ pageNumber: 1, text: veryLongContent }];
+
+      const sections = extractPdfSemanticSections(outline, pageContents);
+      expect(sections.length).toBeGreaterThan(1);
+      expect(sections[0].title).toBe("Huge Chapter (Part 1)");
+      expect(sections[1].title).toBe("Huge Chapter (Part 2)");
+      sections.forEach((s) => {
+        expect(s.characterCount).toBeLessThanOrEqual(3500);
+      });
+    });
+  });
+
+  describe("splitOversizedSection", () => {
+    it("returns unchanged section if under maxChars", () => {
+      const section = {
+        id: "sec-1",
+        sectionIndex: 0,
+        title: "Short Section",
+        characterCount: 500,
+        content: "Hello world this is short.",
+        level: 1,
+      };
+
+      const result = splitOversizedSection(section, 3500);
+      expect(result).toEqual([section]);
+    });
+
+    it("splits long paragraphs across sentence and word boundaries", () => {
+      const sent1 = "First sentence that is quite lengthy and detailed. ";
+      const sent2 = "Second sentence providing further explanation. ";
+      const content = sent1.repeat(40) + "\n\n" + sent2.repeat(40); // ~4000+ chars
+
+      const section = {
+        id: "sec-long",
+        sectionIndex: 3,
+        title: "Deep Chapter",
+        characterCount: content.length,
+        content,
+        level: 2,
+      };
+
+      const parts = splitOversizedSection(section, 2000);
+      expect(parts.length).toBeGreaterThan(1);
+      parts.forEach((part, idx) => {
+        expect(part.title).toBe(`Deep Chapter (Part ${idx + 1})`);
+        expect(part.characterCount).toBeLessThanOrEqual(2000);
+        expect(part.content.length).toBe(part.characterCount);
+        expect(part.level).toBe(2);
+      });
+    });
+  });
+
+  describe("large article segmentation beyond 200 paragraphs", () => {
+    it("handles more than 200 paragraphs without dropping content", () => {
+      const paragraphs = Array.from({ length: 250 }, (_, i) => `Paragraph number ${i + 1} with plenty of words to fill up space.`);
+      const content = paragraphs.join("\n\n");
+
+      const sections = extractArticleSemanticSections(content, { targetChars: 300 });
+      // 250 paragraphs with targetChars 300 will produce ~40-60 sections.
+      // But verify that tail paragraphs are preserved and not truncated
+      const lastSection = sections[sections.length - 1];
+      expect(lastSection.content).toContain("Paragraph number 250");
     });
   });
 });

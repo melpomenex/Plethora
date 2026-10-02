@@ -14,22 +14,29 @@ import {
   Play,
   Pause,
   ArrowClockwise,
+  ArrowCounterClockwise,
   X,
   SpeakerHigh,
-  Waveform
+  Waveform,
+  Copy,
+  Info,
+  DotsThreeVertical,
 } from "@phosphor-icons/react";
 import { useDocumentStore, useTabsStore } from "../../stores";
 import { Document } from "../../types/document";
 import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
 import { CreateAudioEditionDialog } from "../audio/CreateAudioEditionDialog";
-import { listAudioEditions } from "../../api/audioEditions";
-import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
+import { listAudioEditions, deleteAudioEdition } from "../../api/audioEditions";
+import { useAudioEditionGenerationStore, type GenerationJob } from "../../stores/audioEditionGenerationStore";
 import type { AudioEdition } from "../../types/audioEdition";
 import { DocumentViewer } from "./TabRegistry";
 import { cn } from "../../utils";
 import { formatDuration } from "../../api/audiobooks";
 import { isAudiobookDocument } from "./audiobookClassification";
 import { useIsActiveTab, usePaneId } from "../common/Tabs";
+import { useContextMenu, ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useModal } from "../common/Modal";
+import { useToast } from "../common/Toast";
 
 export function AudiobooksTab() {
   const { documents, loadDocuments, deleteDocument } = useDocumentStore();
@@ -40,6 +47,10 @@ export function AudiobooksTab() {
   const [statusFilter, setStatusFilter] = useState<"all" | "not_started" | "in_progress" | "finished" | "dnf">("all");
   const [sortBy, setSortBy] = useState<"dateAdded" | "title" | "author" | "duration" | "progress">("dateAdded");
   const isActiveTab = useIsActiveTab();
+  const editionContextMenu = useContextMenu("audio-edition-context-menu");
+  const [configureDoc, setConfigureDoc] = useState<Document | null>(null);
+  const modal = useModal();
+  const toast = useToast();
 
   // Document Audio Editions (task 4.3 & 5.3): editions of non-audio documents with
   // generation badges + playback controls, plus live generation progress.
@@ -259,11 +270,246 @@ export function AudiobooksTab() {
   };
 
   const handleDeleteBook = async (id: string) => {
-    if (confirm("Are you sure you want to delete this audiobook from your library?")) {
+    const confirmed = await modal.confirm(
+      "Are you sure you want to delete this audiobook from your library?",
+      "Delete Audiobook",
+      { variant: "danger", confirmText: "Delete" }
+    );
+    if (confirmed) {
       await deleteDocument(id);
       loadDocuments();
     }
   };
+
+  const handleDeleteAudioEdition = useCallback(
+    async (edition: AudioEdition, doc?: Document) => {
+      const title = doc?.title ?? "this document";
+      const confirmed = await modal.confirm(
+        `Are you sure you want to delete the audio edition for "${title}"? This will permanently delete all synthesized audio files for this edition.`,
+        "Delete Audio Edition",
+        { variant: "danger", confirmText: "Delete" }
+      );
+      if (!confirmed) return;
+
+      try {
+        const job = generationJobs[edition.id];
+        if (job && (job.status === "generating" || job.status === "paused")) {
+          await useAudioEditionGenerationStore.getState().cancelJob(edition.id);
+        }
+        await deleteAudioEdition(edition.id);
+        reloadEditions();
+        toast.success("Audio edition deleted");
+      } catch (err: any) {
+        console.error("Failed to delete audio edition:", err);
+        toast.error("Failed to delete audio edition", err?.message);
+      }
+    },
+    [generationJobs, modal, reloadEditions, toast]
+  );
+
+  const handleOpenSourceDocument = useCallback(
+    (doc?: Document) => {
+      if (!doc) return;
+      addTab(
+        {
+          title: doc.title,
+          icon: <BookOpen className="w-4 h-4 text-primary" />,
+          type: "document-viewer",
+          content: DocumentViewer,
+          closable: true,
+          data: { documentId: doc.id },
+        },
+        paneId
+      );
+    },
+    [addTab, paneId]
+  );
+
+  const showEditionContextMenu = useCallback(
+    (
+      position: { x: number; y: number },
+      edition: AudioEdition,
+      doc?: Document,
+      job?: GenerationJob
+    ) => {
+      const sections = edition.sections ?? [];
+      const readyCount = sections.filter((s) => s.generationStatus === "ready").length;
+      const canPlay = readyCount > 0;
+      const isGenerating = job ? job.status === "generating" : edition.status === "generating";
+      const isPaused = job?.status === "paused";
+      const isFailed = job ? job.status === "error" : edition.status === "failed";
+      const hasFailedSections = sections.some((s) => s.generationStatus === "failed");
+      const canResume = isPaused || (!isGenerating && readyCount < sections.length);
+
+      const items: ContextMenuItem[] = [
+        {
+          id: "play",
+          label: "Listen to Audio Edition",
+          icon: <Play className="w-4 h-4 fill-current" />,
+          disabled: !canPlay,
+          onClick: () => {
+            handleListenToEdition(doc, edition);
+          },
+        },
+        {
+          id: "play-beginning",
+          label: "Listen from Beginning",
+          icon: <ArrowCounterClockwise className="w-4 h-4" />,
+          disabled: !canPlay,
+          onClick: () => {
+            handleListenToEdition(doc, edition, 0);
+          },
+        },
+        {
+          id: "open-source-doc",
+          label: "Open Source Document",
+          icon: <BookOpen className="w-4 h-4" />,
+          disabled: !doc,
+          onClick: () => {
+            handleOpenSourceDocument(doc);
+          },
+        },
+        { id: "sep-gen", type: ContextMenuItemType.Separator, label: "" },
+      ];
+
+      if (isGenerating) {
+        items.push({
+          id: "pause-gen",
+          label: "Pause Generation",
+          icon: <Pause className="w-4 h-4" />,
+          onClick: () => {
+            useAudioEditionGenerationStore.getState().pauseJob(edition.id);
+          },
+        });
+        items.push({
+          id: "cancel-gen",
+          label: "Cancel Generation",
+          icon: <X className="w-4 h-4" />,
+          onClick: async () => {
+            await useAudioEditionGenerationStore.getState().cancelJob(edition.id);
+            reloadEditions();
+          },
+        });
+      } else if (canResume) {
+        items.push({
+          id: "resume-gen",
+          label: "Resume Generation",
+          icon: <Play className="w-4 h-4 fill-current" />,
+          onClick: async () => {
+            await useAudioEditionGenerationStore.getState().resumeJob(edition.id);
+          },
+        });
+        if (isPaused) {
+          items.push({
+            id: "cancel-gen",
+            label: "Cancel Generation",
+            icon: <X className="w-4 h-4" />,
+            onClick: async () => {
+              await useAudioEditionGenerationStore.getState().cancelJob(edition.id);
+              reloadEditions();
+            },
+          });
+        }
+      }
+
+      if (isFailed || hasFailedSections) {
+        items.push({
+          id: "retry-gen",
+          label: "Retry Failed Sections",
+          icon: <ArrowClockwise className="w-4 h-4" />,
+          onClick: async () => {
+            await useAudioEditionGenerationStore.getState().retryFailedSections(edition.id);
+          },
+        });
+      }
+
+      if (doc) {
+        items.push({
+          id: "reconfigure",
+          label: "Recreate / New Edition Settings...",
+          icon: <SpeakerHigh className="w-4 h-4" />,
+          onClick: () => {
+            setConfigureDoc(doc);
+          },
+        });
+      }
+
+      items.push({ id: "sep-info", type: ContextMenuItemType.Separator, label: "" });
+
+      items.push({
+        id: "copy-title",
+        label: "Copy Title",
+        icon: <Copy className="w-4 h-4" />,
+        onClick: () => {
+          const title = doc?.title ?? "Document";
+          void navigator.clipboard.writeText(title);
+          toast.success("Title copied to clipboard");
+        },
+      });
+
+      items.push({
+        id: "copy-details",
+        label: "Copy Edition Details",
+        icon: <Info className="w-4 h-4" />,
+        onClick: () => {
+          const details = `${doc?.title ?? "Document"} — ${edition.provider}/${edition.model} (${edition.voice || "default"}), ${readyCount}/${sections.length} sections ready`;
+          void navigator.clipboard.writeText(details);
+          toast.success("Edition details copied to clipboard");
+        },
+      });
+
+      items.push({ id: "sep-danger", type: ContextMenuItemType.Separator, label: "" });
+
+      items.push({
+        id: "delete-edition",
+        label: "Delete Audio Edition",
+        icon: <Trash className="w-4 h-4 text-destructive" />,
+        type: ContextMenuItemType.Danger,
+        onClick: () => {
+          void handleDeleteAudioEdition(edition, doc);
+        },
+      });
+
+      editionContextMenu.showMenu(position, items);
+    },
+    [
+      editionContextMenu,
+      handleDeleteAudioEdition,
+      handleListenToEdition,
+      handleOpenSourceDocument,
+      reloadEditions,
+      toast,
+    ]
+  );
+
+  const handleEditionContextMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      edition: AudioEdition,
+      doc?: Document,
+      job?: GenerationJob
+    ) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showEditionContextMenu({ x: e.clientX, y: e.clientY }, edition, doc, job);
+    },
+    [showEditionContextMenu]
+  );
+
+  const handleDotsClick = useCallback(
+    (
+      e: React.MouseEvent,
+      edition: AudioEdition,
+      doc?: Document,
+      job?: GenerationJob
+    ) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      showEditionContextMenu({ x: rect.left, y: rect.bottom + 4 }, edition, doc, job);
+    },
+    [showEditionContextMenu]
+  );
 
   // Generate cover art fallback style
   const getCoverFallbackStyle = (title: string) => {
@@ -461,7 +707,8 @@ export function AudiobooksTab() {
                 <div
                   key={edition.id}
                   data-testid={`edition-card-${edition.id}`}
-                  className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors"
+                  onContextMenu={(e) => handleEditionContextMenu(e, edition, doc, job)}
+                  className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors select-none"
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
@@ -537,6 +784,15 @@ export function AudiobooksTab() {
                         )}
                       >
                         <Play className="w-4 h-4 fill-current" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDotsClick(e, edition, doc, job)}
+                        title="More options"
+                        aria-label={`More options for audio edition of ${doc?.title ?? "document"}`}
+                        data-testid={`edition-menu-button-${edition.id}`}
+                        className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors ml-0.5"
+                      >
+                        <DotsThreeVertical className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -699,6 +955,29 @@ export function AudiobooksTab() {
             );
           })}
         </div>
+      )}
+
+      {/* Audio Edition Context Menu */}
+      <ContextMenu
+        menuId="audio-edition-context-menu"
+        items={editionContextMenu.items}
+        visible={editionContextMenu.visible}
+        position={editionContextMenu.position}
+        onClose={editionContextMenu.hideMenu}
+      />
+
+      {/* Configure & Recreate Dialog */}
+      {configureDoc && (
+        <CreateAudioEditionDialog
+          isOpen={Boolean(configureDoc)}
+          onClose={() => setConfigureDoc(null)}
+          document={configureDoc}
+          onCreated={() => {
+            setConfigureDoc(null);
+            reloadEditions();
+            toast.success("Audio edition created");
+          }}
+        />
       )}
 
       {/* Import dialog */}

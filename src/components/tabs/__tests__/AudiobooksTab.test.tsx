@@ -1,16 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { act } from "react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { AudiobooksTab } from "../AudiobooksTab";
-import { useDocumentStore } from "../../../stores";
+import { useDocumentStore, useTabsStore } from "../../../stores";
 import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGenerationStore";
 import type { AudioEdition } from "../../../types/audioEdition";
 
 const mockListAudioEditions = vi.fn<() => Promise<AudioEdition[]>>();
+const mockDeleteAudioEdition = vi.fn<(id: string) => Promise<void>>();
+const mockModalConfirm = vi.fn().mockResolvedValue(true);
 
 vi.mock("../../../api/audioEditions", () => ({
   listAudioEditions: () => mockListAudioEditions(),
+  deleteAudioEdition: (id: string) => mockDeleteAudioEdition(id),
 }));
+
+vi.mock("../../../components/common/Modal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../components/common/Modal")>();
+  return {
+    ...actual,
+    useModal: () => ({
+      confirm: mockModalConfirm,
+      alert: vi.fn().mockResolvedValue(true),
+      prompt: vi.fn().mockResolvedValue(""),
+    }),
+  };
+});
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/tauri")>();
@@ -37,6 +51,9 @@ describe("AudiobooksTab - Audio Edition Generation Shelf & Controls", () => {
     learningItemCount: 0,
     isArchived: false,
     isFavorite: false,
+    priorityRating: 0,
+    prioritySlider: 0,
+    priorityScore: 0,
   };
 
   const testEdition: AudioEdition = {
@@ -276,6 +293,115 @@ describe("AudiobooksTab - Audio Edition Generation Shelf & Controls", () => {
 
     await waitFor(() => {
       expect(mockListAudioEditions).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("opens context menu on right click of edition card with action items", async () => {
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 150, clientY: 250 });
+
+    expect(screen.getByText("Listen to Audio Edition")).toBeInTheDocument();
+    expect(screen.getByText("Listen from Beginning")).toBeInTheDocument();
+    expect(screen.getByText("Open Source Document")).toBeInTheDocument();
+    expect(screen.getByText("Recreate / New Edition Settings...")).toBeInTheDocument();
+    expect(screen.getByText("Copy Title")).toBeInTheDocument();
+    expect(screen.getByText("Copy Edition Details")).toBeInTheDocument();
+    expect(screen.getByText("Delete Audio Edition")).toBeInTheDocument();
+  });
+
+  it("opens context menu via overflow dots button", async () => {
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-menu-button-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const menuBtn = screen.getByTestId("edition-menu-button-ed-logic-1");
+    fireEvent.click(menuBtn);
+
+    expect(screen.getByText("Listen to Audio Edition")).toBeInTheDocument();
+    expect(screen.getByText("Delete Audio Edition")).toBeInTheDocument();
+  });
+
+  it("handles 'Open Source Document' from context menu", async () => {
+    const addTabSpy = vi.spyOn(useTabsStore.getState(), "addTab");
+
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const openDocItem = screen.getByText("Open Source Document");
+    fireEvent.click(openDocItem);
+
+    expect(addTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Philosophy of Logic",
+        type: "document-viewer",
+        data: { documentId: "doc-text-1" },
+      }),
+      undefined
+    );
+  });
+
+  it("handles 'Listen from Beginning' from context menu", async () => {
+    const addTabSpy = vi.spyOn(useTabsStore.getState(), "addTab");
+
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const listenBeginningItem = screen.getByText("Listen from Beginning");
+    fireEvent.click(listenBeginningItem);
+
+    expect(addTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Philosophy of Logic",
+        data: expect.objectContaining({
+          documentId: "doc-text-1",
+          listenToEdition: true,
+          initialJump: { kind: "audio", timeSeconds: 0 },
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it("handles 'Delete Audio Edition' with confirmation and clean up", async () => {
+    render(<AudiobooksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("edition-card-ed-logic-1")).toBeInTheDocument();
+    });
+
+    const card = screen.getByTestId("edition-card-ed-logic-1");
+    fireEvent.contextMenu(card, { clientX: 100, clientY: 200 });
+
+    const deleteItem = screen.getByText("Delete Audio Edition");
+    fireEvent.click(deleteItem);
+
+    await waitFor(() => {
+      expect(mockModalConfirm).toHaveBeenCalledWith(
+        expect.stringContaining("Philosophy of Logic"),
+        "Delete Audio Edition",
+        expect.objectContaining({ variant: "danger", confirmText: "Delete" })
+      );
+      expect(mockDeleteAudioEdition).toHaveBeenCalledWith("ed-logic-1");
     });
   });
 });

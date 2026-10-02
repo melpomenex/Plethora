@@ -98,7 +98,7 @@ import { ListeningSessionInbox } from "../audio/ListeningSessionInbox";
 import { ListenLaterQueue } from "../audio/ListenLaterQueue";
 import { useListenLaterStore } from "../../stores/listenLaterStore";
 import { getAudioEditionAnchors, getAudioEditionByDocument } from "../../api/audioEditions";
-import { sectionAudioBlobCache } from "../../stores/audioEditionGenerationStore";
+import { sectionAudioBlobCache, useAudioEditionGenerationStore, type GenerationJob } from "../../stores/audioEditionGenerationStore";
 import { ensureTranscriptEdition } from "../../utils/transcriptEdition";
 import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
 import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
@@ -116,6 +116,14 @@ export interface AudiobookPlaybackErrorState {
 
 export function classifyAudiobookPlaybackError(code?: number): AudiobookPlaybackErrorKind {
   return code === 3 || code === 4 ? "codec" : "source";
+}
+
+export const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "m4b", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff"]);
+
+export function isDirectAudioDocument(doc: { fileType?: string; filePath?: string }): boolean {
+  if (doc.fileType === "audio") return true;
+  const ext = doc.filePath?.split(".").pop()?.toLowerCase();
+  return Boolean(ext && AUDIO_EXTENSIONS.has(ext));
 }
 
 export function AudiobookPlaybackErrorNotice({
@@ -660,8 +668,9 @@ export function AudiobookViewer({
   }, [document.id]);
 
   useEffect(() => {
+    const isDirectAudio = isDirectAudioDocument(document);
     const ext = document.filePath?.split(".").pop()?.toLowerCase();
-    if (!isTauri() || !document.filePath || editionOwnsPlaylistRef.current) {
+    if (!isTauri() || !document.filePath || editionOwnsPlaylistRef.current || !isDirectAudio) {
       setPreparedPlaybackPath(null);
       setPreparedPlaybackSrc(null);
       return;
@@ -980,6 +989,8 @@ const editionSectionIdsRef = useRef<string[]>([]);
   const resolvedSectionUrlsRef = useRef<Record<string, string>>({});
   const [resolvedSectionUrls, setResolvedSectionUrls] = useState<Record<string, string>>({});
 
+  const [generationJob, setGenerationJob] = useState<GenerationJob | null>(null);
+
   // Load the document's Audio Edition once per document. A ready edition with
   // section audio takes over the playlist (parts = ready sections, chapters =
   // sections on the global timeline). Without an edition, a timed transcript
@@ -993,7 +1004,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
     editionOwnsPlaylistRef.current = false;
     setResolvedSectionUrls({});
 
-    void (async () => {
+    // Check initial generation job for this document
+    const initialJob = Object.values(useAudioEditionGenerationStore.getState().jobs).find(
+      (j) => j.documentId === document.id
+    );
+    setGenerationJob(initialJob || null);
+
+    const loadEdition = async () => {
       try {
         let edition = await getAudioEditionByDocument(document.id);
         if (cancelled) return;
@@ -1032,8 +1049,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
         // machinery untouched — they only contribute anchors.
         if (
           edition.provider !== "transcript" &&
-          readySections.length > 0 &&
-          !multiPartInfo
+          readySections.length > 0
         ) {
           // The edition (e.g. a multi-file imported audiobook) now owns the
           // playlist: retire the single-file resolution of document.filePath
@@ -1076,10 +1092,27 @@ const editionSectionIdsRef = useRef<string[]>([]);
       } catch (err) {
         console.warn("[AudiobookViewer] Failed to load audio edition:", err);
       }
-    })();
+    };
+
+    void loadEdition();
+
+    const unsub = useAudioEditionGenerationStore.subscribe((state, prevState) => {
+      const job = Object.values(state.jobs).find((j) => j.documentId === document.id);
+      const prevJob = Object.values(prevState.jobs).find((j) => j.documentId === document.id);
+      setGenerationJob(job || null);
+
+      if (
+        (job && !prevJob) ||
+        job?.status !== prevJob?.status ||
+        job?.completedSections !== prevJob?.completedSections
+      ) {
+        void loadEdition();
+      }
+    });
 
     return () => {
       cancelled = true;
+      unsub();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [document.id]);
@@ -1916,11 +1949,16 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
     }
 
-    const playbackFilePath = preparedPlaybackPath || document.filePath;
+    const isDirectAudio = isDirectAudioDocument(document);
+    const playbackFilePath = preparedPlaybackPath || (isDirectAudio ? document.filePath : null);
     const isRemotePath = playbackFilePath?.startsWith("http://") || playbackFilePath?.startsWith("https://") || playbackFilePath?.startsWith("data:");
 
     if (!isTauri() || !playbackFilePath || isRemotePath) {
-      showError(t("viewer.playbackFailed"), t("viewer.unableToLoadAudio"));
+      if (!isDirectAudio && !audioEdition) {
+        showError(t("viewer.playbackFailed"), "This document requires an Audio Edition to be generated before playback.");
+      } else {
+        showError(t("viewer.playbackFailed"), t("viewer.unableToLoadAudio"));
+      }
       return false;
     }
 
@@ -1977,6 +2015,32 @@ const editionSectionIdsRef = useRef<string[]>([]);
           setCurrentTime(0);
           currentTimeRef.current = 0;
         }
+
+        const hasAudioSource = Boolean(
+          fallbackSrc ||
+          podcastLocalSrc ||
+          preparedPlaybackSrc ||
+          remoteAudioUrl ||
+          (multiPartInfo && partSources[currentPartIndex])
+        );
+
+        if (!hasAudioSource) {
+          if (generationJob && generationJob.status === "generating") {
+            showInfo(
+              "Synthesizing Audio",
+              `Generating audio edition (${generationJob.completedSections} of ${generationJob.totalSections} sections ready). Playback will be available shortly.`
+            );
+          } else if (!isDirectAudioDocument(document)) {
+            showInfo(
+              "Audio Edition Required",
+              "Audio has not been generated for this document yet. Create an audio edition to start listening."
+            );
+          } else {
+            showError(t("viewer.playbackFailed"), t("viewer.unableToLoadAudio"));
+          }
+          return;
+        }
+
         try {
           await audioRef.current.play();
         } catch (err) {
@@ -3247,7 +3311,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
           this viewer; browser callers may provide an object/blob URL. */}
       <audio
         ref={audioRef}
-        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
+        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() && isDirectAudioDocument(document) ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onDurationChange={handleDurationChange}
@@ -3442,6 +3506,26 @@ const editionSectionIdsRef = useRef<string[]>([]);
                     >
                       {isPlaying ? "Cancel Auto-Play" : "Play When Ready"}
                     </button>
+                  </div>
+                )}
+
+                {!isDownloading && generationJob && generationJob.status === "generating" && (
+                  <div className="absolute inset-0 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20 cursor-default" onClick={(e) => e.stopPropagation()}>
+                    <CircleNotch className="h-10 w-10 text-primary animate-spin mb-4" />
+                    <h3 className="font-semibold text-foreground mb-1 text-sm">
+                      Synthesizing Audio Edition...
+                    </h3>
+                    <p className="text-xs text-muted-foreground mb-4 max-w-[220px]">
+                      {generationJob.totalSections > 0
+                        ? `Synthesized ${generationJob.completedSections} of ${generationJob.totalSections} sections (${generationJob.progressPercent}%)`
+                        : "Preparing audio synthesis..."}
+                    </p>
+                    <div className="w-full bg-muted rounded-full h-1.5 max-w-[180px] overflow-hidden mb-3">
+                      <div 
+                        className="bg-primary h-full transition-all duration-300 rounded-full"
+                        style={{ width: `${generationJob.progressPercent}%` }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

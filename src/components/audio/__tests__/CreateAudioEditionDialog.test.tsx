@@ -6,10 +6,16 @@ import * as documentsApi from "../../../api/documents";
 import * as audioEditionsApi from "../../../api/audioEditions";
 import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGenerationStore";
 import { useToastStore } from "../../common/Toast";
+import * as pdfExtractor from "../../../utils/pdfTextExtractor";
 import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({
   getDocument: vi.fn(),
+  updateDocumentContent: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../../utils/pdfTextExtractor", () => ({
+  extractPdfData: vi.fn(),
 }));
 
 vi.mock("../../../api/audioEditions", () => ({
@@ -22,10 +28,18 @@ describe("CreateAudioEditionDialog", () => {
     id: "doc-1",
     title: "Philosophy of Science",
     filePath: "/docs/philosophy.txt",
-    fileType: "txt",
+    fileType: "other",
     content: null as any,
     dateAdded: new Date().toISOString(),
-    lastModified: new Date().toISOString(),
+    dateModified: new Date().toISOString(),
+    tags: [],
+    extractCount: 0,
+    learningItemCount: 0,
+    priorityRating: 0,
+    prioritySlider: 0,
+    priorityScore: 0,
+    isArchived: false,
+    isFavorite: false,
   };
 
   beforeEach(() => {
@@ -134,5 +148,127 @@ describe("CreateAudioEditionDialog", () => {
     expect(toasts.length).toBe(1);
     expect(toasts[0].title).toBe("Generating Audio Edition");
     expect(toasts[0].message).toContain("Philosophy of Science");
+  });
+
+  it("hydrates PDF document with empty content using extractPdfData and updates SQLite", async () => {
+    const dummyPdfSummary: Document = {
+      id: "doc-pdf-1",
+      title: "Machine Learning Textbook",
+      filePath: "/books/ml.pdf",
+      fileType: "pdf",
+      content: null as any,
+      dateAdded: new Date().toISOString(),
+      dateModified: new Date().toISOString(),
+      tags: [],
+      extractCount: 0,
+      learningItemCount: 0,
+      priorityRating: 0,
+      prioritySlider: 0,
+      priorityScore: 0,
+      isArchived: false,
+      isFavorite: false,
+    };
+
+    // Database returns document with empty content
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      ...dummyPdfSummary,
+      content: "",
+    });
+
+    vi.mocked(pdfExtractor.extractPdfData).mockResolvedValue({
+      totalPages: 10,
+      totalChars: 1200,
+      fullText: "Chapter 1: Intro\nThis is machine learning.\n\nChapter 2: Neural Nets\nThis is deep learning.",
+      outline: [
+        { title: "Chapter 1: Intro", pageNumber: 1, level: 1 },
+        { title: "Chapter 2: Neural Nets", pageNumber: 5, level: 1 },
+      ],
+      pageContents: [
+        { pageNumber: 1, text: "Chapter 1: Intro\nThis is machine learning." },
+        { pageNumber: 5, text: "Chapter 2: Neural Nets\nThis is deep learning." },
+      ],
+    });
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyPdfSummary}
+      />
+    );
+
+    // Verify extractPdfData was called
+    await waitFor(() => {
+      expect(pdfExtractor.extractPdfData).toHaveBeenCalledWith("/books/ml.pdf", expect.any(Object));
+    });
+
+    // Verify updateDocumentContent was called to persist extracted text to SQLite
+    await waitFor(() => {
+      expect(documentsApi.updateDocumentContent).toHaveBeenCalledWith(
+        "doc-pdf-1",
+        "Chapter 1: Intro\nThis is machine learning.\n\nChapter 2: Neural Nets\nThis is deep learning."
+      );
+    });
+
+    // Button should be enabled and chapters rendered
+    await waitFor(() => {
+      const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
+      expect(createButton).not.toBeDisabled();
+      expect(screen.getByText(/2 Chapters/i)).toBeInTheDocument();
+    });
+  });
+
+  it("renders progress indicator during PDF extraction", async () => {
+    const dummyPdfSummary: Document = {
+      id: "doc-pdf-2",
+      title: "Large Textbook",
+      filePath: "/books/large.pdf",
+      fileType: "pdf",
+      content: "",
+      dateAdded: new Date().toISOString(),
+      dateModified: new Date().toISOString(),
+      tags: [],
+      extractCount: 0,
+      learningItemCount: 0,
+      priorityRating: 0,
+      prioritySlider: 0,
+      priorityScore: 0,
+      isArchived: false,
+      isFavorite: false,
+    };
+
+    vi.mocked(documentsApi.getDocument).mockResolvedValue(dummyPdfSummary);
+
+    let finishExtraction: ((val: any) => void) | undefined;
+    vi.mocked(pdfExtractor.extractPdfData).mockImplementation((_path, options) => {
+      options?.onProgress?.(5, 50);
+      return new Promise((resolve) => {
+        finishExtraction = resolve;
+      });
+    });
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyPdfSummary}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Extracting PDF text and outline \(page 5 of 50\)/i)).toBeInTheDocument();
+    });
+
+    finishExtraction!({
+      totalPages: 50,
+      totalChars: 500,
+      fullText: "Extracted text from page 5",
+      outline: [],
+      pageContents: [{ pageNumber: 5, text: "Extracted text from page 5" }],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 Chapters/i)).toBeInTheDocument();
+    });
   });
 });

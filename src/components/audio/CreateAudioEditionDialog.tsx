@@ -21,7 +21,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { createAudioEdition, auditionVoicePreview } from "../../api/audioEditions";
-import { getDocument } from "../../api/documents";
+import { getDocument, updateDocumentContent } from "../../api/documents";
 import { useToastStore, ToastType } from "../common/Toast";
 import { AudiobooksTab } from "../tabs/TabRegistry";
 import {
@@ -31,6 +31,11 @@ import {
   stripHtmlTags,
   type AudioEditionSemanticSection,
 } from "../../utils/sectionIndex";
+import {
+  extractPdfData,
+  type PdfPageContent,
+  type PdfOutlineItem,
+} from "../../utils/pdfTextExtractor";
 import {
   estimateAudioEditionCost,
   formatAudioDuration,
@@ -78,43 +83,89 @@ export function CreateAudioEditionDialog({
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // PDF-specific extracted data
+  const [pageContents, setPageContents] = useState<PdfPageContent[]>([]);
+  const [pdfOutline, setPdfOutline] = useState<PdfOutlineItem[]>([]);
+  const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(null);
+
   useEffect(() => {
     if (!isOpen || !doc?.id) return;
-    if (doc.content && doc.content.trim().length > 0) {
-      setHydratedDoc(doc);
-      setIsLoadingDoc(false);
-      return;
-    }
 
     let cancelled = false;
-    setIsLoadingDoc(true);
     setLoadError(null);
+    setPdfProgress(null);
+    setPageContents([]);
+    setPdfOutline([]);
 
-    getDocument(doc.id)
-      .then((fullDoc) => {
-        if (cancelled) return;
-        if (fullDoc && fullDoc.content && fullDoc.content.trim().length > 0) {
-          setHydratedDoc(fullDoc);
-        } else {
-          setHydratedDoc(fullDoc || doc);
+    const hydrate = async () => {
+      setIsLoadingDoc(true);
+      try {
+        let currentDoc = doc;
+        if (!currentDoc.content || currentDoc.content.trim().length === 0) {
+          const fullDoc = await getDocument(doc.id);
+          if (cancelled) return;
+          if (fullDoc) {
+            currentDoc = fullDoc;
+          }
         }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn("Failed to hydrate document for audio edition:", err);
-        setHydratedDoc(doc);
-        setLoadError(err?.message || "Failed to load document content.");
-      })
-      .finally(() => {
+
+        // For PDF documents: extract pages and outline if text is missing or outline/pages needed
+        if (currentDoc.fileType === "pdf" && currentDoc.filePath) {
+          const isContentEmpty = !currentDoc.content || currentDoc.content.trim().length === 0;
+          try {
+            const extracted = await extractPdfData(currentDoc.filePath, {
+              onProgress: (current, total) => {
+                if (!cancelled) {
+                  setPdfProgress({ current, total });
+                }
+              },
+              isCancelled: () => cancelled,
+            });
+
+            if (cancelled) return;
+
+            if (extracted.pageContents.length > 0) {
+              setPageContents(extracted.pageContents);
+              setPdfOutline(extracted.outline);
+
+              if (extracted.fullText && isContentEmpty) {
+                currentDoc = { ...currentDoc, content: extracted.fullText };
+                updateDocumentContent(currentDoc.id, extracted.fullText).catch((err) => {
+                  console.warn("Failed to persist extracted PDF text to document:", err);
+                });
+              }
+            }
+          } catch (pdfErr: any) {
+            console.warn("Failed to extract PDF data:", pdfErr);
+            if (isContentEmpty) {
+              setLoadError(`Failed to extract PDF text: ${pdfErr?.message || "Unknown error"}`);
+            }
+          }
+        }
+
+        if (!cancelled) {
+          setHydratedDoc(currentDoc);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.warn("Failed to hydrate document for audio edition:", err);
+          setHydratedDoc(doc);
+          setLoadError(err?.message || "Failed to load document content.");
+        }
+      } finally {
         if (!cancelled) {
           setIsLoadingDoc(false);
+          setPdfProgress(null);
         }
-      });
+      }
+    };
+
+    void hydrate();
 
     return () => {
       cancelled = true;
     };
-  }, [isOpen, doc]);
+  }, [isOpen, doc.id, doc.filePath]);
 
   // Sync provider/model/voice when preset changes
   // Revoke the audition preview URL on dismiss (task 5.7).
@@ -150,8 +201,8 @@ export function CreateAudioEditionDialog({
       const toc = (hydratedDoc.metadata as any)?.toc || [];
       extracted = extractEpubSemanticSections(toc, undefined, { [hydratedDoc.filePath || ""]: rawContent });
     } else if (hydratedDoc.fileType === "pdf") {
-      const outline = (hydratedDoc.metadata as any)?.outline || [];
-      extracted = extractPdfSemanticSections(outline, undefined, rawContent);
+      const outline = (hydratedDoc.metadata as any)?.outline || (pdfOutline.length > 0 ? pdfOutline : []);
+      extracted = extractPdfSemanticSections(outline, pageContents.length > 0 ? pageContents : undefined, rawContent);
     } else {
       extracted = extractArticleSemanticSections(rawContent);
     }
@@ -176,7 +227,7 @@ export function CreateAudioEditionDialog({
       sampleText: sample,
       totalChars: count,
     };
-  }, [hydratedDoc]);
+  }, [hydratedDoc, pdfOutline, pageContents]);
 
   // Pre-flight estimation
   const estimation = useMemo(() => {
@@ -387,9 +438,25 @@ export function CreateAudioEditionDialog({
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
           {/* Document Hydration Loading Indicator */}
           {isLoadingDoc && (
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs">
-              <CircleNotch size={16} className="animate-spin shrink-0" />
-              <span>Reading document content and extracting sections...</span>
+            <div className="space-y-2 p-3.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs">
+              <div className="flex items-center gap-2.5">
+                <CircleNotch size={16} className="animate-spin shrink-0" />
+                <span className="font-medium">
+                  {pdfProgress && pdfProgress.total > 0
+                    ? `Extracting PDF text and outline (page ${pdfProgress.current} of ${pdfProgress.total})...`
+                    : "Reading document content and extracting sections..."}
+                </span>
+              </div>
+              {pdfProgress && pdfProgress.total > 0 && (
+                <div className="w-full bg-primary/20 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-primary h-1.5 rounded-full transition-all duration-150"
+                    style={{
+                      width: `${Math.min(100, Math.round((pdfProgress.current / pdfProgress.total) * 100))}%`,
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
 

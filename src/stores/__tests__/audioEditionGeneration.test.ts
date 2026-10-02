@@ -207,18 +207,25 @@ describe("Audio Edition Generation & Anchors", () => {
     registerScenarioSynthAdapter({
       id: "scenario-synth" as any,
       label: "Synthetic Test Provider",
-      description: "Test provider for vitest",
-      requiresApiKey: false,
-      auth: { mode: "none" } as any,
+      kind: "local",
+      auth: { mode: "none" },
+      capabilities: {
+        supportsSpeed: true,
+        supportsInstructions: false,
+        supportsCloning: false,
+        supportsCustomVoiceIds: false,
+        supportsWordTimings: false,
+        audioFormats: ["wav"],
+        maxInputChars: 5000,
+      },
+      listModels: async () => [{ id: "test-model", name: "Test Model", vendor: "Test", supportedVoices: null, supportedParameters: [] }],
+      listVoices: async () => [{ id: "test-voice", name: "Test Voice", provider: "scenario-synth" as any, modelId: "test-model" }],
       synthesize: vi.fn(async () => ({
         audioUrl: "blob:test-audio",
         durationSec: 12,
         audioData: new ArrayBuffer(100),
+        rawOutput: {},
       })),
-      voices: [{ id: "test-voice", name: "Test Voice" }],
-      defaultVoice: "test-voice",
-      defaultModel: "test-model",
-      models: [{ id: "test-model", name: "Test Model" }],
     });
   });
 

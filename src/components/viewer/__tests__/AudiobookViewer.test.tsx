@@ -4,7 +4,9 @@ import {
   AudiobookPlaybackErrorNotice,
   AudiobookViewer,
   classifyAudiobookPlaybackError,
+  isDirectAudioDocument,
 } from "../AudiobookViewer";
+import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGenerationStore";
 import type { Document } from "../../../types/document";
 
 const tauriMocks = vi.hoisted(() => ({
@@ -435,6 +437,66 @@ describe("desktop audiobook source resolution failures", () => {
     );
 
     await waitFor(() => expect(onDurationChange).toHaveBeenCalledWith(654));
+  });
+
+  it("does not attempt direct audio stream playback for non-audio documents (e.g. PDF)", async () => {
+    tauriMocks.invokeCommand.mockReset().mockResolvedValue(null);
+
+    const pdfDoc: Document = {
+      ...desktopDocument(),
+      id: "doc-pdf-1",
+      filePath: "/Users/test/Documents/textbook.pdf",
+      fileType: "pdf",
+    };
+
+    const { container } = render(<AudiobookViewer document={pdfDoc} />);
+    const audio = container.querySelector("audio");
+
+    await waitFor(() => {
+      expect(tauriMocks.invokeCommand).not.toHaveBeenCalledWith(
+        "get_media_stream_url",
+        expect.objectContaining({ filePath: "/Users/test/Documents/textbook.pdf" }),
+      );
+    });
+    expect(audio?.getAttribute("src")).toBeNull();
+  });
+
+  it("displays audio edition synthesis progress overlay when edition is generating", async () => {
+    useAudioEditionGenerationStore.setState({
+      jobs: {
+        "job-1": {
+          documentId: "doc-pdf-2",
+          editionId: "edition-1",
+          status: "generating",
+          totalSections: 10,
+          completedSections: 4,
+          failedSections: 0,
+          progressPercent: 40,
+          currentSectionId: null,
+        },
+      },
+    });
+
+    const pdfDoc: Document = {
+      ...desktopDocument(),
+      id: "doc-pdf-2",
+      filePath: "/Users/test/Documents/textbook2.pdf",
+      fileType: "pdf",
+    };
+
+    render(<AudiobookViewer document={pdfDoc} />);
+
+    expect(await screen.findByText("Synthesizing Audio Edition...")).toBeInTheDocument();
+    expect(screen.getByText("Synthesized 4 of 10 sections (40%)")).toBeInTheDocument();
+
+    useAudioEditionGenerationStore.setState({ jobs: {} });
+  });
+
+  it("correctly identifies direct audio files vs non-audio documents", () => {
+    expect(isDirectAudioDocument({ fileType: "pdf", filePath: "/path/doc.pdf" })).toBe(false);
+    expect(isDirectAudioDocument({ fileType: "audio", filePath: "/path/audio.mp3" })).toBe(true);
+    expect(isDirectAudioDocument({ filePath: "/path/audio.m4b" })).toBe(true);
+    expect(isDirectAudioDocument({ filePath: "/path/book.epub" })).toBe(false);
   });
 });
 
