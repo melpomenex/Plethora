@@ -2,6 +2,8 @@ import { checkPocketTTSAvailable, generatePocketSpeech } from "../../pocketTts";
 import type { TTSAdapterContext, TTSModelInfo, TTSProviderAdapter, TTSVoiceInfo } from "../types";
 import { TTSServiceError } from "../errors";
 
+import { POCKET_BUILTIN_VOICES } from "../../../utils/ttsSettings";
+
 export const pocketAdapter: TTSProviderAdapter = {
   id: "pocket",
   label: "Pocket TTS",
@@ -22,7 +24,17 @@ export const pocketAdapter: TTSProviderAdapter = {
     return [{ id: "pocket-tts", name: "Pocket TTS", vendor: "Kyutai", supportedVoices: null, supportedParameters: ["speed"], contextLength: 0, description }];
   },
   async listVoices(ctx, modelId): Promise<TTSVoiceInfo[]> {
-    return ctx.tts.voiceProfiles.filter((profile) => profile.provider === "pocket" && profile.voice).map((profile) => ({ id: profile.voice!, name: profile.name, provider: "pocket", modelId, vendor: "Pocket TTS" }));
+    const configured = (ctx.tts?.voiceProfiles || [])
+      .filter((profile) => profile.provider === "pocket" && profile.voice)
+      .map((profile) => ({ id: profile.voice!, name: profile.name, provider: "pocket" as const, modelId, vendor: "Pocket TTS" }));
+    if (configured.length > 0) return configured;
+    return POCKET_BUILTIN_VOICES.map((v) => ({
+      id: v,
+      name: v.charAt(0).toUpperCase() + v.slice(1),
+      provider: "pocket" as const,
+      modelId,
+      vendor: "Pocket TTS",
+    }));
   },
   async synthesize(ctx, request) {
     try {

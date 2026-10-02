@@ -795,7 +795,7 @@ export function AudiobooksTab() {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {edition.provider}/{edition.model} · {formatDuration(totalDuration)}
+                        {edition.provider}/{edition.model}{edition.voice ? ` (${edition.voice})` : ""} · {formatDuration(totalDuration)}
                         {hasListenProgress ? ` · ${listenProgress}% listened` : ""}
                         {job ? ` · ${job.completedSections}/${job.totalSections} sections` : ""}
                       </p>

@@ -1,12 +1,13 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { CreateAudioEditionDialog } from "../CreateAudioEditionDialog";
 import * as documentsApi from "../../../api/documents";
 import * as audioEditionsApi from "../../../api/audioEditions";
 import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGenerationStore";
 import { useToastStore } from "../../common/Toast";
 import * as pdfExtractor from "../../../utils/pdfTextExtractor";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({
@@ -50,6 +51,15 @@ describe("CreateAudioEditionDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useToastStore.setState({ toasts: [] });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        tts: {
+          ...state.settings.tts,
+          paidTtsEnabled: true,
+        } as any,
+      },
+    }));
   });
 
   it("hydrates document content when summary has empty content and renders loading state", async () => {
@@ -352,5 +362,107 @@ describe("CreateAudioEditionDialog", () => {
 
     expect(queueApi.bulkUnsuspendItems).not.toHaveBeenCalled();
     expect(documentsApi.updateDocument).not.toHaveBeenCalled();
+  });
+
+  it("renders voice selector and allows selecting and auditioning different voices", async () => {
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      ...dummyDocSummary,
+      content: "Paragraph 1: Testing audio voice selection and preview.",
+    });
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyDocSummary}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    // Select Fast (Pocket / Local)
+    const fastButton = screen.getByRole("button", { name: /Fast/i });
+    fireEvent.click(fastButton);
+
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    expect(voiceSelect).toBeInTheDocument();
+    expect(voiceSelect.value).toBe("alba");
+
+    // Check that Alba and Marius are available options
+    expect(within(voiceSelect).getByRole("option", { name: /Alba/i })).toBeInTheDocument();
+    expect(within(voiceSelect).getByRole("option", { name: /Marius/i })).toBeInTheDocument();
+
+    // Select Marius
+    fireEvent.change(voiceSelect, { target: { value: "marius" } });
+    expect(voiceSelect.value).toBe("marius");
+
+    // The audition section should display Marius
+    expect(screen.getByText("(Marius)")).toBeInTheDocument();
+
+    // Click Audition button
+    const auditionButton = screen.getByTestId("audition-voice-button");
+    fireEvent.click(auditionButton);
+
+    await waitFor(() => {
+      expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
+        expect.stringContaining("Paragraph 1"),
+        "pocket",
+        "default",
+        "marius",
+        expect.objectContaining({ speed: 1.0 })
+      );
+    });
+  });
+
+  it("updates voice options when switching quality presets and persists selected voice", async () => {
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      ...dummyDocSummary,
+      content: "Chapter 1: The philosophy of audio editions and voice options.\nThis is a substantial text content that should generate an audio edition.",
+    });
+    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockImplementation(async () => {});
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={dummyDocSummary}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    // 1. Best preset (ElevenLabs)
+    const bestButton = screen.getByRole("button", { name: /Best/i });
+    fireEvent.click(bestButton);
+
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    expect(voiceSelect.value).toBe("21m00Tcm4TlvDq8ikWAM"); // Rachel
+
+    // Options should include Rachel and Adam
+    expect(within(voiceSelect).getByRole("option", { name: /Rachel/i })).toBeInTheDocument();
+    expect(within(voiceSelect).getByRole("option", { name: /Adam/i })).toBeInTheDocument();
+
+    // Change to Adam
+    fireEvent.change(voiceSelect, { target: { value: "pNInz6obpgDQGcFmaJgB" } });
+    expect(voiceSelect.value).toBe("pNInz6obpgDQGcFmaJgB");
+
+    // Create the edition
+    const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(audioEditionsApi.createAudioEdition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "elevenlabs",
+          model: "eleven_multilingual_v2",
+          voice: "pNInz6obpgDQGcFmaJgB",
+        }),
+        expect.any(Array)
+      );
+    });
   });
 });

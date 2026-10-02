@@ -17,6 +17,9 @@ import type {
 import { getAdapter } from "./tts/registry";
 import { isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
 import { t } from "../lib/i18n";
+import { useSettingsStore } from "../stores/settingsStore";
+import { getProviderSettings } from "../utils/ttsSettings";
+import { resolveProviderKey } from "./tts/auth";
 
 // In-memory fallback for browser / mock mode
 const browserEditionStore = new Map<string, AudioEdition>();
@@ -289,18 +292,30 @@ export async function auditionVoicePreview(
     }
   }
 
+  const appSettings = useSettingsStore.getState().settings;
+  const tts = appSettings?.tts || ({} as any);
+  const config = getProviderSettings(tts, providerId);
+  const resolvedKey = adapter?.auth ? resolveProviderKey(adapter, appSettings) : { key: "" };
+
   const sample = text.trim().slice(0, 200) || "This is an audition of the selected voice for your audio edition.";
   const result = await adapter.synthesize(
     {
-      settings: {} as any,
-      tts: {} as any,
-      config: {} as any,
+      settings: appSettings,
+      tts: { ...tts },
+      config: {
+        ...config,
+        modelId,
+        speed: settings?.speed || 1.0,
+      } as any,
+      apiKey: resolvedKey.key || undefined,
+      borrowedFrom: resolvedKey.source,
     },
     {
       text: sample,
       voice: voiceId,
       model: modelId,
       speed: settings?.speed || 1.0,
+      instructions: settings?.instructions,
       responseFormat: (settings?.responseFormat as "mp3" | "opus" | "aac" | "wav") || "mp3",
     }
   );

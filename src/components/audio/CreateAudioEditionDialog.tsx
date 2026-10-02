@@ -14,6 +14,7 @@ import {
   CheckCircle,
   Lightning,
   CircleNotch,
+  User,
 } from "@phosphor-icons/react";
 import type { Document } from "../../types/document";
 import type { QualityPreset, AudioEdition } from "../../types/audioEdition";
@@ -42,8 +43,71 @@ import {
   formatAudioDuration,
 } from "../../utils/audioEditionEstimation";
 import { getAdapter } from "../../api/tts/registry";
+import {
+  POCKET_BUILTIN_VOICES,
+  GROQ_BUILTIN_VOICES,
+  FAL_BUILTIN_VOICES,
+  getProviderSettings,
+} from "../../utils/ttsSettings";
+import { resolveProviderKey } from "../../api/tts/auth";
 import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
 import { t } from "../../lib/i18n";
+
+export interface AvailableVoice {
+  id: string;
+  name: string;
+  gender?: string;
+  description?: string;
+  isCustom?: boolean;
+}
+
+const POCKET_DEFAULT_VOICES: AvailableVoice[] = [
+  { id: "alba", name: "Alba", gender: "Female", description: "Warm, natural cadence (Default)" },
+  { id: "marius", name: "Marius", gender: "Male", description: "Clear, narrative tone" },
+  { id: "javert", name: "Javert", gender: "Male", description: "Authoritative, deep" },
+  { id: "jean", name: "Jean", gender: "Male", description: "Calm, steady narrator" },
+  { id: "fantine", name: "Fantine", gender: "Female", description: "Gentle, expressive" },
+  { id: "cosette", name: "Cosette", gender: "Female", description: "Bright, youthful" },
+  { id: "eponine", name: "Eponine", gender: "Female", description: "Rich, conversational" },
+  { id: "azelma", name: "Azelma", gender: "Female", description: "Crisp, dynamic" },
+];
+
+const OPENAI_DEFAULT_VOICES: AvailableVoice[] = [
+  { id: "alloy", name: "Alloy", gender: "Neutral", description: "Balanced and versatile (Default)" },
+  { id: "echo", name: "Echo", gender: "Male", description: "Deep and resonant" },
+  { id: "fable", name: "Fable", gender: "Male", description: "British accent, expressive" },
+  { id: "onyx", name: "Onyx", gender: "Male", description: "Warm, authoritative" },
+  { id: "nova", name: "Nova", gender: "Female", description: "Energetic and bright" },
+  { id: "shimmer", name: "Shimmer", gender: "Female", description: "Clear, emotional resonance" },
+  { id: "ash", name: "Ash", gender: "Male", description: "Clear, calm narrative" },
+  { id: "coral", name: "Coral", gender: "Female", description: "Warm and engaging" },
+  { id: "sage", name: "Sage", gender: "Female", description: "Calm and composed" },
+];
+
+const ELEVENLABS_DEFAULT_VOICES: AvailableVoice[] = [
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", gender: "Female", description: "Calm, studio narration (Default)" },
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", gender: "Male", description: "Warm, deep audiobook narrator" },
+  { id: "ErXwobaYiN019PkySvjV", name: "Antoni", gender: "Male", description: "Well-rounded, pleasant" },
+  { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", gender: "Male", description: "Crisp, clear" },
+  { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", gender: "Female", description: "Strong, confident" },
+  { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", gender: "Female", description: "Young, clear narration" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", gender: "Male", description: "Deep, conversational" },
+  { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", gender: "Male", description: "Dynamic storytelling" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", gender: "Female", description: "Expressive" },
+];
+
+const KOKORO_DEFAULT_VOICES: AvailableVoice[] = [
+  { id: "af_bella", name: "Bella", gender: "Female", description: "American, gentle (Default)" },
+  { id: "af_sarah", name: "Sarah", gender: "Female", description: "American, clear" },
+  { id: "af_nicole", name: "Nicole", gender: "Female", description: "American, conversational" },
+  { id: "af_sky", name: "Sky", gender: "Female", description: "American, bright" },
+  { id: "am_adam", name: "Adam", gender: "Male", description: "American, narrative" },
+  { id: "am_michael", name: "Michael", gender: "Male", description: "American, articulate" },
+  { id: "bf_emma", name: "Emma", gender: "Female", description: "British, polished" },
+  { id: "bf_isabella", name: "Isabella", gender: "Female", description: "British, natural" },
+  { id: "bm_george", name: "George", gender: "Male", description: "British, warm" },
+  { id: "bm_lewis", name: "Lewis", gender: "Male", description: "British, deep" },
+];
 
 interface CreateAudioEditionDialogProps {
   isOpen: boolean;
@@ -169,6 +233,63 @@ export function CreateAudioEditionDialog({
     };
   }, [isOpen, doc.id, doc.filePath]);
 
+  // Stop audition helper
+  const stopAudition = () => {
+    if (auditionAudioRef.current) {
+      auditionAudioRef.current.pause();
+      auditionAudioRef.current = null;
+    }
+    setIsAuditioning(false);
+    revokeOwnedObjectUrl(auditionUrlRef.current);
+    auditionUrlRef.current = null;
+  };
+
+  const handleQualityChange = (newQuality: QualityPreset) => {
+    stopAudition();
+    setQuality(newQuality);
+    setShowAdvanced(false);
+    if (newQuality === "fast") {
+      setProvider("pocket");
+      setModel("default");
+      setVoice("alba");
+    } else if (newQuality === "natural") {
+      setProvider("openrouter");
+      setModel("openai/tts-1");
+      setVoice("alloy");
+    } else if (newQuality === "best") {
+      setProvider("elevenlabs");
+      setModel("eleven_multilingual_v2");
+      setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
+    }
+  };
+
+  const handleProviderChange = (newProvider: string) => {
+    stopAudition();
+    setProvider(newProvider);
+    if (newProvider === "pocket") {
+      setModel("default");
+      setVoice("alba");
+    } else if (newProvider === "openai") {
+      setModel("gpt-4o-mini-tts");
+      setVoice("alloy");
+    } else if (newProvider === "openrouter") {
+      setModel("openai/tts-1");
+      setVoice("alloy");
+    } else if (newProvider === "elevenlabs") {
+      setModel("eleven_multilingual_v2");
+      setVoice("21m00Tcm4TlvDq8ikWAM");
+    } else if (newProvider === "system") {
+      setModel("system");
+      setVoice("system-default");
+    } else if (newProvider === "groq") {
+      setModel("playai-tts");
+      setVoice("Fiora");
+    } else if (newProvider === "fal") {
+      setModel("fal-ai/qwen-3-tts/text-to-speech/1.7b");
+      setVoice("Vivian");
+    }
+  };
+
   // Sync provider/model/voice when preset changes
   // Revoke the audition preview URL on dismiss (task 5.7).
   useEffect(() => {
@@ -193,6 +314,108 @@ export function CreateAudioEditionDialog({
       setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
     }
   }, [quality]);
+
+  // Dynamic voices fetched from adapter if available
+  const [dynamicVoices, setDynamicVoices] = useState<AvailableVoice[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAdapterVoices = async () => {
+      try {
+        const adapter = getAdapter(provider);
+        if (!adapter) return;
+        const tts = settings.tts || ({} as any);
+        const config = getProviderSettings(tts, provider);
+        const resolvedKey = adapter?.auth ? resolveProviderKey(adapter, settings) : { key: "" };
+        const voices = await adapter.listVoices(
+          {
+            settings,
+            tts,
+            config: { ...config, modelId: model },
+            apiKey: resolvedKey.key || undefined,
+            borrowedFrom: resolvedKey.source,
+          },
+          model
+        );
+        if (!cancelled && voices && voices.length > 0) {
+          setDynamicVoices(
+            voices.map((v) => ({
+              id: v.id,
+              name: v.name,
+              gender: v.gender,
+              description: v.vendor,
+            }))
+          );
+        }
+      } catch {
+        // Fallback to built-in rosters
+      }
+    };
+    void fetchAdapterVoices();
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, model, settings]);
+
+  const { savedVoiceProfiles, standardVoices, availableVoices } = useMemo(() => {
+    const userProfiles = (settings.tts?.voiceProfiles || [])
+      .filter((p) => p.provider === provider && p.voice && p.kind !== "builtin")
+      .map((p) => ({
+        id: p.voice!,
+        name: p.name,
+        gender: "Custom",
+        description: "Saved Profile",
+        isCustom: true,
+      }));
+
+    let baseList: AvailableVoice[] = [];
+    if (provider === "pocket") {
+      baseList = POCKET_DEFAULT_VOICES;
+    } else if (provider === "openai") {
+      baseList = OPENAI_DEFAULT_VOICES;
+    } else if (provider === "elevenlabs") {
+      baseList = ELEVENLABS_DEFAULT_VOICES;
+    } else if (provider === "openrouter") {
+      baseList = model.toLowerCase().includes("kokoro")
+        ? KOKORO_DEFAULT_VOICES
+        : OPENAI_DEFAULT_VOICES;
+    } else if (provider === "system") {
+      baseList = [{ id: "system-default", name: "System Default", gender: "Neutral" }];
+    } else if (provider === "groq") {
+      baseList = GROQ_BUILTIN_VOICES.map((id) => ({
+        id,
+        name: id,
+        gender: "Neutral",
+      }));
+    } else if (provider === "fal") {
+      baseList = FAL_BUILTIN_VOICES.map((id) => ({
+        id,
+        name: id.replace(/_/g, " "),
+        gender: "Neutral",
+      }));
+    }
+
+    const mergedStandard: AvailableVoice[] = [...baseList];
+    for (const dv of dynamicVoices) {
+      if (!mergedStandard.some((v) => v.id.toLowerCase() === dv.id.toLowerCase())) {
+        mergedStandard.push(dv);
+      }
+    }
+
+    const allVoices = [...userProfiles, ...mergedStandard];
+    return {
+      savedVoiceProfiles: userProfiles,
+      standardVoices: mergedStandard,
+      availableVoices: allVoices,
+    };
+  }, [provider, model, settings.tts?.voiceProfiles, dynamicVoices]);
+
+  const selectedVoiceDisplay = useMemo(() => {
+    const found = availableVoices.find(
+      (v) => v.id.toLowerCase() === voice.toLowerCase() || v.name.toLowerCase() === voice.toLowerCase()
+    );
+    return found ? found.name : voice;
+  }, [availableVoices, voice]);
 
   // Derive document sections & sample text
   const { sections, sampleText, totalChars } = useMemo(() => {
@@ -498,10 +721,7 @@ export function CreateAudioEditionDialog({
               {/* Fast */}
               <button
                 type="button"
-                onClick={() => {
-                  setQuality("fast");
-                  setShowAdvanced(false);
-                }}
+                onClick={() => handleQualityChange("fast")}
                 className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
                   quality === "fast" && !showAdvanced
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
@@ -521,10 +741,7 @@ export function CreateAudioEditionDialog({
               {/* Natural */}
               <button
                 type="button"
-                onClick={() => {
-                  setQuality("natural");
-                  setShowAdvanced(false);
-                }}
+                onClick={() => handleQualityChange("natural")}
                 className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
                   quality === "natural" && !showAdvanced
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
@@ -544,10 +761,7 @@ export function CreateAudioEditionDialog({
               {/* Best */}
               <button
                 type="button"
-                onClick={() => {
-                  setQuality("best");
-                  setShowAdvanced(false);
-                }}
+                onClick={() => handleQualityChange("best")}
                 className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
                   quality === "best" && !showAdvanced
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
@@ -566,10 +780,59 @@ export function CreateAudioEditionDialog({
             </div>
           </div>
 
+          {/* Voice Selection */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="audio-edition-voice-select"
+                className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+              >
+                Voice Selection
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                {availableVoices.length} {availableVoices.length === 1 ? "voice" : "voices"} available
+              </span>
+            </div>
+            <div className="relative">
+              <select
+                id="audio-edition-voice-select"
+                data-testid="voice-select"
+                value={voice}
+                onChange={(e) => {
+                  stopAudition();
+                  setVoice(e.target.value);
+                }}
+                className="w-full bg-background border border-input rounded-xl px-3 py-2 text-sm font-medium text-foreground focus:ring-2 focus:ring-primary focus:outline-none transition-all cursor-pointer shadow-sm"
+              >
+                {savedVoiceProfiles.length > 0 && (
+                  <optgroup label="Saved Voice Profiles">
+                    {savedVoiceProfiles.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} (Custom Profile)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Available Voices">
+                  {standardVoices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.gender || "Voice"}{v.description ? ` · ${v.description}` : ""})
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
           {/* Voice Audition Preview Button */}
           <div className="flex items-center justify-between p-3.5 rounded-xl bg-muted/40 border border-border/80">
-            <div className="space-y-0.5">
-              <span className="text-xs font-medium">Audition Document Voice</span>
+            <div className="space-y-0.5 min-w-0 pr-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium">Audition Document Voice</span>
+                <span className="text-[11px] text-primary font-semibold truncate">
+                  ({selectedVoiceDisplay})
+                </span>
+              </div>
               <p className="text-[11px] text-muted-foreground line-clamp-1">
                 Preview first paragraph: “{sampleText.slice(0, 50)}...”
               </p>
@@ -577,12 +840,13 @@ export function CreateAudioEditionDialog({
             <button
               type="button"
               onClick={handleAudition}
-              disabled={isAuditioning || isLoadingDoc || totalChars === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shadow-sm disabled:opacity-40"
+              disabled={isAuditioning ? false : isLoadingDoc || totalChars === 0}
+              data-testid="audition-voice-button"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shadow-sm disabled:opacity-40 shrink-0"
             >
               {isAuditioning ? (
                 <>
-                  <Stop size={14} weight="fill" className="text-red-500" />
+                  <Stop size={14} weight="fill" className="text-red-500 animate-pulse" />
                   <span>Stop</span>
                 </>
               ) : (
@@ -620,7 +884,7 @@ export function CreateAudioEditionDialog({
                     </label>
                     <select
                       value={provider}
-                      onChange={(e) => setProvider(e.target.value)}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
                     >
                       <option value="pocket">Pocket TTS (Local)</option>
@@ -632,18 +896,39 @@ export function CreateAudioEditionDialog({
                   </div>
                   <div>
                     <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                      Speed ({speed}x)
+                      Voice Override
                     </label>
-                    <input
-                      type="range"
-                      min="0.75"
-                      max="2.0"
-                      step="0.05"
-                      value={speed}
-                      onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                      className="w-full mt-1.5"
-                    />
+                    <select
+                      value={voice}
+                      data-testid="advanced-voice-select"
+                      onChange={(e) => {
+                        stopAudition();
+                        setVoice(e.target.value);
+                      }}
+                      className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
+                    >
+                      {availableVoices.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} ({v.gender || "Voice"})
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-muted-foreground mb-1">
+                    Speed ({speed}x)
+                  </label>
+                  <input
+                    type="range"
+                    min="0.75"
+                    max="2.0"
+                    step="0.05"
+                    value={speed}
+                    onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                    className="w-full mt-1.5"
+                  />
                 </div>
 
                 <div>
