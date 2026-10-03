@@ -93,6 +93,9 @@ class SherpaRecognizerFactory(
                         this.model = modelFile.absolutePath
                     }
                 }
+                SttModelKind.WHISTLE -> {
+                    throw IllegalStateException("WHISTLE model cannot be decoded by SherpaRecognizer")
+                }
             }
         }
         val config = OfflineRecognizerConfig().apply {
