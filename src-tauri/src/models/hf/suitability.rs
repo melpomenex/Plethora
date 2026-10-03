@@ -117,10 +117,10 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
     // 2. Memory/VRAM sizing on the *actual artifact*.
     let needs = artifact.estimated_memory_bytes;
 
-    // Sherpa-onnx TTS runs CPU-only in Plethora (the bundled onnxruntime is
-    // the CPU build; no CUDA/DirectML/CoreML provider is configured for it),
+    // Sherpa-onnx TTS and Cactus Whistle STT run CPU-only in Plethora,
     // so a discrete GPU never gates or improves the verdict — evaluate RAM.
-    let cpu_first = artifact.runtime == HfRuntime::SherpaOnnxTts;
+    let cpu_first = artifact.runtime == HfRuntime::SherpaOnnxTts
+        || artifact.runtime == HfRuntime::WhistleStt;
 
     // Apple Silicon: unified memory is the accelerator budget.
     if system.is_apple_silicon {
@@ -437,6 +437,9 @@ mod tests {
             },
             HfRuntime::LayaDecision => RunContract::ExternalEndpoint {
                 endpoint_kind: "systemone".into(),
+            },
+            HfRuntime::WhistleStt => RunContract::Whistle {
+                model_file: "whistle.cact".into(),
             },
         };
         Artifact {

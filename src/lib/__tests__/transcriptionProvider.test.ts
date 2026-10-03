@@ -382,4 +382,48 @@ describe("resolveTranscription — mobile nemotron and legacy openrouter", () =>
       substitution: "mobile-no-local",
     });
   });
+
+  it("resolves Whistle when installed and selected as preferredModelId", () => {
+    const whistle = profile("cactus-whistle", "Cactus Whistle", true);
+    const res = resolveTranscription(
+      settings({ preferredModelId: "cactus-whistle" }),
+      [whistle],
+      "desktop"
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "local",
+      modelId: "cactus-whistle",
+      modelLabel: "Cactus Whistle",
+    });
+  });
+
+  it("prioritizes Whistle over Parakeet and Whisper when both are installed without preference", () => {
+    const whistle = profile("cactus-whistle", "Cactus Whistle", true);
+    const res = resolveTranscription(
+      settings({ preferredModelId: undefined }),
+      [whisper, parakeet, whistle],
+      "desktop"
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "local",
+      modelId: "cactus-whistle",
+    });
+  });
+
+  it("routes to on-device on mobile when Whistle is selected and android STT is ready", () => {
+    const res = resolveTranscription(
+      settings({ provider: "local", sttProvider: "local", sttModel: "cactus-whistle" }),
+      [],
+      "native-mobile",
+      { androidSttReady: true }
+    );
+    expect(res).toMatchObject({
+      ok: true,
+      provider: "android-ondevice",
+      modelId: "cactus-whistle",
+      autoOnDevice: true,
+    });
+  });
 });

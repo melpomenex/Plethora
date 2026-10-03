@@ -8,7 +8,8 @@ use super::hf_client::{
 };
 use super::manager::{
     InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, is_pinned_nemotron_repo,
-    model_id_for, registry_list, resolve_install_target, resolve_pinned_nemotron_install_target,
+    is_pinned_whistle_repo, model_id_for, registry_list, resolve_install_target,
+    resolve_pinned_nemotron_install_target, resolve_pinned_whistle_install_target,
     uninstall, NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
     nemotron_asr_catalog_entry,
 };
@@ -375,6 +376,12 @@ pub async fn hf_install_model(
         resolve_pinned_nemotron_install_target(&app_handle)
             .await
             .map_err(|e| PlethoraError::Internal(e.to_string()))?
+    } else if is_pinned_whistle_repo(&parsed.repo_id)
+        && runtime == HfRuntime::WhistleStt
+    {
+        resolve_pinned_whistle_install_target(&app_handle)
+            .await
+            .map_err(|e| PlethoraError::Internal(e.to_string()))?
     } else {
         resolve_install_target(&app_handle, &parsed, runtime, &artifact_kind)
             .await
@@ -444,6 +451,7 @@ mod tests {
             ("sherpa-onnx-stt", HfRuntime::SherpaOnnxStt),
             ("sherpa-onnx-tts", HfRuntime::SherpaOnnxTts),
             ("nemotron-asr", HfRuntime::NemotronAsr),
+            ("whistle-stt", HfRuntime::WhistleStt),
         ];
         for (raw, expected) in cases {
             let parsed = parse_runtime_arg(raw).unwrap_or_else(|e| panic!("{raw}: {e}"));

@@ -19,18 +19,21 @@ pub mod test_support;
 
 pub use adapters::{
     Artifact, HfRuntime, RunContract, RuntimeAdapter, NemotronAsrAdapter, SherpaOnnxSttAdapter,
-    SherpaOnnxTtsAdapter, WhisperCppAdapter,
+    SherpaOnnxTtsAdapter, WhisperCppAdapter, WhistleSttAdapter,
 };
 pub use hf_client::{
     FileMetadata, HfFile, HfRepoInfo, RepoInput, parse_repo_input,
 };
 pub use manager::{
-    InstalledHfModel, InstalledModelFile, install_pinned_nemotron_asr, is_nemotron_asr_installed,
-    is_pinned_nemotron_repo, model_id_for, nemotron_asr_catalog_entry, registry_is_installed,
+    InstalledHfModel, InstalledModelFile, install_pinned_nemotron_asr, install_pinned_whistle,
+    is_nemotron_asr_installed, is_whistle_installed, is_pinned_nemotron_repo, is_pinned_whistle_repo,
+    model_id_for, nemotron_asr_catalog_entry, whistle_catalog_entry, registry_is_installed,
     registry_list, registry_remove, resolve_pinned_nemotron_install_target,
+    resolve_pinned_whistle_install_target, resolve_installed_whistle,
     NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_DECODER_FILE, NEMOTRON_ASR_JOINER_FILE,
     NEMOTRON_ASR_TOKENS_FILE, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
-    PinnedNemotronAsrCatalogEntry,
+    WHISTLE_LOGICAL_KEY, WHISTLE_REPO_ID, WHISTLE_MODEL_FILE, WHISTLE_SHA256, WHISTLE_SIZE_BYTES,
+    PinnedNemotronAsrCatalogEntry, PinnedWhistleCatalogEntry,
 };
 pub use suitability::{Suitability, SuitabilityLevel};
 pub use system_info::{GpuInfo, SystemInfo, detect_system_info};

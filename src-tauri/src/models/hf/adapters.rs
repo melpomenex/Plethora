@@ -36,6 +36,8 @@ pub enum HfRuntime {
     /// DAQE drives it through its System One HTTP endpoint, so the only job here
     /// is to fetch and verify the weights a `laya-serve` will load.
     LayaDecision,
+    /// Cactus Whistle STT model (needle engine, .cact format).
+    WhistleStt,
 }
 
 impl HfRuntime {
@@ -46,6 +48,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxTts => "sherpa-onnx (ONNX TTS)",
             HfRuntime::NemotronAsr => "Nemotron ASR (streaming ONNX)",
             HfRuntime::LayaDecision => "Laya (typed decisions)",
+            HfRuntime::WhistleStt => "Cactus Whistle (Needle STT)",
         }
     }
 
@@ -56,6 +59,7 @@ impl HfRuntime {
             HfRuntime::NemotronAsr => "sherpa-online",
             // Decision checkpoints run in a separate process, reached over HTTP.
             HfRuntime::LayaDecision => "laya-serve",
+            HfRuntime::WhistleStt => "needle",
         }
     }
 }
@@ -189,6 +193,9 @@ pub enum RunContract {
         #[serde(default)]
         tokens: String,
     },
+    Whistle {
+        model_file: String,
+    },
 }
 
 impl RunContract {
@@ -272,6 +279,7 @@ impl RunContract {
                 .into_iter()
                 .filter(|f| !f.is_empty())
                 .collect(),
+            RunContract::Whistle { model_file } => vec![model_file.as_str()],
         }
     }
 
@@ -300,6 +308,12 @@ impl RunContract {
             RunContract::Whisper { model_file } => {
                 if model_file.is_empty() {
                     return Err("whisper contract has an empty model_file".to_string());
+                }
+                Ok(())
+            }
+            RunContract::Whistle { model_file } => {
+                if model_file.is_empty() {
+                    return Err("whistle contract has an empty model_file".to_string());
                 }
                 Ok(())
             }
@@ -1146,6 +1160,71 @@ impl RuntimeAdapter for LayaDecisionAdapter {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cactus Whistle STT adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct WhistleSttAdapter;
+
+impl RuntimeAdapter for WhistleSttAdapter {
+    fn runtime(&self) -> HfRuntime {
+        HfRuntime::WhistleStt
+    }
+
+    fn id(&self) -> &'static str {
+        "whistle-stt"
+    }
+
+    fn label(&self) -> &'static str {
+        "Cactus Whistle (Needle STT)"
+    }
+
+    fn required_metadata(&self) -> Vec<&'static str> {
+        vec!["*.cact"]
+    }
+
+    fn install_dir(&self, app_data_dir: &Path) -> PathBuf {
+        app_data_dir.join("models").join("whistle")
+    }
+
+    fn detect_artifact(&self, info: &HfRepoInfo, index: &FileIndex) -> Option<Artifact> {
+        let model = index.find_file(|name| {
+            let lower = name.to_lowercase();
+            lower.ends_with(".cact")
+        })?;
+
+        let repo_lower = info.id.to_lowercase();
+        let exact = repo_lower.contains("whistle") || model.eq_ignore_ascii_case("whistle.cact");
+        let confidence = if exact {
+            DetectionConfidence::Exact
+        } else {
+            DetectionConfidence::Heuristic
+        };
+
+        let files = vec![artifact_file(index, model.clone())];
+        let size = total_download_size(&files);
+        if size == 0 {
+            return None;
+        }
+
+        let estimated_memory_bytes = (size as f64 * 1.5) as u64;
+
+        Some(Artifact {
+            runtime: HfRuntime::WhistleStt,
+            kind: "cact-whistle".to_string(),
+            label: "Cactus Whistle STT model (.cact)".to_string(),
+            files,
+            download_size_bytes: size,
+            run_contract: RunContract::Whistle {
+                model_file: model,
+            },
+            estimated_memory_bytes,
+            confidence,
+            metadata: BTreeMap::new(),
+        })
+    }
+}
+
 /// All adapters, in the order they are evaluated.
 pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
     vec![
@@ -1153,6 +1232,7 @@ pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
         Box::new(SherpaOnnxSttAdapter),
         Box::new(SherpaOnnxTtsAdapter),
         Box::new(NemotronAsrAdapter),
+        Box::new(WhistleSttAdapter),
         Box::new(LayaDecisionAdapter),
     ]
 }
@@ -1729,5 +1809,40 @@ mod tests {
                 "traversal in {field} must fail containment"
             );
         }
+    }
+
+    #[test]
+    fn detects_cactus_whistle_cact() {
+        let info = repo("Cactus-Compute/whistle", &["automatic-speech-recognition", "stt"]);
+        let idx = index(&[file("whistle.cact", 16_919_407)]);
+        let artifact = WhistleSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        assert_eq!(artifact.runtime, HfRuntime::WhistleStt);
+        assert_eq!(artifact.kind, "cact-whistle");
+        assert_eq!(artifact.confidence, DetectionConfidence::Exact);
+        assert_eq!(artifact.files.len(), 1);
+        assert_eq!(
+            artifact.run_contract,
+            RunContract::Whistle {
+                model_file: "whistle.cact".to_string(),
+            }
+        );
+        assert!(artifact.run_contract.paths_contained());
+        assert!(artifact.run_contract.validate().is_ok());
+    }
+
+    #[test]
+    fn whistle_contract_rejects_empty_model_file() {
+        let contract = RunContract::Whistle {
+            model_file: "".to_string(),
+        };
+        assert!(contract.validate().is_err());
+    }
+
+    #[test]
+    fn whistle_contract_rejects_path_traversal() {
+        let contract = RunContract::Whistle {
+            model_file: "../evil.cact".to_string(),
+        };
+        assert!(!contract.paths_contained());
     }
 }

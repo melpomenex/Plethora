@@ -61,7 +61,7 @@ import {
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
-import { resolveTranscription, isNemotronModelId } from "../../lib/transcriptionProvider";
+import { resolveTranscription, isNemotronModelId, isWhistleModelId } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { transcribeAudiobookWithGroq } from "../../api/audiobooks";
 import { isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
@@ -126,6 +126,7 @@ export function AudioTranscriptionSettings() {
   const [isKeyValid, setIsKeyValid] = useState(false);
 
   const isNemotronSelected = isNemotronModelId(audioSettings.sttModel);
+  const isWhistleSelected = isWhistleModelId(audioSettings.sttModel);
 
   // Accelerator availability from the backend probe (excludes plain CPU).
   const usableAccelerators = useMemo(() => {
@@ -536,6 +537,37 @@ export function AudioTranscriptionSettings() {
               );
             })()
           )
+        )}
+
+        {/* Whistle status / guidance banner */}
+        {audioSettings.sttProvider === "local" && isWhistleSelected && (
+          (() => {
+            const whistleProfile = profiles.find((p) => isWhistleModelId(p.id));
+            const isWhistleInstalled = whistleProfile?.installed ?? false;
+            if (isWhistleInstalled) {
+              return (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Cactus Whistle (16.9 MB CPU model) is downloaded and ready for on-device transcription. Supports en, de, fr, es, it, nl, pl.</span>
+                </div>
+              );
+            }
+            return (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                  <Warning className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>Cactus Whistle (16.9 MB CPU model) is not downloaded.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDownload("cactus-whistle")}
+                  className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Download Whistle Model
+                </button>
+              </div>
+            );
+          })()
         )}
       </section>
 

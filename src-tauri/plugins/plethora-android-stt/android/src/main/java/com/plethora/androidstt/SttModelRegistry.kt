@@ -15,7 +15,8 @@ package com.plethora.androidstt
 /** Which sherpa-onnx OfflineModelConfig sub-config the model loads through. */
 enum class SttModelKind(val serial: String) {
     SENSE_VOICE("sense-voice"),
-    PARAKEET_CTC("parakeet-ctc");
+    PARAKEET_CTC("parakeet-ctc"),
+    WHISTLE("whistle");
 
     companion object {
         fun fromSerial(value: String): SttModelKind? =
@@ -75,7 +76,23 @@ object SttModelRegistry {
         extractedBytes = 131_674_112L,
     )
 
-    val ALL: List<SttModelManifest> = listOf(SENSE_VOICE_MULTI, PARAKEET_EN)
+    /** Cactus Whistle: ultra-lightweight (16.9 MB) multilingual on-device STT. */
+    val WHISTLE: SttModelManifest = SttModelManifest(
+        id = "cactus-whistle",
+        displayName = "Whistle (Multilingual)",
+        kind = SttModelKind.WHISTLE,
+        description = "Lightweight on-device speech recognition (English, German, French, Spanish, Italian, Dutch, Polish). Fast and private.",
+        languages = SttLanguageSupport(
+            primary = "en",
+            others = listOf("de", "fr", "es", "it", "nl", "pl"),
+        ),
+        url = "https://huggingface.co/Cactus-Compute/whistle/resolve/main/whistle.cact",
+        archiveBytes = 16_919_407L,
+        archiveSha256 = "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb",
+        extractedBytes = 16_919_407L,
+    )
+
+    val ALL: List<SttModelManifest> = listOf(SENSE_VOICE_MULTI, PARAKEET_EN, WHISTLE)
 
     val fallbackDefault: SttModelManifest get() = SENSE_VOICE_MULTI
 
@@ -91,6 +108,12 @@ object SttModelRegistry {
         val lang = (language ?: "en").trim().lowercase().take(2)
         if (lang == "en" && PARAKEET_EN.id in readyIds && SENSE_VOICE_MULTI.id in readyIds) {
             return PARAKEET_EN
+        }
+        if (SENSE_VOICE_MULTI.id in readyIds) {
+            return SENSE_VOICE_MULTI
+        }
+        if (WHISTLE.id in readyIds && (lang == "en" || lang in WHISTLE.languages.others)) {
+            return WHISTLE
         }
         return SENSE_VOICE_MULTI
     }

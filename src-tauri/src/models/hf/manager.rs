@@ -18,7 +18,7 @@
 use super::adapters::{
     Artifact, ArtifactFile, DetectionConfidence, HfRuntime, RunContract, RuntimeAdapter,
     SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter, WhisperCppAdapter, NemotronAsrAdapter,
-    LayaDecisionAdapter,
+    LayaDecisionAdapter, WhistleSttAdapter,
 };
 use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
 use super::hf_client::{
@@ -130,6 +130,75 @@ pub async fn is_nemotron_asr_installed(pool: &Pool<sqlx::Sqlite>) -> bool {
     false
 }
 
+pub const WHISTLE_LOGICAL_KEY: &str = "cactus-whistle";
+pub const WHISTLE_REPO_ID: &str = "Cactus-Compute/whistle";
+pub const WHISTLE_REVISION: &str = "main";
+pub const WHISTLE_MODEL_FILE: &str = "whistle.cact";
+pub const WHISTLE_SHA256: &str =
+    "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb";
+pub const WHISTLE_SIZE_BYTES: u64 = 16_919_407;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedWhistleCatalogEntry {
+    pub logical_key: String,
+    pub repo_id: String,
+    pub revision: String,
+    pub display_name: String,
+    pub size_bytes: u64,
+    pub license: String,
+    pub capability: String,
+    pub supports_streaming: bool,
+    pub languages: Vec<String>,
+}
+
+/// Metadata for the pinned Cactus Whistle STT catalog card.
+pub fn whistle_catalog_entry() -> PinnedWhistleCatalogEntry {
+    PinnedWhistleCatalogEntry {
+        logical_key: WHISTLE_LOGICAL_KEY.to_string(),
+        repo_id: WHISTLE_REPO_ID.to_string(),
+        revision: WHISTLE_REVISION.to_string(),
+        display_name: "Cactus Whistle (Needle STT)".to_string(),
+        size_bytes: WHISTLE_SIZE_BYTES,
+        license: "apache-2.0".to_string(),
+        capability: "asr".to_string(),
+        supports_streaming: false,
+        languages: vec![
+            "en".to_string(),
+            "de".to_string(),
+            "fr".to_string(),
+            "es".to_string(),
+            "it".to_string(),
+            "nl".to_string(),
+            "pl".to_string(),
+        ],
+    }
+}
+
+/// True when the pinned Cactus Whistle model is registered and verified on disk.
+pub async fn is_whistle_installed(pool: &Pool<sqlx::Sqlite>) -> bool {
+    let id = model_id_for(
+        HfRuntime::WhistleStt,
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+    );
+    if let Some(model) = registry_get(pool, &id).await {
+        if verify_on_disk(&model.install_dir, &model.artifact_files) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when `repo_id` is the pinned first-party Whistle catalog repo or one of its aliases.
+pub fn is_pinned_whistle_repo(repo_id: &str) -> bool {
+    let r = repo_id.trim();
+    r.eq_ignore_ascii_case(WHISTLE_REPO_ID)
+        || r.eq_ignore_ascii_case("cactus-compute/whistle")
+        || r.eq_ignore_ascii_case(WHISTLE_LOGICAL_KEY)
+        || r.eq_ignore_ascii_case("whistle")
+}
+
 /// One installed file, relative to the model's install dir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledModelFile {
@@ -169,6 +238,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxTts => "sherpa-onnx-tts",
             HfRuntime::NemotronAsr => "nemotron-asr",
             HfRuntime::LayaDecision => "laya-decision",
+            HfRuntime::WhistleStt => "whistle-stt",
         }
     }
 
@@ -180,11 +250,13 @@ impl HfRuntime {
             "sherpa-onnx-tts" => Some(HfRuntime::SherpaOnnxTts),
             "nemotron-asr" => Some(HfRuntime::NemotronAsr),
             "laya-decision" => Some(HfRuntime::LayaDecision),
+            "whistle-stt" => Some(HfRuntime::WhistleStt),
             // Legacy compact aliases (pre-alignment registry rows / model ids).
             "whisper" => Some(HfRuntime::WhisperCpp),
             "sherpa-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-tts" => Some(HfRuntime::SherpaOnnxTts),
             "nemotron" => Some(HfRuntime::NemotronAsr),
+            "whistle" => Some(HfRuntime::WhistleStt),
             _ => None,
         }
     }
@@ -196,6 +268,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxTts => Box::new(SherpaOnnxTtsAdapter),
             HfRuntime::NemotronAsr => Box::new(NemotronAsrAdapter),
             HfRuntime::LayaDecision => Box::new(LayaDecisionAdapter),
+            HfRuntime::WhistleStt => Box::new(WhistleSttAdapter),
         }
     }
 }
@@ -226,6 +299,17 @@ pub fn parse_model_id(id: &str) -> Option<(HfRuntime, String, String)> {
 /// Canonicalize an incoming model id (handling logical alias keys like `nemotron-3.5-asr-0.6b`).
 pub fn canonicalize_hf_model_id(id: &str) -> String {
     let trimmed = id.trim();
+    if trimmed == WHISTLE_LOGICAL_KEY
+        || trimmed == WHISTLE_REPO_ID
+        || trimmed.eq_ignore_ascii_case("cactus-compute/whistle")
+        || trimmed == "whistle"
+    {
+        return model_id_for(
+            HfRuntime::WhistleStt,
+            WHISTLE_REPO_ID,
+            WHISTLE_REVISION,
+        );
+    }
     if trimmed == NEMOTRON_ASR_LOGICAL_KEY
         || trimmed == NEMOTRON_ASR_REPO_ID
         || trimmed.eq_ignore_ascii_case("nvidia/nemotron-3.5-asr-0.6b")
@@ -366,6 +450,90 @@ pub async fn install_pinned_nemotron_asr(
     cancel: CancellationToken,
 ) -> Result<InstalledHfModel> {
     let mut target = resolve_pinned_nemotron_install_target(app).await?;
+    if let Some(id) = progress_id {
+        target.progress_id = Some(id.to_string());
+    }
+    install(app, repo, &target, cancel).await
+}
+
+/// Resolve a pinned Whistle install target without calling the HF models API.
+pub async fn resolve_pinned_whistle_install_target(app: &AppHandle) -> Result<InstallTarget> {
+    let client = hf_metadata_client();
+    let meta = fetch_file_metadata(
+        &client,
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+        WHISTLE_MODEL_FILE,
+    )
+    .await
+    .unwrap_or_default();
+    let sha256 = meta
+        .sha256
+        .clone()
+        .unwrap_or_else(|| WHISTLE_SHA256.to_string());
+    let size = meta.size.unwrap_or(WHISTLE_SIZE_BYTES);
+
+    let mut file_metadata = HashMap::new();
+    file_metadata.insert(
+        WHISTLE_MODEL_FILE.to_string(),
+        FileMetadata {
+            size: Some(size),
+            sha256: Some(sha256.clone()),
+        },
+    );
+
+    let artifact_files = vec![ArtifactFile {
+        path: WHISTLE_MODEL_FILE.to_string(),
+        size: Some(size),
+        sha256: Some(sha256),
+    }];
+
+    let artifact = Artifact {
+        runtime: HfRuntime::WhistleStt,
+        kind: "cactus-whistle".to_string(),
+        label: "Cactus Whistle (Needle STT)".to_string(),
+        files: artifact_files,
+        download_size_bytes: size,
+        run_contract: RunContract::Whistle {
+            model_file: WHISTLE_MODEL_FILE.to_string(),
+        },
+        estimated_memory_bytes: size.saturating_mul(2),
+        confidence: DetectionConfidence::Exact,
+        metadata: Default::default(),
+    };
+
+    let app_data = app_data_dir(app)?;
+    let install_dir = install_dir_for(HfRuntime::WhistleStt, &app_data).join(safe_dir_name(
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+    ));
+    let model_id = model_id_for(
+        HfRuntime::WhistleStt,
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+    );
+
+    Ok(InstallTarget {
+        repo_id: WHISTLE_REPO_ID.to_string(),
+        revision: WHISTLE_REVISION.to_string(),
+        runtime: HfRuntime::WhistleStt,
+        artifact,
+        model_id,
+        install_dir,
+        license: Some("apache-2.0".to_string()),
+        file_metadata,
+        progress_id: None,
+    })
+}
+
+/// Download + register the pinned Cactus Whistle catalog model.
+pub async fn install_pinned_whistle(
+    app: &AppHandle,
+    repo: &Repository,
+    progress_id: Option<&str>,
+    cancel: CancellationToken,
+) -> Result<InstalledHfModel> {
+    let mut target = resolve_pinned_whistle_install_target(app).await?;
     if let Some(id) = progress_id {
         target.progress_id = Some(id.to_string());
     }
@@ -576,6 +744,16 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
             }
             _ => None,
         },
+        HfRuntime::WhistleStt => match model.run_contract {
+            RunContract::Whistle { model_file } => {
+                let path = root.join(&model_file);
+                if !path.starts_with(&root) {
+                    return None;
+                }
+                Some(path)
+            }
+            _ => None,
+        },
         // The Nemotron engine (sherpa-online split transducer) takes the
         // install dir + per-file names from the route, like the sherpa STT
         // engines.
@@ -661,6 +839,34 @@ pub async fn resolve_installed_nemotron(
     None
 }
 
+/// Resolve an installed Cactus Whistle model to its on-disk directory plus contract.
+pub async fn resolve_installed_whistle(
+    pool: &Pool<sqlx::Sqlite>,
+    id: &str,
+) -> Option<(PathBuf, RunContract)> {
+    let canonical = canonicalize_hf_model_id(id);
+    if let Some((runtime, contract)) = resolve_run_contract(pool, &canonical).await {
+        if runtime == HfRuntime::WhistleStt && contract.validate().is_ok() {
+            if let Some(model) = registry_get(pool, &canonical).await {
+                return Some((PathBuf::from(model.install_dir), contract));
+            }
+        }
+    }
+    let default_id = model_id_for(
+        HfRuntime::WhistleStt,
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+    );
+    if let Some((runtime, contract)) = resolve_run_contract(pool, &default_id).await {
+        if runtime == HfRuntime::WhistleStt && contract.validate().is_ok() {
+            if let Some(model) = registry_get(pool, &default_id).await {
+                return Some((PathBuf::from(model.install_dir), contract));
+            }
+        }
+    }
+    None
+}
+
 /// How an STT model id should be dispatched to the transcription engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SttEngineRoute {
@@ -687,6 +893,8 @@ pub enum SttEngineRoute {
         joiner: String,
         tokens: String,
     },
+    /// Cactus Whistle STT via the needle sidecar.
+    Whistle { model: String },
     /// A model that exists but is not an STT model (e.g. TTS).
     NotTranscription,
 }
@@ -726,6 +934,9 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
                 },
             },
             RunContract::SherpaTts { .. } => SttEngineRoute::NotTranscription,
+            RunContract::Whistle { model_file } => {
+                SttEngineRoute::Whistle { model: model_file }
+            }
             RunContract::NemotronAsr {
                 encoder,
                 decoder,
@@ -746,6 +957,15 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
     } else if model_id.starts_with("parakeet-") {
         SttEngineRoute::Parakeet {
             model: "model.int8.onnx".to_string(),
+        }
+    } else if model_id == WHISTLE_LOGICAL_KEY
+        || model_id == WHISTLE_REPO_ID
+        || model_id == "cactus-whistle"
+        || model_id == "whistle"
+        || model_id.contains("whistle")
+    {
+        SttEngineRoute::Whistle {
+            model: WHISTLE_MODEL_FILE.to_string(),
         }
     } else if model_id == NEMOTRON_ASR_LOGICAL_KEY
         || model_id == NEMOTRON_ASR_REPO_ID
@@ -1137,6 +1357,7 @@ pub async fn hf_stt_profiles(
         if m.runtime != HfRuntime::SherpaOnnxStt
             && m.runtime != HfRuntime::WhisperCpp
             && m.runtime != HfRuntime::NemotronAsr
+            && m.runtime != HfRuntime::WhistleStt
         {
             continue;
         }
@@ -1270,6 +1491,7 @@ mod tests {
             HfRuntime::SherpaOnnxStt,
             HfRuntime::SherpaOnnxTts,
             HfRuntime::NemotronAsr,
+            HfRuntime::WhistleStt,
         ] {
             let serialized = serde_json::to_value(runtime).unwrap();
             let as_str = serialized.as_str().expect("runtime serializes to a string");
@@ -1288,6 +1510,7 @@ mod tests {
             HfRuntime::SherpaOnnxStt,
             HfRuntime::SherpaOnnxTts,
             HfRuntime::NemotronAsr,
+            HfRuntime::WhistleStt,
         ] {
             let serialized = serde_json::to_string(&runtime).unwrap();
             // serde_json::to_string produces a quoted JSON string; extract the
@@ -1310,6 +1533,7 @@ mod tests {
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-stt"), Some(HfRuntime::SherpaOnnxStt));
         assert_eq!(HfRuntime::from_tag("sherpa-onnx-tts"), Some(HfRuntime::SherpaOnnxTts));
         assert_eq!(HfRuntime::from_tag("nemotron-asr"), Some(HfRuntime::NemotronAsr));
+        assert_eq!(HfRuntime::from_tag("whistle-stt"), Some(HfRuntime::WhistleStt));
         assert_eq!(HfRuntime::from_tag("bogus"), None);
     }
 
@@ -1904,5 +2128,61 @@ mod tests {
             !legacy.run_contract.paths_contained() == false,
             "empty fields are contained (no phantom paths)"
         );
+
+        // Cactus Whistle routing and catalog resolution
+        assert!(is_pinned_whistle_repo(WHISTLE_REPO_ID));
+        assert!(is_pinned_whistle_repo("cactus-compute/whistle"));
+        assert!(is_pinned_whistle_repo("cactus-whistle"));
+        assert!(is_pinned_whistle_repo("whistle"));
+        assert_eq!(
+            canonicalize_hf_model_id(WHISTLE_LOGICAL_KEY),
+            model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION)
+        );
+
+        assert_eq!(
+            stt_route_for_model(&pool, WHISTLE_LOGICAL_KEY).await,
+            SttEngineRoute::Whistle {
+                model: WHISTLE_MODEL_FILE.to_string(),
+            }
+        );
+        assert_eq!(
+            stt_route_for_model(&pool, WHISTLE_REPO_ID).await,
+            SttEngineRoute::Whistle {
+                model: WHISTLE_MODEL_FILE.to_string(),
+            }
+        );
+
+        // HF Whistle model registered
+        let whistle = InstalledHfModel {
+            id: model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION),
+            repo_id: WHISTLE_REPO_ID.to_string(),
+            revision: WHISTLE_REVISION.to_string(),
+            runtime: HfRuntime::WhistleStt,
+            artifact_kind: "cactus-whistle".to_string(),
+            install_dir: dir.path().to_str().unwrap().to_string(),
+            artifact_files: vec![InstalledModelFile {
+                path: WHISTLE_MODEL_FILE.to_string(),
+                size: WHISTLE_SIZE_BYTES,
+                sha256: Some(WHISTLE_SHA256.to_string()),
+            }],
+            download_size_bytes: WHISTLE_SIZE_BYTES,
+            license: Some("apache-2.0".to_string()),
+            run_contract: RunContract::Whistle {
+                model_file: WHISTLE_MODEL_FILE.to_string(),
+            },
+            installed_at: "2026-10-03T00:00:00Z".to_string(),
+            installed: true,
+        };
+        write_model_files(&whistle);
+        registry_insert(&pool, &whistle).await.unwrap();
+
+        assert_eq!(
+            stt_route_for_model(&pool, &whistle.id).await,
+            SttEngineRoute::Whistle {
+                model: WHISTLE_MODEL_FILE.to_string(),
+            }
+        );
+        let path = resolve_installed_path(&pool, &whistle.id).await;
+        assert_eq!(path.unwrap(), dir.path().join(WHISTLE_MODEL_FILE));
     }
 }

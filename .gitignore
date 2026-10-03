@@ -133,6 +133,8 @@ src-tauri/bin/whisper-x86_64-*
 src-tauri/bin/sherpa-onnx-*
 src-tauri/bin/sherpa-online-*
 src-tauri/bin/.sherpa-onnx-provisioned
+src-tauri/bin/needle-*
+src-tauri/bin/.needle-provisioned
 src-tauri/bin/libggml*
 src-tauri/bin/libwhisper*
 src-tauri/bin/libonnxruntime*

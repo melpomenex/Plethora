@@ -195,7 +195,7 @@ fn main() {
             // clear "sidecar not available" error instead of trying to execute it.
             // Only externalBin entries without a committed launcher need this —
             // pocket-tts-* launchers are tracked in git, so they always resolve.
-            for base in ["whisper", "sherpa-onnx", "sherpa-online"] {
+            for base in ["whisper", "sherpa-onnx", "sherpa-online", "needle"] {
                 let sidecar_name = if target.contains("windows") {
                     format!("{}-{}.exe", base, target)
                 } else {
@@ -283,7 +283,7 @@ fn main() {
                     .unwrap_or("")
                     .to_string();
                 let is_apple = name.contains("apple");
-                (name.starts_with("whisper-") || name.starts_with("sherpa-")) && is_apple
+                (name.starts_with("whisper-") || name.starts_with("sherpa-") || name.starts_with("needle-")) && is_apple
             })
             .collect();
 

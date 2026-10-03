@@ -17,6 +17,7 @@ export const LOGICAL_STT_MODEL_KEYS = {
   QWEN_06: "qwen3-asr-0.6b",
   QWEN_17: "qwen3-asr-1.7b",
   WHISPER_LOCAL: "whisper-local",
+  WHISTLE: "cactus-whistle",
 } as const satisfies Record<string, LogicalSttModelKey>;
 
 export interface LogicalSttModelDefinition {
@@ -52,6 +53,11 @@ export const LOGICAL_STT_MODELS: Record<LogicalSttModelKey, LogicalSttModelDefin
     displayName: "Local Whisper",
     localProviderId: "local:whisper",
   },
+  [LOGICAL_STT_MODEL_KEYS.WHISTLE]: {
+    key: LOGICAL_STT_MODEL_KEYS.WHISTLE,
+    displayName: "Cactus Whistle (Needle STT)",
+    localProviderId: "local:whistle",
+  },
 };
 
 /** Remote/local configurable OpenRouter STT defaults (`stt.openrouter.defaultModel`). */
@@ -86,6 +92,7 @@ export const TRANSCRIPTION_PROVIDER_IDS = {
   OPENROUTER_QWEN_17: "openrouter:qwen3-asr-1.7b",
   LOCAL_NEMOTRON: "local:nemotron-3.5",
   LOCAL_WHISPER: "local:whisper",
+  LOCAL_WHISTLE: "local:whistle",
   LEGACY_GROQ: "legacy:groq",
   GEMINI_TRANSCRIBE: "gemini-transcribe",
   GEMINI_LIVE: "gemini-live",
@@ -133,6 +140,7 @@ export const TRANSCRIPTION_PRICING: Record<TranscriptionProviderId, Transcriptio
   "openrouter:qwen3-asr-1.7b": { costPerHour: 0.015, currency: "USD", tier: "inexpensive" },
   "local:nemotron-3.5": { costPerHour: 0, currency: "USD", tier: "free" },
   "local:whisper": { costPerHour: 0, currency: "USD", tier: "free" },
+  "local:whistle": { costPerHour: 0, currency: "USD", tier: "free" },
   "legacy:groq": { costPerHour: 0.04, currency: "USD", tier: "standard" },
   "gemini-transcribe": { costPerHour: 0.25, currency: "USD", tier: "premium" },
   "gemini-live": { costPerHour: 0.35, currency: "USD", tier: "premium" },

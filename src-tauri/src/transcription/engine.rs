@@ -936,6 +936,21 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 )
                 .await
             }
+            SttEngineRoute::Whistle { model } => {
+                let actual_model_path = if model_path.is_file() {
+                    model_path.to_path_buf()
+                } else {
+                    model_path.join(model)
+                };
+                self.transcribe_whistle(
+                    audio_path,
+                    &actual_model_path,
+                    language,
+                    on_segment,
+                    on_progress,
+                )
+                .await
+            }
             SttEngineRoute::NotTranscription => Err(anyhow!(
                 "This model is a TTS model and cannot be used for transcription."
             )),
@@ -971,6 +986,215 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default())
+    }
+
+    /// Transcribe audio using Cactus Whistle via the needle sidecar.
+    ///
+    /// Slices WAV audio into 30s windows when longer than 30 seconds,
+    /// invokes `needle --model whistle.cact --audio <wav> --audio-word-timestamps`,
+    /// and parses the JSON output into timestamped transcript segments with word timings.
+    pub async fn transcribe_whistle(
+        &self,
+        audio_path: &Path,
+        model_path: &Path,
+        language: &str,
+        on_segment: impl Fn(TranscriptSegment),
+        on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
+    ) -> Result<()> {
+        if !model_path.exists() {
+            return Err(anyhow!("Model file not found: {}", model_path.display()));
+        }
+
+        let _ = self.app_handle.emit(
+            "transcription://phase",
+            PhasePayload {
+                phase: "transcribing-cpu".to_string(),
+            },
+        );
+
+        if let Some(ref cb) = on_progress {
+            cb(5);
+        }
+
+        let chunk_duration_ms: i64 = 30_000;
+        let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(chunk_duration_ms);
+
+        if total_duration_ms <= chunk_duration_ms {
+            let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+            if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
+                on_segment(segment);
+            }
+            if let Some(ref cb) = on_progress {
+                cb(100);
+            }
+            return Ok(());
+        }
+
+        let wav_data = std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
+        if wav_data.len() < 44 {
+            let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+            if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
+                on_segment(segment);
+            }
+            if let Some(ref cb) = on_progress {
+                cb(100);
+            }
+            return Ok(());
+        }
+
+        let channels = u16::from_le_bytes([wav_data[22], wav_data[23]]) as u64;
+        let sample_rate = u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
+        let bits_per_sample = u16::from_le_bytes([wav_data[34], wav_data[35]]) as u64;
+        let bytes_per_sample = (bits_per_sample / 8).max(1);
+
+        let (data_offset, data_size) = match find_wav_data_chunk(&wav_data) {
+            Some(res) => res,
+            None => {
+                let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+                if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
+                    on_segment(segment);
+                }
+                if let Some(ref cb) = on_progress {
+                    cb(100);
+                }
+                return Ok(());
+            }
+        };
+
+        let total_samples = data_size / (channels * bytes_per_sample).max(1);
+        let chunk_samples = (sample_rate * chunk_duration_ms as u64) / 1000;
+        let num_chunks = ((total_samples + chunk_samples - 1) / chunk_samples.max(1)) as usize;
+
+        let mut chunk_idx = 0usize;
+        while (chunk_idx as u64 * chunk_samples) < total_samples {
+            let start_sample = chunk_idx as u64 * chunk_samples;
+            let end_sample = std::cmp::min(start_sample + chunk_samples, total_samples);
+            let chunk_byte_offset = data_offset as u64 + start_sample * channels * bytes_per_sample;
+            let chunk_byte_count = (end_sample - start_sample) * channels * bytes_per_sample;
+
+            if chunk_byte_offset as usize >= wav_data.len() {
+                break;
+            }
+            let end_byte = std::cmp::min(
+                (chunk_byte_offset + chunk_byte_count) as usize,
+                wav_data.len(),
+            );
+            let chunk_bytes = &wav_data[chunk_byte_offset as usize..end_byte];
+
+            let chunk_wav = build_wav_chunk(
+                chunk_bytes,
+                sample_rate as u32,
+                channels as u16,
+                bits_per_sample as u16,
+            );
+            let chunk_path = audio_path.with_extension(format!("chunk{}.wav", chunk_idx));
+            std::fs::write(&chunk_path, &chunk_wav)
+                .map_err(|e| anyhow!("Failed to write chunk WAV: {}", e))?;
+
+            let chunk_start_ms = (start_sample * 1000) / sample_rate.max(1);
+            let chunk_end_ms = (end_sample * 1000) / sample_rate.max(1);
+
+            let result = self.run_needle_sidecar(model_path, &chunk_path, language).await;
+            let _ = std::fs::remove_file(&chunk_path);
+
+            match result {
+                Ok(raw) => {
+                    if let Some(segment) = parse_whistle_output(&raw, chunk_start_ms as i64, chunk_end_ms as i64) {
+                        on_segment(segment);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("whistle chunk {} failed, continuing: {}", chunk_idx, e);
+                }
+            }
+
+            chunk_idx += 1;
+            if let Some(ref cb) = on_progress {
+                cb(std::cmp::min(95, 5 + ((chunk_idx * 90) / num_chunks.max(1))) as i32);
+            }
+        }
+
+        if let Some(ref cb) = on_progress {
+            cb(100);
+        }
+        Ok(())
+    }
+
+    async fn run_needle_sidecar(
+        &self,
+        model_path: &Path,
+        audio_path: &Path,
+        language: &str,
+    ) -> Result<String> {
+        if let Some(reason) = self.check_sidecar_usable("needle") {
+            return Err(anyhow!(reason));
+        }
+
+        let needle_path = self.sidecar_path("needle").ok_or_else(|| {
+            anyhow!("Could not resolve sidecar 'needle' location. Transcription is unavailable.")
+        })?;
+
+        let args = build_needle_args(model_path, audio_path, language, true);
+
+        let mut cmd = tokio::process::Command::new(&needle_path);
+        cmd.args(&args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        if let Some(bin_dir) = self.sidecar_bin_dir() {
+            #[cfg(target_os = "linux")]
+            if let Some(bin_str) = bin_dir.to_str() {
+                let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+                let path = if existing.is_empty() {
+                    bin_str.to_string()
+                } else {
+                    format!("{}:{}", bin_str, existing)
+                };
+                cmd.env("LD_LIBRARY_PATH", path);
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(bin_str) = bin_dir.to_str() {
+                let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+                let path = if existing.is_empty() {
+                    bin_str.to_string()
+                } else {
+                    format!("{}:{}", bin_str, existing)
+                };
+                cmd.env("DYLD_LIBRARY_PATH", path);
+            }
+            #[cfg(target_os = "windows")]
+            if let Some(bin_str) = bin_dir.to_str() {
+                let existing = std::env::var("PATH").unwrap_or_default();
+                let path = if existing.is_empty() {
+                    bin_str.to_string()
+                } else {
+                    format!("{}:{}", bin_str, existing)
+                };
+                cmd.env("PATH", path);
+            }
+        }
+
+        let output = cmd
+            .spawn()
+            .map_err(|e| anyhow!("Failed to spawn sidecar 'needle': {}", e))?
+            .wait_with_output()
+            .await
+            .map_err(|e| anyhow!("Failed to wait for sidecar 'needle': {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow!(
+                "Needle sidecar failed (exit code {:?}): {}{}",
+                output.status.code(),
+                stderr,
+                if stderr.is_empty() { stdout.as_ref() } else { "" }
+            ));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     /// Shared sherpa-onnx transcription path used by all model families.
@@ -1726,8 +1950,134 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhistleWordTiming {
+    pub word: String,
+    pub start: f64,
+    pub end: f64,
+    #[serde(default)]
+    pub probability: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoredWhistleWordTiming {
+    pub word: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probability: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeedleOutput {
+    pub text: String,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub ttft_ms: Option<f64>,
+    #[serde(default)]
+    pub decode_tps: Option<f64>,
+    #[serde(default)]
+    pub words: Vec<WhistleWordTiming>,
+}
+
+pub fn supported_whistle_language(lang: &str) -> Option<&'static str> {
+    let code = lang.split(['-', '_']).next().unwrap_or("").trim().to_lowercase();
+    match code.as_str() {
+        "en" => Some("en"),
+        "de" => Some("de"),
+        "fr" => Some("fr"),
+        "es" => Some("es"),
+        "it" => Some("it"),
+        "nl" => Some("nl"),
+        "pl" => Some("pl"),
+        _ => None,
+    }
+}
+
+pub fn build_needle_args(
+    model_path: &Path,
+    audio_path: &Path,
+    language: &str,
+    word_timestamps: bool,
+) -> Vec<std::ffi::OsString> {
+    let mut args = vec![
+        std::ffi::OsString::from("--model"),
+        model_path.as_os_str().to_os_string(),
+        std::ffi::OsString::from("--audio"),
+        audio_path.as_os_str().to_os_string(),
+    ];
+    if let Some(valid_lang) = supported_whistle_language(language) {
+        args.push(std::ffi::OsString::from("--audio-language"));
+        args.push(std::ffi::OsString::from(valid_lang));
+    }
+    if word_timestamps {
+        args.push(std::ffi::OsString::from("--audio-word-timestamps"));
+    }
+    args
+}
+
+fn find_json_object(raw: &str) -> Option<&str> {
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('{') && trimmed.ends_with('}') {
+            return Some(trimmed);
+        }
+    }
+    if let (Some(start), Some(end)) = (raw.find('{'), raw.rfind('}')) {
+        if start < end {
+            return Some(&raw[start..=end]);
+        }
+    }
+    None
+}
+
+pub fn parse_whistle_output(
+    raw: &str,
+    chunk_start_ms: i64,
+    chunk_end_ms: i64,
+) -> Option<TranscriptSegment> {
+    let json_str = find_json_object(raw)?;
+    let parsed: NeedleOutput = serde_json::from_str(json_str).ok()?;
+    let text = parsed.text.trim().to_string();
+    if text.is_empty() {
+        return None;
+    }
+
+    let (seg_start_ms, seg_end_ms, words_json) = if !parsed.words.is_empty() {
+        let shifted_words: Vec<StoredWhistleWordTiming> = parsed
+            .words
+            .into_iter()
+            .map(|w| {
+                let start_ms = chunk_start_ms + (w.start * 1000.0).round() as i64;
+                let end_ms = chunk_start_ms + (w.end * 1000.0).round() as i64;
+                StoredWhistleWordTiming {
+                    word: w.word,
+                    start_ms,
+                    end_ms,
+                    probability: w.probability,
+                }
+            })
+            .collect();
+        let first_start = shifted_words.first().map(|w| w.start_ms).unwrap_or(chunk_start_ms);
+        let last_end = shifted_words.last().map(|w| w.end_ms).unwrap_or(chunk_end_ms);
+        let json = serde_json::to_string(&shifted_words).ok();
+        (first_start, last_end.max(first_start + 1), json)
+    } else {
+        (chunk_start_ms, chunk_end_ms.max(chunk_start_ms + 1), None)
+    };
+
+    Some(TranscriptSegment {
+        start_ms: seg_start_ms,
+        end_ms: seg_end_ms,
+        text,
+        confidence: 1.0,
+        words_json,
+    })
+}
+
 /// True if a directory contains any file whose name starts with a known sidecar
-/// prefix (`whisper-`, `sherpa-onnx-`, `sherpa-online-`). Used to decide whether the dev source
+/// prefix (`whisper-`, `sherpa-onnx-`, `sherpa-online-`, `needle-`). Used to decide whether the dev source
 /// `bin/` dir is the right place to look for sidecar executables (as opposed to
 /// the resource dir, which in dev holds dylibs but not the externalBin binaries).
 fn dir_contains_sidecars(dir: &Path) -> bool {
@@ -1740,6 +2090,7 @@ fn dir_contains_sidecars(dir: &Path) -> bool {
             if name.starts_with("whisper-")
                 || name.starts_with("sherpa-onnx-")
                 || name.starts_with("sherpa-online-")
+                || name.starts_with("needle-")
             {
                 return true;
             }
@@ -2209,5 +2560,79 @@ mod tests {
         assert_eq!(super::streaming_progress_from_line(zero, 60_000), None);
         // Unknown total duration → no progress estimate.
         assert_eq!(super::streaming_progress_from_line(zero, 0), None);
+    }
+
+    #[test]
+    fn whistle_supported_language_matches_spec() {
+        assert_eq!(super::supported_whistle_language("en"), Some("en"));
+        assert_eq!(super::supported_whistle_language("en-US"), Some("en"));
+        assert_eq!(super::supported_whistle_language("en_GB"), Some("en"));
+        assert_eq!(super::supported_whistle_language("de"), Some("de"));
+        assert_eq!(super::supported_whistle_language("DE-de"), Some("de"));
+        assert_eq!(super::supported_whistle_language("fr"), Some("fr"));
+        assert_eq!(super::supported_whistle_language("es"), Some("es"));
+        assert_eq!(super::supported_whistle_language("it"), Some("it"));
+        assert_eq!(super::supported_whistle_language("nl"), Some("nl"));
+        assert_eq!(super::supported_whistle_language("pl"), Some("pl"));
+        assert_eq!(super::supported_whistle_language("auto"), None);
+        assert_eq!(super::supported_whistle_language("ja"), None);
+        assert_eq!(super::supported_whistle_language(""), None);
+    }
+
+    #[test]
+    fn whistle_build_needle_args_construction() {
+        use std::path::Path;
+        let model = Path::new("/models/whistle.cact");
+        let audio = Path::new("/audio/clip.wav");
+
+        let args_en = super::build_needle_args(model, audio, "en-US", true);
+        let args_strings: Vec<String> = args_en.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        assert_eq!(
+            args_strings,
+            vec![
+                "--model", "/models/whistle.cact",
+                "--audio", "/audio/clip.wav",
+                "--audio-language", "en",
+                "--audio-word-timestamps",
+            ]
+        );
+
+        let args_auto = super::build_needle_args(model, audio, "auto", false);
+        let auto_strings: Vec<String> = args_auto.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        assert_eq!(
+            auto_strings,
+            vec![
+                "--model", "/models/whistle.cact",
+                "--audio", "/audio/clip.wav",
+            ]
+        );
+    }
+
+    #[test]
+    fn whistle_output_parsing_with_words() {
+        let raw = r#"
+            needle engine v0.1.0 starting
+            {"text": "Hello world from Cactus Whistle", "language": "en", "ttft_ms": 12.3, "decode_tps": 45.6, "words": [{"word": "Hello", "start": 0.0, "end": 0.4, "probability": 0.99}, {"word": "world", "start": 0.45, "end": 0.9, "probability": 0.98}]}
+        "#;
+        let seg = super::parse_whistle_output(raw, 30_000, 60_000).expect("segment expected");
+        assert_eq!(seg.text, "Hello world from Cactus Whistle");
+        assert_eq!(seg.start_ms, 30_000); // 30000 + 0
+        assert_eq!(seg.end_ms, 30_900); // 30000 + 900
+        assert!(seg.words_json.is_some());
+        let words: Vec<super::StoredWhistleWordTiming> =
+            serde_json::from_str(&seg.words_json.unwrap()).unwrap();
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].word, "Hello");
+        assert_eq!(words[0].start_ms, 30_000);
+        assert_eq!(words[0].end_ms, 30_400);
+        assert_eq!(words[1].word, "world");
+        assert_eq!(words[1].start_ms, 30_450);
+        assert_eq!(words[1].end_ms, 30_900);
+    }
+
+    #[test]
+    fn whistle_output_parsing_empty_or_malformed() {
+        assert!(super::parse_whistle_output("needle: could not read audio file", 0, 30_000).is_none());
+        assert!(super::parse_whistle_output(r#"{"text": "   "}"#, 0, 30_000).is_none());
     }
 }

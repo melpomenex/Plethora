@@ -35,6 +35,9 @@ class SttModelManager(private val context: Context) : SttModelStore {
     override fun isReady(manifest: SttModelManifest): Boolean {
         val dir = modelDir(manifest.id)
         if (!dir.isDirectory) return false
+        if (manifest.kind == SttModelKind.WHISTLE) {
+            return findFile(dir, "whistle.cact") != null
+        }
         return findFile(dir, "model.int8.onnx") != null && findFile(dir, "tokens.txt") != null
     }
 
@@ -98,6 +101,12 @@ class SttModelManager(private val context: Context) : SttModelStore {
             if (!part.renameTo(archive)) {
                 part.delete()
                 return SttDownloadOutcome.Failure("extract_failed", "cannot promote archive")
+            }
+            if (manifest.kind == SttModelKind.WHISTLE) {
+                if (!isReady(manifest)) {
+                    return SttDownloadOutcome.Failure("incomplete", "whistle.cact missing after download")
+                }
+                return SttDownloadOutcome.Success
             }
             val extracted = extract(archive, dir)
             archive.delete()

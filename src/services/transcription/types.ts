@@ -12,6 +12,7 @@ export type TranscriptionProviderId =
   | "openrouter:qwen3-asr-1.7b"
   | "local:nemotron-3.5"
   | "local:whisper"
+  | "local:whistle"
   | "legacy:groq"
   | "gemini-transcribe"
   | "gemini-live"
@@ -28,7 +29,8 @@ export type LogicalSttModelKey =
   | "nemotron-3.5-asr-0.6b"
   | "qwen3-asr-0.6b"
   | "qwen3-asr-1.7b"
-  | "whisper-local";
+  | "whisper-local"
+  | "cactus-whistle";
 
 export type TranscriptionErrorCode =
   | "AUTH_FAILED"

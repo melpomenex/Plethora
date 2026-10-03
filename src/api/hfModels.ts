@@ -12,6 +12,7 @@ export type HfRuntime =
   | "sherpa-onnx-stt"
   | "sherpa-onnx-tts"
   | "nemotron-asr"
+  | "whistle-stt"
   /**
    * Laya typed-decision checkpoint. Fetched and verified by Plethora, then served
    * by a `laya-serve` the user runs — DAQE reaches it over the System One HTTP
@@ -42,7 +43,7 @@ export interface HfArtifactFile {
 }
 
 export interface RunContract {
-  type: "whisper" | "sherpa-stt" | "sherpa-tts";
+  type: "whisper" | "sherpa-stt" | "sherpa-tts" | "whistle";
   model_file: string;
   decoder_file?: string | null;
   joiner_file?: string | null;
@@ -257,5 +258,6 @@ export const RUNTIME_LABELS: Record<HfRuntime, string> = {
   "sherpa-onnx-stt": "sherpa-onnx (ONNX STT)",
   "sherpa-onnx-tts": "sherpa-onnx (ONNX TTS)",
   "nemotron-asr": "Nemotron ASR (streaming ONNX)",
+  "whistle-stt": "Cactus Whistle (Needle STT)",
   "laya-decision": "Laya (typed decisions)",
 };

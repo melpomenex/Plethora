@@ -32,6 +32,13 @@ for deb in "${debs[@]}"; do
     exit 1
   fi
 
+  # The needle binary (Whistle STT runtime) can appear as
+  # `needle` or `needle-<target>`.
+  if ! grep -Eq '/needle([^/ ]*)$' <<<"$listing"; then
+    echo "Missing needle sidecar in $deb"
+    exit 1
+  fi
+
   # NotebookLM is bundled for desktop release artifacts. Fail if the runtime
   # or its sidecar is absent so a release cannot silently regress to a
   # first-run Python installation.

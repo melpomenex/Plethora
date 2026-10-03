@@ -24,6 +24,8 @@ export interface TranscriptionAudioSettings {
 export const MODEL_QUALITY_RANK = [
   "nemotron-3.5-asr-0.6b",
   "nvidia/nemotron-3.5-asr-0.6b",
+  "cactus-whistle",
+  "Cactus-Compute/whistle",
   "parakeet-tdt-ctc-110m",
   "sense-voice-small",
   "small",
@@ -35,6 +37,12 @@ export function isNemotronModelId(id?: string | null): boolean {
   if (!id) return false;
   const lower = id.toLowerCase();
   return lower.includes("nemotron");
+}
+
+export function isWhistleModelId(id?: string | null): boolean {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  return lower.includes("whistle");
 }
 
 export type TranscriptionPlatform = "desktop" | "native-mobile";
@@ -113,6 +121,7 @@ export interface ResolveTranscriptionOptions {
   appleReady?: boolean;
   androidSttReady?: boolean;
   localNemotronReady?: boolean;
+  localWhistleReady?: boolean;
   openRouterKey?: string;
 }
 
@@ -206,12 +215,16 @@ export function resolveTranscription(
   if (isMobileLocal) {
     if (androidSttEligible) {
       // Default routing picks on-device on Android when a model is ready
-      const modelId = audioSettings.androidOnDevice?.modelId?.trim() || "auto";
+      const modelId = isWhistleModelId(audioSettings.sttModel)
+        ? "cactus-whistle"
+        : isWhistleModelId(audioSettings.preferredModelId)
+          ? "cactus-whistle"
+          : (audioSettings.androidOnDevice?.modelId?.trim() || "auto");
       return {
         ok: true,
         provider: "android-ondevice",
         modelId,
-        modelLabel: modelId === "auto" ? "On-Device STT (auto)" : modelId,
+        modelLabel: modelId === "cactus-whistle" ? "Whistle (Multilingual)" : (modelId === "auto" ? "On-Device STT (auto)" : modelId),
         autoOnDevice: true,
       };
     }
@@ -297,6 +310,23 @@ export function resolveTranscription(
         modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
       };
     }
+    if (isWhistleModelId(audioSettings.sttModel)) {
+      const explicitProfile = profiles.find((p) => p.installed && isWhistleModelId(p.id));
+      if (explicitProfile || options.localWhistleReady === true) {
+        return {
+          ok: true,
+          provider: "local",
+          modelId: "cactus-whistle",
+          modelLabel: explicitProfile?.name ?? "Cactus Whistle",
+        };
+      }
+      return {
+        ok: false,
+        reason: "model-not-installed",
+        modelId: audioSettings.sttModel,
+        modelLabel: "Cactus Whistle",
+      };
+    }
     const explicitProfile = profiles.find((p) => p.id === audioSettings.sttModel);
     if (explicitProfile?.installed) {
       return {
@@ -317,6 +347,23 @@ export function resolveTranscription(
         provider: "local",
         modelId: "nemotron-3.5-asr-0.6b",
         modelLabel: "NVIDIA Nemotron 3.5 ASR 0.6B",
+      };
+    }
+    if (isWhistleModelId(preferredModelId)) {
+      const preferred = profiles.find((profile) => profile.installed && isWhistleModelId(profile.id));
+      if (preferred || options.localWhistleReady === true) {
+        return {
+          ok: true,
+          provider: "local",
+          modelId: "cactus-whistle",
+          modelLabel: preferred?.name ?? "Cactus Whistle",
+        };
+      }
+      return {
+        ok: false,
+        reason: "model-not-installed",
+        modelId: preferredModelId,
+        modelLabel: "Cactus Whistle",
       };
     }
     const preferred = profiles.find((profile) => profile.id === preferredModelId);
@@ -399,7 +446,7 @@ export async function resolveTranscriptionWithReadiness(
   platform: TranscriptionPlatform,
   options: ResolveTranscriptionOptions = {},
 ): Promise<Resolution> {
-  const [appleReady, androidSttReady, localNemotronReady] = await Promise.all([
+  const [appleReady, androidSttReady, localNemotronReady, localWhistleReady] = await Promise.all([
     options.appleReady !== undefined
       ? Promise.resolve(options.appleReady)
       : import("./ai/apple/speech")
@@ -420,6 +467,11 @@ export async function resolveTranscriptionWithReadiness(
             return canRunLocalNemotron() && (await m.isLocalNemotronInstalled());
           })
           .catch(() => false),
+    options.localWhistleReady !== undefined
+      ? Promise.resolve(options.localWhistleReady)
+      : import("../api/transcription")
+          .then((m) => m.isLocalWhistleInstalled())
+          .catch(() => false),
   ]);
   const openRouterKey =
     options.openRouterKey !== undefined
@@ -429,6 +481,7 @@ export async function resolveTranscriptionWithReadiness(
     appleReady,
     androidSttReady,
     localNemotronReady,
+    localWhistleReady,
     openRouterKey,
   });
 }

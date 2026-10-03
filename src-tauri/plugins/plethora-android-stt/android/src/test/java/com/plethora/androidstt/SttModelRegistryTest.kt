@@ -13,10 +13,10 @@ import org.junit.Test
 class SttModelRegistryTest {
 
     @Test
-    fun `catalog has the two supported models with unique ids`() {
-        assertEquals(2, SttModelRegistry.ALL.size)
+    fun `catalog has the supported models with unique ids`() {
+        assertEquals(3, SttModelRegistry.ALL.size)
         assertEquals(
-            2,
+            3,
             SttModelRegistry.ALL.map { it.id }.toSet().size,
         )
     }
@@ -24,10 +24,10 @@ class SttModelRegistryTest {
     @Test
     fun `manifests carry verified sizes and checksums`() {
         for (manifest in SttModelRegistry.ALL) {
-            assertTrue(manifest.id, manifest.archiveBytes > 50_000_000L)
+            assertTrue(manifest.id, manifest.archiveBytes > 10_000_000L)
             assertTrue(manifest.id, manifest.archiveSha256.length == 64)
             assertTrue(manifest.id, manifest.url.startsWith("https://"))
-            assertTrue(manifest.id, manifest.url.endsWith(".tar.bz2"))
+            assertTrue(manifest.id, manifest.url.endsWith(".tar.bz2") || manifest.url.endsWith(".cact"))
             assertNotNull(SttModelKind.fromSerial(manifest.kind.serial))
         }
     }
@@ -80,5 +80,16 @@ class SttModelRegistryTest {
         assertEquals(SttPacing.CAPPED, SttPacing.fromSerial("bogus"))
         assertEquals(2, SttPacing.CAPPED.threads)
         assertEquals(4, SttPacing.FULL.threads)
+    }
+
+    @Test
+    fun `whistle is present in catalog and supported languages`() {
+        val whistle = SttModelRegistry.byId("cactus-whistle")
+        assertNotNull(whistle)
+        assertEquals(SttModelKind.WHISTLE, whistle!!.kind)
+        assertEquals(16_919_407L, whistle.archiveBytes)
+        assertEquals(16_919_407L, whistle.extractedBytes)
+        assertTrue(whistle.languages.others.contains("de"))
+        assertTrue(whistle.languages.others.contains("fr"))
     }
 }

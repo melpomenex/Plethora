@@ -298,3 +298,27 @@ export const transcribeLocalNemotron = (
     language,
   });
 };
+
+export const isLocalWhistleInstalled = async (): Promise<boolean> => {
+  if (!isTauri()) return false;
+  try {
+    return await invokeCommand<boolean>("is_local_whistle_installed");
+  } catch (err) {
+    console.error("Failed to check local Whistle install state:", err);
+    return false;
+  }
+};
+
+export const transcribeLocalWhistle = (
+  audioPath: string,
+  language: string,
+): Promise<TranscriptResponse> => {
+  if (!isTauri()) {
+    return Promise.reject(new Error("Local Cactus Whistle transcription requires the native app"));
+  }
+  return invokeCommand<TranscriptResponse>("transcribe_local_whistle", {
+    audioPath,
+    language,
+  });
+};
+

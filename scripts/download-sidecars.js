@@ -312,6 +312,69 @@ function ensureSherpaSidecar(targetTriple) {
   }
 }
 
+const NEEDLE_VERSION = '3.1.0';
+
+function needleAssetForTarget(targetTriple) {
+  if (targetTriple.includes('apple-darwin')) {
+    return { platformDir: 'macos-arm64', exe: 'needle' };
+  } else if (targetTriple.includes('linux')) {
+    if (targetTriple.startsWith('aarch64')) {
+      return { platformDir: 'linux-arm64', exe: 'needle' };
+    }
+    return { platformDir: 'linux-x86_64', exe: 'needle' };
+  } else if (targetTriple.includes('windows')) {
+    if (targetTriple.startsWith('aarch64')) {
+      return { platformDir: 'windows-arm64', exe: 'needle.exe' };
+    }
+    return { platformDir: 'windows-x86_64', exe: 'needle.exe' };
+  }
+  return null;
+}
+
+function ensureNeedleSidecar(targetTriple) {
+  const needleName = sidecarExecutableName('needle', targetTriple);
+  const needlePath = path.join(BIN_DIR, needleName);
+  const versionMarker = path.join(BIN_DIR, '.needle-provisioned');
+  let provisionedVersion = null;
+  try {
+    provisionedVersion = fs.readFileSync(versionMarker, 'utf8').trim();
+  } catch {}
+
+  if (isUsableSidecar(needlePath) && provisionedVersion === NEEDLE_VERSION) {
+    return;
+  }
+
+  const assetInfo = needleAssetForTarget(targetTriple);
+  if (!assetInfo) {
+    console.warn(`⚠️  needle has no prebuilt asset for ${targetTriple}; skipping.`);
+    return;
+  }
+
+  const url = `https://huggingface.co/Cactus-Compute/needle3/resolve/main/${assetInfo.platformDir}/${assetInfo.exe}`;
+  const tmpFile = path.join(BIN_DIR, `.needle-${targetTriple}.tmp`);
+  try {
+    console.log(`Downloading needle ${NEEDLE_VERSION} for ${targetTriple}...`);
+    execSync(`curl -fL --retry 3 --retry-delay 2 --max-time 180 ${shellQuote(url)} -o ${shellQuote(tmpFile)}`, { stdio: 'inherit' });
+    fs.renameSync(tmpFile, needlePath);
+    try {
+      fs.chmodSync(needlePath, 0o755);
+    } catch {}
+    if (process.platform === 'darwin') {
+      try {
+        execSync(`codesign --force --sign - ${shellQuote(needlePath)}`, { stdio: 'ignore' });
+      } catch {}
+    }
+    fs.writeFileSync(versionMarker, NEEDLE_VERSION, 'utf8');
+    console.log(`needle sidecar provisioned at ${needlePath}`);
+  } catch (err) {
+    try { fs.rmSync(tmpFile, { force: true }); } catch {}
+    console.warn(`⚠️  needle provisioning failed for ${targetTriple}: ${err.message}`);
+    if (process.env.CI) {
+      throw err;
+    }
+  }
+}
+
 // Whisper is built statically (BUILD_SHARED_LIBS=OFF), so on Windows the only
 // DLLs that ever land in bin/ are the onnxruntime ones sherpa-onnx drops
 // alongside its sidecar. tauri.windows.conf.json declares those DLLs as an
@@ -1091,6 +1154,8 @@ async function main() {
   const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
   const sherpaOnlinePath = path.join(BIN_DIR, sidecarExecutableName('sherpa-online', targetTriple));
+  const needleName = sidecarExecutableName('needle', targetTriple);
+  const needlePath = path.join(BIN_DIR, needleName);
   const notebooklmSidecarPresent = fs.existsSync(notebooklmPath);
   const notebooklmSkipped = process.env.SKIP_NOTEBOOKLM_SIDECAR === '1';
   const notebooklmRequired = !notebooklmSkipped
@@ -1110,6 +1175,7 @@ async function main() {
     && isUsableSidecar(whisperPath)
     && isUsableSidecar(sherpaPath)
     && isUsableSidecar(sherpaOnlinePath)
+    && isUsableSidecar(needlePath)
     && (!notebooklmMustExist || notebooklmSidecarPresent)
     && (!notebooklmRequired || notebooklmRuntimeReady)
   ) {
@@ -1122,6 +1188,9 @@ async function main() {
       }
       if (fs.existsSync(sherpaOnlinePath)) {
         fs.chmodSync(sherpaOnlinePath, 0o755);
+      }
+      if (fs.existsSync(needlePath)) {
+        fs.chmodSync(needlePath, 0o755);
       }
       if (fs.existsSync(notebooklmPath)) {
         fs.chmodSync(notebooklmPath, 0o755);
@@ -1137,6 +1206,7 @@ async function main() {
   // platform-specific Whisper build. A missing compiler must not prevent
   // Parakeet/SenseVoice from becoming usable.
   ensureSherpaSidecar(targetTriple);
+  ensureNeedleSidecar(targetTriple);
 
   if (platform === 'linux') {
     // Linux FFmpeg (vestigial: ffmpeg isn't a Tauri externalBin — it's resolved

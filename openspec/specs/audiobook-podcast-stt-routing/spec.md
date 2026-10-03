@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Defines speech-to-text resolution, engine routing, and model quality ranking for audiobooks and podcasts.
+
+## Requirements
 
 ### Requirement: Unified Speech Resolution for Audiobooks and Podcasts
 The system SHALL resolve transcription requests for audiobooks and podcast episodes according to the unified Speech-to-Text configuration (`sttProvider`, `sttModel`, `preferLocal`, and `mode`), prioritizing the local Nemotron ASR model when installed on supported, capable hardware.

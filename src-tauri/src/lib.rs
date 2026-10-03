@@ -2374,6 +2374,8 @@ pub fn run() {
             transcription::remove_transcription_entry,
             transcription::is_local_nemotron_installed,
             transcription::transcribe_local_nemotron,
+            transcription::is_local_whistle_installed,
+            transcription::transcribe_local_whistle,
             commands::embed_queue_items,
             commands::embed_active_rss_articles,
             commands::compute_semantic_graph,

@@ -45,6 +45,7 @@
       "bin/whisper",
       "bin/sherpa-onnx",
       "bin/sherpa-online",
+      "bin/needle",
       "bin/pocket-tts",
       "bin/notebooklm"
     ],

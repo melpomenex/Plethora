@@ -50,7 +50,7 @@ const SUITABILITY_META: Record<SuitabilityLevel, { label: string; className: str
 
 function runtimeForMode(mode: HfManagerMode): HfRuntime[] {
   return mode === "stt"
-    ? ["whisper-cpp", "sherpa-onnx-stt", "nemotron-asr"]
+    ? ["whisper-cpp", "sherpa-onnx-stt", "nemotron-asr", "whistle-stt"]
     : ["sherpa-onnx-tts"];
 }
 

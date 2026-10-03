@@ -41,9 +41,11 @@ pub async fn get_transcription_profiles(
     use crate::models::hf::adapters::HfRuntime;
     use crate::models::hf::hf_client::resolve_download_url;
     use crate::models::hf::manager::{
-        hf_stt_profiles, is_nemotron_asr_installed, model_id_for, nemotron_asr_catalog_entry,
-        NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
-        NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
+        hf_stt_profiles, is_nemotron_asr_installed, is_whistle_installed, model_id_for,
+        nemotron_asr_catalog_entry, whistle_catalog_entry, NEMOTRON_ASR_ENCODER_FILE,
+        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
+        NEMOTRON_ASR_SIZE_BYTES, WHISTLE_LOGICAL_KEY, WHISTLE_MODEL_FILE, WHISTLE_REPO_ID,
+        WHISTLE_REVISION, WHISTLE_SHA256, WHISTLE_SIZE_BYTES,
     };
 
     let manager = ModelManager::new(&app_handle)
@@ -72,15 +74,39 @@ pub async fn get_transcription_profiles(
             ),
     });
 
+    let whistle_cat = whistle_catalog_entry();
+    profiles.push(ModelProfile {
+        id: WHISTLE_LOGICAL_KEY.to_string(),
+        name: whistle_cat.display_name,
+        description: "Lightweight CPU speech-to-text (16.9 MB, runs on-device via Cactus Needle). Fast English and European language transcription.".to_string(),
+        url: resolve_download_url(
+            WHISTLE_REPO_ID,
+            WHISTLE_REVISION,
+            WHISTLE_MODEL_FILE,
+        ),
+        sha256: WHISTLE_SHA256.to_string(),
+        size_bytes: WHISTLE_SIZE_BYTES,
+        installed: is_whistle_installed(repo.pool()).await
+            && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+                &app_handle,
+                "needle",
+            ),
+    });
+
     let nemotron_hf_id = model_id_for(
         HfRuntime::NemotronAsr,
         NEMOTRON_ASR_REPO_ID,
         NEMOTRON_ASR_REVISION,
     );
+    let whistle_hf_id = model_id_for(
+        HfRuntime::WhistleStt,
+        WHISTLE_REPO_ID,
+        WHISTLE_REVISION,
+    );
     let hf_profiles = hf_stt_profiles(repo.pool())
         .await
         .into_iter()
-        .filter(|p| p.id != nemotron_hf_id)
+        .filter(|p| p.id != nemotron_hf_id && p.id != whistle_hf_id)
         .collect::<Vec<_>>();
     profiles.extend(hf_profiles);
     Ok(profiles)
@@ -94,10 +120,36 @@ pub async fn download_transcription_model(
 ) -> Result<()> {
     use crate::models::hf::commands::active_try_register;
     use crate::models::hf::manager::{
-        install_pinned_nemotron_asr, is_pinned_nemotron_repo, model_id_for,
-        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
+        install_pinned_nemotron_asr, install_pinned_whistle, is_pinned_nemotron_repo,
+        is_pinned_whistle_repo, model_id_for, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
+        NEMOTRON_ASR_REVISION, WHISTLE_LOGICAL_KEY, WHISTLE_REPO_ID, WHISTLE_REVISION,
     };
     use crate::models::hf::adapters::HfRuntime;
+
+    if is_pinned_whistle_repo(&id) {
+        let cancel = CancellationToken::new();
+        let hf_id = model_id_for(
+            HfRuntime::WhistleStt,
+            WHISTLE_REPO_ID,
+            WHISTLE_REVISION,
+        );
+        let _guard = active_try_register(&app_handle, &hf_id, cancel.clone()).map_err(|e| {
+            crate::error::PlethoraError::Internal(e.to_string().replace(&hf_id, "Cactus Whistle"))
+        })?;
+        let result = install_pinned_whistle(
+            &app_handle,
+            &repo,
+            Some(WHISTLE_LOGICAL_KEY),
+            cancel.clone(),
+        )
+        .await;
+        result.map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+        let _ = app_handle.emit(
+            "transcription://download-complete",
+            WHISTLE_LOGICAL_KEY.to_string(),
+        );
+        return Ok(());
+    }
 
     if is_pinned_nemotron_repo(&id) {
         let cancel = CancellationToken::new();
@@ -147,9 +199,21 @@ pub async fn delete_transcription_model(
 ) -> Result<()> {
     use crate::models::hf::adapters::HfRuntime;
     use crate::models::hf::manager::{
-        is_pinned_nemotron_repo, model_id_for, uninstall, NEMOTRON_ASR_LOGICAL_KEY,
-        NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
+        is_pinned_nemotron_repo, is_pinned_whistle_repo, model_id_for, uninstall,
+        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
+        WHISTLE_LOGICAL_KEY, WHISTLE_REPO_ID, WHISTLE_REVISION,
     };
+
+    if is_pinned_whistle_repo(&id) {
+        let hf_id = model_id_for(
+            HfRuntime::WhistleStt,
+            WHISTLE_REPO_ID,
+            WHISTLE_REVISION,
+        );
+        return uninstall(&app_handle, &repo, &hf_id)
+            .await
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()));
+    }
 
     if is_pinned_nemotron_repo(&id) {
         let hf_id = model_id_for(
@@ -592,6 +656,87 @@ pub async fn transcribe_local_nemotron(
     let engine = TranscriptionEngine::new(app_handle);
     // Convert to the 16 kHz mono WAV the sherpa runtime expects (same as the
     // podcast pipeline).
+    let prepared = engine
+        .prepare_audio(Path::new(&audio_path))
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let segments: Vec<engine::TranscriptSegment> =
+        engine.transcribe_route_collect(&prepared, &install_dir, &route, &language)
+            .await
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let _ = std::fs::remove_file(&prepared);
+
+    Ok(TranscriptResponse {
+        id: 0,
+        status: "complete".to_string(),
+        segments,
+    })
+}
+
+#[command]
+pub async fn is_local_whistle_installed(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<bool> {
+    Ok(crate::models::hf::manager::is_whistle_installed(repo.pool()).await
+        && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+            &app_handle,
+            "needle",
+        ))
+}
+
+#[command]
+pub async fn transcribe_local_whistle(
+    app_handle: AppHandle,
+    repo: State<'_, Repository>,
+    audio_path: String,
+    language: String,
+) -> Result<TranscriptResponse> {
+    use crate::models::hf::manager::SttEngineRoute;
+    use crate::transcription::engine::TranscriptionEngine;
+
+    if !Path::new(&audio_path).exists() {
+        return Err(crate::error::PlethoraError::NotFound(format!(
+            "Audio file not found: {}",
+            audio_path
+        )));
+    }
+
+    if !crate::models::hf::manager::is_whistle_installed(repo.pool()).await {
+        return Err(crate::error::PlethoraError::InvalidInput(
+            "LOCAL_MODEL_MISSING: Cactus Whistle STT is not installed. Install it from Local \
+             Models or Audio Settings."
+                .to_string(),
+        ));
+    }
+
+    let model_id = crate::models::hf::manager::model_id_for(
+        crate::models::hf::adapters::HfRuntime::WhistleStt,
+        crate::models::hf::manager::WHISTLE_REPO_ID,
+        crate::models::hf::manager::WHISTLE_REVISION,
+    );
+    let Some((install_dir, contract)) =
+        crate::models::hf::manager::resolve_installed_whistle(repo.pool(), &model_id).await
+    else {
+        return Err(crate::error::PlethoraError::InvalidInput(
+            "LOCAL_MODEL_MISSING: Cactus Whistle install metadata is missing.".to_string(),
+        ));
+    };
+
+    let route = match contract {
+        crate::models::hf::adapters::RunContract::Whistle { model_file } => {
+            SttEngineRoute::Whistle {
+                model: model_file,
+            }
+        }
+        _ => {
+            return Err(crate::error::PlethoraError::InvalidInput(
+                "LOCAL_MODEL_MISSING: Invalid Whistle run contract.".to_string(),
+            ));
+        }
+    };
+
+    let engine = TranscriptionEngine::new(app_handle);
     let prepared = engine
         .prepare_audio(Path::new(&audio_path))
         .await

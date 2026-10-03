@@ -38,6 +38,15 @@ verify_resources() {
   echo "Found sherpa-online sidecar: $sherpa_online_sidecar"
   codesign --verify --strict "$sherpa_online_sidecar"
 
+  local needle_sidecar
+  needle_sidecar="$(find "$search_dir" -maxdepth 3 -type f -size +0c \( -name 'needle-*' -o -name 'needle' \) | head -n 1 || true)"
+  if [[ -z "$needle_sidecar" ]]; then
+    echo "Missing non-empty needle sidecar in $search_dir"
+    return 1
+  fi
+  echo "Found needle sidecar: $needle_sidecar"
+  codesign --verify --strict "$needle_sidecar"
+
   # Check for NotebookLM runtime
   local notebooklm_runtime
   notebooklm_runtime="$(find "$search_dir" -maxdepth 4 -type d -name 'notebooklm-runtime' | head -n 1 || true)"

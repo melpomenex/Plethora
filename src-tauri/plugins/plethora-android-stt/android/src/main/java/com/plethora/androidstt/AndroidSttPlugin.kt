@@ -65,7 +65,7 @@ class AndroidSttPlugin(private val activity: Activity) : Plugin(activity) {
     private val hooks = DelegatingHooks()
     private val jobs: SttJobManager = SttJobManager(
         models = models,
-        recognizerFactory = SherpaRecognizerFactory(),
+        recognizerFactory = SherpaRecognizerFactory(activity),
         segmenterFactory = { baseOffset -> SherpaVadSegmenter(activity, baseOffset) },
         audioSourceFactory = { PcmDecoder(it) },
         serviceHooks = hooks,
