@@ -1017,12 +1017,12 @@ export function SelectionActionsSheet({
                       {extractSaveState === "saving" ? (
                         <>
                           <ArrowsClockwise className="w-4 h-4 animate-spin" aria-hidden="true" />
-                          <span>{t("common.saving") || "Saving..."}</span>
+                          <span>{t("common.saving")}</span>
                         </>
                       ) : extractSaveState === "error" ? (
                         <>
                           <ArrowsClockwise className="w-4 h-4" aria-hidden="true" />
-                          <span>{t("selectionSheet.retryCreateExtract") || "Retry create extract"}</span>
+                          <span>{t("selectionSheet.retryCreateExtract")}</span>
                         </>
                       ) : (
                         t("selectionSheet.createExtractFromResult")

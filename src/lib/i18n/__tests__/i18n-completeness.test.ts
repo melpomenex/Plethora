@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { en } from "../locales/en";
 import { de } from "../locales/de";
 import { es } from "../locales/es";
@@ -8,6 +10,19 @@ import { zh } from "../locales/zh";
 import { SETTINGS_TABS } from "../../../components/settings/SettingsPage";
 
 const locales: Record<string, Record<string, string>> = { de, es, fr, ja, zh };
+
+const SRC_DIR = path.resolve(__dirname, "..", "..", "..");
+
+/** Every .ts/.tsx under `dir`, so a key can be checked against its call site. */
+function sourceFilesUnder(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...sourceFilesUnder(full));
+    else if (/\.tsx?$/.test(entry)) out.push(full);
+  }
+  return out;
+}
 
 describe("i18n locale completeness", () => {
   const enKeys = Object.keys(en);
@@ -47,6 +62,45 @@ describe("i18n locale completeness", () => {
       (key) => !(key in en) || !en[key].trim()
     );
     expect(missing).toEqual([]);
+  });
+
+  it("every literal t(\"...\") key in src exists in en", () => {
+    // `t()` returns the key itself when a lookup misses, so a key that is never
+    // added to en renders as the raw dotted string in the UI and nothing else
+    // catches it: the parity checks above are vacuous (each locale spreads
+    // `...en` as its base, so it inherits every key it hasn't translated), and
+    // the settings-tab check only covers SETTINGS_TABS. That is how
+    // "common.secShort" once shipped as a literal "15 common.secShort" on the
+    // auto-refresh slider. Grep the whole of src instead, per file, so the
+    // call site is named in the failure.
+    //
+    // Non-literal keys (variables, template strings, `t(prefix + suffix)`) are
+    // invisible to a grep and remain unguarded — accept that hole rather than
+    // pretend otherwise. The lookbehind keeps it to the i18n `t`: it must not
+    // be preceded by an identifier char, `.` or `$`, which excludes
+    // `format(`, `split(`, `Math.abs(`, `setTimeout(` and friends.
+    const literal = /(?<![A-Za-z0-9_$.])t\(\s*["']([A-Za-z0-9_.]+)["']/g;
+
+    const offenders: string[] = [];
+    let scanned = 0;
+    for (const rel of sourceFilesUnder(path.join(__dirname, "..", "..", ".."))) {
+      if (rel.startsWith(`${SRC_DIR}${path.sep}lib${path.sep}i18n${path.sep}locales${path.sep}`)) {
+        continue; // dictionaries, not call sites
+      }
+      const src = readFileSync(rel, "utf8");
+      scanned++;
+      const seen = new Set<string>();
+      for (const m of src.matchAll(literal)) {
+        const key = m[1];
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!(key in en) || !en[key].trim()) {
+          offenders.push(`${path.relative(SRC_DIR, rel)}: ${key}`);
+        }
+      }
+    }
+    expect(scanned, "expected to scan the src tree").toBeGreaterThan(100);
+    expect(offenders, `${offenders.length} unresolvable i18n keys`).toEqual([]);
   });
 
   it("a sample of recently-added keys resolve to non-empty, localized strings", () => {
