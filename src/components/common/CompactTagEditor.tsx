@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { PencilSimple, Tag } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { cn } from "../../utils";
 import { ItemTagEditor } from "./ItemTagEditor";
 import type { ItemTagTarget } from "../../lib/tagEditing/types";
@@ -14,14 +16,19 @@ export interface CompactTagEditorProps {
   onTagClick?: (tag: string) => void;
   /** Max chips shown in the collapsed preview before "+N". */
   previewLimit?: number;
+  /** Force mobile sheet/modal presentation mode (optional, defaults to auto-detect). */
+  isMobile?: boolean;
 }
 
 /**
  * Compact tag presentation for dense rows/cards: readable chips preview plus a
- * localized edit affordance that opens a small focus-managed popover
- * containing the shared inline editor. Activating a chip body or the trigger
- * NEVER removes a tag. Escape closes the popover and returns focus to the
- * trigger. See openspec change unify-tag-editing-and-align-schedule-grid (2.5).
+ * localized edit affordance that opens a portaled, focus-managed popover or
+ * mobile sheet containing the shared inline editor.
+ *
+ * Rendered via createPortal to document.body to escape virtualized row
+ * transforms, CSS stacking contexts, and overflow clipping.
+ * Activating a chip body or the trigger NEVER removes a tag. Escape closes the
+ * popover and returns focus to the trigger.
  */
 export function CompactTagEditor({
   target,
@@ -29,24 +36,84 @@ export function CompactTagEditor({
   onTagsPersisted,
   onTagClick,
   previewLimit = 3,
+  isMobile: isMobileProp,
 }: CompactTagEditorProps) {
   const { t } = useI18n();
+  const isMobileShell = useMobileShell();
   const [open, setOpen] = useState(false);
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 640
+  );
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+
   const tags = target.tags ?? [];
   const preview = tags.slice(0, previewLimit);
   const remaining = tags.length - preview.length;
 
-  // Focus management: return focus to the trigger when the popover closes,
-  // whether via Escape, outside click, or the close button. `wasOpenRef`
-  // records that the popover was actually open (the panel unmounts before
-  // this effect runs, so we cannot inspect the DOM after the fact).
+  useEffect(() => {
+    const handleResize = () => {
+      setIsSmallScreen(window.innerWidth < 640);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const isMobile = isMobileProp ?? (isMobileShell || isSmallScreen);
+
+  const getAnchorPosition = useCallback(() => {
+    if (!triggerRef.current) {
+      return { top: 16, left: 16, width: 288 };
+    }
+    const rect = triggerRef.current.getBoundingClientRect();
+    const width = 288;
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+
+    let left = rect.right > 0 ? rect.right - width : rect.left;
+    if (left < 16) {
+      left = Math.max(16, rect.left);
+    }
+    if (left + width > vw - 16) {
+      left = Math.max(16, vw - 16 - width);
+    }
+    let top = rect.bottom > 0 ? rect.bottom + 6 : 16;
+    const estimatedHeight = 240;
+    if (top + estimatedHeight > vh - 16 && rect.top - estimatedHeight - 6 > 0) {
+      top = rect.top - estimatedHeight - 6;
+    }
+    return { top, left, width };
+  }, []);
+
   const close = useCallback(() => {
     setOpen(false);
   }, []);
 
+  const toggle = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setOpen((prev) => {
+        if (!prev) {
+          setPopoverPos(getAnchorPosition());
+          return true;
+        }
+        return false;
+      });
+    },
+    [getAnchorPosition]
+  );
+
+  useLayoutEffect(() => {
+    if (open) {
+      setPopoverPos(getAnchorPosition());
+    }
+  }, [open, getAnchorPosition]);
+
+  // Focus management: return focus to the trigger when the popover closes
   useEffect(() => {
     if (open) {
       wasOpenRef.current = true;
@@ -58,11 +125,12 @@ export function CompactTagEditor({
     }
   }, [open]);
 
+  // Dismiss on outside click, escape key, or outside scroll
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (!wrapperRef.current) return;
-      if (event.target instanceof Node && wrapperRef.current.contains(event.target)) return;
+      if (panelRef.current && panelRef.current.contains(event.target as Node)) return;
+      if (triggerRef.current && triggerRef.current.contains(event.target as Node)) return;
       close();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -71,11 +139,20 @@ export function CompactTagEditor({
         close();
       }
     };
+    const handleScroll = (event: Event) => {
+      if (panelRef.current && event.target instanceof Node && panelRef.current.contains(event.target)) {
+        return;
+      }
+      close();
+    };
+
     window.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScroll, true);
     return () => {
       window.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScroll, true);
     };
   }, [open, close]);
 
@@ -84,12 +161,7 @@ export function CompactTagEditor({
       <button
         ref={triggerRef}
         type="button"
-        onClick={(e) => {
-          // Embedding in clickable rows/cards: opening the editor must not
-          // trigger the host row's click handler.
-          e.stopPropagation();
-          setOpen((prev) => !prev);
-        }}
+        onClick={toggle}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={t("tagEditor.editTags", { count: tags.length })}
@@ -108,28 +180,67 @@ export function CompactTagEditor({
         </span>
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label={t("tagEditor.editTagsTitle")}
-          className="absolute z-50 mt-1.5 right-0 top-full w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-xl"
-        >
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t("tagEditor.editTagsTitle")}
-            </span>
-            <button
-              type="button"
+      {open && typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              data-testid="compact-tag-editor-backdrop"
+              className={cn(
+                "fixed inset-0 z-[9998]",
+                isMobile ? "bg-black/50 backdrop-blur-sm" : "bg-black/10"
+              )}
               onClick={close}
-              aria-label={t("common.close")}
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+              aria-hidden="true"
+            />
+            <div
+              ref={panelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("tagEditor.editTagsTitle")}
+              style={{
+                backgroundColor: "var(--color-popover, #1e293b)",
+                opacity: 1,
+                ...(isMobile
+                  ? {}
+                  : {
+                      top: `${popoverPos?.top ?? 16}px`,
+                      left: `${popoverPos?.left ?? 16}px`,
+                      width: `${popoverPos?.width ?? 288}px`,
+                    }),
+              }}
+              className={cn(
+                "fixed z-[9999] rounded-xl border border-border shadow-xl bg-popover flex flex-col",
+                isMobile
+                  ? "inset-x-4 bottom-6 max-w-sm mx-auto w-[calc(100vw-2rem)] p-3.5 max-h-[80dvh]"
+                  : "p-3 max-h-[80vh] w-72 max-w-[calc(100vw-2rem)]"
+              )}
+              onClick={(e) => e.stopPropagation()}
             >
-              <span aria-hidden>×</span>
-            </button>
-          </div>
-          <ItemTagEditor target={target} onTagsPersisted={onTagsPersisted} onTagClick={onTagClick} autoFocus />
-        </div>
-      )}
+              <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t("tagEditor.editTagsTitle")}
+                </span>
+                <button
+                  type="button"
+                  onClick={close}
+                  aria-label={t("common.close")}
+                  className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                >
+                  <span aria-hidden>×</span>
+                </button>
+              </div>
+              <div className="overflow-y-auto min-h-0 flex-1">
+                <ItemTagEditor
+                  target={target}
+                  onTagsPersisted={onTagsPersisted}
+                  onTagClick={onTagClick}
+                  autoFocus
+                />
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 }

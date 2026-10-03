@@ -465,4 +465,35 @@ describe("CreateAudioEditionDialog", () => {
       );
     });
   });
+
+  it("portals to document.body with z-[9999], overlay overflow, and min-h-0 scroll containment", () => {
+    const { container } = render(
+      <div data-testid="parent-container">
+        <CreateAudioEditionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          document={{ ...dummyDocSummary, content: "Some sample readable text" }}
+        />
+      </div>
+    );
+
+    // Dialog root should NOT be inside parent container because it's portaled
+    const parentContainer = screen.getByTestId("parent-container");
+    expect(parentContainer.querySelector("[role='dialog']")).toBeNull();
+
+    // Dialog should be portaled directly under document.body
+    const dialog = screen.getByRole("dialog", { name: /Create Audio Edition/i });
+    expect(document.body.contains(dialog)).toBe(true);
+
+    // Overlay should have elevated z-index and overflow-y-auto
+    const overlay = dialog.parentElement as HTMLElement;
+    expect(overlay.className).toContain("z-[9999]");
+    expect(overlay.className).toContain("overflow-y-auto");
+
+    // Content container should have min-h-0 and overflow-y-auto for flex scrolling
+    const content = dialog.querySelector(".overflow-y-auto.min-h-0") as HTMLElement;
+    expect(content).toBeInTheDocument();
+    expect(content.className).toContain("flex-1");
+  });
 });
+

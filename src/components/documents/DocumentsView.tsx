@@ -1863,6 +1863,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 onUpdate={updateDocument}
                 onTranscribe={handleTranscribe}
                 onReadAlong={onReadAlong}
+                onCreateAudioEdition={setAudioEditionDoc}
                 isMobile={isMobile}
                 onOpenPopup={(doc) => {
                   // Selection-aware: if the right-clicked doc is part of the
@@ -3547,6 +3548,7 @@ interface LibraryDashboardProps {
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
+  onCreateAudioEdition?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   onOpenPopup?: (doc: Document) => void;
   isMobile: boolean;
@@ -3564,6 +3566,7 @@ function LibraryDashboard({
   onDelete,
   onUpdate,
   onTranscribe,
+  onCreateAudioEdition,
   onReadAlong,
   onOpenPopup,
   isMobile,
@@ -3700,6 +3703,7 @@ function LibraryDashboard({
         onDelete={onDelete}
         onUpdate={onUpdate}
         onTranscribe={onTranscribe}
+        onCreateAudioEdition={onCreateAudioEdition}
         onReadAlong={onReadAlong}
         onOpenPopup={onOpenPopup}
         isMobile={isMobile}
@@ -3720,6 +3724,7 @@ function LibraryDashboard({
         onDelete={onDelete}
         onUpdate={onUpdate}
         onTranscribe={onTranscribe}
+        onCreateAudioEdition={onCreateAudioEdition}
         onReadAlong={onReadAlong}
         onOpenPopup={onOpenPopup}
         isMobile={isMobile}
@@ -3742,6 +3747,7 @@ interface HorizontalSectionProps {
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
+  onCreateAudioEdition?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   onOpenPopup?: (doc: Document) => void;
   isMobile: boolean;
@@ -3761,6 +3767,7 @@ function HorizontalSection({
   onDelete,
   onUpdate,
   onTranscribe,
+  onCreateAudioEdition,
   onReadAlong,
   onOpenPopup,
   isMobile,
@@ -3814,6 +3821,7 @@ function HorizontalSection({
             onDelete={onDelete}
             onUpdate={onUpdate}
             onTranscribe={onTranscribe ? () => onTranscribe(doc) : undefined}
+            onCreateAudioEdition={onCreateAudioEdition ? () => onCreateAudioEdition(doc) : undefined}
             onReadAlong={onReadAlong}
             onOpenPopup={onOpenPopup ? () => onOpenPopup(doc) : undefined}
             isMobile={isMobile}
@@ -3837,6 +3845,7 @@ function LibraryCard({
   onDelete,
   onUpdate,
   onTranscribe,
+  onCreateAudioEdition,
   onReadAlong,
   onOpenPopup,
   isMobile,
@@ -3850,6 +3859,7 @@ function LibraryCard({
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: () => void;
+  onCreateAudioEdition?: () => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   onOpenPopup?: () => void;
   isMobile: boolean;
@@ -3925,6 +3935,14 @@ function LibraryCard({
         const audioDoc = doc.fileType === "audio" ? doc : bestCompanion.doc;
         const epubDoc = doc.fileType === "epub" ? doc : bestCompanion.doc;
         onReadAlong?.(audioDoc, epubDoc);
+      },
+    } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
+    ...(doc.fileType !== "audio" && onCreateAudioEdition ? [{
+      label: "Create Audio Edition",
+      icon: <SpeakerHigh className="h-3.5 w-3.5 text-purple-500" />,
+      action: () => {
+        setCtxPos(null);
+        onCreateAudioEdition();
       },
     } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
     ...((doc.fileType === "audio" || doc.fileType === "epub") && onReadAlong ? [{

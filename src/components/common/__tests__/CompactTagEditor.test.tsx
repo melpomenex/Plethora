@@ -90,15 +90,49 @@ describe("CompactTagEditor", () => {
     expect(mocks.persistItemTags).not.toHaveBeenCalled();
   });
 
-  it("renders popover container with opaque background, high shadow, and elevated z-index", () => {
+  it("renders popover container portaled to document.body with guaranteed solid opaque background, shadow, and elevated z-index", () => {
     render(<CompactTagEditor target={target()} />);
     fireEvent.click(screen.getByLabelText("tagEditor.editTags"));
 
     const dialog = screen.getByRole("dialog", { name: "tagEditor.editTagsTitle" });
+    // Portaled directly to document.body, escaping row transform/overflow stacking contexts
+    expect(dialog.parentElement).toBe(document.body);
     expect(dialog.className).toContain("bg-popover");
     expect(dialog.className).toContain("border-border");
     expect(dialog.className).toContain("shadow-xl");
-    expect(dialog.className).toContain("z-50");
+    expect(dialog.className).toContain("z-[9999]");
+    expect(dialog.style.opacity).toBe("1");
+    expect(dialog.style.backgroundColor).toContain("var(--color-popover");
+  });
+
+  it("dismisses on backdrop tap/click and returns focus to the trigger", () => {
+    render(<CompactTagEditor target={target()} />);
+    const trigger = screen.getByLabelText("tagEditor.editTags");
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("dialog", { name: "tagEditor.editTagsTitle" })).toBeTruthy();
+    const backdrop = screen.getByTestId("compact-tag-editor-backdrop");
+    expect(backdrop).toBeInTheDocument();
+    expect(backdrop.className).toContain("z-[9998]");
+
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole("dialog", { name: "tagEditor.editTagsTitle" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("renders responsive mobile presentation when isMobile is active", () => {
+    render(<CompactTagEditor target={target()} isMobile={true} />);
+    fireEvent.click(screen.getByLabelText("tagEditor.editTags"));
+
+    const dialog = screen.getByRole("dialog", { name: "tagEditor.editTagsTitle" });
+    expect(dialog.className).toContain("inset-x-4");
+    expect(dialog.className).toContain("bottom-6");
+    expect(dialog.className).toContain("max-w-sm");
+
+    const backdrop = screen.getByTestId("compact-tag-editor-backdrop");
+    expect(backdrop.className).toContain("bg-black/50");
+    expect(backdrop.className).toContain("backdrop-blur-sm");
   });
 });
 

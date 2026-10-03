@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { createOwnedObjectUrl, revokeOwnedObjectUrl } from "../../diagnostics/ownedObjectUrl";
 import {
   X,
@@ -639,22 +640,30 @@ export function CreateAudioEditionDialog({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isCreating) {
+          onClose();
+        }
+      }}
+    >
       <div
-        className="bg-card text-card-foreground border border-border w-full max-w-xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-card text-card-foreground border border-border w-full max-w-xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] my-auto animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-audio-edition-title"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
               <SpeakerHigh size={22} weight="bold" />
             </div>
-            <div>
-              <h2 id="create-audio-edition-title" className="text-lg font-semibold leading-tight">
+            <div className="min-w-0">
+              <h2 id="create-audio-edition-title" className="text-base sm:text-lg font-semibold leading-tight truncate">
                 Create Audio Edition
               </h2>
               <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
@@ -664,7 +673,7 @@ export function CreateAudioEditionDialog({
           </div>
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted transition-colors"
+            className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted transition-colors shrink-0"
             aria-label="Close"
           >
             <X size={18} />
@@ -672,7 +681,7 @@ export function CreateAudioEditionDialog({
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+        <div className="p-4 sm:p-6 overflow-y-auto min-h-0 space-y-5 sm:space-y-6 flex-1 text-sm overscroll-contain">
           {/* Document Hydration Loading Indicator */}
           {isLoadingDoc && (
             <div className="space-y-2 p-3.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs">
@@ -717,7 +726,7 @@ export function CreateAudioEditionDialog({
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
               Quality & Voice Profile
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
               {/* Fast */}
               <button
                 type="button"
@@ -972,7 +981,7 @@ export function CreateAudioEditionDialog({
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Pre-Flight Summary
             </span>
-            <div className="grid grid-cols-3 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-1">
               <div className="flex items-center gap-2">
                 <BookOpen size={16} className="text-muted-foreground shrink-0" />
                 <div>
@@ -1022,7 +1031,7 @@ export function CreateAudioEditionDialog({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2.5 sm:gap-3 px-4 py-3 sm:px-6 sm:py-4 border-t border-border bg-muted/30 shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -1051,6 +1060,7 @@ export function CreateAudioEditionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

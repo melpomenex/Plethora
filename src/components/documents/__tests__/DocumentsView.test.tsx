@@ -73,10 +73,14 @@ const mockStore = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../stores/documentStore", () => ({
-  useDocumentStore: Object.assign(() => mockStore, {
-    getState: () => mockStore,
-    subscribe: vi.fn(),
-  }),
+  useDocumentStore: Object.assign(
+    (selector?: (state: typeof mockStore) => unknown) =>
+      typeof selector === "function" ? selector(mockStore) : mockStore,
+    {
+      getState: () => mockStore,
+      subscribe: vi.fn(),
+    }
+  ),
 }));
 
 vi.mock("../../common/Modal", async (importOriginal) => ({
@@ -372,6 +376,21 @@ describe("DocumentsView", () => {
 
       await waitFor(() => expect(screen.queryByText("Select All")).toBeNull());
     });
+  });
+
+  it("opens Create Audio Edition dialog from document context menu", async () => {
+    window.localStorage.setItem("documentsViewMode", "list");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const docRow = screen.getByText("Priority Doc");
+    fireEvent.contextMenu(docRow, { clientX: 100, clientY: 100 });
+
+    const createAudioEditionBtn = await screen.findByRole("button", { name: /create audio edition/i });
+    expect(createAudioEditionBtn).toBeInTheDocument();
+
+    fireEvent.click(createAudioEditionBtn);
+
+    expect(await screen.findByRole("heading", { name: "Create Audio Edition" })).toBeInTheDocument();
   });
 
 });
