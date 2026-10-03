@@ -288,7 +288,7 @@ function EditTab({
           className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40"
         >
           {saving ? <CircleNotch className="h-3 w-3 animate-spin" /> : <FloppyDisk className="h-3 w-3" />}
-          FloppyDisk
+          {t("common.save")}
         </button>
         <button
           onClick={handleCancel}

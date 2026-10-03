@@ -166,7 +166,7 @@ export function RSSCustomizationPanel({
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
             >
               <FloppyDisk className="w-4 h-4" />
-              FloppyDisk
+              {t("common.save")}
             </button>
             <button
               onClick={onClose}

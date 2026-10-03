@@ -4,10 +4,12 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettierConfig from "eslint-config-prettier";
 import noHardcodedChromeColors from "./scripts/eslint-rules/no-hardcoded-chrome-colors.js";
+import noIconNameAsText from "./scripts/eslint-rules/no-icon-name-as-text.js";
 
 const localRulesPlugin = {
   rules: {
     "no-hardcoded-chrome-colors": noHardcodedChromeColors,
+    "no-icon-name-as-text": noIconNameAsText,
   },
 };
 
@@ -73,6 +75,7 @@ export default [
       ...prettierConfig.rules,
       "react-refresh/only-export-components": "off",
       "plethora/no-hardcoded-chrome-colors": "error",
+      "plethora/no-icon-name-as-text": "error",
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": [
         "warn",

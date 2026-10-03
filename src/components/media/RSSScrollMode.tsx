@@ -2718,7 +2718,7 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
           </div>
           <button onClick={handleUndo} className="undo-toast-action">
             <ArrowCounterClockwise className="w-4 h-4 mr-1" />
-            ArrowCounterClockwise
+            {t("queue.undo")}
           </button>
           <div className="undo-toast-progress">
             <div className="undo-toast-progress-bar" style={{ width: `${undoState.progress}%` }} />
