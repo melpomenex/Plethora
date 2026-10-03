@@ -9,6 +9,7 @@ import {
   isScheduledItem,
   orderQueueItems,
   splitPriorityTargets,
+  type PriorityPreset,
 } from "../reviewUx";
 
 const baseItem = (overrides: Partial<QueueItem>): QueueItem => ({
@@ -151,6 +152,22 @@ describe("reviewUx helpers", () => {
 
     expect(firstDocument).toBeGreaterThanOrEqual(0);
     expect(firstDocument).toBeLessThan(10);
+  });
+
+  it("falls back to the default preset for a preset id it does not know", () => {
+    // The regression: `smartQueue.queueStrategyPreset` holds the union of the
+    // five PriorityPreset ids and the four DAQE ones, but three call sites read
+    // it as a bare `as PriorityPreset`. On mobile that reached `getPriorityScore`
+    // with a DAQE id, `priorityPresets[id]` was undefined, and rendering the
+    // queue threw `Cannot read properties of undefined (reading 'retentionRisk')`.
+    const items = [baseItem({ id: "a", priority: 9 }), baseItem({ id: "b", priority: 3 })];
+    const unknown = "deep-work-sprint" as PriorityPreset;
+
+    expect(() => getPriorityScore(items[0], unknown)).not.toThrow();
+    expect(() => orderQueueItems(items, unknown)).not.toThrow();
+    expect(orderQueueItems(items, unknown).map((item) => item.id)).toEqual(
+      orderQueueItems(items).map((item) => item.id),
+    );
   });
 
   it("numbers only the currently visible filtered items", () => {

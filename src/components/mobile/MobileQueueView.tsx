@@ -40,7 +40,8 @@ import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { MobileScheduleView } from "../schedule/MobileScheduleView";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { orderQueueItems, type OrderedQueueItem, type PriorityPreset, type SessionItemTypes } from "../../utils/reviewUx";
+import { orderQueueItems, type OrderedQueueItem, type SessionItemTypes } from "../../utils/reviewUx";
+import { resolvePriorityPresetId } from "../../lib/daqe/presets";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import {
   scrollModeEntryDisabledClasses,
@@ -119,8 +120,10 @@ export function MobileQueueView({
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("today");
   const { t } = useI18n();
   const toast = useToast();
-  const queueStrategyPreset = useSettingsStore(
-    (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
+  // Resolved, not cast: the stored id is one of nine strategies and only five of
+  // them are PriorityPresets. See `resolvePriorityPresetId`.
+  const queueStrategyPreset = useSettingsStore((state) =>
+    resolvePriorityPresetId(state.settings.smartQueue.queueStrategyPreset),
   );
   // The configured energy target, shown alongside the effective one so a fatigue
   // downshift reads as "we lowered this because you slowed down" rather than as a

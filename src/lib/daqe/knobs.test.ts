@@ -10,11 +10,13 @@ import {
 } from "./knobs";
 import {
   DAQE_PRESET_IDS,
+  PRIORITY_PRESET_IDS,
   applyPreset,
   coerceStoredPresetId,
   detectActivePreset,
   getDaqePreset,
   isQueueStrategyPreset,
+  resolvePriorityPresetId,
 } from "./presets";
 
 describe("knob schema", () => {
@@ -239,5 +241,32 @@ describe("presets", () => {
     expect(coerceStoredPresetId("a-preset-that-was-removed")).toBeNull();
     expect(coerceStoredPresetId(undefined)).toBeNull();
     expect(coerceStoredPresetId(42)).toBeNull();
+  });
+});
+
+describe("resolvePriorityPresetId", () => {
+  it("passes a PriorityPreset through unchanged", () => {
+    for (const id of PRIORITY_PRESET_IDS) {
+      expect(resolvePriorityPresetId(id)).toBe(id);
+    }
+  });
+
+  it("gives every DAQE mode a PriorityPreset to rank by", () => {
+    // The regression: the mobile queue read the stored id as a bare cast, so a
+    // DAQE mode reached getPriorityScore with no weight vector and the queue
+    // threw `Cannot read properties of undefined (reading 'retentionRisk')`.
+    for (const id of DAQE_PRESET_IDS) {
+      expect(PRIORITY_PRESET_IDS).toContain(resolvePriorityPresetId(id));
+    }
+    expect(resolvePriorityPresetId("deep-work-sprint")).toBe("project-focused");
+    expect(resolvePriorityPresetId("tired-mobile-commute")).toBe("minimize-time");
+    expect(resolvePriorityPresetId("ruthless-triage")).toBe("aggressive-catchup");
+    expect(resolvePriorityPresetId("balanced-discovery")).toBe("maximize-retention");
+  });
+
+  it("falls back to the default for a stale or missing stored id", () => {
+    expect(resolvePriorityPresetId("a-preset-that-was-removed")).toBe("maximize-retention");
+    expect(resolvePriorityPresetId(undefined)).toBe("maximize-retention");
+    expect(resolvePriorityPresetId(42)).toBe("maximize-retention");
   });
 });

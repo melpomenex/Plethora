@@ -48,6 +48,29 @@ export const QUEUE_STRATEGY_PRESET_IDS: readonly QueueStrategyPresetId[] = [
   ...DAQE_PRESET_IDS,
 ];
 
+/**
+ * The strategy a queue ranks by when nothing usable is stored.
+ *
+ * Also the answer for an id that no longer exists, so a settings blob written by
+ * another build degrades to a sane order instead of no queue at all.
+ */
+export const DEFAULT_QUEUE_STRATEGY_PRESET_ID: PriorityPresetId = "maximize-retention";
+
+/**
+ * Which DAQE learning mode each strategy id stands in for when something needs a
+ * `PriorityVector` rather than knobs.
+ *
+ * Only reached by surfaces that still rank by the pre-DAQE vector (the mobile
+ * queue list, the queue route's ordering). Those surfaces have no knob set to
+ * read, so a DAQE id has to borrow the vector preset that shares its intent.
+ */
+const DAQE_TO_PRIORITY_PRESET: Record<DaqePresetId, PriorityPresetId> = {
+  "deep-work-sprint": "project-focused",
+  "tired-mobile-commute": "minimize-time",
+  "ruthless-triage": "aggressive-catchup",
+  "balanced-discovery": "maximize-retention",
+};
+
 export interface DaqePresetDefinition {
   id: DaqePresetId;
   /** i18n key for the display name. */
@@ -162,6 +185,11 @@ export function isQueueStrategyPreset(
   return (QUEUE_STRATEGY_PRESET_IDS as readonly string[]).includes(id);
 }
 
+/** One of the five pre-DAQE strategies, i.e. the ids `PriorityVector` weights exist for. */
+export function isPriorityPresetId(id: string): id is PriorityPresetId {
+  return (PRIORITY_PRESET_IDS as readonly string[]).includes(id);
+}
+
 /**
  * The persisted preset id, or `null`.
  *
@@ -171,4 +199,23 @@ export function isQueueStrategyPreset(
  */
 export function coerceStoredPresetId(value: unknown): QueueStrategyPresetId | null {
   return typeof value === "string" && isQueueStrategyPreset(value) ? value : null;
+}
+
+/**
+ * The stored strategy id as a `PriorityPreset`, which is all the pre-DAQE
+ * ranking surfaces understand.
+ *
+ * Nine ids go in; five come out, so every read of
+ * `smartQueue.queueStrategyPreset` resolves through here. Three call sites used
+ * to cast the stored string to `PriorityPreset` instead, which handed a DAQE id
+ * straight to `getPriorityScore` — where the weight lookup missed and rendering
+ * the queue threw `Cannot read properties of undefined (reading 'retentionRisk')`.
+ * An unknown id resolves to the default for the same reason `coerceStoredPresetId`
+ * does not throw: a stale blob must not make the queue unopenable.
+ */
+export function resolvePriorityPresetId(value: unknown): PriorityPresetId {
+  const stored = coerceStoredPresetId(value);
+  if (!stored) return DEFAULT_QUEUE_STRATEGY_PRESET_ID;
+  if (isPriorityPresetId(stored)) return stored;
+  return DAQE_TO_PRIORITY_PRESET[stored];
 }

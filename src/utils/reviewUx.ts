@@ -52,6 +52,9 @@ export type SessionCustomizationOptions = {
 
 const DEFAULT_TIME_PER_ITEM = 2;
 
+/** The strategy `getPriorityScore` ranks by when the requested one is unknown. */
+const DEFAULT_PRIORITY_PRESET: PriorityPreset = "maximize-retention";
+
 const priorityPresets: Record<PriorityPreset, PriorityVector> = {
   "maximize-retention": {
     retentionRisk: 0.35,
@@ -143,7 +146,10 @@ export function getPriorityVector(item: QueueItem): PriorityVector {
 
 export function getPriorityScore(item: QueueItem, preset: PriorityPreset): number {
   const vector = getPriorityVector(item);
-  const weights = priorityPresets[preset];
+  // The preset id crosses a persistence boundary (`smartQueue.queueStrategyPreset`),
+  // so a stale one reaches here even though the type says otherwise. Falling back
+  // costs the user their chosen ordering; throwing costs them the whole queue.
+  const weights = priorityPresets[preset] ?? priorityPresets[DEFAULT_PRIORITY_PRESET];
   return Math.round(
     vector.retentionRisk * weights.retentionRisk +
       vector.cognitiveLoad * weights.cognitiveLoad +

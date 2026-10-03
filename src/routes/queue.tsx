@@ -35,7 +35,8 @@ import { bulkSuspendItems, bulkUnsuspendItems, type BulkOperationResult, type Li
 import { TranscriptionQueueActions, TranscriptionQueueIndicator, isTranscribableFileType } from "../components/transcription/TranscriptionQueueActions";
 import { useI18n } from "../lib/i18n";
 import { useSettingsStore } from "../stores/settingsStore";
-import { orderQueueItems, type PriorityPreset } from "../utils/reviewUx";
+import { orderQueueItems } from "../utils/reviewUx";
+import { resolvePriorityPresetId } from "../lib/daqe/presets";
 import { emitQueueActionFeedback, getQueuePrimaryAction, getQueuePrimaryActionLabelKey } from "../components/review/queueActions";
 import { InlineCardEditor } from "../components/review/InlineCardEditor";
 import { getLearningItem, type LearningItem } from "../api/learning-items";
@@ -138,8 +139,10 @@ export function Queue() {
   const [editingLearningItem, setEditingLearningItem] = useState<LearningItem | null>(null);
   const collections = useCollectionStore((state) => state.collections);
   const confirmDialog = useConfirmDialog();
-  const queueStrategyPreset = useSettingsStore(
-    (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
+  // Resolved, not cast: the stored id is one of nine strategies and only five of
+  // them are PriorityPresets. See `resolvePriorityPresetId`.
+  const queueStrategyPreset = useSettingsStore((state) =>
+    resolvePriorityPresetId(state.settings.smartQueue.queueStrategyPreset),
   );
   const orderedItems = useMemo(
     () => orderQueueItems(filteredItems, queueStrategyPreset),

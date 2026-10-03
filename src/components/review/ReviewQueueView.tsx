@@ -41,9 +41,13 @@ import { InlineCardEditor } from "./InlineCardEditor";
 import { getLearningItem, type LearningItem } from "../../api/learning-items";
 import { formatDuration } from "../../api/audiobooks";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
-import { DAQE_PRESETS, type QueueStrategyPresetId } from "../../lib/daqe/presets";
 import {
-  PriorityPreset,
+  DAQE_PRESETS,
+  coerceStoredPresetId,
+  resolvePriorityPresetId,
+  type QueueStrategyPresetId,
+} from "../../lib/daqe/presets";
+import {
   applyFilters,
   formatMinutesRange,
   getFsrsMetrics,
@@ -108,21 +112,6 @@ const PRESET_DESC_KEYS: Record<QueueStrategyPresetId, string> = {
   "ruthless-triage": "daqePreset.ruthlessTriageDesc",
   "balanced-discovery": "daqePreset.balancedDiscoveryDesc",
 };
-
-function toPriorityPreset(preset: QueueStrategyPresetId): PriorityPreset {
-  switch (preset) {
-    case "deep-work-sprint":
-      return "project-focused";
-    case "tired-mobile-commute":
-      return "minimize-time";
-    case "ruthless-triage":
-      return "aggressive-catchup";
-    case "balanced-discovery":
-      return "maximize-retention";
-    default:
-      return preset;
-  }
-}
 
 type ScrollAnchor = { id: string; offset: number; scrollTop: number };
 let persistentQueueScrollAnchor: ScrollAnchor | null = null;
@@ -199,8 +188,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const setCustomSubset = useQueueStore((state) => state.setCustomSubset);
   const priorityPopup = usePriorityPopup();
   const [queueMode, setQueueMode] = useState<QueueMode>("reading");
+  // Coerced, not cast: the stored value is user data that survives across builds,
+  // so an id from an older build must read as "no preset" rather than crash the
+  // description lookup below. See `coerceStoredPresetId`.
   const [preset, setPreset] = useState<QueueStrategyPresetId>(
-    (useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as QueueStrategyPresetId) || "maximize-retention"
+    coerceStoredPresetId(useSettingsStore.getState().settings.smartQueue.queueStrategyPreset) ??
+      "maximize-retention"
   );
   const daqeSettings = useSettingsStore((s) => s.settings.daqe);
   // Per-item ranking breakdowns from the last adaptive snapshot. Selected as a
@@ -572,11 +565,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       // a type is an absolute exclusion. (This is what the comment above the
       // old `|| queueFilterMode === "due-all"` claimed it already did.)
       itemTypes: queueMode === "review" ? undefined : effectiveItemTypes,
-      priorityPreset: toPriorityPreset(preset),
+      priorityPreset: resolvePriorityPresetId(preset),
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    const ordered = orderQueueItems(filtered, toPriorityPreset(preset));
+    const ordered = orderQueueItems(filtered, resolvePriorityPresetId(preset));
     if (queueSortMode === "overdue-desc") {
       return [...ordered].sort((a, b) => {
         const now = Date.now();
@@ -1753,7 +1746,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                   )}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, toPriorityPreset(preset)) })}
+                                  {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, resolvePriorityPresetId(preset)) })}
                                 </div>
                                 <TimeConfidenceBar min={estimateRange.min} max={estimateRange.max} />
                               </div>
@@ -1989,7 +1982,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 )}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, toPriorityPreset(preset)) })}
+                                {formatMinutesRange(estimateRange)} • {t("queue.priorityWithValue", { value: getPriorityScore(item, resolvePriorityPresetId(preset)) })}
                               </div>
                               <TimeConfidenceBar min={estimateRange.min} max={estimateRange.max} />
                             </div>
@@ -2137,7 +2130,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                   <div className="text-xs text-muted-foreground">{t("queue.schedulingRationale")}</div>
                   <div className="text-xs text-muted-foreground">
                     {t("queue.prioritySummary", {
-                      value: getPriorityScore(selectedItem, toPriorityPreset(preset)),
+                      value: getPriorityScore(selectedItem, resolvePriorityPresetId(preset)),
                       status: getStatusLabel(getQueueStatus(selectedItem)),
                     })}
                   </div>
