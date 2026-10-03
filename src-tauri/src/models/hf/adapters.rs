@@ -32,6 +32,10 @@ pub enum HfRuntime {
     /// Nemotron ASR streaming transducer, run through the sherpa-onnx
     /// online (streaming) sidecar as a split transducer (ONNX artifact).
     NemotronAsr,
+    /// Laya typed-decision checkpoint (safetensors). Not executed in-process:
+    /// DAQE drives it through its System One HTTP endpoint, so the only job here
+    /// is to fetch and verify the weights a `laya-serve` will load.
+    LayaDecision,
 }
 
 impl HfRuntime {
@@ -41,6 +45,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxStt => "sherpa-onnx (ONNX STT)",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx (ONNX TTS)",
             HfRuntime::NemotronAsr => "Nemotron ASR (streaming ONNX)",
+            HfRuntime::LayaDecision => "Laya (typed decisions)",
         }
     }
 
@@ -49,6 +54,8 @@ impl HfRuntime {
             HfRuntime::WhisperCpp => "whisper",
             HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => "sherpa-onnx",
             HfRuntime::NemotronAsr => "sherpa-online",
+            // Decision checkpoints run in a separate process, reached over HTTP.
+            HfRuntime::LayaDecision => "laya-serve",
         }
     }
 }
@@ -117,6 +124,13 @@ pub struct ArtifactFile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RunContract {
+    /// Weights served by an out-of-process endpoint rather than a bundled engine.
+    ///
+    /// Added for Laya: the checkpoint is fetched and verified by Plethora, then
+    /// served by a `laya-serve` the user runs. Carrying no engine-relative paths
+    /// is deliberate — `paths_contained()` has nothing to check, which is the
+    /// safe outcome rather than an unchecked one.
+    ExternalEndpoint { endpoint_kind: String },
     Whisper {
         model_file: String,
     },
@@ -198,6 +212,8 @@ impl RunContract {
     /// fields only). Used by containment validation and disk verification.
     pub fn contract_files(&self) -> Vec<&str> {
         match self {
+            // No engine-relative paths: the endpoint loads the weights itself.
+            RunContract::ExternalEndpoint { .. } => Vec::new(),
             RunContract::Whisper { model_file } => vec![model_file.as_str()],
             RunContract::SherpaStt {
                 model_file,
@@ -273,6 +289,14 @@ impl RunContract {
     /// detection time and again before engine use.
     pub fn validate(&self) -> Result<(), String> {
         match self {
+            RunContract::ExternalEndpoint { endpoint_kind } => {
+                if endpoint_kind.is_empty() {
+                    return Err(
+                        "external endpoint contract has an empty endpoint_kind".to_string(),
+                    );
+                }
+                Ok(())
+            }
             RunContract::Whisper { model_file } => {
                 if model_file.is_empty() {
                     return Err("whisper contract has an empty model_file".to_string());
@@ -424,6 +448,14 @@ fn artifact_file(index: &FileIndex, path: String) -> ArtifactFile {
 
 fn total_download_size(files: &[ArtifactFile]) -> u64 {
     files.iter().filter_map(|f| f.size).sum()
+}
+
+/// Whether the index knows a repo-relative path at all.
+///
+/// Built from the same two sources `size_of` consults, so a path is "present"
+/// exactly when its size would be resolvable.
+fn index_contains(index: &FileIndex, path: &str) -> bool {
+    index.metadata.contains_key(path) || index.files.iter().any(|f| f.rfilename == path)
 }
 
 fn repo_name_lower(info: &HfRepoInfo) -> String {
@@ -1013,6 +1045,107 @@ impl RuntimeAdapter for NemotronAsrAdapter {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Laya typed-decision adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Laya decision checkpoints (Convai Innovations, Apache 2.0).
+///
+/// The only decision model whose *weights* Plethora fetches. Jev, Clef and the
+/// OpenRouter decision models are services, so there is nothing to download for
+/// them — this adapter exists so a reader can run the one that is downloadable
+/// on their own machine.
+///
+/// ## Why a separate adapter rather than reusing the sherpa-ONNX path
+///
+/// A Laya checkpoint is `safetensors` plus a tokenizer, not an ONNX graph, and it
+/// is not loaded by a bundled sidecar — DAQE reaches it over the System One HTTP
+/// endpoint. Reusing `SherpaOnnxSttAdapter` would make an artifact detection
+/// heuristic decide between "speech recognition" and "queue ranking", which is
+/// exactly the kind of inference `security.md` argues against.
+pub struct LayaDecisionAdapter;
+
+impl RuntimeAdapter for LayaDecisionAdapter {
+    fn runtime(&self) -> HfRuntime {
+        HfRuntime::LayaDecision
+    }
+
+    fn id(&self) -> &'static str {
+        "laya-decision"
+    }
+
+    fn label(&self) -> &'static str {
+        "Laya (typed decisions)"
+    }
+
+    /// A tokenizer is required: the checkpoint is text, and without a tokenizer
+    /// there is nothing to serve.
+    fn required_metadata(&self) -> Vec<&'static str> {
+        vec!["tokenizer.json"]
+    }
+
+    fn install_dir(&self, app_data_dir: &Path) -> PathBuf {
+        app_data_dir.join("models").join("laya")
+    }
+
+    /// Detect a Laya checkpoint by its safetensors weight file.
+    ///
+    /// Narrow on purpose: `is_speech_repo_name`-style name guessing would match
+    /// unrelated transformers repos, and a false positive here means installing
+    /// hundreds of megabytes of the wrong artifact.
+    fn detect_artifact(&self, info: &HfRepoInfo, index: &FileIndex) -> Option<Artifact> {
+        let name = repo_name_lower(info);
+        let looks_like_laya = name == "laya"
+            || name.starts_with("laya-")
+            || repo_tags_contain(info, "laya");
+        if !looks_like_laya {
+            return None;
+        }
+
+        // The weight file. `model.safetensors` is the transformers default;
+        // `pytorch_model.bin` is the legacy name some checkpoints still use.
+        let weights = ["model.safetensors", "pytorch_model.bin"]
+            .iter()
+            .find(|candidate| index_contains(index, candidate))?;
+
+        let mut files = vec![artifact_file(index, weights.to_string())];
+        // Tokenizer files ship alongside the weights and are required to serve.
+        for optional in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"] {
+            if index_contains(index, optional) {
+                files.push(artifact_file(index, optional.to_string()));
+            }
+        }
+        if files.len() < 2 {
+            // Weights without a tokenizer cannot be served; refuse rather than
+            // install something that cannot run.
+            return None;
+        }
+
+        let weight_files = vec![artifact_file(index, weights.to_string())];
+        Some(Artifact {
+            runtime: self.runtime(),
+            kind: "laya-decision".to_string(),
+            label: self.label().to_string(),
+            files,
+            download_size_bytes: total_download_size(&weight_files),
+            // No run contract: a decision checkpoint is not loaded by a bundled
+            // engine, so there are no engine-relative paths to contain. The
+            // endpoint it is served from is settings, not an install artifact.
+            run_contract: RunContract::ExternalEndpoint {
+                endpoint_kind: "systemone".to_string(),
+            },
+            // ~0.4B params in fp32 plus a tokenizer; used only for the
+            // suitability hint, never for admission.
+            estimated_memory_bytes: index.size_of(weights).unwrap_or(0) * 2,
+            confidence: DetectionConfidence::Exact,
+            metadata: BTreeMap::from([
+                ("repo_id".to_string(), info.id.clone()),
+                ("protocol".to_string(), "systemone".to_string()),
+            ]),
+        })
+    }
+}
+
 /// All adapters, in the order they are evaluated.
 pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
     vec![
@@ -1020,6 +1153,7 @@ pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
         Box::new(SherpaOnnxSttAdapter),
         Box::new(SherpaOnnxTtsAdapter),
         Box::new(NemotronAsrAdapter),
+        Box::new(LayaDecisionAdapter),
     ]
 }
 

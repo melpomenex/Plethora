@@ -158,6 +158,11 @@ export interface SelectionModifiers {
   meta?: boolean;
 }
 
+import { projectSnapshot, type TermBreakdown } from "../lib/daqe/snapshot";
+import type { DaqeKnobs } from "../lib/daqe/knobs";
+import { coerceDaqeKnobs } from "../lib/daqe/knobs";
+import { isSnapshotCurrent, rankQueue } from "./daqeRankingClient";
+
 interface QueueState {
   // Data
   items: QueueItem[];
@@ -250,8 +255,27 @@ interface QueueState {
    * user (see openspec/changes/stabilize-queue-order-on-reactivation).
    */
   reloadForCurrentMode: () => Promise<void>;
+  /**
+   * Re-rank the current pool under `knobs` and adopt the result. Callers do not
+   * await it for correctness — the previous order stands until it lands.
+   */
+  applyRankSnapshot: (knobs: DaqeKnobs) => Promise<void>;
   /** Record the canonical query key now loaded into `items` (see D3). */
   setLoadedQueryKey: (key: string | null) => void;
+  /**
+   * Per-item ranking breakdowns from the most recent adaptive snapshot, keyed by
+   * item id.
+   *
+   * Held here rather than inside a component so the popover, the context menu,
+   * and any future ranking surface all read the same numbers. Empty when adaptive
+   * ranking is off or no snapshot has landed — which is the normal state, and the
+   * reason every consumer treats a missing entry as "no ranking shown" rather
+   * than as a zero.
+   */
+  rankBreakdowns: Map<string, TermBreakdown>;
+  /** The knobs the current breakdown snapshot was produced under. */
+  rankBreakdownKnobs: DaqeKnobs | null;
+
   /** Mark that the first load has completed, gating the startup snapshot path. */
   setHasCompletedFirstLoad: (done: boolean) => void;
   loadStats: () => Promise<void>;
@@ -315,6 +339,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   queueFilterMode: "due-all", // Default to due-only to avoid resurfacing reviewed items
   loadedQueryKey: null,
   hasCompletedFirstLoad: false,
+  rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
   bulkOperationLoading: false,
   bulkOperationResult: null,
   postponeLoading: false,
@@ -455,6 +481,36 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   // is what has repeatedly reordered the list out from under the user.
   // Concurrent callers are safe: each underlying loader coalesces via
   // dedupeLoad. See design decision D1.
+  /**
+   * Adopt a ranking snapshot: re-project the current pool through it and keep the
+   * per-term breakdowns for the popover.
+   *
+   * The previous order is what the list shows until this lands, so a ranking in
+   * flight is never visible as an empty or half-ordered queue. A snapshot produced
+   * under different knobs is discarded rather than applied, because it describes
+   * an ordering the user's current settings do not imply.
+   */
+  applyRankSnapshot: async (knobs: DaqeKnobs) => {
+    const current = get().rankBreakdownKnobs;
+    if (current && !isSnapshotCurrent({ knobs: current } as never, knobs)) {
+      // The knobs moved: the held breakdown no longer describes this queue.
+      set({ rankBreakdowns: new Map(), rankBreakdownKnobs: null });
+    }
+
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    const snapshot = await rankQueue(knobs, [], collectionId);
+    if (!snapshot || !isSnapshotCurrent(snapshot, knobs)) return;
+
+    const projected = projectSnapshot(get().items, snapshot);
+    const items = projected.ordered;
+    set({
+      items,
+      filteredItems: items,
+      rankBreakdowns: projected.breakdowns,
+      rankBreakdownKnobs: coerceDaqeKnobs(snapshot.knobs),
+    });
+  },
+
   reloadForCurrentMode: async () => {
     switch (get().queueFilterMode) {
       case "due-today":
@@ -989,7 +1045,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to suspend items",
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
       });
       throw error;
     }
@@ -1013,7 +1071,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to unsuspend items",
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
       });
       throw error;
     }
@@ -1035,7 +1095,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to delete items",
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
       });
       throw error;
     }
@@ -1070,7 +1132,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       }
       set({
         bulkOperationResult: result,
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
         selectedIds: new Set<string>(),
         lastSelectedId: null,
         selectionBase: new Set<string>(),
@@ -1082,7 +1146,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       for (const [id, original] of before) get().applyItemDelta(id, original);
       set({
         error: error instanceof Error ? error.message : "Bulk operation failed",
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
       });
       throw error;
     }
@@ -1118,7 +1184,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const result = await bulkSetItemLifecycle(ids, transition);
       set({
         bulkOperationResult: result,
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
         selectedIds: new Set<string>(),
         lastSelectedId: null,
         selectionBase: new Set<string>(),
@@ -1135,7 +1203,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to update items",
-        bulkOperationLoading: false,
+        rankBreakdowns: new Map(),
+  rankBreakdownKnobs: null,
+  bulkOperationLoading: false,
       });
       throw error;
     }

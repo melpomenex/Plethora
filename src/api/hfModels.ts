@@ -7,7 +7,17 @@
  */
 import { invokeCommand, isTauri } from "../lib/tauri";
 
-export type HfRuntime = "whisper-cpp" | "sherpa-onnx-stt" | "sherpa-onnx-tts" | "nemotron-asr";
+export type HfRuntime =
+  | "whisper-cpp"
+  | "sherpa-onnx-stt"
+  | "sherpa-onnx-tts"
+  | "nemotron-asr"
+  /**
+   * Laya typed-decision checkpoint. Fetched and verified by Plethora, then served
+   * by a `laya-serve` the user runs — DAQE reaches it over the System One HTTP
+   * endpoint rather than loading it in a bundled engine.
+   */
+  | "laya-decision";
 export type SherpaSttFamily = "nemo-ctc" | "sense-voice" | "zipformer" | "paraformer";
 /** Family of a sherpa-onnx TTS contract (`RunContract::SherpaTts.family`). */
 export type SherpaTtsFamily = "vits" | "kokoro" | "kitten" | "supertonic";
@@ -247,4 +257,5 @@ export const RUNTIME_LABELS: Record<HfRuntime, string> = {
   "sherpa-onnx-stt": "sherpa-onnx (ONNX STT)",
   "sherpa-onnx-tts": "sherpa-onnx (ONNX TTS)",
   "nemotron-asr": "Nemotron ASR (streaming ONNX)",
+  "laya-decision": "Laya (typed decisions)",
 };

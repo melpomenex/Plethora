@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../../stores/queueStore", () => ({
+  // DAQE's derived ranking cache. Absent means "no ranking yet", which
+  // is the faithful empty value for a Map the components only read.
+  rankBreakdowns: new Map<string, unknown>(),
+  rankBreakdownKnobs: null,
   useQueueStore: Object.assign(
     (selector?: (s: any) => unknown) => (selector ? selector(mocks.queueState) : mocks.queueState),
     { getState: () => mocks.queueState },

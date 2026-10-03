@@ -569,13 +569,26 @@ interface AudioTranscriptionSettings {
 interface DaqeSettings {
   /** The six ranking knobs. See `lib/daqe/knobs` for ranges and validation. */
   knobs: DaqeKnobs;
-  /**
-   * The preset the knobs exactly match, or `null`. Derived, never written by a
-   * preset click alone — adjusting a knob clears it.
-   */
-  activePreset: QueueStrategyPresetId | null;
   /** Which decision-model provider to use, or `null` for the deterministic fallback. */
   decisionModelProviderId: string | null;
+  /**
+   * Whether a decision-provider API key is present in the OS keychain.
+   *
+   * The key itself is **not** here and never has been: this store persists to
+   * localStorage, so a metered credential in it would sit in plaintext. The
+   * secret goes through `set_api_key` into the keychain, exactly like the other
+   * paid AI keys; only the boolean "is one set" lives in settings, which is what
+   * the picker needs in order to show a configured provider as configured.
+   */
+  decisionApiKeySet: boolean;
+  /** Which OpenRouter decision model to call. See `OPENROUTER_DECISION_MODELS`. */
+  openrouterDecisionModelId: string | null;
+  /** Which Clef decision model to call. See `CLEF_MODELS`. */
+  clefDecisionModelId?: string | null;
+  /** Which OpenAI decision model to call. */
+  openaiDecisionModelId?: string | null;
+  /** Cloudflare account id, required by Clef. */
+  cloudflareAccountId: string | null;
   /**
    * The opt-in that makes a *remote* decision model contactable at all.
    *
@@ -1374,8 +1387,12 @@ export const defaultSettings: Settings = {
     // Defaults come from the schema, not restated here, so the Rust and TS
     // defaults cannot drift from the documented table.
     knobs: defaultDaqeKnobs(),
-    activePreset: null,
     decisionModelProviderId: null,
+    decisionApiKeySet: false,
+    openrouterDecisionModelId: null,
+    clefDecisionModelId: null,
+    openaiDecisionModelId: null,
+    cloudflareAccountId: null,
     allowRemoteDecisionModel: false,
     // Off until the user opts in: see DaqeSettings.rankingEnabled.
     rankingEnabled: false,
@@ -1862,9 +1879,6 @@ export const useSettingsStore = create<SettingsState>()(
             // or have been hand-edited; coerce repairs it rather than letting an
             // out-of-range value reach the ranker.
             knobs: coerceDaqeKnobs(persisted.daqe?.knobs),
-            // A stored preset id that no longer exists reads as "no preset"
-            // instead of throwing on startup.
-            activePreset: coerceStoredPresetId(persisted.daqe?.activePreset),
           },
           tts: (() => {
             const sanitized = sanitizeTTSSettings(persisted.tts);

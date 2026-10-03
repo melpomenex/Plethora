@@ -6,6 +6,12 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { defaultDaqeKnobs, type DaqeKnobs } from "../../lib/daqe/knobs";
+import { applyPreset } from "../../lib/daqe/presets";
+import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
+import { DaqeDecisionModelSettings } from "../queue/DaqeDecisionModelSettings";
+import type { DaqePresetId } from "../../lib/daqe/presets";
 
 export interface SessionCustomization {
   sessionDurationMinutes: number;
@@ -57,6 +63,20 @@ interface SessionCustomizeModalProps {
   onApply: () => void;
   availableTags?: string[];
   availableCategories?: string[];
+  /**
+   * Whether to show the Adaptive Ranking section at all.
+   *
+   * Off by default for callers that are not the queue's session builder, so a
+   * modal that configures something narrower does not silently grow a panel
+   * that has nothing to do with it.
+   */
+  showDaque?: boolean;
+  /**
+   * Called after a knob or preset changes, so the queue can re-rank while the
+   * modal is still open. Defaulted to a no-op: a caller that does not rank must
+   * not crash on a slider drag.
+   */
+  onScheduleRerank?: () => void;
 }
 
 export function SessionCustomizeModal({
@@ -67,8 +87,25 @@ export function SessionCustomizeModal({
   onApply,
   availableTags = [],
   availableCategories = [],
+  showDaque = true,
+  onScheduleRerank = () => {},
 }: SessionCustomizeModalProps) {
   const { t } = useI18n();
+  const daqe = useSettingsStore((s) => s.settings.daqe);
+  const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
+  const daqeEnabled = daqe?.rankingEnabled ?? false;
+  const daqeKnobs = daqe?.knobs ?? defaultDaqeKnobs();
+  const setDaqueEnabled = (enabled: boolean) =>
+    updateSettingsCategory("daqe", { rankingEnabled: enabled });
+  // Moving a knob clears preset attribution rather than leaving the panel crediting
+  // a preset the user has edited away from.
+  const setDaqueKnobs = (knobs: DaqeKnobs) =>
+    updateSettingsCategory("daqe", { knobs, rankingEnabled: true });
+  const setDaquePreset = (preset: DaqePresetId) =>
+    updateSettingsCategory("daqe", {
+      knobs: applyPreset(preset, daqeKnobs),
+      rankingEnabled: true,
+    });
   if (!isOpen) return null;
 
   const updateCustomization = (updates: Partial<SessionCustomization>) => {
@@ -331,6 +368,45 @@ export function SessionCustomizeModal({
               <div className="w-11 h-6 bg-background peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
             </label>
           </section>
+
+          {/* Adaptive Ranking (DAQE).
+
+              A session's own settings decide *which* items appear; these decide
+              the *order* of the ones that do. They live in settings rather than in
+              the session draft because a preset is a durable choice about how the
+              user reads, not a property of one sitting. That also means Cancel
+              does not roll them back — Apply does, and Cancel leaves the last
+              applied ranking alone. The section says so, because a control that
+              ignores the button under it is worse than no control. */}
+          {showDaque ? (
+            <section className="space-y-4 rounded-lg border border-border bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={daqeEnabled}
+                    onChange={(e) => setDaqueEnabled(e.target.checked)}
+                  />
+                  {t("daqeKnob.enable")}
+                </label>
+              </div>
+              <p className="text-[11px] opacity-70">{t("daqeKnob.cancelNote")}</p>
+
+              {daqeEnabled ? (
+                <>
+                  <DaqeKnobPanel
+                    knobs={daqeKnobs}
+                    onKnobChange={setDaqueKnobs}
+                    onPresetSelect={setDaquePreset}
+                    onScheduleRerank={onScheduleRerank}
+                  />
+                  <div className="border-t border-border pt-3">
+                    <DaqeDecisionModelSettings />
+                  </div>
+                </>
+              ) : null}
+            </section>
+          ) : null}
         </div>
 
         {/* Footer Actions */}

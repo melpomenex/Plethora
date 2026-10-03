@@ -18,6 +18,7 @@
 use super::adapters::{
     Artifact, ArtifactFile, DetectionConfidence, HfRuntime, RunContract, RuntimeAdapter,
     SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter, WhisperCppAdapter, NemotronAsrAdapter,
+    LayaDecisionAdapter,
 };
 use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
 use super::hf_client::{
@@ -167,6 +168,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxStt => "sherpa-onnx-stt",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx-tts",
             HfRuntime::NemotronAsr => "nemotron-asr",
+            HfRuntime::LayaDecision => "laya-decision",
         }
     }
 
@@ -177,6 +179,7 @@ impl HfRuntime {
             "sherpa-onnx-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-onnx-tts" => Some(HfRuntime::SherpaOnnxTts),
             "nemotron-asr" => Some(HfRuntime::NemotronAsr),
+            "laya-decision" => Some(HfRuntime::LayaDecision),
             // Legacy compact aliases (pre-alignment registry rows / model ids).
             "whisper" => Some(HfRuntime::WhisperCpp),
             "sherpa-stt" => Some(HfRuntime::SherpaOnnxStt),
@@ -192,6 +195,7 @@ impl HfRuntime {
             HfRuntime::SherpaOnnxStt => Box::new(SherpaOnnxSttAdapter),
             HfRuntime::SherpaOnnxTts => Box::new(SherpaOnnxTtsAdapter),
             HfRuntime::NemotronAsr => Box::new(NemotronAsrAdapter),
+            HfRuntime::LayaDecision => Box::new(LayaDecisionAdapter),
         }
     }
 }
@@ -576,6 +580,10 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
         // install dir + per-file names from the route, like the sherpa STT
         // engines.
         HfRuntime::NemotronAsr => Some(root),
+        // Decision checkpoints are not loaded by a bundled engine: DAQE reaches
+        // them through a System One HTTP endpoint, so there is no engine path to
+        // resolve. Returning `Some(root)` would imply one exists.
+        HfRuntime::LayaDecision => None,
         // sherpa engines take the model *directory*.
         HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => Some(root),
     }
@@ -691,6 +699,9 @@ pub enum SttEngineRoute {
 pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> SttEngineRoute {
     if let Some((_runtime, contract)) = resolve_run_contract(pool, model_id).await {
         return match contract {
+            // Not a speech engine. A decision checkpoint has no STT route, and
+            // returning a whisper route for one would load the wrong file.
+            RunContract::ExternalEndpoint { .. } => SttEngineRoute::NotTranscription,
             RunContract::Whisper { .. } => SttEngineRoute::Whisper,
             RunContract::SherpaStt {
                 family,

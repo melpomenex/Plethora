@@ -14,6 +14,10 @@ const ensureStartup = vi.hoisted(() => vi.fn());
 
 const mockStore = vi.hoisted(() => {
   const store: Record<string, any> = {
+    // DAQE's derived ranking cache. An empty Map is the faithful
+    // "no ranking yet" value for state the components only ever read.
+    rankBreakdowns: new Map<string, unknown>(),
+    rankBreakdownKnobs: null,
     items: [],
     isLoading: false,
     error: null,

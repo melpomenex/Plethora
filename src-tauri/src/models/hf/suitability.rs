@@ -435,6 +435,9 @@ mod tests {
                 joiner: "joiner.int8.onnx".into(),
                 tokens: "tokens.txt".into(),
             },
+            HfRuntime::LayaDecision => RunContract::ExternalEndpoint {
+                endpoint_kind: "systemone".into(),
+            },
         };
         Artifact {
             runtime,

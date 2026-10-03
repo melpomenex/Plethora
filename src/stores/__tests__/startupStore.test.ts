@@ -13,6 +13,10 @@ const documentState = vi.hoisted(() => ({
   loadDocuments: vi.fn(),
 }));
 const queueState = vi.hoisted(() => ({
+  // DAQE's derived ranking cache. An empty Map is the faithful
+  // "no ranking yet" value for state the components only ever read.
+  rankBreakdowns: new Map<string, unknown>(),
+  rankBreakdownKnobs: null,
   hydrateStartupQueue: vi.fn(),
   loadQueue: vi.fn(),
   loadDueDocumentsOnly: vi.fn(),

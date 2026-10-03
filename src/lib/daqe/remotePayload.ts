@@ -1,3 +1,5 @@
+/* eslint-disable no-control-regex -- the payload sanitiser strips control bytes
+   from author-controlled headings on purpose; see the note at the cleaning step. */
 /**
  * The outbound-payload gate for a remote decision model.
  *
@@ -92,6 +94,11 @@ export function buildRemoteDecisionPayload(input: {
   // Headings are author-controlled text. Control characters are replaced with a
   // space (then collapsed) so a heading cannot smuggle a field separator or a
   // newline-delimited extra record past the schema.
+  // The control-character class below is the point of this function — a heading is
+  // author-controlled text and must not be able to smuggle a field separator or
+  // a newline-delimited extra record past the schema. `no-control-regex` is a
+  // false positive here, so it is disabled for the file rather than weakening
+  // the sanitiser to satisfy the lint.
   const cleaned = outline.map((heading) =>
     heading.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim()
   );

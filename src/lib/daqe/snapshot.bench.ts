@@ -98,6 +98,9 @@ const snapshot: DaqeQueueSnapshot = {
 // written here to keep the work live (the engine cannot elide the loop).
 let sink = 0;
 
+/** The accumulated fold, readable so the work is provably not elided. */
+export const readSink = () => sink;
+
 bench("daqe/project-snapshot-5000-items", () => {
   const projected = projectSnapshot(pool, snapshot, 50);
   sink += projected.ordered.length;

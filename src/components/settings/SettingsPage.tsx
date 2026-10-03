@@ -290,6 +290,8 @@ export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
     id: SettingsTab.SmartQueue,
     label: "settings.smartQueues",
     icon: Brain,
+    // Adaptive ranking and decision models live in this section, so their search
+    // terms belong here rather than on a tab that no longer exists.
     keywords: [
       "queue",
       "smart queue",
@@ -297,6 +299,12 @@ export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
       "adaptive",
       "ranking",
       "knobs",
+      "decision model",
+      "jev",
+      "laya",
+      "clef",
+      "openrouter",
+      "download model",
       "priority",
       "interleaving",
       "dwell",

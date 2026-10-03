@@ -91,6 +91,10 @@ export function MobileQueueView({
     bulkUnsuspend,
     bulkDelete,
     postponeItemSmart,
+    // Read alongside the rows so the long-press sheet can answer "why is this
+    // here?" on a phone. Selected as a map reference, which is stable until a
+    // re-rank actually lands — so this does not re-render every row on each poll.
+    rankBreakdowns,
   } = useQueueStore(
     useShallow((state) => ({
       items: state.items,
@@ -105,6 +109,7 @@ export function MobileQueueView({
       bulkUnsuspend: state.bulkUnsuspend,
       bulkDelete: state.bulkDelete,
       postponeItemSmart: state.postponeItemSmart,
+      rankBreakdowns: state.rankBreakdowns,
     }))
   );
 
@@ -117,6 +122,10 @@ export function MobileQueueView({
   const queueStrategyPreset = useSettingsStore(
     (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
   );
+  // The configured energy target, shown alongside the effective one so a fatigue
+  // downshift reads as "we lowered this because you slowed down" rather than as a
+  // number the user never set.
+  const daqeEnergyTarget = useSettingsStore((state) => state.settings.daqe?.knobs.energyTarget);
 
   // Multi-select mode: entered from an item action sheet. While active, tapping
   // a row toggles selection instead of opening it.
@@ -834,6 +843,8 @@ export function MobileQueueView({
         onPostpone={handleActionPostpone}
         onRemove={handleActionRemove}
         onSelect={(item) => enterSelection(item.id)}
+        rankBreakdown={actionItem ? rankBreakdowns.get(actionItem.id) : undefined}
+        configuredEnergyTarget={daqeEnergyTarget}
       />
 
       {/* Undo Toast */}

@@ -1879,6 +1879,7 @@ pub fn run() {
             commands::get_due_queue_items,
             commands::get_due_documents_only,
             commands::rank_queue,
+            commands::daqe_decision_request,
             commands::get_last_queue_snapshot,
             commands::get_queue_with_playlist_intersperse,
             commands::get_queue_stats,

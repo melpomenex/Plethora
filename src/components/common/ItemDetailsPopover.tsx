@@ -19,6 +19,8 @@ import { getLearningItem } from "../../api/learning-items";
 import { getAlgorithmParams } from "../../api/algorithm";
 import { previewReviewIntervals, formatInterval, type PreviewIntervals } from "../../api/review";
 import type { TaggedItemSummary } from "../../api/tags";
+import { DaqeScoreBreakdown } from "../queue/DaqeScoreBreakdown";
+import type { TermBreakdown } from "../../lib/daqe/snapshot";
 import { cn } from "../../utils";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
@@ -94,6 +96,16 @@ interface ItemDetailsPopoverProps {
   onDelete?: () => Promise<void>;
   /** Called when the user picks an item from the "items with this tag" modal. Omit to disable navigation from that modal. */
   onNavigateToTaggedItem?: (item: TaggedItemSummary) => void;
+  /**
+   * The item's ranking breakdown, when adaptive ranking has produced one.
+   *
+   * Omitted when there is none — ranking off, no snapshot landed, or the item was
+   * outside the projected slice — which hides the section entirely rather than
+   * showing an empty or zeroed score.
+   */
+  rankBreakdown?: TermBreakdown;
+  /** The energy target the user set, for the fatigue-downshift explanation. */
+  configuredEnergyTarget?: number;
 }
 
 const EMPTY_DETAILS: ItemDetailsData = {
@@ -204,6 +216,8 @@ export function ItemDetailsPopover({
   onPostpone,
   onDelete,
   onNavigateToTaggedItem,
+  rankBreakdown,
+  configuredEnergyTarget,
 }: ItemDetailsPopoverProps) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
@@ -442,6 +456,14 @@ export function ItemDetailsPopover({
             align === "right" ? "md:right-0 md:left-auto" : "md:left-0 md:right-auto"
           )}
         >
+          {rankBreakdown ? (
+            <div className="border-b border-border px-4 py-3">
+              <DaqeScoreBreakdown
+                breakdown={rankBreakdown}
+                configuredEnergyTarget={configuredEnergyTarget}
+              />
+            </div>
+          ) : null}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Info className="h-4 w-4" />

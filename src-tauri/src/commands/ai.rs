@@ -206,6 +206,39 @@ mod ai_config_tests {
     }
 }
 
+/// Providers whose API keys may be stored in the OS keychain.
+///
+/// Single source of truth for `set_api_key`, `get_masked_api_key` and
+/// `remove_api_key`. These three used to carry separate inline allowlists and had
+/// already drifted — `set` accepted `deepseek` while `get` and `remove` did not, so
+/// a DeepSeek key could be written but never displayed or deleted. One list makes
+/// that class of bug impossible rather than merely unlikely.
+///
+/// `jev` and `clef` are the DAQE decision-model providers (see
+/// `lib/daqe/decisionModelOptions`). OpenRouter is deliberately *not* duplicated:
+/// one OpenRouter key serves both chat completions and the `decisions` modality, so
+/// a user who already configured one should not type it twice.
+const API_KEY_PROVIDERS: &[&str] = &[
+    "openai",
+    "anthropic",
+    "openrouter",
+    "brave",
+    "deepseek",
+    "jev",
+    "clef",
+];
+
+fn api_key_provider(provider: &str) -> Result<String> {
+    let lowered = provider.to_lowercase();
+    if API_KEY_PROVIDERS.contains(&lowered.as_str()) {
+        Ok(lowered)
+    } else {
+        Err(PlethoraError::InvalidInput(format!(
+            "Unknown provider: {provider}"
+        )))
+    }
+}
+
 /// Set API key for a provider (stores in OS keychain and in-memory state)
 #[tauri::command]
 pub async fn set_api_key(
@@ -214,18 +247,7 @@ pub async fn set_api_key(
     state: State<'_, AIState>,
     key_store: State<'_, ai_key_store::AIKeyStore>,
 ) -> Result<()> {
-    let provider_lower = provider.to_lowercase();
-
-    match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" | "brave" | "deepseek" => {}
-        _ => {
-            return Err(PlethoraError::InvalidInput(format!(
-                "Unknown provider: {}",
-                provider
-            )))
-        }
-    }
-
+    let provider_lower = api_key_provider(&provider)?;
     key_store.store_key(&provider_lower, &api_key).await?;
 
     // Also update in-memory state for immediate use
@@ -238,7 +260,7 @@ pub async fn set_api_key(
         "openrouter" => current.api_keys.openrouter = Some(api_key),
         "brave" => current.api_keys.brave = Some(api_key),
         "deepseek" => current.api_keys.deepseek = Some(api_key),
-        _ => unreachable!(),
+        _ => (),
     }
 
     *config = Some(current);
@@ -251,16 +273,7 @@ pub async fn get_masked_api_key(
     provider: String,
     key_store: State<'_, ai_key_store::AIKeyStore>,
 ) -> Result<Option<String>> {
-    let provider_lower = provider.to_lowercase();
-    match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" | "brave" => {}
-        _ => {
-            return Err(PlethoraError::InvalidInput(format!(
-                "Unknown provider: {}",
-                provider
-            )))
-        }
-    }
+    let provider_lower = api_key_provider(&provider)?;
     key_store.get_masked_key(&provider_lower).await
 }
 
@@ -271,17 +284,7 @@ pub async fn remove_api_key(
     state: State<'_, AIState>,
     key_store: State<'_, ai_key_store::AIKeyStore>,
 ) -> Result<()> {
-    let provider_lower = provider.to_lowercase();
-    match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" | "brave" => {}
-        _ => {
-            return Err(PlethoraError::InvalidInput(format!(
-                "Unknown provider: {}",
-                provider
-            )))
-        }
-    }
-
+    let provider_lower = api_key_provider(&provider)?;
     key_store.remove_key(&provider_lower).await?;
 
     let mut config = state.config.lock().expect("AI config mutex poisoned");
@@ -292,7 +295,8 @@ pub async fn remove_api_key(
         "anthropic" => current.api_keys.anthropic = None,
         "openrouter" => current.api_keys.openrouter = None,
         "brave" => current.api_keys.brave = None,
-        _ => unreachable!(),
+        "deepseek" => current.api_keys.deepseek = None,
+        _ => (),
     }
 
     *config = Some(current);

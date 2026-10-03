@@ -91,6 +91,9 @@ export function Queue() {
     bulkOperationLoading,
     bulkOperationResult,
     clearBulkResult,
+    // Read so the long-press sheet can explain the ordering, matching the
+    // desktop queue and the mobile queue.
+    rankBreakdowns,
   } = useQueueStore(useShallow(state => ({
     filteredItems: state.filteredItems,
     stats: state.stats,
@@ -119,7 +122,10 @@ export function Queue() {
     bulkOperationLoading: state.bulkOperationLoading,
     bulkOperationResult: state.bulkOperationResult,
     clearBulkResult: state.clearBulkResult,
+    rankBreakdowns: state.rankBreakdowns,
   })));
+
+  const daqeEnergyTarget = useSettingsStore((state) => state.settings.daqe?.knobs.energyTarget);
 
   const [showFilters, setShowFilters] = useState(false);
   const [allSelected, setAllSelected] = useState(false);
@@ -1051,6 +1057,8 @@ export function Queue() {
         onRemove={handleActionRemove}
         onSelect={(item) => setSelected(item.id, true)}
         onEditCard={handleOpenEditFlashcard}
+        rankBreakdown={actionItem ? rankBreakdowns.get(actionItem.id) : undefined}
+        configuredEnergyTarget={daqeEnergyTarget}
       />
 
       {/* Inline card editor modal */}

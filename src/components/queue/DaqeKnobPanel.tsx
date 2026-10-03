@@ -9,20 +9,10 @@ import {
   type DaqeKnobs,
   type KnobSpec,
 } from "../../lib/daqe/knobs";
-import {
-  DAQE_PRESETS,
-  detectActivePreset,
-  type DaqePresetId,
-  type QueueStrategyPresetId,
-} from "../../lib/daqe/presets";
+import { DAQE_PRESETS, detectActivePreset, type DaqePresetId } from "../../lib/daqe/presets";
 
 interface DaqeKnobPanelProps {
   knobs: DaqeKnobs;
-  /**
-   * The preset dropdown's selection. `null` when the knobs match no preset — which
-   * is the normal state after any individual adjustment.
-   */
-  activePreset: QueueStrategyPresetId | null;
   onKnobChange: (knobs: DaqeKnobs) => void;
   onPresetSelect: (preset: DaqePresetId) => void;
   /** Re-runs the ranking. Called on every change; there is no apply step. */
@@ -49,7 +39,6 @@ interface DaqeKnobPanelProps {
  */
 export const DaqeKnobPanel = React.memo(function DaqeKnobPanel({
   knobs,
-  activePreset,
   onKnobChange,
   onPresetSelect,
   onScheduleRerank,
@@ -99,10 +88,8 @@ export const DaqeKnobPanel = React.memo(function DaqeKnobPanel({
             </button>
           );
         })}
-        {activePreset && detected === null ? (
-          <p className="w-full text-xs opacity-70">
-            {t("daqeKnob.scopeNote")}
-          </p>
+        {detected === null ? (
+          <p className="w-full text-xs opacity-70">{t("daqeKnob.divergedNote")}</p>
         ) : null}
       </div>
 

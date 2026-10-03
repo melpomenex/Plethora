@@ -203,6 +203,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     (useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as QueueStrategyPresetId) || "maximize-retention"
   );
   const daqeSettings = useSettingsStore((s) => s.settings.daqe);
+  // Per-item ranking breakdowns from the last adaptive snapshot. Selected as a
+  // stable reference so the popover re-renders only when the map actually
+  // changes, not on every queue mutation.
+  const rankBreakdowns = useQueueStore((s) => s.rankBreakdowns);
+  const applyRankSnapshot = useQueueStore((s) => s.applyRankSnapshot);
   const [showDaqeKnobs, setShowDaqeKnobs] = useState(false);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
   const handleSetPreset = (value: QueueStrategyPresetId) => {
@@ -212,12 +217,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     if (daqePreset) {
       updateSettingsCategory("daqe", {
         knobs: { ...daqePreset.knobs },
-        activePreset: value,
         rankingEnabled: true,
-      });
-    } else {
-      updateSettingsCategory("daqe", {
-        activePreset: value,
       });
     }
     loadDueQueueItems();
@@ -1396,11 +1396,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           </div>
           <DaqeKnobPanel
             knobs={daqeSettings.knobs}
-            activePreset={daqeSettings.activePreset}
             onKnobChange={(nextKnobs) => {
               updateSettingsCategory("daqe", {
                 knobs: nextKnobs,
-                activePreset: null,
                 rankingEnabled: true,
               });
             }}
@@ -1408,7 +1406,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               handleSetPreset(presetId);
             }}
             onScheduleRerank={() => {
-              loadDueQueueItems();
+              // Adaptive ranking is a re-order of the existing pool, so the knobs
+              // are the only input. Reloading the pool first would discard the
+              // current order for a moment on every slider tick.
+              if (!daqeSettings.rankingEnabled) return;
+              void applyRankSnapshot(daqeSettings.knobs);
             }}
           />
         </div>
@@ -1801,6 +1803,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
                               <ItemDetailsPopover
                                 target={buildDetailsTarget(item)}
+                                rankBreakdown={rankBreakdowns.get(item.id)}
+                                configuredEnergyTarget={daqeSettings.knobs.energyTarget}
                                 onDismissStateChange={(dismissed) => {
                                   if (dismissed) {
                                     void refreshQueue();
@@ -2035,6 +2039,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
                             <ItemDetailsPopover
                               target={buildDetailsTarget(item)}
+                              rankBreakdown={rankBreakdowns.get(item.id)}
+                              configuredEnergyTarget={daqeSettings.knobs.energyTarget}
                               onDismissStateChange={(dismissed) => {
                                 if (dismissed) {
                                   void refreshQueue();
@@ -2369,6 +2375,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         onRemove={handleActionRemove}
         onSelect={handleActionSelect}
         onEditCard={handleOpenEditFlashcard}
+        rankBreakdown={actionItem ? rankBreakdowns.get(actionItem.id) : undefined}
+        configuredEnergyTarget={daqeSettings.knobs.energyTarget}
       />
 
       {/* Inline card editor modal */}
@@ -2440,6 +2448,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         onApply={() => setCustomizeModalOpen(false)}
         availableTags={Array.from(new Set(items.flatMap((item) => item.tags || [])))}
         availableCategories={Array.from(new Set(items.map((item) => item.category).filter(Boolean)))}
+        onScheduleRerank={() => {
+          // The modal's knobs write to settings directly, so re-rank from the
+          // freshly written values rather than from a stale render's closure.
+          if (!useSettingsStore.getState().settings.daqe.rankingEnabled) return;
+          void applyRankSnapshot(useSettingsStore.getState().settings.daqe.knobs);
+        }}
       />
 
       <SemanticGraphPanel

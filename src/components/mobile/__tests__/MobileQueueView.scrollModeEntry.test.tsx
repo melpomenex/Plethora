@@ -31,9 +31,17 @@ vi.mock("../../../stores/queueStore", () => {
     postponeItemSmart: vi.fn(),
     loadedQueryKey: null as string | null,
     setLoadedQueryKey: vi.fn(),
+    // DAQE's derived ranking cache. An empty Map is the faithful
+    // "no ranking yet" value for state the components only ever read.
+    rankBreakdowns: new Map<string, unknown>(),
+    rankBreakdownKnobs: null,
   });
   return {
-    useQueueStore: Object.assign(
+    // DAQE's derived ranking cache. Absent means "no ranking yet", which
+  // is the faithful empty value for a Map the components only read.
+  rankBreakdowns: new Map<string, unknown>(),
+  rankBreakdownKnobs: null,
+  useQueueStore: Object.assign(
       (selector?: (s: ReturnType<typeof getStore>) => unknown) => (selector ? selector(getStore()) : getStore()),
       { getState: () => getStore() }
     ),

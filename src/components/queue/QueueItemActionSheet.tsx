@@ -12,6 +12,8 @@ import {
 } from "@phosphor-icons/react";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
 import type { QueueItem } from "../../types/queue";
+import { DaqeScoreBreakdown } from "./DaqeScoreBreakdown";
+import type { TermBreakdown } from "../../lib/daqe/snapshot";
 import { useI18n } from "../../lib/i18n";
 import {
   getQueueItemSheetActions,
@@ -29,6 +31,18 @@ interface QueueItemActionSheetProps {
   onRemove?: (item: QueueItem) => Promise<void>;
   onSelect?: (item: QueueItem) => void;
   triggerElement?: HTMLElement | null;
+  /**
+   * The item's ranking breakdown, when adaptive ranking has produced one.
+   *
+   * Rendered above the actions so "why is this here?" is answered before "what
+   * can I do about it?" — the sheet is reached by long-press, which a reader
+   * opens to understand a row as often as to change it. Omitted entirely when
+   * there is none, so a queue with ranking off shows exactly the sheet it always
+   * did.
+   */
+  rankBreakdown?: TermBreakdown;
+  /** The energy target the user set, for the fatigue-downshift explanation. */
+  configuredEnergyTarget?: number;
 }
 
 const actionButtonClass =
@@ -45,6 +59,8 @@ export function QueueItemActionSheet({
   onRemove,
   onSelect,
   triggerElement,
+  rankBreakdown,
+  configuredEnergyTarget,
 }: QueueItemActionSheetProps) {
   const { t } = useI18n();
   const [busyAction, setBusyAction] = useState<QueueItemSheetAction | null>(null);
@@ -129,6 +145,15 @@ export function QueueItemActionSheet({
       presentation="auto"
       className="max-w-lg"
     >
+      {rankBreakdown ? (
+        <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3">
+          <DaqeScoreBreakdown
+            breakdown={rankBreakdown}
+            configuredEnergyTarget={configuredEnergyTarget}
+          />
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         {actions.map((action) => {
           const config = actionConfig[action];
