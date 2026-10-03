@@ -21,6 +21,10 @@ import {
   type DaqeKnobs,
 } from "../lib/daqe/knobs";
 import {
+  coerceRecentGoals,
+  coerceSessionGoal,
+} from "../lib/daqe/sessionGoal";
+import {
   coerceStoredPresetId,
   type QueueStrategyPresetId,
 } from "../lib/daqe/presets";
@@ -600,6 +604,23 @@ interface DaqeSettings {
   rankingEnabled: boolean;
   /** A user-installed local decision engine, when one is configured. */
   decisionEngine?: { baseUrl: string; model: string; timeoutMs?: number } | null;
+  /**
+   * The user's stated objective for the current session, or `""` for none.
+   *
+   * This is what the `goalRelevance` knob weights. It lives in settings rather than
+   * in the session's transient customization state, deliberately: ranking reads it on
+   * every re-rank, so a value that died with the mounted view would make the term
+   * swing back to unavailable the moment the Queue view unmounted. See
+   * `lib/daqe/sessionGoal` for the normalisation and refusal rules.
+   */
+  sessionGoal: string;
+  /**
+   * Previously used goals, newest first, feeding the quick-select chips.
+   *
+   * A record of past sessions rather than part of the current configuration, which is
+   * why `Reset to Defaults` leaves it alone.
+   */
+  recentGoals: string[];
 }
 
 interface SmartQueueSettings {
@@ -1397,6 +1418,8 @@ export const defaultSettings: Settings = {
     // Off until the user opts in: see DaqeSettings.rankingEnabled.
     rankingEnabled: false,
     decisionEngine: null,
+    sessionGoal: "",
+    recentGoals: [],
   },
   smartQueue: {
     autoRefresh: false,
@@ -1879,6 +1902,11 @@ export const useSettingsStore = create<SettingsState>()(
             // or have been hand-edited; coerce repairs it rather than letting an
             // out-of-range value reach the ranker.
             knobs: coerceDaqeKnobs(persisted.daqe?.knobs),
+            // Same reasoning for the goal: a blob written before these fields
+            // existed has neither, and the spread above would hand back
+            // `undefined` for both if this were left alone.
+            sessionGoal: coerceSessionGoal(persisted.daqe?.sessionGoal),
+            recentGoals: coerceRecentGoals(persisted.daqe?.recentGoals),
           },
           tts: (() => {
             const sanitized = sanitizeTTSSettings(persisted.tts);

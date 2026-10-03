@@ -1,17 +1,29 @@
 import {
   Clock,
+  Crosshair,
   Sliders,
   Stack,
   Tag,
   X,
 } from "@phosphor-icons/react";
+import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { defaultDaqeKnobs, type DaqeKnobs } from "../../lib/daqe/knobs";
+import {
+  MAX_SESSION_GOAL_LENGTH,
+  applySessionGoal,
+  coerceSessionGoal,
+} from "../../lib/daqe/sessionGoal";
 import { applyPreset } from "../../lib/daqe/presets";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import { DaqeDecisionModelSettings } from "../queue/DaqeDecisionModelSettings";
 import type { DaqePresetId } from "../../lib/daqe/presets";
+
+/** Whether two goal histories are the same list, for skipping a redundant write. */
+function sameGoalList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((entry, index) => entry === b[index]);
+}
 
 export interface SessionCustomization {
   sessionDurationMinutes: number;
@@ -95,6 +107,13 @@ export function SessionCustomizeModal({
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
   const daqeEnabled = daqe?.rankingEnabled ?? false;
   const daqeKnobs = daqe?.knobs ?? defaultDaqeKnobs();
+  const daqeGoal = coerceSessionGoal(daqe?.sessionGoal);
+  const daqeRecentGoals = daqe?.recentGoals ?? [];
+  const [goalError, setGoalError] = useState<string | null>(null);
+  // `null` means "no uncommitted edit", so the field follows settings — which is how
+  // a chip click or a reset shows up in it without an effect to resync.
+  const [goalDraft, setGoalDraft] = useState<string | null>(null);
+  const displayedGoal = goalDraft ?? daqeGoal;
   const setDaqueEnabled = (enabled: boolean) =>
     updateSettingsCategory("daqe", { rankingEnabled: enabled });
   // Moving a knob clears preset attribution rather than leaving the panel crediting
@@ -106,6 +125,52 @@ export function SessionCustomizeModal({
       knobs: applyPreset(preset, daqeKnobs),
       rankingEnabled: true,
     });
+
+  // The goal is committed on blur rather than on every keystroke. An over-long value
+  // is *refused* rather than truncated, so writing through on each keystroke would
+  // have to either store a goal the user rejected or blank the accepted one mid-word —
+  // and it would record half-typed goals in the history and re-rank against them.
+  const commitGoal = (raw: string) => {
+    const commit = applySessionGoal(raw, daqeRecentGoals);
+    setGoalDraft(null);
+    if (!commit) {
+      setGoalError(t("sessionGoal.tooLong", { max: MAX_SESSION_GOAL_LENGTH }));
+      return;
+    }
+    setGoalError(null);
+    if (commit.goal === daqeGoal && sameGoalList(commit.recentGoals, daqeRecentGoals)) {
+      return;
+    }
+    updateSettingsCategory("daqe", {
+      sessionGoal: commit.goal,
+      recentGoals: commit.recentGoals,
+    });
+    onScheduleRerank();
+  };
+
+  const pickRecentGoal = (goal: string) => {
+    const commit = applySessionGoal(goal, daqeRecentGoals);
+    setGoalDraft(null);
+    if (!commit) return;
+    setGoalError(null);
+    updateSettingsCategory("daqe", {
+      sessionGoal: commit.goal,
+      recentGoals: commit.recentGoals,
+    });
+    onScheduleRerank();
+  };
+
+  const handleReset = () => {
+    // The goal lives in settings rather than in `DEFAULT_CUSTOMIZATION`, so the
+    // one-liner reset cannot reach it. `recentGoals` is deliberately left alone: it
+    // is a record of past sessions, not part of this session's configuration.
+    updateSettingsCategory("daqe", { sessionGoal: "" });
+    setGoalDraft(null);
+    setGoalError(null);
+    onChange(DEFAULT_CUSTOMIZATION);
+    onScheduleRerank();
+  };
+
   if (!isOpen) return null;
 
   const updateCustomization = (updates: Partial<SessionCustomization>) => {
@@ -394,6 +459,54 @@ export function SessionCustomizeModal({
 
               {daqeEnabled ? (
                 <>
+                  {/* The goal, above the sliders it feeds: `goalRelevance` weights
+                      this, and a weight the user dials in with nothing behind it is
+                      the dead slider this field exists to fix. */}
+                  <div className="space-y-2 border-b border-border pb-3">
+                    <div className="flex items-center gap-2">
+                      <Crosshair className="w-4 h-4 text-muted-foreground" />
+                      <label
+                        htmlFor="daqe-session-goal"
+                        className="text-sm font-semibold text-foreground"
+                      >
+                        {t("sessionGoal.label")}
+                      </label>
+                    </div>
+                    <input
+                      id="daqe-session-goal"
+                      type="text"
+                      value={displayedGoal}
+                      placeholder={t("sessionGoal.placeholder")}
+                      aria-describedby="daqe-session-goal-desc"
+                      aria-invalid={goalError ? true : undefined}
+                      onChange={(event) => {
+                        setGoalError(null);
+                        setGoalDraft(event.target.value);
+                      }}
+                      onBlur={(event) => commitGoal(event.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <p
+                      id="daqe-session-goal-desc"
+                      className={`text-xs ${goalError ? "text-destructive" : "opacity-70"}`}
+                    >
+                      {goalError ?? t("sessionGoal.hint")}
+                    </p>
+                    {daqeRecentGoals.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {daqeRecentGoals.map((goal) => (
+                          <button
+                            key={goal}
+                            type="button"
+                            onClick={() => pickRecentGoal(goal)}
+                            className="px-3 py-1 text-xs rounded border bg-background text-foreground border-border hover:bg-muted/60"
+                          >
+                            {goal}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   <DaqeKnobPanel
                     knobs={daqeKnobs}
                     onKnobChange={setDaqueKnobs}
@@ -412,7 +525,7 @@ export function SessionCustomizeModal({
         {/* Footer Actions */}
         <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex items-center justify-between">
           <button
-            onClick={() => onChange(DEFAULT_CUSTOMIZATION)}
+            onClick={handleReset}
             className="px-4 py-2 text-sm text-foreground/70 hover:text-foreground"
           >
             {t("sessionCustomize.resetToDefaults")}

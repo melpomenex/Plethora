@@ -8,7 +8,13 @@ vi.mock("../../lib/tauri", () => ({ invokeCommand, isTauri }));
 
 import { defaultDaqeKnobs, type DaqeKnobs } from "../../lib/daqe/knobs";
 import { projectSnapshot, type DaqeQueueSnapshot, type TermBreakdown } from "../../lib/daqe/snapshot";
-import { isSnapshotCurrent, rankQueue } from "../daqeRankingClient";
+import {
+  DECISION_RERANK_DEBOUNCE_MS,
+  decisionModelAvailability,
+  isSnapshotCurrent,
+  rankQueue,
+  rankQueueWithDecision,
+} from "../daqeRankingClient";
 import type { QueueItem } from "../../types/queue";
 
 function breakdown(overrides: Partial<TermBreakdown> = {}): TermBreakdown {
@@ -85,6 +91,40 @@ describe("daqeRankingClient", () => {
     expect(command).toBe("rank_queue");
     expect(args.knobs.srsDecayWeight).toBe(0.4);
     expect(args.modelInputs[0].itemId).toBe("a");
+  });
+
+  it("carries the session goal and the focused tags across", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueue(defaultDaqeKnobs(), [], null, {
+      goal: "Exam Review & CS Foundations",
+      focusTags: ["algorithms", "linear-algebra"],
+    });
+
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(args.goal).toBe("Exam Review & CS Foundations");
+    expect(args.focusTags).toEqual(["algorithms", "linear-algebra"]);
+    // The knobs and model inputs must survive the new fields unchanged.
+    expect(args.knobs.srsDecayWeight).toBe(0.4);
+    expect(args.modelInputs).toEqual([]);
+  });
+
+  it("sends goal absence as null, not as an empty string", async () => {
+    // The backend tells "no goal" apart from "a goal that matched nothing", which
+    // is the difference between an unavailable term and a fabricated zero.
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueue(defaultDaqeKnobs());
+
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(args.goal).toBeNull();
+    expect(args.focusTags).toBeNull();
+  });
+
+  it("passes a model goal-alignment verdict across", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueue(defaultDaqeKnobs(), [{ itemId: "a", goalAlignment: 0.8 }]);
+
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(args.modelInputs[0].goalAlignment).toBe(0.8);
   });
 
   it("returns null without a Tauri host rather than throwing", async () => {
@@ -250,5 +290,77 @@ describe("ranking never widens session membership", () => {
 
     const projected = projectSnapshot(reviewSession, snapshot);
     expect(projected.orderedIds).toEqual(["card-1"]);
+  });
+});
+describe("the second ranking pass", () => {
+  beforeEach(() => {
+    invokeCommand.mockReset();
+    isTauri.mockReturnValue(true);
+  });
+
+  const decision = { provider: "jev" as const, allowRemote: true };
+
+  it("sends the goal, the knobs and the provider config", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueueWithDecision(defaultDaqeKnobs(), decision, {
+      goal: "Exam Review",
+      focusTags: ["algorithms"],
+    });
+
+    const [command, args] = invokeCommand.mock.calls[0];
+    expect(command).toBe("rank_queue_with_decision");
+    expect(args.goal).toBe("Exam Review");
+    expect(args.focusTags).toEqual(["algorithms"]);
+    expect(args.decision.provider).toBe("jev");
+    expect(args.knobs.srsDecayWeight).toBe(0.4);
+  });
+
+  it("never carries a credential, because settings hold only that one exists", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueueWithDecision(defaultDaqeKnobs(), decision);
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(JSON.stringify(args)).not.toMatch(/apiKey/i);
+  });
+
+  it("returns null without a Tauri host rather than throwing", async () => {
+    isTauri.mockReturnValue(false);
+    expect(await rankQueueWithDecision(defaultDaqeKnobs(), decision)).toBeNull();
+    expect(invokeCommand).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the endpoint refuses, leaving the first pass standing", async () => {
+    invokeCommand.mockRejectedValue(new Error("no such provider"));
+    expect(await rankQueueWithDecision(defaultDaqeKnobs(), decision)).toBeNull();
+  });
+
+  it("returns null for a malformed snapshot", async () => {
+    invokeCommand.mockResolvedValue({ nonsense: true });
+    expect(await rankQueueWithDecision(defaultDaqeKnobs(), decision)).toBeNull();
+  });
+
+  it("reports availability without asking the model anything", async () => {
+    invokeCommand.mockResolvedValue({ available: true, reason: null });
+    expect(await decisionModelAvailability(decision)).toBe(true);
+
+    const [command, args] = invokeCommand.mock.calls[0];
+    expect(command).toBe("decision_model_availability");
+    expect(args.decision.provider).toBe("jev");
+  });
+
+  it("treats a declined provider as unavailable rather than an error", async () => {
+    invokeCommand.mockResolvedValue({ available: false, reason: "remote decision model is not opted in" });
+    expect(await decisionModelAvailability(decision)).toBe(false);
+  });
+
+  it("does not ask for availability with no provider configured", async () => {
+    expect(await decisionModelAvailability(null)).toBe(false);
+    expect(invokeCommand).not.toHaveBeenCalled();
+  });
+
+  it("debounces long enough that a slider drag is one request", () => {
+    // The whole reason for the debounce: a drag fires on every pixel, and a request
+    // per pixel is a request per billable token.
+    expect(DECISION_RERANK_DEBOUNCE_MS).toBeGreaterThanOrEqual(300);
+    expect(DECISION_RERANK_DEBOUNCE_MS).toBeLessThanOrEqual(1000);
   });
 });

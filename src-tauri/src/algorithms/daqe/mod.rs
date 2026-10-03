@@ -11,10 +11,13 @@
 //!
 //! Module layout:
 //! - [`terms`] — the five producers, one per term.
+//! - [`goal_alignment`] — local lexical alignment, the no-provider default for the
+//!   goal-relevance term.
 //! - [`ranker`] — combines them and orders the pool.
 //! - [`decision_model`] — the pluggable provider (Phase 4).
 
 pub mod decision_model;
+pub mod goal_alignment;
 pub mod learning;
 pub mod ranker;
 pub mod terms;
@@ -22,6 +25,7 @@ pub mod terms;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub use goal_alignment::local_goal_alignment;
 pub use ranker::rank;
 pub use terms::ItemSignals;
 
@@ -106,7 +110,14 @@ pub struct RankContext<'a> {
     /// `H_recent`: items already reviewed this session, most recent last.
     pub recent: &'a [RecentItem],
     /// The user's active goal statement, if any.
+    ///
+    /// `None` means no goal is set — the goal-relevance term then reports itself
+    /// unavailable rather than scoring against an empty objective, which is what
+    /// keeps "the user has not said" distinct from "the user said something that
+    /// matched nothing".
     pub goal: Option<&'a str>,
+    /// Tags the user has focused for this session, if any.
+    pub focus_tags: &'a [String],
     /// Per-candidate signals keyed by `item_id`. An item absent from this list
     /// gets every unavailable term's neutral value.
     pub signals: &'a [ItemSignals],
@@ -124,6 +135,7 @@ impl<'a> RankContext<'a> {
             now,
             recent: &[],
             goal: None,
+            focus_tags: &[],
             signals: &[],
             energy_downshift: None,
             recent_window: DEFAULT_RECENT_WINDOW,

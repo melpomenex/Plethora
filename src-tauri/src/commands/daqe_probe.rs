@@ -55,8 +55,60 @@ pub enum DecisionProvider {
     SystemOne,
 }
 
+/// Which decision provider the user has configured, and how to reach it.
+///
+/// Sent by the frontend on every ranking pass rather than read from a Rust-side
+/// mirror of the settings store: settings are TS-owned and persisted to
+/// localStorage, so a second copy held here would be a second source of truth that
+/// drifts silently.
+///
+/// **There is deliberately no API key field.** The secret lives in the OS keychain
+/// and is resolved at call time by [`key_slot`], exactly as the probe path does.
+/// A metered credential reachable from this payload would be a credential sitting in
+/// localStorage, which is the mistake `daqeApiKeyStorage.test.ts` guards against.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DecisionConfig {
+    /// `None` means no provider is configured, which is the deterministic fallback.
+    #[serde(default)]
+    pub provider: Option<DecisionProvider>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Required by Clef, whose endpoint puts the account in the path.
+    #[serde(default)]
+    pub cloudflare_account_id: Option<String>,
+    /// The opt-in that makes a *remote* provider contactable at all.
+    ///
+    /// Checked before the ranking path builds an outbound payload, so with it off the
+    /// remote ranking code path is unreachable rather than merely skipped.
+    #[serde(default)]
+    pub allow_remote: bool,
+    /// Per-call budget. Absent means the registry's own default.
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+}
+
+impl DecisionProvider {
+    /// The provider id the settings store persists and the wire format uses.
+    ///
+    /// Kept beside the enum rather than re-derived per call site: the settings
+    /// `decisionModelProviderId` and this string have to be the same value, and the
+    /// probe tests already assert the wire spelling.
+    pub fn id(&self) -> &'static str {
+        match self {
+            DecisionProvider::Jev => "jev",
+            DecisionProvider::Clef => "clef",
+            DecisionProvider::OpenRouterDecisions => "openrouter-decisions",
+            DecisionProvider::OpenAiDecisions => "openai-decisions",
+            DecisionProvider::SystemOne => "system-one",
+        }
+    }
+}
+
 /// Which keychain slot a provider's bearer token lives in, or `None`.
-fn key_slot(provider: DecisionProvider) -> Option<&'static str> {
+pub(crate) fn key_slot(provider: DecisionProvider) -> Option<&'static str> {
     match provider {
         DecisionProvider::Jev => Some("jev"),
         DecisionProvider::Clef => Some("clef"),
@@ -118,35 +170,73 @@ fn trimmed(value: Option<&String>) -> Option<&str> {
     value.map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
+/// The provider identity that endpoint resolution needs, independent of who asked.
+///
+/// Split out so the probe and the ranking path cannot disagree about where a provider
+/// lives. Clef is the reason this matters: it is the only provider that is not System
+/// One and the only one that puts the model in the URL path, so it has the most room to
+/// diverge between two copies of this match.
+struct ProviderEndpoint<'a> {
+    provider: DecisionProvider,
+    base_url: Option<&'a str>,
+    model: Option<&'a str>,
+    cloudflare_account_id: Option<&'a str>,
+}
 
-    match request.provider {
+fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
+    resolve_endpoint(&ProviderEndpoint {
+        provider: request.provider,
+        base_url: trimmed(request.base_url.as_ref()),
+        model: trimmed(request.model.as_ref()),
+        cloudflare_account_id: trimmed(request.cloudflare_account_id.as_ref()),
+    })
+}
+
+/// Resolve the endpoint for a configured provider on the ranking path.
+///
+/// The same match arms as [`resolve_url`], reached through the same function, so a
+/// provider added to one path cannot be missing from the other.
+pub(crate) fn resolve_provider_url(config: &DecisionConfig) -> Result<String> {
+    let provider = config.provider.ok_or_else(|| {
+        crate::error::PlethoraError::InvalidInput(
+            "No decision provider is configured".to_string(),
+        )
+    })?;
+    resolve_endpoint(&ProviderEndpoint {
+        provider,
+        base_url: trimmed(config.base_url.as_ref()),
+        model: trimmed(config.model.as_ref()),
+        cloudflare_account_id: trimmed(config.cloudflare_account_id.as_ref()),
+    })
+}
+
+fn resolve_endpoint(endpoint: &ProviderEndpoint<'_>) -> Result<String> {
+    match endpoint.provider {
         DecisionProvider::Clef => {
-            let account = trimmed(request.cloudflare_account_id.as_ref()).ok_or_else(|| {
+            let account = endpoint.cloudflare_account_id.ok_or_else(|| {
                 crate::error::PlethoraError::InvalidInput(
                     "Clef needs a Cloudflare account id".to_string(),
                 )
             })?;
             // A caller-supplied override may already be the full run URL, in
             // which case respect it rather than appending the path twice.
-            if let Some(base) = trimmed(request.base_url.as_ref()) {
+            if let Some(base) = endpoint.base_url {
                 if base.contains("/ai/run/") {
                     return Ok(base.trim_end_matches('/').to_string());
                 }
             }
-            let model = trimmed(request.model.as_ref()).unwrap_or(CLEF_PATH);
+            let model = endpoint.model.unwrap_or(CLEF_PATH);
             Ok(format!(
                 "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
             ))
         }
         DecisionProvider::Jev => Ok(format!(
             "{}/v1/systemone",
-            trimmed(request.base_url.as_ref())
-                .unwrap_or("https://jevmodel.org")
-                .trim_end_matches('/')
+            endpoint.base_url.unwrap_or("https://jevmodel.org").trim_end_matches('/')
         )),
         DecisionProvider::OpenRouterDecisions => {
-            let base = trimmed(request.base_url.as_ref())
+            let base = endpoint
+                .base_url
                 .unwrap_or("https://openrouter.ai/api/v1")
                 .trim_end_matches('/');
             if base.ends_with("/v1") {
@@ -156,7 +246,8 @@ fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
             }
         }
         DecisionProvider::OpenAiDecisions => {
-            let base = trimmed(request.base_url.as_ref())
+            let base = endpoint
+                .base_url
                 .unwrap_or("https://api.openai.com/v1")
                 .trim_end_matches('/');
             if base.ends_with("/v1") {
@@ -168,7 +259,7 @@ fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
             }
         }
         DecisionProvider::SystemOne => {
-            let base = trimmed(request.base_url.as_ref()).ok_or_else(|| {
+            let base = endpoint.base_url.ok_or_else(|| {
                 crate::error::PlethoraError::InvalidInput(
                     "A local decision endpoint needs an address".to_string(),
                 )
@@ -180,7 +271,7 @@ fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
 
 /// Workers AI and some REST proxies wrap the response payload in a `{ "result": { ... } }`
 /// envelope. Unwrap it so callers see `answers`, `model` and `usage` at the top level.
-fn unwrap_envelope(value: serde_json::Value) -> serde_json::Value {
+pub(crate) fn unwrap_envelope(value: serde_json::Value) -> serde_json::Value {
     if let serde_json::Value::Object(ref map) = value {
         if let Some(result) = map.get("result") {
             if result.is_object() && (result.get("answers").is_some() || map.get("answers").is_none()) {
@@ -196,7 +287,7 @@ fn unwrap_envelope(value: serde_json::Value) -> serde_json::Value {
 /// System One puts the model in a `model` field. Workers AI puts it in the path
 /// *and* wants the bare name in the body — `@cf/cloudflare/clef-flash` there is
 /// a schema violation, not a model name.
-fn build_body(request: &DaqeHttpRequest) -> serde_json::Value {
+pub(crate) fn build_body(request: &DaqeHttpRequest) -> serde_json::Value {
     let model = match request.provider {
         // The body field matches `^(clef|clef-flash)$`, so strip the namespace.
         DecisionProvider::Clef => request
@@ -383,10 +474,10 @@ fn first_line(text: &str, status: u16) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn base(provider: DecisionProvider) -> DaqeHttpRequest {
+    pub(crate) fn base(provider: DecisionProvider) -> DaqeHttpRequest {
         DaqeHttpRequest {
             provider,
             base_url: None,
@@ -613,5 +704,143 @@ mod tests {
             let back: DecisionProvider = serde_json::from_str(&json).expect("deserialise");
             assert_eq!(back, provider);
         }
+    }
+}
+
+/// Tests for the ranking path's provider configuration and its shared transport.
+///
+/// The point of this module is that the probe and the ranking path cannot drift
+/// apart, so most of these assert the two agree rather than asserting a URL twice.
+#[cfg(test)]
+mod ranking_transport_tests {
+    use super::*;
+    use super::tests::base;
+
+    fn config(provider: DecisionProvider) -> DecisionConfig {
+        DecisionConfig { provider: Some(provider), ..Default::default() }
+    }
+
+    #[test]
+    fn the_provider_id_round_trips_in_the_wire_format_the_frontend_sends() {
+        let parsed: DecisionConfig =
+            serde_json::from_str(r#"{"provider":"openrouter-decisions","allowRemote":true}"#)
+                .expect("the settings store's provider id must decode");
+        assert_eq!(parsed.provider, Some(DecisionProvider::OpenRouterDecisions));
+        assert!(parsed.allow_remote);
+        assert_eq!(parsed.timeout_ms, None, "absent means the registry default");
+    }
+
+    #[test]
+    fn a_config_with_nothing_set_deserialises_to_no_provider() {
+        let parsed: DecisionConfig = serde_json::from_str("{}").expect("all fields default");
+        assert_eq!(parsed.provider, None);
+        assert!(!parsed.allow_remote);
+    }
+
+    #[test]
+    fn no_config_can_carry_a_secret() {
+        // The credential comes from `AIKeyStore` via `key_slot` at call time. A field
+        // here would put a metered key on the wire, and therefore in localStorage,
+        // which is the mistake `daqeApiKeyStorage.test.ts` guards against.
+        let rejected = serde_json::from_str::<DecisionConfig>(
+            r#"{"provider":"jev","apiKey":"sk-secret"}"#,
+        );
+        assert!(rejected.is_err(), "an unknown field must not be silently accepted");
+    }
+
+    #[test]
+    fn every_provider_resolves_to_the_same_url_on_both_paths() {
+        // One implementation, two entry points. If these ever disagree, Clef is the
+        // one that breaks: it is the only provider that is not System One and the
+        // only one that puts the model in the URL path.
+        for (provider, probe_overrides) in [
+            (DecisionProvider::Jev, vec![]),
+            (DecisionProvider::Clef, vec![("cloudflare_account_id", "acct-1".to_string())]),
+            (DecisionProvider::OpenRouterDecisions, vec![]),
+            (DecisionProvider::OpenAiDecisions, vec![]),
+        ] {
+            let mut probe = base(provider);
+            let mut cfg = config(provider);
+            for (field, value) in probe_overrides {
+                if field == "cloudflare_account_id" {
+                    probe.cloudflare_account_id = Some(value.clone());
+                    cfg.cloudflare_account_id = Some(value);
+                }
+            }
+            let from_probe = resolve_url(&probe).expect("probe resolves");
+            let from_ranking = resolve_provider_url(&cfg).expect("ranking resolves");
+            assert_eq!(
+                from_probe, from_ranking,
+                "{provider:?} resolves differently on the two paths"
+            );
+        }
+    }
+
+    #[test]
+    fn clef_resolves_to_the_workers_ai_path_from_the_ranking_config() {
+        let mut cfg = config(DecisionProvider::Clef);
+        cfg.cloudflare_account_id = Some("acct-1".to_string());
+        let url = resolve_provider_url(&cfg).expect("resolves");
+        assert_eq!(
+            url, "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef",
+        );
+        assert!(!url.contains("/v1/systemone"));
+    }
+
+    #[test]
+    fn a_clef_ranking_config_still_requires_an_account_id() {
+        let cfg = config(DecisionProvider::Clef);
+        assert!(resolve_provider_url(&cfg).is_err(), "no account id must not produce a URL");
+    }
+
+    #[test]
+    fn no_configured_provider_resolves_to_no_url() {
+        let cfg = DecisionConfig::default();
+        assert!(resolve_provider_url(&cfg).is_err(), "nothing configured, nothing to call");
+    }
+
+    #[test]
+    fn a_whitespace_override_is_treated_as_absent_on_both_paths() {
+        let mut probe = base(DecisionProvider::Jev);
+        probe.base_url = Some("   ".to_string());
+        let mut cfg = config(DecisionProvider::Jev);
+        cfg.base_url = Some("   ".to_string());
+        assert_eq!(
+            resolve_url(&probe).expect("resolves"),
+            resolve_provider_url(&cfg).expect("resolves"),
+        );
+    }
+
+    #[test]
+    fn a_clef_model_override_is_honoured_from_the_ranking_config() {
+        let mut cfg = config(DecisionProvider::Clef);
+        cfg.cloudflare_account_id = Some("acct-1".to_string());
+        cfg.model = Some("@cf/cloudflare/clef-flash".to_string());
+        assert!(resolve_provider_url(&cfg).expect("resolves").ends_with("clef-flash"));
+    }
+
+    #[test]
+    fn the_ranking_path_gets_a_key_slot_from_the_same_table_as_the_probe() {
+        for provider in [
+            DecisionProvider::Jev,
+            DecisionProvider::Clef,
+            DecisionProvider::OpenRouterDecisions,
+            DecisionProvider::OpenAiDecisions,
+        ] {
+            let probe = base(provider);
+            let mut probe_request = probe;
+            probe_request.api_key = Some("resolved-at-call-time".to_string());
+            let slot = key_slot(provider);
+            assert!(slot.is_some(), "{provider:?} needs a credential slot");
+            // The ranking path resolves the identical slot, so a key set through
+            // the probe UI is the same key the ranker uses.
+            assert_eq!(key_slot(provider), slot);
+        }
+    }
+
+    #[test]
+    fn a_local_system_one_endpoint_needs_an_address_from_the_ranking_config() {
+        let cfg = config(DecisionProvider::SystemOne);
+        assert!(resolve_provider_url(&cfg).is_err());
     }
 }

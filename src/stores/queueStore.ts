@@ -161,7 +161,15 @@ export interface SelectionModifiers {
 import { projectSnapshot, type TermBreakdown } from "../lib/daqe/snapshot";
 import type { DaqeKnobs } from "../lib/daqe/knobs";
 import { coerceDaqeKnobs } from "../lib/daqe/knobs";
-import { isSnapshotCurrent, rankQueue } from "./daqeRankingClient";
+import { coerceSessionGoal } from "../lib/daqe/sessionGoal";
+import {
+  DECISION_RERANK_DEBOUNCE_MS,
+  decisionModelAvailability,
+  isSnapshotCurrent,
+  rankQueue,
+  rankQueueWithDecision,
+  type DecisionProviderConfig,
+} from "./daqeRankingClient";
 
 interface QueueState {
   // Data
@@ -259,7 +267,9 @@ interface QueueState {
    * Re-rank the current pool under `knobs` and adopt the result. Callers do not
    * await it for correctness — the previous order stands until it lands.
    */
-  applyRankSnapshot: (knobs: DaqeKnobs) => Promise<void>;
+  applyRankSnapshot: (knobs: DaqeKnobs, focusTags?: string[]) => Promise<void>;
+  /** Debounced second pass; see the implementation for why it never blocks. */
+  scheduleDecisionRerank: (knobs: DaqeKnobs, focusTags?: string[]) => void;
   /** Record the canonical query key now loaded into `items` (see D3). */
   setLoadedQueryKey: (key: string | null) => void;
   /**
@@ -275,6 +285,8 @@ interface QueueState {
   rankBreakdowns: Map<string, TermBreakdown>;
   /** The knobs the current breakdown snapshot was produced under. */
   rankBreakdownKnobs: DaqeKnobs | null;
+  /** Pending debounce handle for the second pass, so a new change cancels the old. */
+  decisionRerankTimer: ReturnType<typeof setTimeout> | null;
 
   /** Mark that the first load has completed, gating the startup snapshot path. */
   setHasCompletedFirstLoad: (done: boolean) => void;
@@ -341,6 +353,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   hasCompletedFirstLoad: false,
   rankBreakdowns: new Map(),
   rankBreakdownKnobs: null,
+  decisionRerankTimer: null,
   bulkOperationLoading: false,
   bulkOperationResult: null,
   postponeLoading: false,
@@ -490,7 +503,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
    * under different knobs is discarded rather than applied, because it describes
    * an ordering the user's current settings do not imply.
    */
-  applyRankSnapshot: async (knobs: DaqeKnobs) => {
+  applyRankSnapshot: async (knobs: DaqeKnobs, focusTags: string[] = []) => {
     const current = get().rankBreakdownKnobs;
     if (current && !isSnapshotCurrent({ knobs: current } as never, knobs)) {
       // The knobs moved: the held breakdown no longer describes this queue.
@@ -498,7 +511,13 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     }
 
     const collectionId = useCollectionStore.getState().activeCollectionId;
-    const snapshot = await rankQueue(knobs, [], collectionId);
+    // The goal is read from settings rather than taken as an argument, because the
+    // modal writes it straight to settings and calls back with only the knobs.
+    const sessionGoal = coerceSessionGoal(useSettingsStore.getState().settings.daqe.sessionGoal);
+    const snapshot = await rankQueue(knobs, [], collectionId, {
+      goal: sessionGoal || null,
+      focusTags,
+    });
     if (!snapshot || !isSnapshotCurrent(snapshot, knobs)) return;
 
     const projected = projectSnapshot(get().items, snapshot);
@@ -509,6 +528,54 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       rankBreakdowns: projected.breakdowns,
       rankBreakdownKnobs: coerceDaqeKnobs(snapshot.knobs),
     });
+
+    get().scheduleDecisionRerank(knobs, focusTags);
+  },
+
+  /**
+   * Ask the decision model to refine the order, debounced.
+   *
+   * Never awaited and never blocking: the queue is already ordered by the first pass,
+   * and this only replaces that order when — and if — the model answers. Debounced
+   * because a slider drag would otherwise fire a request per pixel.
+   */
+  scheduleDecisionRerank: (knobs: DaqeKnobs, focusTags: string[] = []) => {
+    const previous = get().decisionRerankTimer;
+    if (previous) clearTimeout(previous);
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        const daqe = useSettingsStore.getState().settings.daqe;
+        if (!daqe.rankingEnabled) return;
+        const config = decisionConfigFrom(daqe);
+        if (!config) return;
+        if (!(await decisionModelAvailability(config))) return;
+
+        const snapshot = await rankQueueWithDecision(
+          knobs,
+          config,
+          {
+            goal: coerceSessionGoal(daqe.sessionGoal) || null,
+            focusTags,
+          },
+          useCollectionStore.getState().activeCollectionId,
+        );
+        // The knobs may have moved again while the model was thinking; a snapshot
+        // that describes an ordering the current settings do not imply is discarded.
+        if (!snapshot || !isSnapshotCurrent(snapshot, useSettingsStore.getState().settings.daqe.knobs)) {
+          return;
+        }
+        const refined = projectSnapshot(get().items, snapshot);
+        set({
+          items: refined.ordered,
+          filteredItems: refined.ordered,
+          rankBreakdowns: refined.breakdowns,
+          rankBreakdownKnobs: coerceDaqeKnobs(snapshot.knobs),
+        });
+      })();
+    }, DECISION_RERANK_DEBOUNCE_MS);
+
+    set({ decisionRerankTimer: timer });
   },
 
   reloadForCurrentMode: async () => {
@@ -1213,3 +1280,41 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   clearBulkResult: () => set({ bulkOperationResult: null }),
 }));
+
+/**
+ * The provider configuration the second pass needs, or `null` when none is set.
+ *
+ * Read from settings at call time rather than cached: the picker writes provider ids
+ * and the opt-in directly, and a mirror here would drift. Note what is *absent* — no
+ * API key, because settings hold only `decisionApiKeySet` and the secret lives in the
+ * OS keychain, which the backend reads at call time.
+ */
+function decisionConfigFrom(
+  daqe: ReturnType<typeof useSettingsStore.getState>["settings"]["daqe"],
+): DecisionProviderConfig | null {
+  const provider = daqe.decisionModelProviderId as DecisionProviderConfig["provider"] | null;
+  if (!provider) return null;
+
+  // Each provider keeps its model in its own setting, so picking one up is a matter
+  // of naming it rather than of a shared `model` field.
+  const model =
+    provider === "clef"
+      ? daqe.clefDecisionModelId
+      : provider === "openai-decisions"
+        ? daqe.openaiDecisionModelId
+        : provider === "openrouter-decisions"
+          ? daqe.openrouterDecisionModelId
+          : undefined;
+
+  // A local engine is configured by address rather than by a provider id.
+  if (provider === "system-one" && !daqe.decisionEngine?.baseUrl) return null;
+
+  return {
+    provider,
+    baseUrl: daqe.decisionEngine?.baseUrl,
+    model: model ?? daqe.decisionEngine?.model ?? undefined,
+    cloudflareAccountId: daqe.cloudflareAccountId,
+    allowRemote: daqe.allowRemoteDecisionModel,
+    timeoutMs: daqe.decisionEngine?.timeoutMs,
+  };
+}

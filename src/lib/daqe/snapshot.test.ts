@@ -173,3 +173,36 @@ describe("termStatus", () => {
     expect(termStatus({ value: 0, available: false, defaulted: false })).toBe("untracked");
   });
 });
+describe("the goal-relevance term's provenance", () => {
+  // The three tiers `goal_relevance` resolves through have to be distinguishable in
+  // the breakdown, or the UI cannot tell a model verdict from a locally derived
+  // score from "nothing to go on". `TermValue.defaulted` is what carries that, which
+  // is why no new field was added to `TermBreakdown`.
+  it("reads a provider verdict as measured", () => {
+    const term = { value: 0.8, available: true, defaulted: false };
+    expect(termStatus(term)).toBe("measured");
+  });
+
+  it("reads a locally derived score as defaulted", () => {
+    const term = { value: 0.4, available: true, defaulted: true };
+    expect(termStatus(term)).toBe("defaulted");
+  });
+
+  it("reads an absent signal as untracked rather than zero", () => {
+    const term = { value: 0, available: false, defaulted: false };
+    expect(termStatus(term)).toBe("untracked");
+    expect(term.value).toBe(0);
+    expect(term.available).toBe(false);
+  });
+
+  it("survives the round trip through a projected breakdown", () => {
+    const snapshot = snapshotOf(["a"]);
+    snapshot.ranked[0].breakdown = breakdown({
+      goalRelevance: { value: 0.4, available: true, defaulted: true },
+    });
+    const projected = projectSnapshot([item("a", 0)], snapshot);
+    const materialised = projected.breakdowns.get("a");
+    expect(materialised).toBeDefined();
+    expect(termStatus(materialised!.goalRelevance)).toBe("defaulted");
+  });
+});

@@ -509,3 +509,78 @@ describe("settingsStore sponsorBlock settings (v14)", () => {
     expect(sb.categories.music_offtopic).toBe(true);
   });
 });
+
+describe("settingsStore DAQE session goal", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("defaults to no goal and no history", () => {
+    const daqe = useSettingsStore.getState().settings.daqe;
+    expect(daqe.sessionGoal).toBe("");
+    expect(daqe.recentGoals).toEqual([]);
+  });
+
+  it("reads a pre-existing blob written before the fields existed as empty", async () => {
+    // A blob with a daqe slice but neither field: the case the spread alone would
+    // hand back as `undefined`, and the reason the hydration coerces them.
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: { settings: { daqe: { rankingEnabled: true } } },
+      version: 14,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const daqe = useSettingsStore.getState().settings.daqe;
+    expect(daqe.sessionGoal).toBe("");
+    expect(daqe.recentGoals).toEqual([]);
+    expect(daqe.rankingEnabled).toBe(true);
+  });
+
+  it("repairs a hand-edited goal and history rather than storing them raw", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: {
+        settings: {
+          daqe: {
+            sessionGoal: "   ",
+            recentGoals: ["Exam Review", "", null, "exam review"],
+          },
+        },
+      },
+      version: 14,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const daqe = useSettingsStore.getState().settings.daqe;
+    expect(daqe.sessionGoal).toBe("");
+    expect(daqe.recentGoals).toEqual(["Exam Review"]);
+  });
+
+  it("round-trips a committed goal and its history across a rehydrate", async () => {
+    useSettingsStore.getState().updateSettingsCategory("daqe", {
+      sessionGoal: "Exam Review & CS Foundations",
+      recentGoals: ["Exam Review & CS Foundations", "Linear Algebra"],
+    });
+
+    await useSettingsStore.persist.rehydrate();
+
+    const daqe = useSettingsStore.getState().settings.daqe;
+    expect(daqe.sessionGoal).toBe("Exam Review & CS Foundations");
+    expect(daqe.recentGoals).toEqual([
+      "Exam Review & CS Foundations",
+      "Linear Algebra",
+    ]);
+  });
+
+  it("never persists an API key alongside the goal", () => {
+    useSettingsStore.getState().updateSettingsCategory("daqe", {
+      sessionGoal: "Exam Review",
+    });
+
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
+    expect(JSON.stringify(stored)).not.toMatch(/apiKey"\s*:\s*"[^"]/);
+    expect(stored.state.settings.daqe.decisionApiKeySet).toBe(false);
+  });
+});

@@ -35,6 +35,20 @@ pub struct ItemSignals {
     /// Raised by the adaptive learning loop when this item's collection and
     /// semantic cluster show sustained engagement, in `[0,1]`.
     pub cluster_boost: f64,
+    /// The decision model's judgement of how well this item serves the session
+    /// goal, in `[0,1]`. Session-dependent, so never served from the content-hash
+    /// cache.
+    pub goal_alignment: Option<f64>,
+    /// The same judgement derived locally by lexical overlap between the goal and
+    /// the item's own text, in `[0,1]`. `None` when no goal is set or the item has
+    /// nothing comparable, which is what makes the term *unavailable* rather than
+    /// zero in that case.
+    ///
+    /// Kept apart from `relevance` rather than merged into it: `relevance` is a
+    /// four-signal blend owned by `algorithms::relevance` with weight
+    /// redistribution, and folding a goal score into it would both fork that blend
+    /// and make the breakdown unattributable.
+    pub local_goal_alignment: Option<f64>,
 }
 
 /// Deterministic per-item-type complexity, used when no decision model supplies
@@ -166,31 +180,75 @@ fn user_priority_component(item: &QueueItem) -> f64 {
 
 // ------------------------------------------------------- M_relevance
 
-/// `M_relevance(i)` — the item's `relevance.rs` composite.
+/// A `[0,1]` value, or `None` when absent, non-finite, or out of range.
 ///
-/// Delegates rather than recomputes: `relevance.rs` already owns the four-signal
-/// blend (classifier 0.4 / tag affinity 0.25 / rating history 0.2 / semantic
-/// 0.15) and, importantly, already redistributes a missing signal's weight
-/// proportionally among the survivors with a 0.5 cold start. Re-deriving any of
-/// that here would fork the scoring and let the two drift.
+/// One gate for every term input: a value outside the unit interval is rejected
+/// rather than clamped, because a clamped value is indistinguishable from a real
+/// measurement and would present a broken producer as a plausible source of signal.
+fn finite_unit(value: Option<f64>) -> Option<f64> {
+    match value {
+        Some(value) if value.is_finite() && (0.0..=1.0).contains(&value) => Some(value),
+        _ => None,
+    }
+}
+
+/// `M_relevance(i)` — how well the item serves the session goal, in `[0,1]`.
+///
+/// Resolves from three tiers, strongest evidence first:
+///
+/// 1. the decision model's judgement of this item against the goal
+///    (`ItemSignals::goal_alignment`) — a real verdict, reported as measured;
+/// 2. local lexical overlap between the goal and the item's own text
+///    (`ItemSignals::local_goal_alignment`) — a stand-in for having no model,
+///    reported as **defaulted** so the breakdown can say it was derived rather than
+///    judged;
+/// 3. `relevance.rs`'s tag-affinity composite, used when there is no goal to compare
+///    against at all.
+///
+/// With no goal, no model verdict and no relevance value, the term reports itself
+/// unavailable. That is the whole point of the tiering: "the user has not said what
+/// they are studying" must not be rendered as "nothing here is relevant".
+///
+/// Tier 3 still delegates rather than recomputing: `relevance.rs` owns the
+/// four-signal blend (classifier 0.4 / tag affinity 0.25 / rating history 0.2 /
+/// semantic 0.15) and redistributes a missing signal's weight proportionally among
+/// the survivors with a 0.5 cold start. Re-deriving any of that here would fork the
+/// scoring and let the two drift.
 pub fn goal_relevance(signals: Option<&ItemSignals>, _knob_w: f64) -> TermValue {
-    match signals.and_then(|s| s.relevalscore_value()) {
+    let Some(signals) = signals else {
+        return TermValue::unavailable();
+    };
+    if let Some(measured) = signals.goal_alignment_value() {
+        return TermValue::measured(measured);
+    }
+    if let Some(derived) = signals.local_goal_alignment_value() {
+        return TermValue::defaulted(derived);
+    }
+    match signals.relevalscore_value() {
         Some(value) => TermValue::measured(value),
         None => TermValue::unavailable(),
     }
 }
 
 impl ItemSignals {
+    /// The decision model's goal-alignment verdict, rejected when it is not a
+    /// usable number — same reasoning as [`Self::relevalscore_value`], because a
+    /// provider reporting `1.7` is broken and a clamped value would be
+    /// indistinguishable from a real one.
+    pub fn goal_alignment_value(&self) -> Option<f64> {
+        finite_unit(self.goal_alignment)
+    }
+
+    /// The locally derived alignment, validated on the same terms.
+    pub fn local_goal_alignment_value(&self) -> Option<f64> {
+        finite_unit(self.local_goal_alignment)
+    }
+
     /// The relevance value, rejected when it is not a usable number rather than
     /// clamped — a model or signal pipeline reporting `1.7` is broken, and
     /// silently clamping it would present a fabricated score.
     pub fn relevalscore_value(&self) -> Option<f64> {
-        let value = self.relevance?;
-        if value.is_finite() && (0.0..=1.0).contains(&value) {
-            Some(value)
-        } else {
-            None
-        }
+        finite_unit(self.relevance)
     }
 }
 
@@ -443,6 +501,61 @@ mod tests {
         assert!(!goal_relevance(None, 0.3).available);
         let signals = ItemSignals::default();
         assert!(!goal_relevance(Some(&signals), 0.3).available);
+    }
+
+    #[test]
+    fn a_local_alignment_is_available_but_never_looks_measured() {
+        // No decision model, but the goal matched something: a real number the UI
+        // can rank by, flagged so it is never presented as a model verdict.
+        let signals = ItemSignals { local_goal_alignment: Some(0.4), ..Default::default() };
+        let term = goal_relevance(Some(&signals), 0.3);
+        assert!(term.available);
+        assert!(term.defaulted);
+        assert_eq!(term.effective(), 0.4);
+    }
+
+    #[test]
+    fn a_model_verdict_outranks_a_locally_derived_one_and_is_not_defaulted() {
+        let signals = ItemSignals {
+            goal_alignment: Some(0.9),
+            local_goal_alignment: Some(0.1),
+            ..Default::default()
+        };
+        let term = goal_relevance(Some(&signals), 0.3);
+        assert!(term.available && !term.defaulted, "a real verdict is measured");
+        assert_eq!(term.effective(), 0.9);
+    }
+
+    #[test]
+    fn an_out_of_range_goal_verdict_is_rejected_and_falls_through() {
+        // A provider claiming 1.7 is broken. Refusing it lands on the local tier
+        // rather than presenting a clamped 1.0 as a measurement.
+        let signals = ItemSignals {
+            goal_alignment: Some(1.7),
+            local_goal_alignment: Some(0.5),
+            ..Default::default()
+        };
+        let term = goal_relevance(Some(&signals), 0.3);
+        assert!(term.defaulted);
+        assert_eq!(term.effective(), 0.5);
+    }
+
+    #[test]
+    fn a_non_finite_goal_verdict_is_rejected() {
+        let signals = ItemSignals { goal_alignment: Some(f64::NAN), ..Default::default() };
+        assert_eq!(signals.goal_alignment_value(), None);
+        assert!(!goal_relevance(Some(&signals), 0.3).available);
+    }
+
+    #[test]
+    fn no_goal_leaves_the_term_unavailable_rather_than_scoring_zero() {
+        // The distinction the goal field exists to preserve: the user has not said
+        // what they are studying, which is not the same as nothing being relevant.
+        let signals = ItemSignals { relevance: None, ..Default::default() };
+        let term = goal_relevance(Some(&signals), 0.3);
+        assert!(!term.available);
+        assert!(!term.defaulted);
+        assert_eq!(term.effective(), 0.0);
     }
 
     #[test]

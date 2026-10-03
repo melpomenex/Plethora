@@ -2442,10 +2442,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         availableTags={Array.from(new Set(items.flatMap((item) => item.tags || [])))}
         availableCategories={Array.from(new Set(items.map((item) => item.category).filter(Boolean)))}
         onScheduleRerank={() => {
-          // The modal's knobs write to settings directly, so re-rank from the
-          // freshly written values rather than from a stale render's closure.
-          if (!useSettingsStore.getState().settings.daqe.rankingEnabled) return;
-          void applyRankSnapshot(useSettingsStore.getState().settings.daqe.knobs);
+          // The modal's knobs and goal write to settings directly, so re-rank from
+          // the freshly written values rather than from a stale render's closure.
+          const daqe = useSettingsStore.getState().settings.daqe;
+          if (!daqe.rankingEnabled) return;
+          // The focused tags are the one piece of this that is not in settings: they
+          // are transient session state, so they come from the live customization.
+          void applyRankSnapshot(daqe.knobs, sessionCustomization.filters.tags);
         }}
       />
 

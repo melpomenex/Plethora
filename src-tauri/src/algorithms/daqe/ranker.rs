@@ -525,6 +525,102 @@ mod tests {
     }
 
     #[test]
+    fn a_changed_goal_reorders_the_queue() {
+        // Two candidates, identical in every signal except which goal they match.
+        // Nothing else differs, so any movement in the order is attributable to the
+        // goal and nothing else.
+        let source = vec![
+            item("algebra", "document", 5.0, 0),
+            item("topology", "document", 5.0, 0),
+        ];
+        let signals = vec![
+            ItemSignals {
+                item_id: "algebra".to_string(),
+                local_goal_alignment: Some(0.9),
+                ..Default::default()
+            },
+            ItemSignals {
+                item_id: "topology".to_string(),
+                local_goal_alignment: Some(0.1),
+                ..Default::default()
+            },
+        ];
+        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+
+        let toward_algebra = RankContext {
+            goal: Some("linear algebra"),
+            signals: &signals,
+            ..RankContext::bare(now())
+        };
+        let toward_topology = RankContext {
+            goal: Some("algebraic topology"),
+            // Same signals, goal changed: the caller recomputes alignment for a new
+            // goal, which is why a goal-dependent judgement is never cached.
+            signals: &[
+                ItemSignals { item_id: "algebra".to_string(), local_goal_alignment: Some(0.1), ..Default::default() },
+                ItemSignals { item_id: "topology".to_string(), local_goal_alignment: Some(0.9), ..Default::default() },
+            ],
+            ..RankContext::bare(now())
+        };
+
+        let algebra_first = rank(&source, &knobs, &toward_algebra);
+        let topology_first = rank(&source, &knobs, &toward_topology);
+
+        assert_eq!(algebra_first.first().expect("non-empty").item.id, "algebra");
+        assert_eq!(topology_first.first().expect("non-empty").item.id, "topology");
+    }
+
+    #[test]
+    fn changing_the_goal_reorders_without_changing_membership() {
+        let source = pool();
+        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+        let mut ids = |ctx: &RankContext<'_>| {
+            let mut ranked: Vec<String> =
+                rank(&source, &knobs, ctx).iter().map(|entry| entry.item.id.clone()).collect();
+            ranked.sort();
+            ranked
+        };
+
+        let before = ids(&RankContext::bare(now()));
+        let after = ids(&RankContext {
+            goal: Some("transformer architectures"),
+            signals: &[ItemSignals {
+                item_id: "e".to_string(),
+                local_goal_alignment: Some(1.0),
+                ..Default::default()
+            }],
+            ..RankContext::bare(now())
+        });
+
+        assert_eq!(
+            before, after,
+            "a goal may reorder a session but must never add or drop an item"
+        );
+    }
+
+    #[test]
+    fn an_identical_goal_and_pool_rank_identically_twice() {
+        let source = pool();
+        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+        let signals = vec![ItemSignals {
+            item_id: "e".to_string(),
+            local_goal_alignment: Some(0.7),
+            ..Default::default()
+        }];
+        let ctx = || RankContext {
+            goal: Some("linear algebra"),
+            signals: &signals,
+            ..RankContext::bare(now())
+        };
+
+        let first: Vec<String> =
+            rank(&source, &knobs, &ctx()).iter().map(|e| e.item.id.clone()).collect();
+        let second: Vec<String> =
+            rank(&source, &knobs, &ctx()).iter().map(|e| e.item.id.clone()).collect();
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn interleave_penalty_pushes_a_repeated_topic_down() {
         let source = pool();
         let recent = vec![RecentItem {
@@ -834,6 +930,8 @@ mod latency {
                 complexity: Some(1.0 + (n % 5) as f64),
                 topic_similarity_to_recent: ((n % 100) as f64 / 100.0).clamp(0.0, 1.0),
                 topic_matches: vec![format!("recent-{}", n % 3)],
+                goal_alignment: None,
+                local_goal_alignment: None,
                 friction: crate::algorithms::daqe::FrictionInputs {
                     postpone_count: (n % 6) as i32,
                     rapid_skip_count: (n % 3) as i32,
@@ -868,6 +966,7 @@ mod latency {
             now: Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap(),
             recent: &recent,
             goal: Some("understanding transformer architectures"),
+            focus_tags: &[],
             signals: &signals,
             energy_downshift: Some(&downshift),
             recent_window: crate::algorithms::daqe::DEFAULT_RECENT_WINDOW,
@@ -914,6 +1013,7 @@ mod latency {
             now,
             recent: &recent,
             goal: None,
+            focus_tags: &[],
             signals: &signals,
             energy_downshift: None,
             recent_window: crate::algorithms::daqe::DEFAULT_RECENT_WINDOW,
@@ -957,6 +1057,7 @@ mod latency {
                     now,
                     recent: &recent,
                     goal: Some("goal"),
+                    focus_tags: &[],
                     signals: &signals,
                     energy_downshift: None,
                     recent_window: crate::algorithms::daqe::DEFAULT_RECENT_WINDOW,

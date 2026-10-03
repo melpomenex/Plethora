@@ -10,6 +10,8 @@
 //! that can answer one but not another is a partially-usable provider. Keeping
 //! them together lets the registry hold a single capability record per provider.
 
+pub mod http_provider;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
