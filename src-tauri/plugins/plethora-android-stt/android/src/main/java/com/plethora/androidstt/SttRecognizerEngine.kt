@@ -162,7 +162,11 @@ private fun resolveNeedleExecutable(context: Context?, modelDir: File): File {
     if (context != null) {
         val nativeDir = File(context.applicationInfo.nativeLibraryDir)
         val inNative = File(nativeDir, "libneedle.so")
-        if (inNative.isFile && inNative.canExecute()) {
+        if (inNative.isFile) {
+            try {
+                inNative.setExecutable(true, false)
+            } catch (_: Throwable) {
+            }
             return inNative
         }
 
@@ -222,9 +226,17 @@ class WhistleRecognizer(
                 cmd.add(lang)
             }
 
-            val process = ProcessBuilder(cmd)
+            val processBuilder = ProcessBuilder(cmd)
                 .redirectErrorStream(true)
-                .start()
+            val env = processBuilder.environment()
+            val nativeDir = needleExe.parentFile?.absolutePath
+            if (!nativeDir.isNullOrBlank()) {
+                val currentLd = env["LD_LIBRARY_PATH"]
+                env["LD_LIBRARY_PATH"] = if (currentLd.isNullOrBlank()) nativeDir else "$nativeDir:$currentLd"
+            }
+            env["TMPDIR"] = tempDir.absolutePath
+
+            val process = processBuilder.start()
 
             val stdout = process.inputStream.bufferedReader().use { it.readText() }
             val exitCode = process.waitFor()
