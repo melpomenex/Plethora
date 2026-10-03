@@ -1,0 +1,752 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-03T00:00:00Z",
+  "title": "Design System: Plethora",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#3b82f6",
+        "oklch": "oklch(62.3% 0.1880 259.8)",
+        "tonalRamp": [
+          "#020a1f",
+          "#002264",
+          "#003fa0",
+          "#1961d2",
+          "#4488f8",
+          "#77b1ff",
+          "#a9d2ff",
+          "#dcf0ff"
+        ]
+      },
+      "on-primary": {
+        "role": "neutral",
+        "displayName": "Knockout White",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.0000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#292929",
+          "#484848",
+          "#696969",
+          "#8c8c8c",
+          "#b1b1b1",
+          "#d1d1d1",
+          "#eeeeee"
+        ]
+      },
+      "primary-container": {
+        "role": "primary",
+        "displayName": "Primary Wash",
+        "canonical": "#dbeafe",
+        "oklch": "oklch(93.2% 0.0316 255.6)",
+        "tonalRamp": [
+          "#090b0e",
+          "#222933",
+          "#3e4957",
+          "#5d6a7b",
+          "#808d9f",
+          "#a7b2c1",
+          "#cad2dd",
+          "#ebeff4"
+        ]
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Slate",
+        "canonical": "#64748b",
+        "oklch": "oklch(55.4% 0.0407 257.4)",
+        "tonalRamp": [
+          "#090b0f",
+          "#212936",
+          "#3b495b",
+          "#5a6a81",
+          "#7d8da4",
+          "#a4b2c6",
+          "#c8d2e0",
+          "#eaeff5"
+        ]
+      },
+      "secondary-container": {
+        "role": "secondary",
+        "displayName": "Quiet Tonal",
+        "canonical": "#e8e8ec",
+        "oklch": "oklch(93.2% 0.0054 286.3)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#29292b",
+          "#47474a",
+          "#68686c",
+          "#8c8c8f",
+          "#b1b1b4",
+          "#d1d1d3",
+          "#eeeeef"
+        ]
+      },
+      "tertiary": {
+        "role": "tertiary",
+        "displayName": "Amethyst",
+        "canonical": "#7c4dbe",
+        "oklch": "oklch(52.9% 0.1711 299.7)",
+        "tonalRamp": [
+          "#0e061a",
+          "#331557",
+          "#562b8c",
+          "#794abb",
+          "#9c71e0",
+          "#be9cfa",
+          "#dac4ff",
+          "#f2e9ff"
+        ]
+      },
+      "error": {
+        "role": "error",
+        "displayName": "Error Red",
+        "canonical": "#b3261e",
+        "oklch": "oklch(50.1% 0.1783 28.7)",
+        "tonalRamp": [
+          "#1a0302",
+          "#550000",
+          "#8a0706",
+          "#b92e25",
+          "#e15a4c",
+          "#fe8c7c",
+          "#ffb9ac",
+          "#ffe4de"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "Success Green",
+        "canonical": "#15803d",
+        "oklch": "oklch(52.7% 0.1371 150.1)",
+        "tonalRamp": [
+          "#020f04",
+          "#00340d",
+          "#00591f",
+          "#127e3b",
+          "#47a260",
+          "#7dc58c",
+          "#aee0b7",
+          "#dff5e3"
+        ]
+      },
+      "warning": {
+        "role": "neutral",
+        "displayName": "Warning Amber",
+        "canonical": "#f59e0b",
+        "oklch": "oklch(76.9% 0.1647 70.1)",
+        "tonalRamp": [
+          "#160700",
+          "#481900",
+          "#773100",
+          "#a25100",
+          "#c77700",
+          "#e6a14a",
+          "#f8c78f",
+          "#ffead1"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#fffbfe",
+        "oklch": "oklch(99.2% 0.0058 334)",
+        "tonalRamp": [
+          "#0c0b0b",
+          "#2a282a",
+          "#494749",
+          "#6b686a",
+          "#8e8b8d",
+          "#b3b0b2",
+          "#d2d0d2",
+          "#efeeef"
+        ]
+      },
+      "surface-container-low": {
+        "role": "neutral",
+        "displayName": "Container Low",
+        "canonical": "#f6f2fa",
+        "oklch": "oklch(96.7% 0.0114 308.3)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#2a282c",
+          "#49464c",
+          "#6b676e",
+          "#8e8a91",
+          "#b3b0b6",
+          "#d2d0d4",
+          "#efeef0"
+        ]
+      },
+      "surface-container-high": {
+        "role": "neutral",
+        "displayName": "Container High",
+        "canonical": "#eae7ed",
+        "oklch": "oklch(93.2% 0.0086 308.4)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#2a282b",
+          "#49474b",
+          "#6a686d",
+          "#8d8b90",
+          "#b2b0b4",
+          "#d2d0d3",
+          "#efeeef"
+        ]
+      },
+      "surface-container-highest": {
+        "role": "neutral",
+        "displayName": "Container Highest",
+        "canonical": "#e4e1e8",
+        "oklch": "oklch(91.4% 0.0099 305.4)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#2a282b",
+          "#49464c",
+          "#6a686e",
+          "#8d8b91",
+          "#b2b0b5",
+          "#d2d0d4",
+          "#efeef0"
+        ]
+      },
+      "on-surface": {
+        "role": "neutral",
+        "displayName": "On-Surface",
+        "canonical": "#1c1b1f",
+        "oklch": "oklch(22.5% 0.0078 297.2)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#29282b",
+          "#48474b",
+          "#69686d",
+          "#8c8b90",
+          "#b1b0b5",
+          "#d1d0d3",
+          "#eeeef0"
+        ]
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "Outline",
+        "canonical": "#79747e",
+        "oklch": "oklch(56.7% 0.0163 308.1)",
+        "tonalRamp": [
+          "#0c0b0c",
+          "#2a282d",
+          "#4a464e",
+          "#6b6770",
+          "#8f8a94",
+          "#b3afb8",
+          "#d2cfd6",
+          "#efeef1"
+        ]
+      },
+      "inverse-surface": {
+        "role": "neutral",
+        "displayName": "Inverse Surface",
+        "canonical": "#303034",
+        "oklch": "oklch(31.1% 0.0071 286)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#29292b",
+          "#47474b",
+          "#68686d",
+          "#8c8c90",
+          "#b0b1b4",
+          "#d0d1d3",
+          "#eeeeef"
+        ]
+      },
+      "launch-violet": {
+        "role": "primary",
+        "displayName": "Launch Violet",
+        "canonical": "#6f4cff",
+        "oklch": "oklch(56.6% 0.2489 284.1)",
+        "tonalRamp": [
+          "#0a0524",
+          "#280174",
+          "#4612b7",
+          "#633bee",
+          "#8269ff",
+          "#a59aff",
+          "#c6c4ff",
+          "#e9eaff"
+        ]
+      },
+      "site-paper": {
+        "role": "neutral",
+        "displayName": "Site Paper",
+        "canonical": "#f3f0e8",
+        "oklch": "oklch(95.5% 0.0111 89.7)",
+        "tonalRamp": [
+          "#0c0b0a",
+          "#2a2925",
+          "#4a4842",
+          "#6b6962",
+          "#8f8c85",
+          "#b3b1ab",
+          "#d2d1cc",
+          "#efeeec"
+        ]
+      },
+      "site-ink": {
+        "role": "neutral",
+        "displayName": "Site Ink",
+        "canonical": "#1c1916",
+        "oklch": "oklch(21.6% 0.0075 67.4)",
+        "tonalRamp": [
+          "#0c0b0a",
+          "#2b2826",
+          "#4a4744",
+          "#6c6864",
+          "#8f8b88",
+          "#b4b0ad",
+          "#d3d0ce",
+          "#efeeed"
+        ]
+      },
+      "site-accent": {
+        "role": "primary",
+        "displayName": "Site Accent",
+        "canonical": "#7c3aed",
+        "oklch": "oklch(54.1% 0.2466 293)",
+        "tonalRamp": [
+          "#0d0422",
+          "#32006f",
+          "#5403b0",
+          "#7632e5",
+          "#9761ff",
+          "#b894ff",
+          "#d4c0ff",
+          "#efe8ff"
+        ]
+      },
+      "surface-container-lowest": {
+        "role": "neutral",
+        "displayName": "Container Lowest",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.0000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#292929",
+          "#484848",
+          "#696969",
+          "#8c8c8c",
+          "#b1b1b1",
+          "#d1d1d1",
+          "#eeeeee"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Effectively reserved. Empty states and the rare onboarding moment — the app has no hero."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Pane titles, dialog titles, section headers. Regular weight, not bold."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and list headlines. The only chrome role set to medium weight."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Prose, list supporting text, descriptions. Tracking opens up at 0.031em."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, nav labels, field labels, badges. Tracking widens as size shrinks."
+      },
+      "site-display": {
+        "displayName": "Site Display",
+        "purpose": "Marketing hero and section heads. Source Serif 4 at 600, tracking -0.04em."
+      },
+      "site-body": {
+        "displayName": "Site Body",
+        "purpose": "Marketing prose, capped at 62ch. System sans."
+      },
+      "reading": {
+        "displayName": "Reader",
+        "purpose": "Long-form document rendering. 18px desktop / 16px mobile, 65ch measure. Off-limits to chrome tokens."
+      }
+    },
+    "shadows": [
+      {
+        "name": "menu-floating",
+        "value": "0 8px 28px color-mix(in srgb, black 26%, transparent)",
+        "purpose": "Menus and popovers. The floating-layer default."
+      },
+      {
+        "name": "dialog-floating",
+        "value": "0 24px 80px color-mix(in srgb, black 34%, transparent)",
+        "purpose": "Dialogs and bottom sheets. Wider and softer than a menu, because a scrim dims everything beneath."
+      },
+      {
+        "name": "small-floating",
+        "value": "shadow-lg",
+        "purpose": "Snackbars, toasts, FABs — small surfaces lifting off a known background."
+      },
+      {
+        "name": "mobile-nav",
+        "value": "0 -8px 24px color-mix(in srgb, black 10%, transparent)",
+        "purpose": "Mobile bottom nav. Upward, because the bar is anchored to the bottom edge."
+      },
+      {
+        "name": "expanded-rail",
+        "value": "10px 0 28px color-mix(in srgb, black 18%, transparent)",
+        "purpose": "Expanded navigation rail. Directional — mirror to -10px when the rail grows leftward."
+      },
+      {
+        "name": "glass-sm",
+        "value": "0 4px 16px 0 rgba(31, 38, 135, 0.10)",
+        "purpose": "Backdrop-filter panels, light weight."
+      },
+      {
+        "name": "glass",
+        "value": "0 8px 32px 0 rgba(31, 38, 135, 0.15)",
+        "purpose": "Backdrop-filter panels. Indigo-tinted so it survives warm themes."
+      },
+      {
+        "name": "glass-lg",
+        "value": "0 8px 32px 0 rgba(31, 38, 135, 0.25)",
+        "purpose": "Heavy glass panels. Collapsed to none in E-Ink mode."
+      },
+      {
+        "name": "site-stuck-header",
+        "value": "0 1px 12px rgb(28 25 22 / 0.06)",
+        "purpose": "Marketing sticky header, only once it sticks. Geometry never animates — only paint."
+      },
+      {
+        "name": "site-frame",
+        "value": "0.4rem 0.85rem 1.8rem rgb(28 25 22 / 0.14)",
+        "purpose": "Product screenshots and device mockups only. Dark mode adds a 1px white ring at 0.62 alpha."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Default easing for state transitions. Also the emphasized curve in this system."
+      },
+      {
+        "name": "ease-decelerated",
+        "value": "cubic-bezier(0.05, 0.7, 0.1, 1)",
+        "purpose": "Entrances — elements arriving into view."
+      },
+      {
+        "name": "ease-accelerated",
+        "value": "cubic-bezier(0.3, 0, 0.8, 0.15)",
+        "purpose": "Exits — elements leaving."
+      },
+      {
+        "name": "ease-linear",
+        "value": "linear",
+        "purpose": "State-layer opacity and indefinite spinners. Opacity only, so it never reads as motion."
+      },
+      {
+        "name": "duration-short",
+        "value": "150ms",
+        "purpose": "Hover, focus, press, state layers."
+      },
+      {
+        "name": "duration-medium",
+        "value": "300ms",
+        "purpose": "Rail expansion, progress width, container morphs."
+      },
+      {
+        "name": "duration-long",
+        "value": "450ms",
+        "purpose": "Reserved for large surface transitions."
+      },
+      {
+        "name": "duration-extra-long",
+        "value": "600ms",
+        "purpose": "Reserved. Rarely used."
+      },
+      {
+        "name": "state-hover",
+        "value": "0.08",
+        "purpose": "Material state layer: content-color overlay at hover."
+      },
+      {
+        "name": "state-focus",
+        "value": "0.1",
+        "purpose": "Material state layer: content-color overlay at keyboard focus."
+      },
+      {
+        "name": "state-press",
+        "value": "0.1",
+        "purpose": "Material state layer: content-color overlay at press."
+      },
+      {
+        "name": "state-selected",
+        "value": "0.12",
+        "purpose": "Material state layer: aria-pressed / aria-selected."
+      },
+      {
+        "name": "state-dragged",
+        "value": "0.16",
+        "purpose": "Material state layer: while dragging."
+      },
+      {
+        "name": "nav-indicator",
+        "value": "180ms ease-out",
+        "purpose": "Nav pill indicator growing from scale 0.35 to full. Transform + opacity only."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0ms",
+        "purpose": "All four duration tokens collapse to 0ms under prefers-reduced-motion, data-reduced-motion, or data-animations=off. Consume tokens, never raw durations."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone-max",
+        "value": "599px",
+        "purpose": "App: shortest viewport edge at or below this classifies as phone. src/lib/presentation.ts."
+      },
+      {
+        "name": "compact-desktop-min",
+        "value": "760px wide / 560px tall",
+        "purpose": "App: compact-desktop floor on Tauri."
+      },
+      {
+        "name": "desktop-min",
+        "value": "1024px",
+        "purpose": "App: desktop vs compact-desktop boundary. The single most important number in the app shell."
+      },
+      {
+        "name": "mobile-css",
+        "value": "768px / 769px",
+        "purpose": "App: the CSS-side phone boundary in src/styles/mobile.css."
+      },
+      {
+        "name": "site-sm",
+        "value": "389px / 479px",
+        "purpose": "Marketing: hero reflows to one column below 480px; 389px is the narrow floor."
+      },
+      {
+        "name": "site-md",
+        "value": "768px",
+        "purpose": "Marketing: tablet boundary — hero motion and stage layout switch here."
+      },
+      {
+        "name": "site-lg",
+        "value": "1024px",
+        "purpose": "Marketing: content bands and pricing layout widen."
+      },
+      {
+        "name": "site-xl",
+        "value": "1280px",
+        "purpose": "Marketing: full asymmetric hero composition."
+      }
+    ],
+    "zScale": [
+      {
+        "name": "nav",
+        "value": "30",
+        "purpose": "Navigation rail and bar."
+      },
+      {
+        "name": "overlay",
+        "value": "40",
+        "purpose": "Scrims and backdrop layers."
+      },
+      {
+        "name": "dialog",
+        "value": "1060",
+        "purpose": "Dialogs and bottom sheets."
+      },
+      {
+        "name": "menu",
+        "value": "1070",
+        "purpose": "Menus, popovers, overflow lists."
+      },
+      {
+        "name": "snackbar",
+        "value": "1080",
+        "purpose": "Toasts and snackbars."
+      },
+      {
+        "name": "tooltip",
+        "value": "1090",
+        "purpose": "Tooltips — above snackbars, which can overlap triggers."
+      },
+      {
+        "name": "critical",
+        "value": "9998",
+        "purpose": "Anchored reader selection toolbar. Must stay above marketing-capture chrome at 9997."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button — Primary",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled pill. The one committing action in a view. State layer only on hover — buttons never move.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:2.5rem;padding:0 1.5rem;border:0;border-radius:9999px;cursor:pointer;white-space:nowrap;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;font-weight:500;letter-spacing:0.007em;background-color:var(--color-primary,#3b82f6);color:var(--color-on-primary,#fff);transition:color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-btn-primary:disabled{opacity:0.4;pointer-events:none;}.ds-btn-primary:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}.ds-btn-primary{position:relative;}.ds-btn-primary::after{content:\"\";position:absolute;inset:0;border-radius:inherit;background-color:currentColor;opacity:0;pointer-events:none;transition:opacity var(--md-duration-short,150ms) var(--md-easing-linear,linear);}.ds-btn-primary:hover:not(:disabled)::after{opacity:var(--md-state-hover,0.08);}.ds-btn-primary:focus-visible::after{opacity:var(--md-state-focus,0.1);}.ds-btn-primary:active:not(:disabled)::after{opacity:var(--md-state-press,0.1);}.ds-btn-primary[aria-pressed=\"true\"]::after,.ds-btn-primary[aria-selected=\"true\"]::after{opacity:var(--md-state-selected,0.12);}"
+    },
+    {
+      "name": "Button — Tonal",
+      "kind": "button",
+      "refersTo": "button-tonal",
+      "description": "Secondary-container pill for supporting and alternative actions.",
+      "html": "<button type=\"button\" class=\"ds-btn-tonal\">Filter queue</button>",
+      "css": ".ds-btn-tonal{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:2.5rem;padding:0 1.5rem;border:0;border-radius:9999px;cursor:pointer;white-space:nowrap;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;font-weight:500;letter-spacing:0.007em;background-color:var(--color-secondary-container,#e8e8ec);color:var(--color-on-surface,#1c1b1f);transition:color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-btn-tonal:disabled{opacity:0.4;pointer-events-none;}.ds-btn-tonal:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}.ds-btn-tonal{position:relative;}.ds-btn-tonal::after{content:\"\";position:absolute;inset:0;border-radius:inherit;background-color:currentColor;opacity:0;pointer-events:none;transition:opacity var(--md-duration-short,150ms) var(--md-easing-linear,linear);}.ds-btn-tonal:hover:not(:disabled)::after{opacity:var(--md-state-hover,0.08);}.ds-btn-tonal:focus-visible::after{opacity:var(--md-state-focus,0.1);}.ds-btn-tonal:active:not(:disabled)::after{opacity:var(--md-state-press,0.1);}.ds-btn-tonal[aria-pressed=\"true\"]::after,.ds-btn-tonal[aria-selected=\"true\"]::after{opacity:var(--md-state-selected,0.12);}"
+    },
+    {
+      "name": "Button — Outlined",
+      "kind": "button",
+      "refersTo": "button-outlined",
+      "description": "Transparent with a 1px outline. Lowest-emphasis button that still holds a border.",
+      "html": "<button type=\"button\" class=\"ds-btn-outlined\">Import</button>",
+      "css": ".ds-btn-outlined{display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:2.5rem;padding:0 1.5rem;border:1px solid var(--color-outline,#79747e);border-radius:9999px;background:transparent;cursor:pointer;white-space:nowrap;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;font-weight:500;letter-spacing:0.007em;color:var(--color-primary,#3b82f6);transition:border-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-btn-outlined:hover:not(:disabled){border-color:var(--color-primary,#3b82f6);}.ds-btn-outlined:disabled{opacity:0.4;pointer-events-none;}.ds-btn-outlined:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}.ds-btn-outlined{position:relative;}.ds-btn-outlined::after{content:\"\";position:absolute;inset:0;border-radius:inherit;background-color:currentColor;opacity:0;pointer-events:none;transition:opacity var(--md-duration-short,150ms) var(--md-easing-linear,linear);}.ds-btn-outlined:hover:not(:disabled)::after{opacity:var(--md-state-hover,0.08);}.ds-btn-outlined:focus-visible::after{opacity:var(--md-state-focus,0.1);}.ds-btn-outlined:active:not(:disabled)::after{opacity:var(--md-state-press,0.1);}.ds-btn-outlined[aria-pressed=\"true\"]::after,.ds-btn-outlined[aria-selected=\"true\"]::after{opacity:var(--md-state-selected,0.12);}"
+    },
+    {
+      "name": "Chip — Filter, Selected",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "32px outlined chip. Selection fills secondary-container and adds a checkmark — never color alone.",
+      "html": "<button type=\"button\" class=\"ds-chip\" aria-pressed=\"true\"><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path d=\"M13.4 4.6 6.6 11.4 2.9 7.7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>Due today</span></button>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:0.375rem;min-height:2rem;padding:0 0.75rem;border:1px solid var(--color-outline-variant,#cac4d0);border-radius:0.5rem;background:transparent;cursor:pointer;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;font-weight:500;letter-spacing:0.007em;color:var(--color-on-surface-variant,#49454f);transition:border-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1)),color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-chip svg{color:var(--color-on-secondary-container,#1c1b1f);}.ds-chip[aria-pressed=\"true\"]{background-color:var(--color-secondary-container,#e8e8ec);border-color:transparent;color:var(--color-on-secondary-container,#1c1b1f);}.ds-chip:disabled{opacity:0.4;pointer-events-none;}.ds-chip:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}.ds-chip{position:relative;}.ds-chip::after{content:\"\";position:absolute;inset:0;border-radius:inherit;background-color:currentColor;opacity:0;pointer-events:none;transition:opacity var(--md-duration-short,150ms) var(--md-easing-linear,linear);}.ds-chip:hover:not(:disabled)::after{opacity:var(--md-state-hover,0.08);}.ds-chip:focus-visible::after{opacity:var(--md-state-focus,0.1);}.ds-chip:active:not(:disabled)::after{opacity:var(--md-state-press,0.1);}.ds-chip[aria-pressed=\"true\"]::after,.ds-chip[aria-selected=\"true\"]::after{opacity:var(--md-state-selected,0.12);}"
+    },
+    {
+      "name": "Text Field — Default and Error",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "44px outlined field on surface-container-lowest. Focus shifts the border AND adds a ring — two signals.",
+      "html": "<div class=\"ds-field-demo\"><label class=\"ds-field-label\" for=\"ds-field-1\">Collection</label><input id=\"ds-field-1\" class=\"ds-field\" placeholder=\"Reading queue\" /></div><div class=\"ds-field-demo\"><label class=\"ds-field-label\" for=\"ds-field-2\">Source URL</label><input id=\"ds-field-2\" class=\"ds-field ds-is-error\" value=\"https://\" aria-invalid=\"true\" /><p class=\"ds-field-msg\">Enter a full URL, including https://</p></div>",
+      "css": ".ds-field-demo{display:flex;flex-direction:column;gap:0.25rem;min-width:15rem;}.ds-field-label{font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.75rem;font-weight:500;letter-spacing:0.042em;color:var(--color-on-surface-variant,#49454f);}.ds-field{min-height:2.75rem;padding:0 0.75rem;border:1px solid var(--color-outline,#79747e);border-radius:0.5rem;background-color:var(--color-surface-container-lowest,#fff);font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:1rem;letter-spacing:0.031em;color:var(--color-on-surface,#1c1b1f);transition:border-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-field::placeholder{color:var(--color-on-surface-variant,#49454f);opacity:0.7;}.ds-field:hover{border-color:var(--color-on-surface-variant,#49454f);}.ds-field:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;border-color:var(--color-primary,#3b82f6);}.ds-field.ds-is-error{border-color:var(--color-error,#b3261e);padding-right:2.25rem;}.ds-field-msg{font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.75rem;line-height:1rem;color:var(--color-error,#b3261e);margin:0;}.ds-search{display:flex;align-items:center;gap:0.5rem;min-height:2.75rem;padding:0 0.75rem;border:1px solid var(--color-outline,#79747e);border-radius:0.5rem;background-color:var(--color-surface-container-lowest,#fff);color:var(--color-on-surface-variant,#49454f);}"
+    },
+    {
+      "name": "Checkbox — Checked",
+      "kind": "custom",
+      "refersTo": "chip",
+      "description": "Visually-hidden native input over a 20px, 2px-bordered box. Checked state is a bold checkmark glyph, not a fill change.",
+      "html": "<label class=\"ds-check\"><input type=\"checkbox\" checked aria-label=\"Include extracts\" /><span class=\"ds-check-box\"><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path d=\"M13.4 4.6 6.6 11.4 2.9 7.7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span>Include extracts</span></label>",
+      "css": ".ds-check{display:inline-flex;align-items:center;gap:0.625rem;min-height:1.5rem;cursor:pointer;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;color:var(--color-on-surface,#1c1b1f);}.ds-check input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;}.ds-check-box{display:flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;border:2px solid var(--color-on-surface-variant,#49454f);border-radius:0.25rem;background:transparent;color:var(--color-on-primary,#fff);transition:background-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1)),border-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-check-box svg{opacity:0;transition:opacity var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));stroke-width:2.6;}.ds-check input:checked + .ds-check-box{background-color:var(--color-primary,#3b82f6);border-color:var(--color-primary,#3b82f6);}.ds-check input:checked + .ds-check-box svg{opacity:1;}.ds-check input:focus-visible + .ds-check-box{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}.ds-check:hover .ds-check-box{border-color:var(--color-primary,#3b82f6);}"
+    },
+    {
+      "name": "Nav Item — Rail, Active",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Collapsed rail destination. Active = secondary-container pill + primary label. No lift, no shadow.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"Primary\"><a class=\"ds-nav-item ds-is-active\" href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><rect x=\"1.5\" y=\"1.5\" width=\"13\" height=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg><span>Dashboard</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><rect x=\"1.5\" y=\"1.5\" width=\"13\" height=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg><span>Queue</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><rect x=\"1.5\" y=\"1.5\" width=\"13\" height=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg><span>Documents</span></a></nav>",
+      "css": ".ds-rail{display:flex;flex-direction:column;gap:0.25rem;width:3.5rem;padding:0.5rem 0.25rem;background-color:var(--color-surface-container,#f0edf4);border-radius:0.75rem;}.ds-nav-item{position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.125rem;min-height:2.75rem;padding:0.375rem 0.25rem;border-radius:0.875rem;text-decoration:none;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.625rem;font-weight:500;letter-spacing:0.045em;color:var(--color-on-surface-variant,#49454f);transition:background-color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1)),color var(--md-duration-short,150ms) var(--md-easing-standard,cubic-bezier(0.2,0,0,1));}.ds-nav-item span{white-space:nowrap;}.ds-nav-item::before{content:\"\";position:absolute;inset:0.25rem;border-radius:inherit;background-color:currentColor;opacity:0;pointer-events:none;transition:opacity 180ms ease-out,transform 180ms ease-out;}.ds-nav-item:hover::before,.ds-nav-item.ds-is-active::before{opacity:0.08;transform:scale(1);}.ds-nav-item.ds-is-active{background-color:var(--color-secondary-container,#e8e8ec);color:var(--color-on-surface,#1c1b1f);}.ds-nav-item:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:-2px;}"
+    },
+    {
+      "name": "Dialog Surface",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "All dialog chrome: surface-container-high fill, sheet radius, no border, floating shadow.",
+      "html": "<div class=\"ds-scrim\"><div class=\"ds-dialog\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Delete collection\"><h3 class=\"ds-dialog-title\">Delete this collection?</h3><p class=\"ds-dialog-body\">Its 214 extracts move to Unfiled. Cards already in a review queue keep their schedule.</p><div class=\"ds-dialog-actions\"><button type=\"button\" class=\"ds-btn-tonal\">Cancel</button><button type=\"button\" class=\"ds-btn-danger\">Delete</button></div></div></div>",
+      "css": ".ds-scrim{position:relative;display:flex;align-items:center;justify-content:center;padding:1rem;background-color:var(--color-scrim,rgba(0,0,0,0.42));border-radius:0.75rem;}.ds-dialog{display:flex;flex-direction:column;gap:0.5rem;width:min(100%,26rem);padding:1.5rem;border-radius:1.75rem;background-color:var(--color-surface-container-high,#eae7ed);color:var(--color-on-surface,#1c1b1f);box-shadow:0 24px 80px color-mix(in srgb,black 34%,transparent);font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);}.ds-dialog-title{margin:0;font-size:1.5rem;line-height:2rem;font-weight:400;letter-spacing:-0.015em;}.ds-dialog-body{margin:0;font-size:0.875rem;line-height:1.25rem;color:var(--color-on-surface-variant,#49454f);}.ds-dialog-actions{display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.75rem;padding-top:0.875rem;border-top:1px solid var(--color-surface-container-highest,#e4e1e8);}.ds-btn-danger{display:inline-flex;align-items:center;justify-content:center;min-height:2.5rem;padding:0 1.5rem;border:0;border-radius:9999px;cursor:pointer;font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);font-size:0.875rem;font-weight:500;background-color:var(--color-error,#b3261e);color:#fff;}.ds-btn-danger:hover{filter:brightness(1.08);}.ds-btn-danger:focus-visible{outline:2px solid var(--color-primary,#3b82f6);outline-offset:2px;}"
+    },
+    {
+      "name": "Snackbar",
+      "kind": "custom",
+      "refersTo": "snackbar",
+      "description": "The app's only inverted surface. Inverse fill, small radius, hairline progress bar along the bottom edge.",
+      "html": "<div class=\"ds-snackbar\" role=\"status\"><div class=\"ds-snackbar-copy\"><strong>12 cards rescheduled</strong><span>Plethora Precision moved them after the new interval preview.</span></div><button type=\"button\" class=\"ds-snackbar-action\">Undo</button><span class=\"ds-snackbar-bar\"></span></div>",
+      "css": ".ds-snackbar{position:relative;display:flex;align-items:center;gap:0.75rem;min-width:18rem;max-width:35.5rem;overflow:hidden;padding:0.875rem 0.75rem 0.875rem 1rem;border-radius:0.25rem;background-color:var(--color-inverse-surface,#303034);color:var(--color-on-inverse-surface,#f2f0f4);box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1);font-family:var(--font-family, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif);}.ds-snackbar-copy{display:flex;flex-direction:column;gap:0.125rem;min-width:0;flex:1;}.ds-snackbar-copy strong{font-size:0.875rem;line-height:1.25rem;font-weight:500;}.ds-snackbar-copy span{font-size:0.875rem;line-height:1.25rem;opacity:0.8;}.ds-snackbar-action{flex-shrink:0;margin-left:auto;padding:0.5rem 0.75rem;border:0;border-radius:0.125rem;background:transparent;cursor:pointer;font-family:inherit;font-size:0.875rem;font-weight:500;letter-spacing:0.007em;color:var(--color-inverse-primary,#c6c4ff);}.ds-snackbar-action:hover{background-color:var(--color-on-inverse-surface,#f2f0f4);opacity:0.12;}.ds-snackbar-action:focus-visible{outline:2px solid var(--color-inverse-primary,#c6c4ff);outline-offset:2px;}.ds-snackbar-bar{position:absolute;left:0;bottom:0;height:2px;background-color:var(--color-on-inverse-surface,#f2f0f4);opacity:0.4;}"
+    },
+    {
+      "name": "Site Button — Accent",
+      "kind": "button",
+      "refersTo": "site-button-accent",
+      "description": "Marketing site. Violet marks the moment (hero, close) — never every button. 7px radius, ink hairline.",
+      "html": "<a class=\"ds-site-btn\" href=\"#\">Download for Linux</a>",
+      "css": ".ds-site-btn{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;padding:0.55rem 1.15rem;border:1px solid var(--accent-hover,#6d28d9);border-radius:7px;background-color:var(--accent-hover,#6d28d9);color:var(--on-accent,#fff);text-decoration:none;white-space:nowrap;font-family:var(--font-ui, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif);font-size:0.95rem;font-weight:600;letter-spacing:0.01em;transition:background-color 160ms ease,border-color 160ms ease;}.ds-site-btn:hover{background-color:var(--accent,#7c3aed);border-color:var(--accent,#7c3aed);box-shadow:0 2px 8px rgb(28 25 22 / 0.18);}.ds-site-btn:active{filter:brightness(0.94);transform:translateY(1px);}.ds-site-btn:focus-visible{outline:2px solid var(--focus-ring,#7c3aed);outline-offset:2px;}"
+    },
+    {
+      "name": "Site Card",
+      "kind": "card",
+      "refersTo": "site-card",
+      "description": "Marketing site. Dead square — no radius at all. A 1px hairline on paper is the entire boundary.",
+      "html": "<div class=\"ds-site-card\"><h3>Import from anywhere</h3><p>PDF, EPUB, audio, video, a URL, an ArXiv paper, a YouTube playlist, an RSS feed, a screenshot.</p><a href=\"#\">See the import guide</a></div>",
+      "css": ".ds-site-card{padding:1rem 1.1rem;border:1px solid var(--line,#cfc7b8);border-radius:0;background-color:var(--surface-card,#fff);color:var(--ink,#1c1916);font-family:var(--font-ui, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif);}.ds-site-card h3{margin:0 0 0.5rem;font-family:var(--font-display,'Source Serif 4',Georgia,serif);font-size:1.05rem;font-weight:600;letter-spacing:-0.02em;}.ds-site-card p{margin:0;font-size:0.95rem;line-height:1.5;color:var(--ink-soft,#3f3a34);}.ds-site-card a{display:inline-block;margin-top:0.75rem;color:var(--accent,#7c3aed);font-size:0.95rem;font-weight:600;text-underline-offset:2px;}.ds-site-card a:hover{color:var(--accent-hover,#6d28d9);}.ds-site-card a:focus-visible{outline:2px solid var(--focus-ring,#7c3aed);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Themed Instrument",
+    "overview": "Plethora's chrome is a precision instrument that never changes shape. The theme is the weather inside it. A user can move the app from a VS Code grey to deep-ocean bioluminescence to a Windows 95 bevel, and the buttons stay pill-shaped, the target sizes stay 40px, the state layers stay at Material's opacities, and the z-order contract stays intact. That is the whole idea: the identity is infinitely variable and the instrument is not. Material 3 is the grammar; Plethora themes are the voice.\n\nThe aesthetic philosophy is dense, tonal, and unshowy. Density is a feature — this is a reading-and-review tool that people keep open for hours, so screens carry real information rather than air. Tonal carries depth, because a five-step surface-container ladder separates a panel from its background more quietly and more reliably than a drop shadow. Unshowy governs expression: nothing in the chrome animates on hover, nothing lifts, nothing glows. The expressive budget is spent in exactly two places — the reading surface, which is a serif at a 65ch measure, and the ambient animated backdrop, which is where a theme gets to be a shader instead of a palette.\n\nTwo worlds ship from this repository and deliberately do not share a palette. The app (src/) is the themed Material 3 instrument above. The marketing site (website/) is a paper-and-ink editorial surface — flat, square-cornered, serif-led, with no theming beyond light/dark. Tokens never cross between them.",
+    "keyCharacteristics": [
+      "One grammar, forty-eight voices — the token floor is static, every theme re-derives the roles above it.",
+      "Tonal first, shadow reserved — a box-shadow is a claim that a layer floats; if it doesn't, delete it.",
+      "Dense by default — scanability outranks expression in an app people live in.",
+      "Interaction state is never carried by color alone — always shape plus tone plus glyph.",
+      "40px minimum target, always, on every platform.",
+      "Motion is token-gated and collapses to instant under prefers-reduced-motion.",
+      "Reading content is off-limits to chrome tokens — it has its own stack, its own measure, its own scale."
+    ],
+    "rules": [
+      {
+        "name": "The Token Floor Rule",
+        "body": "src/index.css's @theme values exist so utilities compile, not so you can hardcode them. Any hex, radius, duration, or z-index in a className or style string literal in application chrome is an eslint error. Suppress a legitimate exception with // md3-allow: <reason> on the line above — brand logos, extract highlight palettes, and injected reader HTML are the sanctioned cases.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Chrome Rule",
+        "body": "Application chrome consumes roles; reading content never does. Document rendering, --reading- typography, and reader font settings are a closed system that must not reference chrome tokens in either direction.",
+        "section": "colors"
+      },
+      {
+        "name": "The Accidental Violet Rule",
+        "body": "On the marketing site, violet marks the moment — the hero's primary action, a close button, a link — and never the chrome. It is not a button color for everything; if violet is on more than one button in a viewport, it has stopped being an accent and started being a theme. The site's own note calls this out as D6.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Platform Rule",
+        "body": "Desktop and mobile are different instruments, not one instrument at two sizes. Desktop gets the rail, tabs, panes, and keyboard flow. Mobile gets the bottom nav, sheets, and safe areas. Never stretch one onto the other.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Stacks Rule",
+        "body": "Sans for chrome, serif for content, never both in one surface. Reading meta is the one sanctioned exception — a reader's byline and metadata stay sans (--reading-meta-size, 0.85em) because they are interface, not prose.",
+        "section": "typography"
+      },
+      {
+        "name": "The Serif Is Not A Setting Rule",
+        "body": "The reader's stack is fixed in src/styles/reading.css. Reader size, line-height, and alignment are user settings; the family is not a chrome decision and does not follow the theme.",
+        "section": "typography"
+      },
+      {
+        "name": "The Floating-Layer-Only Rule",
+        "body": "If an element scrolls with the content, it does not get a box-shadow. If it does not scroll with the content, it gets one. Adding shadow to an in-flow card is the single most common way this system's depth gets destroyed.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "At rest, every surface is flat and separated only by tone. Motion and shadow appear as a response to state — hover, expansion, elevation, focus — and leave again when the state ends.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do Do consume semantic roles (--color-surface-container-high, --color-primary) and reach for var(--color-X) so the theme layer can move them.",
+      "Do Do check src/components/md3/ first and extend an existing variant before writing a new component file.",
+      "Do Do add md-state plus a visible focus treatment to anything interactive, and hold a 40px minimum target — 48px on coarse pointers via md-hit-slop.",
+      "Do Do separate depth with the surface-container ladder first, and add a shadow only when the layer genuinely floats.",
+      "Do Do indicate state with shape, tone, and a glyph — a checkmark, a pill, an icon — so it survives E-Ink mode, high-contrast themes, and color-vision differences.",
+      "Do Do respect the z-scale contract: nav < overlay < dialog < menu < snackbar < tooltip < critical (the anchored reader selection toolbar at 9998 must stay above the marketing-capture chrome at 9997).",
+      "Do Do consume motion only through --md-duration- and --md-easing-, so reduced motion collapses everything to instant for free.",
+      "Do Do keep reading content on its own stack: 65ch measure, --reading- tokens, never a chrome type class."
+    ],
+    "donts": [
+      "Don't Don't put a hex, an arbitrary radius, a raw duration, or a z-index number in a className or style literal. It's an eslint error; // md3-allow: is the escape hatch and needs a reason.",
+      "Don't Don't shadow an in-flow element. If it scrolls, it has no box-shadow.",
+      "Don't Don't lift, translate, or scale a control on hover. Rail items get a tonal state layer and nothing else.",
+      "Don't Don't signal state with color alone.",
+      "Don't Don't stretch a desktop pattern onto mobile or a mobile pattern onto desktop. Sheets on desktop, hover-lift on a phone — both wrong.",
+      "Don't Don't let reading typography consume chrome tokens, in either direction.",
+      "Don't Don't write a new color literal into the marketing site, or a chrome token into the site's paper-and-ink world. The two systems do not share a palette; the site rejects glassmorphism, mesh blobs, particle fields, and purple washes outright.",
+      "Don't Don't extend the compat shims. ActionButton/actionVariants, common/ThemeSystem.tsx, hand-rolled fixed inset-0 dialogs, and raw peer-checked toggles are all deprecated."
+    ]
+  }
+}

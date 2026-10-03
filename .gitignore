@@ -12,6 +12,11 @@ lerna-debug.log*
 # agent skills (e.g. cut-release). Only personal/session state stays ignored.
 .zcode/
 .deepsec/
+# Per-machine agent/tool state. `.impeccable/design.json` IS tracked project
+# source; only the local config layers stay ignored, and DESIGN.md stays local
+# (ignored at the bottom of this file with the rest of the scratch output).
+.claude/settings.local.json
+.impeccable/config.local.json
 
 # Local scratch/scratchpad scripts — not part of the app.
 scratch/
@@ -234,3 +239,4 @@ src-tauri/permissions/default.toml
 /openspec/changes/implement-plethora-pro-cloud-service-and-usage-quota-architecture/
 /openspec/changes/implement-plethora-pro-observability-cost-controls-and-cloud-performance-gates/
 /openspec/changes/productionize-plethora-cloud-deployment/
+DESIGN.md
