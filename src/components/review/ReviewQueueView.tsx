@@ -43,10 +43,13 @@ import { formatDuration } from "../../api/audiobooks";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import {
   DAQE_PRESETS,
+  applyPreset,
   coerceStoredPresetId,
   resolvePriorityPresetId,
+  type DaqePresetId,
   type QueueStrategyPresetId,
 } from "../../lib/daqe/presets";
+import { defaultDaqeKnobs } from "../../lib/daqe/knobs";
 import {
   applyFilters,
   formatMinutesRange,
@@ -294,15 +297,37 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         learningItems: queue.itemTypes.learningItems,
       },
     }));
+
     const daqe = useSettingsStore.getState().settings.daqe;
-    if (daqe?.rankingEnabled) {
-      void applyRankSnapshot(daqe.knobs, queue.filters.tags);
+    const shouldEnableRanking = daqe?.rankingEnabled || Boolean(queue.sessionGoal || queue.daqePresetId);
+
+    if (queue.sessionGoal !== undefined || queue.daqePresetId || shouldEnableRanking !== daqe?.rankingEnabled) {
+      let knobs = daqe?.knobs ?? defaultDaqeKnobs();
+      if (queue.daqePresetId) {
+        knobs = applyPreset(queue.daqePresetId as DaqePresetId, knobs);
+      }
+      useSettingsStore.getState().updateSettingsCategory("daqe", {
+        sessionGoal: queue.sessionGoal ?? daqe?.sessionGoal ?? "",
+        knobs,
+        rankingEnabled: shouldEnableRanking,
+      });
+    }
+
+    const currentDaqe = useSettingsStore.getState().settings.daqe;
+    if (currentDaqe?.rankingEnabled) {
+      void applyRankSnapshot(currentDaqe.knobs, queue.filters.tags);
     }
   }, [applyRankSnapshot]);
 
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
+      if (activeQueueId) {
+        const queue = useSavedQueueStore.getState().savedQueues.find((q) => q.id === activeQueueId);
+        if (queue) {
+          handleSelectSavedQueue(queue);
+        }
+      }
       prevActiveQueueIdRef.current = activeQueueId;
       return;
     }
