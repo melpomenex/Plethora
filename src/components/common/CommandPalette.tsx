@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
+  Bookmarks,
   Broom,
   ChartBar,
   Command as CommandIcon,
@@ -24,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { useI18n, t } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useSavedQueueStore } from "../../stores/savedQueueStore";
 import {
   isPlatformCapabilityAvailable,
   type PlatformCapabilityId,
@@ -650,6 +652,51 @@ export function getDefaultCommands(): Command[] {
       keywords: ["queue", "list", "items"],
       shortcut: "⌘2",
     }),
+    createCommand({
+      id: "manage-saved-queues",
+      capabilityId: "tab_queue",
+      label: t("savedQueues.manageQueues") || "Manage Queues...",
+      description: "Manage, rename, or delete saved queues",
+      icon: <Bookmarks className="w-4 h-4 text-primary" />,
+      category: CommandCategory.Review,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("plethora:manage-saved-queues"));
+        }, 150);
+      },
+      keywords: ["saved", "queue", "manage", "filter"],
+    }),
+    createCommand({
+      id: "new-saved-queue",
+      capabilityId: "tab_queue",
+      label: t("savedQueues.newQueue") || "New Queue...",
+      description: "Create a new saved queue with custom filters",
+      icon: <Plus className="w-4 h-4" />,
+      category: CommandCategory.Review,
+      action: () => {
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("plethora:new-saved-queue"));
+        }, 150);
+      },
+      keywords: ["saved", "queue", "new", "create"],
+    }),
+    ...useSavedQueueStore.getState().savedQueues.map((sq) =>
+      createCommand({
+        id: `switch-queue-${sq.id}`,
+        capabilityId: "tab_queue",
+        label: `${t("savedQueues.title") || "Saved Queue"}: ${sq.name}`,
+        description: `Switch active queue to "${sq.name}"`,
+        icon: <Bookmarks className="w-4 h-4 text-primary" />,
+        category: CommandCategory.Review,
+        action: async () => {
+          await useSavedQueueStore.getState().activateSavedQueue(sq.id);
+          window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
+        },
+        keywords: ["queue", "saved", sq.name.toLowerCase()],
+      })
+    ),
     createCommand({
       id: "start-review",
       capabilityId: "core_review",

@@ -16,6 +16,7 @@ pub mod migrations;
 pub mod neural_queue_repository;
 pub mod priority_rank;
 pub mod repository;
+pub mod saved_queue_repository;
 
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
 pub use audio_edition_repository::AudioEditionRepository;
@@ -35,6 +36,7 @@ pub use neural_queue_repository::{
 };
 pub use repository::DocumentQueueInfo;
 pub use repository::Repository;
+pub use saved_queue_repository::SavedQueueRepository;
 
 /// Stored embedding vector for a queue item
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

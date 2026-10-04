@@ -53,6 +53,7 @@ pub mod daqe_probe;
 pub mod queue_daqe;
 pub mod queue_daqe_decision;
 pub mod reading_goals;
+pub mod saved_queues;
 pub mod recall_history;
 pub mod review;
 pub mod rss;

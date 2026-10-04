@@ -17,6 +17,7 @@ import {
   PodcastTab,
   AudiobooksTab,
   ExtractsTab,
+  QueueTab,
 } from "./tabs/TabRegistry";
 import { WebArticleImportDialog } from "./import/WebArticleImportDialog";
 import { KnowledgeGraphPage } from "../pages/KnowledgeGraphPage";
@@ -50,6 +51,7 @@ import {
   Scissors,
   Sparkle,
   SquaresFour,
+  Stack,
   TextT,
 } from "@phosphor-icons/react";
 import { CollectionSwitcher } from "./collections/CollectionSwitcher";
@@ -473,6 +475,23 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     });
   };
 
+  const handleQueue = () => {
+    addTab({
+      title: "Queue",
+      icon: <Stack className="w-4 h-4" />,
+      type: "queue",
+      content: QueueTab,
+      closable: true,
+    });
+  };
+
+  const handleSavedQueues = () => {
+    handleQueue();
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("plethora:manage-saved-queues"));
+    }, 150);
+  };
+
   // Dashboard is already the default tab, so middle-click doesn't make much sense
   // But we'll still add the handler for consistency
 
@@ -788,6 +807,22 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       label: t("toolbar.continueReading"),
       shortcut: "Ctrl+2",
       action: handleContinueReading,
+      group: 3,
+    },
+    {
+      id: "queue",
+      icon: Stack,
+      label: t("toolbar.goToQueue") || "Queue",
+      shortcut: "Ctrl+3",
+      action: handleQueue,
+      group: 3,
+    },
+    {
+      id: "saved-queues",
+      icon: Bookmarks,
+      label: t("savedQueues.title") || "Saved Queues",
+      shortcut: "",
+      action: handleSavedQueues,
       group: 3,
     },
     {

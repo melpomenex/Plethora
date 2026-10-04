@@ -88,6 +88,10 @@ import { ScheduleView } from "../schedule/ScheduleView";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
+import { SavedQueueDropdown } from "../queue/SavedQueueDropdown";
+import { ManageSavedQueuesModal } from "../queue/ManageSavedQueuesModal";
+import { useSavedQueueStore } from "../../stores/savedQueueStore";
+import type { SavedQueue } from "../../types/savedQueue";
 
 type QueueMode = "reading" | "review" | "schedule";
 
@@ -222,6 +226,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showRawJson, setShowRawJson] = useState(false);
   const [isCustomizeModalOpen, setCustomizeModalOpen] = useState(false);
+  const [isManageQueuesModalOpen, setManageQueuesModalOpen] = useState(false);
   const [isSemanticGraphOpen, setSemanticGraphOpen] = useState(false);
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig | undefined>(undefined);
   const [sessionCustomization, setSessionCustomization] = useState<SessionCustomization>(() => {
@@ -265,6 +270,62 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
     return finalDefault;
   });
+
+  const activeQueueId = useSavedQueueStore((s) => s.activeQueueId);
+  const isMountedRef = useRef(false);
+  const prevActiveQueueIdRef = useRef<string | null>(activeQueueId);
+
+  const handleSelectSavedQueue = useCallback((queue: SavedQueue) => {
+    setSessionCustomization((prev) => ({
+      ...prev,
+      sessionDurationMinutes: queue.sessionDurationMinutes,
+      maxItems: queue.maxItems,
+      filters: {
+        ...prev.filters,
+        ...queue.filters,
+        tags: [...queue.filters.tags],
+        categories: [...queue.filters.categories],
+        priorityRange: { ...queue.filters.priorityRange },
+        excludeSuspended: queue.filters.excludeSuspended,
+      },
+      itemTypes: {
+        documents: queue.itemTypes.documents,
+        extracts: queue.itemTypes.extracts,
+        learningItems: queue.itemTypes.learningItems,
+      },
+    }));
+    const daqe = useSettingsStore.getState().settings.daqe;
+    if (daqe?.rankingEnabled) {
+      void applyRankSnapshot(daqe.knobs, queue.filters.tags);
+    }
+  }, [applyRankSnapshot]);
+
+  useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      prevActiveQueueIdRef.current = activeQueueId;
+      return;
+    }
+    if (activeQueueId && activeQueueId !== prevActiveQueueIdRef.current) {
+      prevActiveQueueIdRef.current = activeQueueId;
+      const queue = useSavedQueueStore.getState().savedQueues.find((q) => q.id === activeQueueId);
+      if (queue) {
+        handleSelectSavedQueue(queue);
+      }
+    }
+  }, [activeQueueId, handleSelectSavedQueue]);
+
+  useEffect(() => {
+    const handleOpenManage = () => setManageQueuesModalOpen(true);
+    const handleOpenNew = () => setCustomizeModalOpen(true);
+    window.addEventListener("plethora:manage-saved-queues", handleOpenManage);
+    window.addEventListener("plethora:new-saved-queue", handleOpenNew);
+    return () => {
+      window.removeEventListener("plethora:manage-saved-queues", handleOpenManage);
+      window.removeEventListener("plethora:new-saved-queue", handleOpenNew);
+    };
+  }, []);
+
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
   const searchRef = useRef<HTMLInputElement>(null);
   const queueScrollRef = useRef<HTMLDivElement>(null);
@@ -1178,6 +1239,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                 <span className="text-[10px] opacity-90 font-normal -mt-0.5">{t("queue.scrollModeSubtext")}</span>
               </button>
             )}
+            <SavedQueueDropdown
+              onOpenNewQueue={() => setCustomizeModalOpen(true)}
+              onOpenManageQueues={() => setManageQueuesModalOpen(true)}
+              onQueueSelect={handleSelectSavedQueue}
+            />
             <button
               onClick={() => setCustomizeModalOpen(true)}
               className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80"
@@ -2450,6 +2516,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           // are transient session state, so they come from the live customization.
           void applyRankSnapshot(daqe.knobs, sessionCustomization.filters.tags);
         }}
+        onSavedQueueCreated={handleSelectSavedQueue}
+        onSavedQueueUpdated={handleSelectSavedQueue}
+      />
+
+      <ManageSavedQueuesModal
+        isOpen={isManageQueuesModalOpen}
+        onClose={() => setManageQueuesModalOpen(false)}
       />
 
       <SemanticGraphPanel

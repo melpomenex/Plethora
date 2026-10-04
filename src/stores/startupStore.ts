@@ -4,6 +4,7 @@ import type { StartupSnapshot, StartupSurface } from "../types/startup";
 import { useCollectionStore } from "./collectionStore";
 import { useDocumentStore } from "./documentStore";
 import { useQueueStore } from "./queueStore";
+import { useSavedQueueStore } from "./savedQueueStore";
 
 export type StartupStatus = "idle" | "loading" | "ready" | "error";
 
@@ -40,6 +41,7 @@ async function fallbackToLegacyLoads(surface: StartupSurface, queueMode?: "due-t
   // this path runs once per failed coordinated request.
   await useCollectionStore.getState().loadCollections();
   await useDocumentStore.getState().loadDocuments();
+  await useSavedQueueStore.getState().loadSavedQueues(useCollectionStore.getState().activeCollectionId);
   if (surface === "queue") {
     if (queueMode === "due-today") {
       await useQueueStore.getState().loadDueDocumentsOnly();
@@ -113,6 +115,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         if (surface === "queue") {
           useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
         }
+        void useSavedQueueStore.getState().loadSavedQueues(snapshot.activeCollectionId);
         set({
           status: "ready",
           error: null,
@@ -172,4 +175,5 @@ useCollectionStore.subscribe((state, previousState) => {
     collectionId: state.activeCollectionId,
     lastQueueMode: null,
   });
+  void useSavedQueueStore.getState().loadSavedQueues(state.activeCollectionId);
 });

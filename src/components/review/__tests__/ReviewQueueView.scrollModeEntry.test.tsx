@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ReviewQueueView } from "../ReviewQueueView";
 import { scrollModeEntryProminentClasses } from "../../queue/scrollModeEntry";
+import { useSavedQueueStore } from "../../../stores/savedQueueStore";
 
 const mockStore = vi.hoisted(() => {
   const store: Record<string, any> = {
@@ -146,6 +147,51 @@ describe("ReviewQueueView Scroll Mode launcher (mode-accent styling)", () => {
       items: [expect.objectContaining({ id: "item-1", documentId: "doc-1" })],
       mode: "queue-list",
       itemTypes: { documents: true, extracts: true, learningItems: true },
+    });
+  });
+
+  it("carries active saved queue item types and filtered items into onOpenScrollMode", () => {
+    const onOpenScrollMode = vi.fn();
+    const testQueue = {
+      id: "q-extracts-only",
+      name: "Extracts Only",
+      isDefault: false,
+      filters: {
+        tags: [],
+        categories: [],
+        priorityRange: { min: 0, max: 100 },
+        excludeSuspended: true,
+      },
+      itemTypes: {
+        documents: false,
+        extracts: true,
+        learningItems: false,
+      },
+      sessionDurationMinutes: 20,
+      maxItems: 10,
+      sortOrder: 1,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+
+    useSavedQueueStore.setState({
+      savedQueues: [testQueue],
+      activeQueueId: null,
+    });
+
+    render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
+
+    // Select queue from dropdown
+    const dropdownBtn = screen.getByRole("button", { name: /Saved Queues/i });
+    fireEvent.click(dropdownBtn);
+    fireEvent.click(screen.getByText("Extracts Only"));
+
+    // Click Scroll Mode launcher
+    fireEvent.click(getLauncher());
+    expect(onOpenScrollMode).toHaveBeenCalledWith({
+      items: [],
+      mode: "queue-list",
+      itemTypes: { documents: false, extracts: true, learningItems: false },
     });
   });
 });

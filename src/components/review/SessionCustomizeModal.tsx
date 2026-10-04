@@ -1,6 +1,8 @@
 import {
+  Bookmarks,
   Clock,
   Crosshair,
+  FloppyDisk,
   Sliders,
   Stack,
   Tag,
@@ -9,6 +11,8 @@ import {
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useSavedQueueStore } from "../../stores/savedQueueStore";
+import type { SavedQueue } from "../../types/savedQueue";
 import { defaultDaqeKnobs, type DaqeKnobs } from "../../lib/daqe/knobs";
 import {
   MAX_SESSION_GOAL_LENGTH,
@@ -89,6 +93,8 @@ interface SessionCustomizeModalProps {
    * not crash on a slider drag.
    */
   onScheduleRerank?: () => void;
+  onSavedQueueCreated?: (queue: SavedQueue) => void;
+  onSavedQueueUpdated?: (queue: SavedQueue) => void;
 }
 
 export function SessionCustomizeModal({
@@ -101,6 +107,8 @@ export function SessionCustomizeModal({
   availableCategories = [],
   showDaque = true,
   onScheduleRerank = () => {},
+  onSavedQueueCreated,
+  onSavedQueueUpdated,
 }: SessionCustomizeModalProps) {
   const { t } = useI18n();
   const daqe = useSettingsStore((s) => s.settings.daqe);
@@ -114,6 +122,44 @@ export function SessionCustomizeModal({
   // a chip click or a reset shows up in it without an effect to resync.
   const [goalDraft, setGoalDraft] = useState<string | null>(null);
   const displayedGoal = goalDraft ?? daqeGoal;
+
+  const [showSaveAs, setShowSaveAs] = useState(false);
+  const [saveQueueName, setSaveQueueName] = useState("");
+  const [savedFeedback, setSavedFeedback] = useState(false);
+
+  const activeQueue = useSavedQueueStore((s) => s.getActiveSavedQueue());
+  const createSavedQueue = useSavedQueueStore((s) => s.createSavedQueue);
+  const updateSavedQueue = useSavedQueueStore((s) => s.updateSavedQueue);
+
+  const handleSaveAsNewQueue = async () => {
+    if (!saveQueueName.trim()) return;
+    const newQueue = await createSavedQueue({
+      name: saveQueueName.trim(),
+      filters: customization.filters,
+      itemTypes: customization.itemTypes,
+      sessionDurationMinutes: customization.sessionDurationMinutes,
+      maxItems: customization.maxItems,
+      sessionGoal: displayedGoal || undefined,
+    });
+    setShowSaveAs(false);
+    setSaveQueueName("");
+    onSavedQueueCreated?.(newQueue);
+  };
+
+  const handleUpdateActiveQueue = async () => {
+    if (!activeQueue) return;
+    const updated = await updateSavedQueue(activeQueue.id, {
+      filters: customization.filters,
+      itemTypes: customization.itemTypes,
+      sessionDurationMinutes: customization.sessionDurationMinutes,
+      maxItems: customization.maxItems,
+      sessionGoal: displayedGoal || undefined,
+    });
+    setSavedFeedback(true);
+    setTimeout(() => setSavedFeedback(false), 2000);
+    onSavedQueueUpdated?.(updated);
+  };
+
   const setDaqueEnabled = (enabled: boolean) =>
     updateSettingsCategory("daqe", { rankingEnabled: enabled });
   // Moving a knob clears preset attribution rather than leaving the panel crediting
@@ -522,14 +568,74 @@ export function SessionCustomizeModal({
           ) : null}
         </div>
 
+        {/* Save As Inline Bar */}
+        {showSaveAs && (
+          <div className="bg-muted/40 border-t border-border px-6 py-3 flex items-center gap-3">
+            <Bookmarks className="w-4 h-4 text-primary shrink-0" />
+            <input
+              type="text"
+              value={saveQueueName}
+              onChange={(e) => setSaveQueueName(e.target.value)}
+              placeholder={t("savedQueues.namePlaceholder") || "Queue name (e.g. Today's Focus)"}
+              className="flex-1 px-3 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveAsNewQueue();
+                if (e.key === "Escape") setShowSaveAs(false);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSaveAsNewQueue()}
+              disabled={!saveQueueName.trim()}
+              className="px-3 py-1.5 text-xs md:text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
+            >
+              {t("common.save") || "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSaveAs(false)}
+              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("common.cancel") || "Cancel"}
+            </button>
+          </div>
+        )}
+
         {/* Footer Actions */}
-        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex items-center justify-between">
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 text-sm text-foreground/70 hover:text-foreground"
-          >
-            {t("sessionCustomize.resetToDefaults")}
-          </button>
+        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReset}
+              className="px-3 py-1.5 text-xs text-foreground/70 hover:text-foreground"
+            >
+              {t("sessionCustomize.resetToDefaults")}
+            </button>
+            {!showSaveAs && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowSaveAs(true)}
+                  className="px-3 py-1.5 text-xs border border-border rounded hover:bg-muted/60 text-foreground flex items-center gap-1.5"
+                  title={t("savedQueues.saveAsNewQueue") || "Save as New Queue"}
+                >
+                  <Bookmarks className="w-3.5 h-3.5 text-primary" />
+                  <span>{t("savedQueues.saveAsNewQueue") || "Save as New Queue"}</span>
+                </button>
+                {activeQueue && (
+                  <button
+                    type="button"
+                    onClick={() => void handleUpdateActiveQueue()}
+                    className="px-3 py-1.5 text-xs border border-border rounded hover:bg-muted/60 text-foreground flex items-center gap-1.5"
+                    title={`${t("savedQueues.updateQueue") || "Update Queue"}: ${activeQueue.name}`}
+                  >
+                    <FloppyDisk className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span>{savedFeedback ? "✓ Saved!" : `${t("savedQueues.updateQueue") || "Update"} (${activeQueue.name})`}</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}

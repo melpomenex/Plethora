@@ -5,6 +5,8 @@ import { TabContent } from "../../common/Tabs/TabContent";
 import type { Tab } from "../../../stores/tabsStore";
 import type { QueueItem } from "../../../types/queue";
 import { defaultSettings, useSettingsStore } from "../../../stores/settingsStore";
+import { useSavedQueueStore } from "../../../stores/savedQueueStore";
+import type { SavedQueue } from "../../../types/savedQueue";
 
 const mockStore = vi.hoisted(() => {
   const store: Record<string, any> = {
@@ -543,3 +545,51 @@ describe("ReviewQueueView selection (queue-multi-select)", () => {
     expect(mockStore.clearSelection).not.toHaveBeenCalled();
   });
 });
+
+describe("ReviewQueueView - Saved Queues", () => {
+  it("renders SavedQueueDropdown in the header and switches queue on select", async () => {
+    const testQueue: SavedQueue = {
+      id: "q-math-only",
+      name: "Math Focus",
+      filters: {
+        tags: ["Math"],
+        categories: [],
+        priorityRange: { min: 0, max: 100 },
+        excludeSuspended: true,
+      },
+      itemTypes: {
+        documents: true,
+        extracts: true,
+        learningItems: true,
+      },
+      sessionDurationMinutes: 45,
+      maxItems: 30,
+      isDefault: false,
+      sortOrder: 1,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+
+    useSavedQueueStore.setState({
+      savedQueues: [testQueue],
+      activeQueueId: null,
+    });
+
+    render(<ReviewQueueView />);
+
+    // Click dropdown button to open
+    const dropdownBtn = screen.getByRole("button", { name: /Saved Queues/i });
+    expect(dropdownBtn).toBeInTheDocument();
+    fireEvent.click(dropdownBtn);
+
+    // Click "Math Focus" in dropdown
+    const mathOption = screen.getByText("Math Focus");
+    expect(mathOption).toBeInTheDocument();
+    fireEvent.click(mathOption);
+
+    // Now only Math item (item-3: "Second Reading Item") should be visible
+    expect(screen.getAllByText("Second Reading Item").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Reading Item")).not.toBeInTheDocument();
+  });
+});
+

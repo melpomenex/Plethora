@@ -19,6 +19,7 @@ pub mod playlist;
 pub mod position;
 pub mod queue;
 pub mod reading_goal;
+pub mod saved_queue;
 pub mod tag;
 pub mod transcription_queue;
 pub mod video_extract;
@@ -57,6 +58,7 @@ pub use queue::QueueItem;
 pub use reading_goal::{
     Achievement, AchievementCategory, GoalProgress, GoalType, ReadingGoal, ReadingStreak,
 };
+pub use saved_queue::*;
 pub use tag::{
     TASConfig, TASInterferenceConfig, TASPrerequisiteConfig, TASScheduledItem, Tag,
     TagStabilityStats,

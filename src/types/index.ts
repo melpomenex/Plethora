@@ -4,6 +4,7 @@ export * from "./queue";
 export * from "./api";
 export * from "./rssSummary";
 export * from "./audioEdition";
+export * from "./savedQueue";
 
 // UI-specific types
 export interface Theme {

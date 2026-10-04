@@ -745,10 +745,14 @@ Create custom focused queues by filtering your collection by category, element t
 - "Exam Prep": All cards in "Biology" category
 
 **Creating a Saved Queue:**
-1. Click **Queue** → **Saved Queues** in the toolbar.
-2. Click **New Queue**.
-3. Set your desired filters (categories, item types, priority thresholds).
-4. Name and save the queue.
+1. In the **Queue** view, click the **Saved Queues** dropdown menu in the header (or click **Saved Queues** in the toolbar).
+2. Click **New Queue...** (or click **Customize Session** and select **Save as New Queue**).
+3. Set your desired filters (categories, tags, item types, priority thresholds, session duration).
+4. Enter a name and save the queue.
+
+**Switching and Managing Saved Queues:**
+- Switch between saved queues instantly using the **Saved Queues** dropdown selector in the Queue header, the **Saved Queues** toolbar button, or the Command Palette (`Ctrl/Cmd+K` → search for your queue).
+- Click **Manage Queues...** in the dropdown to rename queues, delete queues, or set your default queue.
 
 ---
 

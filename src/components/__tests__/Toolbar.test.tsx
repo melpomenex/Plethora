@@ -281,4 +281,23 @@ describe("Toolbar", () => {
 
     expect(screen.queryByTestId("audiobook-synthesis-badge")).not.toBeInTheDocument();
   });
+
+  it("the Saved Queues button opens the Queue tab and dispatches plethora:manage-saved-queues", () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    render(<Toolbar position="top" />);
+
+    const savedQueuesBtn = screen.getByRole("button", { name: "Saved Queues" });
+    expect(savedQueuesBtn).toBeInTheDocument();
+
+    act(() => {
+      savedQueuesBtn.click();
+      vi.advanceTimersByTime(200);
+    });
+
+    const tabs = useTabsStore.getState().tabs;
+    expect(tabs.filter((tab) => tab.type === "queue")).toHaveLength(1);
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "plethora:manage-saved-queues" }),
+    );
+  });
 });
