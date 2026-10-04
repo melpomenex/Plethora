@@ -651,7 +651,7 @@ Les éléments plus prioritaires sont affichés plus fréquemment dans les avis 
 Comprendre comment la file d'attente classe les éléments et pourquoi les positions changent vous aide à optimiser votre flux d'étude :
 
 1. **Planification FSRS et notation dynamique des priorités** :
-   - La position de chaque élément est calculée à l'aide de ses paramètres de mémoire FSRS (date d'échéance, intervalle, stabilité, dégradation de la récupérabilité) combinés avec le préréglage de votre stratégie Smart Queue sélectionnée (*Maximiser la rétention*, *Rattrapage agressif*, *Minimiser le temps* ou *Exploratoire*).
+   - La position de chaque élément est calculée à l'aide de ses paramètres de mémoire FSRS (date d'échéance, intervalle, stabilité, dégradation de la récupérabilité) combinés avec votre stratégie Smart Queue ou votre préréglage de classement adaptatif sélectionné (*Maximiser la rétention*, *Rattrapage agressif*, *Minimiser le temps*, *Exploratoire*, *Sprint de travail intensif*, *Fatigué / En déplacement*, *Tri impitoyable* ou *Découverte équilibrée*). Pour plus de détails, consultez [Files d'attente intelligentes et classement adaptatif (DAQE)](#files-dattente-intelligentes-et-classement-adaptatif-daqe) ci-dessous.
    - Au fur et à mesure que vous effectuez des révisions, reportez des éléments ou prenez des notes, les paramètres de mémoire sont mis à jour et les éléments sont naturellement reclassés lors de leur retour dans la file d'attente.
 
 2. ** Randomisation de sélection pondérée ** :
@@ -686,21 +686,154 @@ Des connexions plus étroites – un enfant direct, un document presque identiqu
 - L'examen neuronal est en lecture seule par rapport à votre file d'attente normale. Utilisez-le librement ; rien concernant votre commande prioritaire ou les dates d'échéance ne change.
 
 
-### Files d'attente intelligentes
+### Files d'attente intelligentes et classement adaptatif (DAQE)
 
-Créez des files d'attente personnalisées avec des filtres :
+Les files d'attente intelligentes de Plethora associent deux systèmes complémentaires : les **Files d'attente enregistrées** (qui filtrent *quels* éléments participent à une session d'étude) et le **Classement adaptatif** (propulsé par le moteur de file d'attente adaptatif dynamique, ou **DAQE**, qui détermine l'*ordre* optimal d'affichage des éléments éligibles).
 
-**Exemples de files d'attente :**
-- "Aujourd'hui": cartes dues de la catégorie principale
-- "Quick Review" : Cartes faciles, priorité < 50
-- "Deep Dive" : Cartes rigides de la catégorie recherche
+#### Files d'attente enregistrées (Filtrage et périmètre)
+
+Créez des files d'attente personnalisées et ciblées en filtrant votre collection par catégorie, type d'élément, évaluation ou plage de priorité :
+
+**Exemples de files d'attente :**
+- "Aujourd'hui" : Cartes dues de la catégorie principale
+- "Quick Review" : Cartes faciles avec priorité < 50
+- "Deep Dive" : Cartes exigeantes de la catégorie recherche
 - "Exam Prep" : Toutes les cartes de la catégorie "Biologie"
 
-**Création d'une file d'attente intelligente :**
-1. Cliquez sur **File d'attente** → **Files d'attente enregistrées**.
-2. Cliquez sur **Nouvelle file d'attente**
-3. Définir les filtres et l'ordre de tri
-4. Nommez et enregistrez
+**Création d'une file d'attente enregistrée :**
+1. Cliquez sur **File d'attente** → **Files d'attente enregistrées** dans la barre d'outils.
+2. Cliquez sur **Nouvelle file d'attente**.
+3. Définissez vos filtres (catégories, types d'éléments, seuils de priorité).
+4. Nommez et enregistrez la file d'attente.
+
+---
+
+#### Classement adaptatif (Moteur de file d'attente adaptatif dynamique DAQE)
+
+Alors que les filtres définissent l'**appartenance** (ce qui entre dans la session), le classement adaptatif régit l'**ordre** (ce que vous devez lire à cet instant précis).
+
+Au lieu de classer les éléments selon une simple date d'échéance ou un nombre de priorité statique, le classement adaptatif évalue chaque candidat en temps réel selon l'urgence mémoire, l'adéquation avec votre objectif d'étude actuel, l'énergie cognitive requise, l'alternance des thèmes et la résistance rencontrée lors des lectures précédentes.
+
+> [!IMPORTANT]
+> **Le classement adaptatif régit uniquement l'ordre, jamais la planification.**
+> Les curseurs et préréglages ne modifient en aucun cas la stabilité, la difficulté, l'intervalle, la récupérabilité ou les dates d'échéance de FSRS. Les algorithmes de planification déterminent toujours *quand* un élément doit revenir ; le classement adaptatif décide simplement *quel élément dû apparaît en premier* au cours de votre séance actuelle.
+
+##### Formule de score composite à 5 termes
+
+À chaque réorganisation de la file, DAQE calcule un score composite déterministe $S(i)$ pour chaque élément candidat :
+
+$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text{relevance}}(i) + w_{\text{fit}} \cdot M_{\text{energy\_fit}}(i, K_{\text{energy}}) - w_{\text{interleave}} \cdot P_{\text{interleave}}(i, H_{\text{recent}}) - w_{\text{friction}} \cdot P_{\text{friction}}(i)$$
+
+Chaque terme est normalisé sur l'intervalle $[0, 1]$ avant application de sa pondération, ce qui empêche un critère unique de dominer silencieusement :
+
+1. **Urgence mémoire ($R_{\text{srs}}$)** :
+   Mesure l'urgence de rappel en répétition espacée :
+   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Urgence}(i) + 0.3 \cdot \text{Retard}(i) + 0.2 \cdot \text{PrioritéUtilisateur}(i)$$
+   - $\text{Urgence}$ : Proximité du risque d'oubli ($1 - \text{Récupérabilité}$ selon la courbe de l'oubli $R = 0.9^{t/S}$ ; pour les documents, calculée selon la priorité de lecture FSRS).
+   - $\text{Retard}$ : Jours de retard par rapport à l'échéance (plafonné à 14 jours).
+   - $\text{PrioritéUtilisateur}$ : Le curseur de priorité de 0 à 100% attribué à l'élément.
+2. **Pertinence pour l'objectif ($M_{\text{relevance}}$)** :
+   Mesure l'adéquation avec votre **Objectif de session** actuel (ex. : *« Fondements de l'informatique quantique & preuves d'intrication »*). Obtenue selon 3 paliers :
+   - *Niveau 1 (Mesuré)* : Score continu de 0 à 1 produit par un modèle de décision IA (`evaluateScore`).
+   - *Niveau 2 (Estimé / Par défaut)* : Correspondance lexicale locale par mots-clés entre l'objectif et le texte de l'élément lorsqu'aucun modèle n'est actif.
+   - *Niveau 3 (Affinité de balises)* : Combinaison de pertinence basée sur les balises si aucun objectif n'est renseigné.
+   - Intègre également les *bonus de promotion de cluster* acquis lors d'interactions approfondies avec des éléments du même thème. En l'absence d'objectif ou de signal, le terme affiche en toute clarté *Non mesuré* (0.0).
+3. **Adéquation énergétique ($M_{\text{energy\_fit}}$)** :
+   Mesure la proximité entre la complexité cognitive du texte et votre objectif d'énergie $K_{\text{energy}}$ ($1\text{--}5$) :
+   $$M_{\text{energy\_fit}} = 1 - \frac{|\text{Complexité}(i) - K_{\text{energy}}|}{4}$$
+   La complexité est qualifiée par le modèle de décision (*Survol rapide* = 1, *Analyse moyenne* = 3, *Fondements denses* = 5) ou fixée de manière déterministe selon le type d'élément (Document = 4, Extrait = 3, Flashcard = 2).
+   *Rétrogradation automatique en cas de fatigue* : Si votre vélocité de lecture au cours des 30 derniers jours descend sous 40% de votre rythme habituel ($\ge 5$ sessions), DAQE abaisse automatiquement l'objectif d'énergie effectif vers des contenus plus légers pour prévenir l'épuisement.
+4. **Pénalité de thème répété ($P_{\text{interleave}}$)** :
+   Mesure la similarité thématique et sémantique avec les éléments révisés récemment dans la session ($H_{\text{recent}}$). Une valeur élevée de `interleavingDiversity` repousse vers le bas les éléments proches de ce que vous venez de lire, favorisant ainsi la pratique entrelacée. Les éléments sans recoupement thématique n'ont aucune pénalité.
+5. **Pénalité de résistance ($P_{\text{friction}}$)** :
+   Comptabilise la résistance et les réticences constatées :
+   - Reports répétés (+0.10 par report, max 4)
+   - Passages rapides (+0.10 par passage, max 4)
+   - Révisions abandonnées (+0.15 par abandon, max 3)
+   - Inactivité prédominante (inactivité supérieure à 50% sans interaction, jusqu'à +0.35)
+   Les éléments systématiquement évités sont doucement relégués vers le bas pour susciter une décision claire : conserver, découper en sous-extraits ou supprimer. Les éléments sans historique ne subissent aucune pénalité.
+
+---
+
+##### Les six réglages de classement (curseurs)
+
+Vous pouvez ajuster tous les curseurs dans **Paramètres → Files d'attente intelligentes** ou dans la boîte de dialogue **Personnaliser la session** :
+
+| Curseur | Plage | Par défaut | Description |
+|---|---|---|---|
+| **Urgence mémoire** (`srsDecayWeight`) | `0.00`–`1.00` | `0.40` | Force d'attraction des éléments en retard ou en danger d'oubli vers le haut. |
+| **Pertinence pour l'objectif** (`goalRelevance`) | `0.00`–`1.00` | `0.30` | Force d'attraction des éléments correspondant à votre objectif de session. |
+| **Objectif d'énergie** (`energyTarget`) | `1`–`5` (entier) | `3` | Profondeur cognitive ciblée (1 = survol rapide, 5 = sources primaires denses). |
+| **Variété thématique** (`interleavingDiversity`) | `0.00`–`1.00` | `0.20` | Force de rétrogradation des thèmes répétitifs pour favoriser la diversité. |
+| **Élagage** (`pruningAggressiveness`) | `0.00`–`1.00` | `0.10` | Force de rétrogradation des éléments systématiquement ignorés ou reportés. |
+| **Délai d'absence** (`afkIdleTimeoutMs`) | `15`–`120` s | `45` s | Durée d'inertie avant de considérer que vous êtes absent et d'interrompre le décompte. |
+
+Chaque ajustement prend effet immédiatement en réordonnant la file, sans bouton de validation supplémentaire.
+
+---
+
+##### Préréglages sélectionnés
+
+Les préréglages sont des configurations prédéfinies des six curseurs. Vous pouvez les sélectionner via le menu de la barre d'outils de la file d'attente ou dans les Paramètres :
+
+- **Sprint de travail intensif (Deep Work Sprint)** : Objectif d'énergie `4`, Pertinence pour l'objectif `0.50`, Variété thématique `0.10`. Conçu pour une lecture approfondie de sources primaires denses avec peu d'interruptions thématiques.
+- **Fatigué / En déplacement (Tired / Mobile Commute)** : Objectif d'énergie `2`, Urgence mémoire `0.20`, Variété thématique `0.40`. Idéal pour progresser rapidement et sans effort grâce à des éléments courts et variés.
+- **Tri impitoyable (Ruthless Triage)** : Élagage `0.60`, Urgence mémoire `0.40`. Remonte en tête de liste les contenus reportés à plusieurs reprises afin de trancher : conserver, découper ou archiver.
+- **Découverte équilibrée (Balanced Discovery)** : Urgence mémoire `0.35`, Pertinence `0.25`, Variété thématique `0.25`, Élagage `0.15`, Objectif d'énergie `3`. Profil équilibré recommandé par défaut.
+
+*Attribution rigoureuse* : Le nom du préréglage s'affiche uniquement lorsque vos curseurs correspondent exactement à sa formule ; dès qu'un curseur est déplacé, l'interface signale clairement un profil personnalisé.
+
+---
+
+##### Modèles de décision et respect de la vie privée
+
+Le classement adaptatif peut se synchroniser avec un modèle d'évaluation léger mettant en œuvre le protocole **System One** (`evaluateScore`, `evaluateChoice`, `evaluateNoul`) :
+
+- **Aucun (Repli local déterministe)** : Choix par défaut. Zéro requête réseau, zéro coût de token, 100% hors ligne. Utilise les règles heuristiques locales.
+- **Colonne vertébrale (Spine)** : Emprunte la route IA configurée dans Paramètres → IA.
+- **Laya (Sur votre machine)** : Modèle open source de Convai (Apache 2.0, ~0.4B paramètres). Les poids peuvent être téléchargés directement dans les paramètres ou via un serveur local (`http://127.0.0.1:8000`). Aucune donnée ne quitte votre ordinateur.
+- **Jev (Hébergé)** : Modèle spécialisé de TypeSafe AI ($0.042 par million de tokens d'entrée, sortie gratuite ; nécessite une clé API).
+- **Clef (Cloudflare Workers AI)** : Modèle libre hébergé sur Workers AI (`clef-flash` 9B, `clef` 27B ; nécessite un jeton API et un identifiant de compte Cloudflare).
+- **Modèles de décision OpenRouter** : Accès à une sélection de modèles, y compris l'option gratuite `inception/mercury-decide:free` et `liquid/d1`.
+- **Modèles de décision OpenAI** : Évaluations en temps réel via l'API Decisions.
+
+> [!TIP]
+> **Garantie de confidentialité** : Le contenu de vos lectures ne quitte jamais votre appareil sans autorisation explicite. Même lorsqu'un modèle distant est activé, Plethora transmet uniquement une **trame structurelle anonymisée** (titres, type d'élément, longueur de texte), jamais le corps des documents, ni vos notes ou vos surlignages. Les évaluations sont mises en cache localement dans SQLite par empreinte numérique (hash).
+
+---
+
+##### Télémétrie de présence et boucle d'apprentissage adaptatif
+
+Plethora comptabilise le **temps de lecture réel et actif**, et non le simple affichage passif :
+- Dès que vous cessez d'interagir au-delà du délai d'absence configuré (ex. 45 secondes), la session bascule sur `idle` et retranche rétroactivement cette période inactive de vos statistiques.
+- Consigne les actions clés telles que les extraits créés, la profondeur de défilement et l'action de sortie (*extrait créé*, *suivant*, *reporter*, *ignorer*, *reprioriser*).
+
+La boucle d'apprentissage tire parti de cette télémétrie en arrière-plan sans réentraînement de modèle :
+- **Promotion de cluster** : Une lecture active et soutenue ($\ge 1$ min) accompagnée de surlignages ou d'extraits renforce la priorité des contenus du même thème au sein de votre collection.
+- **Recommandations de résistance** : Un élément ignoré $\ge 3$ fois d'affilée reçoit la suggestion **Candidat au découpage** (pour l'atomiser en éléments plus simples) ; un temps d'absence supérieur à 50% sans action suggère une **Rétrogradation automatique**. Ce sont de simples conseils informatifs : rien n'est modifié sans votre accord.
+
+---
+
+##### Décomposition transparente du score
+
+Chaque rang dans la file est auditable et justifié :
+- En cliquant sur l'indicateur de rang d'un élément (ou via le menu de ligne sur mobile), ouvrez la section **Pourquoi cette position**.
+- Visualisez le score global $S(i)$ ainsi que le détail des 5 termes et de leurs coefficients.
+- Chaque terme porte un badge d'état vérifiable :
+  - **MESURÉ** : Calculé directement à partir de la télémétrie réelle ou de l'évaluation du modèle.
+  - **ESTIMÉ** : Déterminé par des règles heuristiques locales en l'absence de modèle.
+  - **NON MESURÉ** : Signal non disponible ; compte pour 0 afin de ne pas fausser le classement.
+- Si une rétrogradation pour fatigue a été appliquée, l'affichage précise l'objectif d'énergie effectif en regard de celui que vous aviez fixé.
+
+---
+
+##### Définir un objectif de session
+
+Pour focaliser votre temps d'étude sur un sujet précis :
+1. Ouvrez la **File d'attente** et cliquez sur **Personnaliser la session** (icône de curseurs).
+2. Saisissez votre sujet dans le champ **Objectif de session** (jusqu'à 200 caractères, ex. : *« Physiologie cardiovasculaire et hémodynamique »*).
+3. Vous pouvez également cliquer sur une des étiquettes des **Objectifs récents**.
+4. La file d'attente se réorganise instantanément en valorisant les éléments les plus pertinents par rapport à cet objectif.
 
 ### Planification basée sur les balises (TAS)
 

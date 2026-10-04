@@ -695,7 +695,7 @@ Higher priority items are shown more frequently in mixed reviews. Priority gover
 Understanding how the queue orders items and why positions change helps you optimize your study flow:
 
 1. **FSRS Scheduling & Dynamic Priority Scoring**:
-   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, stability fast, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*). For documents these parameters come from the *Engaging* FSRS-7 scheduler described under [Document Reading Schedule](#document-reading-schedule-incremental-reading) — so yes, FSRS memory values apply to documents as well as to cards. The only difference is that a document's FSRS reviews are tracked separately and do not train the flashcard scheduler.
+   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, stability fast, retrievability decay) combined with your selected Smart Queue strategy or Adaptive Ranking preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, *Exploratory*, *Deep Work Sprint*, *Tired / Mobile Commute*, *Ruthless Triage*, or *Balanced Discovery*). For documents these parameters come from the *Engaging* FSRS-7 scheduler described under [Document Reading Schedule](#document-reading-schedule-incremental-reading) — so yes, FSRS memory values apply to documents as well as to cards. The only difference is that a document's FSRS reviews are tracked separately and do not train the flashcard scheduler. See [Smart Queues & Adaptive Ranking (DAQE)](#smart-queues--adaptive-ranking-daqe) below for full details.
    - As you complete reviews, postpone items, or take notes, memory parameters update and items naturally re-rank upon returning to the queue.
 
 2. **Weighted Selection Randomization**:
@@ -730,9 +730,13 @@ Closer connections — a direct child, a near-identical document, a shared tag �
 - Neural review is read-only with respect to your normal queue. Use it freely; nothing about your priority order or due dates changes.
 
 
-### Smart Queues
+### Smart Queues & Adaptive Ranking (DAQE)
 
-Create custom queues with filters:
+Smart Queues in Plethora combine two complementary systems: **Saved Queues** (which filter *which* items belong in a study session) and **Adaptive Ranking** (powered by the Dynamic Adaptive Queue Engine, or **DAQE**, which computes the optimal *order* in which candidate items appear).
+
+#### Saved Queues (Filtering & Scope)
+
+Create custom focused queues by filtering your collection by category, element type, rating, or priority range:
 
 **Example Queues:**
 - "Today's Focus": Due cards from main category
@@ -740,11 +744,140 @@ Create custom queues with filters:
 - "Deep Dive": Hard cards from research category
 - "Exam Prep": All cards in "Biology" category
 
-**Creating Smart Queue:**
-1. Click **Queue** → **Saved Queues**
-2. Click **New Queue**
-3. Set filters and sort order
-4. Name and save
+**Creating a Saved Queue:**
+1. Click **Queue** → **Saved Queues** in the toolbar.
+2. Click **New Queue**.
+3. Set your desired filters (categories, item types, priority thresholds).
+4. Name and save the queue.
+
+---
+
+#### Adaptive Ranking (Dynamic Adaptive Queue Engine)
+
+While filters decide *membership* (what enters the session), Adaptive Ranking decides *order* (what you should read right now).
+
+Instead of ranking items solely by overdue status or a static priority number, Adaptive Ranking evaluates candidate items in real time across memory urgency, alignment with your current learning goal, cognitive energy fit, topic interleaving, and past reading friction.
+
+> [!IMPORTANT]
+> **Adaptive Ranking governs order only, never scheduling.**
+> Knobs and presets never change FSRS stability, difficulty, interval, retrievability, or due dates. The schedulers still determine *when* an item is due to return; Adaptive Ranking simply decides *which due item surfaces first* in your current sitting.
+
+##### The 5-Term Composite Scoring Formula
+
+On every queue re-sort, DAQE calculates a deterministic composite score $S(i)$ for each candidate item:
+
+$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text{relevance}}(i) + w_{\text{fit}} \cdot M_{\text{energy\_fit}}(i, K_{\text{energy}}) - w_{\text{interleave}} \cdot P_{\text{interleave}}(i, H_{\text{recent}}) - w_{\text{friction}} \cdot P_{\text{friction}}(i)$$
+
+Every term is normalized to the unit interval $[0, 1]$ before its weight is applied, preventing any single factor from silently dominating:
+
+1. **Memory Urgency ($R_{\text{srs}}$)**:
+   Measures spaced-repetition recall urgency:
+   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Urgency}(i) + 0.3 \cdot \text{Overdue}(i) + 0.2 \cdot \text{UserPriority}(i)$$
+   - $\text{Urgency}$: How close the item is to being forgotten ($1 - \text{Retrievability}$ based on the forgetting curve $R = 0.9^{t/S}$; for documents, calculated from FSRS document priority).
+   - $\text{Overdue}$: Days past due, normalized up to a 14-day ceiling.
+   - $\text{UserPriority}$: The item's 0–100% priority slider.
+2. **Goal Relevance ($M_{\text{relevance}}$)**:
+   Measures topical alignment with your active **Session Goal** (e.g. *"Quantum Computing foundations & entanglement proofs"*). Evaluated in three tiers:
+   - *Tier 1 (Measured)*: Continuous 0–1 score from a connected AI decision model (`evaluateScore`).
+   - *Tier 2 (Estimated / Defaulted)*: Local lexical keyword match between the goal and item text when no decision model is active.
+   - *Tier 3 (Tag Affinity)*: Tag-based relevance blend when no goal is specified.
+   - Also absorbs *cluster promotion boosts* earned when you actively engage with related material in the same knowledge cluster. If no goal or signal exists, the term cleanly reports *Not measured* (0.0).
+3. **Energy Fit ($M_{\text{energy\_fit}}$)**:
+   Measures proximity between an item's cognitive complexity and your target energy level $K_{\text{energy}}$ ($1\text{--}5$):
+   $$M_{\text{energy\_fit}} = 1 - \frac{|\text{ItemComplexity}(i) - K_{\text{energy}}|}{4}$$
+   Item complexity is classified by the decision model (*Surface Skim* = 1, *Medium Analysis* = 3, *Deep Foundational* = 5) or defaulted deterministically by element type (Document = 4, Extract = 3, Flashcard = 2).
+   *Fatigue Downshift*: If your reading velocity over the last 30 days falls below 40% of baseline (over $\ge 5$ sessions), DAQE automatically shifts the effective energy target downward to lighter material to prevent cognitive burnout.
+4. **Topic Variety Penalty ($P_{\text{interleave}}$)**:
+   Calculates topic and semantic similarity against the recent review history window ($H_{\text{recent}}$). Higher `interleavingDiversity` penalizes items sharing tags or concepts with items you just reviewed, encouraging interleaved practice. Items with no topic overlap incur zero penalty.
+5. **Resistance Penalty ($P_{\text{friction}}$)**:
+   Accrues resistance points from recorded interactions:
+   - Repeated postponements (+0.10 each, capped at 4)
+   - Rapid skips (+0.10 each, capped at 4)
+   - Abandoned reviews (+0.15 each, capped at 3)
+   - Idle dominance (idle dwell exceeding 50% of total time without interaction, contributing up to +0.35)
+   Items you repeatedly avoid are gently demoted, surfacing keep-or-split opportunities. Unmeasured items incur zero penalty.
+
+---
+
+##### The Six Ranking Knobs
+
+You can fine-tune every dimension of the ranking formula in **Settings → Smart Queues** or via the **Customize Session** modal:
+
+| Knob | Range | Default | Purpose |
+|---|---|---|---|
+| **Memory urgency** (`srsDecayWeight`) | `0.00`–`1.00` | `0.40` | How strongly overdue and at-risk items are pulled to the top. |
+| **Goal relevance** (`goalRelevance`) | `0.00`–`1.00` | `0.30` | How strongly items matching your active session goal are pulled forward. |
+| **Energy target** (`energyTarget`) | `1`–`5` (integer) | `3` | Your target cognitive depth (1 = light skims, 5 = dense primary sources). |
+| **Topic variety** (`interleavingDiversity`) | `0.00`–`1.00` | `0.20` | How strongly repeating topics are pushed down to promote variety. |
+| **Pruning** (`pruningAggressiveness`) | `0.00`–`1.00` | `0.10` | How aggressively skipped and postponed items are penalized. |
+| **Away timeout** (`afkIdleTimeoutMs`) | `15`–`120` s | `45` s | Inactivity threshold before dwell tracking pauses and marks time as idle. |
+
+Every slider adjustment takes effect immediately without requiring an "Apply" button.
+
+---
+
+##### Curated Presets
+
+Presets are pre-configured vectors of the six knobs. You can switch presets from the Queue toolbar dropdown or in Settings:
+
+- **Deep Work Sprint**: Energy target `4`, Goal relevance `0.50`, Topic variety `0.10`. Tailored for focused study of dense primary sources with minimal topic switching.
+- **Tired / Mobile Commute**: Energy target `2`, Memory urgency `0.20`, Topic variety `0.40`. Surfaces short, low-friction items and varied topics for commute reading or low-energy sessions.
+- **Ruthless Triage**: Pruning `0.60`, Memory urgency `0.40`. Brings avoided and postponed items to the front, forcing a clear decision: keep, split into smaller extracts, or delete.
+- **Balanced Discovery**: Memory urgency `0.35`, Goal relevance `0.25`, Topic variety `0.25`, Pruning `0.15`, Energy target `3`. An even-handed default balancing retention, goals, and variety.
+
+*Attribution honesty*: The UI displays the preset name only when your knobs match its definition exactly. If you nudge a slider, the badge smoothly transitions to indicate custom settings.
+
+---
+
+##### Decision Models & Local-First Privacy
+
+Adaptive Ranking can optionally connect to an AI decision model implementing the lightweight **System One** evaluation protocol (`evaluateScore`, `evaluateChoice`, `evaluateNoul`):
+
+- **None (Deterministic Local Fallback)**: The default. No network requests, zero token costs, 100% offline. Uses local keyword matching for goals and item-type complexity heuristics.
+- **Spine**: Routes evaluations through your primary AI provider configured in Settings → AI.
+- **Laya (Local / On-Device)**: Apache 2.0 open-weight small model (~0.4B parameters by Convai). Runs entirely on your machine via downloaded weights or a local server (`http://127.0.0.1:8000`). Data never leaves your device.
+- **Jev (Hosted)**: Specialized decision model by TypeSafe AI ($0.042/M input tokens, free output tokens; requires API key).
+- **Clef (Cloudflare Workers AI)**: Apache 2.0 open model hosted on Workers AI (`clef-flash` 9B, `clef` 27B; requires Cloudflare API token and account ID).
+- **OpenRouter Decisions**: Access to decision models like `inception/mercury-decide:free` (free to use), `liquid/d1`, and `upstage/solar-decide`.
+- **OpenAI Decisions**: OpenAI real-time decision models via the Decisions API.
+
+> [!TIP]
+> **Privacy Gate**: Item content never leaves your device without explicit opt-in. Even when remote models are enabled, Plethora transmits only non-identifying structural outlines (heading skeleton, item type, character length) — never body text, highlights, or user notes. All model judgements are cached locally in SQLite by content hash.
+
+---
+
+##### Dwell Telemetry & The Adaptive Learning Loop
+
+Plethora tracks **active dwell** rather than passive screen time:
+- Inactivity beyond the configured timeout (e.g. 45 seconds) transitions tracking to `idle` and retroactively clamps out the idle block, preventing accidental window leaves from inflating your reading metrics.
+- Accrues interaction evidence such as extracts created, scroll traversal depth, and exit actions (*extract-created*, *next-item*, *postpone*, *dismiss*, *re-prioritize*).
+
+The background learning loop uses this telemetry to adapt without model fine-tuning:
+- **Cluster Promotion**: Spending sustained active time ($\ge 1$ min) creating extracts or highlights promotes the item's collection and semantic topic cluster, surfacing related knowledge sooner.
+- **Resistance Recommendations**: An item skipped $\ge 3$ times receives a **Split Candidate** suggestion (prompting you to break it down). An item with $>50\%$ idle time and no interaction receives an **Auto-Demote** recommendation. Both are user-facing suggestions; neither alters your items automatically.
+
+---
+
+##### Explainable Score Breakdown
+
+No score in Plethora is a black box. In the Queue list or reader:
+- Click the rank details or position badge on any item (or tap the row menu on mobile) to view **Why this position**.
+- Displays the composite score $S(i)$ alongside each of the 5 terms and their signed weights.
+- Each term displays an honest status badge:
+  - **MEASURED**: Directly calculated from live telemetry or decision model evaluation.
+  - **ESTIMATED**: Derived from deterministic heuristics (such as element type complexity).
+  - **NOT MEASURED**: Input signal unavailable; cleanly contributed 0 without distorting the queue.
+- If a fatigue downshift has occurred, the readout explicitly shows your effective energy target alongside the target you originally set.
+
+---
+
+##### Managing Session Goals
+
+To set a temporary learning target for a study block:
+1. Open the **Queue** and click **Customize Session** (or the sliders icon).
+2. Enter your objective in the **Session Goal** input (up to 200 characters, e.g. *"Cardiovascular physiology & hemodynamics"*).
+3. Alternatively, click one of your **Recent Goals** chips to re-apply a previous objective.
+4. The queue re-orders instantly to pull topically relevant documents, extracts, and flashcards forward.
 
 ### Tag-Aware Scheduling (TAS)
 

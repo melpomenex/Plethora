@@ -671,7 +671,7 @@ Los elementos de mayor prioridad se muestran con más frecuencia en reseñas mix
 Comprender cómo la cola ordena los elementos y por qué cambian las posiciones le ayuda a optimizar el flujo de su estudio:
 
 1. **Programación FSRS y puntuación de prioridad dinámica**:
-   - La posición de cada elemento se calcula utilizando sus parámetros de memoria FSRS (fecha de vencimiento, intervalo, estabilidad, disminución de la capacidad de recuperación) combinados con su estrategia preestablecida de cola inteligente seleccionada (*Maximizar retención*, *Recuperación agresiva*, *Minimizar tiempo* o *Exploratorio*).
+   - La posición de cada elemento se calcula utilizando sus parámetros de memoria FSRS (fecha de vencimiento, intervalo, estabilidad, disminución de la capacidad de recuperación) combinados con su estrategia de cola inteligente o preajuste de ordenación adaptativa seleccionado (*Maximizar retención*, *Recuperación agresiva*, *Minimizar tiempo*, *Exploratorio*, *Sprint de trabajo profundo*, *Cansado / De camino*, *Triaje despiadado* o *Descubrimiento equilibrado*). Consulte los detalles completos en [Colas inteligentes y ordenación adaptativa (DAQE)](#colas-inteligentes-y-ordenación-adaptativa-daqe) más adelante.
    - A medida que completa revisiones, pospone elementos o toma notas, los parámetros de la memoria se actualizan y los elementos se reclasifican naturalmente al regresar a la cola.
 
 2. **Aleatorización de selección ponderada**:
@@ -706,21 +706,154 @@ Las conexiones más cercanas (un hijo directo, un documento casi idéntico, una 
 - La revisión neuronal es de solo lectura con respecto a su cola normal. Úselo libremente; No cambia nada sobre su orden de prioridad o fechas de vencimiento.
 
 
-### Colas inteligentes
+### Colas inteligentes y ordenación adaptativa (DAQE)
 
-Crea colas personalizadas con filtros:
+Las colas inteligentes de Plethora combinan dos sistemas complementarios: las **Colas guardadas** (que filtran *qué* elementos forman parte de una sesión de estudio) y la **Ordenación adaptativa** (impulsada por el motor de cola adaptativo dinámico, o **DAQE**, que calcula el *orden* óptimo en el que se presentan los elementos candidatos).
+
+#### Colas guardadas (Filtrado y alcance)
+
+Cree colas personalizadas y enfocadas filtrando su colección por categoría, tipo de elemento, calificación o rango de prioridad:
 
 **Colas de ejemplo:**
-- "Enfoque de hoy": tarjetas vencidas de la categoría principal
+- "Enfoque de hoy": Tarjetas vencidas de la categoría principal
 - "Revisión rápida": Tarjetas fáciles, prioridad < 50
-- "Deep Dive": Tarjetas duras de la categoría de investigación
-- "Preparación para el examen": todas las tarjetas de la categoría "Biología"
+- "Deep Dive": Tarjetas complejas de la categoría de investigación
+- "Preparación para el examen": Todas las tarjetas de la categoría "Biología"
 
-**Creando cola inteligente:**
-1. Haga clic en **Cola** → **Colas guardadas**
-2. Haga clic en **Nueva cola**
-3. Establecer filtros y orden de clasificación
-4. Nombra y guarda
+**Creación de una cola guardada:**
+1. Haga clic en **Cola** → **Colas guardadas** en la barra de herramientas.
+2. Haga clic en **Nueva cola**.
+3. Configure los filtros deseados (categorías, tipos de elementos, umbrales de prioridad).
+4. Asigne un nombre y guarde la cola.
+
+---
+
+#### Ordenación adaptativa (Motor de cola adaptativo dinámico DAQE)
+
+Mientras que los filtros deciden la **pertenencia** (qué entra en la sesión), la ordenación adaptativa decide el **orden** (qué debe leer en este preciso instante).
+
+En lugar de clasificar los elementos únicamente por la fecha de vencimiento o un número de prioridad estático, la ordenación adaptativa evalúa los candidatos en tiempo real considerando la urgencia de memoria, la alineación con su objetivo de aprendizaje actual, el ajuste de energía cognitiva, la alternancia temática y la resistencia observada.
+
+> [!IMPORTANT]
+> **La ordenación adaptativa gobierna solo el orden, nunca la programación.**
+> Ningún deslizador o preajuste modifica la estabilidad, dificultad, intervalo, capacidad de recuperación o fechas de vencimiento de FSRS. Los algoritmos de programación siguen decidiendo *cuándo* debe volver un elemento; la ordenación adaptativa simplemente decide *cuál de los elementos vencidos se muestra primero* en su sesión actual.
+
+##### Fórmula de puntuación compuesta de 5 términos
+
+En cada reordenación de la cola, DAQE calcula una puntuación compuesta determinista $S(i)$ para cada elemento candidato:
+
+$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text{relevance}}(i) + w_{\text{fit}} \cdot M_{\text{energy\_fit}}(i, K_{\text{energy}}) - w_{\text{interleave}} \cdot P_{\text{interleave}}(i, H_{\text{recent}}) - w_{\text{friction}} \cdot P_{\text{friction}}(i)$$
+
+Cada término se normaliza al intervalo unitario $[0, 1]$ antes de aplicar su peso, evitando que un único factor domine silenciosamente:
+
+1. **Urgencia de memoria ($R_{\text{srs}}$)**:
+   Mide la urgencia de retención y repaso espaciado:
+   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Urgencia}(i) + 0.3 \cdot \text{Atraso}(i) + 0.2 \cdot \text{PrioridadUsuario}(i)$$
+   - $\text{Urgencia}$: Proximidad al olvido ($1 - \text{Capacidad de recuperación}$ calculada según la curva de olvido $R = 0.9^{t/S}$; en documentos, calculada a partir de la prioridad de documentos FSRS).
+   - $\text{Atraso}$: Días de retraso respecto a la fecha prevista (con un límite de saturación de 14 días).
+   - $\text{PrioridadUsuario}$: El deslizador de prioridad 0–100% asignado al elemento.
+2. **Relevancia para el objetivo ($M_{\text{relevance}}$)**:
+   Mide la alineación temática con su **Objetivo de la sesión** actual (p. ej., *"Fundamentos de computación cuántica y demostraciones de entrelazamiento"*). Se resuelve en tres niveles sucesivos:
+   - *Nivel 1 (Medido)*: Puntuación continua de 0 a 1 generada por un modelo de decisión conectado (`evaluateScore`).
+   - *Nivel 2 (Estimado / Predeterminado)*: Coincidencia léxica local de palabras clave entre el objetivo y el texto del elemento si no hay un modelo activo.
+   - *Nivel 3 (Afinidad por etiquetas)*: Combinación de relevancia basada en etiquetas si no se especificó ningún objetivo de sesión.
+   - También incorpora los *impulsos de clúster* ganados al interactuar activamente con contenidos del mismo grupo temático. Si no existe objetivo ni señal, se muestra con total transparencia como *No medido* (0.0).
+3. **Ajuste de energía ($M_{\text{energy\_fit}}$)**:
+   Mide la distancia entre la complejidad cognitiva del elemento y su objetivo de energía $K_{\text{energy}}$ ($1\text{--}5$):
+   $$M_{\text{energy\_fit}} = 1 - \frac{|\text{ComplejidadDelElemento}(i) - K_{\text{energy}}|}{4}$$
+   La complejidad es clasificada por el modelo de decisión (*Lectura rápida superficial* = 1, *Análisis medio* = 3, *Fundamental profundo* = 5) o estimada deterministamente según el tipo de elemento (Documento = 4, Extracto = 3, Tarjeta = 2).
+   *Reducción automática por fatiga*: Si su velocidad de lectura en los últimos 30 días cae por debajo del 40% de su línea base histórica ($\ge 5$ sesiones), DAQE reduce automáticamente el objetivo de energía efectivo hacia materiales más ligeros para evitar el agotamiento cognitivo.
+4. **Penalización por tema repetido ($P_{\text{interleave}}$)**:
+   Calcula la similitud temática con los elementos repasados recientemente en la sesión ($H_{\text{recent}}$). Un mayor valor de `interleavingDiversity` penaliza los elementos que comparten conceptos con lo que acaba de leer, fomentando la práctica intercalada. Si no hay coincidencia temática, la penalización es 0.
+5. **Penalización por resistencia ($P_{\text{friction}}$)**:
+   Acumula penalizaciones según la fricción real observada:
+   - Aplazamientos repetidos (+0.10 cada uno, máximo 4)
+   - Omisiones rápidas (+0.10 cada una, máximo 4)
+   - Sesiones abandonadas (+0.15 cada una, máximo 3)
+   - Predominio de inactividad (tiempo de ausencia superior al 50% sin interacción, aportando hasta +0.35)
+   Los elementos evitados sistemáticamente se desplazan hacia abajo de forma suave para facilitar decisiones de división o descarte. Los elementos sin telemetría no sufren penalización.
+
+---
+
+##### Los seis controles de orden (deslizadores)
+
+Puede ajustar cada parámetro en **Configuración → Colas inteligentes** o en el modal **Personalizar sesión**:
+
+| Control | Rango | Predeterminado | Propósito |
+|---|---|---|---|
+| **Urgencia de memoria** (`srsDecayWeight`) | `0.00`–`1.00` | `0.40` | Cuánto se adelantan los elementos atrasados o en riesgo de olvido. |
+| **Relevancia para el objetivo** (`goalRelevance`) | `0.00`–`1.00` | `0.30` | Cuánto se adelantan los elementos acordes al objetivo actual. |
+| **Objetivo de energía** (`energyTarget`) | `1`–`5` (entero) | `3` | Profundidad cognitiva deseada (1 = lectura rápida, 5 = fuentes primarias densas). |
+| **Variedad temática** (`interleavingDiversity`) | `0.00`–`1.00` | `0.20` | Con qué fuerza se hunde un tema repetido para favorecer la variedad. |
+| **Poda** (`pruningAggressiveness`) | `0.00`–`1.00` | `0.10` | Con qué fuerza se hunden los elementos omitidos o aplazados repetidamente. |
+| **Tiempo de ausencia** (`afkIdleTimeoutMs`) | `15`–`120` s | `45` s | Tiempo sin actividad antes de pausar el registro y considerarlo ausencia. |
+
+Cualquier cambio en un deslizador se aplica de inmediato reordenando la cola, sin necesidad de confirmación manual.
+
+---
+
+##### Preajustes seleccionados
+
+Los preajustes son vectores preconfigurados de los seis controles. Puede alternar entre ellos desde el selector de la barra de herramientas de la cola o en Configuración:
+
+- **Sprint de trabajo profundo (Deep Work Sprint)**: Objetivo de energía `4`, Relevancia para el objetivo `0.50`, Variedad temática `0.10`. Diseñado para sesiones de alta concentración en fuentes primarias densas minimizando los saltos temáticos.
+- **Cansado / De camino (Tired / Mobile Commute)**: Objetivo de energía `2`, Urgencia de memoria `0.20`, Variedad temática `0.40`. Prioriza contenidos cortos, repasos ligeros y diversidad temática para desplazamientos o momentos de baja energía.
+- **Triaje despiadado (Ruthless Triage)**: Poda `0.60`, Urgencia de memoria `0.40`. Saca a relucir el material postergado reiteradamente para forzar una decisión clara: conservar, dividir en extractos manejables o descartar.
+- **Descubrimiento equilibrado (Balanced Discovery)**: Urgencia de memoria `0.35`, Relevancia para el objetivo `0.25`, Variedad temática `0.25`, Poda `0.15`, Objetivo de energía `3`. Equilibrio uniforme recomendado como punto de partida.
+
+*Atribución honesta*: La interfaz muestra el nombre del preajuste únicamente cuando sus controles coinciden de forma exacta con la definición; si ajusta un deslizador, la etiqueta indica limpiamente una configuración personalizada.
+
+---
+
+##### Modelos de decisión y privacidad local primero
+
+La ordenación adaptativa puede conectarse opcionalmente a un modelo de decisión que implemente el protocolo ligero **System One** (`evaluateScore`, `evaluateChoice`, `evaluateNoul`):
+
+- **Ninguno (Alternativa local determinista)**: Modo predeterminado. Cero peticiones de red, cero coste de tokens, 100% sin conexión. Aplica heurísticas locales basadas en palabras clave y tipo de elemento.
+- **Columna vertebral (Spine)**: Canaliza las evaluaciones mediante el proveedor de IA configurado en Configuración → IA.
+- **Laya (En tu máquina)**: Modelo abierto de Convai (Apache 2.0, ~0.4B parámetros). Permite descargar pesos directamente desde Configuración o conectar un servidor local (`http://127.0.0.1:8000`). Ningún dato sale del equipo.
+- **Jev (Hospedado)**: Modelo especializado de TypeSafe AI ($0.042 por millón de tokens de entrada, salida gratuita; requiere clave API de Jev).
+- **Clef (Cloudflare Workers AI)**: Modelo abierto hospedado en Workers AI (`clef-flash` 9B, `clef` 27B; requiere token de API y cuenta de Cloudflare).
+- **Modelos de decisión OpenRouter**: Incluye opciones como `inception/mercury-decide:free` (gratuito), `liquid/d1` y `upstage/solar-decide`.
+- **Modelos de decisión OpenAI**: Modelos en tiempo real mediante la API de Decisions.
+
+> [!TIP]
+> **Garantía de privacidad**: El contenido de los elementos nunca sale del dispositivo sin su consentimiento explícito. Incluso al optar por proveedores remotos, Plethora solo transmite **esquemas estructurales no identificables** (esqueleto de encabezados, tipo de elemento, longitud de caracteres), nunca el texto completo del cuerpo, notas privadas ni marcadores. Todas las decisiones se almacenan en caché SQLite local mediante hash de contenido.
+
+---
+
+##### Telemetría de permanencia y bucle de aprendizaje adaptativo
+
+Plethora registra **tiempo de lectura activo** en lugar de tiempo pasivo en pantalla:
+- Tras el tiempo de ausencia configurado (p. ej. 45 segundos) sin interacción, el estado pasa a `idle` y descuenta retroactivamente ese período inactivo de sus estadísticas.
+- Registra evidencias de interacción como extractos generados, profundidad de desplazamiento y acciones de salida (*extracto creado*, *siguiente elemento*, *aplazar*, *descartar*, *reordenar prioridad*).
+
+El bucle de aprendizaje en segundo plano aprovecha esta telemetría sin necesidad de reentrenamiento de modelos:
+- **Promoción de clústeres**: La lectura activa prolongada ($\ge 1$ min) con generación de extractos o subrayados eleva la prioridad de los contenidos afines en la misma colección o clúster semántico.
+- **Recomendaciones de resistencia**: Si un elemento se omite $\ge 3$ veces seguidas, se marcará como **Candidato a división**. Si un elemento presenta $>50\%$ de tiempo inactivo sin interacción, se sugerirá un **Descenso automático**. Ambos avisos son recomendaciones informativas; nunca se altera ni elimina material de forma automática.
+
+---
+
+##### Desglose explicable de la puntuación
+
+Ninguna posición en la cola es arbitraria:
+- Al hacer clic en los detalles de posición de un elemento (o en el menú contextual móvil), se despliega **Por qué esta posición**.
+- Se muestra la puntuación compuesta $S(i)$ y el valor individual de los 5 términos junto a sus pesos ponderados.
+- Cada término indica con transparencia su estado:
+  - **MEDIDO**: Obtenido directamente de telemetría o de la evaluación del modelo de decisión.
+  - **ESTIMADO**: Estimado mediante reglas locales y tipos de elemento ante la ausencia de un modelo.
+  - **NO MEDIDO**: Señal no disponible; computa limpiamente como 0 sin falsear el orden.
+- Si se ha aplicado una reducción automática por fatiga, se muestra tanto el objetivo de energía efectivo como el configurado originalmente.
+
+---
+
+##### Configuración de objetivos de sesión
+
+Para orientar una sesión hacia un tema específico:
+1. Abra la **Cola** y haga clic en **Personalizar sesión** (icono de deslizadores).
+2. Introduzca su objetivo en el campo **Objetivo de la sesión** (hasta 200 caracteres, p. ej., *"Fisiología cardiovascular y hemodinámica"*).
+3. O bien, haga clic en una de las etiquetas de **Objetivos recientes** para reutilizar una meta anterior.
+4. La cola se reordenará instantáneamente favoreciendo los elementos que mejor se ajusten a dicho objetivo.
 
 ### Programación basada en etiquetas (TAS)
 

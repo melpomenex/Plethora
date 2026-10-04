@@ -671,7 +671,7 @@ Artikel mit höherer Priorität werden in gemischten Bewertungen häufiger angez
 Wenn Sie verstehen, wie die Warteschlange Artikel anordnet und warum sich Positionen ändern, können Sie Ihren Lernablauf optimieren:
 
 1. **FSRS-Planung und dynamische Prioritätsbewertung**:
-   - Die Position jedes Elements wird anhand seiner FSRS-Speicherparameter (Fälligkeitsdatum, Intervall, Stabilität, Abrufbarkeitsverfall) in Kombination mit der von Ihnen ausgewählten Smart Queue-Strategievoreinstellung (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time* oder *Exploratory*) berechnet.
+   - Die Position jedes Elements wird anhand seiner FSRS-Speicherparameter (Fälligkeitsdatum, Intervall, Stabilität, Abrufbarkeitsverfall) in Kombination mit Ihrer ausgewählten Smart Queue-Strategie oder dem Preset für adaptive Rangfolge (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, *Exploratory*, *Deep-Work-Sprint*, *Müde / Unterwegs*, *Konsequente Sichtung* oder *Ausgewogene Entdeckung*) berechnet. Vollständige Details finden Sie weiter unten unter [Intelligente Warteschlangen & Adaptive Rangfolge (DAQE)](#intelligente-warteschlangen--adaptive-rangfolge-daqe).
    - Wenn Sie Überprüfungen abschließen, Elemente verschieben oder Notizen machen, werden die Speicherparameter aktualisiert und die Elemente werden bei der Rückkehr in die Warteschlange automatisch neu eingestuft.
 
 2. **Gewichtete Auswahl-Randomisierung**:
@@ -706,21 +706,154 @@ Engere Verbindungen – ein direktes Kind, ein nahezu identisches Dokument, ein 
 - Die neuronale Überprüfung ist in Bezug auf Ihre normale Warteschlange schreibgeschützt. Benutzen Sie es frei; Es ändert sich nichts an Ihrer Prioritätsbestellung oder den Fälligkeitsterminen.
 
 
-### Intelligente Warteschlangen
+### Intelligente Warteschlangen & Adaptive Rangfolge (DAQE)
 
-Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
+Intelligente Warteschlangen in Plethora vereinen zwei sich ergänzende Systeme: **Gespeicherte Warteschlangen** (die filtern, *welche* Inhalte Teil einer Lernsitzung sind) und die **Adaptive Rangfolge** (angetrieben von der dynamischen adaptiven Warteschlangen-Engine **DAQE**, die die optimale *Reihenfolge* der fälligen Inhalte ermittelt).
+
+#### Gespeicherte Warteschlangen (Filter & Umfang)
+
+Erstellen Sie maßgeschneiderte, fokussierte Warteschlangen, indem Sie Ihre Sammlung nach Kategorie, Inhaltstyp, Bewertung oder Prioritätsbereich filtern:
 
 **Beispielwarteschlangen:**
 - „Heutiger Fokus“: Fällige Karten aus der Hauptkategorie
-- „Quick Review“: Einfache Karten, Priorität < 50
-- „Deep Dive“: Harte Karten aus der Forschungskategorie
-- „Prüfungsvorbereitung“: Alle Karten in der Kategorie „Biologie“.
+- „Quick Review“: Einfache Karten mit Priorität < 50
+- „Deep Dive“: Anspruchsvolle Karten aus der Forschungskategorie
+- „Prüfungsvorbereitung“: Alle Karten in der Kategorie „Biologie“
 
-**Intelligente Warteschlange erstellen:**
-1. Klicken Sie auf **Warteschlange** → **Gespeicherte Warteschlangen**
-2. Klicken Sie auf **Neue Warteschlange**
-3. Legen Sie Filter und Sortierreihenfolge fest
-4. Benennen und speichern
+**Gespeicherte Warteschlange erstellen:**
+1. Klicken Sie in der Symbolleiste auf **Warteschlange** → **Gespeicherte Warteschlangen**.
+2. Klicken Sie auf **Neue Warteschlange**.
+3. Legen Sie Ihre Filter fest (Kategorien, Elementtypen, Prioritätsschwellen).
+4. Benennen und speichern Sie die Warteschlange.
+
+---
+
+#### Adaptive Rangfolge (Dynamische adaptive Warteschlangen-Engine DAQE)
+
+Während Filter über die **Zugehörigkeit** entscheiden (was in die Sitzung gelangt), bestimmt die adaptive Rangfolge die **Reihenfolge** (was Sie genau jetzt lesen sollten).
+
+Anstatt Elemente bloß nach Fälligkeitsdatum oder einer starren Prioritätszahl anzuordnen, bewertet die adaptive Rangfolge fällige Inhalte in Echtzeit nach Gedächtnisdruck, Übereinstimmung mit Ihrem aktuellen Lernziel, kognitiver Energiepassung, Themenwechsel und bisherigem Lernwiderstand.
+
+> [!IMPORTANT]
+> **Die adaptive Rangfolge steuert ausschließlich die Reihenfolge, niemals den Wiederholungsplan.**
+> Regler und Voreinstellungen verändern weder die FSRS-Stabilität noch Schwierigkeit, Intervall, Abrufbarkeit oder Fälligkeitstermine. Die Scheduleralgorithmen bestimmen weiterhin, *wann* ein Inhalt wieder fällig ist; die adaptive Rangfolge entscheidet lediglich, *welcher fällige Inhalt als nächstes angezeigt wird*.
+
+##### Zusammengesetzte 5-Terme-Bewertungsformel
+
+Bei jeder Neuordnung der Warteschlange berechnet DAQE eine deterministische zusammengesetzte Punktzahl $S(i)$ für jeden Kandidaten:
+
+$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text{relevance}}(i) + w_{\text{fit}} \cdot M_{\text{energy\_fit}}(i, K_{\text{energy}}) - w_{\text{interleave}} \cdot P_{\text{interleave}}(i, H_{\text{recent}}) - w_{\text{friction}} \cdot P_{\text{friction}}(i)$$
+
+Jeder Term wird vor der Verrechnung mit seinem Gewicht auf das Einheitsintervall $[0, 1]$ normiert, sodass kein Faktor die Reihenfolge unbemerkt dominieren kann:
+
+1. **Gedächtnisdruck ($R_{\text{srs}}$)**:
+   Misst das Risiko des Vergessens und den zeitlichen Verzug:
+   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Dringlichkeit}(i) + 0.3 \cdot \text{Überfälligkeit}(i) + 0.2 \cdot \text{Benutzerpriorität}(i)$$
+   - $\text{Dringlichkeit}$: Wie nah das Element dem Vergessen ist ($1 - \text{Abrufbarkeit}$ gemäß Vergessenskurve $R = 0.9^{t/S}$; bei Dokumenten aus der FSRS-Dokumentenpriorität abgeleitet).
+   - $\text{Überfälligkeit}$: Tage nach dem Fälligkeitsdatum (gedeckelt bei 14 Tagen).
+   - $\text{Benutzerpriorität}$: Der 0–100%-Prioritätsregler des Elements.
+2. **Zielbezug ($M_{\text{relevance}}$)**:
+   Misst die thematische Passung zu Ihrem aktuellen **Sitzungsziel** (z. B. *„Grundlagen des Quantencomputings & Verschränkungsbeweise“*). Wird in drei Stufen ermittelt:
+   - *Stufe 1 (Gemessen)*: Kontinuierlicher 0–1-Wert eines angebundenen KI-Entscheidungsmodells (`evaluateScore`).
+   - *Stufe 2 (Geschätzt / Standard)*: Lokaler lexikalischer Stichwortabgleich zwischen Ziel und Dokumentinhalt, falls kein Modell aktiv ist.
+   - *Stufe 3 (Tag-Affinität)*: Affinitätswert aus Tags und Lesehistorie, wenn kein Ziel angegeben wurde.
+   - Nimmt zudem *Cluster-Förderungs-Boni* aus aktiven Lerneinheiten auf. Ohne Ziel und Signal wird der Term transparent als *Nicht gemessen* (0.0) geführt.
+3. **Energiepassung ($M_{\text{energy\_fit}}$)**:
+   Misst den Abstand zwischen der kognitiven Komplexität des Inhalts und Ihrem angestrebten Energieziel $K_{\text{energy}}$ ($1\text{--}5$):
+   $$M_{\text{energy\_fit}} = 1 - \frac{|\text{Inhaltskomplexität}(i) - K_{\text{energy}}|}{4}$$
+   Die Komplexität wird durch das Entscheidungsmodell eingestuft (*Oberflächliches Überfliegen* = 1, *Mittlere Analyse* = 3, *Tiefe Grundlagen* = 5) oder deterministisch nach Elementtyp vorgegeben (Dokument = 4, Auszug = 3, Karte = 2).
+   *Automatische Ermüdungs-Herabstufung*: Fällt Ihre Lesegeschwindigkeit der letzten 30 Tage unter 40% Ihres historischen Ausgangswerts (bei $\ge 5$ Sitzungen), senkt DAQE das effektive Energieziel automatisch ab, um Ermüdung zu vermeiden.
+4. **Strafe für wiederholtes Thema ($P_{\text{interleave}}$)**:
+   Berechnet thematische und semantische Überschneidungen mit den kürzlich wiederholten Elementen ($H_{\text{recent}}$). Ein höherer Wert für `interleavingDiversity` drängt thematisch ähnliche Inhalte nach hinten, um abwechslungsreiches Lernen (Interleaving) zu fördern. Inhalte ohne Überschneidung erhalten keinen Abzug.
+5. **Widerstandsstrafe ($P_{\text{friction}}$)**:
+   Erfasst den beobachteten Lernwiderstand:
+   - Wiederholtes Verschieben (+0.10 pro Vorgang, max. 4)
+   - Schnelles Überspringen (+0.10 pro Vorgang, max. 4)
+   - Abgebrochene Wiederholungen (+0.15 pro Vorgang, max. 3)
+   - Dominierende Abwesenheit (über 50% Inaktivität ohne Interaktion, bis zu +0.35)
+   Inhalte, denen Sie wiederholt ausweichen, sinken sanft nach unten, um eine gezielte Aufteilungs- oder Löschentscheidung herbeizuführen. Elemente ohne Historie erhalten keinen Abzug.
+
+---
+
+##### Die sechs Rangfolge-Regler
+
+Sie können alle Parameter unter **Einstellungen → Intelligente Warteschlangen** oder im Dialog **Sitzung anpassen** justieren:
+
+| Regler | Bereich | Standard | Zweck |
+|---|---|---|---|
+| **Gedächtnisdruck** (`srsDecayWeight`) | `0.00`–`1.00` | `0.40` | Wie stark überfällige und vergessensgefährdete Inhalte nach vorn gezogen werden. |
+| **Zielbezug** (`goalRelevance`) | `0.00`–`1.00` | `0.30` | Wie stark Inhalte passend zum aktuellen Sitzungsziel nach vorn gezogen werden. |
+| **Energieziel** (`energyTarget`) | `1`–`5` (ganzzahlig) | `3` | Angestrebte kognitive Tiefe (1 = leichtes Überfliegen, 5 = dichte Primärquellen). |
+| **Themenvielfalt** (`interleavingDiversity`) | `0.00`–`1.00` | `0.20` | Wie stark wiederholte Themen zur Förderung von Abwechslung herabgestuft werden. |
+| **Ausdünnen** (`pruningAggressiveness`) | `0.00`–`1.00` | `0.10` | Wie stark gemiedene oder verschobene Inhalte herabgestuft werden. |
+| **Abwesenheits-Zeitlimit** (`afkIdleTimeoutMs`) | `15`–`120` s | `45` s | Inaktivitätsspanne, ab der die Lesezeiterfassung pausiert und als abwesend gilt. |
+
+Jede Regleränderung greift unmittelbar und ordnet die Warteschlange ohne Bestätigungs-Button neu.
+
+---
+
+##### Kuratierte Voreinstellungen (Presets)
+
+Presets sind vorkonfigurierte Wertekombinationen der sechs Regler. Sie können in der Symbolleiste der Warteschlange oder in den Einstellungen gewählt werden:
+
+- **Deep-Work-Sprint (Deep Work Sprint)**: Energieziel `4`, Zielbezug `0.50`, Themenvielfalt `0.10`. Für hochkonzentriertes Arbeiten an anspruchsvollen Primärquellen mit minimalem Themenwechsel.
+- **Müde / Unterwegs (Tired / Mobile Commute)**: Energieziel `2`, Gedächtnisdruck `0.20`, Themenvielfalt `0.40`. Schnelle, reibungslose Erfolge mit kurzen Elementen und breiter Themenvielfalt.
+- **Konsequente Sichtung (Ruthless Triage)**: Ausdünnen `0.60`, Gedächtnisdruck `0.40`. Bringt verdrängte und aufgeschobene Inhalte nach vorn, um eine Entscheidung zu erzwingen: behalten, aufteilen oder verwerfen.
+- **Ausgewogene Entdeckung (Balanced Discovery)**: Gedächtnisdruck `0.35`, Zielbezug `0.25`, Themenvielfalt `0.25`, Ausdünnen `0.15`, Energieziel `3`. Ausgewogener Standardausgangspunkt.
+
+*Ehrliche Zuweisung*: Der Preset-Name wird nur angezeigt, wenn die Regler exakt der Definition entsprechen. Sobald ein Schieberegler bewegt wird, weist die Oberfläche transparent auf eine benutzerdefinierte Einstellung hin.
+
+---
+
+##### Entscheidungsmodelle & Local-First-Datenschutz
+
+Die adaptive Rangfolge kann optional an ein leichtgewichtiges KI-Entscheidungsmodell angebunden werden, das das **System One**-Protokoll (`evaluateScore`, `evaluateChoice`, `evaluateNoul`) bedient:
+
+- **Keines (Lokaler Fallback)**: Standard. Null Netzwerkanfragen, keine Token-Kosten, 100% offline. Verwendet lokale Heuristiken für Textähnlichkeit und Inhaltstypen.
+- **Rückgrat (Spine)**: Nutzt die unter Einstellungen → KI konfigurierte Hauptroute.
+- **Laya (Auf Ihrem Gerät)**: Apache 2.0 Open-Weight-Modell von Convai (~0.4B Parameter). Gewichte können in den Einstellungen heruntergeladen oder über eine lokale Instanz (`http://127.0.0.1:8000`) angebunden werden. Daten verlassen das Gerät nicht.
+- **Jev (Gehostet)**: Spezialisiertes Entscheidungsmodell von TypeSafe AI ($0.042 pro Million Eingabe-Tokens, Ausgabe frei; erfordert API-Schlüssel).
+- **Clef (Cloudflare Workers AI)**: Auf Workers AI betriebenes Modell (`clef-flash` 9B, `clef` 27B; erfordert Cloudflare-Token und Account-ID).
+- **OpenRouter Entscheidungsmodelle**: Zugriff auf Modelle wie das kostenlose `inception/mercury-decide:free` sowie `liquid/d1`.
+- **OpenAI Entscheidungsmodelle**: Entscheidungen in Echtzeit über die Decisions API.
+
+> [!TIP]
+> **Datenschutz-Schranke**: Inhalte verlassen Ihr Gerät niemals ohne Ihre ausdrückliche Zustimmung. Selbst bei externen Modellen überträgt Plethora lediglich **nicht-identifizierende strukturelle Umrisse** (Überschriftenstruktur, Elementtyp, Textlänge), niemals Volltext, private Notizen oder Textstellen. Alle Ergebnisse werden per Content-Hash lokal in SQLite zwischengespeichert.
+
+---
+
+##### Verweildauer-Telemetrie & Adaptiver Lernkreislauf
+
+Plethora unterscheidet **aktive Lesezeit** von ungenutzter Bildschirmzeit:
+- Bei Ausbleiben von Interaktionen über das konfigurierte Zeitlimit hinaus (z. B. 45 Sekunden) wechselt der Status auf `idle`, und dieser Leerlauf wird rückwirkend aus der Lesezeit herausgerechnet.
+- Protokolliert Interaktionen wie erstellte Auszüge, Scrolltiefe und Abschlussaktionen (*Auszug erstellt*, *Weiter*, *Verschieben*, *Schließen*, *Priorität anpassen*).
+
+Der Lernkreislauf nutzt diese Telemetrie im Hintergrund ohne Modell-Feintuning:
+- **Cluster-Förderung**: Längeres aktives Lesen ($\ge 1$ Min.) mit Markierungen oder Auszugserstellung erhöht die Empfehlungsstärke verwandter Inhalte im selben semantischen Cluster.
+- **Widerstandsempfehlungen**: Ein $\ge 3$-mal übersprungenes Element erhält den Hinweis **Aufteilungs-Kandidat**; bei $>50\%$ Inaktivität wird **Automatisch herabstufen** vorgeschlagen. Dies sind informative Hinweise und verändern Ihre Daten nicht selbsttätig.
+
+---
+
+##### Erklärbare Punkteaufschlüsselung
+
+Keine Rangposition bleibt unerklärt:
+- Klicken Sie in der Warteschlange auf die Ranganzeige eines Elements (oder auf das Menü in der Mobilansicht), um **Warum diese Position** zu öffnen.
+- Zeigt die Gesamtnote $S(i)$ sowie die 5 Teilterme mit ihren jeweiligen Gewichten.
+- Jeder Term führt ein klares Status-Badge:
+  - **GEMESSEN**: Direkt aus Telemetrie oder Modellurteil errechnet.
+  - **GESCHÄTZT**: Mangels Modell aus Regeln oder Typen heuristisch abgeleitet.
+  - **NICHT GEMESSEN**: Signal lag nicht vor; zählt sauber als 0, ohne die Rangfolge zu verfälschen.
+- War eine Ermüdungsherabstufung aktiv, wird neben dem eingestellten auch das wirksame Energieziel aufgeführt.
+
+---
+
+##### Sitzungsziel festlegen
+
+Um eine Lernsitzung auf ein bestimmtes Thema auszurichten:
+1. Öffnen Sie die **Warteschlange** und klicken Sie auf **Sitzung anpassen** (Schieberegler-Symbol).
+2. Tragen Sie Ihr Thema in das Feld **Sitzungsziel** ein (bis zu 200 Zeichen, z. B. *„Kardiovaskuläre Physiologie & Hämodynamik“*).
+3. Alternativ können Sie auf eine der Schaltflächen unter **Kürzliche Ziele** klicken.
+4. Die Warteschlange ordnet sich sofort neu und zieht thematisch passende Inhalte nach vorn.
 
 ### Tag-Aware Scheduling (TAS)
 
