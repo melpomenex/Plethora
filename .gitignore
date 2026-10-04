@@ -12,6 +12,10 @@ lerna-debug.log*
 # agent skills (e.g. cut-release). Only personal/session state stays ignored.
 .zcode/
 .deepsec/
+# Remotion authoring skills are task-local tooling for producing the README
+# promo reel, not shared project skills. Installed on demand, never in the
+# public repo.
+.agents/skills/remotion-*/
 # Per-machine agent/tool state. `.impeccable/design.json` IS tracked project
 # source; only the local config layers stay ignored, and DESIGN.md stays local
 # (ignored at the bottom of this file with the rest of the scratch output).
@@ -31,6 +35,11 @@ website/
 
 # Marketing assets (kept locally, never tracked; scrubbed from history 2026-09-23)
 marketing/
+
+# Remotion project that renders the README promo reel. Source-only and
+# regenerable — the rendered artifact IS committed (assets/PlethoraPromo.mp4),
+# so the public repo carries the video but not the authoring setup.
+video/
 
 node_modules
 dist

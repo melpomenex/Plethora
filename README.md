@@ -16,6 +16,12 @@
 
 ---
 
+<div align="center">
+  <video src="assets/PlethoraPromo.mp4" poster="assets/PlethoraPromo-poster.jpg" width="100%" controls preload="metadata"></video>
+  <br>
+  <sub>Plethora in 49 seconds — <a href="assets/PlethoraPromo.mp4">download the MP4</a></sub>
+</div>
+
 ## Overview
 
 **Plethora** is a sophisticated desktop application that combines **incremental reading** with **spaced repetition** to help you efficiently process and retain information from large volumes of content.
