@@ -106,36 +106,33 @@ function saveLocalQueues(queues: SavedQueue[]) {
 
 export async function getSavedQueues(collectionId?: string | null): Promise<SavedQueue[]> {
   if (isTauri()) {
-    try {
-      const res = await invokeCommand<SavedQueue[]>('get_saved_queues', {
+    const res = await invokeCommand<SavedQueue[]>('get_saved_queues', {
+      collectionId: collectionId || null,
+    });
+    if (Array.isArray(res) && res.length > 0) return res;
+    if (Array.isArray(res)) {
+      // If native returned 0 queues (e.g. fresh install), seed starters
+      for (const starter of STARTER_SAVED_QUEUES) {
+        await invokeCommand('create_saved_queue', {
+          input: {
+            name: starter.name,
+            icon: starter.icon,
+            collectionId: starter.collectionId,
+            filters: starter.filters,
+            itemTypes: starter.itemTypes,
+            sessionDurationMinutes: starter.sessionDurationMinutes,
+            maxItems: starter.maxItems,
+            daqePresetId: starter.daqePresetId,
+            isDefault: starter.isDefault,
+          },
+        }).catch(() => {});
+      }
+      const seeded = await invokeCommand<SavedQueue[]>('get_saved_queues', {
         collectionId: collectionId || null,
       });
-      if (Array.isArray(res) && res.length > 0) return res;
-      if (Array.isArray(res)) {
-        // If native returned 0 queues (e.g. fresh install), seed starters
-        for (const starter of STARTER_SAVED_QUEUES) {
-          await invokeCommand('create_saved_queue', {
-            input: {
-              name: starter.name,
-              icon: starter.icon,
-              collectionId: starter.collectionId,
-              filters: starter.filters,
-              itemTypes: starter.itemTypes,
-              sessionDurationMinutes: starter.sessionDurationMinutes,
-              maxItems: starter.maxItems,
-              daqePresetId: starter.daqePresetId,
-              isDefault: starter.isDefault,
-            },
-          }).catch(() => {});
-        }
-        const seeded = await invokeCommand<SavedQueue[]>('get_saved_queues', {
-          collectionId: collectionId || null,
-        });
-        if (Array.isArray(seeded)) return seeded;
-      }
-    } catch (e) {
-      console.error('Tauri get_saved_queues failed, falling back to localStorage', e);
+      if (Array.isArray(seeded)) return seeded;
     }
+    return [];
   }
 
   const all = getLocalQueues();
@@ -145,12 +142,9 @@ export async function getSavedQueues(collectionId?: string | null): Promise<Save
 
 export async function getSavedQueue(id: string): Promise<SavedQueue> {
   if (isTauri()) {
-    try {
-      const res = await invokeCommand<SavedQueue>('get_saved_queue', { id });
-      if (res && res.id) return res;
-    } catch (e) {
-      console.error('Tauri get_saved_queue failed, falling back to localStorage', e);
-    }
+    const res = await invokeCommand<SavedQueue>('get_saved_queue', { id });
+    if (res && res.id) return res;
+    throw new Error(`Saved queue ${id} not found`);
   }
 
   const found = getLocalQueues().find((q) => q.id === id);
@@ -160,12 +154,9 @@ export async function getSavedQueue(id: string): Promise<SavedQueue> {
 
 export async function createSavedQueue(input: CreateSavedQueueInput): Promise<SavedQueue> {
   if (isTauri()) {
-    try {
-      const res = await invokeCommand<SavedQueue>('create_saved_queue', { input });
-      if (res && res.id) return res;
-    } catch (e) {
-      console.error('Tauri create_saved_queue failed, falling back to localStorage', e);
-    }
+    const res = await invokeCommand<SavedQueue>('create_saved_queue', { input });
+    if (res && res.id) return res;
+    throw new Error('Failed to create saved queue');
   }
 
   const queues = getLocalQueues();
@@ -217,12 +208,9 @@ export async function updateSavedQueue(
   input: UpdateSavedQueueInput
 ): Promise<SavedQueue> {
   if (isTauri()) {
-    try {
-      const res = await invokeCommand<SavedQueue>('update_saved_queue', { id, input });
-      if (res && res.id) return res;
-    } catch (e) {
-      console.error('Tauri update_saved_queue failed, falling back to localStorage', e);
-    }
+    const res = await invokeCommand<SavedQueue>('update_saved_queue', { id, input });
+    if (res && res.id) return res;
+    throw new Error(`Failed to update saved queue ${id}`);
   }
 
   const queues = getLocalQueues();
@@ -274,12 +262,8 @@ export async function updateSavedQueue(
 
 export async function deleteSavedQueue(id: string): Promise<void> {
   if (isTauri()) {
-    try {
-      await invokeCommand('delete_saved_queue', { id });
-      return;
-    } catch (e) {
-      console.error('Tauri delete_saved_queue failed, falling back to localStorage', e);
-    }
+    await invokeCommand('delete_saved_queue', { id });
+    return;
   }
 
   const queues = getLocalQueues().filter((q) => q.id !== id);
@@ -288,12 +272,8 @@ export async function deleteSavedQueue(id: string): Promise<void> {
 
 export async function getActiveSavedQueueId(): Promise<string | null> {
   if (isTauri()) {
-    try {
-      const res = await invokeCommand<string | null>('get_active_saved_queue_id');
-      if (res !== undefined) return res;
-    } catch (e) {
-      console.error('Tauri get_active_saved_queue_id failed, falling back to localStorage', e);
-    }
+    const res = await invokeCommand<string | null>('get_active_saved_queue_id');
+    return res ?? null;
   }
 
   return localStorage.getItem(LOCAL_STORAGE_ACTIVE_KEY);
@@ -301,12 +281,8 @@ export async function getActiveSavedQueueId(): Promise<string | null> {
 
 export async function setActiveSavedQueueId(id: string | null): Promise<void> {
   if (isTauri()) {
-    try {
-      await invokeCommand('set_active_saved_queue_id', { id });
-      return;
-    } catch (e) {
-      console.error('Tauri set_active_saved_queue_id failed, falling back to localStorage', e);
-    }
+    await invokeCommand('set_active_saved_queue_id', { id });
+    return;
   }
 
   if (id) {

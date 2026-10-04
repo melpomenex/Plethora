@@ -24,6 +24,31 @@ impl SavedQueueRepository {
         &self.pool
     }
 
+    fn opt_str(s: Option<String>) -> Option<String> {
+        s.and_then(|val| {
+            let trimmed = val.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    }
+
+    fn row_opt_str(row: &sqlx::sqlite::SqliteRow, col: &str) -> Option<String> {
+        row.try_get::<Option<String>, _>(col)
+            .ok()
+            .flatten()
+            .and_then(|val| {
+                let trimmed = val.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+    }
+
     fn row_to_saved_queue(row: &sqlx::sqlite::SqliteRow) -> Result<SavedQueue> {
         let filters_json: String = row.get("filters_json");
         let item_types_json: String = row.get("item_types_json");
@@ -46,14 +71,14 @@ impl SavedQueueRepository {
         Ok(SavedQueue {
             id: row.get("id"),
             name: row.get("name"),
-            icon: row.try_get("icon").ok(),
-            collection_id: row.try_get("collection_id").ok(),
+            icon: Self::row_opt_str(row, "icon"),
+            collection_id: Self::row_opt_str(row, "collection_id"),
             filters,
             item_types,
             session_duration_minutes: row.get("session_duration_minutes"),
             max_items: row.get("max_items"),
-            daqe_preset_id: row.try_get("daqe_preset_id").ok(),
-            session_goal: row.try_get("session_goal").ok(),
+            daqe_preset_id: Self::row_opt_str(row, "daqe_preset_id"),
+            session_goal: Self::row_opt_str(row, "session_goal"),
             is_default: is_default_i64 != 0,
             sort_order: row.get("sort_order"),
             created_at,
@@ -63,7 +88,7 @@ impl SavedQueueRepository {
 
     pub async fn get_saved_queues(&self, collection_id: Option<&str>) -> Result<Vec<SavedQueue>> {
         let rows = match collection_id {
-            Some(col_id) => {
+            Some(col_id) if !col_id.trim().is_empty() => {
                 sqlx::query(
                     "SELECT * FROM saved_queues WHERE collection_id = ?1 OR collection_id IS NULL ORDER BY sort_order ASC, name ASC",
                 )
@@ -71,7 +96,7 @@ impl SavedQueueRepository {
                 .fetch_all(&self.pool)
                 .await?
             }
-            None => {
+            _ => {
                 sqlx::query("SELECT * FROM saved_queues ORDER BY sort_order ASC, name ASC")
                     .fetch_all(&self.pool)
                     .await?
@@ -104,11 +129,15 @@ impl SavedQueueRepository {
         let is_default = input.is_default.unwrap_or(false);
         let session_duration = input.session_duration_minutes.unwrap_or(60);
         let max_items = input.max_items.unwrap_or(50);
+        let icon = Self::opt_str(input.icon);
+        let collection_id = Self::opt_str(input.collection_id);
+        let daqe_preset_id = Self::opt_str(input.daqe_preset_id);
+        let session_goal = Self::opt_str(input.session_goal);
 
         let mut tx = self.pool.begin().await?;
 
         if is_default {
-            if let Some(ref col_id) = input.collection_id {
+            if let Some(ref col_id) = collection_id {
                 sqlx::query(
                     "UPDATE saved_queues SET is_default = 0 WHERE collection_id = ?1 OR collection_id IS NULL",
                 )
@@ -140,14 +169,14 @@ impl SavedQueueRepository {
         )
         .bind(&id)
         .bind(&input.name)
-        .bind(input.icon.as_deref())
-        .bind(input.collection_id.as_deref())
+        .bind(icon.as_deref())
+        .bind(collection_id.as_deref())
         .bind(&filters_json)
         .bind(&item_types_json)
         .bind(session_duration)
         .bind(max_items)
-        .bind(input.daqe_preset_id.as_deref())
-        .bind(input.session_goal.as_deref())
+        .bind(daqe_preset_id.as_deref())
+        .bind(session_goal.as_deref())
         .bind(if is_default { 1i64 } else { 0i64 })
         .bind(max_order)
         .bind(&now)
@@ -173,16 +202,28 @@ impl SavedQueueRepository {
             .ok_or_else(|| PlethoraError::NotFound(format!("Saved queue {} not found", id)))?;
 
         let name = input.name.unwrap_or(existing.name);
-        let icon = input.icon.or(existing.icon);
-        let collection_id = input.collection_id.or(existing.collection_id);
+        let icon = match input.icon {
+            Some(s) => Self::opt_str(Some(s)),
+            None => existing.icon,
+        };
+        let collection_id = match input.collection_id {
+            Some(s) => Self::opt_str(Some(s)),
+            None => existing.collection_id,
+        };
         let filters = input.filters.unwrap_or(existing.filters);
         let item_types = input.item_types.unwrap_or(existing.item_types);
         let session_duration = input
             .session_duration_minutes
             .unwrap_or(existing.session_duration_minutes);
         let max_items = input.max_items.unwrap_or(existing.max_items);
-        let daqe_preset_id = input.daqe_preset_id.or(existing.daqe_preset_id);
-        let session_goal = input.session_goal.or(existing.session_goal);
+        let daqe_preset_id = match input.daqe_preset_id {
+            Some(s) => Self::opt_str(Some(s)),
+            None => existing.daqe_preset_id,
+        };
+        let session_goal = match input.session_goal {
+            Some(s) => Self::opt_str(Some(s)),
+            None => existing.session_goal,
+        };
         let is_default = input.is_default.unwrap_or(existing.is_default);
         let sort_order = input.sort_order.unwrap_or(existing.sort_order);
 
@@ -282,3 +323,73 @@ impl SavedQueueRepository {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Pool;
+    use crate::models::saved_queue::{CreateSavedQueueInput, UpdateSavedQueueInput};
+
+    async fn migrated_pool() -> Pool<Sqlite> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory database");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("migrations table");
+        crate::database::migrations::run_migrations(&pool)
+            .await
+            .expect("migrate");
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_create_and_update_saved_queue() {
+        let pool = migrated_pool().await;
+        let repo = SavedQueueRepository::new(pool);
+        let created = repo
+            .create_saved_queue(CreateSavedQueueInput {
+                name: "Test Queue".into(),
+                icon: None,
+                collection_id: None,
+                filters: None,
+                item_types: None,
+                session_duration_minutes: None,
+                max_items: None,
+                daqe_preset_id: None,
+                session_goal: None,
+                is_default: None,
+            })
+            .await
+            .expect("create");
+
+        let updated = repo
+            .update_saved_queue(
+                &created.id,
+                UpdateSavedQueueInput {
+                    name: Some("Updated Name".into()),
+                    icon: None,
+                    collection_id: None,
+                    filters: None,
+                    item_types: None,
+                    session_duration_minutes: None,
+                    max_items: None,
+                    daqe_preset_id: None,
+                    session_goal: None,
+                    is_default: Some(true),
+                    sort_order: None,
+                },
+            )
+            .await
+            .expect("update");
+
+        assert_eq!(updated.name, "Updated Name");
+        assert!(updated.is_default);
+    }
+}
+

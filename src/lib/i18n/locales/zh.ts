@@ -685,6 +685,7 @@ export const zh: Dict = {
   "savedQueues.namePlaceholder": "队列名称（例如：今日重点）",
   "savedQueues.deleteConfirm": "确定要删除此已保存队列吗？项目不会被删除。",
   "savedQueues.defaultBadge": "默认",
+  "savedQueues.activeBadge": "当前",
   "savedQueues.setDefault": "设为默认",
   "savedQueues.rename": "重命名",
   "savedQueues.delete": "删除",

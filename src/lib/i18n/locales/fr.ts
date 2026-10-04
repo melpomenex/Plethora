@@ -4953,6 +4953,7 @@ export const fr: Dict = {
   "savedQueues.namePlaceholder": "Nom de la file (ex. Objectif du jour)",
   "savedQueues.deleteConfirm": "Êtes-vous sûr de vouloir supprimer cette file enregistrée ? Les éléments ne seront pas supprimés.",
   "savedQueues.defaultBadge": "Par défaut",
+  "savedQueues.activeBadge": "Actif",
   "savedQueues.setDefault": "Définir par défaut",
   "savedQueues.rename": "Renommer",
   "savedQueues.delete": "Supprimer",

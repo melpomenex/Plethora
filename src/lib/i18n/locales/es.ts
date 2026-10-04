@@ -4947,6 +4947,7 @@ export const es: Dict = {
   "savedQueues.namePlaceholder": "Nombre de la cola (ej. Enfoque de hoy)",
   "savedQueues.deleteConfirm": "¿Seguro que deseas eliminar esta cola guardada? Los elementos no se eliminarán.",
   "savedQueues.defaultBadge": "Predeterminado",
+  "savedQueues.activeBadge": "Activo",
   "savedQueues.setDefault": "Establecer como predeterminado",
   "savedQueues.rename": "Renombrar",
   "savedQueues.delete": "Eliminar",

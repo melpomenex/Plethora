@@ -952,6 +952,7 @@ export const en: Dict = {
   "savedQueues.namePlaceholder": "Queue name (e.g. Today's Focus)",
   "savedQueues.deleteConfirm": "Are you sure you want to delete this saved queue? Items will not be deleted.",
   "savedQueues.defaultBadge": "Default",
+  "savedQueues.activeBadge": "Active",
   "savedQueues.setDefault": "Set as Default",
   "savedQueues.rename": "Rename",
   "savedQueues.delete": "Delete",

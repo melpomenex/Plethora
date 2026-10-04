@@ -4866,6 +4866,7 @@ export const ja: Dict = {
   "savedQueues.namePlaceholder": "キュー名（例：今日の重点）",
   "savedQueues.deleteConfirm": "この保存済みキューを削除してもよろしいですか？アイテムは削除されません。",
   "savedQueues.defaultBadge": "デフォルト",
+  "savedQueues.activeBadge": "アクティブ",
   "savedQueues.setDefault": "デフォルトに設定",
   "savedQueues.rename": "名前変更",
   "savedQueues.delete": "削除",

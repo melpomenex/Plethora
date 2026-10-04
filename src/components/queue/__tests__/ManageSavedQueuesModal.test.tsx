@@ -82,4 +82,16 @@ describe('ManageSavedQueuesModal', () => {
     fireEvent.click(confirmButton);
     expect(deleteSpy).toHaveBeenCalledWith('q-2');
   });
+
+  it('activates queue and closes modal when row is clicked', async () => {
+    const activateSpy = vi.fn().mockResolvedValue(undefined);
+    useSavedQueueStore.setState({ activateSavedQueue: activateSpy });
+
+    render(<ManageSavedQueuesModal isOpen={true} onClose={onClose} />);
+
+    fireEvent.click(screen.getByText('Study Queue'));
+    expect(activateSpy).toHaveBeenCalledWith('q-2');
+    await Promise.resolve();
+    expect(onClose).toHaveBeenCalled();
+  });
 });

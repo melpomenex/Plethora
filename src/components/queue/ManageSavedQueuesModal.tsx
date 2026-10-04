@@ -22,6 +22,8 @@ export function ManageSavedQueuesModal({
 }: ManageSavedQueuesModalProps) {
   const { t } = useI18n();
   const savedQueues = useSavedQueueStore((s) => s.savedQueues);
+  const activeQueueId = useSavedQueueStore((s) => s.activeQueueId);
+  const activateSavedQueue = useSavedQueueStore((s) => s.activateSavedQueue);
   const updateSavedQueue = useSavedQueueStore((s) => s.updateSavedQueue);
   const deleteSavedQueue = useSavedQueueStore((s) => s.deleteSavedQueue);
 
@@ -30,6 +32,11 @@ export function ManageSavedQueuesModal({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const handleSelectQueue = async (queue: SavedQueue) => {
+    await activateSavedQueue(queue.id);
+    onClose();
+  };
 
   const handleStartRename = (queue: SavedQueue) => {
     setEditingId(queue.id);
@@ -98,13 +105,31 @@ export function ManageSavedQueuesModal({
             savedQueues.map((queue) => {
               const isEditing = editingId === queue.id;
               const isConfirmingDelete = deleteConfirmId === queue.id;
+              const isActive = queue.id === activeQueueId;
 
               return (
                 <div
                   key={queue.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors"
+                  className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                    isActive
+                      ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
+                      : "border-border bg-muted/20 hover:bg-muted/40"
+                  }`}
                 >
-                  <div className="flex-1 min-w-0 mr-3">
+                  <div
+                    className={`flex-1 min-w-0 mr-3 ${!isEditing ? "cursor-pointer" : ""}`}
+                    onClick={() => {
+                      if (!isEditing) void handleSelectQueue(queue);
+                    }}
+                    role={!isEditing ? "button" : undefined}
+                    tabIndex={!isEditing ? 0 : undefined}
+                    onKeyDown={(e) => {
+                      if (!isEditing && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        void handleSelectQueue(queue);
+                      }
+                    }}
+                  >
                     {isEditing ? (
                       <div className="flex items-center gap-2">
                         <input
@@ -133,8 +158,13 @@ export function ManageSavedQueuesModal({
                           <span className="font-medium text-sm text-foreground truncate">
                             {queue.name}
                           </span>
+                          {isActive && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold">
+                              {t("savedQueues.activeBadge") || "Active"}
+                            </span>
+                          )}
                           {queue.isDefault && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">
                               {t("savedQueues.defaultBadge") || "Default"}
                             </span>
                           )}

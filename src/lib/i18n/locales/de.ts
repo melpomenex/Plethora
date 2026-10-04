@@ -4954,6 +4954,7 @@ export const de: Dict = {
   "savedQueues.namePlaceholder": "Name der Warteschlange (z. B. Heutiger Fokus)",
   "savedQueues.deleteConfirm": "Möchten Sie diese gespeicherte Warteschlange wirklich löschen? Elemente werden nicht gelöscht.",
   "savedQueues.defaultBadge": "Standard",
+  "savedQueues.activeBadge": "Aktiv",
   "savedQueues.setDefault": "Als Standard festlegen",
   "savedQueues.rename": "Umbenennen",
   "savedQueues.delete": "Löschen",
