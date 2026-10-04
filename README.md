@@ -17,9 +17,11 @@
 ---
 
 <div align="center">
-  <video src="assets/PlethoraPromo.mp4" poster="assets/PlethoraPromo-poster.jpg" width="100%" controls preload="metadata"></video>
+  <a href="assets/PlethoraPromo.mp4">
+    <img src="assets/PlethoraPromo-hero.jpg" width="100%" alt="Plethora screens: reader, extract, review, schedule and knowledge graph" />
+  </a>
   <br>
-  <sub>Plethora in 49 seconds — <a href="assets/PlethoraPromo.mp4">download the MP4</a></sub>
+  <sub>▶ Watch the 49-second tour — <a href="assets/PlethoraPromo.mp4">download the MP4</a></sub>
 </div>
 
 ## Overview
