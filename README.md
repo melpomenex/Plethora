@@ -18,7 +18,7 @@
 
 <div align="center">
   <a href="assets/PlethoraPromo.mp4">
-    <img src="assets/PlethoraPromo-hero.jpg" width="100%" alt="Plethora screens: reader, extract, review, schedule and knowledge graph" />
+    <img src="assets/PlethoraPromo.webp" width="100%" alt="Plethora in 49 seconds: read anything, turn a selection into an extract, review it on schedule, and watch the knowledge graph connect it all" />
   </a>
   <br>
   <sub>▶ Watch the 49-second tour — <a href="assets/PlethoraPromo.mp4">download the MP4</a></sub>
