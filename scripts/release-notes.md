@@ -1,43 +1,16 @@
-# What’s changed since Incrementum?
+### Added
+- **Saved Queues** — Create, manage, and persist custom queue presets with customizable filters, sorting, and session goals. Features dedicated toolbar and dropdown integration, quick-switching via Command Palette, and starter presets across 6 locales.
+- **Dynamic Adaptive Queue Engine (DAQE)** — Adaptive queue ranking that dynamically balances cognitive load, urgency, spacing, retention goals, and session targets. Supports decision-model providers including OpenAI and Cloudflare Workers AI with explicit session goal guidance.
+- **Cactus Whistle Speech-to-Text** — Cross-platform on-device speech recognition powered by the Cactus Whistle STT model, with exhaustive native handling across desktop and mobile.
+- **Audio Editions in Queue & Voice Selection** — Listen to long-form content, articles, and PDFs directly in your review queue with multi-part position resume, voice selection, live auditioning, and section synthesis.
+- **Pocket-TTS Runtime Provisioning** — Automatically provision and execute the Pocket-TTS runtime directly from the application via `uv`.
+- **Enhanced Mobile Web & Article Reader** — Generalized selection actions to saved web articles, ranking the most-used actions on mobile and maintaining an active selection bridge across iframes.
+- **Inline Product Showcase** — Added a 49-second animated preview reel directly to documentation showcasing Plethora's core workflows.
 
-Plethora is much more than a rebrand of Incrementum. Since the transition, the app has received major new learning, reading, AI, audio, mobile, synchronization, and interface capabilities.
-
-## New and significantly expanded features
-
-* **FSRS-7 scheduling** — Plethora now uses FSRS-7 as its production spaced-repetition scheduler.
-* **Material 3 interface** — a major redesign of navigation, dialogs, controls, review UI, settings, document surfaces, TTS controls and mobile navigation while retaining Plethora's themes and E-Ink mode.
-* **Flashcard source navigation** — jump from a flashcard directly back to the exact passage it came from, then return to your review session.
-* **On-device AI** — expanded local AI support across Apple Intelligence/Foundation Models, Android native AI/ML Kit, and Windows System AI/Foundry Local.
-* **On-device speech recognition** — including offline Android audiobook and podcast transcription.
-* **Improved local transcription** — Nemotron support, GPU acceleration, automatic CPU/GPU selection, resumable model downloads and better progress reporting.
-* **Audiobook upgrades** — import multi-file audiobooks as a single book with chapters, improved M4B handling, and synchronized ebook/audiobook word highlighting.
-* **Language Learning Mode** — vocabulary and phrase tracking, sentence learning, practice history, tutoring, SRS integration and video/audio language-learning tools.
-* **Smarter browser capture** — save images, capture image occlusions, import X/Twitter threads, improved YouTube capture, offline queuing and better capture provenance.
-* **Native X/Twitter thread reading** — threads, quoted posts and sources are imported into a dedicated reader instead of being treated as generic webpages.
-* **Improved article and arXiv importing** — better reader-mode extraction, offline images, dark-theme support, fixed figure loading and more reliable resource handling.
-* **Capture Activity dashboard** — see how much you're capturing and whether it came from the browser extension, native sharing, RSS or manual imports.
-* **Smart Tagging and knowledge tools** — expanded semantic tagging, knowledge connections, learning paths, knowledge-health analytics and AI-assisted learning workflows.
-* **Privacy controls** — explicit consent for cloud AI operations and stronger local-only/on-device routing.
-* **Expanded iOS support** — native sharing, document/photo scanning, Apple Intelligence integration, and major startup/reliability work.
-* **Animated themes and improved customization** — GPU-accelerated visual themes, improved theme selection and extensive accessibility/contrast refinements.
-
-## Major improvements and fixes
-
-* Dramatically faster importing of certain large EPUBs.
-* More reliable EPUB rendering and theming, especially on Android.
-* Better text selection and double-tap paragraph actions on mobile.
-* More reliable TTS position saving, pause/resume and word highlighting.
-* Working Android lock-screen/headset media controls with document metadata.
-* Improved YouTube playback and capture.
-* Better cold-start and first-open performance.
-* Major synchronization reliability improvements.
-* Better handling of article images and arXiv figures.
-* Reduced memory/resource retention in long-running reading and audio sessions.
-* Numerous Linux, macOS, Windows, Android and iOS platform-specific stability fixes.
-* Major build, packaging and release-pipeline improvements.
-
-## Existing Incrementum data is preserved
-
-Plethora includes migration support for Incrementum databases, application data, archives, keychain entries, browser-extension protocols and integrations. Existing `.incrementum` archives remain supported alongside the new Plethora formats.
-
-In short: Plethora retains Incrementum's core incremental-reading foundation, but the reader, review system, AI stack, audio system, mobile experience, synchronization layer and visual interface have all undergone substantial development since the rename.
+### Fixed & Improved
+- **Audio Edition Extraction & Playback** — Support PDF text extraction for Audio Editions, repair section synthesis extraction, improve generation UX, and resolve codec playback errors.
+- **Saved Queue & Review Invariants** — Resolve foreign key errors on saved queues, sync session goals and DAQE presets to settings upon selection, and properly resolve stored queue strategies.
+- **Mobile UI & Styling** — Fix audio edition dialog clipping and tag editor translucency on mobile, repair mobile queue layouts, and prevent raw icon names from rendering as text labels.
+- **Review Fallbacks & Media Controls** — Repair card source fallback navigation, SponsorBlock settings, and narrow command scoping when archiving finished videos.
+- **Linux AppImage Subprocess Environment** — Prevent `PYTHONHOME` from leaking into Python subprocesses, and restore YouTube HTML5 playback in AppImages.
+- **Cross-Platform CI & Packaging Stability** — Extensive build and packaging hardening: Linux runner swap and memory allocation, serial linking with LLD, Windows sparse identity MSIX integration, MSVC build fixes, and Android/iOS build timeout and signing improvements.
