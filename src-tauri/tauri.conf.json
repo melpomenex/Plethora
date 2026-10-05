@@ -52,7 +52,9 @@
     "resources": [
       "scripts/anna_download.py",
       "bin/notebooklm-runtime",
-      "windows/sparse/out/PlethoraIdentity.msix"
+      "windows/sparse/out/PlethoraIdentity.msix",
+      "daemon/plethora_tts_daemon.py",
+      "bin/plethora-tts-daemon"
     ],
     "fileAssociations": [
       {

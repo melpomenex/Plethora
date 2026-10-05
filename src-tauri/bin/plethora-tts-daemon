@@ -1,12 +1,41 @@
 #!/bin/sh
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-DAEMON_SCRIPT="$SCRIPT_DIR/../daemon/plethora_tts_daemon.py"
 
-# Prefer python3 in path or bundled
-PYTHON="python3"
-if [ -x "$SCRIPT_DIR/pocket-tts-runtime/x86_64-unknown-linux-gnu/python/bin/python3" ]; then
-  PYTHON="$SCRIPT_DIR/pocket-tts-runtime/x86_64-unknown-linux-gnu/python/bin/python3"
+# Search candidate locations for the daemon python script
+DAEMON_SCRIPT=""
+for CANDIDATE in \
+  "$SCRIPT_DIR/../daemon/plethora_tts_daemon.py" \
+  "$SCRIPT_DIR/daemon/plethora_tts_daemon.py" \
+  "$SCRIPT_DIR/plethora_tts_daemon.py" \
+  "$SCRIPT_DIR/../Resources/daemon/plethora_tts_daemon.py" \
+  "$SCRIPT_DIR/../Resources/plethora_tts_daemon.py" \
+  "$SCRIPT_DIR/../../daemon/plethora_tts_daemon.py"; do
+  if [ -f "$CANDIDATE" ]; then
+    DAEMON_SCRIPT="$CANDIDATE"
+    break
+  fi
+done
+
+if [ -z "$DAEMON_SCRIPT" ]; then
+  echo "error: plethora_tts_daemon.py not found relative to $SCRIPT_DIR" >&2
+  exit 1
 fi
 
-exec "$PYTHON" "$DAEMON_SCRIPT" "$@"
+# Detect Python runtime: prefer system python3 (which may have CUDA/Torch packages),
+# fallback to bundled runtime if python3 is unavailable in PATH.
+PYTHON="python3"
+if ! command -v python3 >/dev/null 2>&1; then
+  for RUNTIME_CANDIDATE in \
+    "$SCRIPT_DIR/pocket-tts-runtime/x86_64-unknown-linux-gnu/python/bin/python3" \
+    "$SCRIPT_DIR/pocket-tts-runtime/aarch64-unknown-linux-gnu/python/bin/python3" \
+    "$SCRIPT_DIR/notebooklm-runtime/linux/python/bin/python3"; do
+    if [ -x "$RUNTIME_CANDIDATE" ]; then
+      PYTHON="$RUNTIME_CANDIDATE"
+      break
+    fi
+  done
+fi
+
+exec "$PYTHON" -u "$DAEMON_SCRIPT" "$@"
+

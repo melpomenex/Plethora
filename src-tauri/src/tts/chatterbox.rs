@@ -97,8 +97,100 @@ pub fn verify_chatterbox_assets(model_dir: &Path) -> bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Daemon Process Supervisor
+// Daemon Process Supervisor & Hardware Prober
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Probe host hardware to identify GPU compute acceleration capabilities.
+pub fn probe_host_backend() -> String {
+    // 1. Check NVIDIA GPU presence via /dev nodes, CUDA environment, or nvidia-smi
+    if Path::new("/dev/nvidia0").exists()
+        || Path::new("/dev/nvidiactl").exists()
+        || std::env::var_os("CUDA_VISIBLE_DEVICES").is_some()
+    {
+        return "cuda".to_string();
+    }
+    if let Ok(output) = Command::new("nvidia-smi").arg("--version").output() {
+        if output.status.success() {
+            return "cuda".to_string();
+        }
+    }
+
+    // 2. Check Apple Silicon Metal Performance Shaders (MPS)
+    #[cfg(target_os = "macos")]
+    {
+        #[cfg(target_arch = "aarch64")]
+        return "mps".to_string();
+    }
+
+    // 3. Check AMD ROCm presence
+    if Path::new("/dev/kfd").exists() {
+        return "rocm".to_string();
+    }
+    if let Ok(output) = Command::new("rocm-smi").arg("--version").output() {
+        if output.status.success() {
+            return "rocm".to_string();
+        }
+    }
+
+    "cpu".to_string()
+}
+
+/// Resolve the path to the plethora-tts-daemon executable wrapper or python script.
+pub fn resolve_daemon_path(app_handle: &AppHandle) -> Result<PathBuf> {
+    // 1. Bundled resource directory (production / AppImage packages)
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let candidates = [
+            resource_dir.join("bin").join("plethora-tts-daemon"),
+            resource_dir.join("plethora-tts-daemon"),
+            resource_dir.join("daemon").join("plethora_tts_daemon.py"),
+            resource_dir.join("plethora_tts_daemon.py"),
+        ];
+        for candidate in candidates {
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    // 2. Development manifest directory (CARGO_MANIFEST_DIR evaluates to src-tauri)
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dev_candidates = [
+        manifest_dir.join("bin").join("plethora-tts-daemon"),
+        manifest_dir.join("daemon").join("plethora_tts_daemon.py"),
+        manifest_dir.parent().map(|p| p.join("src-tauri").join("daemon").join("plethora_tts_daemon.py")).unwrap_or_default(),
+        manifest_dir.parent().map(|p| p.join("src-tauri").join("bin").join("plethora-tts-daemon")).unwrap_or_default(),
+        PathBuf::from("daemon/plethora_tts_daemon.py"),
+        PathBuf::from("bin/plethora-tts-daemon"),
+        PathBuf::from("src-tauri/daemon/plethora_tts_daemon.py"),
+        PathBuf::from("src-tauri/bin/plethora-tts-daemon"),
+        PathBuf::from("../src-tauri/daemon/plethora_tts_daemon.py"),
+        PathBuf::from("../src-tauri/bin/plethora-tts-daemon"),
+    ];
+    for candidate in dev_candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    // 3. Current executable directory (binaries installed side-by-side)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidates = [
+                exe_dir.join("bin").join("plethora-tts-daemon"),
+                exe_dir.join("plethora-tts-daemon"),
+                exe_dir.join("daemon").join("plethora_tts_daemon.py"),
+                exe_dir.join("plethora_tts_daemon.py"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+            }
+        }
+    }
+
+    Err(anyhow!("Could not locate plethora_tts_daemon script or binary"))
+}
 
 pub struct SupervisorInner {
     child: Option<Child>,
@@ -106,6 +198,7 @@ pub struct SupervisorInner {
     backend: String,
     last_error: Option<String>,
     downloading: Arc<AtomicBool>,
+    stderr_log: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 pub struct ChatterboxSupervisor {
@@ -118,9 +211,10 @@ impl ChatterboxSupervisor {
             inner: AsyncMutex::new(SupervisorInner {
                 child: None,
                 port: None,
-                backend: "cpu".to_string(),
+                backend: probe_host_backend(),
                 last_error: None,
                 downloading: Arc::new(AtomicBool::new(false)),
+                stderr_log: Arc::new(std::sync::Mutex::new(Vec::new())),
             }),
         }
     }
@@ -134,7 +228,16 @@ impl ChatterboxSupervisor {
             match child.try_wait() {
                 Ok(None) => running = true,
                 Ok(Some(status)) => {
-                    inner.last_error = Some(format!("Daemon exited with code: {:?}", status.code()));
+                    let stderr_recent = inner
+                        .stderr_log
+                        .lock()
+                        .ok()
+                        .map(|lines| lines.join("\n"))
+                        .filter(|s| !s.trim().is_empty());
+                    inner.last_error = Some(match stderr_recent {
+                        Some(err) => format!("Daemon exited with code: {:?} - {}", status.code(), err),
+                        None => format!("Daemon exited with code: {:?}", status.code()),
+                    });
                     inner.child = None;
                     inner.port = None;
                 }
@@ -144,6 +247,11 @@ impl ChatterboxSupervisor {
                     inner.port = None;
                 }
             }
+        }
+
+        // If not running, ensure backend reflects detected hardware capability
+        if !running && (inner.backend.is_empty() || inner.backend == "cpu") {
+            inner.backend = probe_host_backend();
         }
 
         let model_dir = resolve_chatterbox_model_dir(app_handle).unwrap_or_else(|_| PathBuf::from(""));
@@ -178,23 +286,11 @@ impl ChatterboxSupervisor {
         let voices_dir = app_dir.join("voices");
         fs::create_dir_all(&voices_dir)?;
 
-        // Locate daemon script or binary
-        let bin_candidate = app_handle
-            .path()
-            .resource_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("bin")
-            .join("plethora-tts-daemon");
-
-        let daemon_path = if bin_candidate.exists() {
-            bin_candidate
-        } else {
-            // Dev fallback
-            PathBuf::from("src-tauri/daemon/plethora_tts_daemon.py")
-        };
+        let daemon_path = resolve_daemon_path(app_handle)?;
 
         let mut cmd = if daemon_path.extension().and_then(|e| e.to_str()) == Some("py") {
             let mut c = Command::new("python3");
+            c.arg("-u");
             c.arg(&daemon_path);
             c
         } else {
@@ -208,39 +304,112 @@ impl ChatterboxSupervisor {
 
         let mut child = cmd.spawn().with_context(|| format!("Failed to spawn daemon at {:?}", daemon_path))?;
         let stdout = child.stdout.take().context("Failed to capture daemon stdout")?;
+        let stderr = child.stderr.take().context("Failed to capture daemon stderr")?;
 
-        // Read port from stdout handshake: PLETHORA_TTS_DAEMON_READY:{"port": ...}
-        let reader = BufReader::new(stdout);
-        let mut assigned_port = None;
-        let mut detected_backend = "cpu".to_string();
-
-        let start_time = Instant::now();
-        for line_res in reader.lines() {
-            if start_time.elapsed() > Duration::from_secs(5) {
-                break;
-            }
-            if let Ok(line) = line_res {
-                if let Some(idx) = line.find("PLETHORA_TTS_DAEMON_READY:") {
-                    let json_str = &line[idx + "PLETHORA_TTS_DAEMON_READY:".len()..];
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        if let Some(port) = val.get("port").and_then(|p| p.as_u64()) {
-                            assigned_port = Some(port as u16);
-                        }
-                        if let Some(b) = val.get("backend").and_then(|b| b.as_str()) {
-                            detected_backend = b.to_string();
-                        }
+        let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(l) = line {
+                    if stdout_tx.send(l).is_err() {
                         break;
                     }
+                } else {
+                    break;
+                }
+            }
+        });
+
+        let stderr_log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stderr_log_drain = stderr_log.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(l) = line {
+                    if let Ok(mut buf) = stderr_log_drain.lock() {
+                        if buf.len() > 100 {
+                            buf.remove(0);
+                        }
+                        buf.push(l);
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
+
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(10);
+        let mut assigned_port = None;
+        let mut detected_backend = probe_host_backend();
+
+        while start_time.elapsed() < timeout {
+            // Check if child exited prematurely
+            if let Ok(Some(status)) = child.try_wait() {
+                let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                let msg = if !err_detail.trim().is_empty() {
+                    format!("Daemon failed to start (exit status {:?}): {}", status, err_detail.trim())
+                } else {
+                    format!("Daemon process exited prematurely with status: {:?}", status)
+                };
+                inner.last_error = Some(msg.clone());
+                return Err(anyhow!(msg));
+            }
+
+            match stdout_rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(line) => {
+                    if let Some(idx) = line.find("PLETHORA_TTS_DAEMON_READY:") {
+                        let json_str = &line[idx + "PLETHORA_TTS_DAEMON_READY:".len()..];
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            if let Some(port) = val.get("port").and_then(|p| p.as_u64()) {
+                                assigned_port = Some(port as u16);
+                            }
+                            if let Some(b) = val.get("backend").and_then(|b| b.as_str()) {
+                                detected_backend = b.to_string();
+                            }
+                            break;
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // Stdout stream closed, process may have exited
+                    if let Ok(Some(status)) = child.try_wait() {
+                        let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                        let msg = if !err_detail.trim().is_empty() {
+                            format!("Daemon exited unexpectedly (status {:?}): {}", status, err_detail.trim())
+                        } else {
+                            format!("Daemon exited unexpectedly with status {:?}", status)
+                        };
+                        inner.last_error = Some(msg.clone());
+                        return Err(anyhow!(msg));
+                    }
+                    break;
                 }
             }
         }
 
-        let port = assigned_port.ok_or_else(|| anyhow!("Daemon failed to report listening port within 5s"))?;
+        let port = match assigned_port {
+            Some(p) => p,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                let msg = if !err_detail.trim().is_empty() {
+                    format!("Daemon failed to report listening port within 10s: {}", err_detail.trim())
+                } else {
+                    "Daemon failed to report listening port within 10s".to_string()
+                };
+                inner.last_error = Some(msg.clone());
+                return Err(anyhow!(msg));
+            }
+        };
 
         inner.child = Some(child);
         inner.port = Some(port);
         inner.backend = detected_backend;
         inner.last_error = None;
+        inner.stderr_log = stderr_log;
 
         Ok(port)
     }
@@ -462,3 +631,48 @@ pub async fn chatterbox_delete_voice_profile(app: AppHandle, id: String) -> Resu
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_probe_host_backend() {
+        let backend = probe_host_backend();
+        assert!(
+            backend == "cuda" || backend == "mps" || backend == "rocm" || backend == "cpu",
+            "Expected valid backend string, got: {}",
+            backend
+        );
+        // On systems with /dev/nvidia0 or nvidia-smi present, cuda must be probed
+        if Path::new("/dev/nvidia0").exists() {
+            assert_eq!(backend, "cuda");
+        }
+    }
+
+    #[test]
+    fn test_supervisor_initializes_with_probed_backend() {
+        let supervisor = ChatterboxSupervisor::new();
+        let expected = probe_host_backend();
+        // Check that initial lock returns expected probed backend
+        let inner = supervisor.inner.try_lock().expect("should acquire lock");
+        assert_eq!(inner.backend, expected);
+    }
+
+    #[test]
+    fn test_verify_chatterbox_assets() {
+        let temp_dir = tempfile::tempdir().expect("create tempdir");
+        assert!(!verify_chatterbox_assets(temp_dir.path()));
+
+        // Create empty files -> false
+        fs::write(temp_dir.path().join("config.json"), b"").unwrap();
+        fs::write(temp_dir.path().join("model.safetensors"), b"").unwrap();
+        assert!(!verify_chatterbox_assets(temp_dir.path()));
+
+        // Create non-empty files -> true
+        fs::write(temp_dir.path().join("config.json"), b"{}").unwrap();
+        fs::write(temp_dir.path().join("model.safetensors"), b"binary").unwrap();
+        assert!(verify_chatterbox_assets(temp_dir.path()));
+    }
+}
+

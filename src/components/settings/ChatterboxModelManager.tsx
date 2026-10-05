@@ -163,8 +163,26 @@ export function ChatterboxModelManager() {
             </span>
           )}
           {status?.backend && (
-            <span className="rounded-md border border-border px-2 py-0.5 text-xs uppercase font-mono text-muted-foreground">
-              {status.backend}
+            <span
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-mono font-medium uppercase ${
+                status.backend.toLowerCase() !== "cpu"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border-border bg-muted/50 text-muted-foreground"
+              }`}
+              title={
+                status.backend.toLowerCase() !== "cpu"
+                  ? `Hardware acceleration active (${status.backend.toUpperCase()})`
+                  : "Running on CPU (no GPU acceleration detected)"
+              }
+            >
+              {status.backend.toLowerCase() !== "cpu" ? (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  GPU: {status.backend.toUpperCase()}
+                </>
+              ) : (
+                "CPU"
+              )}
             </span>
           )}
         </div>

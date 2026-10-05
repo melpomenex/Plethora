@@ -16,9 +16,12 @@ import json
 import logging
 import math
 import os
+import platform
 import re
+import shutil
 import socketserver
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -61,15 +64,40 @@ def detect_hardware():
             try:
                 vram_bytes = torch.cuda.mem_get_info()[0]
             except Exception:
-                vram_bytes = 4 * 1024 * 1024 * 1024
+                pass
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             backend = "mps"
+            vram_bytes = ram_bytes
         elif hasattr(torch.version, "hip") and torch.version.hip:
             backend = "rocm"
     except ImportError:
-        # Check environment or nvidia files
-        if os.path.exists("/dev/nvidia0") or os.environ.get("CUDA_VISIBLE_DEVICES"):
+        pass
+
+    # Direct hardware detection if torch didn't detect or is uninstalled
+    if backend == "cpu" or vram_bytes == 0:
+        # Check NVIDIA
+        if os.path.exists("/dev/nvidia0") or os.environ.get("CUDA_VISIBLE_DEVICES") or shutil.which("nvidia-smi"):
             backend = "cuda"
+            if vram_bytes == 0 and shutil.which("nvidia-smi"):
+                try:
+                    out = subprocess.check_output(
+                        ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                        timeout=2,
+                        text=True
+                    ).strip()
+                    lines = out.splitlines()
+                    if lines:
+                        free_mb = int(lines[0].strip().split()[0])
+                        vram_bytes = free_mb * 1024 * 1024
+                except Exception as e:
+                    logger.debug("nvidia-smi query failed: %s", e)
+        # Check Apple Silicon Metal
+        elif sys.platform == "darwin" and platform.machine() in ("arm64", "aarch64"):
+            backend = "mps"
+            vram_bytes = ram_bytes
+        # Check AMD ROCm
+        elif os.path.exists("/dev/kfd") or shutil.which("rocm-smi"):
+            backend = "rocm"
 
     logger.info("Hardware detected: backend=%s, vram_bytes=%d, ram_bytes=%d", backend, vram_bytes, ram_bytes)
     return {
