@@ -4118,6 +4118,26 @@ pub const MIGRATIONS: &[Migration] = &[
             ON saved_queues(collection_id, sort_order ASC);
         "#,
     ),
+    Migration::new(
+        "119_add_chatterbox_voice_profiles",
+        r#"
+        CREATE TABLE IF NOT EXISTS chatterbox_voice_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            avatar_color TEXT,
+            playback_speed REAL NOT NULL DEFAULT 1.0,
+            preferred_content_types_json TEXT NOT NULL DEFAULT '[]',
+            embedding_path TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chatterbox_voice_profiles_created
+            ON chatterbox_voice_profiles(created_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -1397,6 +1397,7 @@ pub fn run() {
                 app.manage(ai_key_store.clone());
                 app.manage(pocket_tts::PocketTTSInstallState::default());
                 app.manage(tts::SherpaTtsState::default());
+                app.manage(Arc::new(tts::chatterbox::ChatterboxSupervisor::new()));
                 app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
                     job_queue: transcription::job_queue::JobQueue::new(
@@ -2369,6 +2370,15 @@ pub fn run() {
             tts::commands::sherpa_tts_synthesize,
             tts::commands::sherpa_tts_cancel,
             tts::commands::sherpa_tts_unload,
+            tts::chatterbox::chatterbox_status,
+            tts::chatterbox::chatterbox_start,
+            tts::chatterbox::chatterbox_stop,
+            tts::chatterbox::chatterbox_download_model,
+            tts::chatterbox::chatterbox_cancel_download,
+            tts::chatterbox::chatterbox_delete_model,
+            tts::chatterbox::chatterbox_list_voice_profiles,
+            tts::chatterbox::chatterbox_create_voice_profile,
+            tts::chatterbox::chatterbox_delete_voice_profile,
             transcription::get_transcript,
             transcription::save_transcript,
             transcription::enqueue_auto_transcription,

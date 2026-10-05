@@ -41,17 +41,116 @@ export interface ExtractedText {
   readingTimeSec: number;
 }
 
+export interface CleanTextOptions {
+  codeBlockMode?: "skip" | "summary" | "read";
+  translateMath?: boolean;
+}
+
+export interface SentenceSpan {
+  text: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+const COMMON_ABBREVIATIONS = new Set([
+  "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "vs", "etc", "eg", "ie", "al", "fig", "no", "vol", "dept"
+]);
+
+/**
+ * Translate LaTeX math expressions into natural spoken English
+ */
+export function translateMathForTTS(text: string): string {
+  return text
+    // Display math $$...$$
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => ` ${translateMathExpression(math)} `)
+    // Inline math $...$
+    .replace(/\$([^$\n]+)\$/g, (_, math) => ` ${translateMathExpression(math)} `);
+}
+
+function translateMathExpression(expr: string): string {
+  let s = expr.trim();
+  s = s.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, "$1 over $2");
+  s = s.replace(/\\sqrt\{([^}]+)\}/g, "square root of $1");
+  s = s.replace(/(\w+)\^2\b/g, "$1 squared");
+  s = s.replace(/(\w+)\^3\b/g, "$1 cubed");
+  s = s.replace(/(\w+)\^\{?([a-zA-Z0-9]+)\}?/g, "$1 to the power of $2");
+  s = s.replace(/(\w+)_\{?([a-zA-Z0-9]+)\}?/g, "$1 sub $2");
+
+  const replacements: Array<[RegExp, string]> = [
+    [/\\in\b/g, "in"],
+    [/\\notin\b/g, "not in"],
+    [/\\subset(eq)?\b/g, "subset of"],
+    [/\\le(q)?\b|<=/g, "less than or equal to"],
+    [/\\ge(q)?\b|>=/g, "greater than or equal to"],
+    [/\\neq\b|!=/g, "not equal to"],
+    [/\\approx\b/g, "approximately"],
+    [/\\equiv\b/g, "equivalent to"],
+    [/\\times\b/g, "times"],
+    [/\\div\b/g, "divided by"],
+    [/\\pm\b/g, "plus or minus"],
+    [/\\sum\b/g, "sum of"],
+    [/\\prod\b/g, "product of"],
+    [/\\int\b/g, "integral of"],
+    [/\\infty\b/g, "infinity"],
+    [/\\forall\b/g, "for all"],
+    [/\\exists\b/g, "there exists"],
+    [/\\to\b|\\rightarrow\b/g, "approaches"],
+    [/\\alpha\b/g, "alpha"],
+    [/\\beta\b/g, "beta"],
+    [/\\gamma\b/g, "gamma"],
+    [/\\delta\b/g, "delta"],
+    [/\\theta\b/g, "theta"],
+    [/\\lambda\b/g, "lambda"],
+    [/\\pi\b/g, "pi"],
+    [/\\sigma\b/g, "sigma"],
+    [/\\omega\b/g, "omega"],
+  ];
+  for (const [re, rep] of replacements) {
+    s = s.replace(re, ` ${rep} `);
+  }
+  s = s.replace(/\\[a-zA-Z]+/g, " ").replace(/[{}]/g, "");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Handle fenced code blocks for TTS according to configured mode
+ */
+export function normalizeCodeBlocks(
+  text: string,
+  mode: "skip" | "summary" | "read" = "skip"
+): string {
+  if (mode === "read") {
+    return text.replace(/```(?:[a-zA-Z0-9_-]+)?\n?([\s\S]*?)```/g, "$1");
+  }
+  if (mode === "summary") {
+    return text.replace(/```(?:([a-zA-Z0-9_-]+))?\n?([\s\S]*?)```/g, (_, lang, code) => {
+      const lineCount = (code.trim().split("\n").filter(Boolean)).length;
+      const langName = lang ? lang.trim() : "code";
+      return ` [code block: ${langName}, ${lineCount} lines] `;
+    });
+  }
+  return text.replace(/```[\s\S]*?```/g, " ");
+}
+
 /**
  * Clean and normalize text for TTS
  */
-export function cleanTextForTTS(text: string): string {
-  return text
+export function cleanTextForTTS(text: string, options: CleanTextOptions = {}): string {
+  const codeMode = options.codeBlockMode ?? "skip";
+  let result = text;
+
+  if (options.translateMath !== false) {
+    result = translateMathForTTS(result);
+  }
+
+  result = normalizeCodeBlocks(result, codeMode);
+
+  return result
     .replace(/<[^>]*>/g, " ")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1")
-    .replace(/```[\s\S]*?```/g, "")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^[-*_]{3,}\s*$/gm, "")
     .replace(/^[\s]*[-*+]\s+/gm, "")
@@ -60,6 +159,106 @@ export function cleanTextForTTS(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * Split text into natural sentence spans with exact source character offsets
+ */
+export function splitSentencesWithOffsets(text: string): SentenceSpan[] {
+  if (!text || text.trim().length === 0) return [];
+
+  const spans: SentenceSpan[] = [];
+  const sentenceEndRegex = /([.!?]+)([\s\n]+|$)/g;
+  let lastStart = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = sentenceEndRegex.exec(text)) !== null) {
+    const endPunctuation = match[1];
+    const punctIndex = match.index;
+
+    // Check abbreviation
+    const textBeforePunct = text.slice(lastStart, punctIndex);
+    const lastWordMatch = textBeforePunct.match(/([a-zA-Z.]+)\s*$/);
+    const lastWord = lastWordMatch ? lastWordMatch[1].replace(/\./g, "").toLowerCase() : "";
+
+    if (COMMON_ABBREVIATIONS.has(lastWord) && match[2] && !match[2].includes("\n")) {
+      continue;
+    }
+
+    const sentenceRaw = text.slice(lastStart, punctIndex + endPunctuation.length);
+    const trimmedSentence = sentenceRaw.trim();
+    if (trimmedSentence.length > 0) {
+      const leadingSpace = sentenceRaw.length - sentenceRaw.trimStart().length;
+      const actualStart = lastStart + leadingSpace;
+      spans.push({
+        text: trimmedSentence,
+        startOffset: actualStart,
+        endOffset: actualStart + trimmedSentence.length,
+      });
+    }
+
+    lastStart = sentenceEndRegex.lastIndex;
+  }
+
+  if (lastStart < text.length) {
+    const remaining = text.slice(lastStart);
+    const trimmed = remaining.trim();
+    if (trimmed.length > 0) {
+      const leadingSpace = remaining.length - remaining.trimStart().length;
+      const actualStart = lastStart + leadingSpace;
+      spans.push({
+        text: trimmed,
+        startOffset: actualStart,
+        endOffset: actualStart + trimmed.length,
+      });
+    }
+  }
+
+  return spans;
+}
+
+/**
+ * Prebuffer coordinator for lookahead synthesis (synthesizing N+1 and N+2 while N plays)
+ */
+export class PrebufferCoordinator {
+  private cache: Map<number, Promise<ArrayBuffer>> = new Map();
+  private synthesizeFn: (index: number, text: string) => Promise<ArrayBuffer>;
+  private sentences: SentenceSpan[];
+
+  constructor(
+    sentences: SentenceSpan[],
+    synthesizeFn: (index: number, text: string) => Promise<ArrayBuffer>
+  ) {
+    this.sentences = sentences;
+    this.synthesizeFn = synthesizeFn;
+  }
+
+  public getChunk(index: number): Promise<ArrayBuffer> {
+    if (index >= this.sentences.length) {
+      return Promise.reject(new Error("Index out of bounds"));
+    }
+    let p = this.cache.get(index);
+    if (!p) {
+      p = this.synthesizeFn(index, this.sentences[index].text);
+      this.cache.set(index, p);
+    }
+    for (let ahead = 1; ahead <= 2; ahead++) {
+      const targetIndex = index + ahead;
+      if (targetIndex < this.sentences.length && !this.cache.has(targetIndex)) {
+        this.cache.set(targetIndex, this.synthesizeFn(targetIndex, this.sentences[targetIndex].text));
+      }
+    }
+    return p;
+  }
+
+  public isBuffered(index: number): boolean {
+    return this.cache.has(index);
+  }
+
+  public clear(): void {
+    this.cache.clear();
+  }
+}
+
 
 /**
  * Chunk text for streaming TTS.

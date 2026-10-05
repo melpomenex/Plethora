@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DAEMON_SCRIPT="$SCRIPT_DIR/../daemon/plethora_tts_daemon.py"
+
+# Prefer python3 in path or bundled
+PYTHON="python3"
+if [ -x "$SCRIPT_DIR/pocket-tts-runtime/x86_64-unknown-linux-gnu/python/bin/python3" ]; then
+  PYTHON="$SCRIPT_DIR/pocket-tts-runtime/x86_64-unknown-linux-gnu/python/bin/python3"
+fi
+
+exec "$PYTHON" "$DAEMON_SCRIPT" "$@"

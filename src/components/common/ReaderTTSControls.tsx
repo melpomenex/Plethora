@@ -62,6 +62,8 @@ import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
 import { createLongFormSessionId } from "../../utils/longFormPlaybackSession";
 import { usePresentation, useIsEink } from "../../contexts/PresentationContext";
 import { WordHighlightLayer } from "./WordHighlightLayer";
+import { useToast } from "./Toast";
+import { createExtract } from "../../api/extracts";
 
 interface TTSStartPosition {
   pageNumber: number | null;
@@ -136,6 +138,18 @@ interface ReaderTTSControlsProps {
    * When absent, no listening position is persisted.
    */
   documentId?: string | null;
+  /**
+   * Called to create an extract from the current spoken text (e.g. via hotkey 'E').
+   */
+  onCreateExtract?: (text: string) => Promise<void> | void;
+  /**
+   * DAQE audio study progress hook to report listening duration and completion.
+   */
+  onDaqeProgress?: (info: { elapsedSec: number; completed: boolean; chunkIndex: number; totalChunks: number }) => void;
+  /**
+   * Whether study hotkeys (Space, J, K, [, ], E) are enabled (defaults to true).
+   */
+  enableHotkeys?: boolean;
 }
 
 const BUFFER_TARGET_SEC = 60; // target seconds of audio buffered ahead
@@ -182,10 +196,14 @@ function ReaderTTSControls({
   highlightContainerRef,
   iframeWindow,
   documentId,
+  onCreateExtract,
+  onDaqeProgress,
+  enableHotkeys = true,
 }: ReaderTTSControlsProps,
 ref: React.ForwardedRef<ReaderTTSHandle>
 ) {
   const { t } = useI18n();
+  const toast = useToast();
   const tts = useSettingsStore((state) => state.settings.tts);
   const settings = useSettingsStore((state) => state.settings);
   const updateSettings = useSettingsStore((state) => state.updateSettings);
@@ -208,6 +226,11 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // Currently-active SpeechSynthesisUtterance (system provider only).
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
+  const listeningDurationSecRef = useRef(0);
+  const onDaqeProgressRef = useRef(onDaqeProgress);
+  onDaqeProgressRef.current = onDaqeProgress;
   const [chunkIndex, setChunkIndex] = useState(0);
   const [selectedVoiceId, setSelectedVoiceId] = useState(tts?.defaultVoiceId ?? "");
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
@@ -1147,6 +1170,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               advancingRef.current = true;
               setIsAutoPlaying(false);
               onComplete?.();
+              onDaqeProgressRef.current?.({
+                elapsedSec: Math.round(listeningDurationSecRef.current),
+                completed: true,
+                chunkIndex: chunksLenRef.current,
+                totalChunks: chunksLenRef.current,
+              });
             }
           }
         };
@@ -1234,6 +1263,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               advancingRef.current = true;
               setIsAutoPlaying(false);
               onComplete?.();
+              onDaqeProgressRef.current?.({
+                elapsedSec: Math.round(listeningDurationSecRef.current),
+                completed: true,
+                chunkIndex: chunksLenRef.current,
+                totalChunks: chunksLenRef.current,
+              });
             }
           })
         );
@@ -1301,6 +1336,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             advancingRef.current = true;
             setIsAutoPlaying(false);
             onComplete?.();
+            onDaqeProgressRef.current?.({
+              elapsedSec: Math.round(listeningDurationSecRef.current),
+              completed: true,
+              chunkIndex: chunksLenRef.current,
+              totalChunks: chunksLenRef.current,
+            });
           }
         }
       };
@@ -1658,7 +1699,137 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     bufferMgrRef.current.reset();
   };
 
-  const speedOptions = [0.8, 1, 1.2, 1.5, 2];
+  const changePlaybackRate = useCallback((rate: number) => {
+    const clamped = Math.max(0.75, Math.min(2.5, Math.round(rate * 100) / 100));
+    setPlaybackRate(clamped);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = clamped;
+    }
+  }, []);
+
+  const handleExtractHotkey = useCallback(async () => {
+    const activeChunk = playlistRef.current[chunkIndex];
+    const activeText = activeChunk?.text?.trim();
+    if (!activeText) return;
+
+    if (onCreateExtract) {
+      try {
+        await onCreateExtract(activeText);
+        toast.success(
+          t("extracts.created", "Extract created"),
+          activeText.slice(0, 80) + (activeText.length > 80 ? "…" : "")
+        );
+      } catch (err) {
+        console.error("Failed to create extract via hotkey:", err);
+        toast.error(
+          t("extracts.createFailed", "Failed to create extract"),
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    } else if (documentId) {
+      try {
+        await createExtract({
+          document_id: documentId,
+          content: activeText,
+        });
+        toast.success(
+          t("extracts.created", "Extract created"),
+          activeText.slice(0, 80) + (activeText.length > 80 ? "…" : "")
+        );
+      } catch (err) {
+        console.error("Failed to create extract via hotkey:", err);
+        toast.error(
+          t("extracts.createFailed", "Failed to create extract"),
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+  }, [chunkIndex, onCreateExtract, documentId, toast, t]);
+
+  const handlePlayPauseRef = useRef(handlePlayPause);
+  handlePlayPauseRef.current = handlePlayPause;
+  const handleNextRef = useRef(handleNext);
+  handleNextRef.current = handleNext;
+  const handlePrevRef = useRef(handlePrev);
+  handlePrevRef.current = handlePrev;
+  const handleExtractHotkeyRef = useRef(handleExtractHotkey);
+  handleExtractHotkeyRef.current = handleExtractHotkey;
+  const changePlaybackRateRef = useRef(changePlaybackRate);
+  changePlaybackRateRef.current = changePlaybackRate;
+
+  useEffect(() => {
+    if (enableHotkeys === false) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        void handlePlayPauseRef.current();
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        void handleNextRef.current();
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        void handlePrevRef.current();
+      } else if (e.key === "[") {
+        e.preventDefault();
+        const next = Math.max(0.75, Math.round((playbackRateRef.current - 0.1) * 10) / 10);
+        changePlaybackRateRef.current(next);
+      } else if (e.key === "]") {
+        e.preventDefault();
+        const next = Math.min(2.5, Math.round((playbackRateRef.current + 0.1) * 10) / 10);
+        changePlaybackRateRef.current(next);
+      } else if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        void handleExtractHotkeyRef.current();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [enableHotkeys]);
+
+  useEffect(() => {
+    if (!isPlaying || isPaused) return;
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const deltaSec = (Date.now() - start) / 1000;
+      onDaqeProgressRef.current?.({
+        elapsedSec: Math.round(listeningDurationSecRef.current + deltaSec),
+        completed: false,
+        chunkIndex,
+        totalChunks: chunksLenRef.current,
+      });
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+      listeningDurationSecRef.current += (Date.now() - start) / 1000;
+    };
+  }, [isPlaying, isPaused, chunkIndex]);
+
+  const speedOptions = useMemo(() => {
+    const defaults = [0.75, 0.8, 1, 1.2, 1.5, 2, 2.5];
+    if (!defaults.includes(playbackRate)) {
+      return [...defaults, playbackRate].sort((a, b) => a - b);
+    }
+    return defaults;
+  }, [playbackRate]);
 
   if (chunks.length === 0) return null;
   if (!ttsEnabled) {
@@ -1676,11 +1847,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     <select
       value={playbackRate}
       onChange={(e) => {
-        const rate = Number(e.target.value);
-        setPlaybackRate(rate);
-        if (audioRef.current) {
-          audioRef.current.playbackRate = rate;
-        }
+        changePlaybackRate(Number(e.target.value));
       }}
       className="rounded-full border border-outline-variant bg-surface-container-lowest px-2 py-1 text-xs text-on-surface"
       title={t("readerTts.playbackSpeed")}

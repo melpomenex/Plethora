@@ -82,6 +82,8 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { NumericInput } from "../common";
 import { Switch } from "../common/Switch";
 import { AndroidTtsModelManager } from "./AndroidTtsModelManager";
+import { ChatterboxModelManager } from "./ChatterboxModelManager";
+import { VoiceCloningStudioModal } from "./VoiceCloningStudioModal";
 import {
   FAL_LANGUAGES,
   createDefaultTTSSettings,
@@ -346,6 +348,7 @@ export function TTSSettings() {
 
   const [operationState, setOperationState] = useState<LifecycleState>("idle");
   const [operationMessage, setOperationMessage] = useState<string>("");
+  const [isVoiceCloningModalOpen, setIsVoiceCloningModalOpen] = useState(false);
   const [generateText, setGenerateText] = useState(
     "Welcome to Plethora. This is your configured text to speech output."
   );
@@ -1224,39 +1227,55 @@ export function TTSSettings() {
           )}
 
         {activeAdapter.id === "openai-compatible" && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1 text-sm">
-              <span className="font-medium">Base URL</span>
-              <input
-                value={activeProviderConfig.baseUrl}
-                onChange={(event) =>
-                  updateTTS({
-                    providers: {
-                      ...tts.providers,
-                      "openai-compatible": { ...activeProviderConfig, baseUrl: event.target.value },
-                    },
-                  })
-                }
-                className="w-full rounded-lg border border-border bg-background px-3 py-2"
-                placeholder="https://example.local/v1"
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-medium">Model id</span>
-              <input
-                value={activeProviderConfig.modelId}
-                onChange={(event) =>
-                  updateTTS({
-                    providers: {
-                      ...tts.providers,
-                      "openai-compatible": { ...activeProviderConfig, modelId: event.target.value },
-                    },
-                  })
-                }
-                className="w-full rounded-lg border border-border bg-background px-3 py-2"
-                placeholder="tts-1"
-              />
-            </label>
+          <div className="space-y-4">
+            <ChatterboxModelManager />
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+              <div>
+                <span className="text-sm font-medium text-foreground">Local Voice Cloning</span>
+                <p className="text-xs text-muted-foreground">Record or import audio to create a custom cloned voice.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVoiceCloningModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <Microphone size={14} /> Open Voice Studio
+              </button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Base URL</span>
+                <input
+                  value={activeProviderConfig.baseUrl}
+                  onChange={(event) =>
+                    updateTTS({
+                      providers: {
+                        ...tts.providers,
+                        "openai-compatible": { ...activeProviderConfig, baseUrl: event.target.value },
+                      },
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                  placeholder="http://127.0.0.1:42929/v1 or https://example.local/v1"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Model id</span>
+                <input
+                  value={activeProviderConfig.modelId}
+                  onChange={(event) =>
+                    updateTTS({
+                      providers: {
+                        ...tts.providers,
+                        "openai-compatible": { ...activeProviderConfig, modelId: event.target.value },
+                      },
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                  placeholder="chatterbox (or tts-1 / kokoro)"
+                />
+              </label>
+            </div>
           </div>
         )}
 
@@ -2037,6 +2056,13 @@ export function TTSSettings() {
               .then(setBrowserModels)
               .catch(() => undefined);
           }}
+        />
+      )}
+      {isVoiceCloningModalOpen && (
+        <VoiceCloningStudioModal
+          isOpen={isVoiceCloningModalOpen}
+          onClose={() => setIsVoiceCloningModalOpen(false)}
+          localDaemonUrl={activeProviderConfig.baseUrl || "http://127.0.0.1:42929/v1"}
         />
       )}
     </div>

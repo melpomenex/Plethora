@@ -4406,6 +4406,23 @@ export function QueueScrollPage() {
                   ? (fullContentMap.get(renderedItem.rssItem?.id || "") || renderedItem.rssItem?.fullContent || renderedItem.rssItem?.content || renderedItem.rssItem?.description || "")
                   : (renderedItem.rssItem?.content || renderedItem.rssItem?.description || "")
               )}
+              onComplete={() => {
+                void handleRating(1);
+              }}
+              className={cn(
+                "absolute z-40 bottom-3 left-3 right-3",
+                !isMobile && "left-1/2 right-auto -translate-x-1/2"
+              )}
+            />
+          )}
+
+          {renderedItem?.type === "extract" && renderedItem.extract && (
+            <ReaderTTSControls
+              text={stripHtmlToText(renderedItem.extract.content || "")}
+              documentId={renderedItem.extract.document_id}
+              onComplete={() => {
+                void handleRating(3);
+              }}
               className={cn(
                 "absolute z-40 bottom-3 left-3 right-3",
                 !isMobile && "left-1/2 right-auto -translate-x-1/2"

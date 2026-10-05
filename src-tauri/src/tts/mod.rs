@@ -13,6 +13,7 @@
 //! Android does not use this module: the native plugin runs sherpa-onnx via
 //! JNI behind the same family/contract semantics (design D5/D6).
 
+pub mod chatterbox;
 pub mod commands;
 pub mod engine;
 pub mod sherpa_ffi;
@@ -22,3 +23,9 @@ pub use commands::{
     sherpa_tts_cancel, sherpa_tts_load, sherpa_tts_status, sherpa_tts_synthesize,
     sherpa_tts_unload, SherpaTtsState,
 };
+pub use chatterbox::{
+    chatterbox_cancel_download, chatterbox_create_voice_profile, chatterbox_delete_model,
+    chatterbox_delete_voice_profile, chatterbox_download_model, chatterbox_list_voice_profiles,
+    chatterbox_start, chatterbox_status, chatterbox_stop, ChatterboxSupervisor,
+};
+

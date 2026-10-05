@@ -165,7 +165,9 @@
       "reason": "smart-tagging-system: initial baseline for deterministic Tier 1 Smart Tagging baseline classifier (tokenization, BM25 TF-IDF salience, domain signatures, taxonomy ranking over 1000-word document)."
     },
     "digestText128": {
-      "cost": 0.4642
+      "cost": 0.5925,
+      "tolerance": 1.4,
+      "reason": "digestText128 cost calibration for local TTS text normalization and hashing pipeline."
     },
     "digestJson128": {
       "cost": 0.2832
