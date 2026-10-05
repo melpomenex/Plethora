@@ -35,7 +35,12 @@ export async function fetchJson(
     try {
       response = await fetch(url, init);
     } catch (error) {
-      throw new TTSServiceError(error instanceof Error ? error.message : "Network error", "network", true);
+      const rawMsg = error instanceof Error ? error.message : "Network error";
+      const isOpaque = /load failed|failed to fetch|networkerror/i.test(rawMsg);
+      const cleanMsg = isOpaque
+        ? `Could not connect to ${provider} service at ${url}. Ensure the service is running and accessible.`
+        : rawMsg;
+      throw new TTSServiceError(cleanMsg, "network", true);
     }
     if (!response.ok) throw mapHttpError(provider, response.status, await readProviderMessage(response));
     try {
@@ -67,7 +72,12 @@ export async function fetchBinary(
     try {
       response = await fetch(url, init);
     } catch (error) {
-      throw new TTSServiceError(error instanceof Error ? error.message : "Network error", "network", true);
+      const rawMsg = error instanceof Error ? error.message : "Network error";
+      const isOpaque = /load failed|failed to fetch|networkerror/i.test(rawMsg);
+      const cleanMsg = isOpaque
+        ? `Could not connect to ${provider} service at ${url}. Ensure the service is running and accessible.`
+        : rawMsg;
+      throw new TTSServiceError(cleanMsg, "network", true);
     }
     if (!response.ok) throw mapHttpError(provider, response.status, await readProviderMessage(response));
     const data = await response.arrayBuffer();

@@ -24,8 +24,9 @@ pub use commands::{
     sherpa_tts_unload, SherpaTtsState,
 };
 pub use chatterbox::{
-    chatterbox_cancel_download, chatterbox_create_voice_profile, chatterbox_delete_model,
-    chatterbox_delete_voice_profile, chatterbox_download_model, chatterbox_list_voice_profiles,
-    chatterbox_start, chatterbox_status, chatterbox_stop, ChatterboxSupervisor,
+    chatterbox_cancel_download, chatterbox_clone_voice, chatterbox_create_voice_profile,
+    chatterbox_delete_model, chatterbox_delete_voice_profile, chatterbox_download_model,
+    chatterbox_list_voice_profiles, chatterbox_start, chatterbox_status, chatterbox_stop,
+    ChatterboxSupervisor,
 };
 

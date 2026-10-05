@@ -632,6 +632,115 @@ pub async fn chatterbox_delete_voice_profile(app: AppHandle, id: String) -> Resu
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatterboxCloneRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub audio_base64: String,
+    pub avatar_color: Option<String>,
+    pub playback_speed: Option<f64>,
+}
+
+#[tauri::command]
+pub async fn chatterbox_clone_voice(
+    app: AppHandle,
+    state: State<'_, Arc<ChatterboxSupervisor>>,
+    req: ChatterboxCloneRequest,
+) -> Result<ChatterboxVoiceProfile, String> {
+    if req.name.trim().is_empty() {
+        return Err("Voice name cannot be empty".to_string());
+    }
+    if req.audio_base64.trim().is_empty() {
+        return Err("Reference audio sample cannot be empty".to_string());
+    }
+
+    // 1. Ensure daemon is running and retrieve listening port
+    let port = state
+        .start(&app)
+        .await
+        .map_err(|e| format!("Failed to start Chatterbox daemon: {}", e))?;
+
+    // 2. Transmit voice cloning request to the local daemon
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/v1/audio/voices", port);
+
+    let body = serde_json::json!({
+        "name": req.name.trim(),
+        "description": req.description.as_deref().unwrap_or("Cloned speaker"),
+        "audio_base64": req.audio_base64.trim(),
+    });
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to communicate with local TTS daemon on port {}: {}", port, e))?;
+
+    if !resp.status().is_success() {
+        let err_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!("Daemon voice cloning failed: {}", err_text));
+    }
+
+    let voice_data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse daemon response: {}", e))?;
+
+    let voice_id = voice_data
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Daemon response missing 'id'".to_string())?
+        .to_string();
+
+    let latent_path = voice_data
+        .get("latent_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&voice_id)
+        .to_string();
+
+    // 3. Persist voice profile to SQLite
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().timestamp();
+    let profile = ChatterboxVoiceProfile {
+        id: voice_id,
+        name: req.name.trim().to_string(),
+        description: req.description,
+        avatar_color: req.avatar_color,
+        playback_speed: req.playback_speed.unwrap_or(1.0),
+        preferred_content_types: vec![],
+        embedding_path: latent_path,
+        is_default: false,
+        created_at: now,
+        updated_at: now,
+    };
+
+    conn.execute(
+        "INSERT INTO chatterbox_voice_profiles 
+         (id, name, description, avatar_color, playback_speed, preferred_content_types_json, embedding_path, is_default, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        rusqlite::params![
+            profile.id,
+            profile.name,
+            profile.description,
+            profile.avatar_color,
+            profile.playback_speed,
+            "[]",
+            profile.embedding_path,
+            0,
+            now,
+            now
+        ],
+    ).map_err(|e| format!("Failed to save voice profile to database: {}", e))?;
+
+    Ok(profile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2378,6 +2378,7 @@ pub fn run() {
             tts::chatterbox::chatterbox_delete_model,
             tts::chatterbox::chatterbox_list_voice_profiles,
             tts::chatterbox::chatterbox_create_voice_profile,
+            tts::chatterbox::chatterbox_clone_voice,
             tts::chatterbox::chatterbox_delete_voice_profile,
             transcription::get_transcript,
             transcription::save_transcript,

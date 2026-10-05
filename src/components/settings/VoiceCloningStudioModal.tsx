@@ -159,28 +159,25 @@ export function VoiceCloningStudioModal({
     setError(null);
 
     try {
-      // Register with standardized local daemon endpoint
-      const result = await cloneOpenAIVoice(localDaemonUrl, undefined, name.trim(), audioBase64, description.trim());
-      const voiceId = result.id;
-
-      // Also persist to SQLite voice profile table if in Tauri
       if (isTauri()) {
-        await invoke("chatterbox_create_voice_profile", {
-          profile: {
-            id: voiceId,
+        // Direct native invocation: Rust starts daemon (if stopped), communicates via loopback reqwest, and writes DB profile
+        const profile = await invoke<{ id: string }>("chatterbox_clone_voice", {
+          req: {
             name: name.trim(),
             description: description.trim() || null,
+            audioBase64,
             avatarColor: color,
             playbackSpeed: speed,
-            preferredContentTypes: [],
-            embeddingPath: result.latentPath || `${voiceId}.safetensors`,
-            isDefault: false,
-            createdAt: Math.floor(Date.now() / 1000),
-            updatedAt: Math.floor(Date.now() / 1000),
           },
         });
+        onVoiceCreated?.(profile.id);
+        onClose();
+        return;
       }
 
+      // Web/PWA fallback: call remote OpenAI-compatible service
+      const result = await cloneOpenAIVoice(localDaemonUrl, undefined, name.trim(), audioBase64, description.trim());
+      const voiceId = result.id;
       onVoiceCreated?.(voiceId);
       onClose();
     } catch (e) {
