@@ -168,6 +168,8 @@ export function calculateRelevanceScore(
     [SearchResultType.Category]: 0.8,
     [SearchResultType.Tag]: 0.5,
     [SearchResultType.Command]: 0.3,
+    [SearchResultType.Figure]: 1.2,
+    [SearchResultType.Media]: 1.1,
   };
 
   score *= typeWeights[type];

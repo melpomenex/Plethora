@@ -1004,7 +1004,7 @@ export function OnDeviceAiPanel({ onChange }: { onChange: () => void }) {
                   ? ` · ${t("onDeviceAi.packSize", { size: Math.round(pack.sizeBytes / 1_000_000) })}`
                   : ""}
               </span>
-              {pack.id === "embeddinggemma" &&
+              {(pack.id === "embeddinggemma" || pack.id === "embeddinggemma-vision") &&
                 (embedStatus?.status === "downloadable" || embedStatus?.status === "unavailable") && (
                   <button
                     type="button"

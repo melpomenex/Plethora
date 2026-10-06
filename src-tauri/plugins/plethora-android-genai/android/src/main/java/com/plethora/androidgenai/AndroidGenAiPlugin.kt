@@ -1427,6 +1427,93 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Embed a batch of images with the EmbeddingGemma Vision encoder.
+     * Accepts base64 encoded image strings or local file paths, normalizes RGB channels,
+     * and maps vectors into the shared 768-dimensional space.
+     */
+    @Command
+    fun embedImages(invoke: Invoke) {
+        val args = invoke.parseArgs(EmbedImagesArgs::class.java)
+        val images = args.images
+        val mrlDimension = args.mrlDimension
+        embedImagesArgsError(images, mrlDimension)?.let {
+            invoke.reject(it, ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (!BuildConfig.EMBEDDING_COMPILED) {
+            invoke.reject(
+                "embeddings are not included in this build",
+                ErrorCode.FEATURE_NOT_COMPILED
+            )
+            return
+        }
+        if (!embeddingFiles.allPresent()) {
+            val code = if (embeddingFiles.partFileBytes() != null) {
+                ErrorCode.MODEL_DOWNLOADING
+            } else {
+                ErrorCode.MODEL_DOWNLOADABLE
+            }
+            invoke.reject("embedding model is not downloaded", code)
+            return
+        }
+        val normalize = args.normalize ?: true
+
+        embeddingExecutor.execute {
+            try {
+                val runtime = embeddingRuntimeLocked()
+                val preprocessed = images!!.map { img ->
+                    val bitmap = if (img.startsWith("/") || img.startsWith("file://")) {
+                        val path = if (img.startsWith("file://")) img.substring(7) else img
+                        android.graphics.BitmapFactory.decodeFile(path)
+                    } else {
+                        val cleanBase64 = if (img.contains(",")) img.substringAfter(",") else img
+                        val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } ?: throw PromptContractException(
+                        ErrorCode.INVALID_ARGUMENT,
+                        "image could not be decoded"
+                    )
+
+                    val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+                    val pixels = IntArray(224 * 224)
+                    scaled.getPixels(pixels, 0, 224, 0, 0, 224, 224)
+                    val rgbBytes = ByteArray(224 * 224 * 3)
+                    var bi = 0
+                    for (p in pixels) {
+                        rgbBytes[bi++] = ((p shr 16) and 0xFF).toByte()
+                        rgbBytes[bi++] = ((p shr 8) and 0xFF).toByte()
+                        rgbBytes[bi++] = (p and 0xFF).toByte()
+                    }
+                    preprocessRgbImage(rgbBytes, 224, 224, 224, 224)
+                }
+
+                val vectors = embedImagesWithSession(
+                    session = runtime.session,
+                    imagesRgb = preprocessed,
+                    normalize = normalize,
+                    mrlDimension = mrlDimension
+                )
+                val dimension = vectors.firstOrNull()?.size ?: (mrlDimension ?: EMBEDDING_DIMENSION)
+                invoke.resolve(
+                    EmbedImagesResultDto(
+                        vectors = vectors,
+                        dimension = dimension,
+                        model = EMBEDDING_VISION_MODEL_NAME
+                    ).toJsObject()
+                )
+            } catch (e: PromptContractException) {
+                invoke.reject(e.message, e.errorCode, e.metadata)
+            } catch (e: Throwable) {
+                Logger.error("genai", "embedImages failed", e)
+                invoke.reject(
+                    e.message ?: "on-device image embedding failed",
+                    ErrorCode.INFERENCE_FAILED
+                )
+            }
+        }
+    }
+
     /** Load (or reuse) the interpreter + tokenizer; must run on the embedding executor. */
     private fun embeddingRuntimeLocked(): LoadedEmbedding =
         synchronized(embeddingLock) {

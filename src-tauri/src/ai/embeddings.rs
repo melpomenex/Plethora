@@ -89,6 +89,34 @@ pub trait EmbeddingProvider: Send + Sync + std::fmt::Debug {
 
     /// Get embedding dimension for the current model
     fn dimension(&self) -> usize;
+
+    /// Generate embedding for a single image (base64-encoded bytes or data URL)
+    async fn generate_image_embedding(&self, _image_base64: &str) -> Result<EmbeddingResponse, String> {
+        Err(format!(
+            "Image embeddings are not supported by {:?}",
+            self.provider_type()
+        ))
+    }
+
+    /// Generate embeddings for multiple images (batch)
+    async fn generate_images_batch(
+        &self,
+        images_base64: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String> {
+        let mut responses = Vec::with_capacity(images_base64.len());
+        for img in images_base64 {
+            responses.push(self.generate_image_embedding(img).await?);
+        }
+        Ok(responses)
+    }
+
+    /// Generate embedding for a single audio chunk (base64-encoded PCM/WAV/MP3 bytes)
+    async fn generate_audio_embedding(&self, _audio_base64: &str) -> Result<EmbeddingResponse, String> {
+        Err(format!(
+            "Audio embeddings are not supported by {:?}",
+            self.provider_type()
+        ))
+    }
 }
 
 /// OpenAI embedding provider
@@ -838,6 +866,13 @@ impl OllamaEmbeddingProvider {
                 price_per_million: None, // free, local
             },
             EmbeddingModel {
+                id: "embeddinggemma-2:740m".to_string(),
+                name: "EmbeddingGemma 2 Multimodal (768d)".to_string(),
+                provider: EmbeddingProviderType::Ollama,
+                dimension: 768,
+                price_per_million: None, // free, local
+            },
+            EmbeddingModel {
                 id: "nomic-embed-text".to_string(),
                 name: "nomic-embed-text (768d)".to_string(),
                 provider: EmbeddingProviderType::Ollama,
@@ -968,6 +1003,114 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
     fn dimension(&self) -> usize {
         self.dimension
     }
+
+    async fn generate_image_embedding(&self, image_base64: &str) -> Result<EmbeddingResponse, String> {
+        let url = format!("{}/api/embeddings", self.base_url);
+        let body = json!({
+            "model": self.model,
+            "prompt": "",
+            "images": [image_base64],
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Ollama error {}: {}", status, error_text));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        let embedding: Vec<f32> = json["embedding"]
+            .as_array()
+            .ok_or("Missing embedding in response")?
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+
+        if embedding.is_empty() {
+            return Err(format!(
+                "Ollama returned an empty embedding for image using model '{}'",
+                self.model
+            ));
+        }
+
+        Ok(EmbeddingResponse {
+            embedding,
+            dimension: self.dimension,
+            tokens: 1,
+        })
+    }
+
+    async fn generate_audio_embedding(&self, audio_base64: &str) -> Result<EmbeddingResponse, String> {
+        let url = format!("{}/api/embeddings", self.base_url);
+        let body = json!({
+            "model": self.model,
+            "prompt": "",
+            "audio": [audio_base64],
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Ollama error {}: {}", status, error_text));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        let embedding: Vec<f32> = json["embedding"]
+            .as_array()
+            .ok_or("Missing embedding in response")?
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+
+        if embedding.is_empty() {
+            return Err(format!(
+                "Ollama returned an empty embedding for audio using model '{}'",
+                self.model
+            ));
+        }
+
+        Ok(EmbeddingResponse {
+            embedding,
+            dimension: self.dimension,
+            tokens: 1,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -978,6 +1121,9 @@ mod tests {
     fn test_ollama_infer_dimension_embeddinggemma_2() {
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2"), 768);
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:270m"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:440m"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:740m"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2-text-vision-440m"), 768);
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("nomic-embed-text"), 768);
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("mxbai-embed-large"), 1024);
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("all-minilm"), 384);
@@ -991,5 +1137,10 @@ mod tests {
         let gemma = gemma.unwrap();
         assert_eq!(gemma.dimension, 768);
         assert_eq!(gemma.provider, EmbeddingProviderType::Ollama);
+
+        let gemma_multi = models.iter().find(|m| m.id == "embeddinggemma-2:740m");
+        assert!(gemma_multi.is_some());
+        let gemma_multi = gemma_multi.unwrap();
+        assert_eq!(gemma_multi.dimension, 768);
     }
 }

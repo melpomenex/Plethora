@@ -857,6 +857,8 @@ fn build_chunk(
         page_rects: None,
         extract_id: ctx.source_id.map(str::to_string),
         anchor_id: ctx.source_id.map(str::to_string),
+        asset_url: None,
+        timestamp_ms: None,
     };
     ChunkModel {
         id: chunk_id(
@@ -927,6 +929,58 @@ pub fn single_chunk(
             .map(str::to_string)
             .filter(|_| ctx.source_type == "extract"),
         anchor_id: ctx.source_id.map(str::to_string),
+        asset_url: None,
+        timestamp_ms: None,
+    };
+    Some(ChunkModel {
+        id: chunk_id(
+            ctx.document_id,
+            ctx.source_type,
+            ctx.source_id,
+            &content_hash,
+        ),
+        document_id: ctx.document_id.to_string(),
+        source_type: ctx.source_type.to_string(),
+        source_id: ctx.source_id.map(str::to_string),
+        ordinal,
+        text: text.to_string(),
+        heading_path: Vec::new(),
+        location_json: serde_json::to_string(&location).unwrap_or_default(),
+        content_hash,
+        token_count: approx_token_count(text),
+    })
+}
+
+/// Build a single chunk for a figure or media keyframe with asset URL and timestamp.
+#[allow(clippy::too_many_arguments)]
+pub fn multimodal_chunk(
+    ctx: &ChunkContext<'_>,
+    text: &str,
+    ordinal: i64,
+    page_number: Option<i64>,
+    asset_url: Option<String>,
+    timestamp_ms: Option<i64>,
+) -> Option<ChunkModel> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let content_hash = chunk_content_hash(text);
+    let location = ChunkLocation {
+        source_type: ctx.location_source_type.to_string(),
+        document_id: ctx.document_id.to_string(),
+        ordinal,
+        start_offset: 0,
+        end_offset: text.chars().count(),
+        heading_path: Vec::new(),
+        page_number,
+        spine_index: ctx.spine_index,
+        cfi_range: None,
+        page_rects: None,
+        extract_id: None,
+        anchor_id: ctx.source_id.map(str::to_string),
+        asset_url,
+        timestamp_ms,
     };
     Some(ChunkModel {
         id: chunk_id(

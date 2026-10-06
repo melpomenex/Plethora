@@ -22,12 +22,13 @@
 //! device is not charging, the queue parks itself paused instead of starting.
 
 use crate::ai_learning::chunker::{
-    chunk_document, single_chunk, ChunkContext, ChunkInput, ChunkOptions,
+    chunk_document, multimodal_chunk, single_chunk, ChunkContext, ChunkInput, ChunkOptions,
 };
 use crate::ai_learning::embeddings_backend::{EmbeddingBackend, EmbeddingUnavailable};
 use crate::ai_learning::models::{
     AggregateIndexStatus, ChunkModel, DocumentIndexStatus, EmbeddingModelUsage, IndexState,
     SOURCE_TYPE_ANNOTATION, SOURCE_TYPE_CARD, SOURCE_TYPE_DOCUMENT, SOURCE_TYPE_EXTRACT,
+    SOURCE_TYPE_FIGURE, SOURCE_TYPE_MEDIA,
 };
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
@@ -519,7 +520,34 @@ async fn build_document_chunks(
         },
     };
 
-    chunk_document(&ctx, input, &ChunkOptions::default())
+    let mut chunks = chunk_document(&ctx, input, &ChunkOptions::default());
+
+    // Extract embedded figures from documents (PDFs) and schedule them as figure chunks
+    if doc.file_type == crate::models::FileType::Pdf {
+        let figures = crate::processor::pdf::extract_pdf_figures(&doc.file_path).await;
+        let base_ordinal = chunks.len() as i64;
+        for (i, (page_num, caption, asset_url)) in figures.into_iter().enumerate() {
+            let fig_ctx = ChunkContext {
+                document_id: &doc.id,
+                source_type: SOURCE_TYPE_FIGURE,
+                source_id: None,
+                location_source_type: location_type,
+                spine_index: None,
+            };
+            if let Some(fig_chunk) = multimodal_chunk(
+                &fig_ctx,
+                &caption,
+                base_ordinal + (i as i64),
+                Some(page_num),
+                Some(asset_url),
+                None,
+            ) {
+                chunks.push(fig_chunk);
+            }
+        }
+    }
+
+    chunks
 }
 
 async fn load_html_content(repo: &Repository, document_id: &str) -> Option<String> {

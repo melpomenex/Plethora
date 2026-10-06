@@ -20,6 +20,7 @@ pub mod qa;
 pub mod smart_tagging;
 pub mod stream_registry;
 pub mod summarizer;
+pub mod video_keyframes;
 
 // Re-exports - use the new enum-based provider
 pub use embeddings::{

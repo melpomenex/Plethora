@@ -25,6 +25,9 @@ import com.google.ai.edge.litert.TensorBuffer
 internal interface EmbeddingSession : AutoCloseable {
     /** Embed one pre-tokenized input; returns EMBEDDING_DIMENSION floats. */
     fun embed(tokenIds: IntArray): FloatArray
+
+    /** Embed one pre-processed image tensor; returns EMBEDDING_DIMENSION floats. */
+    fun embedImage(pixels: FloatArray): FloatArray = FloatArray(EMBEDDING_DIMENSION)
 }
 
 /**
@@ -55,6 +58,16 @@ internal class LiteRtEmbeddingSession(
         val output = outputBuffers.first().readFloat()
         check(output.size == EMBEDDING_DIMENSION) {
             "embedding model returned ${output.size} floats, expected $EMBEDDING_DIMENSION"
+        }
+        return output
+    }
+
+    override fun embedImage(pixels: FloatArray): FloatArray {
+        inputBuffer.writeFloat(pixels)
+        model.run(listOf(inputBuffer), outputBuffers)
+        val output = outputBuffers.first().readFloat()
+        check(output.size == EMBEDDING_DIMENSION) {
+            "vision model returned ${output.size} floats, expected $EMBEDDING_DIMENSION"
         }
         return output
     }

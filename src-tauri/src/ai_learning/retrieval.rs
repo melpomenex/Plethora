@@ -889,4 +889,79 @@ mod tests {
         assert!(normalize_bm25(-5.0) < normalize_bm25(-1.0));
         assert!((normalize_bm25(0.0) - 1.0).abs() < 1e-9);
     }
+
+    #[tokio::test]
+    async fn cross_modal_figure_and_media_retrieval() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        seed_document(&pool, "doc-vis-1", "Neural network architectures and figures.", "pdf").await;
+        reindex_fts(&pool).await;
+
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-cm",
+        };
+        let query = "transformer architecture diagram";
+        let query_vec = backend.embed_text(query).await.expect("embed");
+
+        // Insert figure chunk with asset_url and page_number
+        let fig_location = serde_json::json!({
+            "sourceType": "pdf",
+            "documentId": "doc-vis-1",
+            "ordinal": 0,
+            "startOffset": 0,
+            "endOffset": 45,
+            "pageNumber": 5,
+            "assetUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA",
+        });
+        sqlx::query(
+            "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'), datetime('now'))",
+        )
+        .bind("fig-chk-1")
+        .bind("doc-vis-1")
+        .bind("figure")
+        .bind(Option::<String>::None)
+        .bind(0)
+        .bind("Figure 1: Transformer model architecture diagram")
+        .bind("[]")
+        .bind(fig_location.to_string())
+        .bind("hash-fig-1")
+        .bind(10)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Store identical vector so cosine similarity is 1.0
+        let mut embedding_bytes = vec![0u8; 32 * 4];
+        LittleEndian::write_f32_into(&query_vec, &mut embedding_bytes);
+        sqlx::query(
+            "INSERT INTO semantic_chunk_embeddings (chunk_id, embedding, model, dimension, embedding_version, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .bind("fig-chk-1")
+        .bind(&embedding_bytes)
+        .bind("mock-cm")
+        .bind(32)
+        .bind(backend.embedding_version())
+        .bind("hash-fig-1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let response = retrieve(&repo, &backend, query, 5, &RetrievalFilters::default())
+            .await
+            .expect("retrieve succeeds");
+
+        assert_eq!(response.mode, "semantic");
+        let hit = response.results.iter().find(|r| r.chunk_id == "fig-chk-1");
+        assert!(hit.is_some(), "Figure hit was retrieved");
+        let hit = hit.unwrap();
+        assert_eq!(hit.source_type, "figure");
+        assert_eq!(hit.location["pageNumber"], 5);
+        assert_eq!(
+            hit.location["assetUrl"],
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA"
+        );
+    }
 }

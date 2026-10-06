@@ -1716,13 +1716,13 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       try {
         await onCreateExtract(activeText);
         toast.success(
-          t("extracts.created", "Extract created"),
+          t("extracts.extractCreated") || "Extract created",
           activeText.slice(0, 80) + (activeText.length > 80 ? "…" : "")
         );
       } catch (err) {
         console.error("Failed to create extract via hotkey:", err);
         toast.error(
-          t("extracts.createFailed", "Failed to create extract"),
+          t("extracts.createFailed") || "Failed to create extract",
           err instanceof Error ? err.message : String(err)
         );
       }
@@ -1733,13 +1733,13 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           content: activeText,
         });
         toast.success(
-          t("extracts.created", "Extract created"),
+          t("extracts.extractCreated") || "Extract created",
           activeText.slice(0, 80) + (activeText.length > 80 ? "…" : "")
         );
       } catch (err) {
         console.error("Failed to create extract via hotkey:", err);
         toast.error(
-          t("extracts.createFailed", "Failed to create extract"),
+          t("extracts.createFailed") || "Failed to create extract",
           err instanceof Error ? err.message : String(err)
         );
       }

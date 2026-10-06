@@ -474,6 +474,26 @@ pub struct EmbedTextsResult {
     pub model: String,
 }
 
+/// Request for `ondevice_ai_embed_images`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedImagesRequest {
+    pub images: Vec<String>,
+    #[serde(default = "default_true")]
+    pub normalize: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrl_dimension: Option<usize>,
+}
+
+/// Result of `ondevice_ai_embed_images`: one vector per input image, in order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedImagesResult {
+    pub vectors: Vec<Vec<f32>>,
+    pub dimension: u32,
+    pub model: String,
+}
+
 /// Status of the on-device embedding model, mirroring the Kotlin
 /// `embedTextsStatus` payload. Never an `Err`: unavailable-with-reason is a
 /// state, not a failure.
@@ -550,6 +570,23 @@ impl AndroidGenAi {
             .run_mobile_plugin::<EmbedTextsResult>("embedTexts", payload)
             .map_err(map_invoke_error)
     }
+
+    #[cfg(target_os = "android")]
+    pub fn embed_images_direct(
+        &self,
+        images: Vec<String>,
+        normalize: bool,
+        mrl_dimension: Option<usize>,
+    ) -> Result<EmbedImagesResult, Error> {
+        let payload = serde_json::json!({
+            "images": images,
+            "normalize": normalize,
+            "mrlDimension": mrl_dimension,
+        });
+        self.handle
+            .run_mobile_plugin::<EmbedImagesResult>("embedImages", payload)
+            .map_err(map_invoke_error)
+    }
 }
 
 /// Resolve the managed plugin state from an app handle and embed directly
@@ -569,6 +606,26 @@ pub fn embed_texts_via_app(
     #[cfg(not(target_os = "android"))]
     {
         let _ = (app, texts, normalize, kind);
+        Err(not_android())
+    }
+}
+
+/// Resolve the managed plugin state from an app handle and embed images directly
+/// (Android only). Returns `Err(platform_unsupported)` off Android.
+pub fn embed_images_via_app(
+    app: &AppHandle<Wry>,
+    images: Vec<String>,
+    normalize: bool,
+    mrl_dimension: Option<usize>,
+) -> Result<EmbedImagesResult, Error> {
+    #[cfg(target_os = "android")]
+    {
+        let state: State<'_, AndroidGenAi> = app.state();
+        state.embed_images_direct(images, normalize, mrl_dimension)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, images, normalize, mrl_dimension);
         Err(not_android())
     }
 }
@@ -997,6 +1054,31 @@ mod commands {
         }
     }
 
+    /// Embed a batch of images with the EmbeddingGemma Vision encoder.
+    #[tauri::command]
+    pub async fn ondevice_ai_embed_images(
+        state: State<'_, AndroidGenAi>,
+        request: EmbedImagesRequest,
+    ) -> Result<EmbedImagesResult, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = serde_json::json!({
+                "images": request.images,
+                "normalize": request.normalize,
+                "mrlDimension": request.mrl_dimension,
+            });
+            state
+                .handle
+                .run_mobile_plugin::<EmbedImagesResult>("embedImages", payload)
+                .map_err(map_invoke_error)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
     #[cfg(target_os = "android")]
     fn log_bridge_failure(e: &tauri::plugin::mobile::PluginInvokeError) {
         eprintln!("[android-genai] status bridge call failed: {e}");
@@ -1006,7 +1088,7 @@ mod commands {
 pub use commands::{
     ondevice_ai_cancel, ondevice_ai_cancel_prompt_request, ondevice_ai_capabilities,
     ondevice_ai_count_tokens, ondevice_ai_download, ondevice_ai_embed_download,
-    ondevice_ai_embed_status, ondevice_ai_describe_image, ondevice_ai_embed_texts, ondevice_ai_generate, ondevice_ai_ocr_labels,
+    ondevice_ai_embed_status, ondevice_ai_describe_image, ondevice_ai_embed_images, ondevice_ai_embed_texts, ondevice_ai_generate, ondevice_ai_ocr_labels,
     ondevice_ai_prompt, ondevice_ai_start_prompt_stream, ondevice_ai_status,
     ondevice_ai_summarize, ondevice_ai_warm_up,
 };
@@ -1034,7 +1116,8 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::ondevice_ai_describe_image,
             commands::ondevice_ai_embed_status,
             commands::ondevice_ai_embed_download,
-            commands::ondevice_ai_embed_texts
+            commands::ondevice_ai_embed_texts,
+            commands::ondevice_ai_embed_images
         ])
         .setup(|app, api| {
             let genai = init_mobile(app.app_handle(), api)?;
@@ -1380,5 +1463,30 @@ mod tests {
         assert_eq!(serde_json::to_string(&EmbeddingKind::Query).unwrap(), r#""query""#);
         let kind: EmbeddingKind = serde_json::from_str(r#""query""#).unwrap();
         assert_eq!(kind, EmbeddingKind::Query);
+    }
+
+    #[test]
+    fn embed_images_request_and_result_round_trip() {
+        let req = EmbedImagesRequest {
+            images: vec!["data:image/png;base64,AAAA".into()],
+            normalize: true,
+            mrl_dimension: Some(256),
+        };
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains(r#""images":["data:image/png;base64,AAAA"]"#));
+        assert!(json.contains(r#""mrlDimension":256"#));
+        let back: EmbedImagesRequest = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.mrl_dimension, Some(256));
+        assert!(back.normalize);
+
+        let res = EmbedImagesResult {
+            vectors: vec![vec![0.1; 256]],
+            dimension: 256,
+            model: "embeddinggemma-2-text-vision-440m".into(),
+        };
+        let res_json = serde_json::to_string(&res).expect("serialize");
+        let res_back: EmbedImagesResult = serde_json::from_str(&res_json).expect("deserialize");
+        assert_eq!(res_back.dimension, 256);
+        assert_eq!(res_back.model, "embeddinggemma-2-text-vision-440m");
     }
 }

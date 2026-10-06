@@ -814,4 +814,74 @@ class EmbeddingSupportTest {
         assertEquals(tokenizer.eosId, input[promptIds.size + 1])
         assertEquals(tokenizer.padId, input.last())
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Vision encoder & image preprocessing tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun vision_constants_and_urls_are_valid() {
+        assertEquals("embeddinggemma-2-text-vision-440m", EMBEDDING_VISION_MODEL_NAME)
+        assertEquals("embeddinggemma-2-text-vision-440M_seq512_mixed-precision.tflite", EMBEDDING_VISION_MODEL_FILE)
+        assertTrue(isValidSha256(EMBEDDING_VISION_MODEL_SHA256))
+        val urls = embeddingVisionModelUrls()
+        assertEquals(2, urls.size)
+        assertTrue(urls[0].contains("huggingface.co/litert-community/embeddinggemma-2"))
+        assertTrue(urls[1].contains("modelscope.cn/models/litert-community/embeddinggemma-2"))
+    }
+
+    @Test
+    fun embed_images_args_validation() {
+        assertNotNull(embedImagesArgsError(null))
+        assertNotNull(embedImagesArgsError(emptyList()))
+        assertNotNull(embedImagesArgsError(List(17) { "img$it" }))
+        assertNotNull(embedImagesArgsError(listOf("   ")))
+        assertNotNull(embedImagesArgsError(listOf("valid"), mrlDimension = 0))
+        assertNotNull(embedImagesArgsError(listOf("valid"), mrlDimension = 1000))
+        assertNull(embedImagesArgsError(listOf("valid"), mrlDimension = 256))
+        assertNull(embedImagesArgsError(listOf("data:image/png;base64,AAAA"), mrlDimension = null))
+    }
+
+    @Test
+    fun preprocess_rgb_image_normalizes_to_minus_one_to_one() {
+        // Create 2x2 red image: R=255, G=0, B=0
+        val raw = ByteArray(2 * 2 * 3) { idx ->
+            if (idx % 3 == 0) 255.toByte() else 0.toByte()
+        }
+        val tensor = preprocessRgbImage(raw, width = 2, height = 2, targetWidth = 4, targetHeight = 4)
+        assertEquals(4 * 4 * 3, tensor.size)
+        // Red channel: 255 / 127.5 - 1.0 = 1.0
+        assertEquals(1.0f, tensor[0], 0.01f)
+        // Green channel: 0 / 127.5 - 1.0 = -1.0
+        assertEquals(-1.0f, tensor[1], 0.01f)
+        // Blue channel: 0 / 127.5 - 1.0 = -1.0
+        assertEquals(-1.0f, tensor[2], 0.01f)
+    }
+
+    @Test
+    fun embed_images_with_session_and_mrl_truncation() {
+        val fakeSession = object : EmbeddingSession {
+            override fun embed(tokenIds: IntArray): FloatArray = FloatArray(EMBEDDING_DIMENSION)
+            override fun embedImage(pixels: FloatArray): FloatArray {
+                val vec = FloatArray(EMBEDDING_DIMENSION) { 1.0f }
+                return vec
+            }
+            override fun close() {}
+        }
+
+        val dummyPixels = FloatArray(224 * 224 * 3)
+        val full = embedImagesWithSession(fakeSession, listOf(dummyPixels), normalize = true, mrlDimension = null)
+        assertEquals(1, full.size)
+        assertEquals(EMBEDDING_DIMENSION, full[0].size)
+        var sumFull = 0.0
+        for (v in full[0]) sumFull += v * v
+        assertEquals(1.0, sumFull, 0.001)
+
+        val sliced = embedImagesWithSession(fakeSession, listOf(dummyPixels), normalize = true, mrlDimension = 256)
+        assertEquals(1, sliced.size)
+        assertEquals(256, sliced[0].size)
+        var sumSliced = 0.0
+        for (v in sliced[0]) sumSliced += v * v
+        assertEquals(1.0, sumSliced, 0.001)
+    }
 }

@@ -43,6 +43,8 @@ export interface Command {
   action: () => void | Promise<void>;
   keywords?: string[];
   shortcut?: string;
+  /** Optional visual thumbnail for figures/diagrams/media. */
+  thumbnailUrl?: string;
   /**
    * §3.3: platform capability governing this command. Commands whose
    * capability is unavailable on the current platform are filtered out of
@@ -277,12 +279,18 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
                               isSelected ? "bg-muted" : ""
                             }`}
                           >
-                            {/* Icon */}
-                            {cmd.icon && (
-                              <div className="w-8 h-8 flex items-center justify-center text-muted-foreground">
+                            {/* Icon or Thumbnail */}
+                            {cmd.thumbnailUrl ? (
+                              <img
+                                src={cmd.thumbnailUrl}
+                                alt={cmd.label}
+                                className="w-8 h-8 rounded object-cover border border-border flex-shrink-0"
+                              />
+                            ) : cmd.icon ? (
+                              <div className="w-8 h-8 flex items-center justify-center text-muted-foreground flex-shrink-0">
                                 {cmd.icon}
                               </div>
-                            )}
+                            ) : null}
 
                             {/* Label and Description */}
                             <div className="flex-1 min-w-0">
@@ -384,6 +392,7 @@ export function createCommand(config: {
   action: () => void | Promise<void>;
   keywords?: string[];
   shortcut?: string;
+  thumbnailUrl?: string;
   capabilityId?: PlatformCapabilityId;
 }): Command {
   return {
@@ -395,6 +404,7 @@ export function createCommand(config: {
     action: config.action,
     keywords: config.keywords,
     shortcut: config.shortcut,
+    thumbnailUrl: config.thumbnailUrl,
     capabilityId: config.capabilityId,
   };
 }

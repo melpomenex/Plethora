@@ -60,6 +60,46 @@ class EmbedTextsArgs {
     var mrlDimension: Int? = null
 }
 
+/** Arguments for the `embedImages` plugin command. */
+@InvokeArg
+class EmbedImagesArgs {
+    /** Raw image inputs: base64 encoded strings or file paths. */
+    var images: List<String>? = null
+
+    /** L2-normalize each vector (default true; the index stores unit vectors). */
+    var normalize: Boolean? = null
+
+    /**
+     * Optional Matryoshka Representation Learning (MRL) target dimension
+     * (e.g. 128, 256, 512, or 768).
+     */
+    var mrlDimension: Int? = null
+}
+
+/** Result of `embedImages`: one vector per input image, in order. */
+internal data class EmbedImagesResultDto(
+    val vectors: List<FloatArray>,
+    val dimension: Int,
+    val model: String = EMBEDDING_VISION_MODEL_NAME
+) {
+    fun toJsObject(): JSObject = JSObject().apply {
+        put(
+            "vectors",
+            JSONArray().apply {
+                vectors.forEach { vector ->
+                    put(
+                        JSONArray().apply {
+                            vector.forEach { put(it.toDouble()) }
+                        }
+                    )
+                }
+            }
+        )
+        put("dimension", dimension)
+        put("model", model)
+    }
+}
+
 /** Arguments for the `embedTextsDownload` plugin command. */
 @InvokeArg
 class EmbedDownloadArgs {
@@ -172,6 +212,19 @@ internal const val EMBEDDING_MODEL_SHA256 =
 internal const val EMBEDDING_TOKENIZER_SHA256 =
     "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7"
 
+/** Model identity for the Text + Vision 440M variant. */
+internal const val EMBEDDING_VISION_MODEL_NAME = "embeddinggemma-2-text-vision-440m"
+
+internal const val EMBEDDING_VISION_MODEL_FILE =
+    "embeddinggemma-2-text-vision-440M_seq512_mixed-precision.tflite"
+
+internal const val EMBEDDING_VISION_MODEL_BYTES = 280_450_000L
+
+internal const val EMBEDDING_VISION_MODEL_SHA256 =
+    "c24f5a90d8438171d931758c142b7d90a98f793859d020e417df8a61483863ba"
+
+internal const val EMBEDDING_MAX_IMAGES = 16
+
 private const val HF_BASE =
     "https://huggingface.co/litert-community/embeddinggemma-2/resolve/main"
 private const val MODELSCOPE_BASE =
@@ -181,6 +234,11 @@ private const val MODELSCOPE_BASE =
 internal fun embeddingModelUrls(): List<String> = listOf(
     "$HF_BASE/$EMBEDDING_MODEL_FILE",
     "$MODELSCOPE_BASE/$EMBEDDING_MODEL_FILE"
+)
+
+internal fun embeddingVisionModelUrls(): List<String> = listOf(
+    "$HF_BASE/$EMBEDDING_VISION_MODEL_FILE",
+    "$MODELSCOPE_BASE/$EMBEDDING_VISION_MODEL_FILE"
 )
 
 internal fun embeddingTokenizerUrls(): List<String> = listOf(
@@ -273,6 +331,75 @@ internal fun embedTextsArgsError(texts: List<String>?, mrlDimension: Int? = null
         }
     }
     return null
+}
+
+/** Validation failure for `embedImages` arguments, or null when acceptable. */
+internal fun embedImagesArgsError(images: List<String>?, mrlDimension: Int? = null): String? {
+    if (images == null || images.isEmpty()) return "images must be a non-empty array"
+    if (images.size > EMBEDDING_MAX_IMAGES) {
+        return "images must contain at most $EMBEDDING_MAX_IMAGES entries (got ${images.size})"
+    }
+    if (mrlDimension != null && (mrlDimension <= 0 || mrlDimension > EMBEDDING_DIMENSION)) {
+        return "mrlDimension must be between 1 and $EMBEDDING_DIMENSION (got $mrlDimension)"
+    }
+    images.forEachIndexed { index, img ->
+        if (img.isBlank()) return "images[$index] is blank"
+    }
+    return null
+}
+
+/**
+ * Preprocesses raw RGB image bytes into a normalized FloatArray [targetWidth * targetHeight * 3]
+ * with pixel channels normalized to [-1.0, 1.0] for the LiteRT vision encoder.
+ */
+internal fun preprocessRgbImage(
+    rawPixels: ByteArray,
+    width: Int,
+    height: Int,
+    targetWidth: Int = 224,
+    targetHeight: Int = 224
+): FloatArray {
+    val out = FloatArray(targetWidth * targetHeight * 3)
+    val xRatio = width.toFloat() / targetWidth
+    val yRatio = height.toFloat() / targetHeight
+    var outIdx = 0
+    for (y in 0 until targetHeight) {
+        val srcY = (y * yRatio).toInt().coerceIn(0, height - 1)
+        for (x in 0 until targetWidth) {
+            val srcX = (x * xRatio).toInt().coerceIn(0, width - 1)
+            val srcIdx = (srcY * width + srcX) * 3
+            if (srcIdx + 2 < rawPixels.size) {
+                // Normalize 0..255 to -1.0..1.0
+                out[outIdx++] = (rawPixels[srcIdx].toInt() and 0xFF) / 127.5f - 1.0f
+                out[outIdx++] = (rawPixels[srcIdx + 1].toInt() and 0xFF) / 127.5f - 1.0f
+                out[outIdx++] = (rawPixels[srcIdx + 2].toInt() and 0xFF) / 127.5f - 1.0f
+            } else {
+                out[outIdx++] = 0.0f
+                out[outIdx++] = 0.0f
+                out[outIdx++] = 0.0f
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * Embed raw images through one session: run vision inference, apply optional
+ * MRL truncation, and L2-normalize when asked.
+ */
+internal fun embedImagesWithSession(
+    session: EmbeddingSession,
+    imagesRgb: List<FloatArray>,
+    normalize: Boolean,
+    mrlDimension: Int? = null
+): List<FloatArray> = imagesRgb.map { pixels ->
+    val raw = session.embedImage(pixels)
+    val sliced = if (mrlDimension != null && mrlDimension in 1 until raw.size) {
+        truncateMrl(raw, mrlDimension)
+    } else {
+        raw
+    }
+    if (normalize) l2Normalize(sliced) else sliced
 }
 
 /**

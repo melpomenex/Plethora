@@ -64,7 +64,7 @@ export function buildEmbeddingConfig(
 
 /** Location payload for navigating back to a chunk's origin (design D13). */
 export interface ChunkLocation {
-  sourceType: "pdf" | "epub" | "html" | "markdown" | "text" | "fts";
+  sourceType: "pdf" | "epub" | "html" | "markdown" | "text" | "fts" | "video" | "audio";
   documentId: string;
   ordinal: number;
   startOffset: number;
@@ -77,13 +77,17 @@ export interface ChunkLocation {
   pageRects?: unknown;
   extractId?: string;
   anchorId?: string;
+  assetUrl?: string;
+  timestampMs?: number;
 }
 
 export type SemanticSourceType =
   | "document"
   | "extract"
   | "annotation"
-  | "card";
+  | "card"
+  | "figure"
+  | "media";
 
 export interface RetrievalResult {
   chunkId: string;

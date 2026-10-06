@@ -30,6 +30,8 @@ export enum SearchResultType {
   Category = "category",
   Tag = "tag",
   Command = "command",
+  Figure = "figure",
+  Media = "media",
 }
 
 /**
@@ -62,6 +64,10 @@ export interface SearchResult {
     feedId?: string;
     episodeId?: string;
     shortcut?: string;
+    /** Figure asset URL (data URL or file path) */
+    figureUrl?: string;
+    pageNumber?: number;
+    timestampMs?: number;
     /** Contextual action dispatch target (when resultKind === "contextual-action"). */
     contextualView?: "document-viewer" | "rss" | "podcast" | "audiobook";
     contextualActionId?: string;
@@ -613,22 +619,34 @@ export function GlobalSearch({
                           : "hover:bg-glass-100"
                       }`}
                     >
-                      {/* Type Icon */}
-                      <div
-                        className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${
-                          result.type === SearchResultType.Document
-                            ? "bg-blue-500/10 text-blue-500"
-                            : result.type === SearchResultType.Extract
-                            ? "bg-purple-500/10 text-purple-500"
-                            : result.type === SearchResultType.Flashcard
-                            ? "bg-green-500/10 text-green-500"
-                            : "bg-muted"
-                        }`}
-                      >
-                        <span className="text-xs font-semibold uppercase">
-                          {result.type[0]}
-                        </span>
-                      </div>
+                      {/* Type Icon or Thumbnail */}
+                      {result.metadata?.figureUrl ? (
+                        <img
+                          src={result.metadata.figureUrl}
+                          alt={result.title}
+                          className="flex-shrink-0 w-10 h-10 rounded object-cover border border-border"
+                        />
+                      ) : (
+                        <div
+                          className={`flex-shrink-0 w-8 h-8 rounded flex items-center justify-center ${
+                            result.type === SearchResultType.Document
+                              ? "bg-blue-500/10 text-blue-500"
+                              : result.type === SearchResultType.Extract
+                              ? "bg-purple-500/10 text-purple-500"
+                              : result.type === SearchResultType.Flashcard
+                              ? "bg-green-500/10 text-green-500"
+                              : result.type === SearchResultType.Figure
+                              ? "bg-rose-500/10 text-rose-500"
+                              : result.type === SearchResultType.Media
+                              ? "bg-amber-500/10 text-amber-500"
+                              : "bg-muted"
+                          }`}
+                        >
+                          <span className="text-xs font-semibold uppercase">
+                            {result.type[0]}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Content */}
                       <div className="flex-1 min-w-0">

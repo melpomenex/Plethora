@@ -28,7 +28,29 @@ export const EMBEDDING_GEMMA_LICENSE: ModelLicenseRecord = {
   allowedOnTier: ["embed", "gen"],
 };
 
-const REGISTRY: ModelLicenseRecord[] = [EMBEDDING_GEMMA_LICENSE];
+export const EMBEDDING_GEMMA_VISION_LICENSE: ModelLicenseRecord = {
+  id: "embeddinggemma-vision",
+  displayName: "EmbeddingGemma 2 Vision (440M)",
+  license: "apache-2.0",
+  installTime: false,
+  sizeBytes: 280_000_000,
+  allowedOnTier: ["embed", "gen"],
+};
+
+export const EMBEDDING_GEMMA_MULTIMODAL_DESKTOP_LICENSE: ModelLicenseRecord = {
+  id: "embeddinggemma-multimodal",
+  displayName: "EmbeddingGemma 2 Multimodal (740M)",
+  license: "apache-2.0",
+  installTime: false,
+  sizeBytes: 520_000_000,
+  allowedOnTier: ["embed", "gen"],
+};
+
+const REGISTRY: ModelLicenseRecord[] = [
+  EMBEDDING_GEMMA_LICENSE,
+  EMBEDDING_GEMMA_VISION_LICENSE,
+  EMBEDDING_GEMMA_MULTIMODAL_DESKTOP_LICENSE,
+];
 
 export function listLicensedModels(): readonly ModelLicenseRecord[] {
   return REGISTRY;

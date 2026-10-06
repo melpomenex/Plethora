@@ -8,11 +8,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Source of a semantic chunk. Documents chunk into many rows; extracts,
-/// annotations and card fronts are single chunks (task 4.7).
+/// annotations and card fronts are single chunks (task 4.7). Figures and media
+/// (video/audio keyframes) provide multimodal semantic anchor points.
 pub const SOURCE_TYPE_DOCUMENT: &str = "document";
 pub const SOURCE_TYPE_EXTRACT: &str = "extract";
 pub const SOURCE_TYPE_ANNOTATION: &str = "annotation";
 pub const SOURCE_TYPE_CARD: &str = "card";
+pub const SOURCE_TYPE_FIGURE: &str = "figure";
+pub const SOURCE_TYPE_MEDIA: &str = "media";
 
 /// A chunk produced by the chunker, ready to persist into `semantic_chunks`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +79,12 @@ pub struct ChunkLocation {
     /// Annotation or learning-item id for those source types.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_id: Option<String>,
+    /// Image asset URL or file path for figure chunks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_url: Option<String>,
+    /// Millisecond playback offset for media chunks (video keyframe or audio segment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<i64>,
 }
 
 /// Per-document indexing state machine (design D14 / spec): the migration
@@ -220,4 +229,105 @@ pub struct RetrievalResponse {
     pub mode: String,
     /// Number of candidate embeddings scanned (semantic mode).
     pub candidates_scanned: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_location_figure_and_media_serialization() {
+        let loc = ChunkLocation {
+            source_type: "pdf".into(),
+            document_id: "doc-123".into(),
+            ordinal: 4,
+            start_offset: 0,
+            end_offset: 0,
+            heading_path: vec!["Chapter 1".into(), "Figures".into()],
+            page_number: Some(12),
+            spine_index: None,
+            cfi_range: None,
+            page_rects: None,
+            extract_id: None,
+            anchor_id: None,
+            asset_url: Some("plethora-asset://figures/doc-123-fig1.png".into()),
+            timestamp_ms: None,
+        };
+
+        let json = serde_json::to_string(&loc).expect("serialization succeeds");
+        assert!(json.contains("\"assetUrl\":\"plethora-asset://figures/doc-123-fig1.png\""));
+        assert!(!json.contains("timestampMs"));
+
+        let deserialized: ChunkLocation =
+            serde_json::from_str(&json).expect("deserialization succeeds");
+        assert_eq!(
+            deserialized.asset_url.as_deref(),
+            Some("plethora-asset://figures/doc-123-fig1.png")
+        );
+        assert_eq!(deserialized.page_number, Some(12));
+        assert_eq!(deserialized.timestamp_ms, None);
+    }
+
+    #[test]
+    fn test_chunk_location_media_serialization() {
+        let loc = ChunkLocation {
+            source_type: "video".into(),
+            document_id: "doc-vid-99".into(),
+            ordinal: 2,
+            start_offset: 0,
+            end_offset: 0,
+            heading_path: Vec::new(),
+            page_number: None,
+            spine_index: None,
+            cfi_range: None,
+            page_rects: None,
+            extract_id: None,
+            anchor_id: None,
+            asset_url: None,
+            timestamp_ms: Some(45_000),
+        };
+
+        let json = serde_json::to_string(&loc).expect("serialization succeeds");
+        assert!(json.contains("\"timestampMs\":45000"));
+        assert!(!json.contains("assetUrl"));
+
+        let deserialized: ChunkLocation =
+            serde_json::from_str(&json).expect("deserialization succeeds");
+        assert_eq!(deserialized.timestamp_ms, Some(45_000));
+        assert_eq!(deserialized.asset_url, None);
+    }
+
+    #[test]
+    fn test_chunk_model_figure_constants() {
+        let chunk = ChunkModel {
+            id: "chk-fig-1".into(),
+            document_id: "doc-1".into(),
+            source_type: SOURCE_TYPE_FIGURE.into(),
+            source_id: Some("fig-1".into()),
+            ordinal: 0,
+            text: "Figure 1: Architecture diagram".into(),
+            heading_path: vec![],
+            location_json: "{}".into(),
+            content_hash: "hash123".into(),
+            token_count: 5,
+        };
+
+        let json = serde_json::to_string(&chunk).expect("serializes");
+        assert!(json.contains("\"sourceType\":\"figure\""));
+
+        let media_chunk = ChunkModel {
+            id: "chk-med-1".into(),
+            document_id: "doc-2".into(),
+            source_type: SOURCE_TYPE_MEDIA.into(),
+            source_id: Some("frame-1".into()),
+            ordinal: 1,
+            text: "Video frame at 00:15".into(),
+            heading_path: vec![],
+            location_json: "{}".into(),
+            content_hash: "hash456".into(),
+            token_count: 4,
+        };
+        let media_json = serde_json::to_string(&media_chunk).expect("serializes");
+        assert!(media_json.contains("\"sourceType\":\"media\""));
+    }
 }

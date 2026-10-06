@@ -721,6 +721,32 @@ fn extract_page_images_data_urls(doc: &lopdf::Document) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// Extract figures/images from a PDF file.
+/// Returns a list of (1-based page number, caption/description, data URL).
+pub async fn extract_pdf_figures(file_path: &str) -> Vec<(i64, String, String)> {
+    let path = Path::new(file_path);
+    let Ok(buffer) = tokio::fs::read(path).await else {
+        return Vec::new();
+    };
+    tokio::task::spawn_blocking(move || {
+        let Ok(doc) = lopdf::Document::load_mem(&buffer) else {
+            return Vec::new();
+        };
+        let page_images = extract_page_images_data_urls(&doc);
+        let mut figures = Vec::new();
+        for (page_idx, images) in page_images.into_iter().enumerate() {
+            let page_num = (page_idx + 1) as i64;
+            for (img_idx, data_url) in images.into_iter().enumerate() {
+                let caption = format!("Figure {} on page {}", img_idx + 1, page_num);
+                figures.push((page_num, caption, data_url));
+            }
+        }
+        figures
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Build a `data:{mime};base64,{payload}` URL in a single pre-sized String,
 /// avoiding the separate base64 `String` and the `format!` copy.
 fn build_data_url(mime: &str, data: &[u8]) -> String {
