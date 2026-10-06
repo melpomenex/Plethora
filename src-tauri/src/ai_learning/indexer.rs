@@ -1336,7 +1336,7 @@ mod tests {
         )
         .await;
         let backend = EmbeddingBackend::OnDevice {
-            model: "embeddinggemma-300m",
+            model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
         };
         index_document_once(&repo, "doc-5", &backend, &mut || true)
             .await

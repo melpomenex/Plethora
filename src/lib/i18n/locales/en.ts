@@ -6393,7 +6393,7 @@ export const en: Dict = {
   // every other onDeviceAi key.
   "onDeviceAi.embeddingLabel": "Embedding model",
   "onDeviceAi.embeddingDetail.available": "Semantic search and library indexing run entirely on this device.",
-  "onDeviceAi.embeddingDetail.downloadable": "A ~184 MB embedding model powers offline semantic search. It is downloaded only when you ask.",
+  "onDeviceAi.embeddingDetail.downloadable": "A ~168 MB embedding model powers offline semantic search. It is downloaded only when you ask.",
   "onDeviceAi.embeddingDetail.downloading": "Downloading and verifying the embedding model. Search stays word-based until it finishes.",
   "onDeviceAi.embeddingDetail.unavailable": "On-device embeddings are not usable here. Word-based search still works.",
 

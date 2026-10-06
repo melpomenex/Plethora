@@ -48,7 +48,7 @@ pub const PLATFORM_UNSUPPORTED: &str = "platform_unsupported";
 pub const INFERENCE_FAILED: &str = "inference_failed";
 /// On-device embedding model identity, shared with the Kotlin plugin and the
 /// semantic index's `ON_DEVICE_MODEL` (embedding-version input).
-pub const EMBEDDING_MODEL: &str = "embeddinggemma-300m";
+pub const EMBEDDING_MODEL: &str = "embeddinggemma-2-270m";
 
 /// Error surfaced to the frontend over IPC.
 ///
@@ -1344,7 +1344,7 @@ mod tests {
         };
         let json = serde_json::to_string(&result).expect("serialize");
         assert!(json.contains(r#""dimension":768"#));
-        assert!(json.contains(r#""model":"embeddinggemma-300m""#));
+        assert!(json.contains(r#""model":"embeddinggemma-2-270m""#));
         let back: EmbedTextsResult = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back.vectors.len(), 2);
         assert_eq!(back.vectors[0].len(), 2);
@@ -1356,7 +1356,7 @@ mod tests {
             r#"{
                 "status": "downloading",
                 "reason": "model_downloading",
-                "model": "embeddinggemma-300m",
+                "model": "embeddinggemma-2-270m",
                 "bytesDownloaded": 1000,
                 "totalBytes": 179132472,
                 "checkedAt": 7

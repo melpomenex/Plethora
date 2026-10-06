@@ -51,6 +51,13 @@ class EmbedTextsArgs {
 
     /** L2-normalize each vector (default true; the index stores unit vectors). */
     var normalize: Boolean? = null
+
+    /**
+     * Optional Matryoshka Representation Learning (MRL) target dimension
+     * (e.g. 128, 256, 512, or 768). When provided, raw vectors are sliced
+     * before L2 normalization.
+     */
+    var mrlDimension: Int? = null
 }
 
 /** Arguments for the `embedTextsDownload` plugin command. */
@@ -120,23 +127,22 @@ internal data class EmbeddingProgressDto(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Model artifact constants (verified against litert-community/embeddinggemma-300m)
+// Model artifact constants (verified against litert-community/embeddinggemma-2)
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Model identity shared with the Rust embedding version (ON_DEVICE_MODEL). */
-internal const val EMBEDDING_MODEL_NAME = "embeddinggemma-300m"
+internal const val EMBEDDING_MODEL_NAME = "embeddinggemma-2-270m"
 
 /**
- * Generic (device-independent) seq512 mixed-precision CPU variant. Chunks are
- * ~200–260 tokens by design D12, so seq512 covers prompt template + BOS/EOS
- * without truncation. Device-specific NPU builds (tensor_g5/mediatek/qualcomm)
- * remain a future optimization behind the same download manager.
+ * Generic (device-independent) seq512 mixed-precision CPU variant of EmbeddingGemma 2
+ * (270M text/code backbone). Chunks are ~200–260 tokens by design D12, so seq512 covers
+ * prompt template + BOS/EOS without truncation.
  */
-internal const val EMBEDDING_MODEL_FILE = "embeddinggemma-300M_seq512_mixed-precision.tflite"
+internal const val EMBEDDING_MODEL_FILE = "embeddinggemma-2-270M_seq512_mixed-precision.tflite"
 
 internal const val EMBEDDING_TOKENIZER_FILE = "sentencepiece.model"
 
-/** EmbeddingGemma output dimension (full 768; MRL truncation is a later seam). */
+/** EmbeddingGemma 2 output dimension (full 768; MRL truncation supports 128, 256, 512). */
 internal const val EMBEDDING_DIMENSION = 768
 
 /** Input sequence length of the seq512 artifact. */
@@ -148,29 +154,28 @@ internal const val EMBEDDING_MAX_TEXTS = 32
 /** Hard cap per input text; longer inputs are rejected, never silently cut. */
 internal const val EMBEDDING_MAX_TEXT_CHARS = 8192
 
-internal const val EMBEDDING_MODEL_BYTES = 179_132_472L
+internal const val EMBEDDING_MODEL_BYTES = 168_821_248L
 
 internal const val EMBEDDING_TOKENIZER_BYTES = 4_683_319L
 
 /**
  * sha256 of the model artifact, verified after download and before load.
- * Confirmed against the byte-identical HF/ModelScope mirrors (same sizes and
- * content digests on both hosts).
+ * Confirmed against the byte-identical HF/ModelScope mirrors.
  */
 internal const val EMBEDDING_MODEL_SHA256 =
-    "ad09e81557203cb0e177abf9bf8727dfe138a7d394aa0f70f0b2ed16432e121a"
+    "b128e469273187ca83692095924844391cf8e932906b3a9856adfa3910c2f392"
 
 /**
  * sha256 of the Gemma SentencePiece tokenizer (verified locally over the
- * downloaded 4,683,319 bytes).
+ * downloaded bytes).
  */
 internal const val EMBEDDING_TOKENIZER_SHA256 =
     "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7"
 
 private const val HF_BASE =
-    "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main"
+    "https://huggingface.co/litert-community/embeddinggemma-2/resolve/main"
 private const val MODELSCOPE_BASE =
-    "https://modelscope.cn/models/litert-community/embeddinggemma-300m/resolve/master"
+    "https://modelscope.cn/models/litert-community/embeddinggemma-2/resolve/master"
 
 /** Download sources in priority order: canonical HF first, anonymous mirror fallback. */
 internal fun embeddingModelUrls(): List<String> = listOf(
@@ -241,11 +246,25 @@ internal fun l2Normalize(vector: FloatArray): FloatArray {
     return out
 }
 
+/**
+ * Truncate a raw embedding vector to the specified Matryoshka (MRL) dimension
+ * before L2 normalization. Supported target dimensions include 128, 256, 512, 768.
+ */
+internal fun truncateMrl(vector: FloatArray, targetDim: Int): FloatArray {
+    require(targetDim in 1..vector.size) {
+        "targetDim must be between 1 and ${vector.size} (got $targetDim)"
+    }
+    return vector.copyOfRange(0, targetDim)
+}
+
 /** Validation failure for `embedTexts` arguments, or null when acceptable. */
-internal fun embedTextsArgsError(texts: List<String>?): String? {
+internal fun embedTextsArgsError(texts: List<String>?, mrlDimension: Int? = null): String? {
     if (texts == null || texts.isEmpty()) return "texts must be a non-empty array"
     if (texts.size > EMBEDDING_MAX_TEXTS) {
         return "texts must contain at most $EMBEDDING_MAX_TEXTS entries (got ${texts.size})"
+    }
+    if (mrlDimension != null && (mrlDimension <= 0 || mrlDimension > EMBEDDING_DIMENSION)) {
+        return "mrlDimension must be between 1 and $EMBEDDING_DIMENSION (got $mrlDimension)"
     }
     texts.forEachIndexed { index, text ->
         if (text.isBlank()) return "texts[$index] is blank"
@@ -258,16 +277,17 @@ internal fun embedTextsArgsError(texts: List<String>?): String? {
 
 /**
  * Embed raw texts through one session: apply the Gemma prompt template per
- * text, tokenize, run inference, and L2-normalize when asked. Pure glue over
- * the [EmbeddingSession] interface so JVM tests can drive the whole pipeline
- * with a fake session (no LiteRT natives).
+ * text, tokenize, run inference, apply optional MRL truncation, and
+ * L2-normalize when asked. Pure glue over the [EmbeddingSession] interface so
+ * JVM tests can drive the whole pipeline with a fake session (no LiteRT natives).
  */
 internal fun embedTextsWithSession(
     session: EmbeddingSession,
     tokenizer: SentencePieceBpeTokenizer,
     texts: List<String>,
     kind: String?,
-    normalize: Boolean
+    normalize: Boolean,
+    mrlDimension: Int? = null
 ): List<FloatArray> = texts.map { text ->
     val prompt = formatEmbeddingPrompt(text, kind)
     val tokenIds = tokenizer.encode(prompt)
@@ -278,8 +298,13 @@ internal fun embedTextsWithSession(
         padId = tokenizer.padId,
         seqLen = EMBEDDING_SEQ_LEN
     )
-    val vector = session.embed(input)
-    if (normalize) l2Normalize(vector) else vector
+    val raw = session.embed(input)
+    val sliced = if (mrlDimension != null && mrlDimension in 1 until raw.size) {
+        truncateMrl(raw, mrlDimension)
+    } else {
+        raw
+    }
+    if (normalize) l2Normalize(sliced) else sliced
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -391,7 +391,7 @@ export interface OnDeviceEmbeddingProgress {
   percent: number;
 }
 
-const EMBED_MODEL_ID = "embeddinggemma-300m";
+const EMBED_MODEL_ID = "embeddinggemma-2-270m";
 
 function unsupportedEmbeddingStatus(): OnDeviceEmbeddingStatus {
   return {

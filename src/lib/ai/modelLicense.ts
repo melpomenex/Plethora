@@ -18,13 +18,13 @@ export interface ModelLicenseRecord {
   allowedOnTier: readonly ("embed" | "gen")[];
 }
 
-/** EmbeddingGemma stays on the existing genai downloader in v1 (not Play AI packs). */
+/** EmbeddingGemma 2 stays on the existing genai downloader in v1 (not Play AI packs). */
 export const EMBEDDING_GEMMA_LICENSE: ModelLicenseRecord = {
   id: "embeddinggemma",
-  displayName: "EmbeddingGemma",
+  displayName: "EmbeddingGemma 2 (270M)",
   license: "apache-2.0",
   installTime: false,
-  sizeBytes: 184_000_000,
+  sizeBytes: 168_000_000,
   allowedOnTier: ["embed", "gen"],
 };
 

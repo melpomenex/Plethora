@@ -1371,7 +1371,8 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
     fun embedTexts(invoke: Invoke) {
         val args = invoke.parseArgs(EmbedTextsArgs::class.java)
         val texts = args.texts
-        embedTextsArgsError(texts)?.let {
+        val mrlDimension = args.mrlDimension
+        embedTextsArgsError(texts, mrlDimension)?.let {
             invoke.reject(it, ErrorCode.INVALID_ARGUMENT)
             return
         }
@@ -1401,14 +1402,16 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     tokenizer = runtime.tokenizer,
                     texts = texts!!,
                     kind = args.kind,
-                    normalize = normalize
+                    normalize = normalize,
+                    mrlDimension = mrlDimension
                 )
+                val dimension = vectors.firstOrNull()?.size ?: (mrlDimension ?: EMBEDDING_DIMENSION)
                 // Same JSObject rule as ocrImageLabels above: resolve() so the
                 // org.json serialization reaches Rust intact.
                 invoke.resolve(
                     EmbedTextsResultDto(
                         vectors = vectors,
-                        dimension = EMBEDDING_DIMENSION,
+                        dimension = dimension,
                         model = EMBEDDING_MODEL_NAME
                     ).toJsObject()
                 )

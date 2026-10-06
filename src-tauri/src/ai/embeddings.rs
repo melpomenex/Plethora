@@ -816,6 +816,8 @@ impl OllamaEmbeddingProvider {
     fn infer_dimension(model: &str) -> usize {
         if model.contains("nomic-embed-text") || model.contains("nomic") {
             768
+        } else if model.contains("embeddinggemma-2") || model.contains("embeddinggemma") {
+            768
         } else if model.contains("mxbai-embed") {
             1024
         } else if model.contains("all-minilm") {
@@ -828,6 +830,13 @@ impl OllamaEmbeddingProvider {
     /// Get common Ollama embedding models
     pub fn common_models() -> Vec<EmbeddingModel> {
         vec![
+            EmbeddingModel {
+                id: "embeddinggemma-2".to_string(),
+                name: "EmbeddingGemma 2 (768d)".to_string(),
+                provider: EmbeddingProviderType::Ollama,
+                dimension: 768,
+                price_per_million: None, // free, local
+            },
             EmbeddingModel {
                 id: "nomic-embed-text".to_string(),
                 name: "nomic-embed-text (768d)".to_string(),
@@ -958,5 +967,29 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
 
     fn dimension(&self) -> usize {
         self.dimension
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ollama_infer_dimension_embeddinggemma_2() {
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:270m"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("nomic-embed-text"), 768);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("mxbai-embed-large"), 1024);
+        assert_eq!(OllamaEmbeddingProvider::infer_dimension("all-minilm"), 384);
+    }
+
+    #[test]
+    fn test_ollama_common_models_includes_embeddinggemma_2() {
+        let models = OllamaEmbeddingProvider::common_models();
+        let gemma = models.iter().find(|m| m.id == "embeddinggemma-2");
+        assert!(gemma.is_some());
+        let gemma = gemma.unwrap();
+        assert_eq!(gemma.dimension, 768);
+        assert_eq!(gemma.provider, EmbeddingProviderType::Ollama);
     }
 }

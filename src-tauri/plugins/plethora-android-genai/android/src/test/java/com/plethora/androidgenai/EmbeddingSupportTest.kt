@@ -61,17 +61,17 @@ class EmbeddingSupportTest {
             assertTrue(url.endsWith(EMBEDDING_TOKENIZER_FILE))
         }
         // Canonical HF repo first, anonymous mirror as fallback.
-        assertTrue(modelUrls[0].contains("huggingface.co/litert-community/embeddinggemma-300m"))
-        assertTrue(modelUrls[1].contains("modelscope.cn/models/litert-community/embeddinggemma-300m"))
+        assertTrue(modelUrls[0].contains("huggingface.co/litert-community/embeddinggemma-2"))
+        assertTrue(modelUrls[1].contains("modelscope.cn/models/litert-community/embeddinggemma-2"))
     }
 
     @Test
     fun artifact_sizes_are_sane() {
-        assertTrue("model ~179 MB", EMBEDDING_MODEL_BYTES in 150_000_000L..250_000_000L)
+        assertTrue("model ~168 MB", EMBEDDING_MODEL_BYTES in 150_000_000L..250_000_000L)
         assertTrue("tokenizer ~4.7 MB", EMBEDDING_TOKENIZER_BYTES in 1_000_000L..10_000_000L)
         assertEquals(768, EMBEDDING_DIMENSION)
         assertEquals(512, EMBEDDING_SEQ_LEN)
-        assertEquals("embeddinggemma-300m", EMBEDDING_MODEL_NAME)
+        assertEquals("embeddinggemma-2-270m", EMBEDDING_MODEL_NAME)
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -147,6 +147,26 @@ class EmbeddingSupportTest {
         assertTrue(embedTextsArgsError(tooMany)!!.contains("at most"))
         assertNull(embedTextsArgsError(listOf("one")))
         assertNull(embedTextsArgsError((1..EMBEDDING_MAX_TEXTS).map { "t$it" }))
+        // MRL dimension validation
+        assertNotNull(embedTextsArgsError(listOf("valid"), mrlDimension = 0))
+        assertNotNull(embedTextsArgsError(listOf("valid"), mrlDimension = -5))
+        assertNotNull(embedTextsArgsError(listOf("valid"), mrlDimension = EMBEDDING_DIMENSION + 1))
+        assertNull(embedTextsArgsError(listOf("valid"), mrlDimension = 256))
+        assertNull(embedTextsArgsError(listOf("valid"), mrlDimension = 512))
+        assertNull(embedTextsArgsError(listOf("valid"), mrlDimension = EMBEDDING_DIMENSION))
+    }
+
+    @Test
+    fun mrl_truncation_slices_vectors_properly() {
+        val raw = FloatArray(768) { it.toFloat() }
+        val truncated256 = truncateMrl(raw, 256)
+        assertEquals(256, truncated256.size)
+        assertEquals(0f, truncated256[0], 0f)
+        assertEquals(255f, truncated256[255], 0f)
+
+        val truncated512 = truncateMrl(raw, 512)
+        assertEquals(512, truncated512.size)
+        assertEquals(511f, truncated512[511], 0f)
     }
 
     // ──────────────────────────────────────────────────────────────────────

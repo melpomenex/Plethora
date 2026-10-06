@@ -606,7 +606,7 @@ mod tests {
         reindex_fts(&pool).await;
 
         let backend = EmbeddingBackend::OnDevice {
-            model: "embeddinggemma-300m",
+            model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
         };
         let response = retrieve(
             &repo,

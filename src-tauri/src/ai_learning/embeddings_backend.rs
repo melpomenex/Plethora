@@ -111,10 +111,10 @@ impl std::fmt::Debug for EmbeddingBackend {
     }
 }
 
-/// Default on-device model identity (EmbeddingGemma 300M, 768-dim). Must
+/// Default on-device model identity (EmbeddingGemma 2 270M, 768-dim). Must
 /// stay in sync with `plethora_android_genai::EMBEDDING_MODEL` and the
 /// Kotlin plugin's `EMBEDDING_MODEL_NAME` — it feeds `embedding_version`.
-pub const ON_DEVICE_MODEL: &str = "embeddinggemma-300m";
+pub const ON_DEVICE_MODEL: &str = "embeddinggemma-2-270m";
 
 // ──────────────────────────────────────────────────────────────────────────
 // On-device bridge (task 4.5): a process-wide closure into the android-genai
@@ -306,7 +306,7 @@ impl EmbeddingBackend {
 
     pub fn dimension(&self) -> usize {
         match self {
-            EmbeddingBackend::OnDevice { .. } | EmbeddingBackend::OnDeviceLive { .. } => 768, // EmbeddingGemma 300M
+            EmbeddingBackend::OnDevice { .. } | EmbeddingBackend::OnDeviceLive { .. } => 768, // EmbeddingGemma 2 (270M)
             EmbeddingBackend::Provider { provider, .. } => provider.dimension(),
             EmbeddingBackend::Mock { dim, .. } => *dim,
         }
@@ -468,14 +468,16 @@ mod tests {
 
     #[test]
     fn version_is_stable_and_model_sensitive() {
-        let a = embedding_version_for("on-device", "embeddinggemma-300m");
-        let b = embedding_version_for("on-device", "embeddinggemma-300m");
+        let legacy = embedding_version_for("on-device", "embeddinggemma-300m");
+        let a = embedding_version_for("on-device", "embeddinggemma-2-270m");
+        let b = embedding_version_for("on-device", "embeddinggemma-2-270m");
         assert_eq!(a, b, "same identity must yield the same version");
+        assert_ne!(a, legacy, "switching to embeddinggemma-2-270m must bump the version");
         let c = embedding_version_for("on-device", "other-model");
         assert_ne!(a, c, "model change must bump the version");
-        let d = embedding_version_for("cloud", "embeddinggemma-300m");
+        let d = embedding_version_for("cloud", "embeddinggemma-2-270m");
         assert_ne!(a, d, "backend change must bump the version");
-        assert!(a > 0 && c > 0, "versions must be positive");
+        assert!(a > 0 && c > 0 && legacy > 0, "versions must be positive");
     }
 
     #[test]
