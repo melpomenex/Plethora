@@ -61,13 +61,15 @@ class EmbeddingSupportTest {
             assertTrue(url.endsWith(EMBEDDING_TOKENIZER_FILE))
         }
         // Canonical HF repo first, anonymous mirror as fallback.
-        assertTrue(modelUrls[0].contains("huggingface.co/litert-community/embeddinggemma-2"))
-        assertTrue(modelUrls[1].contains("modelscope.cn/models/litert-community/embeddinggemma-2"))
+        assertTrue(modelUrls[0].contains("huggingface.co/unsloth/embeddinggemma-2-GGUF"))
+        assertTrue(modelUrls[1].contains("modelscope.cn/models/unsloth/embeddinggemma-2-GGUF"))
+        assertTrue(tokenizerUrls[0].contains("huggingface.co/google/embeddinggemma-2"))
+        assertTrue(tokenizerUrls[1].contains("modelscope.cn/models/google/embeddinggemma-2"))
     }
 
     @Test
     fun artifact_sizes_are_sane() {
-        assertTrue("model ~168 MB", EMBEDDING_MODEL_BYTES in 150_000_000L..250_000_000L)
+        assertTrue("model ~310 MB", EMBEDDING_MODEL_BYTES in 200_000_000L..400_000_000L)
         assertTrue("tokenizer ~4.7 MB", EMBEDDING_TOKENIZER_BYTES in 1_000_000L..10_000_000L)
         assertEquals(768, EMBEDDING_DIMENSION)
         assertEquals(512, EMBEDDING_SEQ_LEN)
@@ -822,12 +824,12 @@ class EmbeddingSupportTest {
     @Test
     fun vision_constants_and_urls_are_valid() {
         assertEquals("embeddinggemma-2-text-vision-440m", EMBEDDING_VISION_MODEL_NAME)
-        assertEquals("embeddinggemma-2-text-vision-440M_seq512_mixed-precision.tflite", EMBEDDING_VISION_MODEL_FILE)
+        assertEquals("mmproj-Q8_0.gguf", EMBEDDING_VISION_MODEL_FILE)
         assertTrue(isValidSha256(EMBEDDING_VISION_MODEL_SHA256))
         val urls = embeddingVisionModelUrls()
         assertEquals(2, urls.size)
-        assertTrue(urls[0].contains("huggingface.co/litert-community/embeddinggemma-2"))
-        assertTrue(urls[1].contains("modelscope.cn/models/litert-community/embeddinggemma-2"))
+        assertTrue(urls[0].contains("huggingface.co/unsloth/embeddinggemma-2-GGUF"))
+        assertTrue(urls[1].contains("modelscope.cn/models/unsloth/embeddinggemma-2-GGUF"))
     }
 
     @Test

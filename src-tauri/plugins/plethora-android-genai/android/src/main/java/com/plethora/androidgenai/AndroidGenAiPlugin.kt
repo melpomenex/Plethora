@@ -1341,6 +1341,21 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     expectedSha256 = EMBEDDING_MODEL_SHA256,
                     onProgress = emitProgress
                 )
+                if (!embeddingFiles.visionPresent()) {
+                    runCatching {
+                        downloadVerifiedArtifact(
+                            opener = httpGetOpener,
+                            urls = embeddingVisionModelUrls(),
+                            dest = embeddingFiles.visionFile,
+                            fileName = EMBEDDING_VISION_MODEL_FILE,
+                            expectedBytes = EMBEDDING_VISION_MODEL_BYTES,
+                            expectedSha256 = EMBEDDING_VISION_MODEL_SHA256,
+                            onProgress = emitProgress
+                        )
+                    }.onFailure {
+                        Logger.warn("genai", "multimodal vision projector download optional step skipped: ${it.message}")
+                    }
+                }
                 // The lazy session must not reuse a session bound to the
                 // pre-download (absent) artifacts.
                 closeEmbeddingSessionLocked()

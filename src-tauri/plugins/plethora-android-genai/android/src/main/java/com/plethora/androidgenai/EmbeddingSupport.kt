@@ -167,20 +167,20 @@ internal data class EmbeddingProgressDto(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Model artifact constants (verified against litert-community/embeddinggemma-2)
+// ──────────────────────────────────────────────────────────────────────────
+// Model artifact constants (EmbeddingGemma 2 from unsloth/embeddinggemma-2-GGUF & google/embeddinggemma-2)
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Model identity shared with the Rust embedding version (ON_DEVICE_MODEL). */
 internal const val EMBEDDING_MODEL_NAME = "embeddinggemma-2-270m"
 
 /**
- * Generic (device-independent) seq512 mixed-precision CPU variant of EmbeddingGemma 2
- * (270M text/code backbone). Chunks are ~200–260 tokens by design D12, so seq512 covers
- * prompt template + BOS/EOS without truncation.
+ * EmbeddingGemma 2 Q8_0 model artifact from Unsloth (google/embeddinggemma-2 base).
+ * Covers text/code with full 768-dim output and MRL dimension truncation.
  */
-internal const val EMBEDDING_MODEL_FILE = "embeddinggemma-2-270M_seq512_mixed-precision.tflite"
+internal const val EMBEDDING_MODEL_FILE = "embeddinggemma-2-Q8_0.gguf"
 
-internal const val EMBEDDING_TOKENIZER_FILE = "sentencepiece.model"
+internal const val EMBEDDING_TOKENIZER_FILE = "tokenizer.model"
 
 /** EmbeddingGemma 2 output dimension (full 768; MRL truncation supports 128, 256, 512). */
 internal const val EMBEDDING_DIMENSION = 768
@@ -194,56 +194,59 @@ internal const val EMBEDDING_MAX_TEXTS = 32
 /** Hard cap per input text; longer inputs are rejected, never silently cut. */
 internal const val EMBEDDING_MAX_TEXT_CHARS = 8192
 
-internal const val EMBEDDING_MODEL_BYTES = 168_821_248L
+internal const val EMBEDDING_MODEL_BYTES = 309_855_520L
 
-internal const val EMBEDDING_TOKENIZER_BYTES = 4_683_319L
+internal const val EMBEDDING_TOKENIZER_BYTES = 4_689_013L
 
 /**
  * sha256 of the model artifact, verified after download and before load.
- * Confirmed against the byte-identical HF/ModelScope mirrors.
+ * Confirmed against unsloth/embeddinggemma-2-GGUF mirrors.
  */
 internal const val EMBEDDING_MODEL_SHA256 =
-    "b128e469273187ca83692095924844391cf8e932906b3a9856adfa3910c2f392"
+    "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc"
 
 /**
- * sha256 of the Gemma SentencePiece tokenizer (verified locally over the
- * downloaded bytes).
+ * sha256 of the Gemma 2 tokenizer (verified against google/embeddinggemma-2).
  */
 internal const val EMBEDDING_TOKENIZER_SHA256 =
-    "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7"
+    "e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03"
 
-/** Model identity for the Text + Vision 440M variant. */
+/** Model identity for the Text + Vision variant. */
 internal const val EMBEDDING_VISION_MODEL_NAME = "embeddinggemma-2-text-vision-440m"
 
-internal const val EMBEDDING_VISION_MODEL_FILE =
-    "embeddinggemma-2-text-vision-440M_seq512_mixed-precision.tflite"
+internal const val EMBEDDING_VISION_MODEL_FILE = "mmproj-Q8_0.gguf"
 
-internal const val EMBEDDING_VISION_MODEL_BYTES = 280_450_000L
+internal const val EMBEDDING_VISION_MODEL_BYTES = 554_821_120L
 
 internal const val EMBEDDING_VISION_MODEL_SHA256 =
-    "c24f5a90d8438171d931758c142b7d90a98f793859d020e417df8a61483863ba"
+    "90e7b0238009e2954f856f2081dcf7f35af026b64c765e98f4777053e1754460"
 
 internal const val EMBEDDING_MAX_IMAGES = 16
 
-private const val HF_BASE =
-    "https://huggingface.co/litert-community/embeddinggemma-2/resolve/main"
-private const val MODELSCOPE_BASE =
-    "https://modelscope.cn/models/litert-community/embeddinggemma-2/resolve/master"
+private const val HF_UNSLOTH_BASE =
+    "https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/main"
+private const val MODELSCOPE_UNSLOTH_BASE =
+    "https://modelscope.cn/models/unsloth/embeddinggemma-2-GGUF/resolve/master"
+
+private const val HF_TOKENIZER_BASE =
+    "https://huggingface.co/google/embeddinggemma-2/resolve/main"
+private const val MODELSCOPE_TOKENIZER_BASE =
+    "https://modelscope.cn/models/google/embeddinggemma-2/resolve/master"
 
 /** Download sources in priority order: canonical HF first, anonymous mirror fallback. */
 internal fun embeddingModelUrls(): List<String> = listOf(
-    "$HF_BASE/$EMBEDDING_MODEL_FILE",
-    "$MODELSCOPE_BASE/$EMBEDDING_MODEL_FILE"
+    "$HF_UNSLOTH_BASE/$EMBEDDING_MODEL_FILE",
+    "$MODELSCOPE_UNSLOTH_BASE/$EMBEDDING_MODEL_FILE"
 )
 
 internal fun embeddingVisionModelUrls(): List<String> = listOf(
-    "$HF_BASE/$EMBEDDING_VISION_MODEL_FILE",
-    "$MODELSCOPE_BASE/$EMBEDDING_VISION_MODEL_FILE"
+    "$HF_UNSLOTH_BASE/$EMBEDDING_VISION_MODEL_FILE",
+    "$MODELSCOPE_UNSLOTH_BASE/$EMBEDDING_VISION_MODEL_FILE"
 )
 
 internal fun embeddingTokenizerUrls(): List<String> = listOf(
-    "$HF_BASE/$EMBEDDING_TOKENIZER_FILE",
-    "$MODELSCOPE_BASE/$EMBEDDING_TOKENIZER_FILE"
+    "$HF_TOKENIZER_BASE/$EMBEDDING_TOKENIZER_FILE",
+    "$MODELSCOPE_TOKENIZER_BASE/$EMBEDDING_TOKENIZER_FILE"
 )
 
 /** True when the string is a plausible pinned sha256 (64 lowercase hex chars). */
@@ -493,22 +496,27 @@ internal fun embeddingStatusOf(
 internal class EmbeddingModelFiles(
     private val dir: File,
     private val modelBytes: Long = EMBEDDING_MODEL_BYTES,
-    private val tokenizerBytes: Long = EMBEDDING_TOKENIZER_BYTES
+    private val tokenizerBytes: Long = EMBEDDING_TOKENIZER_BYTES,
+    private val visionBytes: Long = EMBEDDING_VISION_MODEL_BYTES
 ) {
     val modelFile: File get() = File(dir, EMBEDDING_MODEL_FILE)
     val tokenizerFile: File get() = File(dir, EMBEDDING_TOKENIZER_FILE)
+    val visionFile: File get() = File(dir, EMBEDDING_VISION_MODEL_FILE)
     val modelPartFile: File get() = File(dir, "$EMBEDDING_MODEL_FILE.part")
     val tokenizerPartFile: File get() = File(dir, "$EMBEDDING_TOKENIZER_FILE.part")
+    val visionPartFile: File get() = File(dir, "$EMBEDDING_VISION_MODEL_FILE.part")
 
     fun modelPresent(): Boolean = fileMatches(modelFile, modelBytes)
 
     fun tokenizerPresent(): Boolean = fileMatches(tokenizerFile, tokenizerBytes)
 
+    fun visionPresent(): Boolean = fileMatches(visionFile, visionBytes)
+
     fun allPresent(): Boolean = modelPresent() && tokenizerPresent()
 
     /** Bytes of any in-flight partial download, or null when idle. */
     fun partFileBytes(): Long? =
-        listOf(modelPartFile, tokenizerPartFile)
+        listOf(modelPartFile, tokenizerPartFile, visionPartFile)
             .firstOrNull { it.isFile }
             ?.let { it.length() }
 
