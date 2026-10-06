@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ArrowClockwise, Brain, Database, Lightning, Warning } from "@phosphor-icons/react";
+import { ArrowClockwise, Brain, CheckCircle, Database, Lightning, Warning } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
@@ -7,6 +7,7 @@ import { NumericInput } from "../common";
 import { isPaidEmbeddingProvider } from "../../utils/aiBillingConsent";
 import { embeddingProviderLabel } from "../../utils/embeddingEstimation";
 import { listOllamaModels } from "../../api/ai";
+import { isNativeMobile } from "../../lib/tauri";
 
 const DEFAULT_OLLAMA_EMBED_MODELS = [
   "embeddinggemma-2",
@@ -34,19 +35,29 @@ export function EmbeddingSettings() {
 
   const [installedOllamaModels, setInstalledOllamaModels] = useState<string[]>([]);
   const [isLoadingOllama, setIsLoadingOllama] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<"idle" | "checking" | "connected" | "error">("idle");
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
 
   const update = (patch: Partial<typeof settings>) => updateSettingsCategory("embedding", patch);
 
   const refreshOllama = useCallback(async () => {
     if (settings.provider !== "ollama") return;
     setIsLoadingOllama(true);
+    setOllamaStatus("checking");
+    setOllamaError(null);
     try {
       const models = await listOllamaModels(settings.ollamaBaseUrl);
       if (Array.isArray(models) && models.length > 0) {
         setInstalledOllamaModels(models);
+        setOllamaStatus("connected");
+      } else {
+        setOllamaStatus("connected");
       }
     } catch (error) {
       console.warn("Failed to list installed Ollama models:", error);
+      setOllamaStatus("error");
+      const msg = error instanceof Error ? error.message : String(error);
+      setOllamaError(msg);
     } finally {
       setIsLoadingOllama(false);
     }
@@ -135,16 +146,67 @@ export function EmbeddingSettings() {
         </div>
 
         {settings.provider === "ollama" && (
-          <label className="block text-sm">
-            <span className="text-muted-foreground">{t("embeddings.ollamaBaseUrl")}</span>
-            <input
-              type="text"
-              value={settings.ollamaBaseUrl}
-              onChange={(e) => update({ ollamaBaseUrl: e.target.value })}
-              placeholder="http://localhost:11434"
-              className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm font-mono"
-            />
-          </label>
+          <div className="space-y-2">
+            <label className="block text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{t("embeddings.ollamaBaseUrl")}</span>
+                <button
+                  type="button"
+                  onClick={() => void refreshOllama()}
+                  disabled={isLoadingOllama}
+                  className="text-xs text-primary hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                >
+                  <ArrowClockwise className={`w-3 h-3 ${isLoadingOllama ? "animate-spin" : ""}`} />
+                  <span>{isLoadingOllama ? "Testing..." : "Test Connection"}</span>
+                </button>
+              </div>
+              <input
+                type="text"
+                value={settings.ollamaBaseUrl}
+                onChange={(e) => {
+                  setOllamaStatus("idle");
+                  update({ ollamaBaseUrl: e.target.value });
+                }}
+                placeholder="http://localhost:11434"
+                className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm font-mono"
+              />
+            </label>
+
+            {ollamaStatus === "connected" && (
+              <p className="text-xs text-success flex items-center gap-1.5 font-medium">
+                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Connected to Ollama ({installedOllamaModels.length} models installed)</span>
+              </p>
+            )}
+
+            {ollamaStatus === "error" && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive space-y-1.5">
+                <div className="flex items-start gap-1.5 font-semibold">
+                  <Warning className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>Cannot reach Ollama at {settings.ollamaBaseUrl}</span>
+                </div>
+                {ollamaError && (
+                  <p className="font-mono text-[11px] opacity-90 break-all">{ollamaError}</p>
+                )}
+                <div className="text-muted-foreground pt-1 space-y-1 text-[11px] border-t border-destructive/20">
+                  <p>
+                    <strong>Running Ollama over Tailscale / LAN?</strong> By default, Ollama only binds to <code className="text-foreground">127.0.0.1</code> and rejects remote connections.
+                  </p>
+                  <p>
+                    On your host machine, configure Ollama to accept remote network traffic:
+                  </p>
+                  <code className="block p-1 bg-background/50 rounded font-mono text-[10px] text-foreground">
+                    OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=&quot;*&quot; ollama serve
+                  </code>
+                  {isNativeMobile() && (settings.ollamaBaseUrl.includes("localhost") || settings.ollamaBaseUrl.includes("127.0.0.1")) && (
+                    <p className="text-amber-600 dark:text-amber-400 font-medium">
+                      Note: On mobile, &ldquo;localhost&rdquo; refers to your phone itself. Use your computer&apos;s Tailscale IP (e.g. http://100.x.y.z:11434).
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {settings.provider !== "ollama" && (

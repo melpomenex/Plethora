@@ -133,7 +133,8 @@ export function AiIndexPanel() {
   const refresh = useCallback(async () => {
     const run = ++refreshRef.current;
     try {
-      const next = await getAIIndexStatus();
+      const config = await resolveEmbeddingConfigForRag().catch(() => undefined);
+      const next = config ? await getAIIndexStatus(config) : await getAIIndexStatus();
       if (run !== refreshRef.current) return;
       setStatus(next);
       setError(null);
@@ -272,7 +273,10 @@ export function AiIndexPanel() {
     void (async () => {
       if (!(await requestIndexConsent())) return;
       updateSettingsCategory("features", { aiSemanticIndex: true });
-      await runAction("enable", () => enqueueAllAIDocuments(requireCharging));
+      const config = await resolveEmbeddingConfigForRag().catch(() => undefined);
+      await runAction("enable", () =>
+        config ? enqueueAllAIDocuments(requireCharging, config) : enqueueAllAIDocuments(requireCharging)
+      );
     })();
   }, [requestIndexConsent, updateSettingsCategory, runAction, requireCharging]);
 
@@ -280,7 +284,10 @@ export function AiIndexPanel() {
   const reindexStale = useCallback(() => {
     void (async () => {
       if (!(await requestIndexConsent())) return;
-      await runAction("reindex", () => enqueueAllAIDocuments(requireCharging));
+      const config = await resolveEmbeddingConfigForRag().catch(() => undefined);
+      await runAction("reindex", () =>
+        config ? enqueueAllAIDocuments(requireCharging, config) : enqueueAllAIDocuments(requireCharging)
+      );
     })();
   }, [requestIndexConsent, runAction, requireCharging]);
 
@@ -480,15 +487,37 @@ export function AiIndexPanel() {
               </div>
             </div>
 
-            {aggregate.staleDocuments > 0 && (
+            {aggregate.paused && (
+              <div className="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400">
+                Indexing is paused (device not charging or paused by user). Tap the Resume button above to continue on battery.
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requireCharging}
+                  onChange={(e) => setRequireCharging(e.target.checked)}
+                />
+                {t("aiLibrary.indexRequireCharging")}
+              </label>
+
               <button
                 onClick={reindexStale}
                 disabled={busy !== null}
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:opacity-90 disabled:opacity-60"
+                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-1.5"
               >
-                {busy === "reindex" ? t("aiLibrary.indexStarting") : t("aiLibrary.indexReindex")}
+                <Sparkle className="w-3.5 h-3.5" />
+                {busy === "reindex"
+                  ? t("aiLibrary.indexStarting")
+                  : aggregate.staleDocuments > 0
+                    ? t("aiLibrary.indexReindex")
+                    : aggregate.indexedDocuments === 0
+                      ? t("aiLibrary.indexEnable")
+                      : t("aiLibrary.indexReindex")}
               </button>
-            )}
+            </div>
 
             {failedDocuments.length > 0 && (
               <p className="text-xs text-destructive flex items-start gap-1.5">
