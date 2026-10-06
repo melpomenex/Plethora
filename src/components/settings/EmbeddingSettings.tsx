@@ -1,10 +1,20 @@
-import { Brain, Database, Lightning, Warning } from "@phosphor-icons/react";
+import { useState, useEffect, useCallback } from "react";
+import { ArrowClockwise, Brain, Database, Lightning, Warning } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
 import { NumericInput } from "../common";
 import { isPaidEmbeddingProvider } from "../../utils/aiBillingConsent";
 import { embeddingProviderLabel } from "../../utils/embeddingEstimation";
+import { listOllamaModels } from "../../api/ai";
+
+const DEFAULT_OLLAMA_EMBED_MODELS = [
+  "embeddinggemma-2",
+  "embeddinggemma-2:740m",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+];
 
 /**
  * Embedding provider settings: choose a cloud or local embedding provider and
@@ -22,13 +32,45 @@ export function EmbeddingSettings() {
     }))
   );
 
+  const [installedOllamaModels, setInstalledOllamaModels] = useState<string[]>([]);
+  const [isLoadingOllama, setIsLoadingOllama] = useState(false);
+
   const update = (patch: Partial<typeof settings>) => updateSettingsCategory("embedding", patch);
+
+  const refreshOllama = useCallback(async () => {
+    if (settings.provider !== "ollama") return;
+    setIsLoadingOllama(true);
+    try {
+      const models = await listOllamaModels(settings.ollamaBaseUrl);
+      if (Array.isArray(models) && models.length > 0) {
+        setInstalledOllamaModels(models);
+      }
+    } catch (error) {
+      console.warn("Failed to list installed Ollama models:", error);
+    } finally {
+      setIsLoadingOllama(false);
+    }
+  }, [settings.provider, settings.ollamaBaseUrl]);
+
+  useEffect(() => {
+    if (settings.provider === "ollama") {
+      void refreshOllama();
+    }
+  }, [settings.provider, settings.ollamaBaseUrl, refreshOllama]);
+
+  const ollamaModels = Array.from(
+    new Set([
+      ...(settings.ollamaModel ? [settings.ollamaModel] : []),
+      ...installedOllamaModels,
+      ...DEFAULT_OLLAMA_EMBED_MODELS,
+    ])
+  );
 
   const providerOptions = [
     { value: "openai", label: t("embeddings.providerOpenai"), modelKey: "openaiModel" as const, models: ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"] },
     { value: "cohere", label: t("embeddings.providerCohere"), modelKey: "cohereModel" as const, models: ["embed-english-v3.0", "embed-multilingual-v3.0"] },
     { value: "openrouter", label: t("embeddings.providerOpenrouter"), modelKey: "openrouterModel" as const, models: ["openai/text-embedding-3-small"] },
-    { value: "ollama", label: t("embeddings.providerOllama"), modelKey: "ollamaModel" as const, models: ["nomic-embed-text", "mxbai-embed-large", "all-minilm"] },
+    { value: "ollama", label: t("embeddings.providerOllama"), modelKey: "ollamaModel" as const, models: ollamaModels },
   ];
   const activeProvider = providerOptions.find((p) => p.value === settings.provider)!;
 
@@ -64,8 +106,21 @@ export function EmbeddingSettings() {
         </div>
 
         {/* Model picker for the active provider */}
-        <label className="block text-sm">
-          <span className="text-muted-foreground">{t("embeddings.model")}</span>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">{t("embeddings.model")}</span>
+            {settings.provider === "ollama" && (
+              <button
+                type="button"
+                onClick={() => void refreshOllama()}
+                disabled={isLoadingOllama}
+                className="flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                <ArrowClockwise className={`w-3.5 h-3.5 ${isLoadingOllama ? "animate-spin" : ""}`} />
+                <span>{isLoadingOllama ? "Checking installed..." : "Refresh installed models"}</span>
+              </button>
+            )}
+          </div>
           <select
             value={settings[activeProvider.modelKey] ?? activeProvider.models[0]}
             onChange={(e) => update({ [activeProvider.modelKey]: e.target.value } as Partial<typeof settings>)}
@@ -77,7 +132,7 @@ export function EmbeddingSettings() {
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
         {settings.provider === "ollama" && (
           <label className="block text-sm">
