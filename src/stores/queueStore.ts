@@ -396,6 +396,13 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         get().applyFilters();
 
         const settings = useSettingsStore.getState().settings;
+        // Adaptive ranking structures the freshly loaded pool when opted in:
+        // the first pass orders immediately under the current knobs and the
+        // decision model (e.g. Clef) refines it via scheduleDecisionRerank.
+        // Off by default — when rankingEnabled is false the listing above stands.
+        if (settings.daqe.rankingEnabled) {
+          void get().applyRankSnapshot(settings.daqe.knobs);
+        }
         if (settings.learning.postpone.autoPostponeEnabled) {
           const overdueCount = items.filter((i) => {
             if (!i.dueDate) return true;
@@ -441,6 +448,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           selectionBase: new Set<string>(),
         });
         get().applyFilters();
+        // See loadQueue: structure the pool under the knobs when opted in.
+        const daqeDocuments = useSettingsStore.getState().settings.daqe;
+        if (daqeDocuments.rankingEnabled) {
+          void get().applyRankSnapshot(daqeDocuments.knobs);
+        }
       } catch (error) {
         set({
           error: error instanceof Error ? error.message : "Failed to load due documents",
@@ -466,6 +478,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           selectionBase: new Set<string>(),
         });
         get().applyFilters();
+        // See loadQueue: structure the pool under the knobs when opted in.
+        const daqeDue = useSettingsStore.getState().settings.daqe;
+        if (daqeDue.rankingEnabled) {
+          void get().applyRankSnapshot(daqeDue.knobs);
+        }
       } catch (error) {
         set({
           error: error instanceof Error ? error.message : "Failed to load due items",
