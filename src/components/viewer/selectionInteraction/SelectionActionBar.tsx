@@ -17,6 +17,8 @@ import { DotsThree } from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
 import { useOverlayDismissal } from "../../../hooks/useOverlayDismissal";
+import { useMobileShell } from "../../../hooks/useMobileShell";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import { SELECTION_INTERACTION_UI_ATTR } from "./adapters";
 import type { BarPlacement } from "./geometry";
 import {
@@ -107,6 +109,12 @@ export function SelectionActionBar({
 }: SelectionActionBarProps) {
   const { t } = useI18n();
   const { reducedMotion } = usePresentation();
+  const isMobile = useMobileShell();
+  // Mobile AskSheet (mobile-ask-sheet-library-qa): on mobile the bar collapses
+  // to a single primary Ask action + overflow — no horizontal scrolling to
+  // reach Ask. Desktop and flag-off keep the full ranked chip row.
+  const askSheetMobile = useSettingsStore((s) => s.settings.features.askSheetMobile);
+  const singleAskBar = isMobile && askSheetMobile;
   const barRef = useRef<HTMLDivElement>(null);
   // Most-used actions float to the front once enough local usage exists
   // (D8) — the bar scrolls horizontally, so position is reach.
@@ -129,7 +137,7 @@ export function SelectionActionBar({
 
   if (!placement) return null;
 
-  const actions = rankBarActionsByUsage(
+  const rankedActions = rankBarActionsByUsage(
     getSelectionActions("bar", {
       aiAvailable,
       canExtract,
@@ -138,6 +146,9 @@ export function SelectionActionBar({
     }),
     usageCounts,
   );
+  const actions = singleAskBar
+    ? rankedActions.filter((action) => action.id === "ask")
+    : rankedActions;
 
   return createPortal(
     <div

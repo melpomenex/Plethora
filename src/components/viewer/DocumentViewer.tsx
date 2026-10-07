@@ -33,6 +33,7 @@ import {
   BookmarkSimple,
   Copy,
   Globe,
+  Question,
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
@@ -143,6 +144,8 @@ import {
   type SelectionAiAction,
 } from "./SelectionActionsSheet";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
+import { AskSheet, type AskSheetRequest } from "../assistant/AskSheet";
+import { getVisibleSectionText } from "./askSheetHelpers";
 import { RecallPromptOverlay } from "./RecallPromptOverlay";
 import { useRecallPrompts } from "./useRecallPrompts";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
@@ -1301,6 +1304,12 @@ export function DocumentViewer({
     text: string;
     passage: string;
   } | null>(null);
+  // Mobile AskSheet (mobile-ask-sheet-library-qa): bottom-sheet composer +
+  // docked answer cards, replacing the pill-menu Ask path when the
+  // `askSheetMobile` flag is on. Null request = closed.
+  const [askSheetRequest, setAskSheetRequest] = useState<AskSheetRequest | null>(null);
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
+  const askSheetMobile = settings.features.askSheetMobile === true;
   // "Learn this" proposal request from the desktop context menu (task 2.3).
   const [learnThisRequest, setLearnThisRequest] = useState<{
     text: string;
@@ -5225,10 +5234,36 @@ export function DocumentViewer({
       }
       return;
     }
+    // Mobile AskSheet (mobile-ask-sheet-library-qa, task 4.3): when the flag is
+    // on, the bar's Ask chip opens the bottom-sheet composer instead of the
+    // legacy AI action sheet. Desktop and flag-off keep the old path.
+    if (action === "ask" && askSheetMobile && isMobileTouch) {
+      const snapshot = controller.captureForAction();
+      controller.dismiss({ suppressCurrentText: true });
+      if (snapshot) {
+        setAskSheetRequest({
+          passage: snapshot.text,
+          documentId: currentDocument?.id ?? documentId,
+          documentTitle: currentDocument?.title,
+        });
+        setAskSheetOpen(true);
+      }
+      return;
+    }
     const snapshot = controller.captureForAction();
     if (!snapshot) return;
     setAiSheetRequest({ action, text: snapshot.text, passage: snapshot.passage });
   };
+
+  const handleAskAboutPage = useCallback(() => {
+    const pageContext = getVisibleSectionText();
+    setAskSheetRequest({
+      pageContext: pageContext || undefined,
+      documentId: currentDocument?.id ?? documentId,
+      documentTitle: currentDocument?.title,
+    });
+    setAskSheetOpen(true);
+  }, [currentDocument, documentId]);
 
   // ⋯ opens the full shared action menu (the same list as right-click:
   // extract, note, highlight, copy, dictionary, flashcard, AI) as the
@@ -7089,6 +7124,24 @@ export function DocumentViewer({
                     </button>
                   </div>
 
+                  {askSheetMobile && (
+                    <div className="flex items-center justify-between py-1.5 border-t border-border/40">
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {t("askSheet.askAboutPage")}
+                      </span>
+                      <button
+                        onClick={() => {
+                          handleAskAboutPage();
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="inline-flex items-center gap-1.5 text-xs text-foreground px-3 py-1.5 bg-muted rounded-md border border-border"
+                      >
+                        <Question className="w-3.5 h-3.5" />
+                        <span>{t("askSheet.ask")}</span>
+                      </button>
+                    </div>
+                  )}
+
                   {docType === "pdf" && (
                     <div className="space-y-2 pt-2 border-t border-border/40">
                       <span className="text-xs text-muted-foreground font-medium block">PDF Controls</span>
@@ -8831,6 +8884,18 @@ export function DocumentViewer({
         readerContainerRef={containerRef}
         showLearnThis={Boolean(captureReader?.selection && !captureCardPreview)}
         onLearnThis={openMarketingLearnThis}
+      />
+
+      {/* Mobile AskSheet (mobile-ask-sheet-library-qa): bottom-sheet composer
+          + docked answer cards. Mobile-gated inside AskSheet; the flag gates
+          the entry points above. */}
+      <AskSheet
+        open={askSheetOpen}
+        onClose={() => {
+          setAskSheetOpen(false);
+          setAskSheetRequest(null);
+        }}
+        request={askSheetRequest}
       />
 
       {/* Mobile: bottom sheet of actions for the current text selection. */}

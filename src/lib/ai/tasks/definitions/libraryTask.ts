@@ -311,7 +311,12 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
   // Nothing survived retrieval: answer honestly without invoking a model —
   // there is nothing to ground on, and a zero-chunk prompt invites
   // fabrication (spec: "the library does not appear to cover it").
-  if (budgeted.length === 0) {
+  // Exception: when the caller supplied a context passage (e.g. the AskSheet
+  // passage scope), the passage itself is grounding — generate from it as
+  // long as a generator is available. With generatorKind "none" there is no
+  // generator, so the honest-empty answer still applies.
+  const hasGroundingPassage = Boolean(options.contextPassage?.trim());
+  if (budgeted.length === 0 && (!hasGroundingPassage || composition.generatorKind === "none")) {
     return {
       answer: {
         answer:

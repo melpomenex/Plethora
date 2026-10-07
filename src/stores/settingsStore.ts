@@ -811,6 +811,13 @@ interface FeatureFlags {
    * (context menu, selection action sheet) stay available when disabled.
    */
   dictionaryPeek: boolean;
+  /**
+   * Mobile AskSheet (OpenSpec `mobile-ask-sheet-library-qa`): bottom-sheet
+   * question composer + docked answer cards on the mobile reader, replacing
+   * the pill-menu Ask path. Ships dark; rollback = disable the flag (old
+   * pill-menu Ask path remains until the flag is removed).
+   */
+  askSheetMobile: boolean;
   appleFoundationModels: boolean;
   appleSpotlightIndex: boolean;
   appleSpeechTranscription: boolean;
@@ -1492,6 +1499,8 @@ export const defaultSettings: Settings = {
     // controller is now the default path on all reader surfaces.
     selectionInteractionV2: true,
     dictionaryPeek: true,
+    // Mobile AskSheet (mobile-ask-sheet-library-qa): dark until UX validated.
+    askSheetMobile: false,
     appleFoundationModels: true,
     appleSpotlightIndex: true,
     appleSpeechTranscription: true,
