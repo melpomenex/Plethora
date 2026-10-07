@@ -59,11 +59,21 @@ export function MobileContextMenuSheet({
   const [visible, setVisible] = useState(false);
   const prevOverflowRef = useRef<string>("");
   const isMobile = useMobileShell();
+  // Timestamp (ms) of the most recent open. The scrim ignores taps that land
+  // within OPEN_TAP_GUARD_MS of opening: on touch devices the tap that opens
+  // the sheet can still be in flight when the full-screen scrim mounts (its
+  // synthesized click retargets to the topmost element at the touch point),
+  // which would otherwise dismiss the sheet the instant it appears. Seen with
+  // AskSheet from EPUB selections in the queue, where the iframe selection
+  // gesture's events arrive late relative to the sheet mounting.
+  const openAtRef = useRef<number>(0);
+  const OPEN_TAP_GUARD_MS = 350;
 
   // Mount/unmount with an enter transition on open.
   useEffect(() => {
     if (open) {
       setMounted(true);
+      openAtRef.current = Date.now();
       // Defer to next frame so the initial (off-screen) state paints first.
       const raf = requestAnimationFrame(() => setVisible(true));
       return () => cancelAnimationFrame(raf);
@@ -73,6 +83,11 @@ export function MobileContextMenuSheet({
       setVisible(false);
     }
   }, [open, mounted]);
+
+  const handleScrimClick = () => {
+    if (Date.now() - openAtRef.current < OPEN_TAP_GUARD_MS) return;
+    onClose();
+  };
 
   // Lock body scroll while the sheet is on screen.
   useEffect(() => {
@@ -115,14 +130,14 @@ export function MobileContextMenuSheet({
       role="dialog"
       aria-modal="true"
     >
-      {/* Scrim: tap anywhere to dismiss. */}
+      {/* Scrim: tap anywhere to dismiss (guarded against the opening tap). */}
       <div
         className={
           "absolute inset-0 transition-opacity duration-200 " +
           (isMobile ? "bg-black/50 " : "bg-black/60 backdrop-blur-sm ") +
           (visible ? "opacity-100" : "opacity-0")
         }
-        onClick={onClose}
+        onClick={handleScrimClick}
       />
 
       {/* Sheet / Dialog panel */}

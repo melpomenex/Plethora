@@ -77,4 +77,56 @@ describe("MobileContextMenuSheet responsive presentation", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores a scrim tap that lands right as the sheet opens (opening-tap race)", () => {
+    mockUseMobileShell.mockReturnValue(true);
+    const onClose = vi.fn();
+    let now = 1_000_000;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    try {
+      render(
+        <MobileContextMenuSheet open onClose={onClose} title="Ask">
+          <div>Composer</div>
+        </MobileContextMenuSheet>
+      );
+
+      // The scrim is the first child of the dialog (absolute inset-0).
+      const dialog = screen.getByRole("dialog");
+      const scrim = dialog.firstElementChild as HTMLElement;
+      expect(scrim).toBeInTheDocument();
+
+      // A synthesized click from the still-in-flight opening tap must not
+      // dismiss the sheet the instant it appears.
+      fireEvent.click(scrim);
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it("dismisses on scrim tap after the opening-tap guard window", () => {
+    mockUseMobileShell.mockReturnValue(true);
+    const onClose = vi.fn();
+    let now = 2_000_000;
+    const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    try {
+      render(
+        <MobileContextMenuSheet open onClose={onClose} title="Ask">
+          <div>Composer</div>
+        </MobileContextMenuSheet>
+      );
+
+      const dialog = screen.getByRole("dialog");
+      const scrim = dialog.firstElementChild as HTMLElement;
+
+      // Past the guard window, a genuine tap-away still dismisses.
+      now += 1_000;
+      fireEvent.click(scrim);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
 });
