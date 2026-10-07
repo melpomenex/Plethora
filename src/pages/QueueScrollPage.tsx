@@ -104,6 +104,7 @@ import { ItemDetailsPopover, type ItemDetailsTarget } from "../components/common
 import type { TaggedItemSummary } from "../api/tags";
 import { useUndoableOperations } from "../api/undoable";
 import { AssistantPanel, type AssistantContext, type AssistantPosition, READER_MIN_WIDTH } from "../components/assistant/AssistantPanel";
+import { AskSheet, type AskSheetRequest } from "../components/assistant/AskSheet";
 import { useToast } from "../components/common/Toast";
 import { useMobileShell } from "../hooks/useMobileShell";
 import { RSSQueueSettingsModal } from "../components/settings/RSSQueueSettings";
@@ -1876,6 +1877,12 @@ export function QueueScrollPage() {
     isMobile &&
     renderedItem?.type === "rss";
   const [selectionBarOverflowOpen, setSelectionBarOverflowOpen] = useState(false);
+  // Mobile AskSheet (mobile-ask-sheet-library-qa follow-up): the bottom-sheet
+  // composer + docked answer cards, same as DocumentViewer. Gated by the
+  // `askSheetMobile` flag; null request = closed.
+  const [askSheetRequest, setAskSheetRequest] = useState<AskSheetRequest | null>(null);
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
+  const askSheetMobile = useSettingsStore((s) => s.settings.features.askSheetMobile) === true;
   const [pendingAiAction, setPendingAiAction] = useState<{
     action: SelectionAiAction;
     text: string;
@@ -1902,6 +1909,22 @@ export function QueueScrollPage() {
     if (action === "copy") {
       void copySelectionTextToClipboard(selectionController.readySelection?.text ?? "");
       selectionController.dismiss({ suppressCurrentText: true });
+      return;
+    }
+    // Mobile AskSheet (mobile-ask-sheet-library-qa follow-up): when the flag
+    // is on, the bar's Ask chip opens the bottom-sheet composer instead of
+    // the legacy AI action sheet. Flag-off keeps the old path below.
+    if (action === "ask" && askSheetMobile && isMobile) {
+      const snapshot = selectionController.captureForAction();
+      selectionController.dismiss({ suppressCurrentText: true });
+      if (snapshot) {
+        setAskSheetRequest({
+          passage: snapshot.text,
+          documentId: renderedItem?.documentId ?? renderedItem?.id,
+          documentTitle: renderedItem?.documentTitle,
+        });
+        setAskSheetOpen(true);
+      }
       return;
     }
     const snapshot = selectionController.captureForAction();
@@ -4710,6 +4733,18 @@ export function QueueScrollPage() {
         onOverflow={() => setSelectionBarOverflowOpen(true)}
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
         onMeasure={selectionController.registerBarSize}
+      />
+
+      {/* Mobile AskSheet (mobile-ask-sheet-library-qa follow-up): bottom-sheet
+          composer + docked answer cards. Mobile-gated inside AskSheet; the
+          flag gates the entry point above. */}
+      <AskSheet
+        open={askSheetOpen}
+        onClose={() => {
+          setAskSheetOpen(false);
+          setAskSheetRequest(null);
+        }}
+        request={askSheetRequest}
       />
 
       <SelectionActionsSheet
