@@ -2454,15 +2454,6 @@ A: 設定 → バックアップ → エクスポート、または Anki 同期�
 
 ---
 
-## サポートとコミュニティ
-
-- **ドキュメント**: [docs/](./)
-- **GitHub**: [incrementum-tauri](https://github.com/melpomenex/incrementum-tauri)
-- **問題**: [バグを報告](https://github.com/melpomenex/incrementum-tauri/issues)
-- **ディスカッション**: [質問する](https://github.com/melpomenex/incrementum-tauri/Discussions)
-
----
-
 **楽しく学習してください! 🚀**
 
 Tauri + React + Rust を使用して ❤️ で構築

@@ -2450,15 +2450,6 @@ A：设置 → 备份 → 导出，或使用 Anki 同步导出为 .apkg 格式�
 
 ---
 
-## 支持与社区
-
-- **文档**：[docs/](./)
-- **GitHub**：[incrementum-tauri](https://github.com/melpomenex/incrementum-tauri)
-- **问题**：[报告错误](https://github.com/melpomenex/incrementum-tauri/issues)
-- **讨论**：[提出问题](https://github.com/melpomenex/incrementum-tauri/discussions)
-
----
-
 **学习愉快！ 🚀**
 
 使用 Tauri + React + Rust 与 ❤️ 构建

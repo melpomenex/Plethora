@@ -2435,15 +2435,6 @@ Voir [CHANGELOG.md](https://github.com/melpomenex/incrementum-tauri/blob/main/CH
 
 ---
 
-## Assistance et communauté
-
-- **Documentation** : [docs/](./)
-- **GitHub** : [incrementum-tauri](https://github.com/melpomenex/incrementum-tauri)
-- **Problèmes** : [Signaler des bugs](https://github.com/melpomenex/incrementum-tauri/issues)
-- **Discussions** : [Poser des questions](https://github.com/melpomenex/incrementum-tauri/discussions)
-
----
-
 **Bon apprentissage ! 🚀**
 
 Construit avec ❤️ en utilisant Tauri + React + Rust
