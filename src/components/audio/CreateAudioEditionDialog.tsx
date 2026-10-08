@@ -52,6 +52,12 @@ import {
 } from "../../utils/ttsSettings";
 import { resolveProviderKey } from "../../api/tts/auth";
 import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
+import {
+  CHATTERBOX_DEFAULT_VOICE,
+  CHATTERBOX_MODEL_ID,
+  CHATTERBOX_PROVIDER_ID,
+  checkChatterboxHealth,
+} from "../../utils/chatterboxAudio";
 import { t } from "../../lib/i18n";
 
 export interface AvailableVoice {
@@ -110,6 +116,10 @@ const KOKORO_DEFAULT_VOICES: AvailableVoice[] = [
   { id: "bm_lewis", name: "Lewis", gender: "Male", description: "British, deep" },
 ];
 
+const CHATTERBOX_DEFAULT_VOICES: AvailableVoice[] = [
+  { id: CHATTERBOX_DEFAULT_VOICE, name: "Default", gender: "Neutral", description: "Local Chatterbox voice" },
+];
+
 interface CreateAudioEditionDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -133,6 +143,11 @@ export function CreateAudioEditionDialog({
   const [voice, setVoice] = useState<string>("alloy");
   const [speed, setSpeed] = useState<number>(1.0);
   const [instructions, setInstructions] = useState<string>("");
+
+  const isChatterboxPath = provider === CHATTERBOX_PROVIDER_ID;
+  // Tracks whether the user hand-picked a Chatterbox voice: while untouched,
+  // freshly enumerated voices upgrade the "default" fallback automatically.
+  const chatterboxVoiceTouchedRef = useRef(false);
 
   // Audition preview state
   const [isAuditioning, setIsAuditioning] = useState(false);
@@ -261,13 +276,22 @@ export function CreateAudioEditionDialog({
       setProvider("elevenlabs");
       setModel("eleven_multilingual_v2");
       setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
+    } else if (newQuality === "expressive") {
+      setProvider(CHATTERBOX_PROVIDER_ID);
+      setModel(CHATTERBOX_MODEL_ID);
+      chatterboxVoiceTouchedRef.current = false;
+      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
     }
   };
 
   const handleProviderChange = (newProvider: string) => {
     stopAudition();
     setProvider(newProvider);
-    if (newProvider === "pocket") {
+    if (newProvider === CHATTERBOX_PROVIDER_ID) {
+      setModel(CHATTERBOX_MODEL_ID);
+      chatterboxVoiceTouchedRef.current = false;
+      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
+    } else if (newProvider === "pocket") {
       setModel("default");
       setVoice("alba");
     } else if (newProvider === "openai") {
@@ -291,6 +315,10 @@ export function CreateAudioEditionDialog({
     }
   };
 
+  // Dynamic voices fetched from adapter if available (declared before the
+  // quality/provider handlers: they read the latest enumeration).
+  const [dynamicVoices, setDynamicVoices] = useState<AvailableVoice[]>([]);
+
   // Sync provider/model/voice when preset changes
   // Revoke the audition preview URL on dismiss (task 5.7).
   useEffect(() => {
@@ -313,12 +341,29 @@ export function CreateAudioEditionDialog({
       setProvider("elevenlabs");
       setModel("eleven_multilingual_v2");
       setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
+    } else if (quality === "expressive") {
+      setProvider(CHATTERBOX_PROVIDER_ID);
+      setModel(CHATTERBOX_MODEL_ID);
+      chatterboxVoiceTouchedRef.current = false;
+      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
     }
   }, [quality]);
 
-  // Dynamic voices fetched from adapter if available
-  const [dynamicVoices, setDynamicVoices] = useState<AvailableVoice[]>([]);
+  // Upgrade the Chatterbox fallback voice once enumeration lands, unless the
+  // user already hand-picked a voice on this path.
+  useEffect(() => {
+    if (
+      isChatterboxPath &&
+      !chatterboxVoiceTouchedRef.current &&
+      voice === CHATTERBOX_DEFAULT_VOICE &&
+      dynamicVoices.length > 0 &&
+      dynamicVoices[0].id !== voice
+    ) {
+      setVoice(dynamicVoices[0].id);
+    }
+  }, [isChatterboxPath, voice, dynamicVoices]);
 
+  // Dynamic voice fetch effect (state declared above for handler access).
   useEffect(() => {
     let cancelled = false;
     const fetchAdapterVoices = async () => {
@@ -394,6 +439,8 @@ export function CreateAudioEditionDialog({
         name: id.replace(/_/g, " "),
         gender: "Neutral",
       }));
+    } else if (provider === CHATTERBOX_PROVIDER_ID) {
+      baseList = CHATTERBOX_DEFAULT_VOICES;
     }
 
     const mergedStandard: AvailableVoice[] = [...baseList];
@@ -476,12 +523,25 @@ export function CreateAudioEditionDialog({
     }
 
     setAuditionError(null);
+
+    // Chatterbox pre-flight: fail fast with the recovery command instead of
+    // hanging on an unreachable local service.
+    if (isChatterboxPath) {
+      const baseUrl = getProviderSettings(settings.tts, CHATTERBOX_PROVIDER_ID).baseUrl || "";
+      const health = await checkChatterboxHealth(baseUrl);
+      if (!health.ok) {
+        setAuditionError(health.error || "Chatterbox service is unreachable.");
+        return;
+      }
+    }
+
     setIsAuditioning(true);
 
     try {
       const audioBlob = await auditionVoicePreview(sampleText, provider, model, voice, {
-        speed,
+        speed: isChatterboxPath ? undefined : speed,
         instructions,
+        responseFormat: isChatterboxPath ? "wav" : undefined,
       });
 
       // Owned URL + revoke-on-replace/-end/-dismiss (task 5.7): the preview
@@ -541,6 +601,16 @@ export function CreateAudioEditionDialog({
         }
       }
 
+      // Chatterbox pre-flight (same fail-fast contract as audition).
+      if (isChatterboxPath) {
+        const baseUrl = getProviderSettings(settings.tts, CHATTERBOX_PROVIDER_ID).baseUrl || "";
+        const health = await checkChatterboxHealth(baseUrl);
+        if (!health.ok) {
+          setErrorMsg(health.error || "Chatterbox service is unreachable.");
+          return;
+        }
+      }
+
       const editionId = typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `ed-${Date.now()}`;
@@ -557,7 +627,7 @@ export function CreateAudioEditionDialog({
         sourceEndAnchor: s.sourceEndAnchor || null,
         characterCount: s.characterCount,
         audioFilePath: null,
-        audioMimeType: "audio/mp3",
+        audioMimeType: isChatterboxPath ? "audio/wav" : "audio/mp3",
         durationSec: 0,
         generationStatus: "queued" as const,
         failureReason: null,
@@ -726,7 +796,7 @@ export function CreateAudioEditionDialog({
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
               Quality & Voice Profile
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
               {/* Fast */}
               <button
                 type="button"
@@ -786,6 +856,26 @@ export function CreateAudioEditionDialog({
                   Expressive audio, studio clarity
                 </span>
               </button>
+
+              {/* Expressive */}
+              <button
+                type="button"
+                onClick={() => handleQualityChange("expressive")}
+                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
+                  quality === "expressive" && !showAdvanced
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border hover:border-muted-foreground/40 bg-card"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 text-sky-500 font-medium text-xs mb-1">
+                  <SpeakerHigh size={14} weight="fill" />
+                  <span>Expressive</span>
+                </div>
+                <span className="font-semibold text-sm">Chatterbox / Local</span>
+                <span className="text-[11px] text-muted-foreground mt-1">
+                  Free, local GPU narration · voice cloning
+                </span>
+              </button>
             </div>
           </div>
 
@@ -809,6 +899,7 @@ export function CreateAudioEditionDialog({
                 value={voice}
                 onChange={(e) => {
                   stopAudition();
+                  chatterboxVoiceTouchedRef.current = true;
                   setVoice(e.target.value);
                 }}
                 className="w-full bg-background border border-input rounded-xl px-3 py-2 text-sm font-medium text-foreground focus:ring-2 focus:ring-primary focus:outline-none transition-all cursor-pointer shadow-sm"
@@ -900,6 +991,7 @@ export function CreateAudioEditionDialog({
                       <option value="openrouter">OpenRouter</option>
                       <option value="elevenlabs">ElevenLabs</option>
                       <option value="openai">OpenAI</option>
+                      <option value={CHATTERBOX_PROVIDER_ID}>Chatterbox (Local)</option>
                       <option value="system">System Default</option>
                     </select>
                   </div>
@@ -912,6 +1004,7 @@ export function CreateAudioEditionDialog({
                       data-testid="advanced-voice-select"
                       onChange={(e) => {
                         stopAudition();
+                        chatterboxVoiceTouchedRef.current = true;
                         setVoice(e.target.value);
                       }}
                       className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
@@ -935,9 +1028,16 @@ export function CreateAudioEditionDialog({
                     max="2.0"
                     step="0.05"
                     value={speed}
+                    disabled={isChatterboxPath}
+                    title={isChatterboxPath ? "Chatterbox Turbo has no speed parameter" : undefined}
                     onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                    className="w-full mt-1.5"
+                    className="w-full mt-1.5 disabled:opacity-40"
                   />
+                  {isChatterboxPath && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Speed is not supported by Chatterbox Turbo and is ignored.
+                    </p>
+                  )}
                 </div>
 
                 <div>

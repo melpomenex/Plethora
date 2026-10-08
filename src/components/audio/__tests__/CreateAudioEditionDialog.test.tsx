@@ -495,5 +495,154 @@ describe("CreateAudioEditionDialog", () => {
     expect(content).toBeInTheDocument();
     expect(content.className).toContain("flex-1");
   });
+
+  it("selects the Expressive (Chatterbox) preset with fallback voice and Free summary", async () => {
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    const expressiveButton = screen.getByRole("button", { name: /Chatterbox \/ Local/i });
+    fireEvent.click(expressiveButton);
+
+    // Fallback voice roster applies before enumeration lands
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    expect(voiceSelect.value).toBe("default");
+    expect(
+      within(voiceSelect).getByRole("option", { name: /Default.*Local Chatterbox voice/i })
+    ).toBeInTheDocument();
+
+    // Free-tier pricing applies to the local service
+    expect(screen.getByText(/^Free$/i)).toBeInTheDocument();
+
+    // Speed slider is gated with an explanation once Advanced is shown
+    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    const slider = screen.getByRole("slider") as HTMLInputElement;
+    expect(slider).toBeDisabled();
+    expect(screen.getByText(/Speed is not supported by Chatterbox Turbo/i)).toBeInTheDocument();
+  });
+
+  it("lists Chatterbox in the Advanced provider dropdown", async () => {
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    const providerSelect = screen
+      .getAllByRole("combobox")
+      .find((el) => within(el as HTMLElement).queryByRole("option", { name: /Pocket TTS/i })) as HTMLSelectElement;
+    expect(providerSelect).toBeInTheDocument();
+    fireEvent.change(providerSelect, { target: { value: "openai-compatible" } });
+
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    await waitFor(() => {
+      expect(voiceSelect.value).toBe("default");
+    });
+  });
+
+  it("auditions with WAV format and no speed after a healthy pre-flight", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/health")) return Promise.resolve({ ok: true });
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ voices: [{ id: "sherlock_british", name: "Sherlock British" }] }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const playMock = vi
+      .spyOn(window.HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined as any);
+
+    try {
+      render(
+        <CreateAudioEditionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Chatterbox \/ Local/i }));
+      fireEvent.click(screen.getByTestId("audition-voice-button"));
+
+      await waitFor(() => {
+        expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
+          expect.any(String),
+          "openai-compatible",
+          "chatterbox-turbo",
+          expect.any(String),
+          expect.objectContaining({ responseFormat: "wav", speed: undefined })
+        );
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/health"),
+        expect.anything()
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      playMock.mockRestore();
+    }
+  });
+
+  it("shows the recovery command and sends nothing when the service is down", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("fetch failed"))
+    );
+
+    try {
+      render(
+        <CreateAudioEditionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Chatterbox \/ Local/i }));
+      fireEvent.click(screen.getByTestId("audition-voice-button"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/systemctl --user start chatterbox-tts/i)
+        ).toBeInTheDocument();
+      });
+      expect(audioEditionsApi.auditionVoicePreview).not.toHaveBeenCalled();
+
+      // Creation is blocked the same way
+      fireEvent.click(screen.getByRole("button", { name: /^Create Audio Edition$/i }));
+      await waitFor(() => {
+        expect(audioEditionsApi.createAudioEdition).not.toHaveBeenCalled();
+      });
+      expect(
+        screen.getAllByText(/systemctl --user start chatterbox-tts/i).length
+      ).toBeGreaterThan(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 

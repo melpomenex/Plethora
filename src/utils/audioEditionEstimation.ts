@@ -18,6 +18,7 @@ export const PROVIDER_PRICING_DEFAULTS: Record<string, Record<string, PricingRul
   system: { isFree: true },
   android: { isFree: true },
   plethora: { isFree: true },
+  "openai-compatible": { isFree: true },
   openai: {
     "tts-1": { costPerMillionCharsUsd: 15.0 },
     "tts-1-hd": { costPerMillionCharsUsd: 30.0 },

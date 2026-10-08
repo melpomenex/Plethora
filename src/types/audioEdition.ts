@@ -6,7 +6,7 @@ export type AudioEditionStatus = "draft" | "generating" | "ready" | "failed" | "
 
 export type SectionGenerationStatus = "queued" | "generating" | "ready" | "failed" | "stale";
 
-export type QualityPreset = "fast" | "natural" | "best" | "custom";
+export type QualityPreset = "fast" | "natural" | "best" | "expressive" | "custom";
 
 export type MarkerType = "extract" | "bookmark" | "interesting" | "confusing";
 

@@ -19,8 +19,13 @@ import { resolveProviderKey } from "../api/tts/auth";
 import { useSettingsStore } from "./settingsStore";
 import { computeSentenceAnchors } from "../utils/audioEditionAnchors";
 import type { AudioEditionSettings } from "../types/audioEdition";
+import {
+  CHATTERBOX_PROVIDER_ID,
+  concatenateWavBlobs,
+  splitTextForChatterbox,
+} from "../utils/chatterboxAudio";
 import { cloudTtsRequiresConsent, isPaidTtsProvider, requestPaidConsent } from "../utils/aiBillingConsent";
-import { getOwnedObjectUrlBytes, revokeOwnedObjectUrl } from "../diagnostics/ownedObjectUrl";
+import { getOwnedObjectUrlBytes, revokeOwnedObjectUrl, createOwnedObjectUrl } from "../diagnostics/ownedObjectUrl";
 
 export interface GenerationJob {
   editionId: string;
@@ -315,26 +320,66 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
               let audioFilePath = "";
 
               if (adapter) {
-                const res = await adapter.synthesize(
-                  {
-                    settings,
-                    tts: { ...settings.tts },
-                    config: {
-                      ...(settings.tts.providers[edition.provider as keyof typeof settings.tts.providers] || {}),
-                      modelId: edition.model,
-                      speed: parsedSettings.speed || 1.0,
-                    } as any,
-                    apiKey: resolvedKey.key || undefined,
-                    borrowedFrom: resolvedKey.source,
-                  },
-                  {
-                    text: textToSynthesize,
-                    model: edition.model,
-                    voice: edition.voice,
-                    responseFormat: "mp3",
-                    speed: parsedSettings.speed || 1.0,
+                // Chatterbox path: strictly sequential ≤1000-char WAV chunks
+                // (no speed parameter; Turbo ignores it). Sequential dispatch
+                // bounds inference latency and VRAM on small local GPUs.
+                const isChatterbox = edition.provider === CHATTERBOX_PROVIDER_ID;
+                const requestSpeed = isChatterbox ? undefined : parsedSettings.speed || 1.0;
+                const requestFormat = isChatterbox ? "wav" : "mp3";
+                const texts = isChatterbox
+                  ? splitTextForChatterbox(textToSynthesize)
+                  : [textToSynthesize];
+
+                const synthesizeOne = (text: string) =>
+                  adapter.synthesize(
+                    {
+                      settings,
+                      tts: { ...settings.tts },
+                      config: {
+                        ...(settings.tts.providers[edition.provider as keyof typeof settings.tts.providers] || {}),
+                        modelId: edition.model,
+                        speed: requestSpeed,
+                      } as any,
+                      apiKey: resolvedKey.key || undefined,
+                      borrowedFrom: resolvedKey.source,
+                    },
+                    {
+                      text,
+                      model: edition.model,
+                      voice: edition.voice,
+                      responseFormat: requestFormat,
+                      speed: requestSpeed,
+                    }
+                  );
+
+                let res: Awaited<ReturnType<typeof synthesizeOne>>;
+                if (texts.length === 1) {
+                  res = await synthesizeOne(texts[0]);
+                } else {
+                  const buffers: ArrayBuffer[] = [];
+                  let chunkedDuration = 0;
+                  for (const chunk of texts) {
+                    if (pausedJobIds.has(editionId) || cancelledJobIds.has(editionId)) break;
+                    const chunkRes = await synthesizeOne(chunk);
+                    if (!chunkRes.audioData) throw new Error("Chatterbox chunk returned no audio data");
+                    buffers.push(chunkRes.audioData);
+                    if (chunkRes.durationSec && chunkRes.durationSec > 0) {
+                      chunkedDuration += chunkRes.durationSec;
+                    }
                   }
-                );
+                  if (buffers.length === 0) throw new Error("Chatterbox synthesis produced no audio");
+                  const merged = concatenateWavBlobs(buffers);
+                  const mergedUrl = createOwnedObjectUrl(new Blob([merged], { type: "audio/wav" }), {
+                    owner: "tts-synthesis",
+                    ownerId: edition.model,
+                  });
+                  res = {
+                    audioUrl: mergedUrl,
+                    audioData: merged,
+                    mimeType: "audio/wav",
+                    durationSec: chunkedDuration > 0 ? chunkedDuration : undefined,
+                  } as typeof res;
+                }
 
                 if (res.audioUrl) {
                   audioFilePath = res.audioUrl;

@@ -136,7 +136,10 @@ export const openAICompatibleAdapter: TTSProviderAdapter = {
         input: request.text,
         voice,
         response_format: format,
-        speed: request.speed ?? 1,
+        // Chatterbox Turbo exposes no speed parameter: callers pass
+        // `speed: undefined` on that path and it must be omitted, not
+        // defaulted, so the server never receives a meaningless value.
+        ...(request.speed !== undefined ? { speed: request.speed } : {}),
       }),
     };
 
