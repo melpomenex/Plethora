@@ -282,6 +282,22 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [selectionToggledIds, setSelectionToggledIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listCtxDoc, setListCtxDoc] = useState<{ doc: Document; pos: { x: number; y: number } } | null>(null);
+  // Shared app-wide menu contract: Escape / scroll / resize also dismiss.
+  useEffect(() => {
+    if (!listCtxDoc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setListCtxDoc(null);
+    };
+    const onScrollOrResize = () => setListCtxDoc(null);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", onScrollOrResize, { capture: true });
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", onScrollOrResize, { capture: true });
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [listCtxDoc]);
   const [statsDoc, setStatsDoc] = useState<Document | null>(null);
   const listCtxRef = useRef<HTMLDivElement>(null);
   // The single page-level scroll container shared by every library layout
@@ -1886,7 +1902,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
           {listCtxDoc && createPortal(
             <Fragment>
               <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setListCtxDoc(null); }} onClick={() => setListCtxDoc(null)} />
-              <div ref={listCtxRef} className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: listCtxDoc.pos.x, top: listCtxDoc.pos.y }}>
+              <div ref={listCtxRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: listCtxDoc.pos.x, top: listCtxDoc.pos.y }}>
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
                   onClick={() => { setListCtxDoc(null); onOpenDocument?.(listCtxDoc.doc); }}
@@ -3889,7 +3905,8 @@ function LibraryCard({
   };
   const typeColor = typeColors[doc.fileType] ?? typeColors.other;
 
-  // Close context menu on click outside (but not on the menu itself)
+  // Close context menu on click outside (but not on the menu itself),
+  // Escape, scroll, or resize — shared app-wide menu contract.
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ctxPos) return;
@@ -3898,8 +3915,20 @@ function LibraryCard({
         setCtxPos(null);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtxPos(null);
+    };
+    const onScrollOrResize = () => setCtxPos(null);
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", onScrollOrResize, { capture: true });
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", onScrollOrResize, { capture: true });
+      window.removeEventListener("resize", onScrollOrResize);
+    };
   }, [ctxPos]);
 
   const menuItems: Array<{
@@ -4090,7 +4119,7 @@ function LibraryCard({
       {ctxPos && createPortal(
         <Fragment>
           <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setCtxPos(null); }} />
-          <div ref={menuRef} className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: ctxPos.x, top: ctxPos.y }}>
+          <div ref={menuRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: ctxPos.x, top: ctxPos.y }}>
             {menuItems.map((item, i) =>
               item.divider ? (
                 <div key={i} className="h-px bg-border my-1" />

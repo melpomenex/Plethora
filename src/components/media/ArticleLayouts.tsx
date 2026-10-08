@@ -16,6 +16,10 @@ interface ArticleLayoutProps {
   showAuthor?: boolean;
   showDate?: boolean;
   excerptLength?: number;
+  /** App-wide right-click menu entry (change `app-wide-context-menus`). */
+  onContextMenuEntry?: (feed: Feed, item: FeedItem, e: React.MouseEvent) => void;
+  /** Shift+F10 / Menu-key entry for the focused card. */
+  onMenuKeyDown?: (feed: Feed, item: FeedItem, e: React.KeyboardEvent) => void;
 }
 
 export function MagazineLayout({
@@ -27,6 +31,8 @@ export function MagazineLayout({
   showAuthor = true,
   showDate = true,
   excerptLength = 150,
+  onContextMenuEntry,
+  onMenuKeyDown,
 }: ArticleLayoutProps) {
   return (
     <div className="columns-1 md:columns-2 gap-4 p-4 space-y-4">
@@ -37,7 +43,11 @@ export function MagazineLayout({
           role="button"
           tabIndex={0}
           onClick={() => onSelect(feed, item)}
-          onKeyDown={(e) => { if (e.key === 'Enter') onSelect(feed, item); }}
+          onKeyDown={(e) => {
+            if (onMenuKeyDown) onMenuKeyDown(feed, item, e);
+            if (e.key === 'Enter' && !e.defaultPrevented) onSelect(feed, item);
+          }}
+          onContextMenu={onContextMenuEntry ? (e) => onContextMenuEntry(feed, item, e) : undefined}
           className={`break-inside-avoid bg-card border rounded-xl overflow-hidden hover:border-border cursor-pointer transition-all group ${
             selectedItemId === item.id ? "ring-2 ring-primary border-transparent bg-muted/30" : "border-border/50"
           }`}
@@ -107,6 +117,8 @@ export function GridLayout({
   showThumbnails = true,
   showDate = true,
   selectedItemId,
+  onContextMenuEntry,
+  onMenuKeyDown,
 }: {
   items: Array<{ feed: Feed; item: FeedItem }>;
   onSelect: (feed: Feed, item: FeedItem) => void;
@@ -114,6 +126,8 @@ export function GridLayout({
   showThumbnails?: boolean;
   showDate?: boolean;
   selectedItemId?: string;
+  onContextMenuEntry?: (feed: Feed, item: FeedItem, e: React.MouseEvent) => void;
+  onMenuKeyDown?: (feed: Feed, item: FeedItem, e: React.KeyboardEvent) => void;
 }) {
   const colsClass = {
     1: "grid-cols-1",
@@ -133,7 +147,11 @@ export function GridLayout({
           role="button"
           tabIndex={0}
           onClick={() => onSelect(feed, item)}
-          onKeyDown={(e) => { if (e.key === 'Enter') onSelect(feed, item); }}
+          onKeyDown={(e) => {
+            if (onMenuKeyDown) onMenuKeyDown(feed, item, e);
+            if (e.key === 'Enter' && !e.defaultPrevented) onSelect(feed, item);
+          }}
+          onContextMenu={onContextMenuEntry ? (e) => onContextMenuEntry(feed, item, e) : undefined}
           className={`bg-card border rounded-lg overflow-hidden hover:border-border cursor-pointer transition-all group ${
             selectedItemId === item.id ? "ring-2 ring-primary border-transparent bg-muted/30" : "border-border/50"
           }`}

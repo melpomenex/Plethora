@@ -12,6 +12,7 @@ import {
   DotsSixVertical,
   DotsThreeVertical,
   Download,
+  Eye,
   EyeSlash,
   Folder,
   Gear,
@@ -90,6 +91,12 @@ import { usePaletteActionListener, usePaletteContextProvider } from "../../comma
 import { KeyboardHelpOverlay } from "./KeyboardHelpOverlay";
 import { AnnotationsPanel } from "./AnnotationsPanel";
 import { RSSDashboard } from "./RSSDashboard";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import {
+  rssArticleMenuItemIds,
+  rssFeedMenuItemIds,
+} from "../../lib/contextMenus";
 import { SearchResults } from "./SearchResults";
 import { OriginalView } from "./OriginalView";
 import { StoryView } from "./StoryView";
@@ -1615,6 +1622,182 @@ export function RSSReader() {
     }
   };
 
+  // Item-scoped mark-read WITHOUT selecting/opening the article (used by
+  // the article context menu so "Mark as read" targets the right-clicked
+  // row instead of yanking the reader to it).
+  const markArticleRead = useCallback((feed: Feed, item: FeedItem) => {
+    if (item.read) return;
+    setFeeds((prevFeeds) =>
+      prevFeeds.map((f) => {
+        if (f.id === feed.id) {
+          const wasUnread = f.items.find((i) => i.id === item.id && !i.read);
+          return {
+            ...f,
+            unreadCount: wasUnread ? Math.max(0, f.unreadCount - 1) : f.unreadCount,
+            items: f.items.map((i) => (i.id === item.id ? { ...i, read: true } : i)),
+          };
+        }
+        return f;
+      })
+    );
+    setItems((prevItems) =>
+      prevItems.map((itemObj) => {
+        if (itemObj.item.id === item.id) {
+          return { ...itemObj, item: { ...itemObj.item, read: true } };
+        }
+        return itemObj;
+      })
+    );
+    markItemReadAuto(feed.id, item.id, true).catch((err) => {
+      console.error("Failed to mark item read in backend:", err);
+    });
+  }, []);
+
+  // ---- App-wide context menus (change `app-wide-context-menus`) ----
+  // Every item dispatches to the existing row-button handler above —
+  // no duplicated logic. The right-clicked feed/article is the explicit
+  // target (never the selected one).
+  const articleMenu = useSurfaceMenu("rss-article-menu");
+  const feedMenu = useSurfaceMenu("rss-feed-menu");
+
+  const buildArticleMenuItems = (feed: Feed, item: FeedItem): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      open: {
+        id: "open",
+        label: t("contextMenu.open"),
+        icon: <Newspaper className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleItemClick(feed, item),
+      },
+      "mark-read": {
+        id: "mark-read",
+        label: t("contextMenu.markRead"),
+        icon: <Eye className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => markArticleRead(feed, item),
+      },
+      "mark-unread": {
+        id: "mark-unread",
+        label: t("contextMenu.markUnread"),
+        icon: <EyeSlash className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleMarkUnread(feed, item),
+      },
+      "add-favorite": {
+        id: "add-favorite",
+        label: t("rssReader.addFavorite"),
+        icon: <Star className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleToggleFavorite(feed, item),
+      },
+      "remove-favorite": {
+        id: "remove-favorite",
+        label: t("rssReader.removeFavorite"),
+        icon: <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />,
+        onClick: () => void handleToggleFavorite(feed, item),
+      },
+      "fetch-full": {
+        id: "fetch-full",
+        label: t("contextMenu.fetchFullContent"),
+        icon: <Download className="h-4 w-4 text-blue-500" />,
+        onClick: () => void fetchArticleFullContent(item.id, item.link),
+      },
+      tag: {
+        id: "tag",
+        label: t("contextMenu.tagArticle"),
+        icon: <Tag className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          setSelectedItem(item);
+          setSelectedItemFeed(feed);
+          setShowTagInput(true);
+        },
+      },
+      "copy-link": {
+        id: "copy-link",
+        label: t("contextMenu.copyLink"),
+        icon: <Link className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          if (item.link) {
+            void navigator.clipboard.writeText(item.link).then(
+              () => toast.success(t("contextMenu.copiedToClipboard")),
+              () => toast.error(t("contextMenu.copyLink"))
+            );
+          }
+        },
+      },
+      "open-original": {
+        id: "open-original",
+        label: t("rssReader.openOriginal"),
+        icon: <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleOpenOriginal(item.link),
+      },
+      "sep:1": { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      "mark-all-read": {
+        id: "mark-all-read",
+        label: t("rssReader.markAllRead"),
+        icon: <ListChecks className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleMarkAllRead(feed.id),
+      },
+    };
+    return rssArticleMenuItemIds({
+      read: item.read,
+      favorite: item.favorite,
+      hasFullContent: Boolean(item.fullContent),
+    }).map((id) => byId[id]);
+  };
+
+  const buildFeedMenuItems = (feed: Feed): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      refresh: {
+        id: "refresh",
+        label: t("contextMenu.refreshFeed"),
+        icon: <ArrowsClockwise className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleRefreshFeed(feed),
+      },
+      "mark-all-read": {
+        id: "mark-all-read",
+        label: t("rssReader.markAllRead"),
+        icon: <ListChecks className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void handleMarkAllRead(feed.id),
+      },
+      "copy-feed-url": {
+        id: "copy-feed-url",
+        label: t("contextMenu.copyFeedUrl"),
+        icon: <Link className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          void navigator.clipboard.writeText(feed.feedUrl).then(
+            () => toast.success(t("contextMenu.copiedToClipboard")),
+            () => toast.error(t("contextMenu.copyFeedUrl"))
+          );
+        },
+      },
+      "sep:1": { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      rename: {
+        id: "rename",
+        label: t("contextMenu.rename"),
+        icon: <Gear className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          setFeedSettingsFeed(feed);
+          setShowFeedSettings(true);
+        },
+      },
+      "sep:2": { id: "sep:2", type: ContextMenuItemType.Separator, label: "" },
+      unsubscribe: {
+        id: "unsubscribe",
+        type: ContextMenuItemType.Danger,
+        label: t("rssReader.unsubscribe"),
+        icon: <Trash className="h-4 w-4" />,
+        onClick: () => void handleRemoveFeed(feed.id),
+      },
+    };
+    return rssFeedMenuItemIds().map((id) => byId[id]);
+  };
+
+  // Shared entry points for all three article layouts (list / magazine /
+  // grid) so every layout offers the identical menu for the same article.
+  const openArticleMenu = (feed: Feed, item: FeedItem, e: React.MouseEvent) => {
+    articleMenu.openEvent(e, buildArticleMenuItems(feed, item));
+  };
+  const articleMenuKeyDown = (feed: Feed, item: FeedItem, e: React.KeyboardEvent) => {
+    articleMenu.handleRowKeyDown(e, () => buildArticleMenuItems(feed, item));
+  };
+
   const readingStyles = useMemo(() => {
     if (!preferences) return {};
     const styles: React.CSSProperties = {
@@ -2293,6 +2476,9 @@ export function RSSReader() {
                       {section.feeds.map((feed) => (
                         <div
                           key={feed.id}
+                          onContextMenu={(e) => {
+                            feedMenu.openEvent(e, buildFeedMenuItems(feed));
+                          }}
                           className={`group w-full ${selectMode ? "" : "cursor-grab"} px-4 py-2 text-left hover:bg-muted/70 transition-all flex items-start gap-2 border-l-2 ${
                             selectedFeed?.id === feed.id
                               ? "bg-primary/10 border-primary font-medium text-foreground"
@@ -2407,6 +2593,9 @@ export function RSSReader() {
                       {groupedFeeds.ungrouped.map((feed) => (
                         <div
                           key={feed.id}
+                          onContextMenu={(e) => {
+                            feedMenu.openEvent(e, buildFeedMenuItems(feed));
+                          }}
                           className={`group w-full cursor-grab px-3 py-2 text-left hover:bg-muted/70 transition-all flex items-start gap-2 border-l-2 ${
                             selectedFeed?.id === feed.id 
                               ? "bg-primary/10 border-primary font-medium text-foreground" 
@@ -2684,6 +2873,8 @@ export function RSSReader() {
                     items={items}
                     onSelect={(feed, item) => handleItemClick(feed, item)}
                     onToggleFavorite={handleToggleFavorite}
+                    onContextMenuEntry={openArticleMenu}
+                    onMenuKeyDown={articleMenuKeyDown}
                     selectedItemId={selectedItem?.id}
                     showThumbnails={preferences?.show_thumbnails ?? true}
                     showAuthor={preferences?.show_author ?? true}
@@ -2696,6 +2887,8 @@ export function RSSReader() {
                   <GridLayout
                     items={items}
                     onSelect={(feed, item) => handleItemClick(feed, item)}
+                    onContextMenuEntry={openArticleMenu}
+                    onMenuKeyDown={articleMenuKeyDown}
                     selectedItemId={selectedItem?.id}
                     columnCount={preferences?.column_count ?? 3}
                     showThumbnails={preferences?.show_thumbnails ?? true}
@@ -2725,6 +2918,7 @@ export function RSSReader() {
                           <article
                             data-article-id={item.id}
                             onClick={() => handleItemClick(feed, item)}
+                            onContextMenu={(e) => openArticleMenu(feed, item, e)}
                             className={`group border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-all ${paddingClass} ${selectedItem?.id === item.id ? "bg-muted/50 border-l-2 border-primary" : "border-l-2 border-transparent"}`}
                           >
                             <div className="flex items-start gap-3">
@@ -3178,6 +3372,20 @@ export function RSSReader() {
           });
         }}
         embeddingConfig={embeddingConfig}
+      />
+      <ContextMenu
+        menuId="rss-article-menu"
+        items={articleMenu.items}
+        visible={articleMenu.visible}
+        position={articleMenu.position}
+        onClose={articleMenu.closeToTrigger}
+      />
+      <ContextMenu
+        menuId="rss-feed-menu"
+        items={feedMenu.items}
+        visible={feedMenu.visible}
+        position={feedMenu.position}
+        onClose={feedMenu.closeToTrigger}
       />
     </>
   );

@@ -855,16 +855,30 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             icon: <Play className="w-4 h-4" />,
             onClick: () => handlePlayEpisode(feed, episode),
           },
-          {
-            id: "mark-played",
-            label: "Mark as Played",
-            icon: <CheckCircle className="w-4 h-4" />,
-            onClick: async () => {
-              await markEpisodePlayed(episode.id, true);
-              if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
-              loadFeeds();
-            },
-          },
+          // Played state flips the toggle label: a played episode offers
+          // only "Mark as Unplayed" (never both) — same contract as the
+          // RSS article menu. The right-clicked episode is the target.
+          episode.played
+            ? {
+                id: "mark-unplayed",
+                label: "Mark as Unplayed",
+                icon: <Circle className="w-4 h-4" />,
+                onClick: async () => {
+                  await markEpisodePlayed(episode.id, false);
+                  if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
+                  loadFeeds();
+                },
+              }
+            : {
+                id: "mark-played",
+                label: "Mark as Played",
+                icon: <CheckCircle className="w-4 h-4" />,
+                onClick: async () => {
+                  await markEpisodePlayed(episode.id, true);
+                  if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
+                  loadFeeds();
+                },
+              },
           {
             id: "insert-to-queue",
             label: t("podcastManager.insertToQueue"),
@@ -876,16 +890,6 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
               } catch (err) {
                 toast.error(t("podcastManager.insertToQueueFailed"), err instanceof Error ? err.message : String(err));
               }
-            },
-          },
-          {
-            id: "mark-unplayed",
-            label: "Mark as Unplayed",
-            icon: <Circle className="w-4 h-4" />,
-            onClick: async () => {
-              await markEpisodePlayed(episode.id, false);
-              if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
-              loadFeeds();
             },
           },
           { id: "sep1", type: ContextMenuItemType.Separator, label: "" },

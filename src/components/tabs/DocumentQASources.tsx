@@ -34,6 +34,9 @@ import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { t, useI18n } from "../../lib/i18n";
+import { ContextMenu, type ContextMenuItem } from "../common/ContextMenu";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { docQACitationMenuItemIds } from "../../lib/contextMenus";
 
 const QUOTE_DISPLAY_CHARS = 200;
 
@@ -201,6 +204,38 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
     );
   };
 
+  // ---- App-wide context menu (change `app-wide-context-menus`) ----
+  // Open source reuses the row's click path; Copy reuses the citation text.
+  const citeMenu = useSurfaceMenu("docqa-citation-menu");
+  const buildCitationItems = (
+    citation: RagHit,
+    quote: string,
+    location: ExactSearchHitLocation | undefined,
+    openDocumentId: string | undefined,
+    disabled: boolean,
+    disabledReason: string | undefined
+  ): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      "open-source": {
+        id: "open-source",
+        label: translate("contextMenu.open"),
+        disabled,
+        title: disabled ? disabledReason : undefined,
+        onClick: () => {
+          if (location && openDocumentId) handleActivate(citation, location, openDocumentId);
+        },
+      },
+      "copy-citation": {
+        id: "copy-citation",
+        label: translate("contextMenu.copyLink"),
+        onClick: () => {
+          void navigator.clipboard?.writeText(`"${quote}" — ${citation.documentTitle}`);
+        },
+      },
+    };
+    return docQACitationMenuItemIds().map((id) => byId[id]);
+  };
+
   if (citations.length === 0) return null;
 
   return (
@@ -228,13 +263,40 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
             <li key={`${citation.documentId}-${citation.chunkIndex}`}>
               <button
                 type="button"
-                disabled={disabled}
+                aria-disabled={disabled}
                 onClick={() =>
                   location &&
                   resolution?.state === "located" &&
                   handleActivate(citation, location, resolution.openDocumentId)
                 }
-                className="w-full text-left flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                onContextMenu={(e) => {
+                  citeMenu.openEvent(
+                    e,
+                    buildCitationItems(
+                      citation,
+                      quote,
+                      location,
+                      resolution?.state === "located" ? resolution.openDocumentId : undefined,
+                      disabled,
+                      reason
+                    )
+                  );
+                }}
+                onKeyDown={(e) => {
+                  citeMenu.handleRowKeyDown(
+                    e,
+                    () =>
+                      buildCitationItems(
+                        citation,
+                        quote,
+                        location,
+                        resolution?.state === "located" ? resolution.openDocumentId : undefined,
+                        disabled,
+                        reason
+                      )
+                  );
+                }}
+                className="w-full text-left flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 aria-disabled:cursor-not-allowed aria-disabled:opacity-80"
               >
                 <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
                   {index + 1}
@@ -253,6 +315,13 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
           );
         })}
       </ol>
+      <ContextMenu
+        menuId="docqa-citation-menu"
+        items={citeMenu.items}
+        visible={citeMenu.visible}
+        position={citeMenu.position}
+        onClose={citeMenu.closeToTrigger}
+      />
     </div>
   );
 }

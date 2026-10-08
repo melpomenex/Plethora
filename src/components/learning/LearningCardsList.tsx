@@ -38,6 +38,9 @@ import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { getDocument } from "../../api/documents";
 import { useUndoableOperations } from "../../api/undoable";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { flashcardMenuItemIds } from "../../lib/contextMenus";
 
 interface LearningCardsListProps {
   documentId: string;
@@ -202,6 +205,86 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
     setCards((current) => current.map((card) => (card.id === next.id ? next : card)));
   };
 
+  const handleEditCard = async (card: LearningItem) => {
+    const nextQuestion = prompt("Edit question", card.question);
+    if (nextQuestion === null || !nextQuestion.trim()) return;
+    const nextAnswer = prompt("Edit answer", card.answer || "") ?? "";
+    const reason = prompt("Reason for edit (optional)") || undefined;
+    const updated = await updateLearningItemContentWithVersion(
+      card.id,
+      nextQuestion.trim(),
+      nextAnswer.trim(),
+      reason
+    );
+    updateCardInState(updated);
+    toast.success("Card updated");
+  };
+
+  const handleDeleteCard = async (card: LearningItem) => {
+    if (deletingCardIds.has(card.id)) return;
+    setDeletingCardIds((current) => new Set(current).add(card.id));
+    try {
+      await deleteLearningItem(card.id, () => {
+        setCards((current) => current.filter((item) => item.id !== card.id));
+        setPrereqByCard((current) => {
+          const next = { ...current };
+          delete next[card.id];
+          return next;
+        });
+      });
+    } catch {
+      // The undoable operation owns success and error notifications.
+    } finally {
+      setDeletingCardIds((current) => {
+        const next = new Set(current);
+        next.delete(card.id);
+        return next;
+      });
+    }
+  };
+
+  const copyCardQuestion = (card: LearningItem) => {
+    const host = document.createElement("div");
+    host.innerHTML = card.question;
+    const text = host.textContent || card.question;
+    void navigator.clipboard?.writeText(text);
+  };
+
+  // ---- App-wide context menu (change `app-wide-context-menus`) ----
+  // Every entry reuses the row button's handler above — single-sourced.
+  const cardMenu = useSurfaceMenu("learning-cards-menu");
+  const buildCardMenuItems = (card: LearningItem): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      edit: {
+        id: "edit",
+        label: t("learningCards.editCard"),
+        icon: <Pencil className="w-4 h-4 text-muted-foreground" />,
+        onClick: () => void handleEditCard(card),
+      },
+      preview: {
+        id: "preview",
+        label: t("cardContextMenu.preview"),
+        icon: <Eye className="w-4 h-4 text-muted-foreground" />,
+        onClick: () => toggleAnswer(card.id),
+      },
+      "copy-question": {
+        id: "copy-question",
+        label: t("cardContextMenu.copyQuestion"),
+        onClick: () => copyCardQuestion(card),
+      },
+      "sep:1": { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      delete: {
+        id: "delete",
+        type: ContextMenuItemType.Danger,
+        label: t("learningCards.deleteCard"),
+        icon: <Trash className="w-4 h-4" />,
+        disabled: deletingCardIds.has(card.id),
+        onClick: () => void handleDeleteCard(card),
+      },
+    };
+    return flashcardMenuItemIds().map((id) => byId[id]);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -278,7 +361,12 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
       <DynamicVirtualList
         items={cards}
         renderItem={(card) => (
-          <div className="p-4 mb-4 bg-card border border-border rounded-lg hover:shadow-md transition-shadow">
+          <div
+            className="p-4 mb-4 bg-card border border-border rounded-lg hover:shadow-md transition-shadow"
+            onContextMenu={(e) => {
+              cardMenu.openEvent(e, buildCardMenuItems(card));
+            }}
+          >
             {/* Header */}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -298,20 +386,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={async () => {
-                    const nextQuestion = prompt("Edit question", card.question);
-                    if (nextQuestion === null || !nextQuestion.trim()) return;
-                    const nextAnswer = prompt("Edit answer", card.answer || "") ?? "";
-                    const reason = prompt("Reason for edit (optional)") || undefined;
-                    const updated = await updateLearningItemContentWithVersion(
-                      card.id,
-                      nextQuestion.trim(),
-                      nextAnswer.trim(),
-                      reason
-                    );
-                    updateCardInState(updated);
-                    toast.success("Card updated");
-                  }}
+                  onClick={() => void handleEditCard(card)}
                   className="p-1.5 rounded hover:bg-muted transition-colors"
                   title={t("learningCards.editCard")}
                 >
@@ -382,28 +457,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                   {t("learningCards.analyze")}
                 </button>
                 <button
-                  onClick={async () => {
-                    if (deletingCardIds.has(card.id)) return;
-                    setDeletingCardIds((current) => new Set(current).add(card.id));
-                    try {
-                      await deleteLearningItem(card.id, () => {
-                        setCards((current) => current.filter((item) => item.id !== card.id));
-                        setPrereqByCard((current) => {
-                          const next = { ...current };
-                          delete next[card.id];
-                          return next;
-                        });
-                      });
-                    } catch {
-                      // The undoable operation owns success and error notifications.
-                    } finally {
-                      setDeletingCardIds((current) => {
-                        const next = new Set(current);
-                        next.delete(card.id);
-                        return next;
-                      });
-                    }
-                  }}
+                  onClick={() => void handleDeleteCard(card)}
                   disabled={deletingCardIds.has(card.id)}
                   className="p-1.5 rounded hover:bg-destructive/10 transition-colors disabled:opacity-50"
                   title={t("learningCards.deleteCard")}
@@ -716,6 +770,13 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
           </div>
         </div>
       )}
+      <ContextMenu
+        menuId="learning-cards-menu"
+        items={cardMenu.items}
+        visible={cardMenu.visible}
+        position={cardMenu.position}
+        onClose={cardMenu.closeToTrigger}
+      />
     </div>
   );
 }

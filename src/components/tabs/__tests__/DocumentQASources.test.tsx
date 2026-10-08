@@ -77,7 +77,10 @@ describe("DocumentQASources", () => {
     expect(screen.getByText("Sources")).toBeTruthy();
     expect(await screen.findByText("Document is no longer available")).toBeTruthy();
     const button = screen.getByRole("button");
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    // Unresolved rows stay activatable for the context menu (Copy citation)
+    // but expose Open as unavailable: aria-disabled, never the `disabled`
+    // attribute (which would swallow right-clicks).
+    expect(button.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("keeps the unavailable reason on re-render instead of flipping to not-located", async () => {
@@ -119,7 +122,7 @@ describe("DocumentQASources", () => {
 
     expect(await screen.findByText("Passage could not be located in the current document content")).toBeTruthy();
     const button = screen.getByRole("button");
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("re-resolves after a same-id re-import with changed content (not-located, never stale)", async () => {

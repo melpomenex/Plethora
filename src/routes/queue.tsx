@@ -41,6 +41,7 @@ import { emitQueueActionFeedback, getQueuePrimaryAction, getQueuePrimaryActionLa
 import { InlineCardEditor } from "../components/review/InlineCardEditor";
 import { getLearningItem, type LearningItem } from "../api/learning-items";
 import { formatDuration } from "../api/audiobooks";
+import { shouldYieldRowMenu } from "../lib/contextMenus";
 
 /**
  * The sort button cycles priority → overdue → title rather than toggling two
@@ -767,6 +768,15 @@ export function Queue() {
             renderItem={(item) => (
               <div
                 onClick={(event) => handleRowClick(event, item.id)}
+                onContextMenu={(event) => {
+                  // Native right-click anywhere on the row opens the same
+                  // action sheet as the ⋯ button (single-sourced item set).
+                  // The right-clicked item is the explicit target.
+                  if (shouldYieldRowMenu(event.target)) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openItemActions(item, event.currentTarget as HTMLElement);
+                }}
                 aria-selected={selectedIds.has(item.id)}
                 className={`p-4 mb-3 rounded-lg border hover:shadow-md transition-shadow ${
                   selectedIds.has(item.id)

@@ -3,12 +3,19 @@ import {
   ArrowsClockwise,
   ChartBar,
   Compass,
+  Copy,
+  Crosshair,
+  Download,
+  Eye,
   FolderPlus,
   Lightning,
+  PencilSimple,
+  Play,
   Plus,
   Sparkle,
   Stack,
   Tag,
+  Trash,
   Upload,
   Warning,
 } from "@phosphor-icons/react";
@@ -32,6 +39,10 @@ import { ActionButton, FocusPanel } from "../common/UI";
 import { getReviewHomeAction } from "./reviewFocus";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { useIsActiveTab } from "../common/Tabs";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { deckMenuItemIds, deckTagMenuItemIds } from "../../lib/contextMenus";
+import { exportDeckAsApkg } from "../../api/learning-items";
 
 interface ReviewHomeProps {
   onStartReview: () => Promise<void>;
@@ -233,6 +244,133 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   const handleRemoveTag = (deck: StudyDeck, tag: string) => {
     const nextTags = deck.tagFilters.filter((t) => t !== tag);
     updateDeck(deck.id, { tagFilters: nextTags });
+  };
+
+  // ---- App-wide context menus (change `app-wide-context-menus`) ----
+  // One shared menu instance serves deck rows and tag-manager headers;
+  // tag pills get their own. Opening never mutates selection — only
+  // picking an item runs its existing handler path.
+  const deckMenu = useSurfaceMenu("review-home-deck-menu");
+  const tagMenu = useSurfaceMenu("review-home-tag-menu");
+
+  const focusDeckExclusive = (deckId: string) => {
+    clearDeckSelection();
+    toggleDeckSelection(deckId);
+  };
+
+  const isDeckActiveFocus = (deckId: string) =>
+    activeDeckIds.length === 1 && activeDeckIds[0] === deckId;
+
+  const focusDeckInput = (deckId: string, kind: "name" | "tag") => {
+    const el = document.getElementById(
+      kind === "name" ? `deck-name-input-${deckId}` : `deck-tag-input-${deckId}`
+    ) as HTMLInputElement | null;
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    el?.focus();
+    el?.select();
+  };
+
+  const buildDeckMenuItems = (deck: StudyDeck, total: number): ContextMenuItem[] => {
+    const isEmpty = total === 0;
+    const isActiveFocus = isDeckActiveFocus(deck.id);
+    const emptyReason = t("contextMenu.emptyDeckReason");
+    const byId: Record<string, ContextMenuItem> = {
+      "start-review": {
+        id: "start-review",
+        label: t("contextMenu.startReview"),
+        icon: <Play className="h-4 w-4 text-green-500" />,
+        disabled: isEmpty,
+        title: isEmpty ? emptyReason : undefined,
+        onClick: () => {
+          focusDeckExclusive(deck.id);
+          void onStartReview();
+        },
+      },
+      "preview-cards": {
+        id: "preview-cards",
+        label: t("contextMenu.previewCards"),
+        icon: <Eye className="h-4 w-4 text-muted-foreground" />,
+        disabled: isEmpty,
+        title: isEmpty ? emptyReason : undefined,
+        onClick: () => {
+          focusDeckExclusive(deck.id);
+          setIsReviewPreviewOpen(true);
+        },
+      },
+      "toggle-focus": {
+        id: "toggle-focus",
+        label: isActiveFocus ? t("contextMenu.clearFocus") : t("contextMenu.setActiveFocus"),
+        icon: <Crosshair className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          if (isActiveFocus) clearDeckSelection();
+          else focusDeckExclusive(deck.id);
+        },
+      },
+      rename: {
+        id: "rename",
+        label: t("contextMenu.rename"),
+        icon: <PencilSimple className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => focusDeckInput(deck.id, "name"),
+      },
+      "edit-tags": {
+        id: "edit-tags",
+        label: t("contextMenu.editTags"),
+        icon: <Tag className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => focusDeckInput(deck.id, "tag"),
+      },
+      "export-apkg": {
+        id: "export-apkg",
+        label: t("contextMenu.exportApkg"),
+        icon: <Download className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          void (async () => {
+            try {
+              const path = await exportDeckAsApkg(deck.name, `${deck.name}.apkg`);
+              toast.success(t("contextMenu.exported", { path }));
+            } catch {
+              toast.error(t("contextMenu.exportFailed"));
+            }
+          })();
+        },
+      },
+      "sep:1": { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      delete: {
+        id: "delete",
+        type: ContextMenuItemType.Danger,
+        label: t("contextMenu.deleteDeck"),
+        icon: <Trash className="h-4 w-4" />,
+        onClick: () => {
+          if (confirm(t("contextMenu.deleteDeckConfirm", { name: deck.name }))) {
+            removeDeck(deck.id);
+          }
+        },
+      },
+    };
+    return deckMenuItemIds({ isEmpty, isActiveFocus }).map((id) => byId[id]);
+  };
+
+  const buildTagMenuItems = (deck: StudyDeck, tag: string): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      "copy-tag": {
+        id: "copy-tag",
+        label: t("contextMenu.copyTag"),
+        icon: <Copy className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => {
+          void navigator.clipboard.writeText(tag).then(
+            () => toast.success(t("contextMenu.copiedToClipboard")),
+            () => toast.error(t("contextMenu.copyTag"))
+          );
+        },
+      },
+      "remove-tag": {
+        id: "remove-tag",
+        label: t("contextMenu.removeTag"),
+        icon: <Trash className="h-4 w-4" />,
+        type: ContextMenuItemType.Danger,
+        onClick: () => handleRemoveTag(deck, tag),
+      },
+    };
+    return deckTagMenuItemIds().map((id) => byId[id]);
   };
 
   const handleImportDeck = async () => {
@@ -451,12 +589,22 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                 return (
                   <button
                     key={deck.id}
-                    onClick={() => toggleDeckSelection(deck.id)}
+                    onClick={() => {
+                      if (deckMenu.claimTouchMenu()) return;
+                      toggleDeckSelection(deck.id);
+                    }}
                     onDoubleClick={() => {
                       clearDeckSelection();
                       toggleDeckSelection(deck.id);
                       onStartReview();
                     }}
+                    onContextMenu={(e) => {
+                      deckMenu.openEvent(e, buildDeckMenuItems(deck, total));
+                    }}
+                    onKeyDown={(e) => {
+                      deckMenu.handleRowKeyDown(e, () => buildDeckMenuItems(deck, total));
+                    }}
+                    {...deckMenu.bindLongPress(() => buildDeckMenuItems(deck, total))}
                     className={`flex flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
                       activeDeckIds.includes(deck.id)
                         ? "border-primary bg-primary/10"
@@ -543,9 +691,17 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                 <p className="text-sm text-muted-foreground">{t("reviewHome.createDeckPrompt")}</p>
               )}
               {decks?.map((deck) => (
-                <div key={deck.id} className="rounded-lg border border-border bg-background p-3">
+                <div
+                  key={deck.id}
+                  className="rounded-lg border border-border bg-background p-3"
+                  onContextMenu={(e) => {
+                    const entry = deckStats.find((s) => s.deck.id === deck.id);
+                    deckMenu.openEvent(e, buildDeckMenuItems(deck, entry?.total ?? 0));
+                  }}
+                >
                   <div className="flex items-center justify-between">
                     <input
+                      id={`deck-name-input-${deck.id}`}
                       value={deck.name}
                       onChange={(e) => updateDeck(deck.id, { name: e.target.value })}
                       className="w-full bg-transparent text-sm font-semibold text-foreground outline-none"
@@ -562,6 +718,9 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                       <button
                         key={`${deck.id}-${tag}`}
                         onClick={() => handleRemoveTag(deck, tag)}
+                        onContextMenu={(e) => {
+                          tagMenu.openEvent(e, buildTagMenuItems(deck, tag));
+                        }}
                         className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         title={t("reviewHome.removeTag")}
                       >
@@ -571,6 +730,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <input
+                      id={`deck-tag-input-${deck.id}`}
                       placeholder={t("reviewHome.addTag")}
                       className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
                       onKeyDown={(event) => {
@@ -659,6 +819,20 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
           setIsDecksModalOpen(false);
           onStartReview();
         }}
+      />
+      <ContextMenu
+        menuId="review-home-deck-menu"
+        items={deckMenu.items}
+        visible={deckMenu.visible}
+        position={deckMenu.position}
+        onClose={deckMenu.closeToTrigger}
+      />
+      <ContextMenu
+        menuId="review-home-tag-menu"
+        items={tagMenu.items}
+        visible={tagMenu.visible}
+        position={tagMenu.position}
+        onClose={tagMenu.closeToTrigger}
       />
     </SafeScrollContainer>
   );

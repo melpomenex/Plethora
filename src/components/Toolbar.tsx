@@ -58,6 +58,9 @@ import { CollectionSwitcher } from "./collections/CollectionSwitcher";
 import { cn } from "../utils/cn";
 import { handleWindowDragRequest } from "../lib/windowDrag";
 import { usePlatformCapability } from "../hooks/usePlatformCapability";
+import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
+import { useSurfaceMenu } from "../hooks/useSurfaceMenu";
+import { toolbarMenuItemIds } from "../lib/contextMenus";
 
 export type ToolbarPosition = "top" | "left" | "right";
 
@@ -80,6 +83,8 @@ interface ToolbarButtonProps {
    * fight the visible label. */
   expanded?: boolean;
   active?: boolean;
+  /** App-wide right-click menu entry (change `app-wide-context-menus`). */
+  onMenuEntry?: (button: ToolbarButton, e: React.MouseEvent) => void;
 }
 
 /**
@@ -104,7 +109,7 @@ function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
   return id ? { "data-tour": id } : {};
 }
 
-function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false, active = false }: ToolbarButtonProps) {
+function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false, active = false, onMenuEntry }: ToolbarButtonProps) {
   const Icon = button.icon;
   const isAudiobookGenerating =
     button.id === "audiobook" &&
@@ -131,6 +136,7 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
     <button
       onClick={handleClick}
       onAuxClick={handleAuxClick}
+      onContextMenu={onMenuEntry ? (e) => onMenuEntry(button, e) : undefined}
       disabled={button.disabled}
       title={expanded ? undefined : `${button.label} (${button.shortcut})`}
       data-toolbar-orientation={orientation}
@@ -938,6 +944,32 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
   const isActiveButton = (button: ToolbarButton) => activeTabType != null && activeButtonTypes[button.id]?.includes(activeTabType) === true;
 
+  // ---- App-wide context menu (change `app-wide-context-menus`) ----
+  // Rail buttons expose only safe actions the view already supports:
+  // Open (the click itself, with its shortcut) plus Open in background
+  // where the button defines one. Never destructive.
+  const railMenu = useSurfaceMenu("toolbar-rail-menu");
+  const buildToolbarItems = (button: ToolbarButton): ContextMenuItem[] => {
+    const byId: Record<string, ContextMenuItem> = {
+      open: {
+        id: "open",
+        label: button.label,
+        shortcut: button.shortcut || undefined,
+        onClick: () => button.action(),
+      },
+      "open-background": {
+        id: "open-background",
+        label: t("contextMenu.openInBackground"),
+        onClick: () => button.backgroundAction?.(),
+      },
+    };
+    return toolbarMenuItemIds(Boolean(button.backgroundAction)).map((id) => byId[id]);
+  };
+  const openRailMenu = (button: ToolbarButton, e: React.MouseEvent) => {
+    if (button.disabled) return;
+    railMenu.openEvent(e, buildToolbarItems(button));
+  };
+
   const railHandlers = {
     onPointerEnter: handlePointerEnter,
     onPointerLeave: handlePointerLeave,
@@ -965,7 +997,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                     {buttons
                       .filter((b) => b.group === group)
                       .map((button) => (
-                        <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} active={isActiveButton(button)} />
+                        <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} active={isActiveButton(button)} onMenuEntry={openRailMenu} />
                       ))}
                     {groupIndex < groups.length - 1 && (
                       <div className="w-6 h-px bg-outline-variant/60 mx-auto my-1" />
@@ -986,9 +1018,9 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
                 <div key={group} className="flex items-center gap-1">
                   {buttons
                     .filter((b) => b.group === group)
-                    .map((button) => (
-                      <ToolbarButtonItem key={button.id} button={button} expanded={expanded} active={isActiveButton(button)} />
-                    ))}
+                      .map((button) => (
+                        <ToolbarButtonItem key={button.id} button={button} expanded={expanded} active={isActiveButton(button)} onMenuEntry={openRailMenu} />
+                      ))}
                   {groupIndex < groups.length - 1 && (
                     <div className="w-px h-6 bg-outline-variant/60 mx-1" />
                   )}
@@ -1004,6 +1036,13 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   return (
     <>
       {toolbarContent}
+      <ContextMenu
+        menuId="toolbar-rail-menu"
+        items={railMenu.items}
+        visible={railMenu.visible}
+        position={railMenu.position}
+        onClose={railMenu.closeToTrigger}
+      />
       <WebArticleImportDialog
         isOpen={showUrlImportDialog}
         onClose={() => setShowUrlImportDialog(false)}

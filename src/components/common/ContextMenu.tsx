@@ -28,6 +28,8 @@ export interface ContextMenuItem {
   label: string;
   icon?: ReactNode;
   shortcut?: string;
+  /** Disabled reason surfaced as a tooltip (hide-vs-disable rule). */
+  title?: string;
   disabled?: boolean;
   checked?: boolean;
   onClick?: () => void;
@@ -385,6 +387,7 @@ export function ContextMenu({
                 (item.disabled ? " opacity-50" : "")
               }
               disabled={item.disabled}
+              title={item.title}
               onClick={() => {
                 if (item.disabled) return;
                 if (hasSubmenu) {
@@ -475,6 +478,7 @@ export function ContextMenu({
                 role="menuitem"
                 tabIndex={index === 0 ? 0 : -1}
                 disabled={item.disabled}
+                title={item.title}
                 onClick={(e) => {
                   if (!item.disabled) {
                     if (hasSubmenu) {
