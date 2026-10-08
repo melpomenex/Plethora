@@ -528,9 +528,28 @@
     return payload;
   }
 
+  /**
+   * Preset highlight color palette for text extracts. The default is the
+   * warm peach the content script used before colors became user-selectable.
+   *
+   * Mirrored inline in content.js (content scripts do not load shared.js) —
+   * keep both in sync by hand, same protocol as TRANSPORT_LIMITS.
+   */
+  const HIGHLIGHT_COLORS = Object.freeze([
+    { name: 'Yellow', value: '#fff59d' },
+    { name: 'Peach', value: '#ffd3a5' },
+    { name: 'Green', value: '#c8e6c9' },
+    { name: 'Blue', value: '#bbdefb' },
+    { name: 'Pink', value: '#f8bbd0' },
+    { name: 'Purple', value: '#e1bee7' },
+  ]);
+  const DEFAULT_HIGHLIGHT_COLOR = '#ffd3a5';
+
   return {
     TRANSPORT_LIMITS,
     DEFAULT_REQUEST_BUDGET,
+    HIGHLIGHT_COLORS,
+    DEFAULT_HIGHLIGHT_COLOR,
     serializedByteLength,
     buildExtensionPayload,
     compactRichHtml,

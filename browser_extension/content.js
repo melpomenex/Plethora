@@ -1061,64 +1061,69 @@
     // Capture HTML content with computed styles for visual fidelity
     const html_content = captureSelectionHTML(range);
 
-    const extractData = {
-      id: generateExtractId(),
-      text: text,
-      // Rich HTML content for 1:1 visual fidelity
-      html_content: html_content,
-      context: context.substring(Math.max(0, context.indexOf(text) - 200),
-                                context.indexOf(text) + text.length + 200),
-      url: window.location.href,
-      title: document.title,
-      timestamp: new Date().toISOString(),
-      selector: getElementSelector(range.startContainer),
-      range: {
-        startOffset: range.startOffset,
-        endOffset: range.endOffset,
-        startContainer: getElementPath(range.startContainer),
-        endContainer: getElementPath(range.endContainer)
-      },
-      analysis: analysis,
-      tags: options.tags || [],
-      category: options.category || 'general',
-      priority: calculatedPriority,
-      priority_source: options.priority_source || 'automatic',
-      fsrs_data: {
-        initial_difficulty: calculateInitialDifficulty(text, analysis),
-        initial_stability: calculateInitialStability(text, analysis),
-        estimated_review_time: estimateReviewTime(text, analysis)
-      },
-      capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
-    };
+    // User-chosen color (extract dialog) wins; otherwise the user's active
+    // sync setting; otherwise the priority-derived color.
+    getActiveHighlightColor((activeColor) => {
+      const extractData = {
+        id: generateExtractId(),
+        text: text,
+        // Rich HTML content for 1:1 visual fidelity
+        html_content: html_content,
+        context: context.substring(Math.max(0, context.indexOf(text) - 200),
+                                  context.indexOf(text) + text.length + 200),
+        url: window.location.href,
+        title: document.title,
+        timestamp: new Date().toISOString(),
+        selector: getElementSelector(range.startContainer),
+        range: {
+          startOffset: range.startOffset,
+          endOffset: range.endOffset,
+          startContainer: getElementPath(range.startContainer),
+          endContainer: getElementPath(range.endContainer)
+        },
+        analysis: analysis,
+        tags: options.tags || [],
+        category: options.category || 'general',
+        priority: calculatedPriority,
+        priority_source: options.priority_source || 'automatic',
+        color: options.color || activeColor,
+        fsrs_data: {
+          initial_difficulty: calculateInitialDifficulty(text, analysis),
+          initial_stability: calculateInitialStability(text, analysis),
+          estimated_review_time: estimateReviewTime(text, analysis)
+        },
+        capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
+      };
 
-    pageExtracts.push(extractData);
-    savePageExtracts();
+      pageExtracts.push(extractData);
+      savePageExtracts();
 
-    // Send to background script
-    sendRuntimeMessage({
-      action: 'saveExtractWithPriority',
-      extract: extractData
-    }).then((response) => {
-      if (response && response.success) {
-        chrome.storage.sync.get(['enableHighlights'], (settings) => {
-          if (settings && settings.enableHighlights !== false) {
-            highlightText(range, extractData.id, getPriorityColor(calculatedPriority));
-          }
-        });
-        showSaveIndicator(`Extract queued (Priority: ${calculatedPriority}): "${text.substring(0, 50)}..."`);
-      } else if (response?.error && response.error.includes('Extension context invalidated')) {
-        showSaveIndicator('Extension reloaded. Reopen the page and try again.');
-        pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
-        savePageExtracts();
-      } else {
-        showSaveIndicator('Failed to save extract');
-        pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
-        savePageExtracts();
-      }
+      // Send to background script
+      sendRuntimeMessage({
+        action: 'saveExtractWithPriority',
+        extract: extractData
+      }).then((response) => {
+        if (response && response.success) {
+          chrome.storage.sync.get(['enableHighlights'], (settings) => {
+            if (settings && settings.enableHighlights !== false) {
+              highlightText(range, extractData.id, extractData.color || getPriorityColor(calculatedPriority));
+            }
+          });
+          showSaveIndicator(`Extract queued (Priority: ${calculatedPriority}): "${text.substring(0, 50)}..."`);
+        } else if (response?.error && response.error.includes('Extension context invalidated')) {
+          showSaveIndicator('Extension reloaded. Reopen the page and try again.');
+          pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
+          savePageExtracts();
+        } else {
+          showSaveIndicator('Failed to save extract');
+          pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
+          savePageExtracts();
+        }
+      });
+
+      // Clear selection
+      selection.removeAllRanges();
     });
-
-    // Clear selection
-    selection.removeAllRanges();
   }
 
   // Calculate extract priority based on text analysis
@@ -1300,12 +1305,59 @@
     }
   }
 
+  // Preset highlight palette. Mirrors HIGHLIGHT_COLORS in shared.js (content
+  // scripts do not load shared.js) — keep both in sync by hand.
+  const HIGHLIGHT_COLORS = [
+    { name: 'Yellow', value: '#fff59d' },
+    { name: 'Peach', value: '#ffd3a5' },
+    { name: 'Green', value: '#c8e6c9' },
+    { name: 'Blue', value: '#bbdefb' },
+    { name: 'Pink', value: '#f8bbd0' },
+    { name: 'Purple', value: '#e1bee7' },
+  ];
+  const DEFAULT_HIGHLIGHT_COLOR = '#ffd3a5';
+
+  function getActiveHighlightColor(callback) {
+    chrome.storage.sync.get(['activeHighlightColor'], (settings) => {
+      callback((settings && settings.activeHighlightColor) || DEFAULT_HIGHLIGHT_COLOR);
+    });
+  }
+
   // Show priority selection dialog
   function showPrioritySelectionDialog(text, selection) {
+    // Snapshot the live selection range synchronously — resolving the active
+    // color below is async, and a collapsed/changed selection in between
+    // would break dialog creation.
+    let rangeSnapshot = null;
+    try {
+      rangeSnapshot = selection.getRangeAt(0).cloneRange();
+    } catch (_err) {
+      rangeSnapshot = null;
+    }
+    const snapshotSelection = rangeSnapshot
+      ? {
+          getRangeAt(index) {
+            if (index !== 0) {
+              throw new Error('Only a single range is supported');
+            }
+            return rangeSnapshot.cloneRange();
+          },
+          removeAllRanges() {}
+        }
+      : selection;
+    getActiveHighlightColor((activeColor) => {
+      showPrioritySelectionDialogWithColor(text, snapshotSelection, activeColor);
+    });
+  }
+
+  function showPrioritySelectionDialogWithColor(text, selection, activeColor) {
     const existingDialog = document.getElementById('plethora-priority-dialog');
     if (existingDialog) {
       existingDialog.remove();
     }
+
+    const swatchesHtml = HIGHLIGHT_COLORS.map((color) => `
+            <button type="button" class="highlight-swatch${color.value.toLowerCase() === (activeColor || '').toLowerCase() ? ' selected' : ''}" data-color="${color.value}" title="${color.name}" aria-label="Highlight color ${color.name}" style="background:${color.value};"></button>`).join('');
 
     const dialog = document.createElement('div');
     dialog.id = 'plethora-priority-dialog';
@@ -1343,6 +1395,14 @@
                 <input type="radio" name="priority" value="auto">
                 <span class="priority-auto">🤖 Auto-calculate</span>
               </label>
+            </div>
+          </div>
+          <div class="highlight-color-selection">
+            <label><strong>Highlight Color:</strong></label>
+            <div class="highlight-swatch-row">${swatchesHtml}</div>
+            <div class="highlight-custom-color">
+              <label for="extract-custom-color">Custom:</label>
+              <input type="color" id="extract-custom-color" value="${escapeHtml(activeColor || DEFAULT_HIGHLIGHT_COLOR)}">
             </div>
           </div>
           <div class="extract-tags">
@@ -1474,6 +1534,59 @@
         margin-bottom: 20px;
       }
 
+      .highlight-color-selection {
+        margin-bottom: 20px;
+      }
+
+      .highlight-color-selection > label {
+        display: block;
+        margin-bottom: 8px;
+        color: #333;
+      }
+
+      .highlight-swatch-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .highlight-swatch {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid #d0d0d0;
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.15s ease, border-color 0.15s ease;
+      }
+
+      .highlight-swatch:hover {
+        transform: scale(1.1);
+      }
+
+      .highlight-swatch.selected {
+        border-color: #333;
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.15);
+      }
+
+      .highlight-custom-color {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        color: #333;
+      }
+
+      .highlight-custom-color input[type="color"] {
+        width: 42px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: none;
+        cursor: pointer;
+      }
+
       .extract-tags label {
         display: block;
         margin-bottom: 8px;
@@ -1543,12 +1656,26 @@
         return;
       }
 
+      // Highlight swatch pick (and custom picker) — selection state lives on
+      // the dialog so the Create button reads it at submit time.
+      const swatch = event.target?.closest?.('.highlight-swatch');
+      if (swatch) {
+        dialog.querySelectorAll('.highlight-swatch.selected').forEach((el) => el.classList.remove('selected'));
+        swatch.classList.add('selected');
+        const customInput = dialog.querySelector('#extract-custom-color');
+        if (customInput) customInput.value = swatch.dataset.color;
+        return;
+      }
+
       if (action === 'create-extract') {
         const selectedPriority = dialog.querySelector('input[name="priority"]:checked');
+        const selectedColor = dialog.querySelector('.highlight-swatch.selected');
+        const customColorInput = dialog.querySelector('#extract-custom-color');
         const tagsInput = dialog.querySelector('#extract-tags');
         const options = {
           priority: selectedPriority ? selectedPriority.value : 'normal',
           priority_source: 'user_selected',
+          color: (customColorInput && customColorInput.value) || (selectedColor && selectedColor.dataset.color) || null,
           tags: tagsInput ? tagsInput.value.split(',').map(tag => tag.trim()).filter(tag => tag) : []
         };
 
@@ -1572,6 +1699,15 @@
         closeDialog();
       }
     });
+
+    // Picking a custom color deselects the preset swatches — the custom
+    // value wins at submit time.
+    const customColorInput = dialog.querySelector('#extract-custom-color');
+    if (customColorInput) {
+      customColorInput.addEventListener('input', () => {
+        dialog.querySelectorAll('.highlight-swatch.selected').forEach((el) => el.classList.remove('selected'));
+      });
+    }
 
     document.body.appendChild(dialog);
     dialog.querySelector('input[name="priority"]:checked')?.focus();
@@ -1757,48 +1893,53 @@
     // Capture HTML content with computed styles for visual fidelity
     const html_content = captureSelectionHTML(range);
 
-    const extractData = {
-      id: generateExtractId(),
-      text: text,
-      // Rich HTML content for 1:1 visual fidelity
-      html_content: html_content,
-      context: context.substring(Math.max(0, context.indexOf(text) - 100),
-                                context.indexOf(text) + text.length + 100),
-      url: window.location.href,
-      title: document.title,
-      timestamp: new Date().toISOString(),
-      selector: getElementSelector(range.startContainer),
-      range: {
-        startOffset: range.startOffset,
-        endOffset: range.endOffset,
-        startContainer: getElementPath(range.startContainer),
-        endContainer: getElementPath(range.endContainer)
-      },
-      capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
-    };
-    
-    pageExtracts.push(extractData);
-    savePageExtracts();
-    
-    // Send to background script
-    chrome.runtime.sendMessage({
-      action: 'saveExtract',
-      extract: extractData
-    }, (response) => {
-      if (response && response.success) {
-        chrome.storage.sync.get(['enableHighlights'], (settings) => {
-          if (settings && settings.enableHighlights !== false) {
-            highlightText(range, extractData.id);
-          }
-        });
-        showSaveIndicator(`Extract saved: "${text.substring(0, 50)}..."`);
-      } else {
-        showSaveIndicator('Failed to save extract');
-        pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
-        savePageExtracts();
-      }
+    // Resolve the user's active highlight color asynchronously — DOM reads
+    // stay synchronous so a changed selection can't corrupt capture.
+    getActiveHighlightColor((activeColor) => {
+      const extractData = {
+        id: generateExtractId(),
+        text: text,
+        // Rich HTML content for 1:1 visual fidelity
+        html_content: html_content,
+        context: context.substring(Math.max(0, context.indexOf(text) - 100),
+                                  context.indexOf(text) + text.length + 100),
+        url: window.location.href,
+        title: document.title,
+        timestamp: new Date().toISOString(),
+        selector: getElementSelector(range.startContainer),
+        range: {
+          startOffset: range.startOffset,
+          endOffset: range.endOffset,
+          startContainer: getElementPath(range.startContainer),
+          endContainer: getElementPath(range.endContainer)
+        },
+        color: activeColor,
+        capture_context: captureBrowserContext(getPrimaryContentRoot(), text)
+      };
+
+      pageExtracts.push(extractData);
+      savePageExtracts();
+
+      // Send to background script
+      chrome.runtime.sendMessage({
+        action: 'saveExtract',
+        extract: extractData
+      }, (response) => {
+        if (response && response.success) {
+          chrome.storage.sync.get(['enableHighlights'], (settings) => {
+            if (settings && settings.enableHighlights !== false) {
+              highlightText(range, extractData.id, extractData.color);
+            }
+          });
+          showSaveIndicator(`Extract saved: "${text.substring(0, 50)}..."`);
+        } else {
+          showSaveIndicator('Failed to save extract');
+          pageExtracts = pageExtracts.filter(e => e.id !== extractData.id);
+          savePageExtracts();
+        }
+      });
     });
-    
+
     // Clear selection
     selection.removeAllRanges();
   }
@@ -1852,7 +1993,7 @@
       // styles the legacy name, Plethora styles both.
       span.className = 'plethora-highlight incrementum-highlight';
       span.dataset.extractId = extractId;
-      
+
       const highlightColor = color || '#ffd3a5';
       span.style.cssText = `
         background: linear-gradient(135deg, ${highlightColor} 0%, ${adjustColor(highlightColor, -20)} 100%);
@@ -1862,14 +2003,23 @@
         cursor: pointer;
         position: relative;
       `;
-      
+
       // Add click handler for highlight
       span.addEventListener('click', (e) => {
         e.preventDefault();
         showExtractTooltip(span, extractId);
       });
-      
-      range.surroundContents(span);
+
+      try {
+        range.surroundContents(span);
+      } catch (_wrapError) {
+        // surroundContents throws a DOMException whenever the range crosses
+        // inline element boundaries (links, <b>, <i>…). Extracting the shared
+        // fragment and re-inserting it inside the span wraps every text node
+        // in the range without throwing, preserving inner markup.
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+      }
       highlights.push({ element: span, extractId: extractId });
     } catch (error) {
       console.error('Error highlighting text:', error);
@@ -2123,41 +2273,133 @@
     return div.innerHTML;
   }
 
-  function pageExtractsKeys() {
+  // Durable extract storage keys in chrome.storage.local: one bucket scoped
+  // to the exact page URL, one scoped to the hostname. The hostname bucket
+  // mirrors the old localStorage scheme so per-site behavior is preserved;
+  // the URL bucket lets an exact page restore only what belongs to it.
+  function pageExtractsStorageKeys() {
     return {
-      current: `plethora_extracts_${window.location.hostname}`,
-      legacy: `incrementum_extracts_${window.location.hostname}`
+      urlKey: `plethora_extracts_url_${window.location.href}`,
+      hostKey: `plethora_extracts_host_${window.location.hostname}`,
+      legacyCurrent: `plethora_extracts_${window.location.hostname}`,
+      legacyLegacy: `incrementum_extracts_${window.location.hostname}`
     };
   }
 
   function savePageExtracts() {
-    const { current, legacy } = pageExtractsKeys();
-    localStorage.setItem(current, JSON.stringify(pageExtracts));
-    // Remove the legacy key only after the new one round-trips.
+    const keys = pageExtractsStorageKeys();
+    // Durable persistence is owned by the background: content-script
+    // chrome.storage.local writes are not reliably persisted across engines,
+    // while background writes land in the profile's browser-extension-data.
+    sendRuntimeMessage({
+      action: 'savePageExtractsStorage',
+      keys: { urlKey: keys.urlKey, hostKey: keys.hostKey },
+      extracts: pageExtracts
+    }).then((response) => {
+      if (!response || !response.success) {
+        console.warn('[Content] durable extract save via background failed, falling back to localStorage:',
+                     response && response.error);
+        savePageExtractsToLocalStorage(keys);
+        return;
+      }
+      // Durable write succeeded — clear any migrated localStorage data so
+      // the volatile copy can't shadow fresh reads with stale extracts.
+      removeLegacyLocalStorageExtracts(keys);
+    });
+  }
+
+  function savePageExtractsToLocalStorage(keys) {
     try {
-      if (localStorage.getItem(current) !== null && localStorage.getItem(legacy) !== null) {
-        localStorage.removeItem(legacy);
+      localStorage.setItem(keys.legacyCurrent, JSON.stringify(pageExtracts));
+      // Remove the legacy key only after the new one round-trips.
+      if (localStorage.getItem(keys.legacyCurrent) !== null && localStorage.getItem(keys.legacyLegacy) !== null) {
+        localStorage.removeItem(keys.legacyLegacy);
       }
     } catch (err) {
       // best-effort cleanup
     }
   }
 
-  function loadPageExtracts() {
+  function removeLegacyLocalStorageExtracts(keys) {
     try {
-      const { current, legacy } = pageExtractsKeys();
-      const stored = localStorage.getItem(current) ?? localStorage.getItem(legacy);
+      localStorage.removeItem(keys.legacyCurrent);
+      localStorage.removeItem(keys.legacyLegacy);
+    } catch (err) {
+      // best-effort cleanup
+    }
+  }
+
+  function parseStoredExtracts(stored) {
+    if (Array.isArray(stored)) return stored;
+    if (typeof stored === 'string') {
+      try {
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_err) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function migrateLocalStorageExtracts(keys) {
+    try {
+      const stored = localStorage.getItem(keys.legacyCurrent) ?? localStorage.getItem(keys.legacyLegacy);
+      if (!stored) return;
+      pageExtracts = JSON.parse(stored);
+      // Persist into durable storage, then drop the volatile copy once the
+      // write round-trips (savePageExtracts removes the legacy keys on
+      // success). Re-highlight from the migrated records.
+      savePageExtracts();
+      restoreAllPageHighlights();
+    } catch (error) {
+      console.error('Error migrating page extracts from localStorage:', error);
+      pageExtracts = [];
+    }
+  }
+
+  function restoreAllPageHighlights() {
+    // Restore highlights for existing extracts if enabled
+    chrome.storage.sync.get(['enableHighlights'], (settings) => {
+      if (settings && settings.enableHighlights !== false) {
+        pageExtracts.forEach(extract => {
+          restoreHighlight(extract);
+        });
+        ensureHighlightMutationObserver();
+      }
+    });
+  }
+
+  function loadPageExtracts() {
+    const keys = pageExtractsStorageKeys();
+    // Read durable storage through the background (same context that owns the
+    // writes — see savePageExtracts).
+    sendRuntimeMessage({
+      action: 'loadPageExtractsStorage',
+      keys: { urlKey: keys.urlKey, hostKey: keys.hostKey }
+    }).then((response) => {
+      if (response && response.success &&
+          (response.urlExtracts !== undefined || response.hostExtracts !== undefined)) {
+        pageExtracts = parseStoredExtracts(
+          response.urlExtracts !== undefined ? response.urlExtracts : response.hostExtracts
+        );
+        restoreAllPageHighlights();
+      } else {
+        // First visit since the storage upgrade — migrate.
+        migrateLocalStorageExtracts(keys);
+      }
+    }).catch(() => {
+      // Background unreachable (extension reloading, etc.) — legacy path.
+      loadPageExtractsFromLocalStorage(keys);
+    });
+  }
+
+  function loadPageExtractsFromLocalStorage(keys) {
+    try {
+      const stored = localStorage.getItem(keys.legacyCurrent) ?? localStorage.getItem(keys.legacyLegacy);
       if (stored) {
         pageExtracts = JSON.parse(stored);
-        
-        // Restore highlights for existing extracts if enabled
-        chrome.storage.sync.get(['enableHighlights'], (settings) => {
-          if (settings && settings.enableHighlights !== false) {
-            pageExtracts.forEach(extract => {
-              restoreHighlight(extract);
-            });
-          }
-        });
+        restoreAllPageHighlights();
       }
     } catch (error) {
       console.error('Error loading page extracts:', error);
@@ -2167,6 +2409,11 @@
 
   function restoreHighlight(extract) {
     // Try to find and restore highlight for existing extract
+    if (!extract || !extract.id || !extract.text) return;
+    // Skip extracts already highlighted in the DOM — a re-check after a
+    // dynamic DOM mutation must not double-wrap the same text.
+    if (document.querySelector('[data-extract-id="' + cssEscape(extract.id) + '"]')) return;
+
     const textNodes = getTextNodes(document.body);
     for (const node of textNodes) {
       const text = node.textContent;
@@ -2176,13 +2423,40 @@
           const range = document.createRange();
           range.setStart(node, index);
           range.setEnd(node, index + extract.text.length);
-          highlightText(range, extract.id);
-          break;
+          highlightText(range, extract.id, extract.color);
+          return;
         } catch (error) {
           console.warn('[Content] Could not restore highlight for extract:', error.message);
         }
       }
     }
+  }
+
+  function cssEscape(value) {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/["\\]/g, '\\$&');
+  }
+
+  // Dynamic pages (infinite scroll, SPA re-renders, lazy-loaded bodies) can
+  // render the extract text only after the initial restore pass. A debounced
+  // MutationObserver re-checks pending extracts; restoreHighlight skips
+  // anything already in the DOM so our own mutations don't loop.
+  let highlightMutationObserver = null;
+  let highlightMutationTimer = null;
+
+  function ensureHighlightMutationObserver() {
+    if (highlightMutationObserver || typeof MutationObserver === 'undefined' || !document.body) return;
+    highlightMutationObserver = new MutationObserver(() => {
+      if (highlightMutationTimer) clearTimeout(highlightMutationTimer);
+      highlightMutationTimer = setTimeout(() => {
+        highlightMutationTimer = null;
+        chrome.storage.sync.get(['enableHighlights'], (settings) => {
+          if (settings && settings.enableHighlights === false) return;
+          pageExtracts.forEach(extract => restoreHighlight(extract));
+        });
+      }, 500);
+    });
+    highlightMutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
   function showAIResult(operation, result, state = 'result', error = '') {

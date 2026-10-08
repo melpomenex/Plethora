@@ -1511,6 +1511,7 @@ export const en: Dict = {
   "contextMenu.deleteDeckConfirm": "Delete “{name}”?",
   "contextMenu.exported": "Exported as {path}",
   "contextMenu.exportFailed": "Export failed",
+  "contextMenu.noCardsToExport": "This deck contains no cards to export",
   "contextMenu.emptyDeckReason": "No cards yet",
   "contextMenu.copyTag": "Copy tag name",
   "contextMenu.removeTag": "Remove tag",

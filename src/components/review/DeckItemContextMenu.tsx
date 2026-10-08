@@ -107,10 +107,21 @@ export function DeckItemContextMenu({
 
   const handleExportApkg = useCallback(async () => {
     try {
-      const path = await exportDeckAsApkg(deck.name, `${deck.name}.apkg`);
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const filePath = await save({
+        title: `Export "${deck.name}" as .apkg`,
+        defaultPath: `${deck.name.replace(/[^a-zA-Z0-9-_ ]/g, "_")}.apkg`,
+        filters: [{ name: "Anki Package", extensions: ["apkg"] }],
+      });
+      if (!filePath) return;
+      const cardIds = await getCardIdsForDeck();
+      if (cardIds.length === 0) { toast.error("This deck contains no cards to export"); return; }
+      const path = await exportDeckAsApkg(deck.name, filePath, cardIds);
       toast.success(`Exported as ${path}`);
-    } catch { toast.error("Failed to export .apkg"); }
-  }, [deck.name, toast]);
+    } catch (err) {
+      toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Failed to export .apkg");
+    }
+  }, [deck.name, getCardIdsForDeck, toast]);
 
   const handleExportCsv = useCallback(async () => {
     try {

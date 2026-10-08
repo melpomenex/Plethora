@@ -529,6 +529,31 @@
             font-size: 12px;
             text-align: right;
         }
+
+        .swatch-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .swatch {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            cursor: pointer;
+            padding: 0;
+            transition: transform 0.15s ease, border-color 0.15s ease;
+        }
+
+        .swatch:hover {
+            transform: scale(1.12);
+        }
+
+        .swatch.selected {
+            border-color: #ffffff;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.7);
+        }
     </style>
 </head>
 <body>
@@ -587,6 +612,11 @@
     </div>
 
     <div class="section">
+        <div class="section-title">Highlight Color</div>
+        <div id="highlight-swatches" class="swatch-row"></div>
+    </div>
+
+    <div class="section">
         <div class="section-title">Shortcuts</div>
         <div class="shortcut-list">
             <div class="shortcut-item"><span>Save current tab</span><span>Ctrl/Cmd + Shift + S</span></div>
@@ -600,6 +630,7 @@
 
     <div id="notification" class="notification hidden"></div>
 
+    <script src="shared.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

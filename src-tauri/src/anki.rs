@@ -1011,13 +1011,42 @@ pub fn validate_anki_package(path: String) -> Result<bool> {
 pub async fn export_deck_as_apkg(
     deck_name: String,
     output_path: String,
+    card_ids: Option<Vec<String>>,
     repo: State<'_, Repository>,
 ) -> Result<String> {
     let all_items = repo.get_all_learning_items().await?;
-    let deck_items: Vec<_> = all_items
-        .into_iter()
-        .filter(|item| item.tags.iter().any(|t| t == &deck_name))
-        .collect();
+    // When the client resolves deck membership (smart-deck filters, document
+    // bindings, cram/difficulty rules), it passes explicit card IDs and we
+    // trust them. Otherwise fall back to tag matching that tolerates a
+    // `deck:` prefix, case differences, and sub-deck hierarchy, mirroring the
+    // frontend's `tagMatchesFilter` semantics.
+    let deck_items: Vec<_> = match card_ids {
+        Some(ids) if !ids.is_empty() => {
+            let wanted: std::collections::HashSet<String> = ids.into_iter().collect();
+            all_items
+                .into_iter()
+                .filter(|item| wanted.contains(&item.id))
+                .collect()
+        }
+        _ => {
+            let needle = deck_name.trim().to_lowercase();
+            let needle = needle
+                .strip_prefix("deck:")
+                .map(|s| s.to_string())
+                .unwrap_or(needle);
+            let subdeck_prefixes = [format!("{}::", needle), format!("{}/", needle)];
+            all_items
+                .into_iter()
+                .filter(|item| {
+                    item.tags.iter().any(|t| {
+                        let tag = t.trim().to_lowercase();
+                        let tag = tag.strip_prefix("deck:").unwrap_or(&tag);
+                        tag == needle || subdeck_prefixes.iter().any(|p| tag.starts_with(p))
+                    })
+                })
+                .collect()
+        }
+    };
 
     if deck_items.is_empty() {
         return Err(PlethoraError::NotFound(format!(

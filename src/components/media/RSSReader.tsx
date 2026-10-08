@@ -335,6 +335,11 @@ export function RSSReader() {
   const [isSemanticGraphOpen, setSemanticGraphOpen] = useState(false);
   const [embeddingConfig, setEmbeddingConfig] = useState<any>(undefined);
   const [userClosedReader, setUserClosedReader] = useState(false);
+  // Articles marked read during the active unread browsing session. In unread
+  // view these stay in the list (shown as read) until the user switches view,
+  // selects another feed/folder, or explicitly refreshes — selecting an
+  // article must not yank its row out from under the cursor.
+  const [sessionReadItemIds, setSessionReadItemIds] = useState<Set<string>>(new Set());
 
   const unreadCount = feeds.reduce((acc, feed) => acc + feed.unreadCount, 0);
   const groupedFeeds = useMemo(() => {
@@ -382,7 +387,10 @@ export function RSSReader() {
 
   useEffect(() => {
     setUserClosedReader(false);
-  }, [selectedFeed?.id, viewMode]);
+    // Fresh unread session scope: switching view mode, feed, or folder resets
+    // the retained session-read list.
+    setSessionReadItemIds(new Set());
+  }, [selectedFeed?.id, selectedFolderId, viewMode]);
 
   const queueItems = useQueueStore((state) => state.items);
   const loadQueue = useQueueStore((state) => state.loadQueue);
@@ -617,7 +625,12 @@ export function RSSReader() {
       }
       resultList = applyIntelligenceFilter(items);
     } else if (viewMode === "unread") {
-      let filtered = allFeedItems.filter(({ item }) => !item.read);
+      // Keep articles read during the active session (and the current
+      // selection) in the list so rows don't vanish mid-read.
+      let filtered = allFeedItems.filter(
+        ({ item }) =>
+          !item.read || sessionReadItemIds.has(item.id) || item.id === selectedItem?.id
+      );
       if (intelligenceFilter === "focus") {
         filtered = filtered.filter(({ item }) => (item.intelligenceScore ?? 0) > 0);
       }
@@ -650,7 +663,7 @@ export function RSSReader() {
     const sortedList = applySortingPreferences(filteredList);
 
     setItems(sortedList);
-  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences, activeReadingListFeeds]);
+  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences, activeReadingListFeeds, sessionReadItemIds, selectedItem?.id]);
 
   useEffect(() => {
     void loadTags();
@@ -783,6 +796,9 @@ export function RSSReader() {
       setIsAutoRefreshing(true);
       if (source === "manual") {
         setSyncFeedback("syncing");
+        // An explicit refresh ends the unread session: previously retained
+        // read rows may legitimately drop out of the unread list again.
+        setSessionReadItemIds(new Set());
       }
 
       try {
@@ -945,6 +961,8 @@ export function RSSReader() {
 
   const handleRefreshFeed = async (feed: Feed) => {
     try {
+      // Manual refresh ends the unread session for retained rows.
+      setSessionReadItemIds(new Set());
       const updated = await fetchFeed(feed.feedUrl);
       if (updated) {
         // Preserve read/favorite status
@@ -1042,8 +1060,18 @@ export function RSSReader() {
     }
   };
 
+  const trackSessionRead = useCallback((itemId: string) => {
+    setSessionReadItemIds((prev) => {
+      if (prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+  }, []);
+
   const handleItemClick = async (feed: Feed, item: FeedItem) => {
     setUserClosedReader(false);
+    trackSessionRead(item.id);
     
     // Update local state synchronously first
     setFeeds((prevFeeds) =>
@@ -1394,6 +1422,7 @@ export function RSSReader() {
           const next = currentItems[currentIndex + 1];
           setSelectedItem(next.item);
           setSelectedItemFeed(next.feed);
+          trackSessionRead(next.item.id);
           if (!next.item.read) {
             // Update local state synchronously first
             setFeeds((prevFeeds) =>
@@ -1434,6 +1463,7 @@ export function RSSReader() {
         break;
       case "markRead":
         if (selectedItem && selectedItemFeed) {
+          trackSessionRead(selectedItem.id);
           // Update local state synchronously
           setFeeds((prevFeeds) =>
             prevFeeds.map((f) => {
@@ -1587,6 +1617,13 @@ export function RSSReader() {
 
   // Mark article unread handler
   const handleMarkUnread = async (feed: Feed, item: FeedItem) => {
+    // No longer counts as a session-read article.
+    setSessionReadItemIds((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
     // Update local state synchronously
     setFeeds((prevFeeds) =>
       prevFeeds.map((f) => {
@@ -1628,6 +1665,7 @@ export function RSSReader() {
   // row instead of yanking the reader to it).
   const markArticleRead = useCallback((feed: Feed, item: FeedItem) => {
     if (item.read) return;
+    trackSessionRead(item.id);
     setFeeds((prevFeeds) =>
       prevFeeds.map((f) => {
         if (f.id === feed.id) {
@@ -1652,7 +1690,7 @@ export function RSSReader() {
     markItemReadAuto(feed.id, item.id, true).catch((err) => {
       console.error("Failed to mark item read in backend:", err);
     });
-  }, []);
+  }, [trackSessionRead]);
 
   // ---- App-wide context menus (change `app-wide-context-menus`) ----
   // Every item dispatches to the existing row-button handler above —

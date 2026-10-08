@@ -991,6 +991,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: true });
           break;
 
+        case 'savePageExtractsStorage': {
+          // Durable extract persistence for content scripts: the background
+          // owns chrome.storage.local writes so they reliably land in the
+          // profile's browser-extension-data (content-script storage writes
+          // are not reliably persisted — observed on Firefox).
+          const keys = message.keys || {};
+          const records = {};
+          if (keys.urlKey) records[keys.urlKey] = Array.isArray(message.extracts) ? message.extracts : [];
+          if (keys.hostKey) records[keys.hostKey] = Array.isArray(message.extracts) ? message.extracts : [];
+          chrome.storage.local.set(records, () => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            sendResponse({ success: true });
+          });
+          break;
+        }
+
+        case 'loadPageExtractsStorage': {
+          const keys = message.keys || {};
+          if (!keys.urlKey || !keys.hostKey) {
+            sendResponse({ success: false, error: 'Missing extract storage keys' });
+            break;
+          }
+          chrome.storage.local.get([keys.urlKey, keys.hostKey], (result) => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            sendResponse({
+              success: true,
+              urlExtracts: result[keys.urlKey],
+              hostExtracts: result[keys.hostKey]
+            });
+          });
+          break;
+        }
+
         case 'saveExtract':
         case 'saveExtractWithPriority': {
           const extract = message.extract || {};
@@ -1019,6 +1058,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             capture_context: extract.capture_context,
             tags: extract.tags,
             priority: extract.priority,
+            color: extract.color,
             analysis: extract.analysis,
             fsrs_data: extract.fsrs_data
           };
@@ -1544,12 +1584,21 @@ async function createExtractFromSelection(selectedText, tab) {
   const pageContext = tab?.id
     ? await safeSendTabMessage(tab.id, { action: 'getCaptureContext', selectedText: text })
     : null;
+  // Attach the user's active highlight color so background-created extracts
+  // (context menu / quick extract) carry the same attribute as in-page ones.
+  const shared = globalThis.IncrementumExtensionShared;
+  const activeColor = await new Promise((resolve) => {
+    chrome.storage.sync.get(['activeHighlightColor'], (settings) => {
+      resolve((settings && settings.activeHighlightColor) || shared?.DEFAULT_HIGHLIGHT_COLOR || '#ffd3a5');
+    });
+  });
   const payload = {
     url: tab.url,
     title: tab.title,
     text,
     capture_context: pageContext?.capture_context,
-    type: 'extract'
+    type: 'extract',
+    color: activeColor
   };
   const result = await sendToIncrementum(payload);
   if (!result.success && isRetryableConnectionError(result)) {
@@ -1573,7 +1622,7 @@ async function createExtractFromSelection(selectedText, tab) {
   // so the derived counter increments exactly once and not optimistically.
   const shouldRegister = Boolean(result.success && !result.queued && tab?.id);
   if (shouldRegister) {
-    const record = buildExtractRecord(text, tab, result);
+    const record = buildExtractRecord(text, tab, result, activeColor);
     await persistExtractRegistration(tab.id, record);
     const registered = await notifyTabRegisterExtract(tab.id, record);
     if (registered) {
@@ -1587,10 +1636,10 @@ async function createExtractFromSelection(selectedText, tab) {
 // Build the first-class pageExtracts record for a background-created extract,
 // using the server-confirmed extract id when available so re-delivery after a
 // service-worker restart dedupes to the same record.
-function buildExtractRecord(text, tab, result) {
+function buildExtractRecord(text, tab, result, color) {
   const shared = globalThis.IncrementumExtensionShared;
   return shared.normalizeExtractRecord(
-    { text, url: tab.url, title: tab.title },
+    { text, url: tab.url, title: tab.title, color },
     { id: result?.extract_id }
   );
 }

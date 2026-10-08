@@ -4704,6 +4704,7 @@ export const zh: Dict = {
   "contextMenu.deleteDeckConfirm": "删除“{name}”？",
   "contextMenu.exported": "已导出为 {path}",
   "contextMenu.exportFailed": "导出失败",
+  "contextMenu.noCardsToExport": "该牌组没有可导出的卡片",
   "contextMenu.emptyDeckReason": "暂无卡片",
   "contextMenu.copyTag": "复制标签",
   "contextMenu.removeTag": "移除标签",

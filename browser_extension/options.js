@@ -16,7 +16,8 @@ class OptionsController {
             saveBookmarks: false,
             syncFrequency: 'manual',
             flashcardTypes: ['qa', 'cloze'],
-            flashcardCount: 5
+            flashcardCount: 5,
+            activeHighlightColor: (globalThis.IncrementumExtensionShared?.DEFAULT_HIGHLIGHT_COLOR) || '#ffd3a5'
         };
 
         this.init();
@@ -69,6 +70,51 @@ class OptionsController {
                 });
             }
         });
+
+        // Highlight color swatches + custom picker save immediately.
+        document.getElementById('custom-highlight-color').addEventListener('input', (e) => {
+            this.setHighlightColor(e.target.value);
+        });
+        this.renderHighlightSwatches();
+    }
+
+    renderHighlightSwatches() {
+        const container = document.getElementById('highlight-color-swatches');
+        if (!container) return;
+        const palette = globalThis.IncrementumExtensionShared?.HIGHLIGHT_COLORS || [];
+        container.innerHTML = '';
+        for (const color of palette) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'swatch';
+            button.dataset.color = color.value;
+            button.title = color.name;
+            button.style.background = color.value;
+            button.setAttribute('aria-label', `Highlight color ${color.name}`);
+            button.addEventListener('click', () => {
+                this.setHighlightColor(color.value);
+            });
+            container.appendChild(button);
+        }
+        this.updateSwatchSelection();
+    }
+
+    updateSwatchSelection() {
+        const swatches = document.querySelectorAll('#highlight-color-swatches .swatch');
+        swatches.forEach((swatch) => {
+            swatch.classList.toggle('selected', swatch.dataset.color?.toLowerCase() === this.selectedHighlightColor?.toLowerCase());
+        });
+        const customInput = document.getElementById('custom-highlight-color');
+        if (customInput && this.selectedHighlightColor) {
+            customInput.value = this.selectedHighlightColor;
+        }
+    }
+
+    setHighlightColor(color) {
+        if (!color) return;
+        this.selectedHighlightColor = color;
+        this.updateSwatchSelection();
+        this.saveSettings(false);
     }
 
     async loadSettings() {
@@ -100,6 +146,8 @@ class OptionsController {
             document.getElementById('flashcard-type-qa').checked = flashcardTypes.includes('qa');
             document.getElementById('flashcard-type-cloze').checked = flashcardTypes.includes('cloze');
             document.getElementById('flashcard-count').value = settings.flashcardCount || this.defaultSettings.flashcardCount;
+            this.selectedHighlightColor = settings.activeHighlightColor || this.defaultSettings.activeHighlightColor;
+            this.updateSwatchSelection();
 
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -135,7 +183,8 @@ class OptionsController {
                 saveBookmarks: document.getElementById('save-bookmarks').checked,
                 syncFrequency: document.getElementById('sync-frequency').value,
                 flashcardTypes,
-                flashcardCount: Math.max(1, Math.min(20, parseInt(document.getElementById('flashcard-count').value) || 5))
+                flashcardCount: Math.max(1, Math.min(20, parseInt(document.getElementById('flashcard-count').value) || 5)),
+                activeHighlightColor: this.selectedHighlightColor || this.defaultSettings.activeHighlightColor
             };
 
             if (!this.validateSettings(settings)) {

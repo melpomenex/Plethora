@@ -18,6 +18,7 @@ class PopupController {
     await this.loadStats();
     await this.checkExtractMode();
     await this.loadTheme();
+    await this.loadHighlightColor();
   }
 
   setupEventListeners() {
@@ -49,6 +50,42 @@ class PopupController {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
     });
+  }
+
+  // Highlight color: quick swatch selection persisted to sync settings so the
+  // next extract on any page uses the chosen color.
+  async loadHighlightColor() {
+    const fallback = globalThis.IncrementumExtensionShared?.DEFAULT_HIGHLIGHT_COLOR || '#ffd3a5';
+    let active = fallback;
+    try {
+      const settings = await chrome.storage.sync.get(['activeHighlightColor']);
+      active = settings?.activeHighlightColor || fallback;
+    } catch (_err) {
+      // storage unavailable — fall back to the default color
+    }
+    this.renderHighlightSwatches(active);
+  }
+
+  renderHighlightSwatches(activeColor) {
+    const container = document.getElementById('highlight-swatches');
+    if (!container) return;
+    const palette = globalThis.IncrementumExtensionShared?.HIGHLIGHT_COLORS || [];
+    container.innerHTML = '';
+    for (const color of palette) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'swatch' + (color.value.toLowerCase() === activeColor?.toLowerCase() ? ' selected' : '');
+      button.dataset.color = color.value;
+      button.title = color.name;
+      button.style.background = color.value;
+      button.setAttribute('aria-label', `Highlight color ${color.name}`);
+      button.addEventListener('click', () => {
+        chrome.storage.sync.set({ activeHighlightColor: color.value }, () => {
+          this.renderHighlightSwatches(color.value);
+        });
+      });
+      container.appendChild(button);
+    }
   }
 
   async loadStatus() {

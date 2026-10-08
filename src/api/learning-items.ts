@@ -287,9 +287,16 @@ export async function getDailyNoteLinks(date?: string): Promise<Array<Record<str
  * Export a deck as an .apkg file for Anki re-import.
  * @param deckName The deck tag/name to filter cards by
  * @param outputPath The file path to save the .apkg
+ * @param cardIds Optional explicit card membership resolved on the frontend
+ *   (via `matchesDeck`); when provided, the backend exports exactly these
+ *   cards instead of falling back to tag matching.
  */
-export async function exportDeckAsApkg(deckName: string, outputPath: string): Promise<string> {
-  return await invokeCommand<string>("export_deck_as_apkg", { deckName, outputPath });
+export async function exportDeckAsApkg(
+  deckName: string,
+  outputPath: string,
+  cardIds?: string[],
+): Promise<string> {
+  return await invokeCommand<string>("export_deck_as_apkg", { deckName, outputPath, cardIds });
 }
 
 export async function exportDeckAsCsv(deckName: string, outputPath: string): Promise<string> {

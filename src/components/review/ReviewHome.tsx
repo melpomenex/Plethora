@@ -25,7 +25,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { getDueItems, type LearningItem } from "../../api/review";
 import { getAllLearningItems, type LearningItem as AllLearningItem } from "../../api/learning-items";
-import { computeDeckStats, filterByDecks, normalizeTagList } from "../../utils/studyDecks";
+import { computeDeckStats, filterByDecks, matchesDeck, normalizeTagList } from "../../utils/studyDecks";
 import type { StudyDeck } from "../../types/study-decks";
 import { FlashcardStudioModal } from "./FlashcardStudioModal";
 import { ReviewDecksModal } from "./ReviewDecksModal";
@@ -325,10 +325,23 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
         onClick: () => {
           void (async () => {
             try {
-              const path = await exportDeckAsApkg(deck.name, `${deck.name}.apkg`);
+              const { save } = await import("@tauri-apps/plugin-dialog");
+              const filePath = await save({
+                title: t("contextMenu.exportApkg"),
+                defaultPath: `${deck.name.replace(/[^a-zA-Z0-9-_ ]/g, "_")}.apkg`,
+                filters: [{ name: "Anki Package", extensions: ["apkg"] }],
+              });
+              if (!filePath) return;
+              const allCards = await getAllLearningItems();
+              const cardIds = allCards.filter((c) => matchesDeck(c, deck)).map((c) => c.id);
+              if (cardIds.length === 0) {
+                toast.error(t("contextMenu.noCardsToExport"));
+                return;
+              }
+              const path = await exportDeckAsApkg(deck.name, filePath, cardIds);
               toast.success(t("contextMenu.exported", { path }));
-            } catch {
-              toast.error(t("contextMenu.exportFailed"));
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : t("contextMenu.exportFailed"));
             }
           })();
         },
