@@ -125,6 +125,36 @@ describe("DocumentQASources", () => {
     expect(button.getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("opens a context menu with Open source and Copy citation on right-click", async () => {
+    const content =
+      '<div class="page" id="page-1"><div class="page-content"><p>The quick brown fox jumps over the lazy dog.</p></div></div>';
+    mockedGetDocument.mockResolvedValue(makeDocument({ content, contentHash: "pdf-v2" }));
+
+    render(<DocumentQASources citations={[citation()]} />);
+    const button = await screen.findByRole("button");
+    fireEvent.contextMenu(button);
+
+    const menu = await screen.findByRole("menu");
+    expect(menu).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Open" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy citation" })).toBeTruthy();
+  });
+
+  it("shows Open source disabled with the reason on an unlocated citation", async () => {
+    mockedGetDocument.mockResolvedValue(
+      makeDocument({ fileType: "html", content: "unrelated content", contentHash: "html-v9" })
+    );
+
+    render(<DocumentQASources citations={[citation({ chunkText: "a passage that is absent" })]} />);
+    const button = await screen.findByRole("button");
+    fireEvent.contextMenu(button);
+
+    const openItem = await screen.findByRole("menuitem", { name: "Open" });
+    expect((openItem as HTMLButtonElement).disabled).toBe(true);
+    // Copy stays available even when the passage cannot be located.
+    expect((screen.getByRole("menuitem", { name: "Copy citation" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("re-resolves after a same-id re-import with changed content (not-located, never stale)", async () => {
     // First pass: the document contains the quoted passage → located.
     mockedGetDocument.mockResolvedValue(

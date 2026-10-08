@@ -227,7 +227,7 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
       },
       "copy-citation": {
         id: "copy-citation",
-        label: translate("contextMenu.copyLink"),
+        label: translate("contextMenu.copyCitation"),
         onClick: () => {
           void navigator.clipboard?.writeText(`"${quote}" — ${citation.documentTitle}`);
         },

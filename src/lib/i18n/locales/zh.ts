@@ -4719,6 +4719,7 @@ export const zh: Dict = {
   "contextMenu.refreshFeed": "刷新订阅",
   "contextMenu.addToQueue": "加入队列",
   "contextMenu.playNext": "下一首播放",
+  "contextMenu.copyCitation": "复制引用",
   "documentsView.oneClickInstallDesktop": "桌面应用（Windows、macOS、Linux）中提供一键安装。",
   "documentsView.ytdlpRequiredNote": "注意：YouTube 导入功能需要安装 yt-dlp",
   "documentsView.cancel": "取消",

@@ -18,6 +18,7 @@ import { openExternal } from "../../lib/tauri";
 import { copyShareLink } from "../../lib/shareLink";
 import { stripTrackingParams } from "../../lib/cleanUrl";
 import { useToast } from "../common/Toast";
+import { useRssSelectionMenu } from "./useRssSelectionMenu";
 import { sanitizeHtml } from "../common/RichContentRenderer";
 import { IntelligenceIndicator } from "./IntelligenceIndicator";
 
@@ -31,6 +32,8 @@ interface StoryViewProps {
 
 export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }: StoryViewProps) {
   const toast = useToast();
+  // Text-selection menu with the same actions as document viewing.
+  const selection = useRssSelectionMenu(feed, item);
   const currentIndex = items.findIndex((i) => i.id === item.id);
   const hasNext = currentIndex < items.length - 1;
   const hasPrev = currentIndex > 0;
@@ -99,7 +102,9 @@ export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }:
 
           {/* Content */}
           <div
+            ref={selection.contentRef}
             className="prose prose-sm dark:prose-invert max-w-none leading-relaxed"
+            onContextMenu={selection.handleContextMenu}
             dangerouslySetInnerHTML={{
               __html: sanitizeHtml(item.fullContent || item.description || item.content),
             }}
@@ -139,6 +144,7 @@ export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }:
           </div>
         </article>
       </div>
+      {selection.overlays}
     </div>
   );
 }

@@ -1526,6 +1526,7 @@ export const en: Dict = {
   "contextMenu.refreshFeed": "Refresh feed",
   "contextMenu.addToQueue": "Add to queue",
   "contextMenu.playNext": "Play next",
+  "contextMenu.copyCitation": "Copy citation",
 
   "cardContextMenu.edit": "Edit in Studio",
   "cardContextMenu.preview": "Preview",

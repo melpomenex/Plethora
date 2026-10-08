@@ -97,6 +97,7 @@ import {
   rssArticleMenuItemIds,
   rssFeedMenuItemIds,
 } from "../../lib/contextMenus";
+import { useRssSelectionMenu } from "./useRssSelectionMenu";
 import { SearchResults } from "./SearchResults";
 import { OriginalView } from "./OriginalView";
 import { StoryView } from "./StoryView";
@@ -1789,6 +1790,11 @@ export function RSSReader() {
     return rssFeedMenuItemIds().map((id) => byId[id]);
   };
 
+  // ---- Text-selection menu for the reading pane (same actions as
+  // document viewing: registry-driven, document-backed actions lazily
+  // ensure a backing library document for the article). ----
+  const rssSelection = useRssSelectionMenu(selectedItemFeed, selectedItem);
+
   // Shared entry points for all three article layouts (list / magazine /
   // grid) so every layout offers the identical menu for the same article.
   const openArticleMenu = (feed: Feed, item: FeedItem, e: React.MouseEvent) => {
@@ -3167,7 +3173,9 @@ export function RSSReader() {
                               )}
                             </div>
                             <div
+                              ref={rssSelection.contentRef}
                               className="prose prose-sm max-w-none text-foreground dark:prose-invert reading-prose"
+                              onContextMenu={rssSelection.handleContextMenu}
                               onClick={(e) => {
                                 const target = e.target as HTMLElement;
                                 const link = target.closest("a[href]") as HTMLAnchorElement | null;
@@ -3197,6 +3205,7 @@ export function RSSReader() {
                           <TagManagementView onClose={() => setShowTagManagement(false)} />
                         </div>
                       )}
+                      {rssSelection.overlays}
                     </div>
                   </>
                 ) : (

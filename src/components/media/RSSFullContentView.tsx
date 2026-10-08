@@ -21,6 +21,7 @@ import {
 } from "../../api/rss";
 import { sanitizeHtml } from "../common/RichContentRenderer";
 import { useUIStore } from "../../stores/uiStore";
+import { useRssSelectionMenu } from "./useRssSelectionMenu";
 
 interface RSSFullContentViewProps {
   item: FeedItem;
@@ -129,6 +130,9 @@ export function cleanArticleHtml(rawHtml: string): string {
  * Displays extracted full article content with fetching, caching, and error states
  */
 export function RSSFullContentView({ item }: RSSFullContentViewProps) {
+  // Text-selection menu with the same actions as document viewing.
+  // No feed is available here; the article title backs document creation.
+  const selection = useRssSelectionMenu(null, item);
   const [content, setContent] = useState<string | null>(item.fullContent || null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(item.fullContentFetchedAt || null);
   const [isLoading, setIsLoading] = useState(false);
@@ -553,7 +557,12 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-y-auto p-6" onScroll={handleScroll}>
+      <div
+        ref={selection.contentRef}
+        className="flex-1 overflow-y-auto p-6"
+        onScroll={handleScroll}
+        onContextMenu={selection.handleContextMenu}
+      >
         <div className={`mx-auto ${widthClasses[maxWidth]} transition-all duration-150`}>
           {content ? (
             <SafeHTML 
@@ -588,6 +597,7 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
           )}
         </div>
       </div>
+      {selection.overlays}
     </div>
   );
 }
