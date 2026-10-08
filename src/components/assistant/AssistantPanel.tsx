@@ -46,7 +46,22 @@ import { useI18n } from "../../lib/i18n";
 import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } from "../common/ContextMenu";
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
-import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { getAssistantContextErrorMessage, SELECTION_PRECEDENCE_INSTRUCTION, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import {
+  createSelectionAskSnapshot,
+  shouldReseedSelectionSnapshot,
+  SELECTION_ASK_EVENT,
+  type SelectionAskEventDetail,
+  type SelectionAskSnapshot,
+} from "../../utils/selectionAskHandoff";
+import {
+  buildDocFirstExpansionInstruction,
+  buildNoLiveLookupNote,
+  fetchBraveSearchWithTimeout,
+  formatBraveContext,
+  shouldExpandBeyondDocument,
+  type BraveSearchResult,
+} from "../../utils/assistantExpansion";
 import {
   APPLE_FM_ASSISTANT_PROVIDER,
   getStoredAssistantProvider,
@@ -458,13 +473,62 @@ export function AssistantPanel({
   const assistantSectionTree = context?.sections?.length ? context.sections : documentSectionTree;
   const assistantSectionFlat = context?.sections?.length ? context.sections : documentSectionFlat;
 
+  // Pinned selection snapshot for select → Ask multi-turn threads
+  // (selection-aware-assistant): the live highlight is usually gone by turn
+  // two, so the first non-empty selection pins a snapshot that follow-ups
+  // reuse until cleared or a new selection reseeds it.
+  const [pinnedSelection, setPinnedSelection] = useState<SelectionAskSnapshot | null>(null);
+
+  useEffect(() => {
+    if (context?.type !== "document") return;
+    const live = context.selection?.trim() ? context.selection : "";
+    if (!live) return;
+    const next = createSelectionAskSnapshot(live, {
+      documentId: context.documentId,
+      documentTitle: context.metadata?.title,
+      locator: typeof context.position?.pageNumber === "number" && context.position.pageNumber > 0
+        ? `Page ${context.position.pageNumber}`
+        : undefined,
+    });
+    if (!next) return;
+    setPinnedSelection((prev) => (shouldReseedSelectionSnapshot(prev, next) ? next : prev));
+  }, [context?.type, context?.selection, context?.documentId, context?.metadata?.title, context?.position?.pageNumber]);
+
+  useEffect(() => {
+    const onSelectionAsk = (e: Event) => {
+      const detail = (e as CustomEvent<SelectionAskEventDetail>).detail;
+      if (!detail?.snapshot) return;
+      setPinnedSelection((prev) =>
+        shouldReseedSelectionSnapshot(prev, detail.snapshot) ? detail.snapshot : prev,
+      );
+      if (detail.question) {
+        setInput(detail.question);
+      }
+      textareaRef.current?.focus();
+    };
+    window.addEventListener(SELECTION_ASK_EVENT, onSelectionAsk);
+    return () => window.removeEventListener(SELECTION_ASK_EVENT, onSelectionAsk);
+  }, []);
+
+  const clearPinnedSelection = useCallback(() => {
+    setPinnedSelection(null);
+  }, []);
+
   // The user's live text selection in the source document is offered as the
   // first `#` mention entry when one exists (spec: "asking about a certain
   // portion of text"). It carries exactly the selected text as context.
+  // When the highlight is gone, the pinned Ask snapshot keeps serving it.
   const selectionSection = useMemo(() => {
-    if (context?.type !== "document" || !context.selection?.trim()) return null;
-    return createSelectionSection(context.selection, context.documentId);
-  }, [context?.type, context?.selection, context?.documentId]);
+    if (context?.type !== "document") return null;
+    const live = context.selection?.trim() ? context.selection : undefined;
+    const pinnedExcerpt = pinnedSelection?.excerpt;
+    // A new live selection always wins; otherwise the pinned snapshot survives.
+    if (live) return createSelectionSection(live, context.documentId);
+    if (pinnedExcerpt && (!context.documentId || pinnedSelection.documentId === context.documentId || !pinnedSelection.documentId)) {
+      return createSelectionSection(pinnedExcerpt, pinnedSelection.documentId ?? context.documentId);
+    }
+    return null;
+  }, [context?.type, context?.selection, context?.documentId, pinnedSelection]);
 
   // Load full document content for section parsing when documentId changes.
   // While the fetch is in flight the section catalog is empty — the popup
@@ -1531,7 +1595,52 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       }
 
       const hasExplicitSelectionContext = selectionNodes.length > 0 && selectionContext.trim().length > 0;
-      if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext) || !contextContent) {
+      // Pinned Ask snapshot (selection-aware-assistant): when the live
+      // highlight is gone the resolver no longer contains the selection, so
+      // re-inject the pinned excerpt first to keep follow-ups grounded.
+      const pinnedApplies = Boolean(
+        pinnedSelection?.excerpt &&
+        !hasExplicitSelectionContext &&
+        llmContext?.type === "document" &&
+        (!pinnedSelection.documentId || !llmContext?.documentId || pinnedSelection.documentId === llmContext.documentId) &&
+        !finalResolvedContent.includes("Selected text:"),
+      );
+      if (pinnedApplies && pinnedSelection) {
+        const sourceLabel = pinnedSelection.documentTitle
+          ? `${pinnedSelection.documentTitle}${pinnedSelection.locator ? ` • ${pinnedSelection.locator}` : ""}`
+          : (pinnedSelection.locator ?? llmContext?.documentId ?? "selection");
+        finalResolvedContent = `${SELECTION_PRECEDENCE_INSTRUCTION}\n\nSelected text (${sourceLabel}):\n${pinnedSelection.excerpt}\n\n---\n\n${finalResolvedContent}`;
+        contextContent = finalResolvedContent.trim();
+      }
+      // Explicit expansion (assistant-external-lookup): doc-first answer, then
+      // broader background. Brave runs only on explicit trigger; failures and
+      // missing keys degrade to knowledge-only with a disclosure note.
+      const wantsExpansion = shouldExpandBeyondDocument(prompt);
+      if (wantsExpansion && !sourceContentOverride && llmContext?.type === "document") {
+        const expansionInstruction = buildDocFirstExpansionInstruction();
+        if (!resolvedUserPrompt.includes("Answer from the selection")) {
+          resolvedUserPrompt = `${expansionInstruction}\n\n${resolvedUserPrompt}`;
+        }
+        try {
+          const lookupQuery = (pinnedSelection?.excerpt || llmContext?.selection || prompt).slice(0, 300);
+          const { results } = await fetchBraveSearchWithTimeout(
+            lookupQuery,
+            (command, args) => invokeCommand(command, args),
+          );
+          const webContext = formatBraveContext(results);
+          if (webContext) {
+            finalResolvedContent = `${finalResolvedContent}${webContext}`;
+            contextContent = finalResolvedContent.trim();
+          } else {
+            finalResolvedContent = `${finalResolvedContent}\n\n_${buildNoLiveLookupNote()}_`;
+            contextContent = finalResolvedContent.trim();
+          }
+        } catch {
+          finalResolvedContent = `${finalResolvedContent}\n\n_${buildNoLiveLookupNote()}_`;
+          contextContent = finalResolvedContent.trim();
+        }
+      }
+      if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext && !pinnedApplies) || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
       }
       }
@@ -3470,6 +3579,35 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Pinned selection context (selection-aware-assistant) */}
+          {pinnedSelection && (
+            <div
+              data-testid="selection-context-chip"
+              className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs"
+            >
+              <Quotes className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-foreground">
+                  {pinnedSelection.documentTitle ?? "Selected text"}
+                  {pinnedSelection.locator ? ` • ${pinnedSelection.locator}` : ""}
+                </div>
+                <div className="line-clamp-2 text-muted-foreground">
+                  {pinnedSelection.excerpt.replace(/\s+/g, " ").slice(0, 160)}
+                  {pinnedSelection.excerpt.length > 160 ? "…" : ""}
+                </div>
+              </div>
+              <button
+                data-testid="selection-context-clear"
+                onClick={clearPinnedSelection}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Clear selection context"
+                aria-label="Clear selection context"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 

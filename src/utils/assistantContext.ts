@@ -33,6 +33,26 @@ interface ResolvePdfAssistantContextParams {
 const PDF_TEXT_MIN_WORDS = 24;
 const PDF_TEXT_MIN_CHARS = 160;
 
+export const SELECTION_EXCERPT_MAX_CHARS = 2000;
+export const SELECTION_TRUNCATION_MARKER = "\n\n[Selected text truncated due to context limit...]";
+export const SELECTION_PRECEDENCE_INSTRUCTION =
+  'The user\'s question is about the Selected text first; use Document context as secondary grounding. Ambiguous references like "this", "it", or "this paragraph" refer to the selection.';
+
+export function formatSelectionExcerpt(
+  selection?: string | null,
+  maxChars: number = SELECTION_EXCERPT_MAX_CHARS,
+): { text: string; truncated: boolean } {
+  const normalized = normalizeWhitespace(selection);
+  if (!normalized) return { text: "", truncated: false };
+  if (normalized.length <= maxChars) return { text: normalized, truncated: false };
+  const target = Math.max(1, maxChars - SELECTION_TRUNCATION_MARKER.length);
+  const candidate = normalized.slice(0, target);
+  // Prefer a word boundary so we don't cut mid-word when there is one nearby.
+  const lastSpace = candidate.lastIndexOf(" ");
+  const cut = lastSpace > target * 0.6 ? candidate.slice(0, lastSpace) : candidate;
+  return { text: `${cut.trimEnd()}${SELECTION_TRUNCATION_MARKER}`, truncated: true };
+}
+
 function normalizeWhitespace(value?: string | null): string {
   if (value == null) return "";
   const str = typeof value === "string" ? value : String(value);
@@ -71,11 +91,13 @@ function buildPdfContextContent(params: {
 
   lines.push(`Context source: ${params.source}`);
 
-  const selection = normalizeWhitespace(params.selection);
-  if (selection) {
+  const { text: selectionExcerpt } = formatSelectionExcerpt(params.selection);
+  if (selectionExcerpt) {
+    lines.push("");
+    lines.push(SELECTION_PRECEDENCE_INSTRUCTION);
     lines.push("");
     lines.push("Selected text:");
-    lines.push(selection);
+    lines.push(selectionExcerpt);
   }
 
   lines.push("");
@@ -156,13 +178,36 @@ export async function resolvePdfAssistantContext(
   };
 }
 
-export function resolveGenericAssistantContext(content?: string, source: AssistantContextSource = "document"): ResolvedAssistantContext {
+export function resolveGenericAssistantContext(
+  content?: string,
+  source: AssistantContextSource = "document",
+  selection?: string,
+): ResolvedAssistantContext {
   const normalized = normalizeWhitespace(content);
-  if (!normalized) {
+  const { text: selectionExcerpt } = formatSelectionExcerpt(selection);
+  if (!normalized && !selectionExcerpt) {
     return {
       status: "unavailable",
       source: "none",
       message: getAssistantContextErrorMessage("unavailable"),
+    };
+  }
+
+  if (selectionExcerpt) {
+    const lines: string[] = [];
+    lines.push(SELECTION_PRECEDENCE_INSTRUCTION);
+    lines.push("");
+    lines.push("Selected text:");
+    lines.push(selectionExcerpt);
+    if (normalized) {
+      lines.push("");
+      lines.push("Document context:");
+      lines.push(normalized);
+    }
+    return {
+      status: "ready",
+      source: normalized ? source : "selection",
+      content: lines.join("\n"),
     };
   }
 
@@ -178,7 +223,8 @@ export function resolveTwitterThreadAssistantContext(
   selection?: string
 ): ResolvedAssistantContext {
   const xThread = document?.metadata?.xThread;
-  const selectionNormalized = normalizeWhitespace(selection);
+  const { text: selectionExcerpt } = formatSelectionExcerpt(selection);
+  const selectionNormalized = selectionExcerpt;
 
   let structuredText = "";
   if (xThread) {
@@ -215,6 +261,8 @@ export function resolveTwitterThreadAssistantContext(
   lines.push(`Document: ${document?.title || "X Thread"}`);
   lines.push(`Source: ${document?.filePath || "X / Twitter"}`);
   if (selectionNormalized) {
+    lines.push("");
+    lines.push(SELECTION_PRECEDENCE_INSTRUCTION);
     lines.push("");
     lines.push("Selected text:");
     lines.push(selectionNormalized);

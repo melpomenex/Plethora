@@ -272,7 +272,7 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
       if (!thread) return;
       setSheetLoading(true);
       setSheetOutput(null);
-      const resolved = resolveTwitterThreadAssistantContext(doc);
+      const resolved = resolveTwitterThreadAssistantContext(doc, selection?.text);
       const context = resolved.status === "ready" ? resolved.content : thread.structuredText;
       try {
         let text = "";
@@ -302,7 +302,7 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
         setSheetLoading(false);
       }
     },
-    [thread, document, askInput]
+    [thread, document, askInput, selection?.text]
   );
 
   const openSheet = useCallback((action: "summary" | "insights" | "ask") => {

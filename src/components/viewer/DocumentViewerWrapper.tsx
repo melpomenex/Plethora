@@ -434,7 +434,11 @@ export function DocumentViewer({
     const pageNumber = scrollStateRef.current.pageNumber;
 
     if (videoContextRef.current?.videoId) {
-      return resolveGenericAssistantContext(assistantContentRef.current, "video-transcript");
+      return resolveGenericAssistantContext(
+        assistantContentRef.current,
+        "video-transcript",
+        activeSelection,
+      );
     }
 
     if (activeDoc?.metadata?.xThread) {
@@ -493,7 +497,11 @@ export function DocumentViewer({
       }
     }
 
-    return resolveGenericAssistantContext(assistantContentRef.current, "document");
+    return resolveGenericAssistantContext(
+      assistantContentRef.current,
+      "document",
+      activeSelection,
+    );
   }, [aiModel, contextWindowTokens, settings.documents.ocr.autoExtractOnLoad, settings.documents.ocr.autoOCR]);
 
   const assistantContext = useMemo<AssistantContext>(() => {

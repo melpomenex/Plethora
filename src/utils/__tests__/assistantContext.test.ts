@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Document } from "../../types/document";
-import { resolveGenericAssistantContext, resolvePdfAssistantContext } from "../assistantContext";
+import {
+  formatSelectionExcerpt,
+  resolveGenericAssistantContext,
+  resolvePdfAssistantContext,
+  resolveTwitterThreadAssistantContext,
+  SELECTION_TRUNCATION_MARKER,
+} from "../assistantContext";
 
 const baseDocument = (overrides: Partial<Document> = {}): Document => ({
   id: "doc-1",
@@ -83,5 +89,90 @@ describe("resolveGenericAssistantContext", () => {
   it("marks empty generic context as unavailable", () => {
     const result = resolveGenericAssistantContext("");
     expect(result.status).toBe("unavailable");
+  });
+
+  it("places selection first with precedence instruction", () => {
+    const result = resolveGenericAssistantContext("document body text", "document", "selected paragraph");
+    expect(result.status).toBe("ready");
+    expect(result.content).toContain("Selected text:");
+    expect(result.content).toContain("selected paragraph");
+    expect(result.content).toContain("about the Selected text first");
+    const selectionIdx = (result.content ?? "").indexOf("Selected text:");
+    const docIdx = (result.content ?? "").indexOf("Document context:");
+    expect(selectionIdx).toBeGreaterThanOrEqual(0);
+    expect(docIdx).toBeGreaterThan(selectionIdx);
+  });
+
+  it("resolves selection-only generic context as selection source", () => {
+    const result = resolveGenericAssistantContext("", "document", "only selection");
+    expect(result.status).toBe("ready");
+    expect(result.source).toBe("selection");
+    expect(result.content).toContain("only selection");
+  });
+
+  it("keeps empty-selection fallback unchanged", () => {
+    const result = resolveGenericAssistantContext("document body text", "document", "   ");
+    expect(result.status).toBe("ready");
+    expect(result.content).toBe("document body text");
+  });
+});
+
+describe("selection precedence", () => {
+  it("emits normalized selection before document context in PDF resolver", async () => {
+    const result = await resolvePdfAssistantContext({
+      document: baseDocument({ title: "Photosynthesis" }),
+      liveWindowText: longText("window"),
+      selection: "  selected   paragraph  ",
+      pageNumber: 3,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.content).toContain("Photosynthesis");
+    expect(result.content).toContain("Selected text:");
+    expect(result.content).toContain("selected paragraph");
+    expect(result.content).toContain("about the Selected text first");
+    const selectionIdx = (result.content ?? "").indexOf("Selected text:");
+    const docIdx = (result.content ?? "").indexOf("Document context:");
+    expect(selectionIdx).toBeGreaterThanOrEqual(0);
+    expect(docIdx).toBeGreaterThan(selectionIdx);
+  });
+
+  it("truncates over-long selection with marker", async () => {
+    const huge = `word `.repeat(3000).trim();
+    const formatted = formatSelectionExcerpt(huge);
+    expect(formatted.truncated).toBe(true);
+    expect(formatted.text).toContain(SELECTION_TRUNCATION_MARKER);
+
+    const result = await resolvePdfAssistantContext({
+      document: baseDocument(),
+      liveWindowText: longText("window"),
+      selection: huge,
+    });
+    expect(result.content).toContain(SELECTION_TRUNCATION_MARKER);
+  });
+
+  it("resolves selection-only PDF context when body is missing", async () => {
+    const result = await resolvePdfAssistantContext({
+      document: baseDocument(),
+      liveWindowText: "",
+      storedDocumentText: "",
+      selection: "only selection here",
+    });
+    expect(result.status).toBe("ready");
+    expect(result.source).toBe("selection");
+    expect(result.content).toContain("only selection here");
+  });
+
+  it("includes truncated selection first in thread resolver", () => {
+    const doc = baseDocument({ title: "Thread doc", content: "thread body here" });
+    const result = resolveTwitterThreadAssistantContext(doc, "selected post text");
+    expect(result.status).toBe("ready");
+    expect(result.content).toContain("Selected text:");
+    expect(result.content).toContain("selected post text");
+    expect(result.content).toContain("about the Selected text first");
+    const selectionIdx = (result.content ?? "").indexOf("Selected text:");
+    const threadIdx = (result.content ?? "").indexOf("Thread Content:");
+    expect(selectionIdx).toBeGreaterThanOrEqual(0);
+    expect(threadIdx).toBeGreaterThan(selectionIdx);
   });
 });

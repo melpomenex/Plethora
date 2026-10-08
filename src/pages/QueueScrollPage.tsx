@@ -2295,7 +2295,11 @@ export function QueueScrollPage() {
       if (assistantItem.type === "document" && assistantItem.documentId) {
         const doc = documentsRef.current.find((d) => d.id === assistantItem.documentId);
         if (doc?.fileType === "youtube") {
-          return resolveGenericAssistantContext(assistantContextRef.current?.content, "video-transcript");
+          return resolveGenericAssistantContext(
+            assistantContextRef.current?.content,
+            "video-transcript",
+            activeSelection,
+          );
         }
 
         if (doc?.fileType === "pdf") {
@@ -2336,7 +2340,11 @@ export function QueueScrollPage() {
         }
       }
 
-      return resolveGenericAssistantContext(assistantContextRef.current?.content, "document");
+      return resolveGenericAssistantContext(
+        assistantContextRef.current?.content,
+        "document",
+        activeSelection,
+      );
     },
     [aiModel, contextWindowTokens, settings.documents.ocr.autoExtractOnLoad, settings.documents.ocr.autoOCR, renderedItem?.id, currentItem?.id]
   );
