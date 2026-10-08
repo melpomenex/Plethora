@@ -38,7 +38,7 @@ The system SHALL check the local service's `GET /health` before Chatterbox audit
 - **THEN** the system SHALL display the recovery command (`systemctl --user start chatterbox-tts`) and SHALL NOT start a hung generation job
 
 ### Requirement: Chunked Serialized Generation
-The system SHALL split Chatterbox section text into requests of at most ~1000 characters and issue them strictly one at a time (queue depth 1, no concurrent syntheses) to bound inference latency and GPU memory on 8 GB cards.
+The system SHALL split Chatterbox section text into requests of at most ~500 characters and issue them strictly one at a time (queue depth 1, no concurrent syntheses) to bound inference latency and GPU memory on 8 GB cards. (500, not 1000: the server's s3gen attention kernels segfaulted on a ~976-char request, killing the whole service; the server enforces the same cap itself as defense in depth.)
 
 #### Scenario: Long chapter generation
 - **WHEN** a chapter exceeds the per-request character cap

@@ -8,13 +8,33 @@
  * cards) that requests must stay small and strictly serialized.
  */
 
+import type { Platform } from "../lib/tauri";
+import { getPlatform } from "../lib/tauri";
+
 export const CHATTERBOX_PROVIDER_ID = "openai-compatible";
 export const CHATTERBOX_MODEL_ID = "chatterbox-turbo";
 export const CHATTERBOX_DEFAULT_VOICE = "default";
-/** Per-request character cap: bounds Turbo inference latency and VRAM. */
-export const CHATTERBOX_MAX_CHARS_PER_REQUEST = 1000;
+/** Per-request character cap: bounds Turbo inference latency and VRAM.
+ * 500, not 1000: the s3gen attention kernels segfaulted on a ~976-char
+ * request (quadratic memory in sequence length), killing the whole service.
+ * The server enforces the same cap itself, so this stays in sync with it. */
+export const CHATTERBOX_MAX_CHARS_PER_REQUEST = 500;
 
-export const CHATTERBOX_RECOVERY_COMMAND = "systemctl --user start chatterbox-tts";
+export interface ChatterboxHealthOptions {
+  /** Override OS detection (tests, unusual runtimes). Defaults to getPlatform(). */
+  platform?: Platform;
+}
+
+function recoveryHint(baseUrl: string, platform: Platform): string {
+  const generic =
+    `Check Settings → Text To Speech → Base URL and make sure the server behind ${baseUrl} is running, then retry.`;
+  // The app cannot know how a user self-hosts their server; on Linux the
+  // common shape is a systemd user service, so offer it as an example only.
+  if (platform === "linux") {
+    return `${generic} If you run it as a systemd user service, start it first (e.g. systemctl --user start chatterbox-tts).`;
+  }
+  return generic;
+}
 
 export interface ChatterboxHealth {
   ok: boolean;
@@ -29,27 +49,32 @@ export interface ChatterboxHealth {
 export async function checkChatterboxHealth(
   baseUrl: string,
   fetchImpl: typeof fetch = fetch,
-  timeoutMs = 8000
+  timeoutMs = 8000,
+  options: ChatterboxHealthOptions = {}
 ): Promise<ChatterboxHealth> {
   const norm = baseUrl.trim().replace(/\/+$/, "");
   if (!norm) {
     return { ok: false, error: "No Chatterbox base URL configured." };
   }
+  // The health endpoint lives at the server root, while OpenAI-style base
+  // URLs carry a /v1 suffix (http://host:8000/v1 + /health would 404).
+  const healthUrl = `${norm.replace(/\/v1\/?$/, "")}/health`;
+  const platform = options.platform ?? getPlatform();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(`${norm}/health`, { signal: controller.signal });
+    const res = await fetchImpl(healthUrl, { signal: controller.signal });
     if (!res.ok) {
       return {
         ok: false,
-        error: `Chatterbox service answered ${res.status}. Restart it with: ${CHATTERBOX_RECOVERY_COMMAND}`,
+        error: `Chatterbox service at ${norm} answered ${res.status}. ${recoveryHint(norm, platform)}`,
       };
     }
     return { ok: true };
   } catch {
     return {
       ok: false,
-      error: `Cannot reach the Chatterbox service at ${norm}. Start it with: ${CHATTERBOX_RECOVERY_COMMAND}`,
+      error: `Cannot reach the Chatterbox service at ${norm}. ${recoveryHint(norm, platform)}`,
     };
   } finally {
     clearTimeout(timer);

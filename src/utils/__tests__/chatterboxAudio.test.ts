@@ -49,24 +49,49 @@ describe("checkChatterboxHealth", () => {
     const res = await checkChatterboxHealth("http://localhost:8000/v1");
     expect(res).toEqual({ ok: true });
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:8000/v1/health",
+      "http://localhost:8000/health",
       expect.objectContaining({ signal: expect.anything() })
     );
   });
 
-  it("reports the recovery command on HTTP failure", async () => {
+  it("reports the recovery guidance on HTTP failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
-    const res = await checkChatterboxHealth("http://localhost:8000/v1");
+    const res = await checkChatterboxHealth("http://localhost:8000/v1", undefined, undefined, {
+      platform: "unknown",
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("answered 503");
+    expect(res.error).toContain("Base URL");
+    expect(res.error).not.toContain("systemctl");
+  });
+
+  it("reports the recovery guidance when unreachable (never throws)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const res = await checkChatterboxHealth("http://localhost:8000/v1", undefined, undefined, {
+      platform: "unknown",
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("Cannot reach");
+    expect(res.error).not.toContain("systemctl");
+  });
+
+  it("mentions systemd only as a Linux example", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const res = await checkChatterboxHealth("http://localhost:8000/v1", undefined, undefined, {
+      platform: "linux",
+    });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("systemctl --user start chatterbox-tts");
   });
 
-  it("reports the recovery command when unreachable (never throws)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-    const res = await checkChatterboxHealth("http://localhost:8000/v1");
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain("Cannot reach");
-    expect(res.error).toContain("systemctl --user start chatterbox-tts");
+  it("strips a /v1 suffix for the health probe", async () => {
+    const spy = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", spy);
+    await checkChatterboxHealth("http://localhost:8000/v1");
+    expect(spy).toHaveBeenCalledWith(
+      "http://localhost:8000/health",
+      expect.objectContaining({ signal: expect.anything() })
+    );
   });
 
   it("rejects an empty base URL without fetching", async () => {
@@ -103,7 +128,7 @@ describe("splitTextForChatterbox", () => {
   });
 
   it("defaults to the module chunk cap", () => {
-    expect(CHATTERBOX_MAX_CHARS_PER_REQUEST).toBe(1000);
+    expect(CHATTERBOX_MAX_CHARS_PER_REQUEST).toBe(500);
     const text = `${"a".repeat(999)}. ${"b".repeat(999)}.`;
     const chunks = splitTextForChatterbox(text);
     expect(chunks.every((c) => c.length <= 1000)).toBe(true);

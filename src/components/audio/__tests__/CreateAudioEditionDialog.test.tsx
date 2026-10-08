@@ -627,7 +627,7 @@ describe("CreateAudioEditionDialog", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/systemctl --user start chatterbox-tts/i)
+          screen.getByText(/Cannot reach the Chatterbox service/i)
         ).toBeInTheDocument();
       });
       expect(audioEditionsApi.auditionVoicePreview).not.toHaveBeenCalled();
@@ -638,7 +638,7 @@ describe("CreateAudioEditionDialog", () => {
         expect(audioEditionsApi.createAudioEdition).not.toHaveBeenCalled();
       });
       expect(
-        screen.getAllByText(/systemctl --user start chatterbox-tts/i).length
+        screen.getAllByText(/Cannot reach the Chatterbox service/i).length
       ).toBeGreaterThan(0);
     } finally {
       vi.unstubAllGlobals();
