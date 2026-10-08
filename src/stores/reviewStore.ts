@@ -122,6 +122,9 @@ interface ReviewState {
   reviewsCompleted: number;
   correctCount: number;
   sessionStartTime: number;
+  /** Whole-session wall clock: set once when the queue loads, never reset per card.
+   * `sessionStartTime` remains the per-card recall timer for grading telemetry. */
+  sessionStartedAt: number;
   averageTimePerCard: number; // in seconds
 
   // Streak information
@@ -201,6 +204,7 @@ type ReviewUndoSnapshot = {
   correctCount: number;
   averageTimePerCard: number;
   sessionStartTime: number;
+  sessionStartedAt: number;
   reviewedIdsBefore: string[];
   learningItemState?: {
     itemId: string;
@@ -253,6 +257,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   reviewsCompleted: 0,
   correctCount: 0,
   sessionStartTime: 0,
+  sessionStartedAt: 0,
   averageTimePerCard: 0,
   streak: null,
   streakLoading: false,
@@ -309,6 +314,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         currentIndex: 0,
         currentCard: firstItem,
         sessionStartTime: Date.now(),
+        sessionStartedAt: Date.now(),
         isLoading: false,
         reviewsCompleted: 0,
         correctCount: 0,
@@ -437,6 +443,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       correctCount: state.correctCount,
       averageTimePerCard: state.averageTimePerCard,
       sessionStartTime: state.sessionStartTime,
+      sessionStartedAt: state.sessionStartedAt,
       reviewedIdsBefore,
       learningItemState: {
         itemId: learningCard.id,
@@ -838,6 +845,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       reviewsCompleted: 0,
       correctCount: 0,
       sessionStartTime: 0,
+      sessionStartedAt: 0,
       averageTimePerCard: 0,
       streak: null,
       streakLoading: false,
@@ -867,6 +875,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       reviewPhase: "question",
       pendingArenaReview: null,
       sessionStartTime: Date.now(),
+      sessionStartedAt: get().sessionStartedAt || Date.now(),
     });
     setTimeout(() => {
       get().loadPreviewIntervals();
@@ -900,6 +909,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         currentIndex: 0,
         currentCard: queue[0] ?? null,
         sessionStartTime: Date.now(),
+        sessionStartedAt: Date.now(),
         isLoading: false,
         reviewsCompleted: 0,
         correctCount: 0,
@@ -963,6 +973,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         sessionId,
         averageTimePerCard: 0,
         sessionStartTime: Date.now(),
+        sessionStartedAt: Date.now(),
         isSubmitting: false,
         previewIntervals: null,
         reviewPhase: "question",
@@ -1025,6 +1036,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         correctCount: snapshot.correctCount,
         averageTimePerCard: snapshot.averageTimePerCard,
         sessionStartTime: snapshot.sessionStartTime,
+        sessionStartedAt: snapshot.sessionStartedAt,
         canUndoLastReview: false,
         lastUndoError: null,
         lastReviewOutcome: null,

@@ -32,6 +32,7 @@ export function Review() {
     reviewsCompleted,
     correctCount,
     sessionStartTime,
+    sessionStartedAt,
     currentIndex,
     streak,
     reviewMode,
@@ -56,6 +57,7 @@ export function Review() {
     reviewsCompleted: state.reviewsCompleted,
     correctCount: state.correctCount,
     sessionStartTime: state.sessionStartTime,
+    sessionStartedAt: state.sessionStartedAt,
     currentIndex: state.currentIndex,
     streak: state.streak,
     reviewMode: state.reviewMode,
@@ -389,6 +391,7 @@ export function Review() {
           reviewsCompleted={reviewsCompleted}
           correctCount={correctCount}
           sessionStartTime={sessionStartTime}
+          sessionStartedAt={sessionStartedAt}
           streak={streak || undefined}
         />
       </div>

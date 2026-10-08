@@ -10,6 +10,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../lib/i18n";
 import { emitFeedback } from "../../lib/feedback";
+import { formatArenaInterval } from "./arenaFormatters";
+import { formatSessionDuration } from "./sessionDuration";
 import { getQueueStats } from "../../api/queue";
 import { storeDueCountForSW } from "../../utils/pushSubscription";
 import { isPWA } from "../../lib/tauri";
@@ -20,6 +22,8 @@ interface ReviewCompleteProps {
   reviewsCompleted: number;
   correctCount: number;
   sessionStartTime: number;
+  /** Whole-session clock from the store; falls back to sessionStartTime for legacy callers. */
+  sessionStartedAt?: number;
   streak?: {
     current_streak: number;
     longest_streak: number;
@@ -31,17 +35,24 @@ export function ReviewComplete({
   reviewsCompleted,
   correctCount,
   sessionStartTime,
+  sessionStartedAt,
   streak,
   lastReviewOutcome,
 }: ReviewCompleteProps) {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const didPlaySoundsRef = useRef(false);
   const accuracy = reviewsCompleted > 0
     ? Math.round((correctCount / reviewsCompleted) * 100)
     : 0;
-  const duration = Math.round((Date.now() - sessionStartTime) / 1000 / 60); // in minutes
-  const durationMs = Math.max(0, Date.now() - sessionStartTime);
+  const sessionClock = sessionStartedAt && sessionStartedAt > 0
+    ? sessionStartedAt
+    : sessionStartTime;
+  const durationMs = Math.max(0, Date.now() - sessionClock);
+  const durationLabel = formatSessionDuration(durationMs);
+  const averageSeconds = reviewsCompleted > 0
+    ? Math.round(durationMs / 1000 / reviewsCompleted)
+    : 0;
   const hitMilestone = Boolean(
     streak &&
     streak.current_streak > 1 &&
@@ -113,7 +124,7 @@ export function ReviewComplete({
             </span>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Next review in {lastReviewOutcome.intervalDays} {lastReviewOutcome.intervalDays === 1 ? "day" : "days"}
+            Next review in {formatArenaInterval(lastReviewOutcome.intervalDays, locale)}
           </p>
         </div>
       )}
@@ -148,7 +159,7 @@ export function ReviewComplete({
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-500">
-              {duration}m
+              {durationLabel}
             </div>
             <div className="text-sm text-muted-foreground">{t("reviewComplete.duration")}</div>
           </div>
@@ -175,7 +186,7 @@ export function ReviewComplete({
           <Clock className="w-4 h-4" />
           <span>
             {reviewsCompleted > 0
-              ? t("reviewComplete.secondsPerCard", { seconds: Math.round((duration * 60) / reviewsCompleted) })
+              ? t("reviewComplete.secondsPerCard", { seconds: averageSeconds })
               : t("reviewComplete.notAvailable")
             }
           </span>

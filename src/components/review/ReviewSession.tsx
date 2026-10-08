@@ -93,6 +93,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     reviewsCompleted,
     correctCount,
     sessionStartTime,
+    sessionStartedAt,
     averageTimePerCard,
     currentIndex,
     streak,
@@ -120,6 +121,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       reviewsCompleted: state.reviewsCompleted,
       correctCount: state.correctCount,
       sessionStartTime: state.sessionStartTime,
+      sessionStartedAt: state.sessionStartedAt,
       averageTimePerCard: state.averageTimePerCard,
       currentIndex: state.currentIndex,
       streak: state.streak,
@@ -798,6 +800,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           reviewsCompleted={reviewsCompleted}
           correctCount={correctCount}
           sessionStartTime={sessionStartTime}
+          sessionStartedAt={sessionStartedAt}
           streak={streak || undefined}
           lastReviewOutcome={lastReviewOutcome}
         />

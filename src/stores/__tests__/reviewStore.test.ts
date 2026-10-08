@@ -571,4 +571,61 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(useReviewStore.getState().reviewPhase).toBe("arena-ready");
     expect(useReviewStore.getState().reviewsCompleted).toBe(0);
   });
+
+  it("sets the whole-session clock once on loadQueue", async () => {
+    vi.mocked(getDueItems).mockResolvedValue([
+      makeLearningCard({ id: "card-1", extract_id: "extract-a" }),
+      makeLearningCard({ id: "card-2", extract_id: "extract-b" }),
+    ]);
+
+    await useReviewStore.getState().loadQueue();
+
+    const state = useReviewStore.getState();
+    expect(state.sessionStartedAt).toBeGreaterThan(0);
+    expect(state.sessionStartedAt).toBe(state.sessionStartTime);
+  });
+
+  it("preserves sessionStartedAt across submitRating while the per-card clock advances", async () => {
+    submitReviewMock.mockResolvedValue({});
+    const card = makeLearningCard();
+    const perCardStart = Date.now() - 60_000;
+    const sessionStart = Date.now() - 300_000;
+    useReviewStore.setState({
+      queue: [card],
+      currentCard: card,
+      currentIndex: 0,
+      reviewMode: "normal",
+      sessionStartTime: perCardStart,
+      sessionStartedAt: sessionStart,
+      sessionId: "s1",
+    });
+
+    await useReviewStore.getState().submitRating(3);
+
+    const state = useReviewStore.getState();
+    expect(state.sessionStartedAt).toBe(sessionStart);
+    expect(state.sessionStartTime).toBeGreaterThanOrEqual(perCardStart);
+  });
+
+  it("sets the whole-session clock on startReviewWithQueue", async () => {
+    const first = makeLearningCard({ id: "card-1" });
+    const second = makeLearningCard({ id: "card-2" });
+    vi.mocked(getDueItems).mockResolvedValue([first, second]);
+
+    await useReviewStore.getState().startReviewWithQueue(["card-1", "card-2"]);
+
+    const state = useReviewStore.getState();
+    expect(state.sessionStartedAt).toBeGreaterThan(0);
+    expect(state.sessionStartedAt).toBe(state.sessionStartTime);
+  });
+
+  it("clears the whole-session clock on resetSession", async () => {
+    vi.mocked(getDueItems).mockResolvedValue([makeLearningCard({ id: "card-1" })]);
+    await useReviewStore.getState().loadQueue();
+    expect(useReviewStore.getState().sessionStartedAt).toBeGreaterThan(0);
+
+    useReviewStore.getState().resetSession();
+
+    expect(useReviewStore.getState().sessionStartedAt).toBe(0);
+  });
 });
