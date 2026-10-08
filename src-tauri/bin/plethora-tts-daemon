@@ -37,5 +37,11 @@ if ! command -v python3 >/dev/null 2>&1; then
   done
 fi
 
+# Defense-in-depth alongside the Rust-side sanitize_python_env(): the AppImage
+# AppRun exports PYTHONHOME/PYTHONPATH for a Python it does not bundle, which
+# makes a system python3 die with "No module named 'encodings'". Drop them so
+# the daemon always runs against the real standard library.
+unset PYTHONHOME PYTHONPATH PYTHONUSERBASE PYTHONNOUSERSITE PYTHONEXECUTABLE __PYVENV_LAUNCHER__ VIRTUAL_ENV
+
 exec "$PYTHON" -u "$DAEMON_SCRIPT" "$@"
 

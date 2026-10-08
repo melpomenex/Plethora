@@ -302,6 +302,12 @@ impl ChatterboxSupervisor {
            .stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
+        // The AppImage launcher exports `PYTHONHOME`/`PYTHONPATH` for a Python
+        // it does not bundle. Inheriting them makes the daemon's `python3`
+        // abort before `main` with "No module named 'encodings'".
+        // Removed here so the removal wins over the inherited environment.
+        crate::utils::python_env::sanitize_python_env(&mut cmd);
+
         let mut child = cmd.spawn().with_context(|| format!("Failed to spawn daemon at {:?}", daemon_path))?;
         let stdout = child.stdout.take().context("Failed to capture daemon stdout")?;
         let stderr = child.stderr.take().context("Failed to capture daemon stderr")?;
