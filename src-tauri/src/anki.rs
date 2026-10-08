@@ -136,6 +136,94 @@ fn cloze_text_to_anki(cloze_text: &str, cloze_ranges: &[(usize, usize)]) -> Opti
     Some(result)
 }
 
+/// Normalize any cloze-marker convention found in stored card text to Anki's
+/// `{{cN::text}}` syntax, renumbering sequentially (same rule as the
+/// frontend's `normalizeClozeSyntax`).
+///
+/// Accepts `{{c1::text}}`, `{{text}}`, `[[c1::text]]`, `[[text]]` (the
+/// import-side stores the latter), and preserves `::hint` suffixes. Returns
+/// None when the text carries no cloze markers, so the caller can fall back
+/// to the Basic model.
+fn normalize_cloze_markers_to_anki(text: &str) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    let mut result = String::with_capacity(text.len() + 16);
+    let mut cloze_num = 0usize;
+    let mut found = false;
+    let mut last_copy = 0usize;
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        let (opener, closer) = if bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            ("{{", "}}")
+        } else if bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            ("[[", "]]")
+        } else {
+            i += 1;
+            continue;
+        };
+        let inner_start = i + opener.len();
+        let close_rel = text[inner_start..].find(closer);
+        let Some(close_rel) = close_rel else {
+            i += 1;
+            continue;
+        };
+        let inner = &text[inner_start..inner_start + close_rel];
+        // Split "cN::content::hint" / "content::hint" / "content".
+        let mut parts = inner.splitn(3, "::");
+        let first = parts.next().unwrap_or("");
+        let numbered = first.len() > 1
+            && first.starts_with('c')
+            && first[1..].chars().all(|c| c.is_ascii_digit());
+        let content = if numbered {
+            parts.next().unwrap_or("")
+        } else {
+            first
+        };
+        let hint = parts.next();
+        if content.is_empty() {
+            i += 1;
+            continue;
+        }
+        result.push_str(&text[last_copy..i]);
+        cloze_num += 1;
+        found = true;
+        result.push_str(&format!("{{{{c{}::{}", cloze_num, content));
+        if let Some(hint) = hint {
+            if !hint.is_empty() {
+                result.push_str(&format!("::{}", hint));
+            }
+        }
+        result.push_str("}}");
+        i = inner_start + close_rel + closer.len();
+        last_copy = i;
+    }
+    if !found {
+        return None;
+    }
+    result.push_str(&text[last_copy..]);
+    Some(result)
+}
+
+/// Resolve the Anki front field for a cloze learning item: prefer the
+/// pre-computed range conversion, then marker normalization of `cloze_text`,
+/// then marker normalization of the question (imported cards keep markers in
+/// both). None means the item carries no usable cloze information and should
+/// degrade to the Basic model.
+fn resolve_anki_cloze_front(item: &LearningItem) -> Option<String> {
+    item.cloze_text
+        .as_deref()
+        .and_then(|ct| {
+            item.cloze_ranges
+                .as_deref()
+                .filter(|r| !r.is_empty())
+                .and_then(|ranges| cloze_text_to_anki(ct, ranges))
+                .or_else(|| normalize_cloze_markers_to_anki(ct))
+        })
+        .or_else(|| normalize_cloze_markers_to_anki(&item.question))
+}
+
 /// Parse an .apkg file and extract deck data
 pub async fn parse_apkg(apkg_path: &str) -> Result<Vec<AnkiDeck>> {
     let file = File::open(apkg_path)
@@ -1299,29 +1387,24 @@ pub async fn export_deck_as_apkg(
             // Determine note model and fields based on card type
             let (model_id, flds) = match item.item_type {
                 ItemType::Cloze => {
-                    if let Some(ref cloze_text) = item.cloze_text {
-                        if let Some(ref ranges) = item.cloze_ranges {
-                            if let Some(anki_cloze) = cloze_text_to_anki(cloze_text, ranges) {
-                                let back = item
-                                    .answer
-                                    .as_deref()
-                                    .unwrap_or("")
-                                    .replace('\x1f', " ")
-                                    .replace('\\', "\\\\");
-                                (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
-                            } else {
-                                let front =
-                                    item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                                let back = item
-                                    .answer
-                                    .as_deref()
-                                    .unwrap_or("")
-                                    .replace('\x1f', " ")
-                                    .replace('\\', "\\\\");
-                                (basic_model_id, format!("{}\x1f{}", front, back))
-                            }
-                        } else {
-                            let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
+                    // Priority: pre-computed ranges, then markers stored in
+                    // cloze_text (Anki import / browser sync / MCP), then
+                    // markers in the question. Only a card with no cloze
+                    // information at all degrades to the Basic model.
+                    let cloze_front = resolve_anki_cloze_front(item);
+                    match cloze_front {
+                        Some(anki_cloze) => {
+                            let back = item
+                                .answer
+                                .as_deref()
+                                .unwrap_or("")
+                                .replace('\x1f', " ")
+                                .replace('\\', "\\\\");
+                            (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
+                        }
+                        None => {
+                            let front =
+                                item.question.replace('\x1f', " ").replace('\\', "\\\\");
                             let back = item
                                 .answer
                                 .as_deref()
@@ -1330,15 +1413,6 @@ pub async fn export_deck_as_apkg(
                                 .replace('\\', "\\\\");
                             (basic_model_id, format!("{}\x1f{}", front, back))
                         }
-                    } else {
-                        let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                        let back = item
-                            .answer
-                            .as_deref()
-                            .unwrap_or("")
-                            .replace('\x1f', " ")
-                            .replace('\\', "\\\\");
-                        (basic_model_id, format!("{}\x1f{}", front, back))
                     }
                 }
                 _ => {
@@ -1549,13 +1623,7 @@ pub async fn export_deck_as_csv(
     for item in &deck_items {
         let front = match item.item_type {
             ItemType::Cloze => {
-                if let (Some(ref cloze_text), Some(ref ranges)) =
-                    (&item.cloze_text, &item.cloze_ranges)
-                {
-                    cloze_text_to_anki(cloze_text, ranges).unwrap_or_else(|| item.question.clone())
-                } else {
-                    item.question.clone()
-                }
+                resolve_anki_cloze_front(item).unwrap_or_else(|| item.question.clone())
             }
             _ => item.question.clone(),
         };
@@ -1804,30 +1872,17 @@ pub async fn export_all_decks_as_apkg(
                     .join("");
 
                 let (model_id, flds) = match item.item_type {
-                    ItemType::Cloze => {
-                        if let (Some(ref ct), Some(ref ranges)) =
-                            (&item.cloze_text, &item.cloze_ranges)
-                        {
-                            if let Some(anki_cloze) = cloze_text_to_anki(ct, ranges) {
-                                let back = item
-                                    .answer
-                                    .as_deref()
-                                    .unwrap_or("")
-                                    .replace('\x1f', " ")
-                                    .replace('\\', "\\\\");
-                                (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
-                            } else {
-                                let front =
-                                    item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                                let back = item
-                                    .answer
-                                    .as_deref()
-                                    .unwrap_or("")
-                                    .replace('\x1f', " ")
-                                    .replace('\\', "\\\\");
-                                (basic_model_id, format!("{}\x1f{}", front, back))
-                            }
-                        } else {
+                    ItemType::Cloze => match resolve_anki_cloze_front(item) {
+                        Some(anki_cloze) => {
+                            let back = item
+                                .answer
+                                .as_deref()
+                                .unwrap_or("")
+                                .replace('\x1f', " ")
+                                .replace('\\', "\\\\");
+                            (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
+                        }
+                        None => {
                             let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
                             let back = item
                                 .answer
@@ -1837,7 +1892,7 @@ pub async fn export_all_decks_as_apkg(
                                 .replace('\\', "\\\\");
                             (basic_model_id, format!("{}\x1f{}", front, back))
                         }
-                    }
+                    },
                     _ => {
                         let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
                         let back = item
@@ -2039,5 +2094,99 @@ mod tests {
     fn cloze_unicode_text() {
         let result = cloze_text_to_anki("日本の首都は東京です", &[(6, 8)]);
         assert_eq!(result, Some("日本の首都は{{c1::東京}}です".to_string()));
+    }
+
+    // ---- marker-in-text convention (Anki import / browser sync / MCP) ----
+
+    const USER_EXAMPLE: &str = "Cultural group selection differs from genetic group selection in that memes can persist even when they {{reduce individual fitness}}.";
+
+    #[test]
+    fn marker_bare_braces_get_numbered() {
+        assert_eq!(
+            normalize_cloze_markers_to_anki(USER_EXAMPLE),
+            Some(
+                "Cultural group selection differs from genetic group selection in that memes can persist even when they {{c1::reduce individual fitness}}."
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn marker_anki_syntax_passes_through_renumbered() {
+        assert_eq!(
+            normalize_cloze_markers_to_anki("The {{c1::sun}} rises in the {{c2::east}}."),
+            Some("The {{c1::sun}} rises in the {{c2::east}}.".to_string())
+        );
+    }
+
+    #[test]
+    fn marker_import_bracket_syntax_converted() {
+        // normalize_cloze_text on import rewrites {{c1::x}} to [[c1::x]].
+        assert_eq!(
+            normalize_cloze_markers_to_anki("The [[c1::sun]] rises."),
+            Some("The {{c1::sun}} rises.".to_string())
+        );
+        assert_eq!(
+            normalize_cloze_markers_to_anki("The [[sun]] rises."),
+            Some("The {{c1::sun}} rises.".to_string())
+        );
+    }
+
+    #[test]
+    fn marker_multiple_get_sequential_numbers() {
+        assert_eq!(
+            normalize_cloze_markers_to_anki("{{one}} and {{two}} and {{three}}"),
+            Some("{{c1::one}} and {{c2::two}} and {{c3::three}}".to_string())
+        );
+    }
+
+    #[test]
+    fn marker_hint_suffix_preserved() {
+        assert_eq!(
+            normalize_cloze_markers_to_anki("The {{sun::star}} rises."),
+            Some("The {{c1::sun::star}} rises.".to_string())
+        );
+    }
+
+    #[test]
+    fn marker_plain_text_returns_none() {
+        assert_eq!(normalize_cloze_markers_to_anki("no markers here"), None);
+        assert_eq!(normalize_cloze_markers_to_anki(""), None);
+    }
+
+    #[test]
+    fn marker_unclosed_braces_are_literal() {
+        assert_eq!(normalize_cloze_markers_to_anki("dangling {{ braces"), None);
+    }
+
+    #[test]
+    fn resolve_prefers_ranges_then_markers_then_none() {
+        let mut item = LearningItem::new(ItemType::Cloze, String::new());
+
+        // 1. Ranges win.
+        item.cloze_text = Some("The sun rises".to_string());
+        item.cloze_ranges = Some(vec![(4, 7)]);
+        assert_eq!(
+            resolve_anki_cloze_front(&item),
+            Some("The {{c1::sun}} rises".to_string())
+        );
+
+        // 2. Without ranges, markers in cloze_text keep the Cloze model.
+        item.cloze_text = Some(USER_EXAMPLE.to_string());
+        item.cloze_ranges = None;
+        let resolved = resolve_anki_cloze_front(&item).unwrap();
+        assert!(resolved.contains("{{c1::reduce individual fitness}}"));
+
+        // 3. Markers in the question alone also resolve.
+        item.cloze_text = None;
+        item.question = "The {{c1::sun}} rises.".to_string();
+        assert_eq!(
+            resolve_anki_cloze_front(&item),
+            Some("The {{c1::sun}} rises.".to_string())
+        );
+
+        // 4. Nothing usable -> Basic fallback.
+        item.question = "plain question".to_string();
+        assert_eq!(resolve_anki_cloze_front(&item), None);
     }
 }
