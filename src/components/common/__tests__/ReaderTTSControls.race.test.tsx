@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { ReaderTTSControls, type ReaderTTSHandle } from "../ReaderTTSControls";
 import type { SpeechSectionInput, TTSStartAnchor } from "../../../utils/readerSpeechIndex";
@@ -327,5 +327,49 @@ describe("ReaderTTSControls TOC synchronization", () => {
     expect(resumePlayed).toBe(0);
     const audible = played.find((a) => a.played)!;
     expect(audible.url.startsWith("blob:sigma tau")).toBe(true);
+  });
+
+  it("audio error pauses at the failed chunk and resume replays it instead of restarting", async () => {
+    // Deterministic per-text URLs so chunk identity is observable.
+    generateSpeechMock.mockImplementation(async (_settings: unknown, req: { text: string }) => ({
+      audioUrl: `blob:${req.text.slice(0, 20)}`,
+      durationSec: 5,
+    }));
+
+    const ref = { current: null as ReaderTTSHandle | null };
+    // Two reader chunks (CHUNK_TARGET is 420 chars): chunk 0, then chunk 1.
+    const twoChunkText = `${TEXT} ${TEXT}`;
+    render(
+      <ReaderTTSControls
+        ref={ref as React.RefObject<ReaderTTSHandle>}
+        text={twoChunkText}
+        sections={sectionsFor(twoChunkText)}
+      />,
+    );
+    const tts = ref.current!;
+    void tts.startFrom(anchorAt(0));
+    await waitFor(() => expect(played.length).toBeGreaterThan(0), { timeout: 2000 });
+
+    // Chunk 0 ends -> auto-advance starts chunk 1 (the "2nd segment").
+    await waitFor(() => expect((played[0] as any).onended).not.toBeNull());
+    (played[0] as any).onended?.();
+    await waitFor(() => expect(played.length).toBe(2), { timeout: 2000 });
+    const firstUrl = played[0].url;
+    const secondUrl = played[1].url;
+    expect(secondUrl).not.toBe(firstUrl);
+
+    // Chunk 1's audio dies (e.g. local TTS service segfault mid-article).
+    await waitFor(() => expect((played[1] as any).onerror).not.toBeNull());
+    (played[1] as any).onerror?.();
+    await waitFor(() => expect(tts.playbackState()).toBe("paused"), { timeout: 2000 });
+
+    // Pressing play resumes the failed chunk instead of restarting at 0.
+    const buttons = screen.getAllByRole("button");
+    const play = buttons.find((b) =>
+      /play|pause|resume/i.test(b.getAttribute("aria-label") ?? ""),
+    );
+    (play ?? buttons[0]).click();
+    await waitFor(() => expect(played.length).toBe(3), { timeout: 2000 });
+    expect(played[2].url).toBe(secondUrl);
   });
 });

@@ -1349,8 +1349,18 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       audio.onerror = () => {
         if (!mountedRef.current || playbackIdRef.current !== playId) return;
         console.error("Audio playback error");
+        // Resume-after-error: a dead clip (e.g. the local TTS service died
+        // mid-article) must behave like a pause, not a stop. Flush the
+        // position and stage it as the restart anchor so the next Play
+        // resumes at THIS chunk instead of falling through to the fresh-start
+        // path (which prefers the viewport and restarts at the beginning).
+        // Regeneration is safe: failed chunks are never cached (see
+        // generateChunkAudio), so resume re-synthesizes instead of looping.
+        saveListeningPosition(true);
+        pausedRestartPositionRef.current = { ...canonicalRef.current };
+        audioRef.current = null;
         setIsPlaying(false);
-        setIsPaused(false);
+        setIsPaused(true);
         stopWordTracking();
       };
 
