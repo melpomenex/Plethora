@@ -54,10 +54,6 @@ export function useLongPress(
       timerRef.current = setTimeout(() => {
         if (startPosRef.current && !triggeredRef.current) {
           triggeredRef.current = true;
-          // Use a haptic cue if available (Android Chrome WebView supports it).
-          if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-            try { navigator.vibrate(15); } catch { /* ignore */ }
-          }
           onLongPress({ x: startPosRef.current.x, y: startPosRef.current.y });
         }
       }, threshold);

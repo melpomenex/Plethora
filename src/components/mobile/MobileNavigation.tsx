@@ -35,6 +35,7 @@ import {
 import { toggleFullscreen, isFullscreen, isFullscreenSupported, isPWA } from "../../lib/pwa";
 import { useI18n } from "../../lib/i18n";
 import { useTabsStore } from "../../stores";
+import { HapticsSettingsControl } from "../settings/HapticsSettingsControl";
 import type { TabType } from "../../stores/tabsStore";
 import { usePWAStatus } from "../pwa";
 import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
@@ -686,7 +687,6 @@ export function MobileSettingsPanel({
     autoSync: true,
     offlineMode: true,
     notifications: true,
-    vibration: true,
     fontSize: "medium",
   });
 
@@ -753,11 +753,7 @@ export function MobileSettingsPanel({
             checked={settings.notifications}
             onChange={(checked) => setSettings({ ...settings, notifications: checked })}
           />
-          <ToggleSetting
-            label={t("mobileNav.vibrationFeedback")}
-            checked={settings.vibration}
-            onChange={(checked) => setSettings({ ...settings, vibration: checked })}
-          />
+          <HapticsSettingsControl compact />
         </div>
 
         {/* Cache Management */}

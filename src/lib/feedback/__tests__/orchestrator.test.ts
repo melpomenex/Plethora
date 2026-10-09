@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const settingsState = {
     settings: {
       general: { language: "en" },
+      haptics: { enabled: false, intensity: "subtle" },
       notifications: {
         enabled: true,
         studyReminders: true,
@@ -29,8 +30,9 @@ const mocks = vi.hoisted(() => {
     sendNotification: vi.fn().mockResolvedValue(true),
     playFile: vi.fn(),
     playNotificationDefaultTone: vi.fn(),
-    vibrate: vi.fn(),
+    performAdmittedHaptic: vi.fn(),
     queryAsyncCapabilities: vi.fn(),
+    hapticsSnapshot: { configured: false, enabled: false, capabilities: { hardware: "unavailable" } },
   };
 });
 
@@ -64,13 +66,17 @@ vi.mock("../../../utils/soundService", () => ({
   NOTIFICATION_SOUND_FILES: { glass: "/glass.mp3" },
   playFile: mocks.playFile,
   playNotificationDefaultTone: mocks.playNotificationDefaultTone,
-  vibrate: mocks.vibrate,
+}));
+vi.mock("../haptics/service", () => ({
+  getHapticsSnapshot: () => mocks.hapticsSnapshot,
+  performAdmittedHaptic: mocks.performAdmittedHaptic,
 }));
 vi.mock("../capabilities", () => ({
   queryAsyncCapabilities: mocks.queryAsyncCapabilities,
 }));
 
 import {
+  emitInteractionFeedback,
   emitFeedback,
   resetFeedbackCooldowns,
   setActiveReviewSession,
@@ -91,8 +97,10 @@ describe("emitFeedback", () => {
     mocks.sendNotification.mockClear();
     mocks.playFile.mockClear();
     mocks.playNotificationDefaultTone.mockClear();
-    mocks.vibrate.mockClear();
+    mocks.performAdmittedHaptic.mockClear();
+    mocks.queryAsyncCapabilities.mockClear();
     mocks.queryAsyncCapabilities.mockResolvedValue(supportedCapabilities);
+    Object.assign(mocks.hapticsSnapshot, { configured: false, enabled: false, capabilities: { hardware: "unavailable" } });
     Object.assign(mocks.settingsState.settings.notifications, {
       enabled: true,
       studyReminders: true,
@@ -214,5 +222,51 @@ describe("emitFeedback", () => {
       expect.stringContaining("update.available → toast | suppressed-by=none"),
     );
     debug.mockRestore();
+  });
+
+  it("admits interaction haptics synchronously without notification capability queries", () => {
+    Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, capabilities: { hardware: "available" } });
+    mocks.settingsState.settings.haptics.enabled = true;
+
+    const result = emitInteractionFeedback("review.answer-revealed", {}, {
+      interactionId: "review:session-1:card-2:visit-1:reveal",
+      sessionId: "session-1",
+      origin: "user",
+    });
+
+    expect(result.channels).toEqual(["haptic"]);
+    expect(mocks.performAdmittedHaptic).toHaveBeenCalledExactlyOnceWith("activation", "review:session-1:card-2:visit-1:reveal");
+    expect(mocks.queryAsyncCapabilities).not.toHaveBeenCalled();
+  });
+
+  it("silences haptics immediately when its independent preference is disabled", () => {
+    Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: false, capabilities: { hardware: "available" } });
+    mocks.settingsState.settings.haptics.enabled = false;
+
+    const result = emitInteractionFeedback("review.answer-revealed", {}, {
+      interactionId: "review:session-1:card-2:visit-1:reveal-disabled",
+      origin: "user",
+    });
+
+    expect(result.channels).toEqual([]);
+    expect(mocks.performAdmittedHaptic).not.toHaveBeenCalled();
+  });
+
+  it("admits a haptic before delayed notification work and ignores sound gates", async () => {
+    Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, capabilities: { hardware: "available" } });
+    mocks.settingsState.settings.haptics.enabled = true;
+    mocks.settingsState.settings.notifications.feedbackSoundsEnabled = false;
+    let resolveCapabilities!: (value: typeof supportedCapabilities) => void;
+    mocks.queryAsyncCapabilities.mockReturnValue(new Promise((resolve) => { resolveCapabilities = resolve; }));
+
+    const resultPromise = emitFeedback("review.card-graded", { rating: 3 }, {
+      interactionId: "review:session-1:card-2:visit-1:grade",
+      origin: "user",
+    });
+    expect(mocks.performAdmittedHaptic).toHaveBeenCalledExactlyOnceWith("commit", "review:session-1:card-2:visit-1:grade");
+    resolveCapabilities(supportedCapabilities);
+    const result = await resultPromise;
+    expect(result.channels).toContain("haptic");
+    expect(result.channels).not.toContain("sound");
   });
 });

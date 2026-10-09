@@ -1,9 +1,10 @@
 import { beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMock, settingsState } = vi.hoisted(() => ({
+const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMock, emitInteractionFeedbackMock, settingsState } = vi.hoisted(() => ({
   submitReviewMock: vi.fn(),
   restoreLearningItemStateMock: vi.fn(),
   previewReviewIntervalsMock: vi.fn(),
+  emitInteractionFeedbackMock: vi.fn(),
   settingsState: {
     learning: {
       algorithm: "fsrs",
@@ -13,6 +14,10 @@ const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMo
       scopedFsrsOverrides: [],
     },
   },
+}));
+
+vi.mock("../../lib/feedback/orchestrator", () => ({
+  emitInteractionFeedback: emitInteractionFeedbackMock,
 }));
 
 vi.mock("../../api/review", () => ({
@@ -130,12 +135,58 @@ describe("reviewStore Wave 1 behavior", () => {
     restoreLearningItemStateMock.mockReset();
     vi.mocked(getDueItems).mockReset();
     previewReviewIntervalsMock.mockReset();
+    emitInteractionFeedbackMock.mockReset();
     previewReviewIntervalsMock.mockResolvedValue({ again: 1, hard: 2, good: 3, easy: 4 });
     settingsState.learning.algorithm = "fsrs";
     settingsState.learning.precisionPureKernel = false;
     settingsState.learning.arenaReviewMode = "choose";
     window.localStorage.clear();
     useReviewStore.getState().resetSession();
+  });
+
+  it("emits one reveal cue for a hidden-to-shown card visit", () => {
+    const card = makeLearningCard();
+    useReviewStore.setState({
+      currentCard: card,
+      sessionId: "session-1",
+      reviewsCompleted: 2,
+      isAnswerShown: false,
+    });
+
+    useReviewStore.getState().showAnswer();
+    useReviewStore.getState().showAnswer();
+
+    expect(emitInteractionFeedbackMock).toHaveBeenCalledOnce();
+    expect(emitInteractionFeedbackMock).toHaveBeenCalledWith("review.answer-revealed", {}, expect.objectContaining({
+      interactionId: "review:session-1:card-1:2:reveal",
+      step: "reveal",
+      origin: "user",
+    }));
+  });
+
+  it("emits a selection cue only when the Arena choice changes", () => {
+    useReviewStore.setState({
+      sessionId: "session-1",
+      pendingArenaReview: {
+        itemId: "card-1",
+        rating: 3,
+        grade: 4,
+        commitId: "commit-1",
+        gradedAt: 1,
+        recallTimeTaken: 1,
+        selection: { source: "arena" },
+      } as any,
+    });
+
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "m2" });
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "m2" });
+
+    expect(emitInteractionFeedbackMock).toHaveBeenCalledOnce();
+    expect(emitInteractionFeedbackMock).toHaveBeenCalledWith("review.option-selected", {}, expect.objectContaining({
+      interactionId: "review:commit-1:option:m2",
+      step: "option",
+      origin: "user",
+    }));
   });
 
   it("does not mutate scheduling in cram mode", async () => {

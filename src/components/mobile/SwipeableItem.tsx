@@ -5,7 +5,7 @@
  * - Horizontal swipe actions (left/right)
  * - Progressive visual feedback with color-coded backgrounds
  * - Snap-back animation for cancelled swipes
- * - Haptic feedback on action completion
+ * - Visual feedback on action completion
  * - Configurable actions with icons and colors
  */
 
@@ -43,18 +43,16 @@ export const SwipeableItem = memo(function SwipeableItem({
   threshold = 80,
   className,
 }: SwipeableItemProps) {
-  const { state, elementRef, triggerHaptic } = useSwipeGestures(
+  const { state, elementRef } = useSwipeGestures(
     {
       onSwipeLeft: () => {
         if (!disabled && onSwipeLeft) {
-          triggerHaptic();
           onSwipeLeft();
           onSwipeComplete?.("left");
         }
       },
       onSwipeRight: () => {
         if (!disabled && onSwipeRight) {
-          triggerHaptic();
           onSwipeRight();
           onSwipeComplete?.("right");
         }

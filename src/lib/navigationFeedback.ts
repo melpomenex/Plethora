@@ -1,5 +1,6 @@
 import { useSettingsStore } from "../stores/settingsStore";
-import { supportsHaptics, vibrate } from "../utils/soundService";
+import { emitInteractionFeedback } from "./feedback/orchestrator";
+import { getHapticsSnapshot } from "./feedback/haptics/service";
 
 const RECENT_LIMIT = 256;
 
@@ -14,7 +15,7 @@ export interface NavigationCompletion {
 export interface NavigationFeedbackOptions {
   isEnabled: () => boolean;
   isSupported: () => boolean;
-  vibrate: () => boolean | void;
+  vibrate: (id?: string) => boolean | void;
 }
 
 export function createNavigationFeedback(options: NavigationFeedbackOptions): (id: string) => boolean {
@@ -30,7 +31,7 @@ export function createNavigationFeedback(options: NavigationFeedbackOptions): (i
     }
     try {
       if (!options.isEnabled() || !options.isSupported()) return false;
-      return options.vibrate() !== false;
+      return options.vibrate(id) !== false;
     } catch {
       return false;
     }
@@ -38,9 +39,16 @@ export function createNavigationFeedback(options: NavigationFeedbackOptions): (i
 }
 
 const emitNavigationFeedback = createNavigationFeedback({
-  isEnabled: () => useSettingsStore.getState().settings.notifications.feedbackSoundsEnabled,
-  isSupported: supportsHaptics,
-  vibrate: () => vibrate("click"),
+  isEnabled: () => useSettingsStore.getState().settings.haptics.enabled,
+  isSupported: () => {
+    const { configured, capabilities } = getHapticsSnapshot();
+    return configured && capabilities.hardware === "available";
+  },
+  vibrate: (id) => emitInteractionFeedback("navigation.back-completed", {}, {
+    interactionId: `navigation:${id}:back`,
+    operationId: id,
+    origin: "user",
+  }).channels.includes("haptic"),
 });
 
 export function createNavigationCompletion(

@@ -65,14 +65,17 @@ export type ChannelMode = "default-on" | "opt-in" | "never";
 export type OsVisibilityRule = "hidden-only" | "always" | "never";
 
 export interface FeedbackPolicy {
+  kind: "interaction" | "domain";
   /** Passive | informative | actionable | warning | critical (design.md §2). */
   importance: "passive" | "informative" | "actionable" | "warning" | "critical";
   /** In-app toast via useToastStore. */
   toast: ChannelMode;
   /** Sound role, or null for silent events. Sound must never be the sole channel. */
   sound: SoundRole | null;
-  /** Haptic (existing vibrate()) — only meaningful where supportsHaptics(). */
+  /** Haptic policy; delivered through the cached native/browser driver. */
   haptic: boolean;
+  /** Semantic output and priority are independent of the sound role. */
+  hapticEffect?: { effect: import("./haptics/types").HapticEffect; cooldownMs: number; priority: number } | null;
   /** OS-level notification pathway. */
   osNotification: ChannelMode;
   /** Visibility gate applied when osNotification is not "never". */
@@ -91,16 +94,38 @@ export interface FeedbackPolicy {
   osTag?: string;
 }
 
+function interaction(
+  effect: import("./haptics/types").HapticEffect,
+  cooldownMs: number,
+  priority: number,
+): FeedbackPolicy {
+  return {
+    kind: "interaction",
+    importance: "passive",
+    toast: "never",
+    sound: null,
+    haptic: true,
+    hapticEffect: { effect, cooldownMs, priority },
+    osNotification: "never",
+    osVisibility: "never",
+    quietHours: false,
+    cooldownMs: 0,
+    suppressDuringReview: false,
+  };
+}
+
 /**
  * The registry. Every FeedbackEventId must appear here (contract-tested).
  * TODO(implementation): consumed by ./orchestrator.ts `emitFeedback` (task 2.1).
  */
 export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> = {
   "review.card-graded": {
+    kind: "domain",
     importance: "passive",
     toast: "never",
     sound: "acknowledge",
     haptic: true,
+    hapticEffect: { effect: "commit", cooldownMs: 100, priority: 20 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,
@@ -108,6 +133,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "review.card-action": {
+    kind: "domain",
     importance: "actionable",
     toast: "default-on",
     sound: "confirm",
@@ -119,10 +145,12 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "review.session-completed": {
+    kind: "domain",
     importance: "informative",
     toast: "never", // the completion screen is the visual channel
     sound: "complete",
     haptic: true,
+    hapticEffect: { effect: "completion", cooldownMs: 1000, priority: 50 },
     osNotification: "opt-in",
     osVisibility: "hidden-only",
     quietHours: true,
@@ -131,10 +159,12 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     osTag: "session-complete",
   },
   "review.streak-milestone": {
+    kind: "domain",
     importance: "informative",
     toast: "never",
     sound: "celebrate",
     haptic: true,
+    hapticEffect: { effect: "celebration", cooldownMs: 1000, priority: 60 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,
@@ -142,6 +172,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "queue.due-count-changed": {
+    kind: "domain",
     importance: "passive",
     toast: "never",
     sound: null, // badge-only event
@@ -152,7 +183,30 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     cooldownMs: 0,
     suppressDuringReview: false,
   },
+  "review.answer-revealed": interaction("activation", 250, 10),
+  "review.grade-boundary-crossed": interaction("selection", 80, 0),
+  "review.option-selected": interaction("selection", 100, 0),
+  "review.progress-milestone": interaction("celebration", 1000, 60),
+  "reader.context-activated": interaction("activation", 250, 10),
+  "reader.annotation-saved": interaction("success", 250, 20),
+  "reader.bookmark-saved": interaction("success", 250, 20),
+  "reader.tool-selected": interaction("selection", 100, 0),
+  "navigation.primary-tab-selected": interaction("selection", 100, 0),
+  "navigation.back-completed": interaction("selection", 100, 0),
+  "navigation.destination-opened": interaction("activation", 250, 10),
+  "interaction.sheet-committed": interaction("activation", 250, 10),
+  "queue.selection-mode-entered": interaction("activation", 250, 10),
+  "queue.selection-changed": interaction("selection", 100, 0),
+  "queue.refresh-armed": interaction("threshold", 0, 10),
+  "action.committed": interaction("commit", 250, 20),
+  "action.failed": interaction("error", 250, 40),
+  "library.action-committed": interaction("commit", 250, 20),
+  "library.training-committed": interaction("success", 250, 20),
+  "feedback.confirmed": interaction("success", 250, 20),
+  "feedback.warning": interaction("warning", 1000, 30),
+  "feedback.error": interaction("error", 1000, 40),
   "reminder.reviews-due": {
+    kind: "domain",
     importance: "actionable",
     toast: "default-on", // foreground fallback when OS path is suppressed
     sound: "attention",
@@ -165,6 +219,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     osTag: "due-cards",
   },
   "import.completed": {
+    kind: "domain",
     importance: "informative",
     toast: "default-on",
     sound: "confirm",
@@ -176,10 +231,12 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "import.failed": {
+    kind: "domain",
     importance: "warning",
     toast: "default-on",
     sound: "error",
     haptic: true,
+    hapticEffect: { effect: "error", cooldownMs: 250, priority: 40 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,
@@ -187,6 +244,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "transcription.completed": {
+    kind: "domain",
     importance: "informative",
     toast: "default-on",
     sound: "confirm",
@@ -198,6 +256,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "transcription.failed": {
+    kind: "domain",
     importance: "warning",
     toast: "default-on",
     sound: "error",
@@ -209,6 +268,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "backup.auto-backup-found": {
+    kind: "domain",
     importance: "actionable",
     toast: "default-on", // persistent (duration 0) with Restore action
     sound: null,
@@ -220,6 +280,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "db.recovered-after-quarantine": {
+    kind: "domain",
     importance: "critical",
     toast: "default-on", // persistent until dismissed
     sound: "warning",
@@ -231,6 +292,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "migration.legacy-data-migrated": {
+    kind: "domain",
     importance: "actionable",
     toast: "default-on",
     sound: null,
@@ -242,10 +304,12 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "focus.phase-completed": {
+    kind: "domain",
     importance: "actionable",
     toast: "never", // timer UI is the visible channel
     sound: "complete", // delivered by existing playTimerComplete tones
     haptic: true,
+    hapticEffect: { effect: "completion", cooldownMs: 1000, priority: 50 },
     osNotification: "default-on", // also gated by focus-timer's own config
     osVisibility: "hidden-only",
     quietHours: true,
@@ -254,6 +318,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     osTag: "focus-timer",
   },
   "sync.corruption": {
+    kind: "domain",
     importance: "critical",
     toast: "default-on", // persistent, with recovery action
     sound: "warning",
@@ -265,6 +330,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     suppressDuringReview: false,
   },
   "update.available": {
+    kind: "domain",
     importance: "informative",
     toast: "default-on", // 15 s with View action (existing behavior)
     sound: null, // deliberately silent

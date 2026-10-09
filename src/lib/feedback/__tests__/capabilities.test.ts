@@ -4,12 +4,12 @@ const {
   checkNotificationPermission,
   areNotificationsSupported,
   isPeriodicSyncSupported,
-  supportsHaptics,
+  getHapticsSnapshot,
 } = vi.hoisted(() => ({
   checkNotificationPermission: vi.fn(),
   areNotificationsSupported: vi.fn(),
   isPeriodicSyncSupported: vi.fn(),
-  supportsHaptics: vi.fn(),
+  getHapticsSnapshot: vi.fn(),
 }));
 
 vi.mock("../../../utils/notificationService", () => ({
@@ -17,7 +17,7 @@ vi.mock("../../../utils/notificationService", () => ({
   checkNotificationPermission,
 }));
 vi.mock("../../../utils/pushSubscription", () => ({ isPeriodicSyncSupported }));
-vi.mock("../../../utils/soundService", () => ({ supportsHaptics }));
+vi.mock("../haptics/service", () => ({ getHapticsSnapshot }));
 
 import { queryAsyncCapabilities } from "../capabilities";
 
@@ -27,7 +27,7 @@ describe("queryAsyncCapabilities", () => {
     areNotificationsSupported.mockReturnValue(true);
     checkNotificationPermission.mockResolvedValue("granted");
     isPeriodicSyncSupported.mockReturnValue(true);
-    supportsHaptics.mockReturnValue(true);
+    getHapticsSnapshot.mockReturnValue({ configured: true, enabled: true, capabilities: { hardware: "available" } });
     delete (navigator as Navigator & { setAppBadge?: unknown }).setAppBadge;
   });
 
@@ -45,13 +45,13 @@ describe("queryAsyncCapabilities", () => {
     });
     expect(checkNotificationPermission).toHaveBeenCalledOnce();
     expect(isPeriodicSyncSupported).toHaveBeenCalledOnce();
-    expect(supportsHaptics).toHaveBeenCalledOnce();
+    expect(getHapticsSnapshot).toHaveBeenCalled();
   });
 
   it("reports unsupported notification APIs and false optional capabilities", async () => {
     areNotificationsSupported.mockReturnValue(false);
     isPeriodicSyncSupported.mockReturnValue(false);
-    supportsHaptics.mockReturnValue(false);
+    getHapticsSnapshot.mockReturnValue({ configured: false, enabled: false, capabilities: { hardware: "unavailable" } });
 
     await expect(queryAsyncCapabilities()).resolves.toEqual({
       notificationPermission: "unsupported",
@@ -67,9 +67,7 @@ describe("queryAsyncCapabilities", () => {
     isPeriodicSyncSupported.mockImplementation(() => {
       throw new Error("periodic sync unavailable");
     });
-    supportsHaptics.mockImplementation(() => {
-      throw new Error("haptics unavailable");
-    });
+    getHapticsSnapshot.mockReturnValue({ configured: false, enabled: false, capabilities: { hardware: "unknown" } });
 
     await expect(queryAsyncCapabilities()).resolves.toEqual({
       notificationPermission: "unsupported",

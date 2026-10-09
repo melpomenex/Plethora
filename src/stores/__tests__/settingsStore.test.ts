@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
-    expect(stored.version).toBe(14);
+    expect(stored.version).toBe(15);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -41,6 +41,49 @@ describe("settingsStore notification persistence", () => {
     expect(notifications.reminderTime).toBe(defaultSettings.notifications.reminderTime);
     expect(notifications.showBadge).toBe(defaultSettings.notifications.showBadge);
     expect(notifications.feedbackSoundsEnabled).toBe(defaultSettings.notifications.feedbackSoundsEnabled);
+  });
+});
+
+describe("settingsStore independent haptic settings (v15)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  async function rehydrate(state: unknown, version = 14) {
+    localStorage.setItem("plethora-settings", JSON.stringify({ state, version }));
+    await useSettingsStore.persist.rehydrate();
+    return useSettingsStore.getState().settings;
+  }
+
+  it("defaults fresh settings to enabled subtle intensity", () => {
+    expect(defaultSettings.haptics).toEqual({ enabled: true, intensity: "subtle" });
+  });
+
+  it("preserves the legacy explicit sound opt-out on a wrapped migration", async () => {
+    const settings = await rehydrate({ settings: { notifications: { feedbackSoundsEnabled: false } } });
+    expect(settings.haptics).toEqual({ enabled: false, intensity: "subtle" });
+    expect(settings.notifications.feedbackSoundsEnabled).toBe(false);
+  });
+
+  it("preserves explicit haptic settings and seeds a root-format legacy opt-in", async () => {
+    const explicit = await rehydrate({ settings: { haptics: { enabled: false, intensity: "strong" } } });
+    expect(explicit.haptics).toEqual({ enabled: false, intensity: "strong" });
+    const legacy = await rehydrate({ notifications: { feedbackSoundsEnabled: true } });
+    expect(legacy.haptics).toEqual({ enabled: true, intensity: "subtle" });
+  });
+
+  it("uses enabled/subtle for missing or malformed legacy values", async () => {
+    expect((await rehydrate({ settings: {} })).haptics).toEqual({ enabled: true, intensity: "subtle" });
+    const malformed = await rehydrate({ settings: { notifications: { feedbackSoundsEnabled: "yes" }, haptics: { enabled: 1, intensity: "loud" } } });
+    expect(malformed.haptics).toEqual({ enabled: true, intensity: "subtle" });
+  });
+
+  it("backfills a same-version partial category without changing audio or visual settings", async () => {
+    const settings = await rehydrate({ settings: { haptics: { intensity: "standard" }, appearance: { visualFeedbackEnabled: false }, notifications: { feedbackSoundsEnabled: false } } }, 15);
+    expect(settings.haptics).toEqual({ enabled: true, intensity: "standard" });
+    expect(settings.appearance.visualFeedbackEnabled).toBe(false);
+    expect(settings.notifications.feedbackSoundsEnabled).toBe(false);
   });
 });
 

@@ -5,7 +5,7 @@
 
 import { useCallback } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
-import { playFeedback, vibrate, type FeedbackType } from '../utils/soundService';
+import { playFeedback, type FeedbackType } from '../utils/soundService';
 
 export type { FeedbackType } from '../utils/soundService';
 
@@ -101,10 +101,10 @@ export function useHapticFeedback() {
     const x = event ? ('clientX' in event ? event.clientX : event.x) : window.innerWidth / 2;
     const y = event ? ('clientY' in event ? event.clientY : event.y) : window.innerHeight / 2;
 
-    // Play sound and vibrate
+    // This compatibility hook owns sound and visual feedback only. Haptic
+    // output is admitted by typed domain/interaction events in the orchestrator.
     if (soundEnabled) {
       playFeedback(type);
-      vibrate(type);
     }
 
     if (visualEnabled) {

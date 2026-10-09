@@ -9,7 +9,7 @@
  * training action gives consistent, immediate, multi-sensory confirmation:
  *
  *   1. Distinct sound (like vs. dislike)          — respects `soundEnabled`
- *   2. Haptic vibration (no-op on unsupported devices)
+ *   2. Policy-governed haptic after the classifier write commits
  *   3. Toast with an "Undo" action that removes the just-created classifier
  *
  * Returns a `trainClassifier` function and an `onPulse` callback the caller
@@ -23,8 +23,8 @@ import { useI18n } from "../lib/i18n";
 import {
   playTrainLikeSound,
   playTrainDislikeSound,
-  supportsHaptics,
 } from "../utils/soundService";
+import { emitFeedback } from "../lib/feedback/orchestrator";
 import {
   setRssArticleFeedback,
   type RssFeedbackSummary,
@@ -78,20 +78,15 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
   // Track the most recent classifier id so the undo button can target it.
   const lastCreatedId = useRef<string | null>(null);
 
-  const triggerHaptic = useCallback(() => {
-    if (supportsHaptics()) navigator.vibrate(50);
-  }, []);
-
   const trainClassifier = useCallback(
     async (params: TrainParams): Promise<boolean> => {
       const { feedId, classifierType, value, sentiment, scope = "feed" } = params;
 
-      // Immediate tactile + visual feedback before the async write resolves,
-      // so the user knows the action registered.
+      // Preserve immediate audio and visual acknowledgment. Tactile output is
+      // emitted only after the committed training owner confirms success.
       if (value) {
         if (sentiment === "like") playTrainLikeSound();
         else playTrainDislikeSound();
-        triggerHaptic();
       }
       onPulse?.(sentiment);
 
@@ -103,6 +98,7 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
       try {
         const created = await addClassifier(feedId, classifierType, value, sentiment, scope);
         lastCreatedId.current = created?.id ?? null;
+        void emitFeedback("library.training-committed", {});
 
         // Semantic preference write — non-fatal: classifier training must
         // succeed even when embeddings/profile are unavailable.
@@ -164,7 +160,6 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
       onPulse,
       onSuccess,
       silentToast,
-      triggerHaptic,
     ]
   );
 

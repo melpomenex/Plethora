@@ -26,6 +26,7 @@ import { filterByDecks } from "../utils/studyDecks";
 import { featureFlags } from "../lib/featureFlags";
 import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
 import { isPrecisionScheduler } from "../lib/schedulerIdentity";
+import { emitInteractionFeedback } from "../lib/feedback/orchestrator";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -366,6 +367,16 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 
   showAnswer: () => {
+    const state = get();
+    if (!state.isAnswerShown && state.currentCard) {
+      const interactionId = `review:${state.sessionId || "session"}:${state.currentCard.id}:${state.reviewsCompleted}:reveal`;
+      emitInteractionFeedback("review.answer-revealed", {}, {
+        interactionId,
+        sessionId: state.sessionId || undefined,
+        step: "reveal",
+        origin: "user",
+      });
+    }
     set({ isAnswerShown: true, reviewPhase: "answer" });
   },
 
@@ -570,6 +581,19 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         ],
       }));
 
+      // The store is the commit owner for normal review modes. Emit only after
+      // submitReview and visible queue advancement succeed; the final card is
+      // left to the session-completion owner so the two outcomes cannot stack.
+      if (remainingQueue.length > 0) {
+        const interactionId = `review:${state.sessionId || "session"}:${currentCard.id}:${state.reviewsCompleted}:grade`;
+        emitInteractionFeedback("review.card-graded", { rating }, {
+          interactionId,
+          sessionId: state.sessionId || undefined,
+          step: "grade",
+          origin: "user",
+        });
+      }
+
       if (remainingQueue.length === 0) {
         clearStoredSession();
       } else {
@@ -599,6 +623,23 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   selectArenaChoice: (selection) => {
     const pending = get().pendingArenaReview;
     if (!pending) return;
+    const previous = pending.selection;
+    const changed = previous.source !== selection.source
+      || previous.modelId !== selection.modelId
+      || previous.intervalDays !== selection.intervalDays;
+    if (changed) {
+      const choice = selection.source === "model"
+        ? selection.modelId ?? "unknown"
+        : selection.source === "custom"
+          ? String(selection.intervalDays ?? "unknown")
+          : "arena";
+      emitInteractionFeedback("review.option-selected", {}, {
+        interactionId: `review:${pending.commitId}:option:${choice}`,
+        sessionId: get().sessionId || undefined,
+        step: "option",
+        origin: "user",
+      });
+    }
     set({ pendingArenaReview: { ...pending, selection }, error: null });
   },
 

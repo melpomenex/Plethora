@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mobile-haptics-main",
+  "description": "Allows only the trusted Android and iOS main webview to use native haptic feedback.",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "webviews": ["main"],
+  "permissions": ["plethora-haptics:default"]
+}

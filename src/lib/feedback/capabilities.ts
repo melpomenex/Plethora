@@ -16,7 +16,7 @@ import {
   checkNotificationPermission,
 } from "../../utils/notificationService";
 import { isPeriodicSyncSupported } from "../../utils/pushSubscription";
-import { supportsHaptics } from "../../utils/soundService";
+import { getHapticsSnapshot } from "./haptics/service";
 
 /** Where the app is running, for policy decisions. */
 export type FeedbackSurface =
@@ -33,7 +33,7 @@ export type FeedbackSurface =
  * - periodicSyncAvailable  → isPeriodicSyncSupported() in
  *   src/utils/pushSubscription.ts
  * - badgeAvailable         → "setAppBadge" in navigator
- * - hapticsAvailable       → supportsHaptics() in src/utils/soundService.ts
+ * - hapticsAvailable       → cached native/browser driver status from haptics/service.ts
  */
 export interface AsyncFeedbackCapabilities {
   notificationPermission: "granted" | "denied" | "default" | "unsupported";
@@ -82,7 +82,7 @@ async function queryNotificationPermission(): Promise<AsyncFeedbackCapabilities[
 }
 
 export const queryAsyncCapabilities: QueryAsyncCapabilities = async () => {
-  const [notificationPermission, periodicSyncAvailable, hapticsAvailable] = await Promise.all([
+  const [notificationPermission, periodicSyncAvailable] = await Promise.all([
     queryNotificationPermission(),
     Promise.resolve().then(() => {
       try {
@@ -91,14 +91,8 @@ export const queryAsyncCapabilities: QueryAsyncCapabilities = async () => {
         return false;
       }
     }),
-    Promise.resolve().then(() => {
-      try {
-        return supportsHaptics();
-      } catch {
-        return false;
-      }
-    }),
   ]);
+  const hapticsAvailable = getHapticsSnapshot().capabilities.hardware === "available";
 
   let badgeAvailable = false;
   try {

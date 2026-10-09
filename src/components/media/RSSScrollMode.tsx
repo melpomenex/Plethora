@@ -37,7 +37,6 @@ import {
   ThumbsUp,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { supportsHaptics } from "../../utils/soundService";
 import {
   Feed,
   FeedItem,
@@ -1128,12 +1127,10 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
 
             // Swipe right = mark as read
             if (deltaX > 0) {
-              triggerHaptic();
               handleSwipeMarkRead(currentItem.feed.id, currentItem.item.id);
             }
             // Swipe left = favorite
             else if (deltaX < 0) {
-              triggerHaptic();
               handleSwipeFavorite(currentItem.feed.id, currentItem.item.id);
             }
           }
@@ -1223,13 +1220,6 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
       setUndoState(null);
     }
   }, [undoState, toast]);
-
-  // Haptic feedback helper
-  const triggerHaptic = useCallback(() => {
-    if (supportsHaptics()) {
-      navigator.vibrate(50); // Short 50ms vibration
-    }
-  }, []);
 
   // Jump to specific article index
   const handleJumpToIndex = useCallback(() => {
@@ -1337,22 +1327,12 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
   const handleToggleFavoriteAnimated = useCallback(
     async (feedId: string, itemId: string) => {
       const itemKey = `${feedId}-${itemId}`;
-      const currentItem = visibleScrollItems.find(
-        (si) => si.feed.id === feedId && si.item.id === itemId
-      );
-      const willBeFavorite = !currentItem?.item.favorite;
-
       setFavoriteAnimation(itemKey);
       setTimeout(() => setFavoriteAnimation(null), 500);
 
-      // Trigger haptic feedback when favoriting
-      if (willBeFavorite) {
-        triggerHaptic();
-      }
-
       await handleToggleFavorite(feedId, itemId);
     },
-    [visibleScrollItems, handleToggleFavorite, triggerHaptic]
+    [visibleScrollItems, handleToggleFavorite]
   );
 
   const updateSelection = useCallback(() => {

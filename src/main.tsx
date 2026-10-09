@@ -7,6 +7,7 @@ import "./lib/brandMigration";
 import { migratedGetItem } from "./lib/brandMigration";
 import { installUint8ArrayCompat } from "./utils/uint8ArrayCompat";
 import { recordError } from "./diagnostics/errorRecorder";
+import { startHapticsService } from "./lib/feedback/haptics/service";
 
 if (typeof window !== 'undefined') {
   // Check for PWA Share Target redirect before React starts bootstrapping
@@ -302,6 +303,7 @@ function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {
 // them must never leave the static HTML boot frame on screen forever.
 const rootEl = document.getElementById("root") as HTMLElement;
 const bootstrapRoot = (window as Window & { __plethoraReactRoot?: Root }).__plethoraReactRoot;
+startHapticsService();
 const reactRoot = bootstrapRoot ?? ReactDOM.createRoot(rootEl);
 if (!bootstrapRoot) {
   reactRoot.render(<PageLoader />);

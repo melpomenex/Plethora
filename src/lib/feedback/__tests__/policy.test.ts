@@ -110,6 +110,26 @@ describe("feedback policy registry", () => {
     }
   });
 
+  it("pins an independent semantic effect and priority for every haptic policy", () => {
+    for (const [eventId, policy] of Object.entries(FEEDBACK_POLICY_REGISTRY)) {
+      if (policy.haptic) {
+        expect(policy.hapticEffect, `${eventId} needs a semantic haptic effect`).toMatchObject({
+          cooldownMs: expect.any(Number),
+          priority: expect.any(Number),
+          effect: expect.any(String),
+        });
+      } else {
+        expect(policy.hapticEffect, `${eventId} must not declare an unused effect`).toBeUndefined();
+      }
+      if (policy.kind === "interaction") {
+        expect(policy.sound).toBeNull();
+        expect(policy.toast).toBe("never");
+        expect(policy.osNotification).toBe("never");
+        expect(policy.haptic).toBe(true);
+      }
+    }
+  });
+
   it("only the review reminder is suppressed during an active review session", () => {
     const suppressed = Object.entries(FEEDBACK_POLICY_REGISTRY)
       .filter(([, policy]) => policy.suppressDuringReview)

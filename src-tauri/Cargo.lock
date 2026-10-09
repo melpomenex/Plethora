@@ -6494,6 +6494,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "plethora-haptics"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "plethora-navigation"
 version = "0.1.0"
 dependencies = [
@@ -6573,6 +6583,7 @@ dependencies = [
  "plethora-android-vision",
  "plethora-apple-intelligence",
  "plethora-folder-import",
+ "plethora-haptics",
  "plethora-navigation",
  "plethora-playbilling",
  "plethora-storekit",

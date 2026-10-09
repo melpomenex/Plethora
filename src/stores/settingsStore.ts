@@ -10,6 +10,11 @@ import { normalizeFsrsParameters } from "../utils/fsrsParameters";
 import { isNativeMobile } from "../lib/tauri";
 import type { SchedulerId } from "../lib/schedulerIdentity";
 import {
+  DEFAULT_HAPTICS_SETTINGS,
+  isHapticIntensity,
+  type HapticsSettings,
+} from "../lib/feedback/haptics/types";
+import {
   LEGACY_LEARNING_KEYS,
   normalizeSchedulerId,
 } from "../lib/schedulerIdentity";
@@ -1052,6 +1057,7 @@ export interface Settings {
   ai: AISettings;
   importExport: ImportExportSettings;
   notifications: NotificationSettings;
+  haptics: HapticsSettings;
   privacy: PrivacySettings;
   search: SearchSettings;
   audioTranscription: AudioTranscriptionSettings;
@@ -1359,6 +1365,7 @@ export const defaultSettings: Settings = {
     feedbackSoundsEnabled: false,
     feedbackVolume: 0.3,
   },
+  haptics: { ...DEFAULT_HAPTICS_SETTINGS },
   privacy: {
     telemetryEnabled: false,
     crashReportsEnabled: false,
@@ -1629,7 +1636,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "plethora-settings",
-      version: 14,
+      version: 15,
       // Dual-read window (rebrand task 3.3): if the pre-migration key is
       // still present (migration could not run or was interrupted), read
       // through to it so settings survive.
@@ -1784,7 +1791,30 @@ export const useSettingsStore = create<SettingsState>()(
             }
           }
         }
-        return persisted as SettingsState;
+        // v14 -> v15 (native-mobile-haptics): store tactile preference
+        // independently. Preserve each existing install's effective legacy
+        // opt-in/opt-out exactly once; malformed or absent values use the new
+        // enabled/Subtle default. Explicit new settings always win.
+        if (version < 15) {
+          const current = root?.haptics as Partial<HapticsSettings> | undefined;
+          const legacyFeedback = root?.notifications?.feedbackSoundsEnabled;
+          root.haptics = {
+            enabled:
+              typeof current?.enabled === "boolean"
+                ? current.enabled
+                : typeof legacyFeedback === "boolean"
+                  ? legacyFeedback
+                  : DEFAULT_HAPTICS_SETTINGS.enabled,
+            intensity: isHapticIntensity(current?.intensity)
+              ? current.intensity
+              : DEFAULT_HAPTICS_SETTINGS.intensity,
+          };
+        }
+        // Older wrapped `{ settings: ... }` blobs already match the store's
+        // persisted shape. Historical category-at-root snapshots need to be
+        // wrapped so hydration's category merge actually reads the migrated
+        // values rather than silently falling back to fresh defaults.
+        return (p.settings ? persisted : { ...p, settings: { ...root } }) as SettingsState;
       },
       onRehydrateStorage: () => (state, error) => {
         if (error || !state) return;
@@ -1885,6 +1915,17 @@ export const useSettingsStore = create<SettingsState>()(
           },
           importExport: { ...defaultSettings.importExport, ...persisted.importExport },
           notifications: { ...defaultSettings.notifications, ...persisted.notifications },
+          haptics: {
+            ...DEFAULT_HAPTICS_SETTINGS,
+            ...(persisted.haptics ?? {}),
+            enabled:
+              typeof persisted.haptics?.enabled === "boolean"
+                ? persisted.haptics.enabled
+                : DEFAULT_HAPTICS_SETTINGS.enabled,
+            intensity: isHapticIntensity(persisted.haptics?.intensity)
+              ? persisted.haptics.intensity
+              : DEFAULT_HAPTICS_SETTINGS.intensity,
+          },
           privacy: { ...defaultSettings.privacy, ...persisted.privacy },
           search: { ...defaultSettings.search, ...persisted.search },
           audioTranscription: {

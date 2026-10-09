@@ -1,0 +1,31 @@
+{
+  "capabilities": {
+    "protocolVersion": 1,
+    "driver": "android-native",
+    "driverSessionId": "fixture-session-1",
+    "configurationRevision": 4,
+    "hardware": "available",
+    "systemPreference": "unknown",
+    "intensityControl": "effect-style"
+  },
+  "configuration": {
+    "driverSessionId": "fixture-session-1",
+    "revision": 5,
+    "enabled": true,
+    "intensity": "subtle"
+  },
+  "request": {
+    "driverSessionId": "fixture-session-1",
+    "revision": 5,
+    "interactionId": "review:session-1:card-2:visit-1:grade",
+    "effect": "commit",
+    "ttlMs": 120
+  },
+  "submitted": {
+    "status": "submitted"
+  },
+  "skipped": {
+    "status": "skipped",
+    "reason": "stale"
+  }
+}

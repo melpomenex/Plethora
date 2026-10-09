@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { create } from "zustand";
-import { playFeedback, vibrate } from "../../utils/soundService";
+import { playFeedback } from "../../utils/soundService";
 
 /**
  * Toast types
@@ -266,7 +266,6 @@ export function useToast() {
 
   const error = useCallback((title: string, message?: string, options?: Partial<ToastData>) => {
     playFeedback('error');
-    vibrate('error');
     return addToast({ type: ToastType.Error, title, message, ...options });
   }, [addToast]);
 

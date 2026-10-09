@@ -25,15 +25,13 @@
  */
 
 import { useRef, useCallback, useState, useEffect } from "react";
-import { vibrate } from "../utils/soundService";
 import { SIX_GRADE_SCALE } from "../lib/rating-grades";
+import { emitInteractionFeedback } from "../lib/feedback/orchestrator";
 
 /** Pixel radius around the base inside which no grade is selected. */
 const DEAD_ZONE = 24;
 /** Horizontal half-width of the center column, in px from the base. */
 const COL_HALF = 48;
-/** Haptic tick pattern for a zone cross (short click). */
-const DETENT_MS = 8;
 
 export interface JoystickGrade {
   grade: number;
@@ -119,6 +117,8 @@ export function useRatingJoystick(
   const ref = targetRef ?? internalRef;
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const lastGradeRef = useRef<number | null>(null);
+  const gestureIdRef = useRef(0);
+  const transitionOrdinalRef = useRef(0);
 
   const [activeGrade, setActiveGrade] = useState<number | null>(null);
   const [knob, setKnob] = useState({ dx: 0, dy: 0 });
@@ -131,6 +131,8 @@ export function useRatingJoystick(
       const t = e.touches[0];
       startRef.current = { x: t.clientX, y: t.clientY };
       lastGradeRef.current = null;
+      gestureIdRef.current += 1;
+      transitionOrdinalRef.current = 0;
       setBase({ x: t.clientX, y: t.clientY });
       setKnob({ dx: 0, dy: 0 });
       setActiveGrade(null);
@@ -158,8 +160,16 @@ export function useRatingJoystick(
       // Fire a haptic detent only when crossing into a NEW grade.
       if (grade !== lastGradeRef.current) {
         lastGradeRef.current = grade;
-        vibrate("click");
-        void DETENT_MS; // pattern length is owned by soundService; kept for clarity
+        if (grade != null) {
+          const gestureId = `rating-joystick-${gestureIdRef.current}`;
+          const step = ++transitionOrdinalRef.current;
+          emitInteractionFeedback("review.grade-boundary-crossed", {}, {
+            interactionId: `${gestureId}:${step}`,
+            gestureId,
+            step: String(step),
+            origin: "user",
+          });
+        }
       }
 
       // Prevent the page from scrolling while the user is committing a grade.

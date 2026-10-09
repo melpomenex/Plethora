@@ -35,9 +35,9 @@ import {
   NOTIFICATION_SOUND_FILES,
   playFile,
   playNotificationDefaultTone,
-  supportsHaptics,
   type NotificationSoundId,
 } from "../../utils/soundService";
+import { HapticsSettingsControl } from "./HapticsSettingsControl";
 
 interface NotificationSettingsProps {
   onChange?: () => void;
@@ -145,7 +145,6 @@ function BackgroundNotificationSettings({
 export function NotificationSettings({ onChange }: NotificationSettingsProps) {
   const { t } = useI18n();
   const modal = useModal();
-  const hapticsSupported = supportsHaptics();
   const { settings, updateSettingsCategory, resetCategory } = useSettingsStore();
   const notificationSettings = settings.notifications;
 
@@ -559,9 +558,7 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
               <div>
                 <p className="font-medium">{t("notificationSettings.uiSoundEffectsLabel")}</p>
                 <p className="text-sm text-muted-foreground">
-                  {hapticsSupported
-                    ? t("notificationSettings.uiSoundEffectsDesc")
-                    : t("notificationSettings.uiSoundEffectsDescNoHaptics")}
+                  {t("notificationSettings.uiSoundEffectsDesc")}
                 </p>
               </div>
             </div>
@@ -596,6 +593,11 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
             </div>
           )}
         </div>
+      </section>
+
+      <section>
+        <h3 className="text-lg font-semibold mb-4">{t("haptics.sectionTitle")}</h3>
+        <HapticsSettingsControl />
       </section>
 
       {/* Additional Options */}

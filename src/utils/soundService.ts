@@ -1,10 +1,10 @@
-import { isPWA, isTauri } from '../lib/tauri';
+import { isTauri } from '../lib/tauri';
 import { migratedGetItem } from '../lib/brandMigration';
 
 /**
  * Shared Sound Service
- * Centralized audio playback with singleton AudioContext management,
- * file-based feedback sounds, and vibration support.
+ * Centralized audio playback with singleton AudioContext management and
+ * file-based feedback sounds.
  */
 
 export type FeedbackType =
@@ -61,37 +61,6 @@ export const NOTIFICATION_SOUND_FILES: Record<string, string> = {
   ding: '/sounds/pulse.mp3',
   complete: '/sounds/ascend.mp3',
 };
-
-/** Vibration patterns per feedback type (milliseconds or pattern array) */
-export const VIBRATION_PATTERNS: Record<FeedbackType, number | number[]> = {
-  click: 10,
-  success: 50,
-  error: 30,
-  warning: 25,
-  complete: 50,
-  delete: 30,
-  'review-complete': [50, 30, 50],
-  streak: [50, 30, 80],
-  milestone: [100, 50, 100],
-};
-
-export function supportsHaptics(): boolean {
-  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
-  if (typeof navigator.vibrate !== 'function') return false;
-  if (isTauri()) return true;
-
-  const ua = navigator.userAgent;
-  const isFirefox = /Firefox\/\d+/i.test(ua);
-  const isAndroid = /Android/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const isMobile = isAndroid || isIOS;
-
-  if (isPWA() && isFirefox && isAndroid) return false;
-  if (isIOS) return false;
-  if (!isMobile) return false;
-
-  return true;
-}
 
 // ── Singleton AudioContext ──────────────────────────────────────────
 
@@ -209,22 +178,6 @@ async function playWithHtmlAudio(url: string, volume: number): Promise<void> {
 
   audio.load();
   await audio.play();
-}
-
-// ── Vibration ───────────────────────────────────────────────────────
-
-/**
- * Trigger device vibration for haptic feedback.
- * Silently no-ops on platforms that don't support the Vibration API.
- */
-export function vibrate(type: FeedbackType): boolean {
-  try {
-    if (!supportsHaptics()) return false;
-    return (navigator as Navigator & { vibrate(pattern: number | number[]): boolean }).vibrate(VIBRATION_PATTERNS[type]);
-  } catch {
-    // Vibration API not available — ignore
-    return false;
-  }
 }
 
 // ── Public API ──────────────────────────────────────────────────────
