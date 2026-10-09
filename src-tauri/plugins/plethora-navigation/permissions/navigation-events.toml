@@ -1,0 +1,15 @@
+# Static permission for the Tauri plugin listener registration commands.
+# Back button events are emitted to listeners registered from the frontend
+# via `plugin:plethora-navigation|registerListener`.
+
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-register-listener"
+description = "Allows registering native plugin event listeners (back button events)."
+commands.allow = ["registerListener"]
+
+[[permission]]
+identifier = "allow-remove-listener"
+description = "Allows removing native plugin event listeners."
+commands.allow = ["removeListener"]

@@ -347,6 +347,18 @@
           "type": "string",
           "const": "default",
           "markdownDescription": "Allows the trusted main app window to coordinate Android system Back requests.\n#### This default permission set includes:\n\n- `allow-attach`\n- `allow-claim`\n- `allow-acknowledge`\n- `allow-detach`\n- `allow-register-listener`\n- `allow-remove-listener`"
+        },
+        {
+          "description": "Allows registering native plugin event listeners (back button events).",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Allows registering native plugin event listeners (back button events)."
+        },
+        {
+          "description": "Allows removing native plugin event listeners.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Allows removing native plugin event listeners."
         }
       ]
     }

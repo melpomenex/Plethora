@@ -178,7 +178,7 @@ object NavigationBackController {
         while (acknowledged.size > JOURNAL_LIMIT) acknowledged.remove(acknowledged.keys.first())
     }
 
-    private fun showRecovery() = onMain {
+    private fun showRecovery(): Unit = onMain {
         val activity = activityRef?.get() ?: return@onMain
         if (!resumed) return@onMain
         if (activity.isFinishing || recoveryDialog?.isShowing == true) return@onMain

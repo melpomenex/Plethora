@@ -123,4 +123,30 @@ Denies the detach command without any pre-configured scope.
 
 </td>
 </tr>
+
+<tr>
+<td>
+
+`plethora-navigation:allow-register-listener`
+
+</td>
+<td>
+
+Allows registering native plugin event listeners (back button events).
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-navigation:allow-remove-listener`
+
+</td>
+<td>
+
+Allows removing native plugin event listeners.
+
+</td>
+</tr>
 </table>
